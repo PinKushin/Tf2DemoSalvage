@@ -132,3 +132,4 @@
 - [A fallback that makes sound hides itself](a-fallback-that-makes-sound-hides-itself.md) — twice in one feature; when the engine refuses a case, refuse it too.
 - [A loop is state, not an event](a-loop-is-state-not-an-event.md) — ask what should be PLAYING now, not what happened at this tick.
 - [A null-object default hides a missed wiring](a-null-object-default-hides-a-missed-wiring.md) — 193 sites converted, suite green, and the log lost 202 lines.
+- [An optimisation is not a skippable departure](an-optimisation-is-not-a-skippable-departure.md) — Valve's optimisations earn their place; the deciding number was already in the risk register.

@@ -90,7 +90,15 @@
          NuGet reports that as a build warning, which Zero Warnings turns into a failure. -->
     <PackageVersion Include="NUnit" Version="4.6.1" />
     <PackageVersion Include="NUnit.Analyzers" Version="4.14.0" />
-    <PackageVersion Include="NUnit3TestAdapter" Version="6.2.0" />
+    <!-- 6.2.0 -> 6.3.0 on 2026-08-24. Looked up against the NuGet flat container rather than
+         written from memory; NUnit itself, the analyzers, Shouldly, the test SDK and coverlet were
+         all already current at the same check.
+
+         **A test ADAPTER bump is the one package change worth verifying by count.** It is what
+         discovers tests, so a behaviour change there moves totals rather than breaking a build —
+         and this repository gates on exact per-project floors precisely because a total that moves
+         silently is the failure mode. Verify against build/assert-test-count.sh, not by eye. -->
+    <PackageVersion Include="NUnit3TestAdapter" Version="6.3.0" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
     <PackageVersion Include="Shouldly" Version="4.3.0" />
     <PackageVersion Include="coverlet.collector" Version="10.0.1" />

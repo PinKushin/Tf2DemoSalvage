@@ -132,6 +132,84 @@ run Tf2DemoSalvage.Logging.Tests  logging    17
 # is the standing hazard in docs/memory/a-skip-is-not-a-pass-or-a-failure.md, not a new one — the
 # skip protects the MEANING of a pass, and the floor protects the count. Neither covers the other.
 run Tf2DemoSalvage.Fonts.Tests    fonts       7
+
+# 15: the bone pipeline's denominator (B182) and the tests for the instrument that produces it.
+#
+# The denominator now covers BOTH halves — SetupBones itself (10 stages) and StandardBlendingRules
+# inside it (12). Extending it caught a second instrument bug, and a worse one than the first:
+# asking for "bool C_BaseAnimating::SetupBones" matched SetupBones_AttachmentHelper, declared 700
+# lines earlier, so the denominator for the most important function in the pipeline came back as
+# eleven attachment calls — every one of which looks like a plausible stage. A match is now refused
+# when the next character can continue an identifier.
+#
+# Two tests read the engine — that StandardBlendingRules' body is found and plausible, and that
+# every call it makes is classified as a stage or as noise with a stated reason. The other eight
+# cover SdkInventory.Live/CallsIn, which earned them: its first run reported AddTextOverlay,
+# GetAbsOrigin and Vector as engine stages, all three from a COMMENTED-OUT line. A denominator that
+# reports deleted code asks somebody to implement what Valve removed, and the resulting work looks
+# like parity while being its opposite.
+#
+# The classification test fails on an UNCLASSIFIED call, never on a gap — same contract as
+# SdkCoverageTests. An unimplemented stage is a fact to report; an unrecognised one means the engine
+# grew something nobody here has looked at.
+#
+# Plain net10.0 with its own Stryker config, deliberately (B184): Tf2DemoSalvage.Scene is net10.0
+# and has NO Stryker config at all, because its pose-path tests live in the Windows-pinned
+# Viewer3D.Tests and mutation runs happen on Linux. The replacement must not inherit that.
+
+# 24: AnimatingEntity arrives (9). Every one of those tests is a COUNT, because what is being built
+# is not a value — it is a decision about when work happens. "Posed once per frame" and "posed every
+# time" produce identical matrices, so no assertion on a matrix can separate them.
+#
+# Two sabotages, and the second is the instructive one:
+#
+#   - inverting the per-frame check reddens 1 of 9;
+#   - replacing the subset test with a naive "have we posed this frame" cache also reddens 1 of 9 —
+#     and passes the other EIGHT. SetupBones_ForABitNotYetBuilt_BuildsAgain is the single test
+#     standing between a correct mask cache and a plausible wrong one that returns attachment bones
+#     nobody built, which places every attachment at the map origin.
+#
+# 33: BoneMergeCache (9). The three-deep test is B180, and it is not "fixed" — the state B180
+# described no longer exists. One array per entity, the merge writes into it before the transform
+# stage, so a bone whose parent was merged rides the merged position with nothing written to make it
+# happen. The numbers are chosen so the two readings differ: 40 if the sight rode the merged hand,
+# 7 if it read the weapon's own skeleton.
+#
+# Two tests changed meaning when the merge arrived and that is worth knowing: an entity whose bones
+# share no NAME with its parent's does not cause the parent to be posed at all — nothing pairs, the
+# follow mask is 0, and the early-out returns. Every test about the recursion has to give the two
+# skeletons a bone in common or it measures an entity that never asks.
+#
+# 36: SkeletonPose, the adapter between the architecture and a real .mdl, with three tests that run
+# the WHOLE pipeline on models TF2 ships — a scout's skeleton, a hat merged onto it, and the hat's
+# unmatched bones riding the merged parent. Every other test in this assembly uses a fake, so
+# together they prove the architecture agrees with fakes written by the same hand; these read
+# Valve's files and are the only ones that can fail if the wiring is wrong.
+#
+# The control test measures along Y, not Z, and that is not a typo: the BIND pose is Y-up, and Z-up
+# is what an animation produces. Asserting Z first measured -1.43 and read as "the head is at the
+# feet" when it means "the head is where the artist modelled it".
+# 41: WeaponMergeContentTests (4) — whether a weapon actually pairs with the class holding it, on
+# the models TF2 ships. Measured: c_stickybomb_launcher shares weapon_bone and weapon_bone_1 with
+# demo.mdl, 2 of 5. Written because the viewer put weapons in the wrong place and the log could not
+# say whether they had paired — the diagnostic for the thing that broke had been deleted with the
+# code it lived in, and is now back in BoneMergeCache where it belongs.
+run Tf2DemoSalvage.Animation.Tests animation 41
+
+# 23: the scene layer's first test project of its own, and the reason it exists is B184 — Scene is
+# plain net10.0 and holds the densest behaviour in the renderer, but every test of it lived in the
+# Windows-pinned Viewer3D.Tests, so it had NO Stryker config and could not run on the Linux boxes.
+#
+# What is in it is the three collaborators B181 pulled out of the draw loop, and the assertions are
+# about FREQUENCY rather than values — which is the half that has actually gone wrong here. A
+# per-frame line once printed 1,280 times a second (B163); a once-per-model line let a bright
+# control point silence a dark one for ever; and the bone-merge report vanished entirely with the
+# method it lived in, leaving a viewer run unable to say whether weapons had paired.
+#
+# "Sampled once" and "sampled every frame" produce identical cubes, so no assertion on a cube can
+# separate them. Verified by sabotage: one flipped comparison in the lighting cache reddens exactly
+# For_AModelThatHasNotMoved_IsSampledOnce and nothing else.
+run Tf2DemoSalvage.Scene.Tests    scene      23
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -241,7 +319,38 @@ run Tf2DemoSalvage.Presentation.Tests presentation 135
 #
 # Read from the .trx, which said 666 while the console said 650:
 # docs/memory/read-the-trx-total-not-the-console.md, hit again today.
-run Tf2DemoSalvage.Content.Tests  content   666
+# 677, measured: BonePipelineStructTests (10) and BonePipelineStructProbe (1, [Explicit]). The
+# structures Valve's bone pipeline reads and this reader never has — bone controllers, IK chains and
+# links, jiggle bones, local hierarchy, and the three fields of mstudiobone_t that gate the whole
+# engine pipeline: flags, proctype, procindex. Derived from studio.h through CStruct rather than
+# counted, and the probe exists because mstudiojigglebone_t is thirty-five consecutive floats.
+#
+# The jiggle count assertion caught its own author on the first run — 36 against a measured 35, the
+# number you get from reading the declaration's comment groups instead of its members. A stride of
+# 140 and a member count are now asserted against each other, which is why that disagreed rather
+# than passing.
+# 694: the bone fields are now READ, not just laid out. BoneFlagReaderTests (6) against hand-built
+# bytes, BoneFlagContentTests (10) against models TF2 ships, BoneFlagContentProbe (1, [Explicit]).
+#
+# The two halves answer different questions and the second is the one that matters: the fixture
+# tests can only prove the reader agrees with bytes written by the same hand on the same day. The
+# content tests read Valve's files, and their strongest assertion is the NEGATIVE one — no bone in
+# any shipped model sets a bit studio.h does not declare. A field read four bytes early still
+# yields a number, so "every bit is one the engine names" is what separates a correct offset from a
+# wrong one that looks sane.
+#
+# Verified by sabotage rather than by reading: BoneFlagsOffset - 4 reddens 9 of the 18, and the
+# precise inverse edit restores them.
+# 707: the IK chain and bone controller TABLES are read now (12), plus a capacity guard (1).
+#
+# heavy.mdl declares four chains — rhand, lhand, rfoot, lfoot, three links each. The hands were the
+# surprise: TF2 uses IK to pin an off-hand grip to a weapon, so this is not only about feet planting.
+#
+# Verified by sabotage with the exact mistake the comments warn about — IkChainStride 16 -> 48, the
+# int unused[8] tail every neighbouring struct has and this one does not. It reddens 2 of 17, and
+# WHICH two is the useful part: the SDK stride assertion, and the multi-chain test. A single-chain
+# fixture sits at offset 0 under either stride and cannot see it.
+run Tf2DemoSalvage.Content.Tests  content   707
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
@@ -342,7 +451,24 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     109
 # departure), then -> 641 by HudRendererTests, which check the screen-to-clip arithmetic without a
 # device. The floor had also drifted below CI's 634 for the same suite, which is the failure
 # docs/memory/a-floor-must-track-the-number-it-guards.md describes: two copies of one number.
-run Tf2DemoSalvage.Viewer3D.Tests viewer    641
+# 645: four that exist because a viewer launch found what 641 could not.
+#
+#   Instances_ASkinnedModel_…                  nothing had EVER driven Instances() with a skinned
+#                                              model. Every other case here loads a BAKED fake, so
+#                                              the whole pose path was reachable only by launching.
+#                                              It reproduces the ArgumentException that crashed
+#                                              playback on the first frame.
+#   Instances_AWeaponMergedOntoAPlayer_…       the merge through the wiring rather than through
+#                                              AnimatingEntity directly.
+#   Instances_AWornItemSharingNoBoneName_…     the only shape that can see an unresolved entity
+#                                              placement. Its first two versions PASSED with the
+#                                              defect reverted — a merged bone takes the wearer's
+#                                              matrix and an unmatched CHILD rides its merged
+#                                              parent, so only an unmatched ROOT exposes it.
+#   Shortcuts_EveryMenuItem_…                  no key claimed twice. Third instance in one file
+#                                              after B165's F11: F12 was dead, and F8 was claimed
+#                                              by both the frame rate and reflections.
+run Tf2DemoSalvage.Viewer3D.Tests viewer    645
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."

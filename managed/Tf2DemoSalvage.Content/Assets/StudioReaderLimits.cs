@@ -39,4 +39,26 @@ internal static class StudioReaderLimits
 
     /// <summary>Models one may include for its animations.</summary>
     public const int IncludedModels = 64;
+
+    /// <summary>Bone controllers one model may declare. <c>MAXSTUDIOBONECTRLS</c> is 4.</summary>
+    /// <remarks>
+    /// **Four, and the gap to this cap is the largest in the file proportionally.** That is
+    /// deliberate rather than sloppy: the engine's limit is on how many a RUNTIME entity can be
+    /// driven by, and a model file's table is not obliged to match it. Capping at 4 would refuse a
+    /// model over a number that describes something else.
+    /// </remarks>
+    public const int BoneControllers = 256;
+
+    /// <summary>IK chains one model may declare. The engine names no limit.</summary>
+    /// <remarks>
+    /// **<c>studio.h</c> declares no <c>MAXSTUDIOIKCHAINS</c>**, so this cap answers to nothing but
+    /// plausibility — a humanoid has two or four, and a number in the thousands is a corrupt
+    /// header. Stated because a cap with no engine constant behind it cannot be checked by
+    /// <c>CapacityGuardTests</c> the way the others are, and a reader that pretended otherwise would
+    /// be inventing a reference.
+    /// </remarks>
+    public const int IkChains = 256;
+
+    /// <summary>Links in one IK chain. Three is the usual shape: hip, knee, foot.</summary>
+    public const int IkLinks = 64;
 }

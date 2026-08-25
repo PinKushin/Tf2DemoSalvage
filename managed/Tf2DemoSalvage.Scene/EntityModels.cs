@@ -7,6 +7,7 @@ using Tf2DemoSalvage.Content.Bsp;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
+using Tf2DemoSalvage.Animation.Animating;
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
 
@@ -87,7 +88,45 @@ public sealed class EntityModelSet
 
         _props = factory.CreateLogger("props");
         _render = factory.CreateLogger("render");
+
+        // **Three collaborators, and each was a slab of the draw loop** (B181). Constructed here
+        // rather than injected because each one's state is this set's state — the lighting cache is
+        // keyed by entity, and the report sets remember what has already been said about which
+        // model. Handing them in would mean two sets could share a "have we said this" flag, which
+        // is a silence nobody could explain.
+        _lighting = new ModelLighting(IlluminationPoint, _render);
+        _reports = new ModelReports(_render);
+        _tally = new DrawTally(_props);
+        _loggers = factory;
     }
+
+    /// <summary>Where the entities this set builds report, so the bone merge can say what paired.</summary>
+    private readonly ILoggerFactory _loggers;
+
+    /// <summary>The ambient cube and sun each model draws with.</summary>
+    private readonly ModelLighting _lighting;
+
+    /// <summary>Stopwatch ticks spent lighting models, accumulated until the caller resets it.</summary>
+    /// <remarks>
+    /// **Kept on this type after the lighting moved out** (B181), because the viewer's per-frame
+    /// ledger reads it and moving the property would have changed a public surface for no reason
+    /// beyond where the code lives. It forwards to <see cref="ModelLighting.Ticks"/>.
+    ///
+    /// Posing owned about nine hundred milliseconds of every second (B99) doing two different jobs,
+    /// and this is what separated them: bones are per-frame work an animation genuinely needs, while
+    /// a stationary model's lighting cannot have changed since the last frame.
+    /// </remarks>
+    public long LightingTicks
+    {
+        get => _lighting.Ticks;
+        set => _lighting.Ticks = value;
+    }
+
+    /// <summary>What the draw loop says about each model, once.</summary>
+    private readonly ModelReports _reports;
+
+    /// <summary>How many props were asked for, drew, or were rejected and why.</summary>
+    private readonly DrawTally _tally;
 
     private readonly List<WorldVertex> _vertices = [];
 
@@ -117,9 +156,6 @@ public sealed class EntityModelSet
     private readonly Dictionary<string, IReadOnlyList<IReadOnlyDictionary<int, int>>> _swaps =
         new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Models already reported as drawing unlit.</summary>
-    private readonly HashSet<string> _reportedDark = new(StringComparer.OrdinalIgnoreCase);
-
     /// <summary>Where a model's light should be sampled, in world space.</summary>
     private (float X, float Y, float Z) IlluminationPoint(SceneProp prop, ScenePose pose)
     {
@@ -144,105 +180,367 @@ public sealed class EntityModelSet
             pose.Z + z);
     }
 
-    /// <summary>The whole cube's brightness, for comparing one instance against another.</summary>
-    /// <remarks>
-    /// Moved onto <see cref="AmbientCube"/> so the light sampler can print the same summary; see
-    /// <see cref="AmbientCube.Luminance"/> for why it is a crude average.
-    /// </remarks>
-    private static float Luminance(AmbientCube cube) => AmbientCube.Luminance(cube);
-
-    /// <summary>Entities whose sampled light has been reported, one line each.</summary>
-    private readonly HashSet<int> _reportedLight = [];
-
-    /// <summary>The height each brush entity was last reported at, so movement can be logged.</summary>
-    private readonly Dictionary<int, float> _brushHeight = [];
-
-    /// <summary>
-    /// Stopwatch ticks spent lighting models, accumulated until the caller resets it.
-    /// </summary>
-    /// <remarks>
-    /// **Posing owns about nine hundred milliseconds of every second** (B99), and it does two
-    /// different jobs — bone matrices and lighting. This separates them, because the fix differs:
-    /// bones are per-frame work an animation genuinely needs, while a stationary model's lighting
-    /// cannot have changed since the last frame and is being recomputed anyway.
-    /// </remarks>
-    public long LightingTicks { get; set; }
-
-    /// <summary>One entity's lighting, and the point it was sampled at.</summary>
-    /// <param name="X">Illumination point the lighting was taken at, as bits.</param>
-    /// <param name="Y">Illumination point, as bits.</param>
-    /// <param name="Z">Illumination point, as bits.</param>
-    /// <param name="Light">The ambient cube there.</param>
-    /// <param name="Sun">The sun there, or null where the sky is not visible.</param>
-    /// <remarks>
-    /// The position is held as bits because the question is whether the model is at the IDENTICAL
-    /// point, not whether it is near where it was — a tolerance would let a slow drift accumulate
-    /// without ever refreshing.
-    /// </remarks>
-    private readonly record struct LitAt(
-        int X, int Y, int Z, AmbientCube Light, SunLight? Sun);
-
-    /// <summary>The last lighting computed for each entity, by entity index.</summary>
-    private readonly Dictionary<int, LitAt> _lit = [];
-
-    private static bool IsUnlit(AmbientCube cube) =>
-        cube.PositiveX == (0f, 0f, 0f) &&
-        cube.NegativeX == (0f, 0f, 0f) &&
-        cube.PositiveY == (0f, 0f, 0f) &&
-        cube.NegativeY == (0f, 0f, 0f) &&
-        cube.PositiveZ == (0f, 0f, 0f) &&
-        cube.NegativeZ == (0f, 0f, 0f);
-
     /// <summary>Skinned models whose posed extents have been reported.</summary>
     private readonly HashSet<string> _reportedPoses = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>This frame's props, wearers before the things worn on them.</summary>
-    private readonly List<SceneProp> _ordered = [];
+    // **Six fields and a depth sort used to live here, and they are gone** (D88, B181): _ordered,
+    // _worn, _wanted, _wearerBones, _parents and Depth(). Together they guaranteed that a wearer was
+    // posed before anything hanging off it, because the loop that followed had no other way to know.
+    //
+    // The engine guarantees it by asking. CBoneMergeCache::MergeMatchingBones calls SetupBones on
+    // the followed entity where it stands (bone_merge_cache.cpp:130), and the readable-bones
+    // early-out makes a repeat one integer comparison — so a player worn by six items is posed once
+    // with no list, no pass and no sort anywhere in it.
+    //
+    // Kept as a comment rather than deleted silently because the departure was DECLARED under D86
+    // and the reasoning behind it was wrong in a way worth remembering: it was defended as a
+    // trade-off against Valve's recursion, and Valve has no ordering code at all. It was forty
+    // lines against zero.
 
-    /// <summary>This frame's worn items, held aside while their wearers are posed first.</summary>
-    private readonly List<SceneProp> _worn = [];
-
-    /// <summary>Entity indices something is worn on this frame, so only those are recorded.</summary>
-    private readonly HashSet<int> _wanted = [];
-
-    /// <summary>This frame's drawn entities that something else is merged onto, by entity index.</summary>
-    private readonly Dictionary<int, Worn> _wearerBones = [];
-
-    /// <summary>Each drawn entity's parent, so an attachment chain can be measured.</summary>
-    private readonly Dictionary<int, int?> _parents = [];
-
-    /// <summary>How many attachment links separate a prop from something standing on its own.</summary>
+    /// <summary>One animating entity per drawn entity index, holding its own bones.</summary>
     /// <remarks>
-    /// Zero for an unattached prop, one for a hat on a player, two for an attachment on a weapon on
-    /// a player. Bounded by the number of props so a cycle cannot spin: the wire should never carry
-    /// one, and a demo this project exists to open may carry anything.
+    /// **The registry that replaced the ordering** (D88, B181). What used to be six fields and a
+    /// depth sort is this dictionary plus <see cref="AnimatingEntity.SetupBones(int, double)"/>
+    /// being idempotent: an entity that needs its parent asks for it, and a repeat is an integer
+    /// comparison.
     /// </remarks>
-    private int Depth(SceneProp prop)
-    {
-        int depth = 0;
-        int? at = prop.AttachedTo;
+    private readonly Dictionary<int, AnimatingEntity> _entities = [];
 
-        while (at is { } parent && depth <= _parents.Count)
-        {
-            depth++;
+    /// <summary>Which model each entity's skeleton was built for.</summary>
+    /// <remarks>
+    /// A player who switches class, or a weapon slot reused by a different weapon, keeps its entity
+    /// index and changes its model. The skeleton has to be rebuilt for that, and the alternative —
+    /// posing a heavy's animation onto a scout's bone count — reads as a scrambled model rather
+    /// than as an error.
+    /// </remarks>
+    private readonly Dictionary<int, string> _entityModels = [];
 
-            if (!_parents.TryGetValue(parent, out int? next))
-            {
-                break;
-            }
+    /// <summary>Which frame the bone caches belong to; advanced once per call.</summary>
+    private readonly BoneFrameCounter _boneFrames = new();
 
-            at = next;
-        }
-
-        return depth;
-    }
-
-    /// <summary>Bone name matches, keyed by worn model and wearer model together.</summary>
-    private readonly Dictionary<string, int[]> _mergeMaps = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Scratch for one entity's placement, so the transform is not reallocated per frame.</summary>
+    private readonly Dictionary<int, float[]> _placements = [];
 
     /// <summary>The raw geometry of each packed model, for checking a pose against.</summary>
     private readonly Dictionary<string, IReadOnlyList<PropVertex>> _raw =
         new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Brings every entity's animation state up to date, before any bones are built.</summary>
+    /// <param name="props">What exists at this tick.</param>
+    /// <param name="seconds">Demo time, for advancing cycles.</param>
+    /// <remarks>
+    /// **A separate pass, and it is NOT an ordering pass.** This is the engine's own phase split:
+    /// <c>SimulateEntities()</c> runs, then <c>ThreadedBoneSetup()</c>, then rendering
+    /// (<c>cdll_client_int.cpp:2206-2210</c>). Updating what an entity is DOING is a different job
+    /// from deciding when its bones get built, and separating them is what lets the second job be
+    /// demand-driven.
+    ///
+    /// It matters here for a concrete reason: with no ordering, a prop can be reached through a
+    /// merge before the loop gets to it, so its sequence and placement must already be right when
+    /// that happens. The old code guaranteed that with a sort. This guarantees it by doing all the
+    /// state first, which is both simpler and what the engine does.
+    /// </remarks>
+    private void Simulate(IReadOnlyList<SceneProp> props, double seconds)
+    {
+        // **Indexed first, because a placement follows its parent chain up** and the chain can
+        // point anywhere in the list. This is what CalcAbsolutePosition walks (c_baseentity.cpp:4387).
+        _propsByEntity.Clear();
+
+        foreach (SceneProp prop in props)
+        {
+            _propsByEntity[prop.EntityIndex] = prop;
+        }
+
+        foreach (SceneProp prop in props)
+        {
+            if (!_frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? entry) ||
+                entry.Skinned is not { } skinned)
+            {
+                continue;
+            }
+
+            AnimatingEntity animating = EntityFor(prop, skinned);
+
+            if (animating.Pose is not SkeletonPose posed)
+            {
+                continue;
+            }
+
+            ScenePose where = prop.Pose;
+            int sequence = Math.Max(0, where.Sequence);
+
+            // **Advanced from demo time, because nothing networks a player's cycle.** The client
+            // runs its own in C_BaseAnimating::FrameAdvance and treats any sent cycle as a
+            // correction; a player's is never sent at all, so replaying it holds one frame of a
+            // real animation — a convincing statue.
+            double advanced = where.Cycle + (seconds * skinned.CyclesPerSecond(sequence));
+            float phase = (float)(advanced - Math.Floor(advanced));
+
+            posed.Sequence = sequence;
+            posed.Frame = StudioSequences.FrameFor(
+                phase, skinned.Frames(sequence), skinned.Loops(sequence));
+            posed.PoseValues = PoseValues(skinned, where, sequence);
+
+            // **The placement, which is what makes the built bones WORLD space.** A merged item
+            // takes its wearer's bones and those already carry the wearer's placement, so nothing
+            // downstream has to know where a wearer stands — see D88 and finding 35 section 7a.
+            posed.EntityTransform = PlacementOf(prop);
+
+            if (_reportedFrames.Add(prop.ModelPath + "#skin"))
+            {
+                _render.LogInformation(
+                    "{Message}",
+                    $"skinned {prop.ModelPath}: sequence {sequence}" +
+                    $"{(skinned.IsDelta(sequence) ? " DELTA" : string.Empty)}" +
+                    $"{skinned.UnimplementedFor(sequence)}, " +
+                    $"{skinned.Frames(sequence)} frames at " +
+                    $"{skinned.CyclesPerSecond(sequence):0.###} cycles a second, " +
+                    $"phase {phase:0.###} -> frame {posed.Frame}");
+            }
+        }
+
+        // Parent links second, so every entity exists before anything points at one.
+        _drawnPlacements.Clear();
+
+        foreach (SceneProp prop in props)
+        {
+            _lightPoints[prop.EntityIndex] = IlluminationPoint(prop, prop.Pose);
+
+            // Recorded only for props that will actually be drawn, so "the wearer is not being
+            // drawn" is answerable without depending on the draw loop's order — which is the whole
+            // point of there no longer being one.
+            if (IsDrawable(prop.Kind) &&
+                Batches(prop.ModelPath, SelectFor(prop, seconds).Frame).Count > 0)
+            {
+                ScenePose at = prop.Pose;
+
+                _drawnPlacements[prop.EntityIndex] =
+                    new PropTransform(at.X, at.Y, at.Z, at.Pitch, at.Yaw, at.Roll, at.Scale);
+            }
+
+            if (!_entities.TryGetValue(prop.EntityIndex, out AnimatingEntity? animating))
+            {
+                continue;
+            }
+
+            animating.Follows = prop.AttachedTo is { } wearer
+                ? _entities.GetValueOrDefault(wearer)
+                : null;
+
+            Attach(prop, animating, seconds);
+        }
+    }
+
+    /// <summary>Places an item that hangs from a named attachment point rather than merging.</summary>
+    /// <remarks>
+    /// **A hat shares bone names with the player and takes their matrices; a halo, an MvM canteen, a
+    /// spellbook and a spy's sapper share none** — the spellbook's only bone is called <c>mvm</c>
+    /// and no player has one — so the merge matches nothing and the item would keep its own pose,
+    /// which for an attached entity is the map origin (B82).
+    ///
+    /// The engine hangs those off the WEARER's attachment table:
+    /// <c>ConcatTransforms( GetBone( iBone ), pattachment.local, world )</c>, one-based.
+    ///
+    /// **Resolved into the item's own placement rather than into a draw-time matrix**, which is the
+    /// change D88 makes here. An attachment gives a WORLD transform, and world is where this
+    /// project's bones now live — so it belongs where the entity's placement belongs, and the merge
+    /// overwrites whatever bones do match on top of it. Setting both is correct precisely because
+    /// the two cases do not overlap: an item either shares bone names or it does not.
+    ///
+    /// **Asking the wearer for bones here is Valve's own shape**, not a layering slip:
+    /// <c>CalcAttachments()</c> is a call to <c>SetupBones( NULL, -1, BONE_USED_BY_ATTACHMENT,
+    /// ... )</c>. Resolving an attachment IS a bone setup, and the cache makes the draw pass's
+    /// repeat free.
+    /// </remarks>
+    private void Attach(SceneProp prop, AnimatingEntity animating, double seconds)
+    {
+        if (prop.AttachmentPoint is not { } point ||
+            animating.Follows is not { } wearer ||
+            animating.Pose is not SkeletonPose posed ||
+            !_entityModels.TryGetValue(prop.AttachedTo ?? -1, out string? wearerModel) ||
+            !_frames.TryGetValue(wearerModel, out PropModels.ModelFrames? worn) ||
+            worn.Attachments is not { Count: > 0 } attachments ||
+            point < 1 || point > attachments.Count)
+        {
+            return;
+        }
+
+        StudioAttachment attachment = attachments[point - 1];
+
+        if (attachment.Bone < 0 ||
+            attachment.Bone >= wearer.Bones.Count ||
+            !wearer.SetupBones(StudioBoneFlags.UsedByAnything, seconds))
+        {
+            return;
+        }
+
+        // Identity for the wearer's own transform, because its bones are already in world space —
+        // the placement it used to need is folded into them (finding 35 section 7a).
+        //
+        // Back through MatrixConvention, because AttachmentPlacement returns a MODEL matrix and an
+        // entity placement is a matrix3x4_t. Same boundary as PlacementOf, same one crossing point.
+        posed.EntityTransform = MatrixConvention.ToBoneMatrix(
+            AttachmentPlacement.Matrix(
+                wearer.Bones.Bone(attachment.Bone).ToArray(),
+                attachment.Local,
+                PropTransform.Identity.ToMatrix(),
+                attachment.IsWorldAligned));
+
+        if (_reportedPoses.Add(prop.ModelPath + "#attached"))
+        {
+            _props.LogInformation(
+                "{Message}",
+                $"attached {prop.ModelPath} to {attachment.Name} " +
+                $"(point {point}, bone {attachment.Bone}) on {wearerModel}");
+        }
+    }
+
+    /// <summary>Where each entity's light is sampled, so a worn item can borrow its wearer's.</summary>
+    private readonly Dictionary<int, (float X, float Y, float Z)> _lightPoints = [];
+
+    /// <summary>Every DRAWABLE entity's placement, for items that have no bones to carry one.</summary>
+    /// <remarks>
+    /// **A model this project bakes rather than skins still gets worn on things**, and it has no
+    /// skeleton to fold its wearer's placement into — so it needs the wearer's transform the way
+    /// everything did before D88. Two viewer tests caught this within minutes of the swap, which is
+    /// exactly what they are for.
+    ///
+    /// **The engine has no such case, and that is worth being precise about rather than glossing.**
+    /// Valve's equivalent is <c>STUDIOHDR_FLAGS_STATIC_PROP</c>, which still goes through
+    /// <c>SetupBones</c> and gets ONE bone — <c>MatrixCopy( parentTransform, GetBoneForWrite( 0 ) )</c>
+    /// at <c>c_baseanimating.cpp:2953</c>. Ours is a different distinction: a performance choice
+    /// about which models are worth skinning at all, made by this project and not by the format. So
+    /// the fallback is ours to carry, and it is declared here rather than left to look like Valve's.
+    ///
+    /// Keyed only for props that pass the drawable and batch checks, so "the wearer is not being
+    /// drawn" is answerable without depending on which order the draw loop reaches them in.
+    /// </remarks>
+    private readonly Dictionary<int, PropTransform> _drawnPlacements = [];
+
+    /// <summary>This entity's animating object, rebuilt when its model changes.</summary>
+    private AnimatingEntity EntityFor(SceneProp prop, PropModels.SkinnedModel skinned)
+    {
+        if (_entities.TryGetValue(prop.EntityIndex, out AnimatingEntity? existing) &&
+            _entityModels.TryGetValue(prop.EntityIndex, out string? was) &&
+            string.Equals(was, prop.ModelPath, StringComparison.Ordinal))
+        {
+            return existing;
+        }
+
+        // The factory rather than nothing, so the bone-merge pairing reaches the log. That line was
+        // deleted with EntityModelSet.Merge and its absence left a viewer run unable to say whether
+        // weapons had paired with the players holding them.
+        AnimatingEntity animating = new(
+            new SkeletonPose(skinned.Bones, skinned.Locals), _boneFrames, _loggers);
+
+        _entities[prop.EntityIndex] = animating;
+        _entityModels[prop.EntityIndex] = prop.ModelPath;
+
+        return animating;
+    }
+
+    /// <summary>Where a prop stands, as a row-major 3×4, reusing the array it had last frame.</summary>
+    /// <remarks>
+    /// **A bone-merged entity takes its PARENT's placement, and that is Valve's, not bookkeeping.**
+    /// <c>CalcAbsolutePosition</c> branches on it explicitly:
+    ///
+    /// <code>
+    /// if ( IsEffectActive(EF_BONEMERGE) )
+    /// {
+    ///     MoveToAimEnt();
+    ///     return;
+    /// }
+    /// </code>
+    ///
+    /// at <c>c_baseentity.cpp:4387</c>, and <c>MoveToAimEnt</c> is
+    /// <c>GetAimEntOrigin( GetMoveParent(), … )</c> followed by <c>SetAbsOrigin</c> /
+    /// <c>SetAbsAngles</c> (<c>:4294</c>). So a followed entity's ABSOLUTE origin is its parent's,
+    /// while its LOCAL origin is the zero <c>FollowEntity</c> wrote — and <c>SetupBones</c> builds
+    /// its <c>parentTransform</c> from <c>GetRenderOrigin()</c>, which is the absolute one.
+    ///
+    /// **This was deleted on 2026-08-24 and put back the same night**, which is the part worth
+    /// recording. The old code did it as <c>transform = worn.Where</c> and D88 removed it as
+    /// leftover bookkeeping, on the strength of having read <c>BuildTransformations</c> and not
+    /// <c>CalcAbsolutePosition</c>. The result was eight of nine weapons drawn at the map origin:
+    /// a weapon shares few or no bone names with a player, so the merge places little, and what is
+    /// left builds at the entity's own placement — which for a followed entity is (0,0,0) unless
+    /// this resolves it.
+    ///
+    /// The owner's diagnosis was the right one and arrived before the reading did: *"if everything
+    /// was following valve then it would work"*. It was not following Valve. It had deleted a piece
+    /// of Valve while believing the opposite.
+    /// </remarks>
+    private float[] PlacementOf(SceneProp prop)
+    {
+        if (!_placements.TryGetValue(prop.EntityIndex, out float[]? placement))
+        {
+            placement = new float[12];
+            _placements[prop.EntityIndex] = placement;
+        }
+
+        ScenePose pose = Absolute(prop, AnimatingEntity.MaximumFollowDepth);
+
+        // **Through MatrixConvention, because the two forms are not the same shape OR the same
+        // layout.** ToMatrix is the shader's row-vector 4×4 with translation in the last ROW;
+        // EntityTransform is Valve's matrix3x4_t with translation in column 3. Crossing that by
+        // hand is what threw `Destination array was not long enough` on the first frame of
+        // playback — and the length was the lucky half, since a transpose of the same size would
+        // have drawn a plausible wrong pose instead of failing.
+        MatrixConvention.ToBoneMatrix(
+                new PropTransform(
+                    pose.X, pose.Y, pose.Z, pose.Pitch, pose.Yaw, pose.Roll, pose.Scale).ToMatrix())
+            .CopyTo(placement, 0);
+
+        return placement;
+    }
+
+    /// <summary>The pose a prop is actually AT, following its parent chain up.</summary>
+    /// <remarks>
+    /// **<c>CalcAbsolutePosition</c>'s bone-merge branch** (<c>c_baseentity.cpp:4387</c>): a
+    /// followed entity's absolute origin and angles are its parent's, however deep the chain runs.
+    /// An attachment on a weapon on a player therefore ends up at the player, which is what lets
+    /// its unmatched bones land somewhere sensible.
+    ///
+    /// Bounded by the same depth <see cref="AnimatingEntity"/> uses, for the same reason: the wire
+    /// should never carry a cycle and a demo this project exists to open may carry anything. A
+    /// chain that runs past it keeps the prop's own pose, which draws it in the wrong place rather
+    /// than not at all — the milder of the two failures, and the one that leaves something to see.
+    /// </remarks>
+    private ScenePose Absolute(SceneProp prop, int budget)
+    {
+        if (prop.AttachedTo is not { } wearer || budget <= 0)
+        {
+            return prop.Pose;
+        }
+
+        return _propsByEntity.TryGetValue(wearer, out SceneProp parent)
+            ? Absolute(parent, budget - 1)
+            : prop.Pose;
+    }
+
+    /// <summary>This frame's props by entity index, so a parent chain can be walked.</summary>
+    private readonly Dictionary<int, SceneProp> _propsByEntity = [];
+
+    /// <summary>Bone-to-world folded with the model's bind pose, which is what the shader skins by.</summary>
+    /// <remarks>
+    /// **The one place <c>poseToBone</c> is applied, and it belongs here** — finding 35 section 7a.
+    /// <c>IStudioRender::DrawModel</c> takes bone-to-world and nothing else
+    /// (<c>istudiorender.h:329</c>); the composition happens at the boundary that owns the vertices.
+    /// Keeping it out of the pose path is what leaves one array per entity with nothing to choose
+    /// wrongly between.
+    /// </remarks>
+    private static float[][] Skinning(IReadOnlyList<StudioBone> bones, BoneAccessor accessor)
+    {
+        float[][] skinning = new float[accessor.Count][];
+
+        for (int bone = 0; bone < accessor.Count; bone++)
+        {
+            skinning[bone] = StudioBones.Concatenate(
+                accessor.Bone(bone), bones[bone].PoseToBone.Span);
+        }
+
+        return skinning;
+    }
 
     /// <summary>Measures a skinned model with its pose applied on the processor.</summary>
     private void ReportPosedExtents(
@@ -711,54 +1009,18 @@ public sealed class EntityModelSet
 
         into.Clear();
 
-        // **Owners are posed before the things hanging off them.** A bone-merged entity has no
-        // pose of its own — it takes its parent's matrices for every bone they share by NAME — so
-        // the parent's must already exist when the child is reached, and nothing orders the list.
+        // **There is no ordering here any more, and that is the change** (D88, B181). The engine has
+        // none either: a merged entity asks its parent for bones where it stands
+        // (`bone_merge_cache.cpp:130`) and `SetupBones` being idempotent within a frame makes a
+        // repeat an integer comparison. What this replaced was six fields and a depth sort solving a
+        // problem Valve's structure never creates.
         //
-        // **Ordered by DEPTH rather than in two groups, because chains are three deep and more.**
-        // This split the list once — unattached first, attached second — which is exactly enough
-        // for a hat on a player and one short for anything hanging off the hat. A weapon attachment
-        // is the case that exposed it: `CTFWeaponAttachmentModel::Init` parents to the WEAPON
-        // (tf_weaponbase.cpp:6960), and the weapon parents to the player, so the attachment was
-        // reached while its parent had not been posed and was dropped as "the wearer is not being
-        // drawn". The owner: *"i think a lot of merges should be recursive becasue valve adds items
-        // and stuff like that sometimes"*.
-        //
-        // Depth is computed by walking up the attachment links, so any chain works and no case has
-        // to be named. A cycle — which the wire should never carry but a corrupt demo might —
-        // stops at the entity count rather than looping for ever.
-        _ordered.Clear();
-        _worn.Clear();
-        _parents.Clear();
-
-        foreach (SceneProp prop in props)
-        {
-            _parents[prop.EntityIndex] = prop.AttachedTo;
-        }
-
-        foreach (SceneProp prop in props)
-        {
-            if (prop.AttachedTo is null)
-            {
-                _ordered.Add(prop);
-            }
-            else
-            {
-                _worn.Add(prop);
-            }
-        }
-
-        // Stable within a depth, so two items on one wearer keep the order the scene gave them.
-        _worn.Sort((left, right) => Depth(left).CompareTo(Depth(right)));
-
-        _ordered.AddRange(_worn);
-        _wearerBones.Clear();
-        _wanted.Clear();
-
-        foreach (SceneProp prop in _worn)
-        {
-            _wanted.Add(prop.AttachedTo!.Value);
-        }
+        // Two phases instead, which is the engine's own split
+        // (`cdll_client_int.cpp:2206-2210`): bring every entity's state up to date, then build
+        // bones on demand while drawing. State first is what lets a merge reach an entity the draw
+        // loop has not got to yet.
+        _boneFrames.Advance();
+        Simulate(props, seconds);
 
         // **Every prop that does not draw is counted with its reason.** A silent `continue` here is
         // how "all the props went away" became a guessing game: the scene said 14 models, the map
@@ -766,14 +1028,10 @@ public sealed class EntityModelSet
         //
         // Four categories, per the project's rule: asked for, what we have, what was produced, what
         // is missing and why.
-        int askedFor = _ordered.Count;
-        int notStudio = 0;
-        int noBatches = 0;
-        int drawnCount = 0;
-        Dictionary<string, int> noBatchesBy = [];
-        Dictionary<string, int> notStudioBy = [];
+        _tally.Begin(props.Count);
 
-        foreach (SceneProp prop in _ordered)
+        // In the order the scene gave them, because nothing needs any other order now.
+        foreach (SceneProp prop in props)
         {
             (int frame, int _, float blend) = SelectFor(prop, seconds);
 
@@ -781,252 +1039,72 @@ public sealed class EntityModelSet
 
             if (!IsDrawable(prop.Kind))
             {
-                notStudio++;
-
-                // **Inline BSP submodels collapse to one entry.** A map's doors and moving brushes
-                // are `*1`, `*2`, ... and process names 141 of them, which turns the line into a
-                // wall that hides the entry that matters. They are one gap, not 141 findings.
-                string rejectedName;
-
-                if (prop.ModelPath.Length == 0)
-                {
-                    rejectedName = "<no model>";
-                }
-                else if (prop.ModelPath.StartsWith('*'))
-                {
-                    rejectedName = "<inline submodel>";
-                }
-                else
-                {
-                    rejectedName = System.IO.Path.GetFileName(prop.ModelPath);
-                }
-
-                string rejected = $"{rejectedName}#{prop.Kind}";
-
-                notStudioBy[rejected] = notStudioBy.GetValueOrDefault(rejected) + 1;
+                _tally.NotDrawable(prop);
                 continue;
             }
 
             if (Batches(prop.ModelPath, frame).Count == 0)
             {
-                noBatches++;
-
-                // Named per model, because "no batches" for one model is a load failure and for all
-                // of them is a frame-selection failure, and the two need different fixes.
-                string name = System.IO.Path.GetFileName(prop.ModelPath);
-                noBatchesBy[name] = noBatchesBy.GetValueOrDefault(name) + 1;
+                _tally.NoGeometry(prop.ModelPath);
                 continue;
             }
 
-            drawnCount++;
+            _tally.Drawn();
 
             ScenePose pose = prop.Pose;
 
             PropTransform transform = new(
                 pose.X, pose.Y, pose.Z, pose.Pitch, pose.Yaw, pose.Roll, pose.Scale);
 
-            // Set only for an item hanging from a named attachment, which cannot be expressed as a
-            // PropTransform: the point carries the bone's rotation as well as its position, and
-            // decomposing that back into angles to rebuild it would be work for no gain.
-            float[]? placement = null;
+            // **Lit, logged and counted by collaborators rather than here** (B181). Each of these
+            // was sixty to eighty lines inside this loop, and none of them is about posing a model —
+            // which is how the body reached two hundred lines of code with five jobs in it and the
+            // engine's stage boundaries invisible.
+            ModelLight lit = _lighting.For(prop, lightAt, sunAt);
 
-            // **Lit from where it stands, which is what the engine does.** A model has no
-            // lightmap, so vrad's per-leaf ambient cube is the light it gets - sampled at the
-            // origin rather than per vertex, exactly as the client samples it once per model.
-            // **Lit at the model's illumination centre, not at its origin.** studiohdr_t carries
-            // an illumposition for exactly this: a player's origin is at its feet, and a point
-            // resting on a floor plane lands in the solid leaf beneath, which holds no light. The
-            // model then draws black - seen on a medic, a soldier, a scout and a resupply locker.
-            //
-            // The offset turns with the model, because it is a point on the model rather than a
-            // direction in the world.
-            (float lightX, float lightY, float lightZ) = IlluminationPoint(prop, pose);
+            AmbientCube? light = lit.Light;
+            SunLight? sun = lit.Sun;
 
-            long litAt = System.Diagnostics.Stopwatch.GetTimestamp();
+            _reports.BrushMoved(prop, seconds);
 
-            // **A model that has not moved is lit exactly as it was last frame** (B99). Lighting
-            // cost 320 ms of every second against 3.4 ms to draw the whole map, and nearly all of
-            // it recomputed an unchanged answer: a cube is an inverse-squared average over sixteen
-            // ambient samples, LocalLights ranks all 477 of the map's world lights to pick four and
-            // evaluates a falloff per light for six faces, and the sun traces a ray through the BSP
-            // to ask whether the sky is visible.
-            //
-            // **Keyed on the illumination point, compared exactly.** The point is derived from the
-            // pose, and a held pose interpolates to a bit-identical ScenePose — so an entity that
-            // has not moved produces the identical point and an entity that has moved at all
-            // produces a different one. A tolerance would be slower to check and would let a slow
-            // drift accumulate silently.
-            //
-            // Keyed on the entity as well, because two models can stand in one place and must not
-            // share a slot. Map lights never move, so nothing else can invalidate this.
-            AmbientCube? light;
-            SunLight? sun;
-
-            // Compared as bits rather than as floats, which is what "the identical point" means and
-            // is also how it is said without tripping the equality analyser: this is an identity
-            // test, not an approximation, and a tolerance would let a slow drift accumulate.
-            (int bitsX, int bitsY, int bitsZ) = (
-                BitConverter.SingleToInt32Bits(lightX),
-                BitConverter.SingleToInt32Bits(lightY),
-                BitConverter.SingleToInt32Bits(lightZ));
-
-            // **A brush entity is lightmapped, so it takes no cube and no sun (B131).** Its faces
-            // were lit by vrad exactly as the wall's were and the samples travel on the vertices;
-            // the shader's ambient-cube branch OVERWRITES the lightmap sample rather than adding to
-            // it, so supplying a cube here is precisely what made an open door a flat panel against
-            // a shaded corridor. Null is what LightmappedGeneric means: the light is already in the
-            // atlas.
-            if (prop.Kind == SceneModelKind.Brush)
+            if (lightAt is not null)
             {
-                light = null;
-                sun = null;
-            }
-            else if (_lit.TryGetValue(prop.EntityIndex, out LitAt cached) &&
-                cached.X == bitsX && cached.Y == bitsY && cached.Z == bitsZ)
-            {
-                LightingTicks += System.Diagnostics.Stopwatch.GetTimestamp() - litAt;
-
-                light = cached.Light;
-                sun = cached.Sun;
-            }
-            else
-            {
-                AmbientCube sampled =
-                    lightAt is null ? default : lightAt(lightX, lightY, lightZ);
-
-                light = sampled;
-                sun = sunAt?.Invoke(lightX, lightY, lightZ);
-
-                _lit[prop.EntityIndex] = new LitAt(bitsX, bitsY, bitsZ, sampled, sun);
-
-                LightingTicks += System.Diagnostics.Stopwatch.GetTimestamp() - litAt;
+                _reports.Lit(prop, lit, skin);
             }
 
-            // **A model lit by nothing draws black, and that is worth saying out loud.** The cube
-            // comes from the leaf a model stands in, and a player's origin is at its FEET - so a
-            // point resting exactly on a floor plane can land in the solid leaf below it, which
-            // carries no light at all. It shows as a player turning black in some places and
-            // recovering in others, which reads as a lighting quirk rather than a lookup landing
-            // in solid.
-            //
-            // Logged with the position, because the defect is positional and a count would not
-            // let anyone go and look at the spot.
-            // **`light is { }` excludes brush entities rather than reporting them as dark.** They
-            // carry no cube by design (B131), and a warning saying a door is "lit by nothing" would
-            // be true of the cube and false of the door, which is the log naming the wrong quantity.
-            if (lightAt is not null && light is { } sampledCube && IsUnlit(sampledCube) &&
-                _reportedDark.Add(prop.ModelPath))
-            {
-                _render.LogWarning(
-                    "{Message}",
-                    $"{prop.ModelPath} is lit by nothing at ({pose.X:0},{pose.Y:0},{pose.Z:0}); " +
-                    $"its leaf carries no ambient light, so it draws black");
-            }
-
-            // **Per INSTANCE, because the warning above cannot see the defect being chased.** It
-            // dedupes on the model path, so five capture points sharing cap_point_base.mdl collapse
-            // to one report and a bright one reporting first silences a dark one for ever. It also
-            // only fires at exactly zero, and the point in question is dim rather than black.
-            //
-            // The owner's observation is that ONE control point is dark while its neighbours are
-            // fine, which is the shape that rules out a missing lighting term: an absent term
-            // darkens every instance equally. So the question is what THIS instance sampled, and
-            // the answer needs the instances side by side.
-            // **Where a brush entity actually lands, which is the one thing the BSP and the demo
-            // cannot answer between them (B94).** The map says submodel 80 spans -64 to 80 about
-            // its own origin and the demo says that origin rests at 640 and rises to 785, so the
-            // shutter should occupy 576..720 closed. Whether it does is a fact about this transform,
-            // and a gate reported in the floor is a disagreement with one of those two numbers.
-            // **Every movement, not the first sighting.** Reporting once per entity was enough to
-            // find where the gates are and useless for finding out what one DOES: a shutter that
-            // sinks below its frame does so over a handful of frames, and the one line already
-            // written came from long before. Logged on a change of more than a unit so a stationary
-            // door stays silent and a moving one leaves a trace that can be read against the
-            // demo's own keyframes.
-            if (prop.Kind == SceneModelKind.Brush &&
-                (!_brushHeight.TryGetValue(prop.EntityIndex, out float lastZ) ||
-                 Math.Abs(lastZ - pose.Z) > 1f))
-            {
-                _brushHeight[prop.EntityIndex] = pose.Z;
-
-                _render.LogInformation(
-                    "{Message}",
-                    $"brush {prop.ModelPath} #{prop.EntityIndex} at " +
-                    $"({pose.X:0},{pose.Y:0},{pose.Z:0.##}) seconds {seconds:0.###}");
-            }
-
-            if (lightAt is not null && _reportedLight.Add(prop.EntityIndex))
-            {
-                _render.LogInformation(
-                    "{Message}",
-                    $"lit {System.IO.Path.GetFileName(prop.ModelPath)} #{prop.EntityIndex} " +
-                    $"at ({pose.X:0},{pose.Y:0},{pose.Z:0}) sampled ({lightX:0},{lightY:0},{lightZ:0}) " +
-                    $"skin {skin} " +
-
-                    // **Which lighting model, said out loud.** A brush entity has no cube, so a
-                    // luminance printed for it would be a number about nothing. Saying "lightmap"
-                    // is what lets this line answer "why is that door flat" without a second run.
-                    (light is { } cube
-                        ? $"luminance {Luminance(cube):0.####}"
-                        : "lightmapped"));
-            }
-
-            if (!_reportedFrames.Contains(prop.ModelPath))
-            {
-                _reportedFrames.Add(prop.ModelPath);
-
-                _render.LogInformation(
-                    "{Message}",
-                    $"animating {prop.ModelPath}: sequence {pose.Sequence} cycle {pose.Cycle:0.###} " +
-                    $"-> baked frame {frame} of {AllFrames(prop.ModelPath).Count} " +
-                    $"blend {blend:0.###} yaw {pose.Yaw:0.##} at ({pose.X:0},{pose.Y:0},{pose.Z:0})");
-            }
+            _reports.Animating(prop, frame, AllFrames(prop.ModelPath).Count, blend);
 
             // **A skinned model is posed here, per instance.** Its geometry was uploaded once and
             // unposed, so the matrices are what puts it in a pose at all - without them it draws
             // in whatever position the artist modelled it, which for a player is lying on its
             // side.
             IReadOnlyList<float[]>? bones = null;
-            IReadOnlyList<float[]>? boneToWorld = null;
 
             if (_frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? entry) &&
-                entry.Skinned is { } skinned)
+                entry.Skinned is { } skinned &&
+                _entities.TryGetValue(prop.EntityIndex, out AnimatingEntity? animating))
             {
-                int sequence = Math.Max(0, pose.Sequence);
-
-                // **Advanced from demo time, because nothing networks a player's cycle.** The
-                // client runs its own in C_BaseAnimating::FrameAdvance and treats any sent cycle
-                // as a correction; a player's is never sent at all, so replaying it holds one
-                // frame of a real animation - a convincing statue.
-                double advanced = pose.Cycle + (seconds * skinned.CyclesPerSecond(sequence));
-                float phase = (float)(advanced - Math.Floor(advanced));
-
-                int posedFrame = StudioSequences.FrameFor(
-                    phase, skinned.Frames(sequence), skinned.Loops(sequence));
-
-                StudioSkeleton posed = skinned.Skeleton(
-                    sequence, posedFrame, PoseValues(skinned, pose, sequence));
-
-                bones = posed.Matrices;
-
-                // Kept separately: anything merged onto this entity needs where its BONES are, and
-                // a skinning matrix has the bind pose already folded in.
-                boneToWorld = posed.BoneToWorld;
-
-                // **Report the frame actually applied, not the baked one.** A skinned model has a
-                // single baked slot, so the baked-frame line below says "frame 0 of 1" for every
-                // player however they are moving - true, and about the wrong quantity.
-                if (_reportedFrames.Add(prop.ModelPath + "#skin"))
+                // **One call, and it builds this entity's parents too if it merges onto any.**
+                // Everything the old code did with a sort happens inside here now.
+                //
+                // BONE_USED_BY_ANYTHING because this project draws one level of detail and asks for
+                // everything; a narrower mask is the optimisation the accessor exists to allow and
+                // is not worth guessing at before something measures it.
+                if (!animating.SetupBones(StudioBoneFlags.UsedByAnything, seconds))
                 {
-                    _render.LogInformation(
-                        "{Message}",
-                        $"skinned {prop.ModelPath}: sequence {sequence}" +
-                        $"{(skinned.IsDelta(sequence) ? " DELTA" : string.Empty)}" +
-                        $"{skinned.UnimplementedFor(sequence)}, " +
-                        $"{skinned.Frames(sequence)} frames at " +
-                        $"{skinned.CyclesPerSecond(sequence):0.###} cycles a second, " +
-                        $"phase {phase:0.###} -> frame {posedFrame}");
+                    // The wearer is not being drawn — dead, out of the visible set, or a model that
+                    // failed to load. Valve's `if ( baseDrawn )`: drawing the item anyway leaves it
+                    // hanging at the map origin, which is worse than not drawing it.
+                    continue;
                 }
+
+                bones = Skinning(skinned.Bones, animating.Bones);
+
+                // **The bones are already in world space**, so the model matrix must not place the
+                // model a second time (finding 35 section 7a). This is where the merged item's
+                // `transform = worn.Where` used to be, and it is gone rather than moved: an item
+                // takes its wearer's bones and those already carry the wearer's placement.
+                transform = PropTransform.Identity;
             }
 
             // **Applies the matrices the GPU is about to use, on the processor, and reports the
@@ -1065,99 +1143,45 @@ public sealed class EntityModelSet
             // shape the artist gave it rather than collapsing to the origin.
             if (prop.AttachedTo is { } wearer)
             {
-                if (!_wearerBones.TryGetValue(wearer, out Worn worn))
+                if (!_drawnPlacements.TryGetValue(wearer, out PropTransform stands))
                 {
-                    // The wearer is not being drawn — dead, out of the visible set, or a model
-                    // that failed to load. Drawing the hat anyway would leave it hanging in the
-                    // air at the map origin, which is worse than not drawing it.
+                    // The wearer is not being drawn — dead, out of the visible set, or a model that
+                    // failed to load. Valve's `if ( baseDrawn )`: drawing the item anyway leaves it
+                    // at the map origin, which is worse than not drawing it. A SKINNED item is
+                    // already refused by SetupBones returning false; this is the same rule for one
+                    // with no skeleton to refuse with.
                     continue;
                 }
 
-                bones = Merge(prop.ModelPath, bones, worn);
-                transform = worn.Where;
-
-                // **An item can hang from a named point instead of merging, and bone merging cannot
-                // place it.** A hat shares bone names with the player and takes their matrices; a
-                // halo, an MvM canteen, a spellbook and a spy's sapper share none — the spellbook's
-                // only bone is called `mvm` and no player has one — so Merge matches nothing and
-                // the item keeps the wearer's transform, which on a player is their feet (B82).
-                //
-                // The engine hangs those off the WEARER's attachment table:
-                // `ConcatTransforms( GetBone( iBone ), pattachment.local, world )`, one-based.
-                if (prop.AttachmentPoint is { } point &&
-                    _frames.TryGetValue(worn.ModelPath, out PropModels.ModelFrames? wearerModel) &&
-                    wearerModel.Attachments is { Count: > 0 } attachments &&
-                    point >= 1 && point <= attachments.Count)
+                if (bones is null)
                 {
-                    StudioAttachment attachment = attachments[point - 1];
-
-                    if (attachment.Bone >= 0 && attachment.Bone < worn.Bones.Count)
-                    {
-                        placement = AttachmentPlacement.Matrix(
-                            worn.Bones[attachment.Bone],
-                            attachment.Local,
-                            worn.Where.ToMatrix(),
-                            attachment.IsWorldAligned);
-
-                        if (_reportedPoses.Add(prop.ModelPath + "#attached"))
-                        {
-                            _props.LogInformation(
-                                "{Message}",
-                                $"attached {prop.ModelPath} to {attachment.Name} " +
-                                $"(point {point}, bone {attachment.Bone}) on {worn.ModelPath}");
-                        }
-                    }
+                    // A model this project baked rather than skinned has no bones to carry a
+                    // placement, so it takes its wearer's outright — which is what every worn item
+                    // did before D88, and is still correct for one that cannot be merged onto
+                    // anything.
+                    transform = stands;
                 }
 
-                // **Measured AFTER the merge, which is the only measurement that answers it.** The
-                // extents reported above are of the item's own pose, before it was put on anybody
-                // - so they say nothing about where it ends up. What decides whether a hat is on a
-                // head is its height in the WEARER's space: a scout's head is around 64 units up
-                // and their origin is at their feet, so a hat reporting a z near zero is a hat on
-                // the floor however well its bones matched.
-                if (bones is { Count: > 0 } && _reportedPoses.Add(prop.ModelPath + "#worn"))
+                // **Lit where its wearer stands, not where its own pose says.** A merged item's own
+                // pose is (0,0,0) by construction, so sampling the ambient cube from it asks the
+                // leaf at the map origin — usually solid, carrying no light, drawing every cosmetic
+                // in the match black. It showed in the log as "rocketboots is lit by nothing at
+                // (0,0,0)", which reads as a lighting quirk rather than as a light sampled before
+                // the item had been given a position.
+                if (_lightPoints.TryGetValue(wearer, out (float X, float Y, float Z) at))
+                {
+                    light = lightAt is null ? default : lightAt(at.X, at.Y, at.Z);
+                }
+
+                if (bones is { Count: > 0 } && _reports.FirstTime(prop.ModelPath + "#worn"))
                 {
                     ReportPosedExtents(prop.ModelPath, bones, prop.ModelPath + " WORN");
                 }
-
-                // **Lit where its wearer stands, not where its own pose says.** A merged item's
-                // pose is (0,0,0) by construction, so sampling the ambient cube from it asks the
-                // leaf at the map origin - which is usually solid, carries no light, and draws
-                // every cosmetic in the match black. It showed in the log as "rocketboots is lit
-                // by nothing at (0,0,0)", which reads as a lighting quirk rather than as a light
-                // sampled before the item had been given a position.
-                light = lightAt is null
-                    ? default
-                    : lightAt(worn.LightX, worn.LightY, worn.LightZ);
-
-                (lightX, lightY, lightZ) = (worn.LightX, worn.LightY, worn.LightZ);
-            }
-
-            // **Recorded for anything something else hangs off, INCLUDING props that hang off
-            // something themselves.** This was an `else if` on the branch above, so only a prop
-            // standing on its own origin could be a wearer — which is one link of chain and no
-            // more. A weapon attachment hangs off a weapon that hangs off a player, so it looked up
-            // the weapon, found nothing recorded, and took the `continue` above as "the wearer is
-            // not being drawn".
-            //
-            // Placed after the merge rather than beside it so the bones recorded are the MERGED
-            // ones: what the next link needs is where this prop actually ended up, not the rest
-            // pose it arrived with.
-            //
-            // **Recorded even with no bones, which is not a detail.** A wearer cheap enough to have
-            // been baked has no skeleton here, and requiring one would drop every item on it —
-            // silently, since the wearer itself still draws and only the hat vanishes. Merge handles
-            // the boneless case by keeping the item's own pose and taking only the transform, so it
-            // moves with the wearer even without following a bone.
-            if (_wanted.Contains(prop.EntityIndex))
-            {
-                _wearerBones[prop.EntityIndex] = new Worn(
-                    prop.ModelPath, boneToWorld ?? [], transform, lightX, lightY, lightZ);
             }
 
             into.Add(new ModelInstance(
                 prop.ModelPath,
-                placement ?? transform.ToMatrix(),
+                transform.ToMatrix(),
                 light,
 
                 // Cached alongside the cube, because the sun costs more than it looks: it traces a
@@ -1175,120 +1199,9 @@ public sealed class EntityModelSet
                 prop.Pose.Body));
         }
 
-        // **The four categories, reported only when they change.** Asked for, produced, and what was
-        // rejected with the reason — because "the props went away" was diagnosable from the map and
-        // from nothing in the log, which is the gap this closes.
-        //
-        // Keyed on the whole tuple rather than on the drawn count alone: thirteen props failing for
-        // a new reason while the drawn count holds steady is exactly the change worth seeing.
-        // **"Only when they change" was not enough, and the log proved it.** Measured 2026-08-24:
-        // this line printed 13,566 times in two minutes of playback, because the counts ALTERNATE
-        // between two shapes as props enter and leave view — 280/272 one frame, 272/272 the next —
-        // so every frame is a change and the guard never fires.
-        //
-        // A change guard against a value that oscillates is not a guard. Paired with a rate limit,
-        // which is the part that bounds it: at most one line a second, and still only on a change,
-        // so a steady state stays silent and a genuine shift is reported within a second of
-        // happening.
-        (int, int, int, int) state = (askedFor, drawnCount, notStudio, noBatches);
-
-        long now = System.Diagnostics.Stopwatch.GetTimestamp();
-        bool overdue =
-            now - _lastDrawReportAt >= System.Diagnostics.Stopwatch.Frequency;
-
-        if (state != _lastDrawState && overdue)
-        {
-            _lastDrawState = state;
-            _lastDrawReportAt = now;
-
-            string missing = noBatchesBy.Count == 0
-                ? "none"
-                : string.Join(", ", noBatchesBy.Select(entry => $"{entry.Value}x{entry.Key}"));
-
-            _props.LogInformation(
-                "{Message}",
-                $"asked for {askedFor}, produced {drawnCount}; " +
-                $"skipped {notStudio} not-studio [{(notStudioBy.Count == 0 ? "none" : string.Join(", ", notStudioBy.Select(e => $"{e.Value}x{e.Key}")))}], " +
-                $"{noBatches} no-batches [{missing}]");
-        }
+        _tally.Report();
     }
 
-    /// <summary>The last reported draw tally, so the line prints on change rather than per frame.</summary>
-    private (int AskedFor, int Drawn, int NotStudio, int NoBatches) _lastDrawState = (-1, -1, -1, -1);
-
-    /// <summary>When that tally was last reported, so an oscillating count cannot print per frame.</summary>
-    private long _lastDrawReportAt;
-
-    /// <summary>Replaces a model's bone matrices with its wearer's, matched by bone name.</summary>
-    /// <param name="modelPath">The worn model, whose skeleton decides which bones are wanted.</param>
-    /// <param name="own">Its own matrices, kept for any bone the wearer has no counterpart for.</param>
-    /// <param name="wearer">The wearer's matrices, in the wearer's own bone order.</param>
-    /// <returns>Matrices in the worn model's bone order.</returns>
-    /// <remarks>
-    /// **The name match is Valve's, and it is the whole mechanism.** <c>CBoneMergeCache</c> pairs
-    /// the two skeletons by bone name and copies the parent's matrix across; the same
-    /// name-matching this project already does for animation retargeting through
-    /// <see cref="StudioBones.Remap"/>, which is Valve's <c>masterBone</c>.
-    ///
-    /// The remap is cached because it depends only on the two skeletons, never on the frame, and
-    /// a match plays a few dozen worn items at sixty frames a second.
-    /// </remarks>
-    private IReadOnlyList<float[]>? Merge(
-        string modelPath,
-        IReadOnlyList<float[]>? own,
-        Worn wearer)
-    {
-        if (!_frames.TryGetValue(modelPath, out PropModels.ModelFrames? entry) ||
-            entry.Skinned is not { } skinned ||
-            !_frames.TryGetValue(wearer.ModelPath, out PropModels.ModelFrames? host) ||
-            host.Skinned is not { } hostSkinned)
-        {
-            // A worn item cheap enough to have been baked has no skeleton here to merge onto. It
-            // still takes its wearer's transform, which the caller has already applied, so it
-            // moves with the player even though it cannot follow a bone.
-            return own;
-        }
-
-        // **Keyed by BOTH models.** A scout's skeleton is not a heavy's, so one remap per worn
-        // item would pose every hat with whichever class wore it first - wrong by a bone or two,
-        // which reads as a hat sitting slightly off rather than as a bug.
-        string key = modelPath + "|" + wearer.ModelPath;
-
-        if (!_mergeMaps.TryGetValue(key, out int[]? map))
-        {
-            map = StudioBones.Remap(skinned.Bones, hostSkinned.Bones);
-            _mergeMaps[key] = map;
-
-            int matched = 0;
-
-            foreach (int index in map)
-            {
-                matched += index >= 0 ? 1 : 0;
-            }
-
-            // **Counted, because a merge that matches nothing looks identical to one that works.**
-            // Both draw the item; only one puts it on the head. A zero here is the whole defect.
-            _render.LogInformation(
-                "{Message}",
-                $"bone merge {System.IO.Path.GetFileName(modelPath)} onto " +
-                $"{System.IO.Path.GetFileName(wearer.ModelPath)}: " +
-                $"{matched} of {map.Length} bones matched" +
-                (matched == map.Length
-                    ? ""
-                    : $"; matched {Matched(skinned.Bones, map)}" +
-                      $"; missing {Unmatched(skinned.Bones, map)}") +
-                $"; {WearerBoneAt(skinned.Bones, hostSkinned.Bones, map, wearer.Bones)}");
-        }
-
-        // **The unmatched bones are built from their parents, not left where they were.** Valve
-        // copies only the matches, but the worn model has already run its own full SetupBones, so
-        // an unmatched bone holds a position walked down the worn model's OWN hierarchy from its
-        // parent - which may itself have been merged. Leaving it at its rest position in model
-        // space instead tears the item across the map: a ghostly_gibus matched 1 bone of 8, the
-        // other seven stayed at the model origin, and the triangles between them stretched from
-        // the scout's head to his feet as a flat sheet.
-        return StudioBones.MergeOnto(skinned.Bones, wearer.Bones, map);
-    }
 
     /// <summary>A value for each pose parameter the model declares, in its own order.</summary>
     /// <remarks>
@@ -1394,110 +1307,6 @@ public sealed class EntityModelSet
         return values;
     }
 
-    /// <summary>Where the wearer's matched bone actually is, in the wearer's own space.</summary>
-    /// <remarks>
-    /// **The one number that separates a merge problem from a space problem.** A scout's head sits
-    /// around sixty-four units above their origin, which is at their feet. If the bone this item
-    /// merges onto reports that height then the wearer's side is right and any remaining fault is
-    /// in the item; if it reports nearly zero then the matrices being handed over are not in the
-    /// space they are assumed to be, and every worn item in the game will be at ankle height
-    /// regardless of which bone it found.
-    /// </remarks>
-    private static string WearerBoneAt(
-        IReadOnlyList<StudioBone> bones,
-        IReadOnlyList<StudioBone> hostBones,
-        int[] map,
-        IReadOnlyList<float[]> wearer)
-    {
-        for (int index = 0; index < bones.Count && index < map.Length; index++)
-        {
-            int host = map[index];
-
-            if (host < 0 || host >= wearer.Count)
-            {
-                continue;
-            }
-
-            float[] matrix = wearer[host];
-            string name = host < hostBones.Count ? hostBones[host].Name : "?";
-
-            return string.Create(
-                CultureInfo.InvariantCulture,
-                $"{name} is at ({matrix[3]:0.#},{matrix[7]:0.#},{matrix[11]:0.#}) in wearer space");
-        }
-
-        return "no matched bone to place it by";
-    }
-
-    /// <summary>The names of the worn bones that DID find a counterpart on the wearer.</summary>
-    /// <remarks>
-    /// **Which bone matched decides where the item hangs, and the count cannot say.** An item
-    /// matching one bone of eight is correct when that one is <c>bip_head</c> and its seven
-    /// children are the jiggle joints hanging off it; it is an item lying on the floor when the
-    /// one is a root both skeletons happen to share and the head is not among them. Both print
-    /// "1 of 8", which is the same shape of mistake as reporting a count without the walked-command
-    /// total.
-    /// </remarks>
-    private static string Matched(IReadOnlyList<StudioBone> bones, int[] map)
-    {
-        List<string> found = [];
-
-        for (int index = 0; index < bones.Count && found.Count < 6; index++)
-        {
-            if (index < map.Length && map[index] >= 0)
-            {
-                found.Add(bones[index].Name);
-            }
-        }
-
-        return found.Count == 0 ? "nothing" : string.Join(", ", found);
-    }
-
-    /// <summary>The names of the worn bones the wearer had no counterpart for.</summary>
-    /// <remarks>
-    /// **A count says how bad it is; the names say what it means.** A hat matching 1 bone of 8 is
-    /// fine when the one is <c>bip_head</c> and its seven children hang off it, and is a hat lying
-    /// on the grass when the one is a root the wearer happens to share and the head is missing.
-    /// The two are indistinguishable from the number alone, and the second was on screen.
-    /// </remarks>
-    private static string Unmatched(IReadOnlyList<StudioBone> bones, int[] map)
-    {
-        List<string> missing = [];
-
-        for (int index = 0; index < bones.Count && missing.Count < 6; index++)
-        {
-            if (index < map.Length && map[index] >= 0)
-            {
-                continue;
-            }
-
-            // **With its parent, because that is what decides where it ends up.** An unmatched
-            // bone is built by walking down from its parent, so one whose parent is the merged
-            // head rides the head correctly and one with no parent at all sits at the wearer's
-            // origin - which on a player is their feet. Both print the same name without this.
-            int parent = bones[index].Parent;
-
-            missing.Add(
-                parent >= 0 && parent < bones.Count
-                    ? $"{bones[index].Name}<-{bones[parent].Name}"
-                    : $"{bones[index].Name}<-ROOT");
-        }
-
-        return string.Join(", ", missing);
-    }
-
-    /// <summary>A drawn entity something else hangs off: its model, its pose and where it is.</summary>
-    /// <remarks>
-    /// The position is carried separately from the transform because a merged item is lit at its
-    /// wearer's place and <see cref="PropTransform"/> keeps its origin private.
-    /// </remarks>
-    private readonly record struct Worn(
-        string ModelPath,
-        IReadOnlyList<float[]> Bones,
-        PropTransform Where,
-        float LightX,
-        float LightY,
-        float LightZ);
 
     /// <summary>Which axis a model is longest along, named for the log.</summary>
     /// <remarks>

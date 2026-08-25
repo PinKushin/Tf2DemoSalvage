@@ -330,15 +330,26 @@ public static class CStruct
     /// <remarks>
     /// Run on the whole header before a brace is counted or a structure is found, because a comment
     /// can contain either — <c>dface_t</c> comments out a union, braces and all.
+    ///
+    /// **One implementation, in <see cref="SdkInventory.Live"/>.** This was a pair of regexes until
+    /// 2026-08-24, when a second stripper was written for the bone-pipeline denominator and the two
+    /// disagreed in ways that matter: the regex form cannot see that <c>//</c> inside a string
+    /// literal is not a comment, and it does not blank literals at all. Two answers to "what is
+    /// live code here" is the shape that goes stale silently, so there is now one.
+    ///
+    /// The scanner also blanks string and character literals, which this did not. For a header
+    /// being read for struct declarations that removes nothing anybody parses, and it removes a
+    /// real hazard: an apostrophe in prose — <c>// don't</c> — opens a character literal under any
+    /// quote-first reading and swallows whatever follows.
+    ///
+    /// **Length is preserved**, blanked rather than deleted, so a caller can still map a match back
+    /// onto the original text. The regex form collapsed each comment to a single space.
     /// </remarks>
     public static string Uncommented(string header)
     {
         ArgumentNullException.ThrowIfNull(header);
 
-        string stripped = Regex.Replace(
-            header, @"/\*.*?\*/", " ", RegexOptions.Singleline, PatternLimit);
-
-        return Regex.Replace(stripped, @"//[^\n]*", " ", RegexOptions.None, PatternLimit);
+        return SdkInventory.Live(header);
     }
 
     /// <summary>Resolves preprocessor conditionals, keeping only the branch that compiles.</summary>

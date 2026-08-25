@@ -69,6 +69,28 @@ public sealed class CapacityGuardTests
         model["MAXSTUDIOSKINS"].ShouldBeLessThanOrEqualTo(
             StudioReaderLimits.SkinTableEntries,
             "likewise for skin families");
+
+        model["MAXSTUDIOBONECTRLS"].ShouldBeLessThanOrEqualTo(
+            StudioReaderLimits.BoneControllers,
+            "likewise for bone controllers");
+    }
+
+    [Test]
+    public void CapacityGuards_TheIkChainCap_AnswersToNoEngineConstant()
+    {
+        // **studio.h declares no MAXSTUDIOIKCHAINS**, so the IK cap cannot be checked the way the
+        // three above are. Asserted as an ABSENCE rather than left unmentioned, because a reader
+        // that quietly compared against a constant which does not exist would be inventing its own
+        // reference — and the failure would be a cap that looks validated and is not.
+        //
+        // If Valve ever adds one, this reddens and the comparison above is what should replace it.
+        IReadOnlyDictionary<string, int> model = SourceSdk.Constants(Studio);
+
+        model.ContainsKey("MAXSTUDIOIKCHAINS").ShouldBeFalse();
+
+        // The control: the extractor really is reading this header, so the absence above is a fact
+        // about studio.h rather than about a lookup that returns nothing for everything.
+        model.ContainsKey("MAXSTUDIOBONES").ShouldBeTrue();
     }
 
     [Test]

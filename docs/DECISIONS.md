@@ -4758,67 +4758,23 @@ worked example: it suggested keeping the packed buffer and appending to it, whic
 while preserving the undeclared departure that caused it. Overruled — *"so we switch to valves,
 which is what we should have been using in the first place, becasue valves imp is blazingly fast"*.
 
+### The bone-merge ordering departure was DELETED on 2026-08-24, not amended
 
-### Declared departure: bone-merge ordering is a depth sort, not recursion — PROVISIONAL, TO BE REMOVED
+A subsection here declared the depth sort as a departure from Valve's recursion. B181 said to delete
+it rather than amend it when the code changed, and the code has changed (D88): `EntityModelSet` now
+drives `AnimatingEntity`, and `_ordered`, `_worn`, `_wanted`, `_wearerBones`, `_parents` and
+`Depth()` are gone.
 
-The first thing D86 governs, declared rather than assumed.
+**What is worth keeping is why the declaration was wrong, and it was wrong twice.** It claimed the
+outputs were identical — they were not, a chain three deep mixed two spaces (B180) — and it named
+`DrawModel`'s recursion as the mechanism it was trading against, when the ordering is actually solved
+by `CBoneMergeCache::MergeMatchingBones` calling `SetupBones` on its parent directly. There was no
+ordering code on Valve's side to trade against. It was forty lines against zero.
 
-**This departure is not settled and is scheduled for removal — see B181.** The owner accepted it to
-ship the weapon work and then said plainly: *"im going to regret letting you make that depth sort
-thing"* and *"im not leaving it, im going to compact you and have the next session fix that fuck
-up"*. When B181 is done, delete this subsection rather than amending it.
-
-**The reason it is being removed is the reason it was allowed**, which is worth keeping even after
-the code changes: the justification offered was that matching Valve would mean restructuring a
-150-line loop body. That is an argument for fixing the loop body. A structural problem was allowed
-to buy itself a permanent exemption from D86, by the same assistant that had just written D86.
-
-**What Valve does.** `C_BaseAnimating::DrawModel` recurses up the follow chain:
-
-```cpp
-C_BaseAnimating *follow = FindFollowedEntity();
-if ( follow )
-{
-    // recompute master entity bone structure
-    int baseDrawn = follow->DrawModel( 0 );   // flags 0: set up bones, do not render
-    if ( baseDrawn )
-        drawn = InternalDrawModel( STUDIO_RENDER|extraFlags );
-}
-```
-
-Two mechanisms, not one: the recursion orders the work, and `m_iMostRecentModelBoneCounter` caches
-per frame so a parent shared by several children is not rebuilt for each of them.
-
-**What we do.** Sort the attached props by attachment DEPTH — computed by walking up the parent
-links iteratively, bounded by the prop count — then make a single pass. Same order, and the
-deduplication is free: a player wearing five cosmetics with a weapon and an attachment on it has
-their bones built once by construction, so no counter is needed.
-
-**Why the departure is allowed here.** The outputs are identical, and the one place the two differ
-is not observable: Valve computes a parent's bones even when the parent will not render and then
-declines to draw the child, while we drop the child when the parent is not in the drawn set. A child
-of an undrawn parent is not drawn either way.
-
-Against it, honestly: it is a different structure from the engine, and this project's bugs are
-overwhelmingly where it differs. That is the whole reason D86 exists, and it is why this is written
-down instead of left to be discovered.
-
-**The owner's call**, when the alternative was offered: *"keep the depth sort, declare it under
-D86"*. Converting to Valve's shape would mean restructuring the pose loop into a recursive function
-for identical pixels.
-
-**What replaced what.** The ordering used to be a two-way split — unattached first, attached second
-— which is exactly one link of chain. A weapon attachment is two: `CTFWeaponAttachmentModel::Init`
-parents to the WEAPON (`tf_weaponbase.cpp:6960`) and the weapon parents to the player, so the
-attachment was reached before its parent had been posed and was dropped as "the wearer is not being
-drawn". An attached prop also never recorded its own bones, so nothing could hang off it at all.
-
-**Filed against it: the pose loop body is about 150 lines.** The owner: *"a loop body of 150 fucking
-lines is a massive code smell as it is"*. It is — it poses, merges, resolves attachment points,
-lights, records bones and emits an instance, which is at least five responsibilities in one block,
-and the depth ordering only exists as a separate pass because the body is too large to nest. Splitting
-it is a prerequisite for ever matching Valve's structure, since a recursive version needs the body to
-be a function in the first place.
+That is recorded in `docs/findings/35-the-bone-pipeline-audit.md`, which is where the reasoning
+belongs now that the code it governed no longer exists. **A departure declared under D86 is only as
+good as the reading behind it**, and this one cited the second mechanism it found rather than the one
+that mattered.
 
 ## D87 — PROJECT RULE: load at load time, not on sight
 
@@ -4875,4 +4831,79 @@ second"* — while the frame rate never dropped, because a stall is not a slow f
   the same shape, and the demo carries a `soundprecache` table naming every sound. Filed.
 - **The map itself**, deliberately: 33.5 seconds, already off the UI thread, and a viewer that
   waited for every map on disk would never start.
+
+## D88 — The bone pipeline matches Valve's ARCHITECTURE, threading included, with no departures
+
+**Owner direction, 2026-08-24**, after the audit in `docs/findings/35-the-bone-pipeline-audit.md`
+found the pose loop had diverged structurally rather than just cosmetically:
+
+> *"all of the architecture needs to match valves"*
+
+and, when offered a menu of options with the maximal one marked:
+
+> *"give me trhe options you do not choose and i can almost guarantee im going for the option that is
+> 100% parity"*
+
+So the target is not "behaves the same". It is the engine's object model: a per-entity animating
+object owning its own bone array, a bone accessor with readable/writable masks, per-bone flags read
+from the `.mdl`, one idempotent `SetupBones` as the single entry point, and the merge pulling its
+parent through it rather than any ordering pass of ours.
+
+### The one departure that was proposed, and overruled
+
+The assistant proposed keeping the entry point and lock seam but **not** building Valve's threaded
+bone setup, on the grounds that it is an optimisation rather than semantics, and declaring that
+under D86. The owner rejected it outright and gave the reason:
+
+> *"go for the threading too, full parity thats an optimization valve did for vary good reason, the
+> bones are heavy, they need speed."*
+
+That is right, and the measurement here already agreed with it before it was said: posing is about
+**420 ms of every second** in this viewer (B99), and the heavy entities are exactly the ones Valve's
+pre-pass targets. Proposing to skip it was a case of classifying something as "merely an
+optimisation" without checking the number that was already in the risk register.
+
+**Recorded because the reasoning generalises:** an optimisation in Valve's code is not decoration. It
+was written against a shipping frame budget by people measuring it, and the default assumption should
+be that it earns its place. A departure from one needs the same evidence as a departure from a
+behaviour.
+
+### What Valve's threading actually is, since it is not what the name suggests
+
+Read from `c_baseanimating.cpp:2749-2793` and `cdll_client_int.cpp:2210`. **It is a speculative
+prefetch of last frame's expensive roots, not a parallel-for over the draw loop:**
+
+1. During the draw, `SetupBones` **enrols** an entity that is expensive and independent —
+   `nBoneCount >= 16 && !GetMoveParent() && m_iMostRecentBoneSetupRequest != g_iPreviousBoneCounter`
+   (`:2897`) — into `g_PreviousBoneSetups`. Nothing threaded happens then.
+2. At the **start of the next frame**, after `SimulateEntities()` and `PhysicsSimulate()` and before
+   rendering, `ThreadedBoneSetup()` runs `ParallelProcess` over that list (`:2787`), posing each with
+   `boneMask = -1` — which `SetupBones` resolves to `m_iPrevBoneMask`, "whatever was asked for last
+   frame" (`:2827`). Then `g_iPreviousBoneCounter++` and the list clears.
+3. When the draw pass later asks for those bones, the readable-bones early-out at `:2911` returns
+   them immediately.
+
+Three things make it safe, and all three must be carried over:
+
+- **Only roots are enrolled** (`!GetMoveParent()`), so no parent/child chain is being walked
+  concurrently. The recursion and the parallelism never overlap.
+- **Per-entity lock, and inside threaded mode it BAILS rather than blocks** — `TryLock` then
+  `return false` (`:2845`). A contested entity is simply left for the draw pass.
+- **The model cache is held for the whole parallel region**, `PreThreadedBoneSetup` /
+  `PostThreadedBoneSetup` wrapping `mdlcache->BeginLock()` / `EndLock()`.
+
+`InitBoneSetupThreadPool` and `ShutdownBoneSetupThreadPool` are empty in this SDK — `ParallelProcess`
+uses the engine's global pool, so the .NET thread pool is the faithful equivalent and no pool of our
+own is needed.
+
+### The consequence for the viewer's frame
+
+Valve's phase order is **simulate → threaded bone setup → render**, and ours poses inside the render
+loop. Adopting this means the viewer grows that phase split. That is a real structural change and it
+is the reason this is a decision rather than an implementation note.
+
+**And set the expectation correctly: the win is not "posing goes parallel".** It is that posing for
+heavy roots moves off the critical path, and it only pays when the same entities are expensive frame
+to frame. In a demo viewer they are — the players persist — which is why this should pay here and
+why it is worth measuring against the 420 ms rather than assuming.
 

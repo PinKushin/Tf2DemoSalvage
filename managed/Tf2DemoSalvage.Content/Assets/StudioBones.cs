@@ -16,11 +16,22 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// <param name="Euler">The same rest rotation as radians, which animation adds its angles to.</param>
 /// <param name="PositionScale">What an animation's compressed position values are multiplied by.</param>
 /// <param name="RotationScale">What an animation's compressed rotation values are multiplied by.</param>
+/// <param name="Flags">The <c>BONE_USED_BY_*</c> mask; see <see cref="StudioBoneFlags"/>.</param>
+/// <param name="ProcedureType">Which rule computes this bone, or 0 for none.</param>
+/// <param name="ProcedureIndex">Where that rule's data sits, RELATIVE TO THE BONE, or 0 for none.</param>
+/// <param name="Controllers">
+/// Six slots, one per degree of freedom, each a bone controller index or −1.
+/// </param>
 /// <remarks>
 /// **The rotation is stored twice, and both are needed.** <c>quat</c> is the rest pose the renderer
 /// uses directly; <c>rot</c> is the same rotation as Euler radians, and an animation's compressed
 /// channels are added to THAT before being turned back into a quaternion
 /// (<c>bone_setup.cpp:417</c>). Adding them to the quaternion instead is meaningless.
+///
+/// **The last four were added on 2026-08-24 and appended rather than inserted** (D88, B182). The
+/// record is positional, so putting a parameter in the middle silently re-maps every call site that
+/// passes arguments by position — the compiler only objects when the types happen to differ. Append
+/// is the one safe edit.
 /// </remarks>
 public readonly record struct StudioBone(
     string Name,
@@ -30,7 +41,31 @@ public readonly record struct StudioBone(
     ReadOnlyMemory<float> PoseToBone,
     (float X, float Y, float Z) Euler = default,
     (float X, float Y, float Z) PositionScale = default,
-    (float X, float Y, float Z) RotationScale = default);
+    (float X, float Y, float Z) RotationScale = default,
+    int Flags = 0,
+    int ProcedureType = 0,
+    int ProcedureIndex = 0,
+    ReadOnlyMemory<int> Controllers = default)
+{
+    /// <summary>Whether this bone is one the engine computes with a rule rather than an animation.</summary>
+    /// <remarks>
+    /// **The PAIR, not either half.** <c>BuildTransformations</c> tests
+    /// <c>(hdr-&gt;boneFlags( i ) &amp; BONE_ALWAYS_PROCEDURAL) &amp;&amp; (pBone-&gt;proctype &amp;
+    /// STUDIO_PROC_JIGGLE)</c> (<c>c_baseanimating.cpp:1545</c>), so a bone carrying one without the
+    /// other is not what it looks like.
+    /// </remarks>
+    public bool IsProcedural =>
+        (Flags & StudioBoneFlags.AlwaysProcedural) != 0 && ProcedureIndex != 0;
+
+    /// <summary>Whether anything worn may bone-merge onto this bone without widening the mask.</summary>
+    /// <remarks>
+    /// An unmarked bone does not break a merge — <c>CBoneMergeCache::UpdateCache</c>
+    /// (<c>bone_merge_cache.cpp:95</c>) widens the wearer's setup mask to
+    /// <c>BONE_USED_BY_ANYTHING</c> instead, so the wearer builds its whole skeleton for every item
+    /// worn on it. It is a cost, not a failure, which is why it is worth being able to ask.
+    /// </remarks>
+    public bool IsMergeTarget => (Flags & StudioBoneFlags.UsedByBoneMerge) != 0;
+}
 
 /// <summary>A model's skeleton, resolved to the matrices that move its vertices.</summary>
 /// <remarks>
@@ -229,6 +264,16 @@ public static class StudioBones
                     BinaryPrimitives.ReadSingleLittleEndian(bone[(BonePoseToBoneOffset + (cell * 4))..]);
             }
 
+            // Six signed slots, one per degree of freedom, each a controller index or −1. Read as a
+            // run because the ORDER is the meaning: slot 3 is XR, not Z.
+            int[] controllers = new int[BoneControllerSlots];
+
+            for (int slot = 0; slot < BoneControllerSlots; slot++)
+            {
+                controllers[slot] = BinaryPrimitives.ReadInt32LittleEndian(
+                    bone[(BoneControllerListOffset + (slot * 4))..]);
+            }
+
             bones.Add(new StudioBone(
                 StudioStrings.At(
                     bytes,
@@ -247,7 +292,19 @@ public static class StudioBones
                 poseToBone,
                 Vector(bone, BoneEulerOffset),
                 Vector(bone, BonePositionScaleOffset),
-                Vector(bone, BoneRotationScaleOffset)));
+                Vector(bone, BoneRotationScaleOffset),
+
+                // **The mask the engine gates its whole bone pipeline on**, unread here until
+                // 2026-08-24 (B182). BuildTransformations skips a bone outright when it does not
+                // intersect the caller's boneMask (c_baseanimating.cpp:1516).
+                BinaryPrimitives.ReadInt32LittleEndian(bone[BoneFlagsOffset..]),
+                BinaryPrimitives.ReadInt32LittleEndian(bone[BoneProcedureTypeOffset..]),
+
+                // Relative to the BONE, and zero means "no rule" rather than "the start of the
+                // file" — pProcedure() returns null for zero. Kept as the raw value so the
+                // distinction survives to whoever resolves it.
+                BinaryPrimitives.ReadInt32LittleEndian(bone[BoneProcedureIndexOffset..]),
+                controllers));
         }
 
         return bones;
@@ -450,7 +507,16 @@ public static class StudioBones
     /// <see cref="StudioSkeleton.Skin"/> — a transposed rotation is the classic silent failure here, and it looks
     /// like a model turned inside out rather than like an error.
     /// </remarks>
-    private static float[] FromQuaternion(
+    /// <param name="rotation">The bone's rotation.</param>
+    /// <param name="position">Where it sits relative to its parent.</param>
+    /// <returns>Twelve floats, row-major 3×4.</returns>
+    /// <remarks>
+    /// **Public since 2026-08-24 because the bone pipeline needs the same convention** (D88). Two
+    /// copies of this expansion in one solution is the drift this project has been bitten by
+    /// before, and a transposed rotation is the classic silent failure: it looks like a model
+    /// turned inside out rather than like an error.
+    /// </remarks>
+    public static float[] FromQuaternion(
         (float X, float Y, float Z, float W) rotation, (float X, float Y, float Z) position)
     {
         float x = rotation.X, y = rotation.Y, z = rotation.Z, w = rotation.W;
@@ -464,10 +530,36 @@ public static class StudioBones
     }
 
     /// <summary>One 3×4 transform applied after another.</summary>
-    private static float[] Concatenate(ReadOnlySpan<float> first, ReadOnlySpan<float> second)
+    /// <param name="first">The outer transform, applied second.</param>
+    /// <param name="second">The inner transform, applied first.</param>
+    /// <returns>Twelve floats, row-major 3×4.</returns>
+    public static float[] Concatenate(ReadOnlySpan<float> first, ReadOnlySpan<float> second)
     {
         float[] result = new float[12];
 
+        Concatenate(first, second, result);
+
+        return result;
+    }
+
+    /// <summary>One 3×4 transform applied after another, written into an existing array.</summary>
+    /// <param name="first">The outer transform, applied second.</param>
+    /// <param name="second">The inner transform, applied first.</param>
+    /// <param name="result">Where the twelve floats go.</param>
+    /// <remarks>
+    /// **The allocation-free form, for the per-frame path.** The bone pipeline runs this once per
+    /// bone per entity per frame — a player is around eighty bones and a match has two dozen
+    /// players — so returning a fresh array each time puts kilobytes a frame through the collector
+    /// for no reason. D87's argument in miniature: a frame has a deadline.
+    ///
+    /// **<paramref name="result"/> may not alias either input.** Each output cell is written before
+    /// the later cells of the same row are read, so writing into <paramref name="first"/> would
+    /// feed partly-updated values back into the multiply. Callers pass a distinct destination; the
+    /// bone accessor's arrays are per bone, so they never alias their own parent.
+    /// </remarks>
+    public static void Concatenate(
+        ReadOnlySpan<float> first, ReadOnlySpan<float> second, Span<float> result)
+    {
         for (int row = 0; row < 3; row++)
         {
             for (int column = 0; column < 3; column++)
@@ -484,7 +576,5 @@ public static class StudioBones
                 (first[(row * 4) + 2] * second[11]) +
                 first[(row * 4) + 3];
         }
-
-        return result;
     }
 }

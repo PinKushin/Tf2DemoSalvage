@@ -10052,22 +10052,55 @@ UnragdollBlend( hdr, pos, q, currentTime );
 and `SetupBones` then runs `BuildTransformations` (the parent-chain concatenation),
 `CalculateIKLocks` and `SetupBones_AttachmentHelper`.
 
-#### What we appear to have, and the honest confidence on each
+#### The audit was done 2026-08-24 — `docs/findings/35-the-bone-pipeline-audit.md`
 
-Counted by searching for any equivalent, so this is a **starting inventory and not a verdict** —
-several of these need reading before the column is trustworthy.
+The starting inventory that used to sit here was a guess with a confidence column. It has been
+replaced by a read of the SDK against a search of `managed/` with a control, and **the headline is
+not on this list at all**: the engine has no ordering step to compare ours against.
 
-| stage | ours | confidence |
-|---|---|---|
-| `InitPose` / `AccumulatePose` | sequence + frame + pose parameters | named only in comments; no stage boundary exists |
-| `MaintainSequenceTransitions` | none found | high — a sequence change appears to snap |
-| `AccumulateLayers` | `StudioGestureWeights` exists | low — TF2 leans on layers for aiming and reloading |
-| `CalcAutoplaySequences` | none found | medium |
-| `CalcBoneAdj` (bone controllers) | **nothing** | high |
-| `UnragdollBlend` | not applicable — no ragdolls yet | high |
-| `BuildTransformations` | parent concatenation exists | medium |
-| `CalculateIKLocks` | **nothing** | high — feet do not plant |
-| attachments | `StudioAttachment`, used for worn items | medium |
+`CBoneMergeCache::MergeMatchingBones` asks its parent for bones on the spot
+(`bone_merge_cache.cpp:130`), and `SetupBones` is idempotent per frame
+(`c_baseanimating.cpp:2874` and `:2911`). So `_ordered`, `_worn`, `_parents`, `Depth`, `_wanted`,
+`_wearerBones` and the sort — six fields and ~40 lines — exist to guarantee an ordering the engine
+gets by asking. See finding 35 §1.
+
+Confirmed absent from the pose path, each by a search with a control: bone controllers
+(`CalcBoneAdj`), IK (`m_pIk`, `CalculateIKLocks`), procedural and jiggle bones
+(`CalcProceduralBone`, `c_baseanimating.cpp:1527` and `:1546`), sequence transitions, autoplay
+sequences, `ApplyBoneMatrixTransform`, and model scale in the bone path. The `.mdl` parser never
+reads `bonecontrollerindex` or `ikchainindex`, so these are not merely unwired — the data is not
+loaded.
+
+**The jiggle gap is already written down here under another name.** `StudioBones.cs:352` records a
+`ghostly_gibus` matching 1 bone of 8 with *"the other seven stayed at the model origin"*. Those seven
+are jiggle bones, which Valve simulates (`m_pJiggleBones->BuildJiggleTransformations`,
+`c_baseanimating.cpp:1586`) rather than merging. A comment describing a symptom without naming the
+missing feature is exactly what a denominator prevents.
+
+#### The denominator now exists — `BoneSetupConformanceTests`, 2026-08-24
+
+`tests/Tf2DemoSalvage.Animation.Tests`, plain `net10.0`, in `build/gate.sh` at a floor of 10 and in
+CI. `SdkInventory.FunctionBody` brace-matches `StandardBlendingRules` out of the SDK and
+`SdkInventory.CallsIn` lists what it calls, in engine order; the test fails on a call nobody has
+classified, never on a gap.
+
+**It corrected the list above on its first green run, twice over, which is the argument for it:**
+
+- **Twelve stages, not seven.** The missing five were `GetPoseParameters`, the `IBoneSetup`
+  construction that carries the **bone mask**, `Init` (the autoplay IK context), `GetBoneControllers`
+  and `ChildLayerBlend`.
+- **`ChildLayerBlend` is DEAD CODE in the shipped engine.** Its body's first statement is `return;`,
+  and what follows is four `FIXME`s including *"needs a new type of EF_BONEMERGE (EF_CHILDMERGE?)"*
+  and *"probably needs an IK merge system of some sort =("*. **Matching Valve here means doing
+  nothing.** Had the hand-written list happened to include it, it would have been filed as a gap and
+  cost ~40 lines of work reproducing something that never runs — a departure wearing the costume of
+  parity.
+
+**And the instrument was wrong before the denominator was.** Its first run reported `AddTextOverlay`,
+`GetAbsOrigin` and `Vector` as engine stages, all three from one commented-out line. Comments and
+string literals are now blanked before the scan (`SdkInventory.Live`), with eight tests covering it
+— including the control that ordinary code still yields every call, without which a blanking that
+ate everything would satisfy all the others.
 
 #### What to do
 
@@ -10077,11 +10110,49 @@ parameters. Then each stage is either implemented, deliberately skipped with a r
 gap — and the list cannot go stale, because it is read from `c_baseanimating.cpp` rather than typed
 here.
 
+Still to extend the same way, since `StandardBlendingRules` is only the blend half:
+`SetupBones` itself, `BuildTransformations`, `CalculateIKLocks` and `SetupBones_AttachmentHelper`.
+
 **Do this before or alongside B181, not after.** B181 splits the loop into stages; knowing the
 engine's stage list first means splitting along the engine's seams rather than along whatever the
 current code happens to do — which is exactly the divergence being complained about.
 
-### B181 — split the entity pose loop, then replace the depth sort with recursion — OPEN, OWNER WANTS THIS DONE
+### B181 — CLOSED 2026-08-24. The loop was split and the ordering deleted
+
+**Both halves are done.** The ordering went first (D88), then the three subsystems that were sharing
+the loop's iteration variable.
+
+*Measured*, and the numbers are the point:
+
+| | loop body | of which code | whole method |
+|---|---|---|---|
+| before | 401 | 200 | 513 |
+| after | 170 | **87** | 204 |
+
+**What came out, and where it went:**
+
+- `ModelLighting` — the illumination point, the exact-bits cache, the brush-entity rule and the
+  drew-black warning. About sixty lines, and none of them are about posing a model: lighting is not
+  in Valve's bone path at all, which is what makes this the natural seam rather than an arbitrary
+  one.
+- `ModelReports` — the four once-per-thing lines. Deleting them was never the answer; each exists
+  because something was once diagnosable from the picture and from nothing in the log. What is worth
+  keeping together is that **each dedupes on a different thing** — per model, per entity, or on a
+  change of more than a unit — and getting that wrong is how one line printed 1,280 times a second
+  (B163) and another let a bright control point silence a dark one for ever.
+- `DrawTally` — the four-category accounting, with the change guard AND the rate limit that had to be
+  paired because the counts oscillate.
+
+Deleted outright with the ordering: `_ordered`, `_worn`, `_wanted`, `_wearerBones`, `_parents`,
+`Depth()`, the sort, `Merge()`, `_mergeMaps`, `Worn`, `WearerBoneAt`, `Matched`, `Unmatched`, and
+`transform = worn.Where`.
+
+**The owner's original complaint is answered on its own terms.** It was not "this is ugly" — it was
+*"a loop body of 150 fucking lines is a massive code smell"* and *"i dont trust how far its deverged
+from valves implementation"*. The size is now 87 lines of code, and the divergence it was hiding is
+recorded in `docs/findings/35-the-bone-pipeline-audit.md` rather than left to be rediscovered.
+
+### B181 — the original filing, kept for the reasoning — CLOSED, see above
 
 **This is a work order, not an observation.** The owner, on the depth sort being kept:
 
@@ -10106,6 +10177,12 @@ justification is recorded rather than quietly dropped.
 
 #### What to change, in order
 
+**Measured 2026-08-24, because "150 lines" was an understatement.** The loop body is **401 lines, 200
+of them code**; the whole method is 513 lines, 260 code. By line count, **~177 of those 200 code
+lines are not pose work at all** — ~60 lighting, ~79 logging, ~38 rejection accounting. It is not a
+long loop, it is five subsystems sharing an iteration variable, which is why the engine's stage
+boundaries are invisible in it. Finding 35 §0 has the table.
+
 **1. Split `EntityModelSet.Instances`** (`managed/Tf2DemoSalvage.Scene/EntityModels.cs`). One loop
 body currently does six jobs, each already its own commented paragraph:
 
@@ -10121,7 +10198,9 @@ body currently does six jobs, each already its own commented paragraph:
 The block is long enough that bugs lived in it unseen: the record step was an `else if` on the merge
 branch, so nothing could hang off an attached prop, and it read as deliberate for weeks.
 
-**2. Then replace the ordering with recursion**, matching `C_BaseAnimating::DrawModel`:
+**2. Then DELETE the ordering. There is nothing to replace it with.** This wording is corrected from
+the original filing, which said "replace the depth sort with recursion" — that is where the
+recursion lives in `C_BaseAnimating::DrawModel`:
 
 ```cpp
 C_BaseAnimating *follow = FindFollowedEntity();
@@ -10133,10 +10212,22 @@ if ( follow )
 }
 ```
 
-Pose-with-parent becomes a function that calls itself for the parent first. Valve pairs this with
-`m_iMostRecentModelBoneCounter`, a per-frame cache so a parent shared by several children is built
-once — **that cache is required**, or a player wearing six items poses six times. The depth sort got
-that free, which is the one thing the recursion must not lose.
+but it is **not where the ordering problem is solved**. That is `bone_merge_cache.cpp:130`, inside
+the merge itself:
+
+```cpp
+// Have the entity we're following setup its bones.
+bool bWorked = m_pFollow->SetupBones( NULL, -1, m_nFollowBoneSetupMask, gpGlobals->curtime );
+```
+
+The merge demands its parent's bones where it stands. There is no list, no pass, no sort, no depth
+computation anywhere in the engine's version. So the depth sort is not a worse implementation of
+Valve's recursion — it is ~40 lines solving a problem the engine's structure never creates.
+
+Valve pairs the demand-driven call with two per-frame guards — `m_iMostRecentModelBoneCounter !=
+g_iModelBoneCounter` (`c_baseanimating.cpp:2874`, bumped at `:3153`) and the readable-bones early-out
+at `:2911`. **Those are required**, or a player worn by six items poses six times. The depth sort got
+that guarantee free, and it is the one thing the rewrite must not lose.
 
 #### Traps, all paid for once already
 
@@ -10156,20 +10247,339 @@ that free, which is the one thing the recursion must not lose.
 the pose path. And the observable check the owner already made by eye: weapons in other players'
 hands, holstered ones absent, wearables (Mantreads, demo shields, Razorback) present.
 
-### B180 — a weapon attachment's chained bones may be the parent's own, not its merged ones — OPEN
+### B180 — a chained child merges onto its parent's UNMERGED bones — OPEN, CONFIRMED STRUCTURALLY
 
-**Filed 2026-08-24, unverified and stated as such.** With the depth sort in place, a prop hanging off
-another prop now finds its parent recorded. What is recorded is `boneToWorld`, which is assigned from
-`posed.BoneToWorld` — the prop's OWN posed skeleton — while `bones` is what the merge rewrites. So a
-chained child may be merging onto its parent's unmerged bone positions placed at the parent's
-transform.
+**Filed 2026-08-24 as unverified; upgraded the same day by reading both sides.** With the depth sort
+in place, a prop hanging off another prop now finds its parent recorded. What is recorded is
+`boneToWorld`, assigned from `posed.BoneToWorld` — the prop's OWN posed skeleton — while `bones` is
+what the merge rewrites.
 
-That is right or nearly right for a weapon, whose bones are in its own model space and whose
-transform is the player's, and it may be visibly wrong for anything whose parent is itself deformed.
+**The engine's arrangement makes it clear this is a defect rather than a stylistic difference.**
+`MergeMatchingBones` writes with `m_pOwner->GetBoneForWrite( iOwnerBone )`
+(`bone_merge_cache.cpp:167`), `BuildTransformations` runs the merge FIRST
+(`c_baseanimating.cpp:1496`), skips merged bones in its per-bone loop (`:1519`), and builds every
+unmerged one from `GetBone( parent )` (`:1595`) — **the same array**. A bone whose parent was merged
+therefore rides the merged position automatically. There is one bone array per entity and the merge
+is in it.
 
-**No measurement either way yet**, which is why this is filed rather than fixed: the observable test
-is whether a weapon attachment sits correctly on a weapon, and the attachment that prompted it is
-currently drawing as the missing-material chequer, so it cannot be judged by looking.
+Ours keeps two, and records the wrong one. For an attachment on a weapon on a player the recorded
+pair is bones in **weapon** model space with a transform in **player** model space
+(`EntityModels.cs:1077` overwrites `transform`, `:1154` records the unmerged `boneToWorld`). Those
+are different spaces.
+
+**Still unmeasured on screen**, and it may stay that way until the chequer is fixed: the only
+chained case in the corpus is the weapon attachment currently drawing as the missing-material
+chequer, so where it sits cannot be judged by looking.
+
+**The fix is not a one-liner.** `StudioBones.MergeOnto` returns *skinning* matrices, and what the
+next link needs is bone-to-world. It has to return both, as `StudioBones.Skeleton` already does with
+`new StudioSkeleton(skinning, boneToWorld)`.
+
+### B188 — MainForm is 87% of the viewer, and the viewmodel bugs all live in it — OPEN
+
+**The owner, 2026-08-24**, on being told B186, B187 and B170 all point at the viewmodel pass:
+
+> *"i think we actually need to fix the viewer becoming a fat viewer when i shouldnt have too,
+> before we can fix those viewmodel bugs, because the bugs are going to have to change that file,
+> and theres no need doing double work"*
+
+That is the same argument as doing B182 before B181 — split along the seams before working inside
+them, or the work is done twice — and it is right for the same reason.
+
+#### Measured, 2026-08-24
+
+`MainForm.cs` is **7,263 lines, 3,444 of them code**, against **8,303 lines in the whole
+`Tf2DemoSalvage.Viewer3D` project**. So one file is **87%** of the viewer. The next largest is
+`TransportBar.cs` at 382.
+
+Its largest members, and each is a separate job:
+
+| lines | member | what it is |
+|---|---|---|
+| 727 | the constructor | menus, layout, wiring |
+| 366 | `PlaySounds` | audio scheduling |
+| 348 | `ShowMoment` | scene assembly per tick |
+| **319** | **`AddViewmodel`** | **the viewmodel pass** |
+| 275 | `ReadMap` | asset loading |
+| 198 | `SetFullScreen` | window state |
+| 192 | `ReportWeapons` | diagnostics |
+| 168 | `ProjectMap` | projection |
+| 162 | `RenderFrame` | the frame loop |
+| 150 / 128 / 100 | `FreeLookCamera`, `FlyCamera`, `ViewMatrix` | the camera |
+
+#### Why this is a defect and not an aesthetic complaint
+
+**D54 chose MVP so the boundary would be a compiler error rather than a convention.** D62 built the
+first presenter and moved playback out. Nothing else followed. So the pattern the project committed
+to is holding one method's worth of ground out of a 3,444-line file, and everything written since has
+gone into the form because that is where its neighbours are — the same drift B184 records for the
+test project, in the other direction.
+
+**And it has a measurable cost right now**, which is what makes it a risk rather than a wish: the
+three open viewmodel bugs all have to change `AddViewmodel`, and `AddViewmodel` cannot be tested
+without constructing a `MainForm` — which needs the STA, a device, and the desktop lock. That is why
+`viewmodel pass skipped` has been in every log this evening with nobody able to assert on it.
+
+#### B184 is the tests for this, and that is the owner's framing rather than a coincidence
+
+> *"B188 and B184 are connected, 184 is worse than 188 itself but they are connected because 184 is
+> the tests for 188"*
+
+Right, and it changes what "fixing B188" means. The 115 Windows-pinned test files are not pinned
+because they need Windows — four of the 119 do. They are pinned because they live beside those four,
+and what most of them exercise is what lives in `MainForm`.
+
+So the two are one job seen from both ends. **A piece extracted from `MainForm` can be tested from a
+`net10.0` project**, which is precisely what B184 costs today: no Stryker, no Linux measurement box.
+`Viewer3D.Tests/GlobalUsings.cs` already promised this after D59 — *"the suite follows its subjects
+across in its own change"* — and the subjects moved while the tests did not.
+
+**The test for a piece therefore moves in the same commit that moves the piece.** Anything else
+recreates the pin one file at a time, which is how it got to 115.
+
+**And it decides WHERE each piece goes.** `AddViewmodel` needs `EntityModelSet`, the timeline and a
+camera, and none of that is WinForms — so it belongs in `Tf2DemoSalvage.Scene`, not in a new folder
+under the viewer. What stays behind is what genuinely needs a window: the menus, the message pump,
+full screen, the key handling.
+
+#### What to pull out, in the order that pays
+
+Not a general tidy-up. The point is to extract what the pending work touches and stop:
+
+1. **`AddViewmodel` → its own type.** *Measured*: it reads about fifteen real form fields, the rest
+   of what it names being SDK string literals (`_szHandModelName`, `_iItemDefinitionIndex`) and model
+   path fragments. That is a collaborator, not a knot.
+2. **`ShowMoment`**, which feeds it.
+3. Stop there. The camera (378 lines across three members) and `PlaySounds` (366) are bigger and
+   cohesive, and splitting them now is the double work this entry exists to avoid — in the other
+   direction.
+
+**The test that becomes possible is the point of the exercise**, not the line count: a viewmodel pass
+that is a type takes a fake and can be asserted without a window, which is what B186 and B187 need
+and what nothing in this repository can do today.
+
+### B187 — the debug views do not apply to viewmodels — OPEN
+
+**Reported by the owner 2026-08-24**, alongside B186 and B170 as things that survived the D88 bone
+work rather than being caused by it: *"the dubug views not applying to viewmodels"*.
+
+`mat_drawflat`, `mat_luxels`, `mat_normalmaps`, `mat_bumpbasis`, `mat_fullbright` and the wireframe
+all change the world and leave the first-person weapon alone. So the one view where a texture
+problem is most visible — B170's washed-out viewmodels — cannot be inspected with the tools built
+for exactly that job.
+
+**Likely the same root as B186**: the viewmodel pass is a separate draw with its own state, and
+whatever carries the debug mode into the world pass is not carried into it. Worth checking together,
+and worth checking BEFORE B170 — a debug view that worked would probably diagnose B170 in one run.
+
+### B186 — attachments do not show in first person — OPEN
+
+**Reported by the owner 2026-08-24**: *"the attachments not showing in first person"*. Distinct from
+B180 and from the magenta chequer: those are about where an attachment lands and what it is painted
+with, and this is about it not being drawn at all when the camera is the wearer.
+
+Unmeasured. The obvious suspects are the first-person visibility filter, which decides what a player
+sees of their own body, and the viewmodel pass being a separate draw that may not receive attached
+entities at all — the same seam as B187.
+
+### B185 — the viewer suite peaks at 21 GB, so any concurrent load OOMs it — OPEN
+
+**Measured 2026-08-24**, while diagnosing what looked like a regression and was not.
+
+A full `Tf2DemoSalvage.Viewer3D.Tests` run peaks at **21,232 MB** on the current commit and
+**21,832 MB** on the one before it — sampled by polling every `testhost` process's working set for
+the length of the run. The machine has 31.9 GB. So the suite normally succeeds with about ten
+gigabytes of headroom and fails the moment anything else wants memory.
+
+**What it looks like when it tips is not a memory error.** It is an
+`OutOfMemoryException` inside `PropModels.Load`'s `List<T>.AddWithResize` — the largest allocator in
+the process, which is where exhaustion lands rather than where it is caused — and the tests it kills
+are *different every run*: eleven one time, three the next, two the next. Every one of them passes in
+isolation.
+
+That combination reads exactly like flake, and this repository's standing rule says flake is a defect
+rather than noise. It is: the defect is that the suite's peak sits close enough to the machine's
+ceiling that scheduling decides the outcome.
+
+**It cost a full diagnosis to rule out as a regression**, which is the argument for filing it. The
+sequence was: full suite fails, previous commit passes, therefore mine. The measurement inverted
+that — the current commit uses *less* memory, consistent with the new pose path allocating two arrays
+per bone where the old one allocated three. What had actually changed was that a second build was
+running in a comparison worktree at the same time.
+
+#### The symptom is capped, the cause is not — 2026-08-24
+
+`[assembly: LevelOfParallelism(3)]` in `AssemblyTestPolicy.cs`. NUnit's default is one worker per
+processor, so on a machine with cores to spare the suite tries to hold that many maps at once. Three
+is measured rather than chosen: **0 failures at 3 against 12 at the default**, back to back with
+nothing else running, and the run takes **2m08s against 2m11s** — so the cap costs nothing.
+
+**It is declared as a symptom cap, in the file and here.** What it does not do is bound the memory:
+`MapCache` still retains a full map per fixture and nothing limits how many are live. The real fix is
+there, and the three suspects are still the ones to check with a heap snapshot rather than an
+argument — the `Lazy` retention, the static prop vertex buffers each load builds, and whether the
+cache could hold one map at a time.
+
+Until somebody does that, a suite that fails at random is worse than one that runs at the same speed
+with fewer workers. Reopen this as soon as the peak is actually reduced, and the cap should come off
+with it.
+
+Worth pairing with B184's observation that 115 of 119 files here need nothing from Windows: a suite
+that ran on the Linux measurement boxes could be given a memory ceiling and would fail loudly instead
+of at random.
+
+### B184 — 115 of 119 test files are pinned to Windows for no reason — OPEN
+
+**Filed 2026-08-24**, prompted by the owner:
+
+> *"make new projects if you need too, iff things can come out of a windows only project expecially"*
+
+*Measured.* `tests/Tf2DemoSalvage.Viewer3D.Tests` targets `net10.0-windows` and holds **119 test
+files**. Only **four** reference anything Windows-only — `FreeFlightTests`, `FullScreenTests`,
+`MainFormTests`, `PngWriterTests`. The other 115 are pinned to a Windows TFM by their project file
+alone.
+
+Two projects legitimately need `net10.0-windows`: `Fonts` (GDI, for the pixel parity D84 requires)
+and `Viewer3D` (WinForms). Nothing else does, and `Render` is deliberately plain `net10.0` (D60/D61)
+precisely so the renderer is not trapped.
+
+**Why this is a defect and not tidiness.** A Windows-pinned test project cannot host a test for
+anything cross-platform, so the pin propagates: the next piece of pure logic that wants a home gets
+written where its neighbours are, and the boundary moves outward. It has already happened once —
+`SdkInventory.cs` is pure text extraction from the SDK with no platform surface at all, and it sits
+in the Windows-only project while `tests/Tf2DemoSalvage.SdkReference` (`net10.0`) exists for exactly
+this and is already referenced by four other test projects.
+
+#### How it got this way, since the obvious explanation is wrong
+
+The owner's guess:
+
+> *"the MVP refactor was suppose to take care of most of those tests that didnt need windows, idk
+> what happened, maybe that project went from not being windows only to being windows only"*
+
+**It never flipped.** *Measured* across every commit that touched the project file — `c0765d1`,
+`ed146fc`, `63eb9fa`, `85338f1` — the TFM reads `net10.0-windows` at all four. `c0765d1` ("Host the
+viewport in a WinForms shell", 2026-08-12) **created** the project, and it created it with exactly
+one test file: `MainFormTests.cs`, which is one of the four that genuinely needs Windows.
+
+So the project was correct on the day it was born, and the drift ran the other way: it is the
+viewer's test project, so for the next twelve days anything viewer-adjacent was written there by
+proximity — 118 more files, 114 of which have no platform surface.
+
+#### Measured against MVP's actual goal, this is a failure and not a partial success
+
+The assistant first wrote that the MVP refactor "did work" and merely had not emptied the old
+project. The owner corrected the premise:
+
+> *"no you are thinking the opposite of what the MVP refactor was for, it wass to be able to test
+> more on linux, and have compile time safety"*
+
+**And D62 says so in its own words**, which makes this checkable rather than a matter of
+recollection: *"Sixteen tests, no window, no STA thread, no `run-exclusive.ps1`, and it runs on the
+Linux boxes."* D54's reason for MVP over MVVM is the other half — *"MVP's boundary can be made a
+compiler error, not just a convention someone (or something) has to remember to follow."*
+
+So the goal was **more tests running on Linux**, and a boundary the compiler enforces. Against that
+goal, 115 Linux-capable test files pinned to a Windows TFM is not a leftover. It is the goal, 96%
+unmet in the project that holds most of the tests — however well the presenter layer itself was done.
+
+#### The cost, and it lands directly on the D88 work
+
+*Measured.* **Eighteen test files covering the pose path** — `EntityModelSet`, `StudioBones`,
+`PropModels` — live in `Viewer3D.Tests`, while `Tf2DemoSalvage.Scene` itself is plain `net10.0`. So
+the tests for a cross-platform project are pinned to Windows by their host.
+
+Two consequences follow, and the second is the serious one:
+
+- They cannot run on the ARM64 measurement boxes, which is exactly what D62 set out to fix.
+- **`Tf2DemoSalvage.Scene` has no Stryker config at all.** Six configs exist — Audio, Cli, Content,
+  Core, Corpus, Viewer3D — and `Viewer3D.Tests`' mutates `Tf2DemoSalvage.Viewer3D.csproj`, the
+  WinForms shell, not Scene. So the project holding the 200-line pose loop, the densest behaviour in
+  the renderer, **has never been mutation tested**, against a standing project rule that says to run
+  Stryker on every C# test project. Nor could it easily be, since mutation runs happen on Linux.
+
+That is why `Tf2DemoSalvage.Animation` and its tests are both plain `net10.0` from the first commit,
+with a Stryker config of their own: the new pipeline must not inherit this.
+
+#### Already known and deferred with a note, which is worth crediting
+
+`Viewer3D.Tests/GlobalUsings.cs` says it outright: *"of its 570 tests, 506 never touch Direct3D. The
+split on 2026-08-22 (D59) moved their subjects into their own assembly without moving the tests, so
+this keeps every existing file compiling while the suite follows its subjects across in its own
+change."* So this was a conscious deferral with a plan attached, not an oversight. What B184 adds is
+the **cost** — the Linux and Stryker consequences above — which that note does not state and which
+is what turns "follow later" into a thing worth scheduling.
+
+#### Scope when it is done — owner's direction, 2026-08-24
+
+> *"yea that can wait, although when we fix that we also should move the tests projects that are not
+> in the test folder into the test folder its weird we have like 2 test projects outside the tests
+> folder"*
+
+**Deferred, and only `SdkInventory` moves now** because the D88 denominator cannot reach it
+otherwise.
+
+*Measured*, and the recollection is right about the symptom while the cause is in the **solution
+file rather than on disk** — which is why it reads as odd without being findable.
+
+On disk the layout is clean: exactly one project sits outside `tests/`,
+`benchmarks/Tf2DemoSalvage.Benchmarks`, and that looks deliberate — benchmarks are a separate
+workload that must not run on the shared cloud boxes.
+
+In `Tf2DemoSalvage.slnx`, **three test projects were filed under the `/managed/` solution folder**:
+`Presentation.Tests`, `Viewer3D.Tests` and `Viewer3D.UiTests`, with `Benchmarks` there too. So a
+solution view showed test projects sitting among the libraries, on paths that say `tests/`. The
+owner, confirming after the first guess in this entry was too clever:
+
+> *"no im talking about if i open the project in vs2026 the solution has 2 folders, managed and
+> tests, but the viewer3d, ui, and presenter tests projects are in the managed folder not the tests
+> folder"*
+
+**Fixed 2026-08-24, not deferred** — it is four lines in the `.slnx` and nothing on disk moves.
+`Benchmarks` got a `/benchmarks/` folder of its own to match its directory, since a benchmark is
+neither a library nor a test and putting it in either misfiles it again. The two entries below
+outrank the alphabetical urge to tidy them away.
+
+Two things inside `tests/` are also **not** test projects, which is fine and worth not
+"correcting": `Tf2DemoSalvage.SdkReference` sets `IsTestProject=false` and is a library four suites
+reference, and `Tf2DemoSalvage.Fuzz` is a SharpFuzz harness. Neither is discovered by the runner,
+which is deliberate — an assembly with no tests reports as a suite whose total silently changed.
+
+**Being done incrementally rather than as a 115-file churn.** `SdkInventory` moves to
+`SdkReference` as part of the D88 bone work, because the new `Tf2DemoSalvage.Animation.Tests`
+(`net10.0`) needs it for the pose-pipeline denominator and cannot reference a Windows-only assembly.
+The remaining ~114 are a separate job; the count is recorded here so it is not rediscovered.
+
+### B183 — a merged item's own animation is computed and thrown away — OPEN
+
+**Filed 2026-08-24, from finding 35 §2.** Two defects with one cause.
+
+`Merge` (`EntityModels.cs:1236`) takes the item's own posed matrices as `own` and **uses them only on
+the early return** for a wearer with no skeleton. Every other path returns
+`StudioBones.MergeOnto(skinned.Bones, wearer.Bones, map)`, which never receives `own`. Inside
+`MergeOnto` (`StudioBones.cs:376`), an unmatched bone is rebuilt from `bone.Rotation` /
+`bone.Position` — **the rest pose local**.
+
+Valve builds an unmatched bone from the ANIMATED local. `c_baseanimating.cpp:1595`:
+
+```cpp
+ConcatTransforms( GetBone( hdr->boneParent(i) ), bonematrix, GetBoneForWrite( i ) );
+```
+
+with `bonematrix` from `QuaternionMatrix( q[i], pos[i], bonematrix )` — `q` and `pos` being what
+`StandardBlendingRules` just produced.
+
+So:
+
+1. **A merged item's own moving parts are frozen at rest.** Invisible on a hat; not on a weapon
+   merged into a hand, whose animated bones are unmatched by definition because no player has them.
+2. **`Skeleton()` runs per merged prop per frame and is discarded.** `EntityModels.cs:1007` builds
+   the skeleton with its sequence, frame and pose parameters; `:1076` replaces it wholesale. The
+   posing cost is real — the blend grid and the frame decode — and the result is dropped.
+
+The second is the no-op shape `CLAUDE.md` warns about: unit-tested, wired up, and never reaching
+output. **Unmeasured in milliseconds**; the structural claim is from reading, and posing is ~420 ms
+of every second overall (B99), so it is worth measuring while this code is open.
 
 ### B179 — the UI suite runs in CI, where the game it needs cannot exist
 

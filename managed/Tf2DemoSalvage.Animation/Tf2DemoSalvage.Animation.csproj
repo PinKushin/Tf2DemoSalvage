@@ -1,0 +1,55 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Valve's bone pipeline, ported to match its ARCHITECTURE and not merely its output (D88).
+
+    The owner, after the audit in docs/findings/35-the-bone-pipeline-audit.md found the old pose
+    loop had diverged structurally rather than cosmetically: "all of the architecture needs to match
+    valves", and "im going for the option that is 100% parity".
+
+    **Why a project of its own rather than more files in Scene.** Two reasons, and the first is
+    Valve's own layout:
+
+      1. The SDK splits this in half and the halves have different natures. src/public/bone_setup.cpp
+         is computation over a studio header - InitPose, AccumulatePose, CalcBoneAdj, CalcAutoplay-
+         Sequences, the IK solver - and knows nothing about entities. game/client/c_baseanimating.cpp
+         is the per-entity object that owns a bone cache and drives it. Mirrored here as the
+         BoneSetup/ and Animating/ folders.
+
+      2. Scene is where the 200-line loop lived, and the loop was 200 lines precisely because
+         posing, lighting, logging and instance emission had no boundary between them. Giving the
+         pipeline an assembly is what makes "the engine's stage list" checkable rather than a claim.
+
+    **References Content and Logging, and NOTHING else - that restriction is the design.** Not Core,
+    not Scene, not Render. Valve's bone setup has no notion of a demo, a tick or a scene prop, and
+    neither does this: the parent link an entity follows is a property somebody else sets, the way
+    C_BaseAnimating::GetMoveParent is. A reference added here should be treated as a design change
+    needing a reason, not a convenience.
+
+    **Plain net10.0, deliberately, and it is not a formality (B184).** Measured 2026-08-24: 115 of
+    119 test files in Viewer3D.Tests need nothing from Windows, and Tf2DemoSalvage.Scene - which is
+    itself net10.0 - has no Stryker config at all, because 18 of its pose-path test files live in
+    that Windows-pinned project and mutation runs happen on Linux ARM boxes. So the densest
+    behaviour in the renderer has never been mutation tested. This project ships with its own tests
+    on net10.0 and its own Stryker config so it cannot inherit that.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Tf2DemoSalvage.Animation</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Tf2DemoSalvage.Animation.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Parsed studio data: bones, sequences, blend grids, attachments. The equivalent of the
+         CStudioHdr that every bone_setup.cpp entry point takes. -->
+    <ProjectReference Include="..\Tf2DemoSalvage.Content\Tf2DemoSalvage.Content.csproj" />
+
+    <!-- ILogger, per D83. The pipeline reports under its own category so a pose question can be
+         answered from a log rather than by re-running with a breakpoint. -->
+    <ProjectReference Include="..\Tf2DemoSalvage.Logging\Tf2DemoSalvage.Logging.csproj" />
+  </ItemGroup>
+
+</Project>

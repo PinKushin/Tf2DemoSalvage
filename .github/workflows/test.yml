@@ -94,6 +94,22 @@ jobs:
           dotnet test tests/Tf2DemoSalvage.Logging.Tests -c Release
           --logger 'trx;LogFileName=logging.trx'
 
+      # The bone pipeline's denominator (B182). It reads source-sdk-2013, which a hosted runner does
+      # not have, so the two conformance tests Assert.Ignore here and the eight instrument tests run
+      # for real. That split is deliberate: the instrument is what was wrong first, and it is the
+      # half that needs no checkout.
+      - name: Animation
+        run: >
+          dotnet test tests/Tf2DemoSalvage.Animation.Tests -c Release
+          --logger 'trx;LogFileName=animation.trx'
+
+      # The scene layer's own suite (B184). Device-free and net10.0, so unlike the tests of Scene
+      # that live in Viewer3D.Tests it runs here and on the Linux measurement boxes.
+      - name: Scene
+        run: >
+          dotnet test tests/Tf2DemoSalvage.Scene.Tests -c Release
+          --logger 'trx;LogFileName=scene.trx'
+
       - name: Check the counts
         # "Passed!" is not the result, the count is. A crashed test host prints a pass line with
         # a truncated total, and a --filter matching nothing exits 0 with no summary at all.
@@ -130,9 +146,25 @@ jobs:
           # appears on a runner too. Confirm against the next green run's .trx and tighten if it
           # disagrees — the standing rule here is that an arithmetic floor is a guess wearing a
           # number, and this one is only safe because the added tests read no game files.
-          ./build/assert-test-count.sh '**/content.trx' 645 Content
+          # 645 -> 656 is ARITHMETIC again: 11 tests added on 2026-08-24 (BonePipelineStructTests 10,
+          # BonePipelineStructProbe 1). All eleven need source-sdk-2013, which a runner does not
+          # have, so all eleven Assert.Ignore here — and a .trx total counts skipped tests, so they
+          # still appear. Confirm against the next green run and tighten if it disagrees.
+          # 656 -> 673: 17 more on 2026-08-24 (BoneFlagReaderTests 6, BoneFlagContentTests 10,
+          # BoneFlagContentProbe 1). The reader tests build their own bytes and run anywhere; the
+          # content ones need TF2 installed and Assert.Ignore on a runner, which still counts in the
+          # .trx total.
+          # 673 -> 686: 13 more (StudioIkChainTests 7, StudioBoneControllerTests 5, one capacity
+          # guard). All but one IK test build their own bytes and run anywhere.
+          ./build/assert-test-count.sh '**/content.trx' 686 Content
           ./build/assert-test-count.sh '**/presentation.trx' 135 Presentation
           ./build/assert-test-count.sh '**/logging.trx' 17 Logging
+          # 10 is MEASURED locally and safe on a runner without the SDK, because a .trx total counts
+          # skipped tests: the two conformance cases Assert.Ignore where source-sdk-2013 is absent
+          # and still appear in the total. That is the same reason Content's 645 holds while it
+          # executes a fraction of its cases here.
+          ./build/assert-test-count.sh '**/animation.trx' 41 Animation
+          ./build/assert-test-count.sh '**/scene.trx' 23 Scene
 
       # **Coverage, gated PER ASSEMBLY rather than per report.** A Cobertura file's root line-rate
       # averages every assembly the run loaded, including ones the suite never touches — measured
@@ -341,7 +373,7 @@ jobs:
         run: |
           ./build/assert-test-count.sh '**/audio.trx' 116 Audio
           ./build/assert-test-count.sh '**/fonts.trx' 7 Fonts
-          ./build/assert-test-count.sh '**/viewer.trx' 641 Viewer
+          ./build/assert-test-count.sh '**/viewer.trx' 645 Viewer
           ./build/assert-test-count.sh '**/viewer-ui.trx' 14 ViewerUi
           ./build/assert-test-count.sh '**/corpus.trx' 106 Corpus
 

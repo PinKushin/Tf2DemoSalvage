@@ -70,4 +70,61 @@ internal static class SyntheticSkinnedModel
             PoseParameters: [],
             MasterPose: []);
     }
+
+    /// <summary>A model with exactly one bone, for driving the pose path end to end.</summary>
+    /// <remarks>
+    /// **<see cref="With"/> builds <c>Bones: []</c>**, which is enough for the sequence-selection
+    /// tests it was written for and not enough for anything that actually poses. A model with no
+    /// bones is refused by <c>SetupBones</c> before it does anything, so a fixture built that way
+    /// cannot tell a working pose path from an absent one.
+    ///
+    /// One bone at the origin with an identity rest pose, so whatever comes out the far end is the
+    /// ENTITY's placement and nothing else — which is what makes it possible to assert where a
+    /// skinned model ends up.
+    /// </remarks>
+    public static PropModels.SkinnedModel WithOneBone() => WithBones("root");
+
+    /// <summary>A model with the named bones, all at the origin, all children of the first.</summary>
+    /// <param name="names">
+    /// Bone names. These decide what MERGES: a name the wearer also has is taken from the wearer, a
+    /// name it does not have is built from this model's own placement.
+    /// </param>
+    /// <remarks>
+    /// **The names are the whole point, and a fixture that shares all of them cannot see a merge
+    /// failure.** A test giving both models one bone called <c>root</c> passes whether or not the
+    /// entity's placement resolves, because the merge supplies the answer either way — measured
+    /// 2026-08-24, when exactly that fixture failed to catch weapons drawn at the map origin.
+    ///
+    /// A real weapon shares two bones of five with its wielder. The three it does not share are the
+    /// ones that expose whether the entity was placed, so a fixture for that question needs at
+    /// least one unshared name.
+    /// </remarks>
+    public static PropModels.SkinnedModel WithBones(params string[] names)
+    {
+        List<StudioBone> bones =
+        [
+            .. names.Select((name, index) => new StudioBone(
+                Name: name,
+                Parent: index == 0 ? -1 : 0,
+                Position: (0f, 0f, 0f),
+                Rotation: (0f, 0f, 0f, 1f),
+                PoseToBone: new float[] { 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f },
+                Flags: ~0)),
+        ];
+
+        List<(int Group, IReadOnlyList<StudioSequence> Sequences)> groups =
+        [
+            (0, [new StudioSequence(
+                Animation: 0, Flags: 0, Label: "idle", Blend: null,
+                Activity: "idle", ActivityWeight: Weight)]),
+        ];
+
+        return new PropModels.SkinnedModel(
+            Bones: bones,
+            Models: [[]],
+            Sequences: StudioSequenceTable.Merge(groups),
+            Groups: groups,
+            PoseParameters: [],
+            MasterPose: []);
+    }
 }

@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The bone pipeline's suite, and its conformance denominator.
+
+    Plain net10.0, like the project it covers, so it runs on the Linux measurement boxes and can be
+    mutation tested there. That is not boilerplate here - it is the specific defect B184 records:
+    Tf2DemoSalvage.Scene is net10.0 and has NO Stryker config, because 18 of its pose-path test
+    files sit in the Windows-pinned Viewer3D.Tests. The densest behaviour in the renderer has never
+    been mutated. This project exists partly so the replacement cannot repeat that.
+
+    References SdkReference, which is what makes the denominator possible: the stage list for
+    C_BaseAnimating::StandardBlendingRules is EXTRACTED from source-sdk-2013 rather than typed here,
+    so it cannot go stale while looking complete. That is the SdkCoverageTests pattern, and B182
+    exists because the pose path was the one subsystem without it.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Tf2DemoSalvage.Animation.Tests</RootNamespace>
+    <IsTestProject>true</IsTestProject>
+
+    <!-- NUnit discovers public fixtures; CA1515 wants an application's types internal.
+         Inapplicable here rather than ignored. -->
+    <NoWarn>$(NoWarn);CA1515</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="NUnit" />
+    <PackageReference Include="NUnit3TestAdapter" />
+    <PackageReference Include="NUnit.Analyzers">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Shouldly" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\managed\Tf2DemoSalvage.Animation\Tf2DemoSalvage.Animation.csproj" />
+    <ProjectReference Include="..\Tf2DemoSalvage.SdkReference\Tf2DemoSalvage.SdkReference.csproj" />
+  </ItemGroup>
+
+</Project>

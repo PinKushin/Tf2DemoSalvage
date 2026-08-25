@@ -4,26 +4,31 @@
     <Project Path="managed/Tf2DemoSalvage.Logging/Tf2DemoSalvage.Logging.csproj" />
     <Project Path="managed/Tf2DemoSalvage.Core/Tf2DemoSalvage.Core.csproj" />
     <Project Path="managed/Tf2DemoSalvage.Content/Tf2DemoSalvage.Content.csproj" />
+    <Project Path="managed/Tf2DemoSalvage.Animation/Tf2DemoSalvage.Animation.csproj" />
     <Project Path="managed/Tf2DemoSalvage.Scene/Tf2DemoSalvage.Scene.csproj" />
     <Project Path="managed/Tf2DemoSalvage.Fonts/Tf2DemoSalvage.Fonts.csproj" />
     <Project Path="managed/Tf2DemoSalvage.Render/Tf2DemoSalvage.Render.csproj" />
     <Project Path="managed/Tf2DemoSalvage.Presentation/Tf2DemoSalvage.Presentation.csproj" />
-    <Project Path="tests/Tf2DemoSalvage.Presentation.Tests/Tf2DemoSalvage.Presentation.Tests.csproj" />
     <Project Path="managed/Tf2DemoSalvage.Viewer3D/Tf2DemoSalvage.Viewer3D.csproj" />
-    <Project Path="tests/Tf2DemoSalvage.Viewer3D.Tests/Tf2DemoSalvage.Viewer3D.Tests.csproj" />
-    <Project Path="tests/Tf2DemoSalvage.Viewer3D.UiTests/Tf2DemoSalvage.Viewer3D.UiTests.csproj" />
     <Project Path="managed/Tf2DemoSalvage.Audio/Tf2DemoSalvage.Audio.csproj" />
-    <Project Path="benchmarks/Tf2DemoSalvage.Benchmarks/Tf2DemoSalvage.Benchmarks.csproj" />
   </Folder>
   <Folder Name="/tests/">
-    <Project Path="tests/Tf2DemoSalvage.Logging.Tests/Tf2DemoSalvage.Logging.Tests.csproj" />
-    <Project Path="tests/Tf2DemoSalvage.Cli.Tests/Tf2DemoSalvage.Cli.Tests.csproj" />
-    <Project Path="tests/Tf2DemoSalvage.Corpus.Tests/Tf2DemoSalvage.Corpus.Tests.csproj" />
-    <Project Path="tests/Tf2DemoSalvage.Core.Tests/Tf2DemoSalvage.Core.Tests.csproj" />
-    <Project Path="tests/Tf2DemoSalvage.Content.Tests/Tf2DemoSalvage.Content.Tests.csproj" />
-    <Project Path="tests/Tf2DemoSalvage.Fuzz/Tf2DemoSalvage.Fuzz.csproj" />
+    <Project Path="tests/Tf2DemoSalvage.Animation.Tests/Tf2DemoSalvage.Animation.Tests.csproj" />
     <Project Path="tests/Tf2DemoSalvage.Audio.Tests/Tf2DemoSalvage.Audio.Tests.csproj" />
-    <Project Path="tests/Tf2DemoSalvage.SdkReference/Tf2DemoSalvage.SdkReference.csproj" />
+    <Project Path="tests/Tf2DemoSalvage.Cli.Tests/Tf2DemoSalvage.Cli.Tests.csproj" />
+    <Project Path="tests/Tf2DemoSalvage.Content.Tests/Tf2DemoSalvage.Content.Tests.csproj" />
+    <Project Path="tests/Tf2DemoSalvage.Core.Tests/Tf2DemoSalvage.Core.Tests.csproj" />
+    <Project Path="tests/Tf2DemoSalvage.Corpus.Tests/Tf2DemoSalvage.Corpus.Tests.csproj" />
     <Project Path="tests/Tf2DemoSalvage.Fonts.Tests/Tf2DemoSalvage.Fonts.Tests.csproj" />
+    <Project Path="tests/Tf2DemoSalvage.Fuzz/Tf2DemoSalvage.Fuzz.csproj" />
+    <Project Path="tests/Tf2DemoSalvage.Logging.Tests/Tf2DemoSalvage.Logging.Tests.csproj" />
+    <Project Path="tests/Tf2DemoSalvage.Presentation.Tests/Tf2DemoSalvage.Presentation.Tests.csproj" />
+    <Project Path="tests/Tf2DemoSalvage.Scene.Tests/Tf2DemoSalvage.Scene.Tests.csproj" />
+    <Project Path="tests/Tf2DemoSalvage.SdkReference/Tf2DemoSalvage.SdkReference.csproj" />
+    <Project Path="tests/Tf2DemoSalvage.Viewer3D.Tests/Tf2DemoSalvage.Viewer3D.Tests.csproj" />
+    <Project Path="tests/Tf2DemoSalvage.Viewer3D.UiTests/Tf2DemoSalvage.Viewer3D.UiTests.csproj" />
+  </Folder>
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/Tf2DemoSalvage.Benchmarks/Tf2DemoSalvage.Benchmarks.csproj" />
   </Folder>
 </Solution>

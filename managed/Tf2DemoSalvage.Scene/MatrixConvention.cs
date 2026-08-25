@@ -56,6 +56,40 @@ internal static class MatrixConvention
         ];
     }
 
+    /// <summary>A row-vector 4×4 back to Valve's <c>matrix3x4_t</c>.</summary>
+    /// <param name="model">Sixteen floats, as <see cref="ToModelMatrix"/> produces.</param>
+    /// <returns>Twelve floats, row-major, translation in column 3.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="model"/> is null.</exception>
+    /// <exception cref="ArgumentException">It is not sixteen floats.</exception>
+    /// <remarks>
+    /// **The inverse of <see cref="ToModelMatrix"/>, added because a caller crossed the boundary by
+    /// hand and got it wrong.** D88's entity placement fed a sixteen-float model matrix into
+    /// something expecting a <c>matrix3x4_t</c>; what came out was
+    /// <c>ArgumentException: Destination array was not long enough</c> at the first frame of
+    /// playback, and the size was the LUCKY half of the mistake. Had the two been the same length
+    /// the transpose would have gone unnoticed and produced a model rotated into a plausible wrong
+    /// pose.
+    ///
+    /// That is the whole reason this type exists — one implementation of the boundary, because two
+    /// is how they come to disagree.
+    /// </remarks>
+    public static float[] ToBoneMatrix(IReadOnlyList<float> model)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+
+        if (model.Count < 16)
+        {
+            throw new ArgumentException("A model matrix is sixteen floats.", nameof(model));
+        }
+
+        return
+        [
+            model[0], model[4], model[8], model[12],
+            model[1], model[5], model[9], model[13],
+            model[2], model[6], model[10], model[14],
+        ];
+    }
+
     /// <summary>Two row-vector 4×4s, applied left to right.</summary>
     /// <param name="first">Applied first.</param>
     /// <param name="second">Applied second.</param>
