@@ -3551,12 +3551,23 @@ internal class MainForm : Form
             return;
         }
 
+        // **A ledger over ShowMoment, because the frame ledger's `advance` bucket is all of it.**
+        // `AdvancePlayback` raises `MomentChanged`, which lands here — so a 180 ms `advance` says
+        // only "somewhere in the scene rebuild", across sampling, weapon roles, model reads, the
+        // upload, posing, the weapon report and ShowPlayers. Four of those seven were never timed.
+        //
+        // Same shape as the frame ledger and for the same reason (B163): phases with a residual,
+        // rather than a threshold on one event. The residual is the column that matters.
+        long momentAt = Stopwatch.GetTimestamp();
+
         long sampledAt = Stopwatch.GetTimestamp();
 
         timeline.PlayersAt(tick, _players);
         timeline.PropsAt(tick, _props);
 
         _samplingTicks += Stopwatch.GetTimestamp() - sampledAt;
+
+        long momentSampledAt = Stopwatch.GetTimestamp();
 
         // Packing is a no-op after the first sighting of each model, so this costs a dictionary
         // lookup per entity per frame once the demo has been running for a moment.
@@ -3722,6 +3733,8 @@ internal class MainForm : Form
         // ever showed as the owner's "everything freezes for a half a second to maybe a second".
         long addedAt = Stopwatch.GetTimestamp();
 
+        long momentRolesAt = addedAt;
+
         bool grew = _models.Add(_drawn, ModelGeometry);
 
         double addSeconds = (Stopwatch.GetTimestamp() - addedAt) / (double)Stopwatch.Frequency;
@@ -3845,13 +3858,27 @@ internal class MainForm : Form
 
         long posedAt = Stopwatch.GetTimestamp();
 
+        long momentUploadedAt = posedAt;
+
+        // **Read across the call rather than per second, because a total cannot see a spike.** The
+        // per-second line already reports lighting, and it says lighting is about a third of posing
+        // — but posing spiking to 168 ms on one moment and 3 ms on the next is invisible in a
+        // per-second sum. This splits the one moment that was slow.
+        long lightingBefore = _models.LightingTicks;
+
         _models.Instances(_drawn, _instances, LightAt, SunAt, seconds);
+
+        long momentLightingTicks = _models.LightingTicks - lightingBefore;
 
         AddViewmodel(seconds);
 
         _posingTicks += Stopwatch.GetTimestamp() - posedAt;
 
+        long momentPosedAt = Stopwatch.GetTimestamp();
+
         ReportWeapons();
+
+        long momentReportedAt = Stopwatch.GetTimestamp();
 
         if (_instances.Count != _lastInstanceCount)
         {
@@ -3881,6 +3908,71 @@ internal class MainForm : Form
         }
 
         ShowPlayers(_players);
+
+        ReportSlowMoment(
+            momentAt, momentSampledAt, momentRolesAt, momentUploadedAt, momentPosedAt,
+            momentReportedAt, Stopwatch.GetTimestamp(), momentLightingTicks);
+    }
+
+    /// <summary>Names where a slow scene rebuild went, when one is slow.</summary>
+    /// <param name="momentAt">Entry.</param>
+    /// <param name="sampledAt">After the timeline was sampled for players and props.</param>
+    /// <param name="rolesAt">After weapon roles, first-person filtering and visibility.</param>
+    /// <param name="uploadedAt">After models were read and the vertex buffer uploaded.</param>
+    /// <param name="posedAt">After posing and the viewmodel.</param>
+    /// <param name="reportedAt">After the weapon report.</param>
+    /// <param name="finishedAt">After ShowPlayers.</param>
+    /// <param name="lightingTicks">
+    /// What the pose phase spent sampling light, read across the call rather than per second — the
+    /// per-second total cannot tell one 168 ms moment from fifty even ones.
+    /// </param>
+    /// <remarks>
+    /// **The frame ledger says `advance`, and this says which part of it** — the two compose, so a
+    /// slow frame now names a phase and then a sub-phase rather than a range of 350 lines.
+    ///
+    /// Three of these had no timer at all before: the weapon-role and visibility stretch, the weapon
+    /// report, and ShowPlayers. `_samplingTicks` and `_posingTicks` existed but were per-second
+    /// totals, which cannot attribute a single freeze — a total says how much was spent, never
+    /// whether it was spent all at once.
+    /// </remarks>
+    private void ReportSlowMoment(
+        long momentAt,
+        long sampledAt,
+        long rolesAt,
+        long uploadedAt,
+        long posedAt,
+        long reportedAt,
+        long finishedAt,
+        long lightingTicks)
+    {
+        double total = (finishedAt - momentAt) / (double)Stopwatch.Frequency;
+
+        if (total <= StallSeconds)
+        {
+            return;
+        }
+
+        static double Ms(long from, long to) =>
+            (to - from) / (double)Stopwatch.Frequency * 1000d;
+
+        double named =
+            Ms(momentAt, sampledAt) + Ms(sampledAt, rolesAt) + Ms(rolesAt, uploadedAt) +
+            Ms(uploadedAt, posedAt) + Ms(posedAt, reportedAt) + Ms(reportedAt, finishedAt);
+
+        double lighting = lightingTicks / (double)Stopwatch.Frequency * 1000d;
+
+        _renderLog.LogWarning(
+            "{Message}",
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"SLOW MOMENT {total * 1000d:0} ms: sample {Ms(momentAt, sampledAt):0.#}" +
+                $", roles {Ms(sampledAt, rolesAt):0.#}" +
+                $", models {Ms(rolesAt, uploadedAt):0.#}" +
+                $", pose {Ms(uploadedAt, posedAt):0.#}" +
+                $" (lighting {lighting:0.#}, bones {Ms(uploadedAt, posedAt) - lighting:0.#})" +
+                $", weapons {Ms(posedAt, reportedAt):0.#}" +
+                $", players {Ms(reportedAt, finishedAt):0.#}" +
+                $"; unaccounted {(total * 1000d) - named:0.#} ms"));
     }
 
     /// <summary>Draws the players recorded at one moment, coloured by team.</summary>
@@ -5645,6 +5737,28 @@ internal class MainForm : Form
                         decoded++;
                     }
                 }
+
+                // **The map's ambience, which no demo message names.** A soundscape's loops come
+                // from the map's `env_soundscape` entities via `scripts/soundscapes.txt`, so the
+                // timeline cannot list them and the first pass here missed them entirely: measured
+                // 2026-08-25, `ambient/indoors.wav` still cost 103 ms in one frame after the
+                // timeline's 395 sounds were already precached.
+                //
+                // Every soundscape in the catalog rather than the ones this recording enters —
+                // which soundscape is active changes as a player walks and a seek can land
+                // anywhere, so being selective would only move the hitch to the next doorway.
+                if (_soundscapeCatalog is { } soundscapes)
+                {
+                    foreach (string wave in soundscapes.WaveNames())
+                    {
+                        named++;
+
+                        if (Sample(wave) is not null)
+                        {
+                            decoded++;
+                        }
+                    }
+                }
             }
             finally
             {
@@ -5904,7 +6018,16 @@ internal class MainForm : Form
             return;
         }
 
+        // **A ledger over PlaySounds, because the frame ledger's `sound` bucket is all of it.**
+        // Precaching every decode moved 394 sounds off the frame and this bucket STILL read 27-105
+        // ms, which says the cost was never only decoding. Reclaim, the per-frame loop
+        // re-attenuation, the soundscape and the OpenAL starts are each candidates and none was
+        // timed.
+        long soundAt = Stopwatch.GetTimestamp();
+
         IReadOnlyList<SceneSound> starting = schedule.Advance(_transport.CurrentTick);
+
+        long advancedAt = Stopwatch.GetTimestamp();
 
         // **A seek silences what is in flight.** Those sounds belong to the moment the viewer has
         // just left, and letting them finish plays the old place over the new one. The loops go
@@ -5925,12 +6048,21 @@ internal class MainForm : Form
 
         output.Reclaim();
 
+        long reclaimedAt = Stopwatch.GetTimestamp();
+
         // The listener is wherever the camera is, which is the eye in first person and the free
         // camera otherwise. Valve's right vector for a yaw, from which the pan follows.
         FreeCamera? camera = _firstPerson ? FirstPersonCamera() : FreeLookCamera();
 
         if (camera is not { } ears)
         {
+            // **Reported here too, because a ledger that misses an exit is a ledger that lies.**
+            // Everything above it has already run — the schedule advance, a seek's StopAll, and
+            // Reclaim — so this path can be slow and would otherwise vanish from the record.
+            ReportSlowSounds(
+                soundAt, advancedAt, reclaimedAt, reclaimedAt, reclaimedAt,
+                Stopwatch.GetTimestamp());
+
             return;
         }
 
@@ -5970,7 +6102,11 @@ internal class MainForm : Form
                 $"{loopGain.ToString("0.####", CultureInfo.InvariantCulture)}");
         }
 
+        long loopsAt = Stopwatch.GetTimestamp();
+
         PlaySoundscape(output, listener, right);
+
+        long soundscapedAt = Stopwatch.GetTimestamp();
 
         // **Re-establishing, not replaying.** `Advance` carries EVENTS, and a looping ambient is
         // state: cp_process starts six `)ambient/machine_hum.wav` at tick 4 and does not mention
@@ -6115,6 +6251,53 @@ internal class MainForm : Form
                 _loops.Track(sound);
             }
         }
+
+        ReportSlowSounds(
+            soundAt, advancedAt, reclaimedAt, loopsAt, soundscapedAt, Stopwatch.GetTimestamp());
+    }
+
+    /// <summary>Names where a slow sound step went, when one is slow.</summary>
+    /// <param name="soundAt">Entry.</param>
+    /// <param name="advancedAt">After the schedule advanced and a seek's StopAll.</param>
+    /// <param name="reclaimedAt">After finished voices were reclaimed.</param>
+    /// <param name="loopsAt">After every tracked loop was re-attenuated to the listener.</param>
+    /// <param name="soundscapedAt">After the soundscape was updated.</param>
+    /// <param name="finishedAt">After every sound starting this tick was played.</param>
+    /// <remarks>
+    /// **Written because precaching the decodes did not empty this bucket.** 394 sounds moved to
+    /// load time and the `sound` phase still read 27-105 ms on the frames that froze, so the
+    /// remaining cost is one of these five and a single number could not say which.
+    ///
+    /// The `starting` column is what is left after the other four, and it is the one that contains
+    /// both the OpenAL `Play` calls and any decode the precache missed.
+    /// </remarks>
+    private void ReportSlowSounds(
+        long soundAt,
+        long advancedAt,
+        long reclaimedAt,
+        long loopsAt,
+        long soundscapedAt,
+        long finishedAt)
+    {
+        double total = (finishedAt - soundAt) / (double)Stopwatch.Frequency;
+
+        if (total <= StallSeconds)
+        {
+            return;
+        }
+
+        static double Ms(long from, long to) =>
+            (to - from) / (double)Stopwatch.Frequency * 1000d;
+
+        _audioLog.LogWarning(
+            "{Message}",
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"SLOW SOUND {total * 1000d:0} ms: advance {Ms(soundAt, advancedAt):0.#}" +
+                $", reclaim {Ms(advancedAt, reclaimedAt):0.#}" +
+                $", loops {Ms(reclaimedAt, loopsAt):0.#}" +
+                $", soundscape {Ms(loopsAt, soundscapedAt):0.#}" +
+                $", starting {Ms(soundscapedAt, finishedAt):0.#}"));
     }
 
     /// <summary>Keeps the map's ambience playing as the listener moves through it.</summary>

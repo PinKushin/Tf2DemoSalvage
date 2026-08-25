@@ -10275,6 +10275,67 @@ chequer, so where it sits cannot be judged by looking.
 next link needs is bone-to-world. It has to return both, as `StudioBones.Skeleton` already does with
 `new StudioSkeleton(skinning, boneToWorld)`.
 
+### B189 — The animation path allocates per call where Valve writes into caller arrays — OPEN
+
+**Found 2026-08-25 by the owner's rule** (D89): *"every place we diverge we have issues, bugs or
+prformance"*, applied as a search strategy rather than a design principle.
+
+`StudioAnimation.Pose` returns a fresh `IReadOnlyList<StudioBonePose>` on every call, `PoseOf`
+allocates a second `List` to renumber a non-zero animation group, and `StudioPoseBlend.Blend`
+allocates again per blend. There is no cache of any kind in `StudioAnimation`. This runs **per
+animated entity, per frame**.
+
+Valve does not:
+
+```cpp
+void CalcPose( const CStudioHdr *pStudioHdr, CIKContext *pIKContext,
+               Vector pos[], Quaternion q[], int sequence, float cycle,
+               const float poseParameter[], int boneMask, float flWeight, float flTime )
+```
+
+`bone_setup.cpp:2346` — caller-supplied arrays, filled in place; `SlerpBones` blends into `q1[]` /
+`pos1[]` rather than returning anything. Nothing in this repository declared the departure, so D86
+was never satisfied for it.
+
+**Measured cost.** Posing owns ~540 ms of every second at 120 fps, of which lighting is ~130-180 ms,
+leaving ~370 ms of bone work. Gen0 collects ~30 times a second. The intermittent stall is here too:
+five of seven `SLOW MOMENT` lines were dominated by `pose`, split as `lighting 0.3-13.5, bones
+50-162` — so the spike is bone work, not light sampling.
+
+**Not yet established** which part of the bone work spikes. The steady cost is explained by the
+allocation; a spike of 162 ms against a 3 ms median is not, and wants its own measurement before
+anything is rewritten. Candidates: the first pose of a newly-seen animation group
+(`BonesOf` → `StudioBones.Read` is lazy and cached), a burst of `EntityFor` rebuilds when a respawn
+wave brings many entities into view at once, or a large `_drawn` growth.
+
+**Do not fix by patching ours.** B163's outcome, restated by the owner on finding this: *"this is
+literally the same thing we learned during the last optimization run"* — the answer there was to
+adopt Valve's arrangement wholesale rather than optimise around our own, and the packed-vertex-buffer
+proposal that tried the latter was overruled. See `an-optimisation-is-not-a-skippable-departure`.
+
+### B190 — Viewmodels intermittently do not draw, while the pass reports two instances — OPEN
+
+**The owner, 2026-08-25:** *"the viewmodels are intermittently not drawing idk why though"*
+
+The scene build is not dropping them. Logged continuously during a run where the owner saw them
+vanish:
+
+```
+viewmodel pass: drawing 2 at c_demo_arms at (0, 0, 0) tip36 (36, 0, 0),
+                          c_stickybomb_launcher at (0, 0, 0) tip36 (36, 0, 0)
+viewmodel at tick 6485: 2 props, 2 instances
+```
+
+So two instances are posed and submitted on the frames in question, which places the fault
+**downstream of the scene**, in the draw or in device state — the same seam as B170, B186 and B187,
+and the reason B188 wants the view thinned before any of them is chased.
+
+**Not yet ruled out:** the per-entity skinning buffer added the same day
+(`EntityModelSet.Skinning`) reuses one `float[][]` per entity index. Viewmodel entities carry
+4096-4098 and cannot collide with a world entity, but an entity drawn TWICE in one frame would have
+its second pose overwrite the first, since both instances hold the same array. Whether anything is
+drawn twice has not been checked.
+
 ### B188 — MainForm is 87% of the viewer, and the viewmodel bugs all live in it — OPEN
 
 **The owner, 2026-08-24**, on being told B186, B187 and B170 all point at the viewmodel pass:

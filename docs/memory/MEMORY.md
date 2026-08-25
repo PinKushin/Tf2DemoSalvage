@@ -133,3 +133,5 @@
 - [A loop is state, not an event](a-loop-is-state-not-an-event.md) — ask what should be PLAYING now, not what happened at this tick.
 - [A null-object default hides a missed wiring](a-null-object-default-hides-a-missed-wiring.md) — 193 sites converted, suite green, and the log lost 202 lines.
 - [An optimisation is not a skippable departure](an-optimisation-is-not-a-skippable-departure.md) — Valve's optimisations earn their place; the deciding number was already in the risk register.
+- [A threshold instrument cannot see a sum](a-threshold-instrument-cannot-see-a-sum.md) — six frozen frames, one stall logged; time the phase, not the event.
+- [Valve parity is the first principle](valve-parity-is-the-first-principle.md) — D89; performance never buys a departure, and parity is where the speed came from.

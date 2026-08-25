@@ -4907,3 +4907,63 @@ heavy roots moves off the critical path, and it only pays when the same entities
 to frame. In a demo viewer they are — the players persist — which is why this should pay here and
 why it is worth measuring against the 420 ms rather than assuming.
 
+## D89 — Valve parity is the FIRST principle, and performance never buys a departure from it
+
+**2026-08-25.** The owner, mid-optimisation, when I was about to trade structure for speed:
+
+> "this isnt messing up the matching valve rule is it? we gained a lot of performance my matching
+> valve, but weve seemed to lose part of them"
+
+and then, plainly:
+
+> "ok well dont change things that are valve parity, keep valve parity as first principal"
+
+### What this settles
+
+D82 bounds departures and D86 requires them to be declared where they are made. Neither says what
+happens when a departure would be **faster**. This does: it does not happen. Parity is not one
+consideration weighed against performance — it is the constraint the performance work happens
+inside.
+
+### The reason it is not merely a preference, in the owner's own observation
+
+**Matching Valve is where the performance came from.** Every measured win on this viewer has been a
+move *toward* the engine, not away from it:
+
+| Change | Result | Valve's own shape |
+|---|---|---|
+| one static mesh per model (B163) | 193–231 ms × 25 → gone | `CreateStaticMesh` / `DestroyStaticMesh` |
+| precache models at load (B163) | 385–425 ms in-frame → 515 ms once | `IsPrecacheAllowed()` |
+| precache sounds at load | 27–91 ms every few seconds → 2,261 ms once | `Assert( "PrecacheSound: too late" )` |
+| reuse the skinning buffer | ~20,000 arrays a frame → none | `m_CachedBoneData.SetSize` when the count differs |
+
+An assistant proposal to keep the packed vertex buffer and append to it was overruled during B163
+with "so we switch to valves, which is what we should have been using in the first place, becasue
+valves imp is blazingly fast" — the same argument, and it was right then too.
+
+**The owner states it as a general law, and the table above is four instances of it:**
+
+> "every place we diverge we have issues, bugs or prformance"
+
+That is worth taking literally when hunting a defect, not only when writing new code. **A bug of
+unknown cause is a reason to go looking for a divergence**, because the divergence is where the bugs
+have actually been. Found this way on 2026-08-25, after the four above: `StudioAnimation.Pose`
+returns a fresh `IReadOnlyList<StudioBonePose>` per call while Valve's `CalcPose` writes into
+caller-supplied `Vector pos[]` / `Quaternion q[]` (`bone_setup.cpp:2346`) and `SlerpBones` blends in
+place. Nothing declared it, and posing owns ~540 ms of every second.
+
+**So the burden of proof runs the other way from where an optimiser expects it.** A candidate
+optimisation that departs from Valve is not a trade to be evaluated; it is first evidence that the
+engine's arrangement has not been understood yet. The question to ask is "what does Valve do here,
+and why is it fast" — not "how much parity is this worth".
+
+### How to apply it
+
+- Before proposing a performance change, find the engine's arrangement for the same problem. If ours
+  already matches it, the cost is somewhere else and the change is the wrong one.
+- If the engine's arrangement IS the cost — profiled, not assumed — that is a departure, and D86
+  applies: declare it where it is made, with the measurement that forced it.
+- **A change that moves toward Valve needs no such justification**, even when its immediate purpose
+  is speed. The skinning buffer and both precaches are all parity restorations that happen to be
+  faster, which is the ordinary case rather than a lucky one.
+

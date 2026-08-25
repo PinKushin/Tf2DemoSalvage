@@ -40,6 +40,40 @@ public sealed class SoundscapeCatalog
 
     private SoundscapeCatalog(List<Soundscape> soundscapes) => _soundscapes = soundscapes;
 
+    /// <summary>A catalog of exactly these soundscapes, for testing without a game install.</summary>
+    internal static SoundscapeCatalog ForSoundscapes(List<Soundscape> soundscapes) =>
+        new(soundscapes);
+
+    /// <summary>Every wave any soundscape in this catalog can loop.</summary>
+    /// <returns>Wave paths, without duplicates and in no particular order.</returns>
+    /// <remarks>
+    /// **The half of the sound precache the timeline cannot name.** A demo's sound list carries what
+    /// the server told the client to play; a soundscape's loops come from the MAP's
+    /// <c>env_soundscape</c> entities by way of <c>scripts/soundscapes.txt</c>, so they appear in no
+    /// demo message at all. Precaching only the timeline's sounds therefore left these to decode on
+    /// first play — measured 2026-08-25, `ambient/indoors.wav` cost 103 ms in one frame, which is
+    /// the largest single stall left after the timeline precache landed.
+    ///
+    /// **Every soundscape, not just the ones this recording enters.** Which soundscape a player is
+    /// in is a runtime fact that changes as they walk, and a seek can land anywhere; the catalog is
+    /// small and a wave is decoded once, so loading the lot is cheaper than being clever about it.
+    /// </remarks>
+    public IEnumerable<string> WaveNames()
+    {
+        HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (Soundscape soundscape in _soundscapes)
+        {
+            foreach (SoundscapeSound sound in soundscape.Looping)
+            {
+                if (sound.Wave is { Length: > 0 } && seen.Add(sound.Wave))
+                {
+                    yield return sound.Wave;
+                }
+            }
+        }
+    }
+
     /// <summary>Every soundscape, indexed exactly as the wire indexes them.</summary>
     public IReadOnlyList<Soundscape> Soundscapes => _soundscapes;
 

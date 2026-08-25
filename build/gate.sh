@@ -101,7 +101,7 @@ rm -f /tmp/gate-*.log
 # **Lowered 1504 -> 1497 on 2026-08-22, and the arithmetic is the justification.**
 # SoundAttenuationConformanceTests (7) moved to Audio.Tests with SoundAttenuation itself (D53).
 # Nothing was deleted: core -7 and content -33 are exactly the +40 the audio floor gained.
-run Tf2DemoSalvage.Core.Tests     core     1497
+run Tf2DemoSalvage.Core.Tests     core     1503
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
@@ -269,7 +269,7 @@ run Tf2DemoSalvage.Scene.Tests    scene      54
 # 142: SoundscapeSelectionConformance gains the PVS sensitivity case (B177) — every capture still
 # resolves to what the client said with the filter ON, which is exactly what would happen if the
 # filter did nothing, so one test measures the reduction instead: 6 of 44 placements from a spawn.
-run Tf2DemoSalvage.Audio.Tests    audio     142
+run Tf2DemoSalvage.Audio.Tests    audio     147
 
 # The presenter suite (D62). Sixteen tests, ~24 ms, no window and no desktop lock — which is the
 # whole point: this logic lived in MainForm and could only be reached by driving a real form, so
