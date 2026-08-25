@@ -3872,6 +3872,8 @@ internal class MainForm : Form
         long skinBefore = _models.SkinTicks;
         long simulateBefore = _models.SimulateTicks;
         long wornLightBefore = _models.WornLightTicks;
+        long reportBefore = _models.ReportTicks;
+        long reportLogBefore = _models.ReportLogTicks;
 
         _models.Instances(_drawn, _instances, LightAt, SunAt, seconds);
 
@@ -3889,6 +3891,8 @@ internal class MainForm : Form
         long momentSkinTicks = _models.SkinTicks - skinBefore;
         long momentSimulateTicks = _models.SimulateTicks - simulateBefore;
         long momentWornLightTicks = _models.WornLightTicks - wornLightBefore;
+        long momentReportTicks = _models.ReportTicks - reportBefore;
+        long momentReportLogTicks = _models.ReportLogTicks - reportLogBefore;
 
         long viewmodelAt = Stopwatch.GetTimestamp();
 
@@ -3937,7 +3941,8 @@ internal class MainForm : Form
             momentAt, momentSampledAt, momentRolesAt, momentUploadedAt, momentPosedAt,
             momentReportedAt, Stopwatch.GetTimestamp(), momentLightingTicks, momentBuilt,
             _drawn.Count, momentAnimationTicks, momentAnimationCalls, momentViewmodelTicks,
-            momentSetupTicks, momentSkinTicks, momentSimulateTicks, momentWornLightTicks);
+            momentSetupTicks, momentSkinTicks, momentSimulateTicks, momentWornLightTicks,
+            momentReportTicks, momentReportLogTicks);
     }
 
     /// <summary>Names where a slow scene rebuild went, when one is slow.</summary>
@@ -3979,6 +3984,11 @@ internal class MainForm : Form
     /// <param name="wornLightTicks">
     /// What sampling light for worn items cost, on the path that bypasses the lighting cache.
     /// </param>
+    /// <param name="reportTicks">What per-prop reporting cost — three calls per prop per frame.</param>
+    /// <param name="reportLogTicks">
+    /// How much of <paramref name="reportTicks"/> was inside the log sink. Every report is guarded
+    /// and early-outs after its first line, so if these two are equal the sink is what blocks.
+    /// </param>
     /// <remarks>
     /// **The frame ledger says `advance`, and this says which part of it** — the two compose, so a
     /// slow frame now names a phase and then a sub-phase rather than a range of 350 lines.
@@ -4005,7 +4015,9 @@ internal class MainForm : Form
         long setupTicks,
         long skinTicks,
         long simulateTicks,
-        long wornLightTicks)
+        long wornLightTicks,
+        long reportTicks,
+        long reportLogTicks)
     {
         double total = (finishedAt - momentAt) / (double)Stopwatch.Frequency;
 
@@ -4035,11 +4047,14 @@ internal class MainForm : Form
                 $" (lighting {lighting:0.#}, viewmodel {viewmodel:0.#}" +
                 $", simulate {simulateTicks / (double)Stopwatch.Frequency * 1000d:0.#}" +
                 $", wornlight {wornLightTicks / (double)Stopwatch.Frequency * 1000d:0.#}" +
+                $", reports {reportTicks / (double)Stopwatch.Frequency * 1000d:0.#}" +
+                $" (sink {reportLogTicks / (double)Stopwatch.Frequency * 1000d:0.#})" +
                 $", setup {setupTicks / (double)Stopwatch.Frequency * 1000d:0.#}" +
                 $", skin {skinTicks / (double)Stopwatch.Frequency * 1000d:0.#}" +
                 $", rest {Ms(uploadedAt, posedAt) - lighting - viewmodel
                     - (simulateTicks / (double)Stopwatch.Frequency * 1000d)
                     - (wornLightTicks / (double)Stopwatch.Frequency * 1000d)
+                    - (reportTicks / (double)Stopwatch.Frequency * 1000d)
                     - (setupTicks / (double)Stopwatch.Frequency * 1000d)
                     - (skinTicks / (double)Stopwatch.Frequency * 1000d):0.#}" +
                 $", built {built.ToString(CultureInfo.InvariantCulture)}" +

@@ -137,6 +137,12 @@ public sealed class EntityModelSet
     /// <summary>What bringing every entity's state up to date has cost, ever.</summary>
     public long SimulateTicks { get; set; }
 
+    /// <summary>What per-prop reporting has cost, ever.</summary>
+    public long ReportTicks { get; set; }
+
+    /// <summary>How much of <see cref="ReportTicks"/> was spent inside the log sink.</summary>
+    public long ReportLogTicks => _reports.LogTicks;
+
     /// <summary>What sampling light for WORN items has cost, ever — the uncached path.</summary>
     /// <remarks>
     /// **Valve has both halves of this and we have one.** `m_hLightingOrigin` makes an entity take
@@ -1143,6 +1149,12 @@ public sealed class EntityModelSet
             AmbientCube? light = lit.Light;
             SunLight? sun = lit.Sun;
 
+            // **The last unmeasured thing in this loop, and it runs three times per prop per
+            // frame.** Everything else has been split and come back at a millisecond or less while
+            // the total holds a deterministic ~130 ms (B189). Reporting is the remaining candidate
+            // and it is the one that builds strings.
+            long reportedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
             _reports.BrushMoved(prop, seconds);
 
             if (lightAt is not null)
@@ -1151,6 +1163,8 @@ public sealed class EntityModelSet
             }
 
             _reports.Animating(prop, frame, AllFrames(prop.ModelPath).Count, blend);
+
+            ReportTicks += System.Diagnostics.Stopwatch.GetTimestamp() - reportedAt;
 
             // **A skinned model is posed here, per instance.** Its geometry was uploaded once and
             // unposed, so the matrices are what puts it in a pose at all - without them it draws

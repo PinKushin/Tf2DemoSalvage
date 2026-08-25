@@ -103,7 +103,21 @@ public sealed class FileLogWriter : IDisposable
     /// </remarks>
     public void Write(string line)
     {
-        Debug.WriteLine(line);
+        // **Only when something is actually listening, because this is a MACHINE-WIDE lock.**
+        // `Debug.WriteLine` is `OutputDebugString`, which serialises every caller on the system
+        // through the global `DBWinMutex` and shared buffer — so its cost depends on what else is
+        // running, not on this process. It is `[Conditional("DEBUG")]`, so it is live in the build
+        // the viewer is developed and profiled in and absent from Release: exactly the arrangement
+        // where a cost is never seen by the person who could fix it.
+        //
+        // Measured 2026-08-25 (B189). The owner's "every handful of seconds" stall was a single log
+        // line blocking: `reports 120.6 (sink 120.6)` of a 125 ms scene rebuild, with every other
+        // column at a millisecond or less. It reads as deterministic because the line that triggers
+        // it is — cp_process moves a brush at fixed ticks, so the same moments stall on every run.
+        if (Debugger.IsAttached)
+        {
+            Debug.WriteLine(line);
+        }
 
         lock (_gate)
         {

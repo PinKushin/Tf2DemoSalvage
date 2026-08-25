@@ -135,3 +135,4 @@
 - [An optimisation is not a skippable departure](an-optimisation-is-not-a-skippable-departure.md) — Valve's optimisations earn their place; the deciding number was already in the risk register.
 - [A threshold instrument cannot see a sum](a-threshold-instrument-cannot-see-a-sum.md) — six frozen frames, one stall logged; time the phase, not the event.
 - [Valve parity is the first principle](valve-parity-is-the-first-principle.md) — D89; performance never buys a departure, and parity is where the speed came from.
+- [The fat column is the subtracted one](the-fat-column-is-the-subtracted-one.md) — six timers at 3 ms, remainder at 126; it was one log line taking a machine-wide mutex.

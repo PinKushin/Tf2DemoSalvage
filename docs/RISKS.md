@@ -10275,6 +10275,65 @@ chequer, so where it sits cannot be judged by looking.
 next link needs is bone-to-world. It has to return both, as `StudioBones.Skeleton` already does with
 `new StudioSkeleton(skinning, boneToWorld)`.
 
+### B191 — The stall was one log line taking a machine-wide mutex — FIXED 2026-08-25
+
+**The owner, after a long hunt that kept blaming the wrong thing:** *"the spikes are deterministic
+theyy are ours"*. Both halves were right, and the determinism is what identified it.
+
+`FileLogWriter.Write` mirrored every line to `Debug.WriteLine` before the file. That is
+`OutputDebugString`, which serialises **every caller on the machine** through the global
+`DBWinMutex` and a shared buffer — so its cost is a function of what else is running on the system,
+not of this process. One line was costing **~120 ms**.
+
+**The measurement chain**, each step narrowing the one before:
+
+| split | result |
+|---|---|
+| frame ledger | `advance` 130 ms — but that is the whole of `ShowMoment` |
+| `SLOW MOMENT` | `pose` 130 ms |
+| lighting, viewmodel, simulate, wornlight, setup, skin | ~3 ms combined |
+| `rest`, by subtraction | 126 ms |
+| `reports` | 129 ms of a 133 ms pose |
+| `sink` | **120.6 of 120.6 ms** |
+
+Measured before and after:
+
+| | before | after |
+|---|---|---|
+| steady-state slow moments | ~150 over 1,470 s | 1 in 100 s |
+| pose spike | 128-138 ms, recurring | none |
+| worst frame in a second | 120.66 ms | 13-16 ms |
+
+**Why every earlier hypothesis failed, and each was disproved by measurement rather than dropped:**
+
+- **Sound decode** — real and worth fixing, but the spikes continued after 542/543 sounds moved to
+  load (B163 redux).
+- **GC** — 0 gen2 and 6-9 ms of pause in a second holding a 120.66 ms frame.
+- **Animation allocation** (the original B189 below) — 0.7-0.9 ms over ~50 calls.
+- **First-sight entity construction** — `built 0` with the entity count flat at ~260.
+- **The viewmodel scene, `Simulate`, worn-item lighting, `SetupBones`, `Skinning`** — each split out
+  and each returned at a millisecond or less.
+
+**Three things made it hard, and they are the transferable part:**
+
+1. **Every direct timer read small and the fat column was always the one computed by SUBTRACTION.**
+   Each new timer moved the fat column to whatever was still being subtracted. That pattern was
+   itself the signal and was read as noise for several rounds.
+2. **It appeared to move between phases** — `pose`, `players`, `weapons`, `models` on different
+   runs — because all of them log. That looked like external CPU contention and was argued as such;
+   the mechanism was right and the victim was wrong. It is not starvation, it is our own line taking
+   a global lock.
+3. **`Debug.WriteLine` is `[Conditional("DEBUG")]`.** It is live in the build the viewer is
+   developed and profiled in and absent from Release — a cost that exists only where it can be
+   observed, and only for the person who could fix it.
+
+**Fixed** by writing to `Debug` only when `Debugger.IsAttached`. Without a debugger the call still
+takes the system mutex for a listener that usually is not there.
+
+**Still open, and smaller:** `AutoFlush = true` on the held `StreamWriter` flushes to disk per line.
+Not measured separately yet; the remaining 44 ms moment carried `setup 35.5`, which is `SetupBones`
+and unrelated.
+
 ### B189 — The animation path allocates per call where Valve writes into caller arrays — OPEN
 
 **Found 2026-08-25 by the owner's rule** (D89): *"every place we diverge we have issues, bugs or

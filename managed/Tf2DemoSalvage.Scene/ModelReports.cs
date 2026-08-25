@@ -79,10 +79,18 @@ public sealed class ModelReports
 
         _brushHeight[prop.EntityIndex] = pose.Z;
 
+        // **Timed because the reporting bucket holds 129 ms of a 133 ms pose and all three reports
+        // here are guarded** (B189). If the cost is inside the sink rather than in the guards, then
+        // a single line occasionally blocking is the stall — and that would explain the same spike
+        // landing in `players`, `weapons` and `models` on other runs, since those log too.
+        long loggedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
         _render.LogInformation(
             "{Message}",
             $"brush {prop.ModelPath} #{prop.EntityIndex} at " +
             $"({pose.X:0},{pose.Y:0},{pose.Z:0.##}) seconds {seconds:0.###}");
+
+        LogTicks += System.Diagnostics.Stopwatch.GetTimestamp() - loggedAt;
     }
 
     /// <summary>What light one entity was drawn with, once per entity.</summary>
@@ -107,6 +115,8 @@ public sealed class ModelReports
 
         ScenePose pose = prop.Pose;
 
+        long loggedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
         _render.LogInformation(
             "{Message}",
             $"lit {System.IO.Path.GetFileName(prop.ModelPath)} #{prop.EntityIndex} " +
@@ -119,7 +129,17 @@ public sealed class ModelReports
             (lit.Light is { } cube
                 ? $"luminance {AmbientCube.Luminance(cube):0.####}"
                 : "lightmapped"));
+
+        LogTicks += System.Diagnostics.Stopwatch.GetTimestamp() - loggedAt;
     }
+
+    /// <summary>What writing report lines to the sink has cost, ever.</summary>
+    /// <remarks>
+    /// Separate from the reports themselves because the guards and the WRITE are different
+    /// suspects: every report here early-outs after its first line, so a large total with a small
+    /// number of lines means the sink blocks rather than that the guards are slow.
+    /// </remarks>
+    public long LogTicks { get; set; }
 
     /// <summary>Which baked frame a model's sequence and cycle selected, once per model.</summary>
     /// <param name="prop">The prop.</param>
@@ -136,11 +156,15 @@ public sealed class ModelReports
 
         ScenePose pose = prop.Pose;
 
+        long loggedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
         _render.LogInformation(
             "{Message}",
             $"animating {prop.ModelPath}: sequence {pose.Sequence} cycle {pose.Cycle:0.###} " +
             $"-> baked frame {frame} of {frames} " +
             $"blend {blend:0.###} yaw {pose.Yaw:0.##} at ({pose.X:0},{pose.Y:0},{pose.Z:0})");
+
+        LogTicks += System.Diagnostics.Stopwatch.GetTimestamp() - loggedAt;
     }
 
     /// <summary>Whether a model has already had a named report of some kind.</summary>
