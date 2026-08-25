@@ -36,6 +36,16 @@ public readonly record struct PropTransform
     private readonly float _m21;
     private readonly float _m22;
 
+    /// <summary>No move, no turn, no scale.</summary>
+    /// <remarks>
+    /// **Not <c>default</c>, which is a very different thing.** A defaulted <c>PropTransform</c> has
+    /// every field at zero including the scale and the rotation's diagonal, so it collapses a model
+    /// to a point at the origin. This is the one a caller means when it says "leave it where it is",
+    /// and it is what a model whose BONES already carry its placement needs (D88): the bones are in
+    /// world space, so applying a second transform would move it twice.
+    /// </remarks>
+    public static PropTransform Identity { get; } = new(0f, 0f, 0f, 0f, 0f, 0f, 1f);
+
     /// <summary>Builds the transform a placement describes.</summary>
     /// <param name="prop">The placement, as the map recorded it.</param>
     /// <remarks>

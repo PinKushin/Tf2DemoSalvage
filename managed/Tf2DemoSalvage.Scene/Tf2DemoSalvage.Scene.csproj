@@ -63,6 +63,12 @@
     <ProjectReference Include="..\Tf2DemoSalvage.Core\Tf2DemoSalvage.Core.csproj" />
     <ProjectReference Include="..\Tf2DemoSalvage.Content\Tf2DemoSalvage.Content.csproj" />
 
+    <!-- Valve's bone pipeline (D88). Scene decides WHICH entities exist at a tick and what they are
+         doing; Animation decides when their bones get built and what merges onto what. The
+         direction matters: Animation must not reference Scene, because the engine's bone setup has
+         no notion of a demo, a tick or a scene prop. -->
+    <ProjectReference Include="..\Tf2DemoSalvage.Animation\Tf2DemoSalvage.Animation.csproj" />
+
     <!-- The file logging provider and the retention helper it carries (D83). Referenced rather than
          reimplemented: this is where ILogger comes from once the conversion off the static
          ViewerLog reaches this project. -->
