@@ -1688,128 +1688,71 @@ internal class MainForm : Form
 
                 _texturesUploaded = false;
 
-                // Read once here rather than per face inside the world builder. Every call reads
-                // the header and decompresses both displacement lumps, and the builder asks 578
-                // times on cp_process_final - which was most of an 830 ms rebuild, paid again on
-                // every resize.
-                try
+                // **Every lump this viewer keeps, read by one type that knows how** (B188). What
+                // stood here was three try/catch shapes and the brush-class join, none of it window
+                // work — and the engine's own arrangement is that each system initialises itself
+                // from the level (`IGameSystem::LevelInitPreEntity`, `igamesystem.h:39`) rather
+                // than the window building everyone's state.
+                MapLevel level;
+
+                using (_assetLog.Time("reading the map's lumps"))
                 {
-                    _terrain = BspTerrain.Create(bytes);
-                }
-                catch (InvalidDataException failure)
-                {
-                    _terrain = null;
-                    _assetLog.LogWarning(failure, "{Message}", "reading the map's terrain");
+                    level = MapLevel.Read(bytes, _assetLog);
                 }
 
-                try
+                _terrain = level.Terrain;
+                _overlays = level.Overlays;
+                _brushModels = level.BrushModels;
+                _leaves = level.Leaves;
+
+                _brushModelClasses.Clear();
+
+                foreach ((int model, string classname) in level.BrushModelClasses)
                 {
-                    _overlays = BspOverlays.Read(bytes);
-                    _brushModels = BspModels.Read(bytes);
-
-                    // **Which submodel belongs to which class, from the entity lump.** A brush
-                    // entity names its geometry as `*N`, so this is the join between the models
-                    // lump — which carries the faces and nothing else — and the classname, which is
-                    // the only place the map says what a piece of geometry IS.
-                    _brushModelClasses.Clear();
-
-                    // **The map's soundscapes, built once per map (B173).** A SourceTV recording
-                    // carries the SourceTV camera's soundscape rather than the spectated player's,
-                    // so the map is the source — and it works for every map without anyone having
-                    // to run `soundscape_dumpclient` in the game first.
-                    IReadOnlyList<BspEntity> mapEntities = BspEntities.ReadFrom(bytes);
-
-                    // **The tree and the PVS are read here rather than further down, because the
-                    // soundscapes need them.** Each placement resolves its visibility cluster once,
-                    // the way `LevelInitPostEntity` does — asking per frame would walk the BSP tree
-                    // forty-four times for values that cannot change.
-                    _leaves = BspLeafTree.Read(bytes);
-
-                    // **A local now that the soundscape system owns it** (B188). It was a field
-                    // only because the method that read it lived in this class too; the PVS is not
-                    // window state and nothing else here asks it anything.
-                    BspVisibility? visibility = BspVisibility.Read(bytes);
-
-                    _soundscape.Catalog = _archives is { } soundArchives
-                        ? SoundscapeCatalog.Load(soundArchives.Read)
-                        : null;
-
-                    _soundscape.Placements = _soundscape.Catalog is { } loaded
-                        ? SoundscapePlacements.From(mapEntities, loaded, _leaves)
-                        : null;
-
-                    _soundscape.Leaves = _leaves;
-                    _soundscape.Visibility = visibility;
-
-                    _soundscape.Clear();
-
-                    _audioLog.LogInformation(
-                        "{Message}",
-                        visibility is { HasData: true } pvs
-                            ? $"visibility: {pvs.ClusterCount.ToString(CultureInfo.InvariantCulture)} " +
-                              "clusters, so soundscape selection is restricted to what the listener can see"
-                            : "no visibility data, so every soundscape on the map contends");
-
-                    _audioLog.LogInformation(
-                        "{Message}",
-                        _soundscape.Placements is { } placed
-                            ? $"{placed.Placements.Count} soundscape placements, " +
-                              string.Join(
-                                  ", ",
-                                  placed.Placements
-                                      .GroupBy(placement => placement.Name)
-                                      .Select(group => $"{group.Count()}x {group.Key}"))
-                            : "no archives, so no soundscapes");
-
-                    foreach (BspEntity entity in mapEntities)
-                    {
-                        if (entity.TryGetValue("model", out string name) &&
-                            entity.TryGetValue("classname", out string classname) &&
-                            name.Length > 1 &&
-                            name[0] == BrushModels.SubmodelPrefix &&
-                            int.TryParse(
-                                name[1..],
-                                NumberStyles.Integer,
-                                CultureInfo.InvariantCulture,
-                                out int model))
-                        {
-                            _brushModelClasses[model] = classname;
-                        }
-                    }
-
-                    _assetLog.LogInformation(
-                        "{Message}",
-                        $"{_brushModelClasses.Count} brush entities named a class");
-                }
-                catch (InvalidDataException failure)
-                {
-                    // Costs the decals, not the map. Reported rather than swallowed: the engine
-                    // reads this lump on every map it opens.
-                    _overlays = null;
-                    _assetLog.LogWarning(failure, "{Message}", "reading the map's decals");
+                    _brushModelClasses[model] = classname;
                 }
 
-                using (_assetLog.Time("reading surfaces and textures"))
+                // **The soundscape system is handed the level, not built from lumps here.** That is
+                // the LevelInitPreEntity shape: the window says "here is the map", and the system
+                // decides what it needs from it (B173, B177).
+                _soundscape.Catalog = _archives is { } soundArchives
+                    ? SoundscapeCatalog.Load(soundArchives.Read)
+                    : null;
+
+                _soundscape.Placements = _soundscape.Catalog is { } loaded
+                    ? SoundscapePlacements.From(level.Entities, loaded, level.Leaves)
+                    : null;
+
+                _soundscape.Leaves = level.Leaves;
+                _soundscape.Visibility = level.Visibility;
+
+                _soundscape.Clear();
+
+                _audioLog.LogInformation(
+                    "{Message}",
+                    level.Visibility is { HasData: true } pvs
+                        ? $"visibility: {pvs.ClusterCount.ToString(CultureInfo.InvariantCulture)} " +
+                          "clusters, so soundscape selection is restricted to what the listener can see"
+                        : "no visibility data, so every soundscape on the map contends");
+
+                _audioLog.LogInformation(
+                    "{Message}",
+                    _soundscape.Placements is { } placed
+                        ? $"{placed.Placements.Count} soundscape placements, " +
+                          string.Join(
+                              ", ",
+                              placed.Placements
+                                  .GroupBy(placement => placement.Name)
+                                  .Select(group => $"{group.Count()}x {group.Key}"))
+                        : "no archives, so no soundscapes");
+
+                _surfaceList = level.Surfaces;
+                _ambient = level.Ambient;
+                _worldLights = level.WorldLights;
+                _sun = level.Sun;
+
+                using (_assetLog.Time("reading textures"))
                 {
-                    _surfaceList = BspSurfaces.Read(bytes);
-
-                    // **What lights anything that moves.** A model has no lightmap, so it takes
-                    // the ambient cube of the leaf it stands in - which needs the tree to find the
-                    // leaf and the samples to light it. Read with the map, since both come from
-                    // the same file and neither changes afterwards.
-                    //
-                    // `_leaves` itself is read further up now, because the soundscapes need it to
-                    // resolve their clusters before this point (B177).
-                    _ambient = BspAmbientLight.Read(bytes);
-
-                    // The direct term. The ambient cube is the shade; this is what makes daylight
-                    // bright, and it is the reason a pack outdoors looked like one indoors.
-                    // Kept whole, not just the sun: the sun is the only light applied to the world
-                    // surfaces, but a model also takes direct light from the point and spot lights
-                    // around it (B95, D37), and those are the other 475 entries on cp_process.
-                    _worldLights = BspWorldLights.Read(bytes);
-                    _sun = BspWorldLights.Sun(_worldLights);
-
                     // **Every model the demo will ever show, loaded with the map.** The timeline
                     // is already built, so the whole set is known before anything is drawn - and
                     // loading them here means their materials join the map's table and the
