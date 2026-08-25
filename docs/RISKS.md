@@ -10117,7 +10117,42 @@ Still to extend the same way, since `StandardBlendingRules` is only the blend ha
 engine's stage list first means splitting along the engine's seams rather than along whatever the
 current code happens to do — which is exactly the divergence being complained about.
 
-### B181 — split the entity pose loop, then replace the depth sort with recursion — OPEN, OWNER WANTS THIS DONE
+### B181 — CLOSED 2026-08-24. The loop was split and the ordering deleted
+
+**Both halves are done.** The ordering went first (D88), then the three subsystems that were sharing
+the loop's iteration variable.
+
+*Measured*, and the numbers are the point:
+
+| | loop body | of which code | whole method |
+|---|---|---|---|
+| before | 401 | 200 | 513 |
+| after | 170 | **87** | 204 |
+
+**What came out, and where it went:**
+
+- `ModelLighting` — the illumination point, the exact-bits cache, the brush-entity rule and the
+  drew-black warning. About sixty lines, and none of them are about posing a model: lighting is not
+  in Valve's bone path at all, which is what makes this the natural seam rather than an arbitrary
+  one.
+- `ModelReports` — the four once-per-thing lines. Deleting them was never the answer; each exists
+  because something was once diagnosable from the picture and from nothing in the log. What is worth
+  keeping together is that **each dedupes on a different thing** — per model, per entity, or on a
+  change of more than a unit — and getting that wrong is how one line printed 1,280 times a second
+  (B163) and another let a bright control point silence a dark one for ever.
+- `DrawTally` — the four-category accounting, with the change guard AND the rate limit that had to be
+  paired because the counts oscillate.
+
+Deleted outright with the ordering: `_ordered`, `_worn`, `_wanted`, `_wearerBones`, `_parents`,
+`Depth()`, the sort, `Merge()`, `_mergeMaps`, `Worn`, `WearerBoneAt`, `Matched`, `Unmatched`, and
+`transform = worn.Where`.
+
+**The owner's original complaint is answered on its own terms.** It was not "this is ugly" — it was
+*"a loop body of 150 fucking lines is a massive code smell"* and *"i dont trust how far its deverged
+from valves implementation"*. The size is now 87 lines of code, and the divergence it was hiding is
+recorded in `docs/findings/35-the-bone-pipeline-audit.md` rather than left to be rediscovered.
+
+### B181 — the original filing, kept for the reasoning — CLOSED, see above
 
 **This is a work order, not an observation.** The owner, on the depth sort being kept:
 
@@ -10265,10 +10300,22 @@ that — the current commit uses *less* memory, consistent with the new pose pat
 per bone where the old one allocated three. What had actually changed was that a second build was
 running in a comparison worktree at the same time.
 
-**Where the memory goes is not yet measured**, and that is the next step rather than a guess: the
-suspects are `MapCache`'s `Lazy` map retention across fixtures, `ParallelScope.All` letting several
-full map loads run at once, and the static prop vertex buffers each load builds. Any one of those is
-a bounded fix; which one it is needs a heap snapshot, not an argument.
+#### The symptom is capped, the cause is not — 2026-08-24
+
+`[assembly: LevelOfParallelism(3)]` in `AssemblyTestPolicy.cs`. NUnit's default is one worker per
+processor, so on a machine with cores to spare the suite tries to hold that many maps at once. Three
+is measured rather than chosen: **0 failures at 3 against 12 at the default**, back to back with
+nothing else running, and the run takes **2m08s against 2m11s** — so the cap costs nothing.
+
+**It is declared as a symptom cap, in the file and here.** What it does not do is bound the memory:
+`MapCache` still retains a full map per fixture and nothing limits how many are live. The real fix is
+there, and the three suspects are still the ones to check with a heap snapshot rather than an
+argument — the `Lazy` retention, the static prop vertex buffers each load builds, and whether the
+cache could hold one map at a time.
+
+Until somebody does that, a suite that fails at random is worse than one that runs at the same speed
+with fewer workers. Reopen this as soon as the peak is actually reduced, and the cap should come off
+with it.
 
 Worth pairing with B184's observation that 115 of 119 files here need nothing from Windows: a suite
 that ran on the Linux measurement boxes could be given a memory ceiling and would fail loudly instead

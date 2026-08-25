@@ -88,7 +88,41 @@ public sealed class EntityModelSet
 
         _props = factory.CreateLogger("props");
         _render = factory.CreateLogger("render");
+
+        // **Three collaborators, and each was a slab of the draw loop** (B181). Constructed here
+        // rather than injected because each one's state is this set's state — the lighting cache is
+        // keyed by entity, and the report sets remember what has already been said about which
+        // model. Handing them in would mean two sets could share a "have we said this" flag, which
+        // is a silence nobody could explain.
+        _lighting = new ModelLighting(IlluminationPoint, _render);
+        _reports = new ModelReports(_render);
+        _tally = new DrawTally(_props);
     }
+
+    /// <summary>The ambient cube and sun each model draws with.</summary>
+    private readonly ModelLighting _lighting;
+
+    /// <summary>Stopwatch ticks spent lighting models, accumulated until the caller resets it.</summary>
+    /// <remarks>
+    /// **Kept on this type after the lighting moved out** (B181), because the viewer's per-frame
+    /// ledger reads it and moving the property would have changed a public surface for no reason
+    /// beyond where the code lives. It forwards to <see cref="ModelLighting.Ticks"/>.
+    ///
+    /// Posing owned about nine hundred milliseconds of every second (B99) doing two different jobs,
+    /// and this is what separated them: bones are per-frame work an animation genuinely needs, while
+    /// a stationary model's lighting cannot have changed since the last frame.
+    /// </remarks>
+    public long LightingTicks
+    {
+        get => _lighting.Ticks;
+        set => _lighting.Ticks = value;
+    }
+
+    /// <summary>What the draw loop says about each model, once.</summary>
+    private readonly ModelReports _reports;
+
+    /// <summary>How many props were asked for, drew, or were rejected and why.</summary>
+    private readonly DrawTally _tally;
 
     private readonly List<WorldVertex> _vertices = [];
 
@@ -118,9 +152,6 @@ public sealed class EntityModelSet
     private readonly Dictionary<string, IReadOnlyList<IReadOnlyDictionary<int, int>>> _swaps =
         new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Models already reported as drawing unlit.</summary>
-    private readonly HashSet<string> _reportedDark = new(StringComparer.OrdinalIgnoreCase);
-
     /// <summary>Where a model's light should be sampled, in world space.</summary>
     private (float X, float Y, float Z) IlluminationPoint(SceneProp prop, ScenePose pose)
     {
@@ -144,55 +175,6 @@ public sealed class EntityModelSet
             pose.Y + (x * sine) + (y * cosine),
             pose.Z + z);
     }
-
-    /// <summary>The whole cube's brightness, for comparing one instance against another.</summary>
-    /// <remarks>
-    /// Moved onto <see cref="AmbientCube"/> so the light sampler can print the same summary; see
-    /// <see cref="AmbientCube.Luminance"/> for why it is a crude average.
-    /// </remarks>
-    private static float Luminance(AmbientCube cube) => AmbientCube.Luminance(cube);
-
-    /// <summary>Entities whose sampled light has been reported, one line each.</summary>
-    private readonly HashSet<int> _reportedLight = [];
-
-    /// <summary>The height each brush entity was last reported at, so movement can be logged.</summary>
-    private readonly Dictionary<int, float> _brushHeight = [];
-
-    /// <summary>
-    /// Stopwatch ticks spent lighting models, accumulated until the caller resets it.
-    /// </summary>
-    /// <remarks>
-    /// **Posing owns about nine hundred milliseconds of every second** (B99), and it does two
-    /// different jobs — bone matrices and lighting. This separates them, because the fix differs:
-    /// bones are per-frame work an animation genuinely needs, while a stationary model's lighting
-    /// cannot have changed since the last frame and is being recomputed anyway.
-    /// </remarks>
-    public long LightingTicks { get; set; }
-
-    /// <summary>One entity's lighting, and the point it was sampled at.</summary>
-    /// <param name="X">Illumination point the lighting was taken at, as bits.</param>
-    /// <param name="Y">Illumination point, as bits.</param>
-    /// <param name="Z">Illumination point, as bits.</param>
-    /// <param name="Light">The ambient cube there.</param>
-    /// <param name="Sun">The sun there, or null where the sky is not visible.</param>
-    /// <remarks>
-    /// The position is held as bits because the question is whether the model is at the IDENTICAL
-    /// point, not whether it is near where it was — a tolerance would let a slow drift accumulate
-    /// without ever refreshing.
-    /// </remarks>
-    private readonly record struct LitAt(
-        int X, int Y, int Z, AmbientCube Light, SunLight? Sun);
-
-    /// <summary>The last lighting computed for each entity, by entity index.</summary>
-    private readonly Dictionary<int, LitAt> _lit = [];
-
-    private static bool IsUnlit(AmbientCube cube) =>
-        cube.PositiveX == (0f, 0f, 0f) &&
-        cube.NegativeX == (0f, 0f, 0f) &&
-        cube.PositiveY == (0f, 0f, 0f) &&
-        cube.NegativeY == (0f, 0f, 0f) &&
-        cube.PositiveZ == (0f, 0f, 0f) &&
-        cube.NegativeZ == (0f, 0f, 0f);
 
     /// <summary>Skinned models whose posed extents have been reported.</summary>
     private readonly HashSet<string> _reportedPoses = new(StringComparer.OrdinalIgnoreCase);
@@ -962,12 +944,7 @@ public sealed class EntityModelSet
         //
         // Four categories, per the project's rule: asked for, what we have, what was produced, what
         // is missing and why.
-        int askedFor = props.Count;
-        int notStudio = 0;
-        int noBatches = 0;
-        int drawnCount = 0;
-        Dictionary<string, int> noBatchesBy = [];
-        Dictionary<string, int> notStudioBy = [];
+        _tally.Begin(props.Count);
 
         // In the order the scene gave them, because nothing needs any other order now.
         foreach (SceneProp prop in props)
@@ -978,206 +955,40 @@ public sealed class EntityModelSet
 
             if (!IsDrawable(prop.Kind))
             {
-                notStudio++;
-
-                // **Inline BSP submodels collapse to one entry.** A map's doors and moving brushes
-                // are `*1`, `*2`, ... and process names 141 of them, which turns the line into a
-                // wall that hides the entry that matters. They are one gap, not 141 findings.
-                string rejectedName;
-
-                if (prop.ModelPath.Length == 0)
-                {
-                    rejectedName = "<no model>";
-                }
-                else if (prop.ModelPath.StartsWith('*'))
-                {
-                    rejectedName = "<inline submodel>";
-                }
-                else
-                {
-                    rejectedName = System.IO.Path.GetFileName(prop.ModelPath);
-                }
-
-                string rejected = $"{rejectedName}#{prop.Kind}";
-
-                notStudioBy[rejected] = notStudioBy.GetValueOrDefault(rejected) + 1;
+                _tally.NotDrawable(prop);
                 continue;
             }
 
             if (Batches(prop.ModelPath, frame).Count == 0)
             {
-                noBatches++;
-
-                // Named per model, because "no batches" for one model is a load failure and for all
-                // of them is a frame-selection failure, and the two need different fixes.
-                string name = System.IO.Path.GetFileName(prop.ModelPath);
-                noBatchesBy[name] = noBatchesBy.GetValueOrDefault(name) + 1;
+                _tally.NoGeometry(prop.ModelPath);
                 continue;
             }
 
-            drawnCount++;
+            _tally.Drawn();
 
             ScenePose pose = prop.Pose;
 
             PropTransform transform = new(
                 pose.X, pose.Y, pose.Z, pose.Pitch, pose.Yaw, pose.Roll, pose.Scale);
 
-            // Set only for an item hanging from a named attachment, which cannot be expressed as a
-            // PropTransform: the point carries the bone's rotation as well as its position, and
-            // decomposing that back into angles to rebuild it would be work for no gain.
-            float[]? placement = null;
+            // **Lit, logged and counted by collaborators rather than here** (B181). Each of these
+            // was sixty to eighty lines inside this loop, and none of them is about posing a model —
+            // which is how the body reached two hundred lines of code with five jobs in it and the
+            // engine's stage boundaries invisible.
+            ModelLight lit = _lighting.For(prop, lightAt, sunAt);
 
-            // **Lit from where it stands, which is what the engine does.** A model has no
-            // lightmap, so vrad's per-leaf ambient cube is the light it gets - sampled at the
-            // origin rather than per vertex, exactly as the client samples it once per model.
-            // **Lit at the model's illumination centre, not at its origin.** studiohdr_t carries
-            // an illumposition for exactly this: a player's origin is at its feet, and a point
-            // resting on a floor plane lands in the solid leaf beneath, which holds no light. The
-            // model then draws black - seen on a medic, a soldier, a scout and a resupply locker.
-            //
-            // The offset turns with the model, because it is a point on the model rather than a
-            // direction in the world.
-            (float lightX, float lightY, float lightZ) = IlluminationPoint(prop, pose);
+            AmbientCube? light = lit.Light;
+            SunLight? sun = lit.Sun;
 
-            long litAt = System.Diagnostics.Stopwatch.GetTimestamp();
+            _reports.BrushMoved(prop, seconds);
 
-            // **A model that has not moved is lit exactly as it was last frame** (B99). Lighting
-            // cost 320 ms of every second against 3.4 ms to draw the whole map, and nearly all of
-            // it recomputed an unchanged answer: a cube is an inverse-squared average over sixteen
-            // ambient samples, LocalLights ranks all 477 of the map's world lights to pick four and
-            // evaluates a falloff per light for six faces, and the sun traces a ray through the BSP
-            // to ask whether the sky is visible.
-            //
-            // **Keyed on the illumination point, compared exactly.** The point is derived from the
-            // pose, and a held pose interpolates to a bit-identical ScenePose — so an entity that
-            // has not moved produces the identical point and an entity that has moved at all
-            // produces a different one. A tolerance would be slower to check and would let a slow
-            // drift accumulate silently.
-            //
-            // Keyed on the entity as well, because two models can stand in one place and must not
-            // share a slot. Map lights never move, so nothing else can invalidate this.
-            AmbientCube? light;
-            SunLight? sun;
-
-            // Compared as bits rather than as floats, which is what "the identical point" means and
-            // is also how it is said without tripping the equality analyser: this is an identity
-            // test, not an approximation, and a tolerance would let a slow drift accumulate.
-            (int bitsX, int bitsY, int bitsZ) = (
-                BitConverter.SingleToInt32Bits(lightX),
-                BitConverter.SingleToInt32Bits(lightY),
-                BitConverter.SingleToInt32Bits(lightZ));
-
-            // **A brush entity is lightmapped, so it takes no cube and no sun (B131).** Its faces
-            // were lit by vrad exactly as the wall's were and the samples travel on the vertices;
-            // the shader's ambient-cube branch OVERWRITES the lightmap sample rather than adding to
-            // it, so supplying a cube here is precisely what made an open door a flat panel against
-            // a shaded corridor. Null is what LightmappedGeneric means: the light is already in the
-            // atlas.
-            if (prop.Kind == SceneModelKind.Brush)
+            if (lightAt is not null)
             {
-                light = null;
-                sun = null;
-            }
-            else if (_lit.TryGetValue(prop.EntityIndex, out LitAt cached) &&
-                cached.X == bitsX && cached.Y == bitsY && cached.Z == bitsZ)
-            {
-                LightingTicks += System.Diagnostics.Stopwatch.GetTimestamp() - litAt;
-
-                light = cached.Light;
-                sun = cached.Sun;
-            }
-            else
-            {
-                AmbientCube sampled =
-                    lightAt is null ? default : lightAt(lightX, lightY, lightZ);
-
-                light = sampled;
-                sun = sunAt?.Invoke(lightX, lightY, lightZ);
-
-                _lit[prop.EntityIndex] = new LitAt(bitsX, bitsY, bitsZ, sampled, sun);
-
-                LightingTicks += System.Diagnostics.Stopwatch.GetTimestamp() - litAt;
+                _reports.Lit(prop, lit, skin);
             }
 
-            // **A model lit by nothing draws black, and that is worth saying out loud.** The cube
-            // comes from the leaf a model stands in, and a player's origin is at its FEET - so a
-            // point resting exactly on a floor plane can land in the solid leaf below it, which
-            // carries no light at all. It shows as a player turning black in some places and
-            // recovering in others, which reads as a lighting quirk rather than a lookup landing
-            // in solid.
-            //
-            // Logged with the position, because the defect is positional and a count would not
-            // let anyone go and look at the spot.
-            // **`light is { }` excludes brush entities rather than reporting them as dark.** They
-            // carry no cube by design (B131), and a warning saying a door is "lit by nothing" would
-            // be true of the cube and false of the door, which is the log naming the wrong quantity.
-            if (lightAt is not null && light is { } sampledCube && IsUnlit(sampledCube) &&
-                _reportedDark.Add(prop.ModelPath))
-            {
-                _render.LogWarning(
-                    "{Message}",
-                    $"{prop.ModelPath} is lit by nothing at ({pose.X:0},{pose.Y:0},{pose.Z:0}); " +
-                    $"its leaf carries no ambient light, so it draws black");
-            }
-
-            // **Per INSTANCE, because the warning above cannot see the defect being chased.** It
-            // dedupes on the model path, so five capture points sharing cap_point_base.mdl collapse
-            // to one report and a bright one reporting first silences a dark one for ever. It also
-            // only fires at exactly zero, and the point in question is dim rather than black.
-            //
-            // The owner's observation is that ONE control point is dark while its neighbours are
-            // fine, which is the shape that rules out a missing lighting term: an absent term
-            // darkens every instance equally. So the question is what THIS instance sampled, and
-            // the answer needs the instances side by side.
-            // **Where a brush entity actually lands, which is the one thing the BSP and the demo
-            // cannot answer between them (B94).** The map says submodel 80 spans -64 to 80 about
-            // its own origin and the demo says that origin rests at 640 and rises to 785, so the
-            // shutter should occupy 576..720 closed. Whether it does is a fact about this transform,
-            // and a gate reported in the floor is a disagreement with one of those two numbers.
-            // **Every movement, not the first sighting.** Reporting once per entity was enough to
-            // find where the gates are and useless for finding out what one DOES: a shutter that
-            // sinks below its frame does so over a handful of frames, and the one line already
-            // written came from long before. Logged on a change of more than a unit so a stationary
-            // door stays silent and a moving one leaves a trace that can be read against the
-            // demo's own keyframes.
-            if (prop.Kind == SceneModelKind.Brush &&
-                (!_brushHeight.TryGetValue(prop.EntityIndex, out float lastZ) ||
-                 Math.Abs(lastZ - pose.Z) > 1f))
-            {
-                _brushHeight[prop.EntityIndex] = pose.Z;
-
-                _render.LogInformation(
-                    "{Message}",
-                    $"brush {prop.ModelPath} #{prop.EntityIndex} at " +
-                    $"({pose.X:0},{pose.Y:0},{pose.Z:0.##}) seconds {seconds:0.###}");
-            }
-
-            if (lightAt is not null && _reportedLight.Add(prop.EntityIndex))
-            {
-                _render.LogInformation(
-                    "{Message}",
-                    $"lit {System.IO.Path.GetFileName(prop.ModelPath)} #{prop.EntityIndex} " +
-                    $"at ({pose.X:0},{pose.Y:0},{pose.Z:0}) sampled ({lightX:0},{lightY:0},{lightZ:0}) " +
-                    $"skin {skin} " +
-
-                    // **Which lighting model, said out loud.** A brush entity has no cube, so a
-                    // luminance printed for it would be a number about nothing. Saying "lightmap"
-                    // is what lets this line answer "why is that door flat" without a second run.
-                    (light is { } cube
-                        ? $"luminance {Luminance(cube):0.####}"
-                        : "lightmapped"));
-            }
-
-            if (!_reportedFrames.Contains(prop.ModelPath))
-            {
-                _reportedFrames.Add(prop.ModelPath);
-
-                _render.LogInformation(
-                    "{Message}",
-                    $"animating {prop.ModelPath}: sequence {pose.Sequence} cycle {pose.Cycle:0.###} " +
-                    $"-> baked frame {frame} of {AllFrames(prop.ModelPath).Count} " +
-                    $"blend {blend:0.###} yaw {pose.Yaw:0.##} at ({pose.X:0},{pose.Y:0},{pose.Z:0})");
-            }
+            _reports.Animating(prop, frame, AllFrames(prop.ModelPath).Count, blend);
 
             // **A skinned model is posed here, per instance.** Its geometry was uploaded once and
             // unposed, so the matrices are what puts it in a pose at all - without them it draws
@@ -1276,10 +1087,9 @@ public sealed class EntityModelSet
                 if (_lightPoints.TryGetValue(wearer, out (float X, float Y, float Z) at))
                 {
                     light = lightAt is null ? default : lightAt(at.X, at.Y, at.Z);
-                    (lightX, lightY, lightZ) = at;
                 }
 
-                if (bones is { Count: > 0 } && _reportedPoses.Add(prop.ModelPath + "#worn"))
+                if (bones is { Count: > 0 } && _reports.FirstTime(prop.ModelPath + "#worn"))
                 {
                     ReportPosedExtents(prop.ModelPath, bones, prop.ModelPath + " WORN");
                 }
@@ -1287,7 +1097,7 @@ public sealed class EntityModelSet
 
             into.Add(new ModelInstance(
                 prop.ModelPath,
-                placement ?? transform.ToMatrix(),
+                transform.ToMatrix(),
                 light,
 
                 // Cached alongside the cube, because the sun costs more than it looks: it traces a
@@ -1305,49 +1115,8 @@ public sealed class EntityModelSet
                 prop.Pose.Body));
         }
 
-        // **The four categories, reported only when they change.** Asked for, produced, and what was
-        // rejected with the reason — because "the props went away" was diagnosable from the map and
-        // from nothing in the log, which is the gap this closes.
-        //
-        // Keyed on the whole tuple rather than on the drawn count alone: thirteen props failing for
-        // a new reason while the drawn count holds steady is exactly the change worth seeing.
-        // **"Only when they change" was not enough, and the log proved it.** Measured 2026-08-24:
-        // this line printed 13,566 times in two minutes of playback, because the counts ALTERNATE
-        // between two shapes as props enter and leave view — 280/272 one frame, 272/272 the next —
-        // so every frame is a change and the guard never fires.
-        //
-        // A change guard against a value that oscillates is not a guard. Paired with a rate limit,
-        // which is the part that bounds it: at most one line a second, and still only on a change,
-        // so a steady state stays silent and a genuine shift is reported within a second of
-        // happening.
-        (int, int, int, int) state = (askedFor, drawnCount, notStudio, noBatches);
-
-        long now = System.Diagnostics.Stopwatch.GetTimestamp();
-        bool overdue =
-            now - _lastDrawReportAt >= System.Diagnostics.Stopwatch.Frequency;
-
-        if (state != _lastDrawState && overdue)
-        {
-            _lastDrawState = state;
-            _lastDrawReportAt = now;
-
-            string missing = noBatchesBy.Count == 0
-                ? "none"
-                : string.Join(", ", noBatchesBy.Select(entry => $"{entry.Value}x{entry.Key}"));
-
-            _props.LogInformation(
-                "{Message}",
-                $"asked for {askedFor}, produced {drawnCount}; " +
-                $"skipped {notStudio} not-studio [{(notStudioBy.Count == 0 ? "none" : string.Join(", ", notStudioBy.Select(e => $"{e.Value}x{e.Key}")))}], " +
-                $"{noBatches} no-batches [{missing}]");
-        }
+        _tally.Report();
     }
-
-    /// <summary>The last reported draw tally, so the line prints on change rather than per frame.</summary>
-    private (int AskedFor, int Drawn, int NotStudio, int NoBatches) _lastDrawState = (-1, -1, -1, -1);
-
-    /// <summary>When that tally was last reported, so an oscillating count cannot print per frame.</summary>
-    private long _lastDrawReportAt;
 
 
     /// <summary>A value for each pose parameter the model declares, in its own order.</summary>

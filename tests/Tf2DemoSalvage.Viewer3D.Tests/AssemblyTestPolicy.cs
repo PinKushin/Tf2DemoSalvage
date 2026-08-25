@@ -61,3 +61,22 @@
 // it affects.
 [assembly: Parallelizable(ParallelScope.All)]
 [assembly: FixtureLifeCycle(LifeCycle.InstancePerTestCase)]
+
+// **Three workers, because this suite loads whole maps and they do not fit side by side** (B185).
+//
+// Measured 2026-08-24: a full run peaks at about 21 GB on a 31.9 GB machine, and 21 GB is roughly
+// what is free when nothing else is running — so it sits exactly on the ceiling. When it tips, what
+// comes out is an OutOfMemoryException inside PropModels.Load's List<T>.AddWithResize, killing
+// DIFFERENT tests every run, every one of which passes in isolation. That reads like flake and is
+// not: it is a fixed peak meeting a fixed ceiling, and which tests die is just scheduling.
+//
+// NUnit's default is one worker per processor, so on a machine with plenty of cores the suite tries
+// to hold plenty of maps at once. Three is measured rather than guessed — 0 failures at 3 against 12
+// at the default, in back-to-back runs with nothing else running.
+//
+// **This is a cap on the SYMPTOM and it is declared as one.** The cause is that MapCache retains a
+// full map per fixture and nothing bounds how many are live; the fix is to bound that, and until
+// somebody does, a suite that fails at random is worse than one that runs slightly slower. Attached
+// to the assembly rather than passed on a command line so CI and the gate inherit it without anybody
+// having to remember.
+[assembly: LevelOfParallelism(3)]
