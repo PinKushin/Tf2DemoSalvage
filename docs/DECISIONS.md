@@ -4967,6 +4967,39 @@ and why is it fast" — not "how much parity is this worth".
   is speed. The skinning buffer and both precaches are all parity restorations that happen to be
   faster, which is the ordinary case rather than a lucky one.
 
+### The cycle itself is the defect: decide the home and the parity BEFORE writing
+
+The owner, 2026-08-25, after three days of it:
+
+> "every time we implement a couple of new things, we have to go back and fix all the archetectural
+> and parity issues, the going back over and over is the annoying part."
+
+**That is a process defect, not a tidiness preference, and the ratio names it.** The initial MVP
+switch took a day. Undoing the drift that grew back took another. Bringing the same code to Valve's
+conventions took a third. Three days of rework against "a couple of new things" is the cost of
+deciding those two questions *after* the code exists rather than before.
+
+**The project already has this rule for BEHAVIOUR and lacks it for STRUCTURE.** A conformance test
+comes first, with its citation, before any code exists to bias the answer — that is written down and
+it works. Nothing said the same about where code lives or what the engine's arrangement is, so both
+were settled by proximity: new code went where its neighbours were, and matched what was already
+there.
+
+So, before writing a new piece, answer two questions and put the answers in the commit:
+
+1. **What is the engine's arrangement for this job?** One grep. If Valve models it as a system, a
+   presenter or a per-frame pass, ours takes that shape and preferably that name — `SoundscapeSystem`
+   and `UpdateClientSideAnimations` are both named for their originals so the parity is checkable
+   rather than rediscoverable.
+2. **Which project does it belong in, and can it be tested there?** If the answer is "the viewer
+   because that is where the thing that calls it lives", that is the drift starting. `AddViewmodel`
+   was written into the form for exactly that reason and cost three viewmodel bugs their testability.
+
+**Both questions are cheap before and expensive after.** A divergence written into a NEW type reads
+as deliberate; a misplaced type takes its tests with it, and those tests are what stop the next
+regression. The going-back is not caused by the refactors — it is caused by the two minutes not
+spent when the code was written.
+
 ### A refactor is when the parity check is cheapest
 
 The owner, 2026-08-25, while `ShowMoment` was being extracted:
@@ -4988,4 +5021,108 @@ Found this way, in the first minutes of extracting `ShowMoment`: Valve's equival
 origin, the render forward and the render frame. The builder is **told** where the camera is; it does
 not read it from ambient state. `ShowMoment(double tick)` takes a tick and reads the rest off the
 form, which is exactly the coupling that makes it untestable without a window (B188).
+
+## D90 — `Viewer3D` is a view AND a presenter, and the split is the port
+
+**2026-08-25.** The owner, on being asked to keep thinning it:
+
+> "is the VIewer3d suppose to be a view or a presenter, because if its a view, thats a very fat
+> view, but i think rendering is more presenting than view, so its a kinda fat presenter, but not
+> quite a god presenter, but its probably time to split it up where we can for the compile time
+> safety"
+
+**The diagnosis is right and names the real fault.** `Viewer3D` is not a view that got large; it is a
+view and a presenter sharing one `net10.0-windows` project. That TFM is what makes the fatness
+matter, because it puts presenter work on the wrong side of the only boundary the compiler enforces.
+
+### Rendering splits three ways, not two
+
+| role | what | needs Windows |
+|---|---|---|
+| **View** | window, menus, layout, key handling, message pump, full screen, the surface D3D draws into | yes |
+| **Presenter** | `ShowMoment`, `ReadMap`, `ProjectMap`, the camera, `ReportWeapons`, capture options, the ledgers | **no** |
+| **Renderer** | turning a scene into draw calls | no — `Tf2DemoSalvage.Render` is already `net10.0` |
+
+So "rendering is more presenting than view" is right, and it separates further than that: deciding
+WHAT to draw is presenter, issuing the draw calls is `Render`, and the window it lands in is view.
+
+### The acceptance test is a Linux port, and it is a real one
+
+> "we should be easily able to replace the view with something that runs on linux… and not have to
+> touch anything outside the winforms view and d3d"
+
+**That is the correct test for this work and it should be treated as the definition of done.** It is
+also close: only two projects carry a `-windows` TFM.
+
+| Windows-pinned | everything else |
+|---|---|
+| `Tf2DemoSalvage.Viewer3D` (WinForms) | Core, Content, Scene, Animation, Audio, Presentation, **Render**, Logging, Cli |
+| `Tf2DemoSalvage.Fonts` (GDI rasteriser) | |
+
+A port therefore needs a frontend (Qt, or Dear ImGui — the owner's "really lite UI library"), a
+backend other than D3D11 through the same Silk.NET family, and FreeType in place of GDI. **What it
+must not need is a reimplementation of the viewer**, and every line of presenter logic still sitting
+in `Viewer3D` is exactly that: work a second frontend would have to write again.
+
+That is the argument for the split, and it is a better one than tidiness — it is the difference
+between "write a new window" and "write a new viewer".
+
+### How it proceeds
+
+Presenter pieces move to a `net10.0` project as they are extracted, so the compiler refuses a
+WinForms reference from any of them. `Tf2DemoSalvage.Presentation` already holds `PlaybackPresenter`
+and `SoundPresenter`; the viewer's own presenter work joins it or gets a sibling when its
+dependencies (Scene, Render) make that cleaner. What stays behind is what genuinely cannot compile
+without a window.
+
+## D91 — Settings are config-settable, and `custom/` holds configs and MORE THAN ONE hud
+
+**2026-08-25**, recorded while the world field of view was being taken out of three hardcoded
+constants. Two separate things, and the second is a deliberate step BEYOND TF2 rather than toward it.
+
+### Every setting a player can change in the game is settable here
+
+The owner, on being asked whether 90 or 75 was the right default:
+
+> "its an easy change to change the default so i doesnt matter, but that is exactly why i want our
+> settings to be settable from a config file, it makes changing them and changing defaults free."
+
+**That is the argument, and it is better than the number.** A value compiled in has to be argued
+about; a value in a config is tried. The field of view had been compiled into three separate places
+— `FreeCamera.FieldOfView`, `OverheadPlacement.For`'s default and the call site — so nobody could
+try anything, and the discussion about 75 versus 90 could only be settled by a rebuild.
+
+This restates `docs/findings/13-settings-parity.md` with its reason attached: the miss it exists to
+catch is not a wrong number, it is a **choice taken away**.
+
+### `custom/`, and huds are chosen rather than installed — AFTER parity
+
+**Scheduled after parity, and recorded now because it constrains decisions being made now.** The
+owner: *"its a after parity goal, but it might effect some earlier design decisions, so it needs to
+be kept in mind"*. So nothing below is work in flight; it is a shape the current settings and asset
+code must not make impossible.
+
+> "our program is suppose to/going to be able to import a users config, or allow a user to paste
+> their config into our folder structure somewhere, likely a custom folder like modern tf2, along
+> with a hud or huds, im going to go for being able to choose huds on demand, meaning more than one
+> hud can be in custom and you can choose which one to use, which is something tf2 doesnt do, the
+> user will be allowed to just import huds too, so they dont have to find our folders to put it in
+> the right place."
+
+Three commitments, and the middle one is the departure:
+
+1. **A `custom/` folder, laid out as modern TF2 lays it out**, so a config or a hud that works in the
+   game works here by being put in the same place. Parity, and it costs nothing.
+2. **Several huds may sit in `custom/` at once and one is CHOSEN at runtime.** TF2 cannot do this —
+   a hud is installed by being the one present. **This is deliberate and must not be "corrected"
+   toward parity under D89.** D89 governs how the ENGINE's behaviour is reproduced; it does not
+   forbid the viewer offering something the game does not, and a demo viewer is a tool for looking
+   at recordings rather than a client that has to behave like one.
+3. **Importing, so nobody has to find the folder.** The layout is parity for people who already know
+   it; the importer is for everyone else.
+
+**What this means for settings work now**, which is why it is written down today rather than when
+the feature is built: the config reader must keep ignoring what it does not implement (D69), keep
+using Valve's own cvar names, and never assume one config file — a `custom/` tree is several, and a
+hud carries its own.
 

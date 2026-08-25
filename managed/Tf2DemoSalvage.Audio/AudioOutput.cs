@@ -25,7 +25,7 @@ namespace Tf2DemoSalvage.Audio;
 /// card, CI has no sound card, and a viewer on a machine with audio disabled should draw silently
 /// rather than refuse to start.
 /// </remarks>
-public sealed unsafe class AudioOutput : IDisposable
+public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 {
     private readonly AL _al;
     private readonly ALContext _alc;
@@ -403,6 +403,36 @@ public sealed unsafe class AudioOutput : IDisposable
 
     private static short ToPcm(float value) =>
         (short)(Math.Clamp(value, -1f, 1f) * short.MaxValue);
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// **Explicit, so this class keeps the surface it already had.** <see cref="IAudioSink"/> exists
+    /// for callers that schedule sound without owning a device (B188); implementing it explicitly
+    /// means no existing call site changes, the optional arguments on <see cref="Play"/> stay where
+    /// callers expect them, and the interface can avoid CA1716's objection to a member named
+    /// <c>Stop</c> without this class having to rename anything.
+    /// </remarks>
+    void IAudioSink.Play(
+        SoundSample sample,
+        float leftPan,
+        float rightPan,
+        float gain,
+        float pitch,
+        int entity,
+        int channel) =>
+        Play(sample, leftPan, rightPan, gain, pitch, entity, channel);
+
+    /// <inheritdoc/>
+    bool IAudioSink.SetGain(int entity, int channel, float gain) => SetGain(entity, channel, gain);
+
+    /// <inheritdoc/>
+    void IAudioSink.Silence(int entity, int channel) => Stop(entity, channel);
+
+    /// <inheritdoc/>
+    void IAudioSink.SilenceAll() => StopAll();
+
+    /// <inheritdoc/>
+    int IAudioSink.Reclaim() => Reclaim();
 
     /// <inheritdoc />
     public void Dispose()

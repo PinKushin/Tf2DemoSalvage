@@ -139,7 +139,7 @@ jobs:
         # described the suite. Nothing connects the two files, so a change to one has to be made in
         # both by hand — check here whenever a floor moves in gate.sh.
         run: |
-          ./build/assert-test-count.sh '**/core.trx' 1497 Core
+          ./build/assert-test-count.sh '**/core.trx' 1503 Core
           ./build/assert-test-count.sh '**/cli.trx' 74 Cli
           # 628 -> 645 is ARITHMETIC, not a measurement: 17 tests were added to Content on
           # 2026-08-24 (SchemeFont 6, GlyphAtlas 11), all self-contained, so every one of them
@@ -156,15 +156,15 @@ jobs:
           # .trx total.
           # 673 -> 686: 13 more (StudioIkChainTests 7, StudioBoneControllerTests 5, one capacity
           # guard). All but one IK test build their own bytes and run anywhere.
-          ./build/assert-test-count.sh '**/content.trx' 686 Content
-          ./build/assert-test-count.sh '**/presentation.trx' 135 Presentation
+          ./build/assert-test-count.sh '**/content.trx' 707 Content
+          ./build/assert-test-count.sh '**/presentation.trx' 139 Presentation
           ./build/assert-test-count.sh '**/logging.trx' 17 Logging
           # 10 is MEASURED locally and safe on a runner without the SDK, because a .trx total counts
           # skipped tests: the two conformance cases Assert.Ignore where source-sdk-2013 is absent
           # and still appear in the total. That is the same reason Content's 645 holds while it
           # executes a fraction of its cases here.
           ./build/assert-test-count.sh '**/animation.trx' 41 Animation
-          ./build/assert-test-count.sh '**/scene.trx' 73 Scene
+          ./build/assert-test-count.sh '**/scene.trx' 76 Scene
 
       # **Coverage, gated PER ASSEMBLY rather than per report.** A Cobertura file's root line-rate
       # averages every assembly the run loaded, including ones the suite never touches — measured
@@ -371,11 +371,11 @@ jobs:
         # gain work added more, and the exact post-merge figure needs a green run to read. Tighten it
         # once there is one.
         run: |
-          ./build/assert-test-count.sh '**/audio.trx' 116 Audio
+          ./build/assert-test-count.sh '**/audio.trx' 151 Audio
           ./build/assert-test-count.sh '**/fonts.trx' 7 Fonts
-          ./build/assert-test-count.sh '**/viewer.trx' 625 Viewer
+          ./build/assert-test-count.sh '**/viewer.trx' 621 Viewer
           ./build/assert-test-count.sh '**/viewer-ui.trx' 14 ViewerUi
-          ./build/assert-test-count.sh '**/corpus.trx' 106 Corpus
+          ./build/assert-test-count.sh '**/corpus.trx' 109 Corpus
 
       - uses: actions/upload-artifact@v7
         if: failure()

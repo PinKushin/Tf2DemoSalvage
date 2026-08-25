@@ -29,6 +29,22 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Tf2DemoSalvage.Core\Tf2DemoSalvage.Core.csproj" />
+
+    <!-- **A presenter uses services, which is the direction that keeps this acyclic** (D54, D62).
+         Audio references Core and Content and knows nothing about presenters, so this adds no
+         cycle — and SoundSchedule already lived here, so the alternative was Audio reaching UP into
+         the presenter layer to find it.
+
+         Added 2026-08-25 with SoundPresenter, which came out of MainForm.PlaySounds (B188). -->
+    <ProjectReference Include="..\Tf2DemoSalvage.Audio\Tf2DemoSalvage.Audio.csproj" />
+
+    <!-- **A presenter uses the model**, which is the layer direction MVP asks for and the one that
+         stays acyclic: Scene references Core, Content, Animation and Logging, and knows nothing
+         about presenters.
+
+         Added 2026-08-25 with FreeCameraController (D90). The camera needs MapOutline from Scene
+         and OverheadPlacement from here, which is itself the answer to where it belongs. -->
+    <ProjectReference Include="..\Tf2DemoSalvage.Scene\Tf2DemoSalvage.Scene.csproj" />
   </ItemGroup>
 
 </Project>

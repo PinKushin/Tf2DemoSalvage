@@ -229,7 +229,7 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 #
 # This is the rule B184 records, applied: a piece's test moves in the same commit as the piece, or
 # the Windows pin is recreated one file at a time. That is how it reached 115 of 119.
-run Tf2DemoSalvage.Scene.Tests    scene      73
+run Tf2DemoSalvage.Scene.Tests    scene      76
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -269,7 +269,7 @@ run Tf2DemoSalvage.Scene.Tests    scene      73
 # 142: SoundscapeSelectionConformance gains the PVS sensitivity case (B177) — every capture still
 # resolves to what the client said with the filter ON, which is exactly what would happen if the
 # filter did nothing, so one test measures the reduction instead: 6 of 44 placements from a spawn.
-run Tf2DemoSalvage.Audio.Tests    audio     147
+run Tf2DemoSalvage.Audio.Tests    audio     151
 
 # The presenter suite (D62). Sixteen tests, ~24 ms, no window and no desktop lock — which is the
 # whole point: this logic lived in MainForm and could only be reached by driving a real form, so
@@ -295,7 +295,7 @@ run Tf2DemoSalvage.Audio.Tests    audio     147
 # transport's setter deliberately does not raise, so the elapsed clock stayed stopped and the viewer
 # sat at tick zero insisting it was playing. Finding it also required making FakeElapsedTime model
 # STOPPED: it reported time passing after Reset, which made the fixture blind to the whole class.
-run Tf2DemoSalvage.Presentation.Tests presentation 135
+run Tf2DemoSalvage.Presentation.Tests presentation 139
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.
@@ -490,7 +490,10 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     109
 #                                              by both the frame rate and reflections.
 # Lowered 645 -> 625: twenty tests moved to Scene.Tests with their subjects, which is the +20 there.
 # Nothing was deleted, and the two numbers are checked against each other rather than separately.
-run Tf2DemoSalvage.Viewer3D.Tests viewer    625
+# 625 -> 621 on 2026-08-25: CameraPlacementTests (4) moved to Presentation.Tests with
+# FreeCameraController (B188, B184). Nothing was deleted — presentation went 135 -> 139, which is
+# exactly the four, and that arithmetic is the check that a move did not lose anything.
+run Tf2DemoSalvage.Viewer3D.Tests viewer    621
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."
