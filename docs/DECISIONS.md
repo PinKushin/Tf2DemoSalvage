@@ -4967,3 +4967,25 @@ and why is it fast" — not "how much parity is this worth".
   is speed. The skinning buffer and both precaches are all parity restorations that happen to be
   faster, which is the ordinary case rather than a lucky one.
 
+### A refactor is when the parity check is cheapest
+
+The owner, 2026-08-25, while `ShowMoment` was being extracted:
+
+> "the refactors are perfect times to double check stuff like that"
+
+**Because the code is being moved anyway.** Reading the engine's arrangement for the same job costs
+one grep at the moment you are already deciding what the new shape should be, and the alternative is
+worse than merely skipping it: a divergence written into a NEW type is harder to see afterwards than
+one left in an old method, because the new structure looks deliberate.
+
+It also runs the other way. **An extraction is a chance to find a divergence nobody was looking
+for** — the boundary you are drawing has an equivalent in the engine, and comparing them asks
+"why is ours shaped differently" at the only moment when changing the answer is free.
+
+Found this way, in the first minutes of extracting `ShowMoment`: Valve's equivalent is
+`IClientLeafSystem::BuildRenderablesList( const SetupRenderInfo_t &info )`
+(`clientleafsystem.h:169`), and `SetupRenderInfo_t` (`:75`) carries the output list, the render
+origin, the render forward and the render frame. The builder is **told** where the camera is; it does
+not read it from ambient state. `ShowMoment(double tick)` takes a tick and reads the rest off the
+form, which is exactly the coupling that makes it untestable without a window (B188).
+

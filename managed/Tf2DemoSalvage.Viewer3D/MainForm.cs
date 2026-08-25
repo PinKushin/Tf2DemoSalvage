@@ -2384,10 +2384,14 @@ internal class MainForm : Form
     /// and they did: the markers were still being drawn over the models the moment those started
     /// working, which hid whether the models were there at all.
     /// </remarks>
+    /// <remarks>
+    /// **Delegates rather than repeating the rule** (B188). This and <c>PlayerProps.Add</c> were the
+    /// same three conditions written twice: the draw loop adds a model for a player, and the marker
+    /// pass draws a DOT for a player with no model. Two copies of one question asked from opposite
+    /// sides is how a player ends up with both a body and a dot on top of it.
+    /// </remarks>
     private string? PlayerModel(ScenePlayer player) =>
-        player.IsPlaying && player.Drawn && player.PlayerClass is { } playerClass
-            ? _classModels?.Model(playerClass)
-            : null;
+        PlayerProps.ModelFor(player, new GameAppearance(_classModels, _weaponRoles));
 
     /// <summary>Every distinct studio model the loaded demo shows, at any tick.</summary>
     /// <remarks>
@@ -3582,95 +3586,15 @@ internal class MainForm : Form
         // game's archives are certain to be open.
         EnsureWeaponRoles();
 
-        foreach (ScenePlayer player in _players)
-        {
-            if (PlayerModel(player) is not { } model)
-            {
-                continue;
-            }
-
-            _drawn.Add(new SceneProp(
-                player.EntityIndex,
-                model,
-                SceneModelKind.Studio,
-                new ScenePose
-                {
-                    X = player.X,
-                    Y = player.Y,
-                    Z = player.Z,
-
-                    // **Yaw only.** A player model stands upright however far the eyes are pitched
-                    // - the server feeds pitch to the animation state to aim the torso, not to tip
-                    // the whole body (tf_player.cpp:2689). Rolling a player by their view would
-                    // lay them on their side every time they looked up.
-                    Yaw = player.Yaw,
-                    Scale = 1f,
-
-                    // Left unset here and chosen below, once the model is loaded. Choosing it now
-                    // asks a set that has not been given this model yet, which answers -1 - and
-                    // -1 is a real answer meaning "no such sequence", so it looks like a lookup
-                    // that failed rather than one that ran too early.
-                    Speed = player.Speed,
-
-                    // **The crouch and ground bits, for choosing an activity.** Carried on the pose
-                    // because the model has not been read yet and the activity lookup needs it, so
-                    // the choice happens in a second pass below.
-                    Flags = player.Flags,
-
-                    // **Which weapon they are holding, as the suffix it drives.** Same reason as
-                    // the flags: resolved here where the player is known, used a pass later where
-                    // the model is.
-                    Slot = _weaponRoles?.Suffix(player.WeaponClass, player.PlayerClass),
-
-                    // The jump clock, for the push-off versus the float.
-                    AirborneSeconds = player.AirborneSeconds,
-
-                    // Where they are looking, which aims the torso through body_pitch.
-                    EyePitch = player.EyePitch,
-
-                    // The eyes and the twist. Yaw above is the FEET, which is what the body is
-                    // drawn at; these two carry where the player is actually looking and how far
-                    // the torso is turned to get there.
-                    EyeYaw = player.EyeYaw,
-                    AimYaw = player.AimYaw,
-
-                    // Waist deep is where a jump becomes a swim.
-                    WaterLevel = player.WaterLevel,
-
-                    // **Both halves of the air-walk meet here.** The timeline says the player rose
-                    // fast enough to start one; the class script says whether their class does it
-                    // at all, and only the medic opts out. Neither layer can answer both.
-                    Airwalking = player.Airwalking &&
-                        (player.PlayerClass is not { } airwalkClass ||
-                         _classModels?.Airwalks(airwalkClass) != false),
-
-                    // **Which way the legs run.** A movement sequence is a blend grid and these
-                    // are its coordinates; without them the grid's corner is taken, which is one
-                    // fixed direction regardless of facing.
-                    MoveX = player.MoveX,
-                    MoveY = player.MoveY,
-
-                    // **RED is skin 0 and BLU is skin 1**, which is the game's own convention:
-                    // m_nSkin = ( team == TF_TEAM_RED ) ? 0 : 1. Without it every player draws in
-                    // the model's first family, which is red - both teams in red.
-                    //
-                    // **Deliberately computed here rather than read from the entity, and that stays
-                    // true now that m_nSkin IS retained by the scene layer.** For a player the
-                    // client computes this itself: c_tf_player.cpp:712-719 assigns m_nSkin from
-                    // m_iTeam while setting the model, and the field is marked FTYPEDESC_PRIVATE in
-                    // the prediction data. It is client state derived from team, not a value the
-                    // server sends for players.
-                    //
-                    // So this line is not made redundant by retaining the property - checked, on
-                    // exactly the suspicion that it had been. Props are the opposite case: a
-                    // capture point's skin comes from ownership on the server and must be read.
-                    //
-                    // Not reproduced here: the client's two skin OVERRIDES, applied straight after
-                    // the lines above - AdjustSkinIndexForZombie for Halloween, and the gold
-                    // ragdoll from TF_DMG_CUSTOM_GOLD_WRENCH.
-                    Skin = PlayerSkin.ForTeam(player.Team),
-                }));
-        }
+        // **Ninety lines that were never about a window** (B188, B184). Every reason a player is or
+        // is not drawn, and every field their pose carries, is scene logic — and none of it could
+        // be asserted while it lived here, because reaching it meant constructing a MainForm, which
+        // needs the STA, a device and the desktop lock.
+        //
+        // It now has nine tests in a plain net10.0 project, including the controls that matter: a
+        // spectator and a corpse must NOT appear, and a red and a blu player must take different
+        // skins — a single team cannot tell "computed from team" from "always zero".
+        PlayerProps.Add(_players, _drawn, new GameAppearance(_classModels, _weaponRoles));
 
         // **The engine does not draw the player whose eyes you are using**, and cosmetics merge
         // onto their wearer's bones, so the hat goes with them. Without this the first-person view
