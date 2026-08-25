@@ -80,6 +80,22 @@ run() {
 
 rm -f /tmp/gate-*.log
 
+# **Leave nothing running, and clean up on FAILURE too — hence the trap rather than a last line.**
+# MSBuild's node reuse and the Roslyn `VBCSCompiler` both outlive the build that spawned them, on
+# purpose, so eleven `dotnet test` invocations leave a pile behind: measured 2026-08-25 after one
+# gate run, eight MSBuild nodes at ~110 MB each plus a VBCSCompiler holding 502 MB and 547 seconds
+# of CPU — about 1.4 GB still resident with the gate long finished.
+#
+# **Shut down rather than disabled.** `MSBUILDDISABLENODEREUSE=1` would prevent them existing at
+# all, but node reuse is worth having ACROSS the eleven projects while the gate runs; the defect is
+# only that they persist afterwards. Measured cost of the leftovers on the run itself was small —
+# the viewer stage went 2m18s standalone to 2m30s here — so the reason to do this is the memory,
+# not the seconds.
+#
+# `dotnet build-server shutdown` rather than pkill: CLAUDE.md's gotcha 10 is that `pkill -f` matches
+# the shell running it, and this script's own command line contains every pattern worth matching.
+trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
+
 # **The floors are the CURRENT counts, not a comfortable distance below them.**
 #
 # A floor exists to catch a run that reported success while executing a fraction of the suite —
