@@ -15,6 +15,18 @@
          could run on. No managed wrapper - the P/Invoke surface here is this project's own,
          against the published opus.h, because a managed wrapper library would be one more
          thing between this project and the bits the engine actually produced. -->
+    <!-- Abstractions ONLY, which is what Directory.Packages.props reserves them for: "anything
+         that only needs ILogger". Added 2026-08-25 with SoundscapeSystem, which came out of
+         MainForm and has to report what it chose and what it could not open (B188).
+
+         Not the full Microsoft.Extensions.Logging: a library takes an ILogger and never decides
+         where lines go. The viewer still owns the sink. -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+
+    <!-- Native library assets for libopus, MIT-licensed, prebuilt for every RID this project
+         could run on. No managed wrapper - the P/Invoke surface here is this project's own,
+         against the published opus.h, because a managed wrapper library would be one more
+         thing between this project and the bits the engine actually produced. -->
     <PackageReference Include="libopus" />
 
     <!-- MP3, which is 82% of the sound files TF2 ships (13,140 of 15,958) because the voice

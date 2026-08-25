@@ -269,7 +269,7 @@ run Tf2DemoSalvage.Scene.Tests    scene      73
 # 142: SoundscapeSelectionConformance gains the PVS sensitivity case (B177) — every capture still
 # resolves to what the client said with the filter ON, which is exactly what would happen if the
 # filter did nothing, so one test measures the reduction instead: 6 of 44 placements from a spawn.
-run Tf2DemoSalvage.Audio.Tests    audio     147
+run Tf2DemoSalvage.Audio.Tests    audio     151
 
 # The presenter suite (D62). Sixteen tests, ~24 ms, no window and no desktop lock — which is the
 # whole point: this logic lived in MainForm and could only be reached by driving a real form, so
