@@ -23,18 +23,19 @@ namespace Tf2DemoSalvage.Animation.Animating;
 public sealed class SkeletonPose : IBonePose
 {
     private readonly IReadOnlyList<StudioBone> _bones;
-    private readonly Func<double, IReadOnlyList<StudioBonePose>> _animation;
+    private readonly Func<int, int, IReadOnlyList<float>, IReadOnlyList<StudioBonePose>> _animation;
 
     /// <summary>Creates a pose source over one model's skeleton.</summary>
     /// <param name="bones">The skeleton, as <see cref="StudioBones.Read"/> returned it.</param>
     /// <param name="animation">
-    /// Given demo time, the local positions and rotations the animation overrides. Bones it omits
-    /// keep their rest values, which is most of the skeleton for most animations.
+    /// Given a sequence, a frame and the pose parameter values, the local positions and rotations
+    /// that animation overrides. Bones it omits keep their rest values, which is most of the
+    /// skeleton for most animations.
     /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public SkeletonPose(
         IReadOnlyList<StudioBone> bones,
-        Func<double, IReadOnlyList<StudioBonePose>> animation)
+        Func<int, int, IReadOnlyList<float>, IReadOnlyList<StudioBonePose>> animation)
     {
         ArgumentNullException.ThrowIfNull(bones);
         ArgumentNullException.ThrowIfNull(animation);
@@ -48,6 +49,29 @@ public sealed class SkeletonPose : IBonePose
             _local[bone] = new float[12];
         }
     }
+
+    /// <summary>Which sequence this entity is playing.</summary>
+    /// <remarks>
+    /// **State on the entity, not an argument, because that is where the engine keeps it.**
+    /// <c>StandardBlendingRules</c> reads <c>GetSequence()</c>, <c>GetCycle()</c> and
+    /// <c>GetPoseParameters()</c> off the entity rather than receiving them
+    /// (<c>c_baseanimating.cpp:1957</c>) — and it has to, because <c>SetupBones</c> can be reached
+    /// through a merge from a child that knows nothing about what its wearer is doing.
+    ///
+    /// The previous shape took demo time and a closure, which quietly assumed every caller of
+    /// SetupBones had the animation state to hand. The merge is exactly the caller that does not.
+    /// </remarks>
+    public int Sequence { get; set; }
+
+    /// <summary>Which frame of it.</summary>
+    public int Frame { get; set; }
+
+    /// <summary>Every pose parameter's value, normalised, in this model's own order.</summary>
+    /// <remarks>
+    /// Normalised because that is how the engine stores them — <c>m_flPoseParameter</c> is sent over
+    /// 0..1 (<c>baseanimating.cpp:243</c>) and the blend grid expects the same range.
+    /// </remarks>
+    public IReadOnlyList<float> PoseValues { get; set; } = [];
 
     /// <summary>Scratch space for one bone's local transform, reused across frames.</summary>
     /// <remarks>
@@ -92,7 +116,7 @@ public sealed class SkeletonPose : IBonePose
         ArgumentNullException.ThrowIfNull(into);
         ArgumentNullException.ThrowIfNull(alreadyWritten);
 
-        IReadOnlyList<StudioBonePose> animated = _animation(currentTime);
+        IReadOnlyList<StudioBonePose> animated = _animation(Sequence, Frame, PoseValues);
 
         // A sparse override list, indexed once rather than searched per bone: an animation naming
         // one elbow would otherwise cost a scan of the whole list for every bone in the skeleton.

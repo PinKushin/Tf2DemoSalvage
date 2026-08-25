@@ -1289,7 +1289,31 @@ public static class PropModels
         /// This does the same, in <c>CalcPoseSingle</c>'s own order — the pairwise blend first at
         /// <c>weight[1] / (weight[0] + weight[1])</c>, then the third corner at <c>weight[2]</c>.
         /// </remarks>
-        public StudioSkeleton Skeleton(int sequence, int frame, IReadOnlyList<float> poseValues)
+        public StudioSkeleton Skeleton(int sequence, int frame, IReadOnlyList<float> poseValues) =>
+            Locals(sequence, frame, poseValues) is { Count: > 0 } pose
+                ? StudioBones.Posed(Bones, pose)
+                : StudioBones.RestPose(Bones);
+
+        /// <summary>The LOCAL transforms an animation gives each bone, before any concatenation.</summary>
+        /// <param name="sequence">A merged sequence number.</param>
+        /// <param name="frame">Which frame of it.</param>
+        /// <param name="poseValues">Every pose parameter's value, normalised, in the model's order.</param>
+        /// <returns>The bones the animation moves; ones it omits keep their rest values.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="poseValues"/> is null.</exception>
+        /// <remarks>
+        /// **Extracted from <see cref="Skeleton(int, int, IReadOnlyList{float})"/> on 2026-08-24,
+        /// which now calls it** (D88). The bone pipeline needs locals rather than finished matrices:
+        /// <c>StandardBlendingRules</c> produces <c>pos</c> and <c>q</c> arrays and
+        /// <c>BuildTransformations</c> turns them into bone-to-world afterwards, with the merge and
+        /// the IK solve in between. Handing out concatenated matrices means those stages have
+        /// nowhere to run.
+        ///
+        /// A pure extraction — every path through the old method already ended in
+        /// <c>StudioBones.Posed(Bones, pose)</c>, so this is the same code with the last line moved
+        /// to the caller.
+        /// </remarks>
+        public IReadOnlyList<StudioBonePose> Locals(
+            int sequence, int frame, IReadOnlyList<float> poseValues)
         {
             ArgumentNullException.ThrowIfNull(poseValues);
 
@@ -1297,14 +1321,14 @@ public static class PropModels
                 where.Group >= Models.Count ||
                 where.Local >= Groups[where.Group].Sequences.Count)
             {
-                return StudioBones.RestPose(Bones);
+                return [];
             }
 
             StudioSequence chosen = Groups[where.Group].Sequences[where.Local];
 
             if (chosen.Blend is not { Blends: true } grid || poseValues.Count == 0)
             {
-                return StudioBones.Posed(Bones, PoseOf(where.Group, chosen.Animation, frame));
+                return PoseOf(where.Group, chosen.Animation, frame);
             }
 
             // The owning group's map, because paramindex is local to it. An unknown group gets an
@@ -1327,13 +1351,11 @@ public static class PropModels
             {
                 float share = weights[0] + weights[2];
 
-                return StudioBones.Posed(
-                    Bones,
-                    share <= 0f
-                        ? pose
-                        : StudioPoseBlend.Blend(
-                            Bones, pose, PoseOf(where.Group, animations[2], frame),
-                            weights[2] / share));
+                return share <= 0f
+                    ? pose
+                    : StudioPoseBlend.Blend(
+                        Bones, pose, PoseOf(where.Group, animations[2], frame),
+                        weights[2] / share);
             }
 
             float pair = weights[0] + weights[1];
@@ -1344,10 +1366,8 @@ public static class PropModels
                     Bones, pose, PoseOf(where.Group, animations[1], frame), weights[1] / pair);
             }
 
-            pose = StudioPoseBlend.Blend(
+            return StudioPoseBlend.Blend(
                 Bones, pose, PoseOf(where.Group, animations[2], frame), weights[2]);
-
-            return StudioBones.Posed(Bones, pose);
         }
 
         /// <summary>How fast a sequence was authored to travel, in units a second.</summary>
