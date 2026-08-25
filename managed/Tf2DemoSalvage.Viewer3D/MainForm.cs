@@ -3926,7 +3926,10 @@ internal class MainForm : Form
             // whether the leaf lookup found anything, without anyone having to judge by eye.
             int unlit = _instances.Count(instance => instance.Light == default(AmbientCube));
 
-            _renderLog.LogInformation(
+            // Debug, because "the instance count changed" happens whenever a prop enters or leaves
+            // the visible set — measured at 13 lines in 10 seconds of ordinary play, which is
+            // per-frame detail wearing a change guard (B191).
+            _renderLog.LogDebug(
                 "{Message}",
                 $"drawing {_instances.Count} posed models ({unlit} unlit): {names}");
 

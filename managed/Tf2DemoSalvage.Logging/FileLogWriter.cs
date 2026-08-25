@@ -106,14 +106,14 @@ public sealed class FileLogWriter : IDisposable
         // **Only when something is actually listening, because this is a MACHINE-WIDE lock.**
         // `Debug.WriteLine` is `OutputDebugString`, which serialises every caller on the system
         // through the global `DBWinMutex` and shared buffer — so its cost depends on what else is
-        // running, not on this process. It is `[Conditional("DEBUG")]`, so it is live in the build
-        // the viewer is developed and profiled in and absent from Release: exactly the arrangement
-        // where a cost is never seen by the person who could fix it.
+        // running rather than on this process. `Debugger.IsAttached` keeps the IDE case this was
+        // written for and drops the call when nothing is there to read it.
         //
-        // Measured 2026-08-25 (B189). The owner's "every handful of seconds" stall was a single log
-        // line blocking: `reports 120.6 (sink 120.6)` of a 125 ms scene rebuild, with every other
-        // column at a millisecond or less. It reads as deterministic because the line that triggers
-        // it is — cp_process moves a brush at fixed ticks, so the same moments stall on every run.
+        // **This was NOT the stall, and the honest record matters more than the tidy story.** It
+        // was changed first on the theory that it was, and the stall continued unchanged: sink
+        // still read 110-125 ms over a full run afterwards. The flush below is what blocks. Kept
+        // because taking a system-wide mutex for an absent listener is worth not doing, not because
+        // it fixed anything.
         if (Debugger.IsAttached)
         {
             Debug.WriteLine(line);
@@ -181,6 +181,15 @@ public sealed class FileLogWriter : IDisposable
                     FileShare.ReadWrite | FileShare.Delete),
                 Encoding.UTF8)
             {
+                // **Stays on, and the cost of it is now measured** (B191). Turning it off cut the
+                // stalls from 15 to 2 over four minutes and the sink column from 110-125 ms to
+                // 0-1.7 — so the per-line flush IS what blocks. It stays anyway, because the ruling
+                // on it was the owner's and the reason still holds: this project debugs by log and
+                // a buffered tail lost in a crash is exactly the part worth having.
+                //
+                // The fix is therefore to stop WRITING lines nobody asked for rather than to stop
+                // flushing them: per-frame detail belongs at Debug, which `developer 0` does not
+                // admit, so a production run never pays this.
                 AutoFlush = true,
             };
 

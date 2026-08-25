@@ -482,7 +482,10 @@ public sealed unsafe class Device3D : IDisposable
             // more true for being said a hundred times a second.
             if (ViewmodelReportIsDue())
             {
-                _render.LogInformation(
+                // Debug rather than Information: per-frame detail, which is what `developer 1`
+                // admits and `developer 0` does not (B191). Rate limiting reduced how often this
+                // line is written; it did not stop a production run writing it at all.
+                _render.LogDebug(
                     "viewmodel pass skipped: world {World}, instances {Instances}, camera {Camera}",
                     _world is not null,
                     viewmodels?.Count ?? -1,
@@ -503,9 +506,9 @@ public sealed unsafe class Device3D : IDisposable
         // a log reaching 64,425 lines and 8.2 MB at roughly 1,280 writes a second. What it answers
         // is "where did the viewmodel end up", which is a question about a PLACE and does not need
         // a fresh answer sixty times a second.
-        if (_render.IsEnabled(LogLevel.Information) && ViewmodelReportIsDue())
+        if (_render.IsEnabled(LogLevel.Debug) && ViewmodelReportIsDue())
         {
-            _render.LogInformation(
+            _render.LogDebug(
                 "viewmodel pass: drawing {Count} at {Where}",
                 viewmodels.Count,
                 string.Join(

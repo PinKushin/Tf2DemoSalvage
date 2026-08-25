@@ -79,13 +79,17 @@ public sealed class ModelReports
 
         _brushHeight[prop.EntityIndex] = pose.Z;
 
-        // **Timed because the reporting bucket holds 129 ms of a 133 ms pose and all three reports
-        // here are guarded** (B189). If the cost is inside the sink rather than in the guards, then
-        // a single line occasionally blocking is the stall — and that would explain the same spike
-        // landing in `players`, `weapons` and `models` on other runs, since those log too.
+        // **Debug, not Information, because this is per-frame detail and that is what the level
+        // means** (B191). `developer 0` admits Information and above, so writing this at
+        // Information made every production run pay for a line emitted every frame a brush moves —
+        // and each line is a flush, which measured at 110-125 ms when the disk made it wait.
+        //
+        // The owner's ruling on the trade: "i can deal with slowdowns due to overlogging as long as
+        // we know its due to our logging, and will not be there in production". So the line stays
+        // and stops being on by default, rather than being deleted or having its flush removed.
         long loggedAt = System.Diagnostics.Stopwatch.GetTimestamp();
 
-        _render.LogInformation(
+        _render.LogDebug(
             "{Message}",
             $"brush {prop.ModelPath} #{prop.EntityIndex} at " +
             $"({pose.X:0},{pose.Y:0},{pose.Z:0.##}) seconds {seconds:0.###}");
