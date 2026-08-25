@@ -122,6 +122,47 @@ public sealed class EntityModelSet
         set => _lighting.Ticks = value;
     }
 
+    /// <summary>What <c>SetupBones</c> has cost, ever — the pose itself and any merge it drives.</summary>
+    /// <remarks>
+    /// **The last split in the pose phase, and every earlier one came back flat** (B189). On a
+    /// moment where bone work took 136 ms against a 3 ms median, lighting was 1.5 ms, the viewmodel
+    /// 0.2 ms, animation 0.7 ms over 50 calls, and nothing was newly built — so the cost is inside
+    /// one of these two and a single "bones" column could not say which.
+    /// </remarks>
+    public long SetupTicks { get; set; }
+
+    /// <summary>What composing skinning matrices has cost, ever.</summary>
+    public long SkinTicks { get; set; }
+
+    /// <summary>What bringing every entity's state up to date has cost, ever.</summary>
+    public long SimulateTicks { get; set; }
+
+    /// <summary>What per-prop reporting has cost, ever.</summary>
+    public long ReportTicks { get; set; }
+
+    /// <summary>How much of <see cref="ReportTicks"/> was spent inside the log sink.</summary>
+    public long ReportLogTicks => _reports.LogTicks;
+
+    /// <summary>What sampling light for WORN items has cost, ever — the uncached path.</summary>
+    /// <remarks>
+    /// **Valve has both halves of this and we have one.** `m_hLightingOrigin` makes an entity take
+    /// its light from somewhere other than its own position (<c>c_baseanimating.cpp:3301-3309</c>),
+    /// which is exactly what a bone-merged item needs and what this does. But the engine also holds
+    /// a `LightCacheHandle_t` per model instance
+    /// (<c>ivmodelrender.h:122</c>, `CreateInstance( IClientRenderable*, LightCacheHandle_t* )`),
+    /// so the sample is not recomputed per frame — and that half is missing here.
+    /// </remarks>
+    public long WornLightTicks { get; set; }
+
+    /// <summary>How many animating entities have been built, ever.</summary>
+    /// <remarks>
+    /// A running total rather than a per-call one, so a caller reads it either side of
+    /// <see cref="Instances"/> and gets the count for that moment. The same shape as
+    /// <see cref="LightingTicks"/> and for the same reason: a per-second total cannot attribute a
+    /// single freeze.
+    /// </remarks>
+    public int EntitiesBuilt { get; private set; }
+
     /// <summary>What the draw loop says about each model, once.</summary>
     private readonly ModelReports _reports;
 
@@ -430,6 +471,13 @@ public sealed class EntityModelSet
         // The factory rather than nothing, so the bone-merge pairing reaches the log. That line was
         // deleted with EntityModelSet.Merge and its absence left a viewer run unable to say whether
         // weapons had paired with the players holding them.
+        // **Counted because a spike needs a cause and this is the only per-moment discontinuity in
+        // the pose path.** Everything else here runs for every entity every frame; this runs the
+        // first time an entity is seen and when its model changes. Five of seven slow moments were
+        // dominated by bone work at 50-162 ms against a 3 ms median, and a median that low says the
+        // steady path is not what spikes (B189).
+        EntitiesBuilt++;
+
         AnimatingEntity animating = new(
             new SkeletonPose(skinned.Bones, skinned.Locals), _boneFrames, _loggers);
 
@@ -529,18 +577,44 @@ public sealed class EntityModelSet
     /// Keeping it out of the pose path is what leaves one array per entity with nothing to choose
     /// wrongly between.
     /// </remarks>
-    private static float[][] Skinning(IReadOnlyList<StudioBone> bones, BoneAccessor accessor)
+    private float[][] Skinning(int entity, IReadOnlyList<StudioBone> bones, BoneAccessor accessor)
     {
-        float[][] skinning = new float[accessor.Count][];
+        // **Reused per entity, because this ran once per bone per drawn prop per FRAME.** At around
+        // 250 props of eighty bones that is twenty thousand twelve-float arrays every frame, and
+        // the allocating overload was being called for every one of them.
+        //
+        // Measured 2026-08-25: gen0 was collecting 34 times a second. The first attempt at this
+        // fixed FromQuaternion and the O(n²) override scan and bought about 20 ms of the 545 —
+        // because THIS was the cost, and it was left alone. A plausible fix to the wrong line reads
+        // exactly like a fix that did not help.
+        //
+        // Safe to reuse because an instance list is consumed within the frame that built it, and
+        // the viewmodel's entities carry their own indices (4096-4098) so they cannot collide with
+        // a world entity's buffer.
+        if (!_skinning.TryGetValue(entity, out float[][]? buffer) ||
+            buffer.Length != accessor.Count)
+        {
+            buffer = new float[accessor.Count][];
+
+            for (int bone = 0; bone < buffer.Length; bone++)
+            {
+                buffer[bone] = new float[12];
+            }
+
+            _skinning[entity] = buffer;
+        }
 
         for (int bone = 0; bone < accessor.Count; bone++)
         {
-            skinning[bone] = StudioBones.Concatenate(
-                accessor.Bone(bone), bones[bone].PoseToBone.Span);
+            StudioBones.Concatenate(
+                accessor.Bone(bone), bones[bone].PoseToBone.Span, buffer[bone]);
         }
 
-        return skinning;
+        return buffer;
     }
+
+    /// <summary>Each entity's skinning matrices, reused between frames.</summary>
+    private readonly Dictionary<int, float[][]> _skinning = [];
 
     /// <summary>Measures a skinned model with its pose applied on the processor.</summary>
     private void ReportPosedExtents(
@@ -1020,7 +1094,17 @@ public sealed class EntityModelSet
         // bones on demand while drawing. State first is what lets a merge reach an entity the draw
         // loop has not got to yet.
         _boneFrames.Advance();
+
+        // **Timed as a phase because it IS one** — Valve's first of two
+        // (`cdll_client_int.cpp:2206-2210`) — and because everything else in the pose path has now
+        // been measured flat while the total swings 3 ms to 136 ms. Splitting SetupBones (1 ms) and
+        // Skinning (0.2 ms) out left 127 ms in the remainder, and this is the larger half of it: a
+        // pass over EVERY prop, not just the animated ones (B189).
+        long simulatedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
         Simulate(props, seconds);
+
+        SimulateTicks += System.Diagnostics.Stopwatch.GetTimestamp() - simulatedAt;
 
         // **Every prop that does not draw is counted with its reason.** A silent `continue` here is
         // how "all the props went away" became a guessing game: the scene said 14 models, the map
@@ -1065,6 +1149,12 @@ public sealed class EntityModelSet
             AmbientCube? light = lit.Light;
             SunLight? sun = lit.Sun;
 
+            // **The last unmeasured thing in this loop, and it runs three times per prop per
+            // frame.** Everything else has been split and come back at a millisecond or less while
+            // the total holds a deterministic ~130 ms (B189). Reporting is the remaining candidate
+            // and it is the one that builds strings.
+            long reportedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
             _reports.BrushMoved(prop, seconds);
 
             if (lightAt is not null)
@@ -1073,6 +1163,8 @@ public sealed class EntityModelSet
             }
 
             _reports.Animating(prop, frame, AllFrames(prop.ModelPath).Count, blend);
+
+            ReportTicks += System.Diagnostics.Stopwatch.GetTimestamp() - reportedAt;
 
             // **A skinned model is posed here, per instance.** Its geometry was uploaded once and
             // unposed, so the matrices are what puts it in a pose at all - without them it draws
@@ -1090,7 +1182,13 @@ public sealed class EntityModelSet
                 // BONE_USED_BY_ANYTHING because this project draws one level of detail and asks for
                 // everything; a narrower mask is the optimisation the accessor exists to allow and
                 // is not worth guessing at before something measures it.
-                if (!animating.SetupBones(StudioBoneFlags.UsedByAnything, seconds))
+                long setupAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
+                bool setUp = animating.SetupBones(StudioBoneFlags.UsedByAnything, seconds);
+
+                SetupTicks += System.Diagnostics.Stopwatch.GetTimestamp() - setupAt;
+
+                if (!setUp)
                 {
                     // The wearer is not being drawn — dead, out of the visible set, or a model that
                     // failed to load. Valve's `if ( baseDrawn )`: drawing the item anyway leaves it
@@ -1098,7 +1196,11 @@ public sealed class EntityModelSet
                     continue;
                 }
 
-                bones = Skinning(skinned.Bones, animating.Bones);
+                long skinAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
+                bones = Skinning(prop.EntityIndex, skinned.Bones, animating.Bones);
+
+                SkinTicks += System.Diagnostics.Stopwatch.GetTimestamp() - skinAt;
 
                 // **The bones are already in world space**, so the model matrix must not place the
                 // model a second time (finding 35 section 7a). This is where the merged item's
@@ -1170,7 +1272,18 @@ public sealed class EntityModelSet
                 // the item had been given a position.
                 if (_lightPoints.TryGetValue(wearer, out (float X, float Y, float Z) at))
                 {
+                    // **Timed separately because it is neither cached NOR counted, and both are
+                    // defects** (B189). `ModelLighting.For` exists to cache exactly this sample —
+                    // keyed on the entity and the quantised point, because a model that has not
+                    // moved cannot have changed brightness — and this call goes straight past it to
+                    // the sampler. So every worn item on every player re-traces its lighting every
+                    // frame, and because the call sits outside `LightingTicks` the cost was landing
+                    // in a column arrived at by subtraction.
+                    long wornAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
                     light = lightAt is null ? default : lightAt(at.X, at.Y, at.Z);
+
+                    WornLightTicks += System.Diagnostics.Stopwatch.GetTimestamp() - wornAt;
                 }
 
                 if (bones is { Count: > 0 } && _reports.FirstTime(prop.ModelPath + "#worn"))

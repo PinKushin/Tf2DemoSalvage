@@ -4,7 +4,7 @@ using System.Linq;
 
 using Tf2DemoSalvage.Core.Scene;
 
-namespace Tf2DemoSalvage.Viewer3D.Tests;
+namespace Tf2DemoSalvage.Scene.Tests;
 
 /// <summary>
 /// Packing entity models once and posing them with a matrix.

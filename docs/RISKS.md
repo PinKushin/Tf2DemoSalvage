@@ -10275,6 +10275,174 @@ chequer, so where it sits cannot be judged by looking.
 next link needs is bone-to-world. It has to return both, as `StudioBones.Skeleton` already does with
 `new StudioSkeleton(skinning, boneToWorld)`.
 
+### B191 — The stall was one log line taking a machine-wide mutex — FIXED 2026-08-25
+
+**The owner, after a long hunt that kept blaming the wrong thing:** *"the spikes are deterministic
+theyy are ours"*. Both halves were right, and the determinism is what identified it.
+
+`FileLogWriter.Write` mirrored every line to `Debug.WriteLine` before the file. That is
+`OutputDebugString`, which serialises **every caller on the machine** through the global
+`DBWinMutex` and a shared buffer — so its cost is a function of what else is running on the system,
+not of this process. One line was costing **~120 ms**.
+
+**The measurement chain**, each step narrowing the one before:
+
+| split | result |
+|---|---|
+| frame ledger | `advance` 130 ms — but that is the whole of `ShowMoment` |
+| `SLOW MOMENT` | `pose` 130 ms |
+| lighting, viewmodel, simulate, wornlight, setup, skin | ~3 ms combined |
+| `rest`, by subtraction | 126 ms |
+| `reports` | 129 ms of a 133 ms pose |
+| `sink` | **120.6 of 120.6 ms** |
+
+Measured before and after:
+
+| | before | after |
+|---|---|---|
+| steady-state slow moments | ~150 over 1,470 s | 1 in 100 s |
+| pose spike | 128-138 ms, recurring | none |
+| worst frame in a second | 120.66 ms | 13-16 ms |
+
+**Why every earlier hypothesis failed, and each was disproved by measurement rather than dropped:**
+
+- **Sound decode** — real and worth fixing, but the spikes continued after 542/543 sounds moved to
+  load (B163 redux).
+- **GC** — 0 gen2 and 6-9 ms of pause in a second holding a 120.66 ms frame.
+- **Animation allocation** (the original B189 below) — 0.7-0.9 ms over ~50 calls.
+- **First-sight entity construction** — `built 0` with the entity count flat at ~260.
+- **The viewmodel scene, `Simulate`, worn-item lighting, `SetupBones`, `Skinning`** — each split out
+  and each returned at a millisecond or less.
+
+**Three things made it hard, and they are the transferable part:**
+
+1. **Every direct timer read small and the fat column was always the one computed by SUBTRACTION.**
+   Each new timer moved the fat column to whatever was still being subtracted. That pattern was
+   itself the signal and was read as noise for several rounds.
+2. **It appeared to move between phases** — `pose`, `players`, `weapons`, `models` on different
+   runs — because all of them log. That looked like external CPU contention and was argued as such;
+   the mechanism was right and the victim was wrong. It is not starvation, it is our own line taking
+   a global lock.
+3. **`Debug.WriteLine` is `[Conditional("DEBUG")]`.** It is live in the build the viewer is
+   developed and profiled in and absent from Release — a cost that exists only where it can be
+   observed, and only for the person who could fix it.
+
+**Fixed** by writing to `Debug` only when `Debugger.IsAttached`. Without a debugger the call still
+takes the system mutex for a listener that usually is not there.
+
+**Still open, and smaller:** `AutoFlush = true` on the held `StreamWriter` flushes to disk per line.
+Not measured separately yet; the remaining 44 ms moment carried `setup 35.5`, which is `SetupBones`
+and unrelated.
+
+### B189 — The animation path allocates per call where Valve writes into caller arrays — OPEN
+
+**Found 2026-08-25 by the owner's rule** (D89): *"every place we diverge we have issues, bugs or
+prformance"*, applied as a search strategy rather than a design principle.
+
+`StudioAnimation.Pose` returns a fresh `IReadOnlyList<StudioBonePose>` on every call, `PoseOf`
+allocates a second `List` to renumber a non-zero animation group, and `StudioPoseBlend.Blend`
+allocates again per blend. There is no cache of any kind in `StudioAnimation`. This runs **per
+animated entity, per frame**.
+
+Valve does not:
+
+```cpp
+void CalcPose( const CStudioHdr *pStudioHdr, CIKContext *pIKContext,
+               Vector pos[], Quaternion q[], int sequence, float cycle,
+               const float poseParameter[], int boneMask, float flWeight, float flTime )
+```
+
+`bone_setup.cpp:2346` — caller-supplied arrays, filled in place; `SlerpBones` blends into `q1[]` /
+`pos1[]` rather than returning anything. Nothing in this repository declared the departure, so D86
+was never satisfied for it.
+
+**Measured cost.** Posing owns ~540 ms of every second at 120 fps, of which lighting is ~130-180 ms,
+leaving ~370 ms of bone work. Gen0 collects ~30 times a second. The intermittent stall is here too:
+five of seven `SLOW MOMENT` lines were dominated by `pose`, split as `lighting 0.3-13.5, bones
+50-162` — so the spike is bone work, not light sampling.
+
+**Not yet established** which part of the bone work spikes. The steady cost is explained by the
+allocation; a spike of 162 ms against a 3 ms median is not, and wants its own measurement before
+anything is rewritten. Candidates: the first pose of a newly-seen animation group
+(`BonesOf` → `StudioBones.Read` is lazy and cached), a burst of `EntityFor` rebuilds when a respawn
+wave brings many entities into view at once, or a large `_drawn` growth.
+
+**Do not fix by patching ours.** B163's outcome, restated by the owner on finding this: *"this is
+literally the same thing we learned during the last optimization run"* — the answer there was to
+adopt Valve's arrangement wholesale rather than optimise around our own, and the packed-vertex-buffer
+proposal that tried the latter was overruled. See `an-optimisation-is-not-a-skippable-departure`.
+
+### B190 — Viewmodels intermittently do not draw, while the pass reports two instances — OPEN
+
+**The owner, 2026-08-25:** *"the viewmodels are intermittently not drawing idk why though"*
+
+The scene build is not dropping them. Logged continuously during a run where the owner saw them
+vanish:
+
+```
+viewmodel pass: drawing 2 at c_demo_arms at (0, 0, 0) tip36 (36, 0, 0),
+                          c_stickybomb_launcher at (0, 0, 0) tip36 (36, 0, 0)
+viewmodel at tick 6485: 2 props, 2 instances
+```
+
+So two instances are posed and submitted on the frames in question, which places the fault
+**downstream of the scene**, in the draw or in device state — the same seam as B170, B186 and B187,
+and the reason B188 wants the view thinned before any of them is chased.
+
+**Not yet ruled out:** the per-entity skinning buffer added the same day
+(`EntityModelSet.Skinning`) reuses one `float[][]` per entity index. Viewmodel entities carry
+4096-4098 and cannot collide with a world entity, but an entity drawn TWICE in one frame would have
+its second pose overwrite the first, since both instances hold the same array. Whether anything is
+drawn twice has not been checked.
+
+**Narrowed by the owner the same evening, and this is the whole finding:**
+
+> *"the only viewmodel that is dropping its draw is the demoman, and its while the sticky launcher
+> is building power i think"*
+
+So it is **not** intermittent in the sense of random — it is **conditional on charging a
+stickybomb launcher**, which is one class, one weapon, one activity. That converts the bug from
+"sometimes viewmodels vanish" into a case that can be reproduced on demand by seeking to a charge,
+and it points squarely at the sequence the charge plays rather than at the draw in general.
+
+What that suggests, none of it yet measured:
+
+- **The charge is a pose-parameter blend, not a plain sequence.** `CTFPipebombLauncher` charges over
+  `m_flChargeBeginTime`, and a charge-up is normally driven through a pose parameter or a blended
+  sequence — which is the one path in `SkinnedModel.Locals` that calls `PoseOf` three times and
+  `StudioPoseBlend.Blend` twice. Every other viewmodel takes the single-`PoseOf` path.
+- **A sequence the model does not have reads as empty rather than as an error.**
+  `Sequences.At(sequence)` returning null makes `Locals` return `[]`, which leaves the skeleton at
+  its REST pose rather than reporting anything. A rest-pose viewmodel is not the same as a missing
+  one, so if the model genuinely disappears the fault is more likely in what gets ADDED to the
+  scene than in what pose it is given.
+- **Worth checking first**, because it is one grep: whether the viewmodel pass logs `2 props, 2
+  instances` or `1` during a charge. The pass line already reports both counts, so the log from a
+  run that reproduced it answers whether the instance was dropped or drawn-and-invisible — and
+  those two have nothing in common as bugs.
+
+**Answered, from the run the owner reproduced it in.** The instance is **dropped from the scene**,
+and the draw is innocent:
+
+```
+viewmodel at tick 8787: 2 props, 2 instances
+  viewmodel prop 'models/weapons/c_models/c_demo_arms.mdl' seq 1
+viewmodel at tick 8792: 1 props, 1 instances
+viewmodel pass: drawing 1 at c_demo_arms at (0, 0, 0) tip36 (36, 0, 0)
+```
+
+Twenty pass lines report `drawing 1` against 127 reporting `drawing 2`. **The ARMS survive and the
+WEAPON is the one that goes** — `c_demo_arms` is what remains, and the stickybomb launcher is absent
+from the scene entirely rather than present and invisible.
+
+So this is **not** in the viewmodel draw, and it is not in B170/B186/B187's seam after all. It is in
+what `ViewmodelScene.Build` is handed or what it returns — the weapon's `SceneViewmodel` stops being
+reported for the duration of the charge. That also clears the skinning-buffer suspicion above: a
+shared buffer would draw a WRONG pose, never one fewer instance.
+
+Next step is `TimelineViewmodels` and the `m_hViewModel` / `m_iViewModelIndex` decode across a
+charge, not the renderer.
+
 ### B188 — MainForm is 87% of the viewer, and the viewmodel bugs all live in it — OPEN
 
 **The owner, 2026-08-24**, on being told B186, B187 and B170 all point at the viewmodel pass:

@@ -79,10 +79,22 @@ public sealed class ModelReports
 
         _brushHeight[prop.EntityIndex] = pose.Z;
 
-        _render.LogInformation(
+        // **Debug, not Information, because this is per-frame detail and that is what the level
+        // means** (B191). `developer 0` admits Information and above, so writing this at
+        // Information made every production run pay for a line emitted every frame a brush moves —
+        // and each line is a flush, which measured at 110-125 ms when the disk made it wait.
+        //
+        // The owner's ruling on the trade: "i can deal with slowdowns due to overlogging as long as
+        // we know its due to our logging, and will not be there in production". So the line stays
+        // and stops being on by default, rather than being deleted or having its flush removed.
+        long loggedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
+        _render.LogDebug(
             "{Message}",
             $"brush {prop.ModelPath} #{prop.EntityIndex} at " +
             $"({pose.X:0},{pose.Y:0},{pose.Z:0.##}) seconds {seconds:0.###}");
+
+        LogTicks += System.Diagnostics.Stopwatch.GetTimestamp() - loggedAt;
     }
 
     /// <summary>What light one entity was drawn with, once per entity.</summary>
@@ -107,6 +119,8 @@ public sealed class ModelReports
 
         ScenePose pose = prop.Pose;
 
+        long loggedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
         _render.LogInformation(
             "{Message}",
             $"lit {System.IO.Path.GetFileName(prop.ModelPath)} #{prop.EntityIndex} " +
@@ -119,7 +133,17 @@ public sealed class ModelReports
             (lit.Light is { } cube
                 ? $"luminance {AmbientCube.Luminance(cube):0.####}"
                 : "lightmapped"));
+
+        LogTicks += System.Diagnostics.Stopwatch.GetTimestamp() - loggedAt;
     }
+
+    /// <summary>What writing report lines to the sink has cost, ever.</summary>
+    /// <remarks>
+    /// Separate from the reports themselves because the guards and the WRITE are different
+    /// suspects: every report here early-outs after its first line, so a large total with a small
+    /// number of lines means the sink blocks rather than that the guards are slow.
+    /// </remarks>
+    public long LogTicks { get; set; }
 
     /// <summary>Which baked frame a model's sequence and cycle selected, once per model.</summary>
     /// <param name="prop">The prop.</param>
@@ -136,11 +160,15 @@ public sealed class ModelReports
 
         ScenePose pose = prop.Pose;
 
+        long loggedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
         _render.LogInformation(
             "{Message}",
             $"animating {prop.ModelPath}: sequence {pose.Sequence} cycle {pose.Cycle:0.###} " +
             $"-> baked frame {frame} of {frames} " +
             $"blend {blend:0.###} yaw {pose.Yaw:0.##} at ({pose.X:0},{pose.Y:0},{pose.Z:0})");
+
+        LogTicks += System.Diagnostics.Stopwatch.GetTimestamp() - loggedAt;
     }
 
     /// <summary>Whether a model has already had a named report of some kind.</summary>

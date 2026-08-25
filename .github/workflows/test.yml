@@ -164,7 +164,7 @@ jobs:
           # and still appear in the total. That is the same reason Content's 645 holds while it
           # executes a fraction of its cases here.
           ./build/assert-test-count.sh '**/animation.trx' 41 Animation
-          ./build/assert-test-count.sh '**/scene.trx' 23 Scene
+          ./build/assert-test-count.sh '**/scene.trx' 54 Scene
 
       # **Coverage, gated PER ASSEMBLY rather than per report.** A Cobertura file's root line-rate
       # averages every assembly the run loaded, including ones the suite never touches — measured
@@ -373,7 +373,7 @@ jobs:
         run: |
           ./build/assert-test-count.sh '**/audio.trx' 116 Audio
           ./build/assert-test-count.sh '**/fonts.trx' 7 Fonts
-          ./build/assert-test-count.sh '**/viewer.trx' 645 Viewer
+          ./build/assert-test-count.sh '**/viewer.trx' 625 Viewer
           ./build/assert-test-count.sh '**/viewer-ui.trx' 14 ViewerUi
           ./build/assert-test-count.sh '**/corpus.trx' 106 Corpus
 

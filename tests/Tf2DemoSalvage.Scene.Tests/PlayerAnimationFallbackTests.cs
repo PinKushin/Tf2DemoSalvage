@@ -1,7 +1,6 @@
 using Tf2DemoSalvage.Core.Scene;
-using Tf2DemoSalvage.Viewer3D;
 
-namespace Tf2DemoSalvage.Viewer3D.Tests;
+namespace Tf2DemoSalvage.Scene.Tests;
 
 /// <summary>
 /// What a player is drawn doing when the model has no sequence for it.

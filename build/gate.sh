@@ -101,7 +101,7 @@ rm -f /tmp/gate-*.log
 # **Lowered 1504 -> 1497 on 2026-08-22, and the arithmetic is the justification.**
 # SoundAttenuationConformanceTests (7) moved to Audio.Tests with SoundAttenuation itself (D53).
 # Nothing was deleted: core -7 and content -33 are exactly the +40 the audio floor gained.
-run Tf2DemoSalvage.Core.Tests     core     1497
+run Tf2DemoSalvage.Core.Tests     core     1503
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
@@ -209,7 +209,27 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 # "Sampled once" and "sampled every frame" produce identical cubes, so no assertion on a cube can
 # separate them. Verified by sabotage: one flipped comparison in the lighting cache reddens exactly
 # For_AModelThatHasNotMoved_IsSampledOnce and nothing else.
-run Tf2DemoSalvage.Scene.Tests    scene      23
+#
+# 34: ViewmodelSceneTests (11). AddViewmodel was 319 lines inside a 7,263-line form and had no tests
+# and could not have any — reaching it meant constructing a MainForm, which needs the STA, a device
+# and the desktop lock. Three open bugs against that path (B170, B186, B187) had no regression test
+# between them.
+#
+# It moved to Scene, so these are plain net10.0. What they pin is the pair of EXCLUSIVE schemes in
+# CTFWeaponBase::GetViewModel — the weapon is either its own viewmodel or a second model parented to
+# the class's arms — because drawing both is how one weapon becomes two on screen. The path
+# comparison has its own test: the two names come from different places and disagree on slashes, and
+# getting it wrong does not throw, it draws the wrong number of models.
+#
+# **Lowered 645 -> 625 on the viewer and raised 34 -> 54 here in the same commit, and the
+# arithmetic is the justification**: exactly twenty moved, nothing was deleted. EntityModelsTests,
+# SyntheticSkinnedModel and PlayerAnimationFallbackTests all test Tf2DemoSalvage.Scene types and
+# reference no device, no form and nothing from Windows — measured, zero hits for Device3D,
+# MainForm, System.Windows.Forms or Silk across all three.
+#
+# This is the rule B184 records, applied: a piece's test moves in the same commit as the piece, or
+# the Windows pin is recreated one file at a time. That is how it reached 115 of 119.
+run Tf2DemoSalvage.Scene.Tests    scene      54
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -249,7 +269,7 @@ run Tf2DemoSalvage.Scene.Tests    scene      23
 # 142: SoundscapeSelectionConformance gains the PVS sensitivity case (B177) — every capture still
 # resolves to what the client said with the filter ON, which is exactly what would happen if the
 # filter did nothing, so one test measures the reduction instead: 6 of 44 placements from a spawn.
-run Tf2DemoSalvage.Audio.Tests    audio     142
+run Tf2DemoSalvage.Audio.Tests    audio     147
 
 # The presenter suite (D62). Sixteen tests, ~24 ms, no window and no desktop lock — which is the
 # whole point: this logic lived in MainForm and could only be reached by driving a real form, so
@@ -468,7 +488,9 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     109
 #   Shortcuts_EveryMenuItem_…                  no key claimed twice. Third instance in one file
 #                                              after B165's F11: F12 was dead, and F8 was claimed
 #                                              by both the frame rate and reflections.
-run Tf2DemoSalvage.Viewer3D.Tests viewer    645
+# Lowered 645 -> 625: twenty tests moved to Scene.Tests with their subjects, which is the +20 there.
+# Nothing was deleted, and the two numbers are checked against each other rather than separately.
+run Tf2DemoSalvage.Viewer3D.Tests viewer    625
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."

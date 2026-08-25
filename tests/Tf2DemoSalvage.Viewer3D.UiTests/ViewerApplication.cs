@@ -276,6 +276,18 @@ internal sealed partial class ViewerApplication : IDisposable
             .. arguments,
             "+" + ViewerSettings.ScreenshotFolderCommand,
             TestCaptureFolder,
+
+            // **`developer 1`, because this suite reads the log as its instrument** (B191). Several
+            // tests wait on per-frame lines — `viewmodel pass: drawing` is the evidence that a
+            // viewmodel reached the SCREEN rather than merely resolving, and waiting on anything
+            // weaker once let a capture photograph empty hands and pass.
+            //
+            // Those lines moved to Debug when per-frame logging was taken out of production, where
+            // each one was a disk flush that measured 110-125 ms. `developer 0` no longer admits
+            // them, so the suite asks for the verbosity it depends on rather than the product
+            // carrying it for everybody — the same reasoning as the capture folder above.
+            "+developer",
+            "1",
         ];
 
         // **Geometry is inherited, never forced.** The viewer honours TF2VIEW_WINDOW_SIZE and

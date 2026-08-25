@@ -495,16 +495,10 @@ internal class MainForm : Form
                 $"developer {_settings.Developer}; the log accepts {level} and above"));
     }
 
-    /// <summary>The viewmodel last reported, so the lines print on a weapon switch.</summary>
-    private (string Model, int Sequence, int Playing) _reportedViewmodel = (string.Empty, -1, -1);
-
-    /// <summary>Whether this frame's viewmodel differs from the one last reported.</summary>
-    /// <remarks>
-    /// Shared by the four lines that describe a viewmodel, so they stay together: reporting the
-    /// scheme without the props it produced is half an answer, and the question they answer is about
-    /// a weapon rather than about a frame.
-    /// </remarks>
-    private bool _viewmodelChanged;
+    // The "have we already reported this viewmodel" state moved into ViewmodelScene on 2026-08-24
+    // (B188). It belongs with the decision it dedupes: what the lines answer is "which model,
+    // playing what", which is a question about a WEAPON and changes when the player switches — and
+    // holding that flag on the form is what let it drift out of step with the thing it described.
 
     private readonly ToolStripMenuItem _specular;
     private readonly ToolStripMenuItem _fullbrightMenu;
@@ -2944,6 +2938,18 @@ internal class MainForm : Form
     /// Mirrored, because a viewmodel is drawn mirrored and the cull flips with it. Getting that
     /// wrong does not fail, it draws the weapon inside out.
     /// </remarks>
+    /// <summary>Poses whatever the first-person view shows at this moment.</summary>
+    /// <remarks>
+    /// **This was 319 lines and is now a guard, a call and the drawing** (B188). What it decides —
+    /// which models the view contains, under which of the engine's two exclusive schemes — moved to
+    /// <see cref="ViewmodelScene"/> in the scene layer, where it can be tested without a window.
+    /// It could not be before: reaching it meant constructing a MainForm, which needs the STA, a
+    /// Direct3D device and the desktop lock, and three open bugs against this path (B170, B186,
+    /// B187) had no regression test between them.
+    ///
+    /// What stays here is what genuinely needs the form: which entity the camera follows, where
+    /// that camera is, packing geometry onto the device, and the camera the pass draws with.
+    /// </remarks>
     private void AddViewmodel(double seconds)
     {
         if (!_firstPerson ||
@@ -2958,224 +2964,42 @@ internal class MainForm : Form
             return;
         }
 
-        if (timeline.ViewmodelAt(_transport.CurrentTick, follower) is not { } weapon)
-        {
-            _renderLog.LogWarning(
-                "{Message}",
-                $"no viewmodel for entity {follower} at tick {_transport.CurrentTick}");
-            return;
-        }
-
-        // **At the eye, which is where CalcViewModelView puts it**, and where it stays until the
-        // reason it is not visible is understood rather than guessed at. Two offsets were tried and
-        // neither helped: pushing it 24 units forward (the near plane is 7, so clipping was the
-        // obvious suspect) and rotating its yaw by −90 (the posed geometry sits along +Y, which is
-        // camera-left). See docs/findings/30 for what IS known.
-        SceneProp prop = new(
-            ViewmodelEntityIndex,
-            weapon.ModelPath,
-            SceneModelKind.Studio,
-            new ScenePose
-            {
-                X = camera.Origin.X,
-                Y = camera.Origin.Y,
-                Z = camera.Origin.Z,
-                Pitch = camera.Angles.Pitch,
-                Yaw = camera.Angles.Yaw,
-                Roll = camera.Angles.Roll,
-                Sequence = weapon.Sequence,
-                PlaybackRate = weapon.PlaybackRate,
-            });
-
-        // Packed on demand like any other model, so a weapon seen for the first time is loaded
-        // rather than skipped — and skipped silently, since a missing model draws nothing.
-        // **Whether the set grew, because packing is not uploading.** `Add` fills this process's
-        // copy of the geometry; the renderer keeps its own on the GPU and only receives it when
-        // `UploadModels` is called. The world's props do that whenever their set grows, and the
-        // viewmodel's Add was ignoring the same signal — so the arms were packed, posed, instanced,
-        // transformed correctly and submitted against geometry the renderer did not have.
-        //
-        // It said so on every frame: "a model was posed but the renderer has no geometry for it".
-        bool grew = _models.Add([prop], ModelGeometry);
-
-        // **The demo's sequence is played, never one chosen here.** This used to substitute the
-        // model's `VM_IDLE` whenever it differed, which on the spy meant replacing the recorded
-        // sequence 34 with 3 on every frame — the recording says what the weapon was doing and
-        // overriding it is this viewer inventing motion, which is the one thing it exists not to do.
-        // The owner's rule, and it is the right one: "we shouldnt be forcing any sequence only stuff
-        // from the demo or how valve does it".
-        //
-        // The engine agrees. `C_BaseViewModel` plays `m_nSequence` as it arrives; nothing anywhere
-        // in the viewmodel path picks an idle for it.
-        //
-        // **The substitution was added for a real symptom and cost the placement.** Merged sequence
-        // 1 on an arms model is `r_handposes`, a one-frame pose holder whose root sits at identity,
-        // which leaves the arms off screen — so forcing VM_IDLE made them appear. It also replaced
-        // the spy's recorded 34 with 3, which posed the arms for a weapon they were not holding and
-        // dropped the knife to the bottom of the frame. The owner spotted that as "the knifes there
-        // its jkust super low", and removing the substitution put it in the grip.
-        //
-        // **The recorded index means what the engine means by it, measured rather than assumed.**
-        // The worry was that a demo's sequence number indexes the weapon's own table while ours is
-        // merged from two models and 98 sequences deep, so the two might disagree silently. They do
-        // not: 34 plays a correct spy knife pose on z1800. Worth re-checking on any model whose
-        // merge is a different shape, since the failure would be a plausible wrong animation.
-        // **Once per weapon and sequence, not once per frame.** Measured 2026-08-24: the four
-        // viewmodel lines printed 6,588 times each in two minutes — one set per frame — and the
-        // whole log reached 64,425 lines and 8.2 MB, at roughly 1,280 writes a second with AutoFlush
-        // on each. That is B148's defect in a new place, and it makes the log unreadable as well as
-        // slow.
-        //
-        // What these answer is "which model, playing what" — a question about a WEAPON, which
-        // changes when the player switches. So the key is the weapon and its sequence, and holding
-        // one weapon for a minute is one line rather than nine thousand.
-        if (_reportedViewmodel != (weapon.ModelPath, weapon.Sequence, prop.Pose.Sequence))
-        {
-            _reportedViewmodel = (weapon.ModelPath, weapon.Sequence, prop.Pose.Sequence);
-
-            _renderLog.LogInformation(
-                "{Message}",
-                string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"viewmodel sequence: demo says {weapon.Sequence}, " +
-                    $"VM_IDLE would be {_models.SequenceByActivity(weapon.ModelPath, "VM_IDLE")}, " +
-                    $"playing {prop.Pose.Sequence}"));
-
-            _viewmodelChanged = true;
-        }
-        else
-        {
-            _viewmodelChanged = false;
-        }
-
-        List<SceneProp> viewmodelProps = [prop];
-
-        // **The weapon is a second model, parented to the arms.** In modern TF2 the networked
-        // viewmodel carries the player's ARMS — c_sniper_arms, c_pyro_arms — and the gun is a
-        // separate C_ViewmodelAttachmentModel the CLIENT creates and parents to it
-        // (econ_entity.cpp:1153). It is not networked, so no demo carries it and it has to be
-        // rebuilt from the item the player is holding.
-        //
-        // Drawn at the viewmodel's own transform because that is where the engine puts it: the
-        // attachment is parented with SetLocalOrigin( vec3_origin ) and bone-merged, so its bones
-        // take the arms' outright. Mirrored with them for the same reason they are.
-        // **Two schemes, and they are exclusive — this is the whole of the doubled weapon.**
-        // `CTFWeaponBase::GetViewModel` (tf_weaponbase.cpp:651):
-        //
-        //     if ( pPlayer && pItem->IsValid() && pItem->GetStaticData()->ShouldAttachToHands() )
-        //     {
-        //         const char *pszHandModel = pPlayer->GetPlayerClass()->GetHandModelName( ... );
-        //         return pszHandModel;
-        //     }
-        //     return GetTFWpnData().szViewModel;
-        //
-        // When the item attaches to hands the viewmodel IS the hands and the gun is a separate
-        // attachment — two models. When it does not, the viewmodel is the weapon's own `v_` model,
-        // which has the hands modelled into it — ONE model, and adding an attachment draws the gun
-        // twice. Measured on a 2011 recording of koth_viaduct: `v_stickybomb_launcher_demo` and
-        // `c_stickybomb_launcher` at one point in space, which is the owner's "2 sticky launchers
-        // overlapping each other".
-        //
-        // **Decided from the DEMO, not from the installed item schema.** `attach_to_hands` is a
-        // property of the item as it is TODAY: the stickybomb launcher attaches to hands now and did
-        // not in 2011, so asking items_game.txt about a 2011 demo returns a confident wrong answer
-        // and keeps the bug on exactly the files this project exists for. What the recording itself
-        // says is which model was networked as the viewmodel, and that is the branch the engine
-        // took at the time. See docs/memory/the-demo-dates-its-own-fields.md.
-        //
-        // The hands come from shipped class data — `model_hands` in scripts/playerclasses/<class>,
-        // which tf_classdata.cpp:149 reads into the m_szHandModelName that GetHandModelName returns.
         string? hands = PlayerAt(_transport.CurrentTick, follower) is { PlayerClass: { } playerClass }
             ? _classModels?.Hands(playerClass)
             : null;
 
-        bool attachesToHands =
-            hands is { Length: > 0 } &&
-            string.Equals(
-                weapon.ModelPath.Replace('\\', '/'),
-                hands.Replace('\\', '/'),
-                StringComparison.OrdinalIgnoreCase);
+        ViewmodelSceneResult scene = _viewmodelScene.Build(
+            new TimelineViewmodels(timeline),
+            _transport.CurrentTick,
+            follower,
+            new ViewmodelPlacement(
+                camera.Origin.X,
+                camera.Origin.Y,
+                camera.Origin.Z,
+                camera.Angles.Pitch,
+                camera.Angles.Yaw,
+                camera.Angles.Roll),
+            hands,
+            WeaponModelFor(follower));
 
-        if (_viewmodelChanged)
+        bool changed = scene.Changed;
+
+        if (scene.Props.Count == 0)
         {
-            _renderLog.LogInformation(
+            _renderLog.LogWarning(
                 "{Message}",
-                $"viewmodel scheme: networked '{weapon.ModelPath}', hands '{hands ?? "none"}', " +
-                (attachesToHands
-                    ? "attaches to hands, so the weapon is a second model"
-                    : "the viewmodel is the weapon's own model, so no attachment is drawn"));
+                $"no viewmodel for entity {follower} at tick {_transport.CurrentTick}");
+
+            _viewmodelCamera = null;
+            return;
         }
 
-        if (attachesToHands && WeaponModelFor(follower) is { Length: > 0 } held)
-        {
-            // **Bone-merged onto the arms, not posed beside them.** The engine parents the
-            // attachment with `SetLocalOrigin( vec3_origin )` and blends it through
-            // `C_ViewmodelAttachmentModel::StandardBlendingRules`, so it has no pose of its own —
-            // it takes the viewmodel's bone matrices by name, exactly as a hat takes a player's.
-            //
-            // Posed independently it sits at its own origin, which after the transform is AT the
-            // camera and therefore inside the near plane: packed, instanced, drawn and invisible.
-            // A weapon model carries one sequence and no animation to move it anywhere else.
-            SceneProp gun = new(
-                WeaponEntityIndex,
-                held,
-                SceneModelKind.Studio,
-                new ScenePose
-                {
-                    X = camera.Origin.X,
-                    Y = camera.Origin.Y,
-                    Z = camera.Origin.Z,
-                    Pitch = camera.Angles.Pitch,
-                    Yaw = camera.Angles.Yaw,
-                    Roll = camera.Angles.Roll,
-                    Sequence = weapon.Sequence,
-                    PlaybackRate = weapon.PlaybackRate,
-                },
-                AttachedTo: ViewmodelEntityIndex);
-
-            grew |= _models.Add([gun], ModelGeometry);
-            viewmodelProps.Add(gun);
-        }
-
-        // **The off hand, drawn beside the weapon rather than instead of it.** Only the spy's watch
-        // uses slot 1 — `CTFWeaponInvis::Spawn` calls `SetViewModelIndex( 1 )` — so this is nothing
-        // for eight classes and most of the ninth's time. The lookup has already applied the two
-        // rules that decide it: EF_NODRAW on the viewmodel's own table, which is how
-        // `SetWeaponVisible` puts the watch away, and a model index of zero, which is what an unused
-        // off hand sends. All 22 of z1800's send exactly that.
-        //
-        // Posed at the camera like the arms, and with no weapon merged onto it, because the watch's
-        // viewmodel IS the item's player model rather than a pair of arms.
-        if (timeline.OffHandViewmodelAt(_transport.CurrentTick, follower) is { } offHand)
-        {
-            SceneProp watch = new(
-                OffHandEntityIndex,
-                offHand.ModelPath,
-                SceneModelKind.Studio,
-                new ScenePose
-                {
-                    X = camera.Origin.X,
-                    Y = camera.Origin.Y,
-                    Z = camera.Origin.Z,
-                    Pitch = camera.Angles.Pitch,
-                    Yaw = camera.Angles.Yaw,
-                    Roll = camera.Angles.Roll,
-                    Sequence = offHand.Sequence,
-                    PlaybackRate = offHand.PlaybackRate,
-                });
-
-            grew |= _models.Add([watch], ModelGeometry);
-
-            viewmodelProps.Add(watch);
-
-            // The recorded sequence, like the main hand: nothing is substituted here either.
-            _renderLog.LogInformation(
-                "{Message}",
-                $"off hand {offHand.ModelPath} seq {offHand.Sequence} at tick " +
-                $"{_transport.CurrentTick}");
-        }
-
-        if (grew && _device is { } packed)
+        // **Whether the set grew, because packing is not uploading.** `Add` fills this process's
+        // copy of the geometry; the renderer keeps its own on the GPU and only receives it when
+        // `UploadModels` is called. The viewmodel's Add was once ignoring that signal, so the arms
+        // were packed, posed, instanced, transformed correctly and submitted against geometry the
+        // renderer did not have.
+        if (_models.Add(scene.Props, ModelGeometry) && _device is { } packed)
         {
             packed.UploadModels(_models);
 
@@ -3185,17 +3009,13 @@ internal class MainForm : Form
                 $"{_models.Vertices.Count} vertices");
         }
 
-        // **One call for both, because Instances CLEARS the list it is given.** Posing the arms and
-        // then the weapon into the same list threw the arms away and drew the gun alone — a bug
-        // that reads as "the arms do not work" and was invisible next to a viewmodel that was not
-        // on screen for other reasons anyway.
-        // **Names each viewmodel prop, because the count says two and cannot say two of WHAT.**
-        // The merged arms model already carries a weapon part — c_soldier_arms pairs as hands,
-        // sleeves and w_rocketlauncher — so a second prop naming the same geometry draws the gun
-        // twice, which is what "2 sticky launchers overlapping" looks like.
-        if (_viewmodelChanged)
+        // **Names each prop, because the count says two and cannot say two of WHAT.** The merged
+        // arms model already carries a weapon part — c_soldier_arms pairs as hands, sleeves and
+        // w_rocketlauncher — so a second prop naming the same geometry draws the gun twice, which
+        // is what "2 sticky launchers overlapping" looks like.
+        if (changed)
         {
-            foreach (SceneProp shown in viewmodelProps)
+            foreach (SceneProp shown in scene.Props)
             {
                 _renderLog.LogInformation(
                     "{Message}",
@@ -3203,30 +3023,18 @@ internal class MainForm : Form
             }
         }
 
-        _models.Instances(viewmodelProps, _viewmodelInstances, LightAt, SunAt, seconds);
+        // **One call for all of them, because Instances CLEARS the list it is given.** Posing the
+        // arms and then the weapon into the same list threw the arms away and drew the gun alone.
+        _models.Instances(scene.Props, _viewmodelInstances, LightAt, SunAt, seconds);
 
-        // **Says what it produced, because nothing else can.** A viewmodel that resolves, packs
-        // and then yields no instance is indistinguishable on screen from one that was never
-        // looked up — and that distinction is exactly what went wrong the first time this ran.
-        if (_viewmodelChanged)
+        if (changed)
         {
             _renderLog.LogInformation(
                 "{Message}",
-                $"viewmodel {weapon.ModelPath} seq {weapon.Sequence} at tick " +
-                $"{_transport.CurrentTick}: {viewmodelProps.Count} props, " +
+                $"viewmodel at tick {_transport.CurrentTick}: {scene.Props.Count} props, " +
                 $"{_viewmodelInstances.Count} instances");
         }
 
-        // **Kept OUT of the world list, because they are drawn in their own pass.** The engine
-        // draws viewmodels after the world with a different projection and a compressed depth
-        // range (CViewRender::DrawViewModels); putting them in with everything else is what left
-        // them packed, posed, instanced, listed for drawing and invisible.
-        //
-        // **Not mirrored.** `cl_flipviewmodels` mirrors for a left-handed view and is off by
-        // default — the owner, who has played the game: "the watch is the left hand, the weapon in
-        // the right, unless you use left handed viewmodels, then its the opposite".
-        // `C_BaseViewModel::InternalDrawModel` switches to MATERIAL_CULLMODE_CW *when* mirrored,
-        // which is the same conditional from the renderer's side.
         _viewmodelCamera = new FreeCamera
         {
             Origin = camera.Origin,
@@ -3237,6 +3045,9 @@ internal class MainForm : Form
             NearZ = ViewmodelPass.NearPlane,
         };
     }
+
+    /// <summary>Decides what the first-person view contains; the form supplies where and whose.</summary>
+    private readonly ViewmodelScene _viewmodelScene = new();
 
     /// <summary>The camera the viewmodel pass uses, or null when nothing is drawn in it.</summary>
     private FreeCamera? _viewmodelCamera;
@@ -3328,43 +3139,14 @@ internal class MainForm : Form
     /// <summary>Whether the schema was looked for and not found.</summary>
     private bool _itemSchemaMissing;
 
-    /// <summary>The slot the weapon in hand is drawn under, beside the arms.</summary>
-    /// <remarks>
-    /// Its own index rather than the viewmodel's, because the two are separate models packed and
-    /// posed separately — sharing one would have the second overwrite the first's geometry.
-    /// </remarks>
-    private const int WeaponEntityIndex = 4097;
 
     /// <summary>Scratch list for the viewmodel's instances, reused between frames.</summary>
     private readonly List<ModelInstance> _viewmodelInstances = [];
 
-
-    /// <summary>
-    /// The entity slot the viewmodel is drawn under, which is not a real one.
-    /// </summary>
-    /// <remarks>
-    /// A viewmodel is not in the scene the timeline builds — it has no position, so it is not a
-    /// prop — and it still needs an index to be packed and posed like one. Chosen above every real
-    /// slot so it cannot collide with an entity the demo describes.
-    /// </remarks>
-    private const int ViewmodelEntityIndex = 4096;
-
-    /// <summary>The slot the off-hand viewmodel is drawn under.</summary>
-    /// <remarks>
-    /// **A third index, because all three are on screen together.** The owner, who has played the
-    /// class: "main viewmodel doesnt get hidden when a spy goes invis, the watch just comes up and
-    /// everything goes transparent". So the off hand is a model BESIDE the weapon, not instead of
-    /// it, and sharing an index with either would have one overwrite the other's geometry.
-    ///
-    /// **It needs no weapon of its own, and that is measured rather than reasoned.** Every off hand
-    /// z1800 ever offers is a complete watch model — <c>v_watch_spy</c>,
-    /// <c>v_watch_leather_spy</c>, <c>v_watch_pocket_spy</c>, three of them across 190 of 9,165
-    /// player-ticks — where a modern main-hand viewmodel is a pair of arms that needs a
-    /// client-built weapon merged onto it. Valve's comment on
-    /// <c>CTFWeaponInvis::GetViewModel</c> says why: "Watch uses the player model as its viewmodel,
-    /// because it's never seen being carried by the player".
-    /// </remarks>
-    private const int OffHandEntityIndex = 4098;
+    // The three viewmodel entity indices moved to ViewmodelScene on 2026-08-24 (B188), with the
+    // code that uses them. They are this project's own numbering rather than anything the engine
+    // has — a viewmodel there is a real networked entity — so they belong beside the type that
+    // assigns them rather than in the form that used to.
 
     /// <summary>Whose eyes the first-person camera is in, or <c>null</c> when it is not in any.</summary>
     /// <remarks>
@@ -3769,12 +3551,23 @@ internal class MainForm : Form
             return;
         }
 
+        // **A ledger over ShowMoment, because the frame ledger's `advance` bucket is all of it.**
+        // `AdvancePlayback` raises `MomentChanged`, which lands here — so a 180 ms `advance` says
+        // only "somewhere in the scene rebuild", across sampling, weapon roles, model reads, the
+        // upload, posing, the weapon report and ShowPlayers. Four of those seven were never timed.
+        //
+        // Same shape as the frame ledger and for the same reason (B163): phases with a residual,
+        // rather than a threshold on one event. The residual is the column that matters.
+        long momentAt = Stopwatch.GetTimestamp();
+
         long sampledAt = Stopwatch.GetTimestamp();
 
         timeline.PlayersAt(tick, _players);
         timeline.PropsAt(tick, _props);
 
         _samplingTicks += Stopwatch.GetTimestamp() - sampledAt;
+
+        long momentSampledAt = Stopwatch.GetTimestamp();
 
         // Packing is a no-op after the first sighting of each model, so this costs a dictionary
         // lookup per entity per frame once the demo has been running for a moment.
@@ -3940,6 +3733,8 @@ internal class MainForm : Form
         // ever showed as the owner's "everything freezes for a half a second to maybe a second".
         long addedAt = Stopwatch.GetTimestamp();
 
+        long momentRolesAt = addedAt;
+
         bool grew = _models.Add(_drawn, ModelGeometry);
 
         double addSeconds = (Stopwatch.GetTimestamp() - addedAt) / (double)Stopwatch.Frequency;
@@ -4063,13 +3858,55 @@ internal class MainForm : Form
 
         long posedAt = Stopwatch.GetTimestamp();
 
+        long momentUploadedAt = posedAt;
+
+        // **Read across the call rather than per second, because a total cannot see a spike.** The
+        // per-second line already reports lighting, and it says lighting is about a third of posing
+        // — but posing spiking to 168 ms on one moment and 3 ms on the next is invisible in a
+        // per-second sum. This splits the one moment that was slow.
+        long lightingBefore = _models.LightingTicks;
+        int builtBefore = _models.EntitiesBuilt;
+        long animationBefore = Tf2DemoSalvage.Animation.Animating.SkeletonPose.AnimationTicks;
+        int animationCallsBefore = Tf2DemoSalvage.Animation.Animating.SkeletonPose.AnimationCalls;
+        long setupBefore = _models.SetupTicks;
+        long skinBefore = _models.SkinTicks;
+        long simulateBefore = _models.SimulateTicks;
+        long wornLightBefore = _models.WornLightTicks;
+        long reportBefore = _models.ReportTicks;
+        long reportLogBefore = _models.ReportLogTicks;
+
         _models.Instances(_drawn, _instances, LightAt, SunAt, seconds);
+
+        long momentLightingTicks = _models.LightingTicks - lightingBefore;
+        int momentBuilt = _models.EntitiesBuilt - builtBefore;
+        long momentAnimationTicks = Tf2DemoSalvage.Animation.Animating.SkeletonPose.AnimationTicks - animationBefore;
+        int momentAnimationCalls = Tf2DemoSalvage.Animation.Animating.SkeletonPose.AnimationCalls - animationCallsBefore;
+
+        // **Split out because it was being reported as bone work and is not.** `pose` spans
+        // Instances AND this, while the lighting, animation and built counters are all read across
+        // Instances alone — so every millisecond spent building the viewmodel scene was landing in
+        // the "bones" column, which is arrived at by subtraction. A derived column inherits every
+        // error of the ones it is derived from.
+        long momentSetupTicks = _models.SetupTicks - setupBefore;
+        long momentSkinTicks = _models.SkinTicks - skinBefore;
+        long momentSimulateTicks = _models.SimulateTicks - simulateBefore;
+        long momentWornLightTicks = _models.WornLightTicks - wornLightBefore;
+        long momentReportTicks = _models.ReportTicks - reportBefore;
+        long momentReportLogTicks = _models.ReportLogTicks - reportLogBefore;
+
+        long viewmodelAt = Stopwatch.GetTimestamp();
 
         AddViewmodel(seconds);
 
+        long momentViewmodelTicks = Stopwatch.GetTimestamp() - viewmodelAt;
+
         _posingTicks += Stopwatch.GetTimestamp() - posedAt;
 
+        long momentPosedAt = Stopwatch.GetTimestamp();
+
         ReportWeapons();
+
+        long momentReportedAt = Stopwatch.GetTimestamp();
 
         if (_instances.Count != _lastInstanceCount)
         {
@@ -4089,7 +3926,10 @@ internal class MainForm : Form
             // whether the leaf lookup found anything, without anyone having to judge by eye.
             int unlit = _instances.Count(instance => instance.Light == default(AmbientCube));
 
-            _renderLog.LogInformation(
+            // Debug, because "the instance count changed" happens whenever a prop enters or leaves
+            // the visible set — measured at 13 lines in 10 seconds of ordinary play, which is
+            // per-frame detail wearing a change guard (B191).
+            _renderLog.LogDebug(
                 "{Message}",
                 $"drawing {_instances.Count} posed models ({unlit} unlit): {names}");
 
@@ -4099,6 +3939,134 @@ internal class MainForm : Form
         }
 
         ShowPlayers(_players);
+
+        ReportSlowMoment(
+            momentAt, momentSampledAt, momentRolesAt, momentUploadedAt, momentPosedAt,
+            momentReportedAt, Stopwatch.GetTimestamp(), momentLightingTicks, momentBuilt,
+            _drawn.Count, momentAnimationTicks, momentAnimationCalls, momentViewmodelTicks,
+            momentSetupTicks, momentSkinTicks, momentSimulateTicks, momentWornLightTicks,
+            momentReportTicks, momentReportLogTicks);
+    }
+
+    /// <summary>Names where a slow scene rebuild went, when one is slow.</summary>
+    /// <param name="momentAt">Entry.</param>
+    /// <param name="sampledAt">After the timeline was sampled for players and props.</param>
+    /// <param name="rolesAt">After weapon roles, first-person filtering and visibility.</param>
+    /// <param name="uploadedAt">After models were read and the vertex buffer uploaded.</param>
+    /// <param name="posedAt">After posing and the viewmodel.</param>
+    /// <param name="reportedAt">After the weapon report.</param>
+    /// <param name="finishedAt">After ShowPlayers.</param>
+    /// <param name="lightingTicks">
+    /// What the pose phase spent sampling light, read across the call rather than per second — the
+    /// per-second total cannot tell one 168 ms moment from fifty even ones.
+    /// </param>
+    /// <param name="built">
+    /// How many animating entities were constructed during this moment. The only per-moment
+    /// discontinuity in the pose path, so a spike that correlates with it is first-sight work and a
+    /// spike that does not is the steady path getting more of it (B189).
+    /// </param>
+    /// <param name="drawn">
+    /// How many props were posed, which is the control for <paramref name="built"/> — without it,
+    /// "more entities arrived" and "the same entities cost more" are indistinguishable.
+    /// </param>
+    /// <param name="animationTicks">What the pose phase spent decoding and blending animation.</param>
+    /// <param name="animationCalls">
+    /// How many poses were asked for, which is what separates "more calls" from "slower calls" —
+    /// the two want completely different fixes and the total alone cannot tell them apart.
+    /// </param>
+    /// <param name="viewmodelTicks">
+    /// What <c>AddViewmodel</c> cost. Inside the pose phase but outside every other counter here,
+    /// so until it was split out it was being reported as bone work by subtraction.
+    /// </param>
+    /// <param name="setupTicks">What <c>SetupBones</c> cost — the pose and any merge it drives.</param>
+    /// <param name="skinTicks">What composing the skinning matrices cost.</param>
+    /// <param name="simulateTicks">
+    /// What bringing every entity's state up to date cost — Valve's first phase, over every prop
+    /// rather than only the animated ones.
+    /// </param>
+    /// <param name="wornLightTicks">
+    /// What sampling light for worn items cost, on the path that bypasses the lighting cache.
+    /// </param>
+    /// <param name="reportTicks">What per-prop reporting cost — three calls per prop per frame.</param>
+    /// <param name="reportLogTicks">
+    /// How much of <paramref name="reportTicks"/> was inside the log sink. Every report is guarded
+    /// and early-outs after its first line, so if these two are equal the sink is what blocks.
+    /// </param>
+    /// <remarks>
+    /// **The frame ledger says `advance`, and this says which part of it** — the two compose, so a
+    /// slow frame now names a phase and then a sub-phase rather than a range of 350 lines.
+    ///
+    /// Three of these had no timer at all before: the weapon-role and visibility stretch, the weapon
+    /// report, and ShowPlayers. `_samplingTicks` and `_posingTicks` existed but were per-second
+    /// totals, which cannot attribute a single freeze — a total says how much was spent, never
+    /// whether it was spent all at once.
+    /// </remarks>
+    private void ReportSlowMoment(
+        long momentAt,
+        long sampledAt,
+        long rolesAt,
+        long uploadedAt,
+        long posedAt,
+        long reportedAt,
+        long finishedAt,
+        long lightingTicks,
+        int built,
+        int drawn,
+        long animationTicks,
+        int animationCalls,
+        long viewmodelTicks,
+        long setupTicks,
+        long skinTicks,
+        long simulateTicks,
+        long wornLightTicks,
+        long reportTicks,
+        long reportLogTicks)
+    {
+        double total = (finishedAt - momentAt) / (double)Stopwatch.Frequency;
+
+        if (total <= StallSeconds)
+        {
+            return;
+        }
+
+        static double Ms(long from, long to) =>
+            (to - from) / (double)Stopwatch.Frequency * 1000d;
+
+        double named =
+            Ms(momentAt, sampledAt) + Ms(sampledAt, rolesAt) + Ms(rolesAt, uploadedAt) +
+            Ms(uploadedAt, posedAt) + Ms(posedAt, reportedAt) + Ms(reportedAt, finishedAt);
+
+        double lighting = lightingTicks / (double)Stopwatch.Frequency * 1000d;
+        double viewmodel = viewmodelTicks / (double)Stopwatch.Frequency * 1000d;
+
+        _renderLog.LogWarning(
+            "{Message}",
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"SLOW MOMENT {total * 1000d:0} ms: sample {Ms(momentAt, sampledAt):0.#}" +
+                $", roles {Ms(sampledAt, rolesAt):0.#}" +
+                $", models {Ms(rolesAt, uploadedAt):0.#}" +
+                $", pose {Ms(uploadedAt, posedAt):0.#}" +
+                $" (lighting {lighting:0.#}, viewmodel {viewmodel:0.#}" +
+                $", simulate {simulateTicks / (double)Stopwatch.Frequency * 1000d:0.#}" +
+                $", wornlight {wornLightTicks / (double)Stopwatch.Frequency * 1000d:0.#}" +
+                $", reports {reportTicks / (double)Stopwatch.Frequency * 1000d:0.#}" +
+                $" (sink {reportLogTicks / (double)Stopwatch.Frequency * 1000d:0.#})" +
+                $", setup {setupTicks / (double)Stopwatch.Frequency * 1000d:0.#}" +
+                $", skin {skinTicks / (double)Stopwatch.Frequency * 1000d:0.#}" +
+                $", rest {Ms(uploadedAt, posedAt) - lighting - viewmodel
+                    - (simulateTicks / (double)Stopwatch.Frequency * 1000d)
+                    - (wornLightTicks / (double)Stopwatch.Frequency * 1000d)
+                    - (reportTicks / (double)Stopwatch.Frequency * 1000d)
+                    - (setupTicks / (double)Stopwatch.Frequency * 1000d)
+                    - (skinTicks / (double)Stopwatch.Frequency * 1000d):0.#}" +
+                $", built {built.ToString(CultureInfo.InvariantCulture)}" +
+                $" of {drawn.ToString(CultureInfo.InvariantCulture)}" +
+                $", anim {animationTicks / (double)Stopwatch.Frequency * 1000d:0.#}" +
+                $" over {animationCalls.ToString(CultureInfo.InvariantCulture)})" +
+                $", weapons {Ms(posedAt, reportedAt):0.#}" +
+                $", players {Ms(reportedAt, finishedAt):0.#}" +
+                $"; unaccounted {(total * 1000d) - named:0.#} ms"));
     }
 
     /// <summary>Draws the players recorded at one moment, coloured by team.</summary>
@@ -4407,6 +4375,10 @@ internal class MainForm : Form
                     // barrier that already holds the render loop off during a map read (B146).
                     PrecacheModels(decoded.Timeline);
 
+                    // Same timing, same reason, and the audio path is where the cost actually
+                    // landed once the model stalls were gone.
+                    PrecacheSounds(decoded.Timeline);
+
                     return found;
                 }).ConfigureAwait(false);
             }
@@ -4649,6 +4621,10 @@ internal class MainForm : Form
         // decoded into `_assets.EntityModels`. Called earlier it would find nothing, mark every path
         // as seen, and models would never load at all.
         PrecacheModels(_timeline);
+
+        // Cheap to call twice for the same reason models are: `Sample` returns the cached decode,
+        // so on the async path this finds the work already done.
+        PrecacheSounds(_timeline);
 
         _status.Text = _mapProblem
             ?? (_demo.Describe() + (haveMap ? string.Empty : "  (map not found)"));
@@ -5803,6 +5779,107 @@ internal class MainForm : Form
         }
     }
 
+    /// <summary>Decodes every sound the demo will play, before playback starts.</summary>
+    /// <param name="timeline">The decoded timeline, or null when the demo carried none.</param>
+    /// <remarks>
+    /// **The engine's own timing, and here it is a refusal rather than a preference** (D86, D87).
+    /// `CBaseEntity::PrecacheSound` opens with `if ( !CBaseEntity::IsPrecacheAllowed() )` and then
+    /// `Assert( !"CBaseEntity::PrecacheSound:  too late" )` — `SoundEmitterSystem.cpp:1497`. Loading
+    /// a sound during play is something Source treats as a programming error, and it passes
+    /// `bPreload: true` to `enginesound->PrecacheSound` at `:1507`.
+    ///
+    /// **This is B163's model stall, in the audio path, and it was found the same way.** Of eleven
+    /// slow frames on cp_process, six were dominated by the sound step at 27-91 ms while posing and
+    /// drawing sat at 1.7-2.6 ms. Only one decode logged a stall of its own, because the per-decode
+    /// threshold is 30 ms and a frame that starts three sounds pays three decodes that each fall
+    /// under it — an instrument watching single decodes therefore reported almost nothing while the
+    /// frames were visibly freezing. `Sample` already carried a comment naming the cost exactly:
+    /// "a 'once per sound' cost wearing the clothes of a cache".
+    ///
+    /// **Runs on the map-read worker on the async path**, where `_readingMap` holds the render loop
+    /// off (B146) — so nothing else touches `_soundCache` while this fills it.
+    ///
+    /// A failure costs the precache and nothing else: anything missed is decoded on first play
+    /// exactly as before, which is slower rather than broken.
+    /// </remarks>
+    private void PrecacheSounds(DemoTimeline? timeline)
+    {
+        if (timeline is null || _archives is null)
+        {
+            return;
+        }
+
+        try
+        {
+            long decodedAt = Stopwatch.GetTimestamp();
+            int named = 0;
+            int decoded = 0;
+
+            // **Suppresses the per-decode stall warning, which would otherwise assert something
+            // false.** Its text is "this frame is a freeze", and during a precache there is no
+            // frame — every decode here is deliberately outside one.
+            _precaching = true;
+
+            try
+            {
+                foreach (string name in timeline.SoundsToPrecache())
+                {
+                    named++;
+
+                    if (Sample(name) is not null)
+                    {
+                        decoded++;
+                    }
+                }
+
+                // **The map's ambience, which no demo message names.** A soundscape's loops come
+                // from the map's `env_soundscape` entities via `scripts/soundscapes.txt`, so the
+                // timeline cannot list them and the first pass here missed them entirely: measured
+                // 2026-08-25, `ambient/indoors.wav` still cost 103 ms in one frame after the
+                // timeline's 395 sounds were already precached.
+                //
+                // Every soundscape in the catalog rather than the ones this recording enters —
+                // which soundscape is active changes as a player walks and a seek can land
+                // anywhere, so being selective would only move the hitch to the next doorway.
+                if (_soundscapeCatalog is { } soundscapes)
+                {
+                    foreach (string wave in soundscapes.WaveNames())
+                    {
+                        named++;
+
+                        if (Sample(wave) is not null)
+                        {
+                            decoded++;
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                _precaching = false;
+            }
+
+            double seconds = (Stopwatch.GetTimestamp() - decodedAt) / (double)Stopwatch.Frequency;
+
+            // **Both numbers, because they answer different questions.** The gap between them is
+            // how many sounds the install could not supply, which is the difference between "the
+            // precache worked" and "the precache found nothing to do".
+            _audioLog.LogInformation(
+                "{Message}",
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"precached {decoded} of {named} sounds in {seconds * 1000d:0} ms"));
+        }
+        catch (Exception failure) when (
+            failure is InvalidDataException or ArgumentException or KeyNotFoundException)
+        {
+            _audioLog.LogWarning(failure, "precaching sounds");
+        }
+    }
+
+    /// <summary>Whether a precache is filling the sound cache, so no decode is inside a frame.</summary>
+    private bool _precaching;
+
     /// <summary>Builds this frame's HUD: the frame rate meter, when it is switched on.</summary>
     /// <returns>Quads in screen pixels, empty when there is no HUD to draw.</returns>
     /// <remarks>
@@ -6035,7 +6112,16 @@ internal class MainForm : Form
             return;
         }
 
+        // **A ledger over PlaySounds, because the frame ledger's `sound` bucket is all of it.**
+        // Precaching every decode moved 394 sounds off the frame and this bucket STILL read 27-105
+        // ms, which says the cost was never only decoding. Reclaim, the per-frame loop
+        // re-attenuation, the soundscape and the OpenAL starts are each candidates and none was
+        // timed.
+        long soundAt = Stopwatch.GetTimestamp();
+
         IReadOnlyList<SceneSound> starting = schedule.Advance(_transport.CurrentTick);
+
+        long advancedAt = Stopwatch.GetTimestamp();
 
         // **A seek silences what is in flight.** Those sounds belong to the moment the viewer has
         // just left, and letting them finish plays the old place over the new one. The loops go
@@ -6056,12 +6142,21 @@ internal class MainForm : Form
 
         output.Reclaim();
 
+        long reclaimedAt = Stopwatch.GetTimestamp();
+
         // The listener is wherever the camera is, which is the eye in first person and the free
         // camera otherwise. Valve's right vector for a yaw, from which the pan follows.
         FreeCamera? camera = _firstPerson ? FirstPersonCamera() : FreeLookCamera();
 
         if (camera is not { } ears)
         {
+            // **Reported here too, because a ledger that misses an exit is a ledger that lies.**
+            // Everything above it has already run — the schedule advance, a seek's StopAll, and
+            // Reclaim — so this path can be slow and would otherwise vanish from the record.
+            ReportSlowSounds(
+                soundAt, advancedAt, reclaimedAt, reclaimedAt, reclaimedAt,
+                Stopwatch.GetTimestamp());
+
             return;
         }
 
@@ -6101,7 +6196,11 @@ internal class MainForm : Form
                 $"{loopGain.ToString("0.####", CultureInfo.InvariantCulture)}");
         }
 
+        long loopsAt = Stopwatch.GetTimestamp();
+
         PlaySoundscape(output, listener, right);
+
+        long soundscapedAt = Stopwatch.GetTimestamp();
 
         // **Re-establishing, not replaying.** `Advance` carries EVENTS, and a looping ambient is
         // state: cp_process starts six `)ambient/machine_hum.wav` at tick 4 and does not mention
@@ -6246,6 +6345,53 @@ internal class MainForm : Form
                 _loops.Track(sound);
             }
         }
+
+        ReportSlowSounds(
+            soundAt, advancedAt, reclaimedAt, loopsAt, soundscapedAt, Stopwatch.GetTimestamp());
+    }
+
+    /// <summary>Names where a slow sound step went, when one is slow.</summary>
+    /// <param name="soundAt">Entry.</param>
+    /// <param name="advancedAt">After the schedule advanced and a seek's StopAll.</param>
+    /// <param name="reclaimedAt">After finished voices were reclaimed.</param>
+    /// <param name="loopsAt">After every tracked loop was re-attenuated to the listener.</param>
+    /// <param name="soundscapedAt">After the soundscape was updated.</param>
+    /// <param name="finishedAt">After every sound starting this tick was played.</param>
+    /// <remarks>
+    /// **Written because precaching the decodes did not empty this bucket.** 394 sounds moved to
+    /// load time and the `sound` phase still read 27-105 ms on the frames that froze, so the
+    /// remaining cost is one of these five and a single number could not say which.
+    ///
+    /// The `starting` column is what is left after the other four, and it is the one that contains
+    /// both the OpenAL `Play` calls and any decode the precache missed.
+    /// </remarks>
+    private void ReportSlowSounds(
+        long soundAt,
+        long advancedAt,
+        long reclaimedAt,
+        long loopsAt,
+        long soundscapedAt,
+        long finishedAt)
+    {
+        double total = (finishedAt - soundAt) / (double)Stopwatch.Frequency;
+
+        if (total <= StallSeconds)
+        {
+            return;
+        }
+
+        static double Ms(long from, long to) =>
+            (to - from) / (double)Stopwatch.Frequency * 1000d;
+
+        _audioLog.LogWarning(
+            "{Message}",
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"SLOW SOUND {total * 1000d:0} ms: advance {Ms(soundAt, advancedAt):0.#}" +
+                $", reclaim {Ms(advancedAt, reclaimedAt):0.#}" +
+                $", loops {Ms(reclaimedAt, loopsAt):0.#}" +
+                $", soundscape {Ms(loopsAt, soundscapedAt):0.#}" +
+                $", starting {Ms(soundscapedAt, finishedAt):0.#}"));
     }
 
     /// <summary>Keeps the map's ambience playing as the listener moves through it.</summary>
@@ -6488,7 +6634,7 @@ internal class MainForm : Form
 
         double readSeconds = (Stopwatch.GetTimestamp() - readAt) / (double)Stopwatch.Frequency;
 
-        if (readSeconds > StallSeconds)
+        if (readSeconds > StallSeconds && !_precaching)
         {
             _audioLog.LogWarning(
                 "{Message}",
