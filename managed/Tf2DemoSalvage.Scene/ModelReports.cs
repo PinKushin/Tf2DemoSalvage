@@ -121,7 +121,11 @@ public sealed class ModelReports
 
         long loggedAt = System.Diagnostics.Stopwatch.GetTimestamp();
 
-        _render.LogInformation(
+        // **Debug: once per ENTITY is still per-frame detail during a match** (B191). Entities keep
+        // arriving — every projectile, every dropped weapon, every respawn — so "once each" is a
+        // stream rather than a burst at load, and each line is a disk flush. Measured after the
+        // brush line moved: `reports 96.4 (sink 96.4)` of a 101 ms scene rebuild, and this was it.
+        _render.LogDebug(
             "{Message}",
             $"lit {System.IO.Path.GetFileName(prop.ModelPath)} #{prop.EntityIndex} " +
             $"at ({pose.X:0},{pose.Y:0},{pose.Z:0}) sampled ({lit.X:0},{lit.Y:0},{lit.Z:0}) " +
@@ -162,7 +166,9 @@ public sealed class ModelReports
 
         long loggedAt = System.Diagnostics.Stopwatch.GetTimestamp();
 
-        _render.LogInformation(
+        // Debug for the same reason as `Lit`: once per model is a stream while models keep first
+        // appearing, and each line is a flush.
+        _render.LogDebug(
             "{Message}",
             $"animating {prop.ModelPath}: sequence {pose.Sequence} cycle {pose.Cycle:0.###} " +
             $"-> baked frame {frame} of {frames} " +

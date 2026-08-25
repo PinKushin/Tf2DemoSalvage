@@ -10334,6 +10334,32 @@ takes the system mutex for a listener that usually is not there.
 Not measured separately yet; the remaining 44 ms moment carried `setup 35.5`, which is `SetupBones`
 and unrelated.
 
+### B192 — A scene rebuild still spikes to ~120 ms, and the fat column is still the subtracted one — OPEN
+
+**After B191 was fixed**, the recurring stall is gone from the frame rate — but three to five moments
+in four minutes still reach 60-125 ms, and the shape is the one that has now caught two bugs:
+
+```
+(lighting 1.6, viewmodel 0, simulate 0.3, wornlight 0.9, reports 0.1 (sink 0),
+ setup 1.1, skin 0.2, rest 124.6, built 0 of 269, anim 0.8 over 55)
+```
+
+Every directly-measured column is at or below 1.6 ms and `rest` — which is arrived at by
+SUBTRACTION — holds all of it. `sink 0` says it is not the log flush this time.
+
+**What `rest` still covers**, none of it timed: `SelectFor`, `IsDrawable`, `Batches`, the
+`DrawTally` calls, `PlacementOf` and its `Absolute` walk, the `ModelInstance` construction and
+`into.Add`. All are per prop, and the entity count is flat at ~265 while the cost swings 4 ms to
+125 ms — so it is not "more props", it is the same props occasionally costing thirty times more.
+
+**Do not guess the next suspect.** The lesson from B191 is that each new timer moved the fat column
+to whatever was still subtracted, and five hypotheses died that way before the sixth was measured.
+Time the remaining calls individually rather than reasoning about which looks expensive.
+
+**Worth ruling out early**, because both are cheap to check and neither is in our code: a GC pause
+larger than the per-second total suggests, and OS scheduling. The per-second GC line was 6-9 ms
+against a 120 ms frame during B191, which excluded it then and may not now.
+
 ### B189 — The animation path allocates per call where Valve writes into caller arrays — OPEN
 
 **Found 2026-08-25 by the owner's rule** (D89): *"every place we diverge we have issues, bugs or

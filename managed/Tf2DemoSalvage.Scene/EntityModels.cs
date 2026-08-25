@@ -380,9 +380,12 @@ public sealed class EntityModelSet
             // downstream has to know where a wearer stands — see D88 and finding 35 section 7a.
             posed.EntityTransform = PlacementOf(prop);
 
-            if (_reportedFrames.Add(prop.ModelPath + "#skin"))
+            // **IsEnabled first, because the KEY allocates.** `path + "#skin"` builds a string per
+            // prop per frame before the set is even consulted, and this sits in Simulate, which
+            // walks every prop (B191).
+            if (_render.IsEnabled(LogLevel.Debug) && _reportedFrames.Add(prop.ModelPath + "#skin"))
             {
-                _render.LogInformation(
+                _render.LogDebug(
                     "{Message}",
                     $"skinned {prop.ModelPath}: sequence {sequence}" +
                     $"{(skinned.IsDelta(sequence) ? " DELTA" : string.Empty)}" +
@@ -480,9 +483,9 @@ public sealed class EntityModelSet
                 PropTransform.Identity.ToMatrix(),
                 attachment.IsWorldAligned));
 
-        if (_reportedPoses.Add(prop.ModelPath + "#attached"))
+        if (_props.IsEnabled(LogLevel.Debug) && _reportedPoses.Add(prop.ModelPath + "#attached"))
         {
-            _props.LogInformation(
+            _props.LogDebug(
                 "{Message}",
                 $"attached {prop.ModelPath} to {attachment.Name} " +
                 $"(point {point}, bone {attachment.Bone}) on {wearerModel}");
@@ -743,7 +746,12 @@ public sealed class EntityModelSet
               $"at ({first[3]:0.#}, {first[7]:0.#}, {first[11]:0.#})"
             : "root none";
 
-        _props.LogInformation(
+        // **Debug, and this one had the largest volume of the lot** — 338 lines in four minutes,
+        // because it fires the first time each model, each worn item and each corner comparison is
+        // posed, and models keep first appearing throughout a match. Each line is a disk flush
+        // (B191), and this call also does real work to produce it: extents over every corner, plus
+        // a second full skeleton built for the CORNER comparison.
+        _props.LogDebug(
             "{Message}",
             $"posed {label ?? modelPath}: {weighted} of {corners.Count} corners weighted, " +
             $"{bones.Count} bones, x {minimumX:0.#}..{maximumX:0.#} " +
@@ -1136,7 +1144,9 @@ public sealed class EntityModelSet
                         alternatives = Math.Max(alternatives, alternative + 1);
                     }
 
-                    _render.LogInformation(
+                    // Debug: fires from the draw path as models are first seen, and every line is a
+                    // disk flush (B191).
+                    _render.LogDebug(
                         "{Message}",
                         $"bodygroups {prop.ModelPath}: {model.BodyParts.Count} parts, " +
                         $"{batches.Count} batches spanning {alternatives} alternatives");
@@ -1177,7 +1187,9 @@ public sealed class EntityModelSet
             //
             // This is the overlogging failure in miniature: a line that measured the right thing
             // for one kind of model and kept its wording when a second kind arrived.
-            _props.LogInformation(
+            // Debug, like every other line this loop writes: it fires as models are first drawn,
+            // which is a stream through a match rather than a burst at load, and each is a flush.
+            _props.LogDebug(
                 "{Message}",
                 model.IsSkinned
                     ? $"extents {prop.ModelPath}: x {spanX:0.#} y {spanY:0.#} z {spanZ:0.#} " +
@@ -1345,7 +1357,13 @@ public sealed class EntityModelSet
             // an overhead camera cannot tell them apart. If these extents stand the model up, the
             // pose is right and the fault is in the drawing; if they do not, the pose is the
             // fault and the shader is innocent.
-            if (bones is { Count: > 0 } && !_reportedPoses.Contains(prop.ModelPath))
+            // **The IsEnabled guard covers the WORK, not just the write** (B191, CA1873). Below
+            // this, extents are walked over every corner and a SECOND full skeleton is built for
+            // the corner comparison — both purely to produce a diagnostic line. A production run
+            // was paying for both and then discarding the result.
+            if (bones is { Count: > 0 } &&
+                _props.IsEnabled(LogLevel.Debug) &&
+                !_reportedPoses.Contains(prop.ModelPath))
             {
                 _reportedPoses.Add(prop.ModelPath);
                 ReportPosedExtents(prop.ModelPath, bones);
@@ -1417,7 +1435,11 @@ public sealed class EntityModelSet
                     WornLightTicks += System.Diagnostics.Stopwatch.GetTimestamp() - wornAt;
                 }
 
-                if (bones is { Count: > 0 } && _reports.FirstTime(prop.ModelPath + "#worn"))
+                // Guarded before `FirstTime`, so a production run does not even build the
+                // `path + "#worn"` key — a string allocated per worn prop per frame (B191).
+                if (bones is { Count: > 0 } &&
+                    _props.IsEnabled(LogLevel.Debug) &&
+                    _reports.FirstTime(prop.ModelPath + "#worn"))
                 {
                     ReportPosedExtents(prop.ModelPath, bones, prop.ModelPath + " WORN");
                 }

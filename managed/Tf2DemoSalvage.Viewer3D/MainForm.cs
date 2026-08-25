@@ -5364,6 +5364,21 @@ internal class MainForm : Form
     /// </remarks>
     private void ReportWeapons()
     {
+        // **Nothing at all unless someone is listening** (B191). Everything below walks every
+        // instance, formats nine numbers per weapon and joins them — work CA1873 exists to keep out
+        // of a disabled log — and then writes a line, which is a disk flush.
+        //
+        // Measured 2026-08-25 on the moment ledger: `weapons 193.6` of a 198 ms scene rebuild, with
+        // every other column at a millisecond or less. The rate limit below already held it to once
+        // a second; once a second is still enough to be the worst frame in that second.
+        //
+        // Debug rather than Information, because this is per-frame detail and `developer 0` admits
+        // Information. Same reasoning as the brush, viewmodel-pass and instance-count lines.
+        if (!_renderLog.IsEnabled(LogLevel.Debug))
+        {
+            return;
+        }
+
         long now = Stopwatch.GetTimestamp();
 
         if (now - _weaponReportedAt < Stopwatch.Frequency)
@@ -5460,7 +5475,7 @@ internal class MainForm : Form
             }
         }
 
-        _renderLog.LogInformation(
+        _renderLog.LogDebug(
             "{Message}",
             string.Create(
                 CultureInfo.InvariantCulture,
