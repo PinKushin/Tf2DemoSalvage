@@ -156,7 +156,19 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 # Plain net10.0 with its own Stryker config, deliberately (B184): Tf2DemoSalvage.Scene is net10.0
 # and has NO Stryker config at all, because its pose-path tests live in the Windows-pinned
 # Viewer3D.Tests and mutation runs happen on Linux. The replacement must not inherit that.
-run Tf2DemoSalvage.Animation.Tests animation 15
+
+# 24: AnimatingEntity arrives (9). Every one of those tests is a COUNT, because what is being built
+# is not a value — it is a decision about when work happens. "Posed once per frame" and "posed every
+# time" produce identical matrices, so no assertion on a matrix can separate them.
+#
+# Two sabotages, and the second is the instructive one:
+#
+#   - inverting the per-frame check reddens 1 of 9;
+#   - replacing the subset test with a naive "have we posed this frame" cache also reddens 1 of 9 —
+#     and passes the other EIGHT. SetupBones_ForABitNotYetBuilt_BuildsAgain is the single test
+#     standing between a correct mask cache and a plausible wrong one that returns attachment bones
+#     nobody built, which places every attachment at the map origin.
+run Tf2DemoSalvage.Animation.Tests animation 24
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
