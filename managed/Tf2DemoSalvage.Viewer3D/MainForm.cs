@@ -495,16 +495,10 @@ internal class MainForm : Form
                 $"developer {_settings.Developer}; the log accepts {level} and above"));
     }
 
-    /// <summary>The viewmodel last reported, so the lines print on a weapon switch.</summary>
-    private (string Model, int Sequence, int Playing) _reportedViewmodel = (string.Empty, -1, -1);
-
-    /// <summary>Whether this frame's viewmodel differs from the one last reported.</summary>
-    /// <remarks>
-    /// Shared by the four lines that describe a viewmodel, so they stay together: reporting the
-    /// scheme without the props it produced is half an answer, and the question they answer is about
-    /// a weapon rather than about a frame.
-    /// </remarks>
-    private bool _viewmodelChanged;
+    // The "have we already reported this viewmodel" state moved into ViewmodelScene on 2026-08-24
+    // (B188). It belongs with the decision it dedupes: what the lines answer is "which model,
+    // playing what", which is a question about a WEAPON and changes when the player switches — and
+    // holding that flag on the form is what let it drift out of step with the thing it described.
 
     private readonly ToolStripMenuItem _specular;
     private readonly ToolStripMenuItem _fullbrightMenu;
@@ -2944,6 +2938,18 @@ internal class MainForm : Form
     /// Mirrored, because a viewmodel is drawn mirrored and the cull flips with it. Getting that
     /// wrong does not fail, it draws the weapon inside out.
     /// </remarks>
+    /// <summary>Poses whatever the first-person view shows at this moment.</summary>
+    /// <remarks>
+    /// **This was 319 lines and is now a guard, a call and the drawing** (B188). What it decides —
+    /// which models the view contains, under which of the engine's two exclusive schemes — moved to
+    /// <see cref="ViewmodelScene"/> in the scene layer, where it can be tested without a window.
+    /// It could not be before: reaching it meant constructing a MainForm, which needs the STA, a
+    /// Direct3D device and the desktop lock, and three open bugs against this path (B170, B186,
+    /// B187) had no regression test between them.
+    ///
+    /// What stays here is what genuinely needs the form: which entity the camera follows, where
+    /// that camera is, packing geometry onto the device, and the camera the pass draws with.
+    /// </remarks>
     private void AddViewmodel(double seconds)
     {
         if (!_firstPerson ||
@@ -2958,224 +2964,42 @@ internal class MainForm : Form
             return;
         }
 
-        if (timeline.ViewmodelAt(_transport.CurrentTick, follower) is not { } weapon)
-        {
-            _renderLog.LogWarning(
-                "{Message}",
-                $"no viewmodel for entity {follower} at tick {_transport.CurrentTick}");
-            return;
-        }
-
-        // **At the eye, which is where CalcViewModelView puts it**, and where it stays until the
-        // reason it is not visible is understood rather than guessed at. Two offsets were tried and
-        // neither helped: pushing it 24 units forward (the near plane is 7, so clipping was the
-        // obvious suspect) and rotating its yaw by −90 (the posed geometry sits along +Y, which is
-        // camera-left). See docs/findings/30 for what IS known.
-        SceneProp prop = new(
-            ViewmodelEntityIndex,
-            weapon.ModelPath,
-            SceneModelKind.Studio,
-            new ScenePose
-            {
-                X = camera.Origin.X,
-                Y = camera.Origin.Y,
-                Z = camera.Origin.Z,
-                Pitch = camera.Angles.Pitch,
-                Yaw = camera.Angles.Yaw,
-                Roll = camera.Angles.Roll,
-                Sequence = weapon.Sequence,
-                PlaybackRate = weapon.PlaybackRate,
-            });
-
-        // Packed on demand like any other model, so a weapon seen for the first time is loaded
-        // rather than skipped — and skipped silently, since a missing model draws nothing.
-        // **Whether the set grew, because packing is not uploading.** `Add` fills this process's
-        // copy of the geometry; the renderer keeps its own on the GPU and only receives it when
-        // `UploadModels` is called. The world's props do that whenever their set grows, and the
-        // viewmodel's Add was ignoring the same signal — so the arms were packed, posed, instanced,
-        // transformed correctly and submitted against geometry the renderer did not have.
-        //
-        // It said so on every frame: "a model was posed but the renderer has no geometry for it".
-        bool grew = _models.Add([prop], ModelGeometry);
-
-        // **The demo's sequence is played, never one chosen here.** This used to substitute the
-        // model's `VM_IDLE` whenever it differed, which on the spy meant replacing the recorded
-        // sequence 34 with 3 on every frame — the recording says what the weapon was doing and
-        // overriding it is this viewer inventing motion, which is the one thing it exists not to do.
-        // The owner's rule, and it is the right one: "we shouldnt be forcing any sequence only stuff
-        // from the demo or how valve does it".
-        //
-        // The engine agrees. `C_BaseViewModel` plays `m_nSequence` as it arrives; nothing anywhere
-        // in the viewmodel path picks an idle for it.
-        //
-        // **The substitution was added for a real symptom and cost the placement.** Merged sequence
-        // 1 on an arms model is `r_handposes`, a one-frame pose holder whose root sits at identity,
-        // which leaves the arms off screen — so forcing VM_IDLE made them appear. It also replaced
-        // the spy's recorded 34 with 3, which posed the arms for a weapon they were not holding and
-        // dropped the knife to the bottom of the frame. The owner spotted that as "the knifes there
-        // its jkust super low", and removing the substitution put it in the grip.
-        //
-        // **The recorded index means what the engine means by it, measured rather than assumed.**
-        // The worry was that a demo's sequence number indexes the weapon's own table while ours is
-        // merged from two models and 98 sequences deep, so the two might disagree silently. They do
-        // not: 34 plays a correct spy knife pose on z1800. Worth re-checking on any model whose
-        // merge is a different shape, since the failure would be a plausible wrong animation.
-        // **Once per weapon and sequence, not once per frame.** Measured 2026-08-24: the four
-        // viewmodel lines printed 6,588 times each in two minutes — one set per frame — and the
-        // whole log reached 64,425 lines and 8.2 MB, at roughly 1,280 writes a second with AutoFlush
-        // on each. That is B148's defect in a new place, and it makes the log unreadable as well as
-        // slow.
-        //
-        // What these answer is "which model, playing what" — a question about a WEAPON, which
-        // changes when the player switches. So the key is the weapon and its sequence, and holding
-        // one weapon for a minute is one line rather than nine thousand.
-        if (_reportedViewmodel != (weapon.ModelPath, weapon.Sequence, prop.Pose.Sequence))
-        {
-            _reportedViewmodel = (weapon.ModelPath, weapon.Sequence, prop.Pose.Sequence);
-
-            _renderLog.LogInformation(
-                "{Message}",
-                string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"viewmodel sequence: demo says {weapon.Sequence}, " +
-                    $"VM_IDLE would be {_models.SequenceByActivity(weapon.ModelPath, "VM_IDLE")}, " +
-                    $"playing {prop.Pose.Sequence}"));
-
-            _viewmodelChanged = true;
-        }
-        else
-        {
-            _viewmodelChanged = false;
-        }
-
-        List<SceneProp> viewmodelProps = [prop];
-
-        // **The weapon is a second model, parented to the arms.** In modern TF2 the networked
-        // viewmodel carries the player's ARMS — c_sniper_arms, c_pyro_arms — and the gun is a
-        // separate C_ViewmodelAttachmentModel the CLIENT creates and parents to it
-        // (econ_entity.cpp:1153). It is not networked, so no demo carries it and it has to be
-        // rebuilt from the item the player is holding.
-        //
-        // Drawn at the viewmodel's own transform because that is where the engine puts it: the
-        // attachment is parented with SetLocalOrigin( vec3_origin ) and bone-merged, so its bones
-        // take the arms' outright. Mirrored with them for the same reason they are.
-        // **Two schemes, and they are exclusive — this is the whole of the doubled weapon.**
-        // `CTFWeaponBase::GetViewModel` (tf_weaponbase.cpp:651):
-        //
-        //     if ( pPlayer && pItem->IsValid() && pItem->GetStaticData()->ShouldAttachToHands() )
-        //     {
-        //         const char *pszHandModel = pPlayer->GetPlayerClass()->GetHandModelName( ... );
-        //         return pszHandModel;
-        //     }
-        //     return GetTFWpnData().szViewModel;
-        //
-        // When the item attaches to hands the viewmodel IS the hands and the gun is a separate
-        // attachment — two models. When it does not, the viewmodel is the weapon's own `v_` model,
-        // which has the hands modelled into it — ONE model, and adding an attachment draws the gun
-        // twice. Measured on a 2011 recording of koth_viaduct: `v_stickybomb_launcher_demo` and
-        // `c_stickybomb_launcher` at one point in space, which is the owner's "2 sticky launchers
-        // overlapping each other".
-        //
-        // **Decided from the DEMO, not from the installed item schema.** `attach_to_hands` is a
-        // property of the item as it is TODAY: the stickybomb launcher attaches to hands now and did
-        // not in 2011, so asking items_game.txt about a 2011 demo returns a confident wrong answer
-        // and keeps the bug on exactly the files this project exists for. What the recording itself
-        // says is which model was networked as the viewmodel, and that is the branch the engine
-        // took at the time. See docs/memory/the-demo-dates-its-own-fields.md.
-        //
-        // The hands come from shipped class data — `model_hands` in scripts/playerclasses/<class>,
-        // which tf_classdata.cpp:149 reads into the m_szHandModelName that GetHandModelName returns.
         string? hands = PlayerAt(_transport.CurrentTick, follower) is { PlayerClass: { } playerClass }
             ? _classModels?.Hands(playerClass)
             : null;
 
-        bool attachesToHands =
-            hands is { Length: > 0 } &&
-            string.Equals(
-                weapon.ModelPath.Replace('\\', '/'),
-                hands.Replace('\\', '/'),
-                StringComparison.OrdinalIgnoreCase);
+        ViewmodelSceneResult scene = _viewmodelScene.Build(
+            new TimelineViewmodels(timeline),
+            _transport.CurrentTick,
+            follower,
+            new ViewmodelPlacement(
+                camera.Origin.X,
+                camera.Origin.Y,
+                camera.Origin.Z,
+                camera.Angles.Pitch,
+                camera.Angles.Yaw,
+                camera.Angles.Roll),
+            hands,
+            WeaponModelFor(follower));
 
-        if (_viewmodelChanged)
+        bool changed = scene.Changed;
+
+        if (scene.Props.Count == 0)
         {
-            _renderLog.LogInformation(
+            _renderLog.LogWarning(
                 "{Message}",
-                $"viewmodel scheme: networked '{weapon.ModelPath}', hands '{hands ?? "none"}', " +
-                (attachesToHands
-                    ? "attaches to hands, so the weapon is a second model"
-                    : "the viewmodel is the weapon's own model, so no attachment is drawn"));
+                $"no viewmodel for entity {follower} at tick {_transport.CurrentTick}");
+
+            _viewmodelCamera = null;
+            return;
         }
 
-        if (attachesToHands && WeaponModelFor(follower) is { Length: > 0 } held)
-        {
-            // **Bone-merged onto the arms, not posed beside them.** The engine parents the
-            // attachment with `SetLocalOrigin( vec3_origin )` and blends it through
-            // `C_ViewmodelAttachmentModel::StandardBlendingRules`, so it has no pose of its own —
-            // it takes the viewmodel's bone matrices by name, exactly as a hat takes a player's.
-            //
-            // Posed independently it sits at its own origin, which after the transform is AT the
-            // camera and therefore inside the near plane: packed, instanced, drawn and invisible.
-            // A weapon model carries one sequence and no animation to move it anywhere else.
-            SceneProp gun = new(
-                WeaponEntityIndex,
-                held,
-                SceneModelKind.Studio,
-                new ScenePose
-                {
-                    X = camera.Origin.X,
-                    Y = camera.Origin.Y,
-                    Z = camera.Origin.Z,
-                    Pitch = camera.Angles.Pitch,
-                    Yaw = camera.Angles.Yaw,
-                    Roll = camera.Angles.Roll,
-                    Sequence = weapon.Sequence,
-                    PlaybackRate = weapon.PlaybackRate,
-                },
-                AttachedTo: ViewmodelEntityIndex);
-
-            grew |= _models.Add([gun], ModelGeometry);
-            viewmodelProps.Add(gun);
-        }
-
-        // **The off hand, drawn beside the weapon rather than instead of it.** Only the spy's watch
-        // uses slot 1 — `CTFWeaponInvis::Spawn` calls `SetViewModelIndex( 1 )` — so this is nothing
-        // for eight classes and most of the ninth's time. The lookup has already applied the two
-        // rules that decide it: EF_NODRAW on the viewmodel's own table, which is how
-        // `SetWeaponVisible` puts the watch away, and a model index of zero, which is what an unused
-        // off hand sends. All 22 of z1800's send exactly that.
-        //
-        // Posed at the camera like the arms, and with no weapon merged onto it, because the watch's
-        // viewmodel IS the item's player model rather than a pair of arms.
-        if (timeline.OffHandViewmodelAt(_transport.CurrentTick, follower) is { } offHand)
-        {
-            SceneProp watch = new(
-                OffHandEntityIndex,
-                offHand.ModelPath,
-                SceneModelKind.Studio,
-                new ScenePose
-                {
-                    X = camera.Origin.X,
-                    Y = camera.Origin.Y,
-                    Z = camera.Origin.Z,
-                    Pitch = camera.Angles.Pitch,
-                    Yaw = camera.Angles.Yaw,
-                    Roll = camera.Angles.Roll,
-                    Sequence = offHand.Sequence,
-                    PlaybackRate = offHand.PlaybackRate,
-                });
-
-            grew |= _models.Add([watch], ModelGeometry);
-
-            viewmodelProps.Add(watch);
-
-            // The recorded sequence, like the main hand: nothing is substituted here either.
-            _renderLog.LogInformation(
-                "{Message}",
-                $"off hand {offHand.ModelPath} seq {offHand.Sequence} at tick " +
-                $"{_transport.CurrentTick}");
-        }
-
-        if (grew && _device is { } packed)
+        // **Whether the set grew, because packing is not uploading.** `Add` fills this process's
+        // copy of the geometry; the renderer keeps its own on the GPU and only receives it when
+        // `UploadModels` is called. The viewmodel's Add was once ignoring that signal, so the arms
+        // were packed, posed, instanced, transformed correctly and submitted against geometry the
+        // renderer did not have.
+        if (_models.Add(scene.Props, ModelGeometry) && _device is { } packed)
         {
             packed.UploadModels(_models);
 
@@ -3185,17 +3009,13 @@ internal class MainForm : Form
                 $"{_models.Vertices.Count} vertices");
         }
 
-        // **One call for both, because Instances CLEARS the list it is given.** Posing the arms and
-        // then the weapon into the same list threw the arms away and drew the gun alone — a bug
-        // that reads as "the arms do not work" and was invisible next to a viewmodel that was not
-        // on screen for other reasons anyway.
-        // **Names each viewmodel prop, because the count says two and cannot say two of WHAT.**
-        // The merged arms model already carries a weapon part — c_soldier_arms pairs as hands,
-        // sleeves and w_rocketlauncher — so a second prop naming the same geometry draws the gun
-        // twice, which is what "2 sticky launchers overlapping" looks like.
-        if (_viewmodelChanged)
+        // **Names each prop, because the count says two and cannot say two of WHAT.** The merged
+        // arms model already carries a weapon part — c_soldier_arms pairs as hands, sleeves and
+        // w_rocketlauncher — so a second prop naming the same geometry draws the gun twice, which
+        // is what "2 sticky launchers overlapping" looks like.
+        if (changed)
         {
-            foreach (SceneProp shown in viewmodelProps)
+            foreach (SceneProp shown in scene.Props)
             {
                 _renderLog.LogInformation(
                     "{Message}",
@@ -3203,30 +3023,18 @@ internal class MainForm : Form
             }
         }
 
-        _models.Instances(viewmodelProps, _viewmodelInstances, LightAt, SunAt, seconds);
+        // **One call for all of them, because Instances CLEARS the list it is given.** Posing the
+        // arms and then the weapon into the same list threw the arms away and drew the gun alone.
+        _models.Instances(scene.Props, _viewmodelInstances, LightAt, SunAt, seconds);
 
-        // **Says what it produced, because nothing else can.** A viewmodel that resolves, packs
-        // and then yields no instance is indistinguishable on screen from one that was never
-        // looked up — and that distinction is exactly what went wrong the first time this ran.
-        if (_viewmodelChanged)
+        if (changed)
         {
             _renderLog.LogInformation(
                 "{Message}",
-                $"viewmodel {weapon.ModelPath} seq {weapon.Sequence} at tick " +
-                $"{_transport.CurrentTick}: {viewmodelProps.Count} props, " +
+                $"viewmodel at tick {_transport.CurrentTick}: {scene.Props.Count} props, " +
                 $"{_viewmodelInstances.Count} instances");
         }
 
-        // **Kept OUT of the world list, because they are drawn in their own pass.** The engine
-        // draws viewmodels after the world with a different projection and a compressed depth
-        // range (CViewRender::DrawViewModels); putting them in with everything else is what left
-        // them packed, posed, instanced, listed for drawing and invisible.
-        //
-        // **Not mirrored.** `cl_flipviewmodels` mirrors for a left-handed view and is off by
-        // default — the owner, who has played the game: "the watch is the left hand, the weapon in
-        // the right, unless you use left handed viewmodels, then its the opposite".
-        // `C_BaseViewModel::InternalDrawModel` switches to MATERIAL_CULLMODE_CW *when* mirrored,
-        // which is the same conditional from the renderer's side.
         _viewmodelCamera = new FreeCamera
         {
             Origin = camera.Origin,
@@ -3237,6 +3045,9 @@ internal class MainForm : Form
             NearZ = ViewmodelPass.NearPlane,
         };
     }
+
+    /// <summary>Decides what the first-person view contains; the form supplies where and whose.</summary>
+    private readonly ViewmodelScene _viewmodelScene = new();
 
     /// <summary>The camera the viewmodel pass uses, or null when nothing is drawn in it.</summary>
     private FreeCamera? _viewmodelCamera;
@@ -3328,43 +3139,14 @@ internal class MainForm : Form
     /// <summary>Whether the schema was looked for and not found.</summary>
     private bool _itemSchemaMissing;
 
-    /// <summary>The slot the weapon in hand is drawn under, beside the arms.</summary>
-    /// <remarks>
-    /// Its own index rather than the viewmodel's, because the two are separate models packed and
-    /// posed separately — sharing one would have the second overwrite the first's geometry.
-    /// </remarks>
-    private const int WeaponEntityIndex = 4097;
 
     /// <summary>Scratch list for the viewmodel's instances, reused between frames.</summary>
     private readonly List<ModelInstance> _viewmodelInstances = [];
 
-
-    /// <summary>
-    /// The entity slot the viewmodel is drawn under, which is not a real one.
-    /// </summary>
-    /// <remarks>
-    /// A viewmodel is not in the scene the timeline builds — it has no position, so it is not a
-    /// prop — and it still needs an index to be packed and posed like one. Chosen above every real
-    /// slot so it cannot collide with an entity the demo describes.
-    /// </remarks>
-    private const int ViewmodelEntityIndex = 4096;
-
-    /// <summary>The slot the off-hand viewmodel is drawn under.</summary>
-    /// <remarks>
-    /// **A third index, because all three are on screen together.** The owner, who has played the
-    /// class: "main viewmodel doesnt get hidden when a spy goes invis, the watch just comes up and
-    /// everything goes transparent". So the off hand is a model BESIDE the weapon, not instead of
-    /// it, and sharing an index with either would have one overwrite the other's geometry.
-    ///
-    /// **It needs no weapon of its own, and that is measured rather than reasoned.** Every off hand
-    /// z1800 ever offers is a complete watch model — <c>v_watch_spy</c>,
-    /// <c>v_watch_leather_spy</c>, <c>v_watch_pocket_spy</c>, three of them across 190 of 9,165
-    /// player-ticks — where a modern main-hand viewmodel is a pair of arms that needs a
-    /// client-built weapon merged onto it. Valve's comment on
-    /// <c>CTFWeaponInvis::GetViewModel</c> says why: "Watch uses the player model as its viewmodel,
-    /// because it's never seen being carried by the player".
-    /// </remarks>
-    private const int OffHandEntityIndex = 4098;
+    // The three viewmodel entity indices moved to ViewmodelScene on 2026-08-24 (B188), with the
+    // code that uses them. They are this project's own numbering rather than anything the engine
+    // has — a viewmodel there is a real networked entity — so they belong beside the type that
+    // assigns them rather than in the form that used to.
 
     /// <summary>Whose eyes the first-person camera is in, or <c>null</c> when it is not in any.</summary>
     /// <remarks>

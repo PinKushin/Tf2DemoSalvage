@@ -1,0 +1,260 @@
+using System;
+using System.Collections.Generic;
+
+using Tf2DemoSalvage.Core.Scene;
+
+namespace Tf2DemoSalvage.Scene;
+
+/// <summary>What the first-person view contains at one tick.</summary>
+/// <param name="Props">The models to draw, the arms first.</param>
+/// <param name="Changed">
+/// Whether the weapon or its sequence differs from the last tick asked about, so a caller can log
+/// once per weapon rather than once per frame.
+/// </param>
+/// <remarks>
+/// **Empty means draw nothing, and that is a state rather than a failure.** First person is off, the
+/// demo has no camera, or the followed player is holding nothing — each leaves the pass with no
+/// props, and the caller drops its camera to say so.
+/// </remarks>
+public readonly record struct ViewmodelSceneResult(
+    IReadOnlyList<SceneProp> Props,
+    bool Changed);
+
+/// <summary>Where a player's two viewmodels come from.</summary>
+/// <remarks>
+/// **An interface rather than <c>DemoTimeline</c>, and that is the difference between testable and
+/// not.** A timeline is only constructible from a real demo file — <c>DemoTimeline.Build(bytes)</c>
+/// is its only entry point — so a <see cref="ViewmodelScene"/> that took one could be exercised
+/// only by opening a demo, which is how <c>AddViewmodel</c> came to have no tests at all.
+///
+/// This is D54's argument in miniature: *"MVP's boundary can be made a compiler error, not just a
+/// convention someone (or something) has to remember to follow"*. Depending on the abstraction is
+/// what lets a fake answer in two lines.
+/// </remarks>
+public interface IViewmodelSource
+{
+    /// <summary>The model in a player's main hand at a tick, or null when they carry none.</summary>
+    /// <param name="tick">The tick being drawn.</param>
+    /// <param name="player">The player whose view is being shown.</param>
+    /// <returns>Their viewmodel, or null.</returns>
+    public SceneViewmodel? MainHandAt(int tick, int player);
+
+    /// <summary>The model in their other hand, which for TF2 is the spy's watch.</summary>
+    /// <param name="tick">The tick being drawn.</param>
+    /// <param name="player">The player whose view is being shown.</param>
+    /// <returns>Their off-hand viewmodel, or null.</returns>
+    /// <remarks>
+    /// **Drawn as well as the main hand, not instead of it.** A cloaking spy has both on screen, so
+    /// a viewer answering only with the main hand is one model short of what that player saw.
+    /// </remarks>
+    public SceneViewmodel? OffHandAt(int tick, int player);
+}
+
+/// <summary>A demo timeline, as a source of viewmodels.</summary>
+/// <param name="timeline">The timeline.</param>
+/// <remarks>
+/// The whole adapter. It exists so <see cref="ViewmodelScene"/> can depend on the abstraction while
+/// production still reads the demo — and so the naming difference between the two
+/// (<c>ViewmodelAt</c> against <c>MainHandAt</c>) is resolved in one place rather than at every call.
+/// </remarks>
+public sealed class TimelineViewmodels(DemoTimeline timeline) : IViewmodelSource
+{
+    /// <inheritdoc/>
+    public SceneViewmodel? MainHandAt(int tick, int player) => timeline.ViewmodelAt(tick, player);
+
+    /// <inheritdoc/>
+    public SceneViewmodel? OffHandAt(int tick, int player) =>
+        timeline.OffHandViewmodelAt(tick, player);
+}
+
+/// <summary>
+/// Decides which models the first-person view draws at a tick.
+/// </summary>
+/// <remarks>
+/// **Extracted from <c>MainForm.AddViewmodel</c> on 2026-08-24** (B188). That method was 319 lines
+/// inside a 7,263-line form, and it is what B170, B186 and B187 all have to change — so the owner's
+/// call was to split it before fixing them rather than after: *"theres no need doing double work"*.
+///
+/// **It lives in Scene rather than in the viewer, and that is B184's half of the same job.** Nothing
+/// here needs WinForms: it reads the timeline, names models and builds <c>SceneProp</c>s. Putting it
+/// here means its tests are a plain <c>net10.0</c> project — which runs on the Linux measurement
+/// boxes and under Stryker, neither of which the viewer's suite can do.
+///
+/// **What is NOT here is what genuinely needs a window**: which entity the camera follows, where
+/// that camera is, packing geometry, and the render pass itself. Those stay in the form and their
+/// results are passed in.
+/// </remarks>
+public sealed class ViewmodelScene
+{
+    /// <summary>The arms, or the weapon itself when the weapon is its own viewmodel.</summary>
+    /// <remarks>
+    /// Well past any real entity index, so it cannot collide with one the demo carries. The engine
+    /// has no equivalent — a viewmodel there is a real networked entity — so these are this
+    /// project's own numbering and are kept together for that reason.
+    /// </remarks>
+    public const int ArmsEntityIndex = 4096;
+
+    /// <summary>The weapon, when it is a second model attached to the arms.</summary>
+    public const int WeaponEntityIndex = 4097;
+
+    /// <summary>The off hand, which is a separate viewmodel slot the engine also carries.</summary>
+    public const int OffHandEntityIndex = 4098;
+
+    private (string Model, int Demo, int Played) _reported = (string.Empty, -1, -1);
+
+    /// <summary>Builds the first-person scene for one tick.</summary>
+    /// <param name="viewmodels">Where the player's two viewmodels come from.</param>
+    /// <param name="tick">Which tick.</param>
+    /// <param name="follower">The player whose eyes the camera is at.</param>
+    /// <param name="at">Where that camera is, which every viewmodel prop is placed at.</param>
+    /// <param name="hands">
+    /// The class's hand model, or null when it has none. When the networked viewmodel IS this
+    /// model, the weapon is a second model and <paramref name="heldWeapon"/> supplies it.
+    /// </param>
+    /// <param name="heldWeapon">The weapon's own viewmodel, for the two-model scheme.</param>
+    /// <returns>The props to draw, and whether this differs from the last tick asked about.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="viewmodels"/> is null.</exception>
+    /// <remarks>
+    /// **Two schemes, and they are exclusive — this is the whole of the doubled weapon.**
+    /// <c>CTFWeaponBase::GetViewModel</c> (<c>tf_weaponbase.cpp:651</c>) asks the item whether it
+    /// <c>ShouldAttachToHands()</c>: if it does, the networked viewmodel is the player's ARMS and
+    /// the gun is a separate <c>C_ViewmodelAttachmentModel</c> the client creates and parents to
+    /// them (<c>econ_entity.cpp:1153</c>); if it does not, the networked viewmodel is the weapon
+    /// itself and there is no second model. Drawing both is how one weapon becomes two on screen.
+    ///
+    /// **The demo's sequence is played, never one chosen here.** The recording says what the weapon
+    /// was doing, and overriding it is this viewer inventing motion — the one thing it exists not to
+    /// do. The owner's rule: *"we shouldnt be forcing any sequence only stuff from the demo or how
+    /// valve does it"*. The engine agrees; nothing in its viewmodel path picks an idle.
+    /// </remarks>
+    public ViewmodelSceneResult Build(
+        IViewmodelSource viewmodels,
+        int tick,
+        int follower,
+        ViewmodelPlacement at,
+        string? hands,
+        string? heldWeapon)
+    {
+        ArgumentNullException.ThrowIfNull(viewmodels);
+
+        if (viewmodels.MainHandAt(tick, follower) is not { } weapon)
+        {
+            return new ViewmodelSceneResult([], Changed(string.Empty, -1, -1));
+        }
+
+        List<SceneProp> props =
+        [
+            new SceneProp(
+                ArmsEntityIndex,
+                weapon.ModelPath,
+                SceneModelKind.Studio,
+                at.PoseFor(weapon.Sequence, weapon.PlaybackRate)),
+        ];
+
+        // **The comparison is a PATH comparison and the separators differ.** A model named in the
+        // class schema and one that arrived over the wire disagree on slashes, so comparing them
+        // raw answers "these are different models" for the same file — which silently selects the
+        // one-model scheme and leaves the weapon undrawn.
+        if (AttachesToHands(weapon.ModelPath, hands) && heldWeapon is { Length: > 0 } held)
+        {
+            props.Add(new SceneProp(
+                WeaponEntityIndex,
+                held,
+                SceneModelKind.Studio,
+                at.PoseFor(weapon.Sequence, weapon.PlaybackRate),
+                AttachedTo: ArmsEntityIndex));
+        }
+
+        // **A player has two viewmodels, and the second is not a duplicate of the first.** Slot 1 is
+        // the off hand — a spy's watch, a demoman's shield — and the engine draws it alongside the
+        // weapon rather than instead of it.
+        if (viewmodels.OffHandAt(tick, follower) is { } offHand)
+        {
+            props.Add(new SceneProp(
+                OffHandEntityIndex,
+                offHand.ModelPath,
+                SceneModelKind.Studio,
+                at.PoseFor(offHand.Sequence, offHand.PlaybackRate)));
+        }
+
+        return new ViewmodelSceneResult(
+            props,
+            Changed(weapon.ModelPath, weapon.Sequence, weapon.Sequence));
+    }
+
+    /// <summary>Whether the networked viewmodel is the class's hands rather than a weapon.</summary>
+    /// <param name="viewmodel">What the demo says the viewmodel model is.</param>
+    /// <param name="hands">The class's hand model, or null.</param>
+    /// <returns>Whether the weapon is a second model.</returns>
+    /// <remarks>
+    /// Separators normalised because the two names come from different places — one from the wire,
+    /// one from the class schema — and a backslash against a forward slash reads as two different
+    /// models. That comparison decides which of two exclusive schemes applies, so getting it wrong
+    /// does not throw: it draws the wrong number of models.
+    /// </remarks>
+    public static bool AttachesToHands(string viewmodel, string? hands)
+    {
+        ArgumentNullException.ThrowIfNull(viewmodel);
+
+        return hands is { Length: > 0 } &&
+            string.Equals(
+                viewmodel.Replace('\\', '/'),
+                hands.Replace('\\', '/'),
+                StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Whether this differs from the last tick asked about.</summary>
+    /// <remarks>
+    /// **Once per weapon and sequence, not once per frame.** Measured 2026-08-24: the viewmodel
+    /// lines printed 6,588 times each in two minutes — one set per frame — and the log reached
+    /// 64,425 lines and 8.2 MB at roughly 1,280 writes a second (B163). What they answer is "which
+    /// model, playing what", which is a question about a WEAPON and changes when the player
+    /// switches. So holding one weapon for a minute is one line rather than nine thousand.
+    /// </remarks>
+    private bool Changed(string model, int demo, int played)
+    {
+        if (_reported == (model, demo, played))
+        {
+            return false;
+        }
+
+        _reported = (model, demo, played);
+        return true;
+    }
+}
+
+/// <summary>Where the first-person camera is, which every viewmodel prop is placed at.</summary>
+/// <param name="X">Camera origin.</param>
+/// <param name="Y">Camera origin.</param>
+/// <param name="Z">Camera origin.</param>
+/// <param name="Pitch">Camera angles.</param>
+/// <param name="Yaw">Camera angles.</param>
+/// <param name="Roll">Camera angles.</param>
+/// <remarks>
+/// **At the eye, which is where <c>CalcViewModelView</c> puts it.** Two offsets were tried while
+/// chasing B160 and neither helped — pushing it 24 units forward, and rotating its yaw by −90 — so
+/// it stays at the eye until the reason it is not visible is understood rather than guessed at.
+///
+/// A record of six floats rather than the viewer's camera type, so this assembly needs nothing from
+/// the renderer.
+/// </remarks>
+public readonly record struct ViewmodelPlacement(
+    float X, float Y, float Z, float Pitch, float Yaw, float Roll)
+{
+    /// <summary>The pose a viewmodel prop gets: this placement, playing that sequence.</summary>
+    /// <param name="sequence">What the demo says the weapon is playing.</param>
+    /// <param name="playbackRate">How fast, as the wire sent it.</param>
+    /// <returns>The pose.</returns>
+    public ScenePose PoseFor(int sequence, float playbackRate) =>
+        new()
+        {
+            X = X,
+            Y = Y,
+            Z = Z,
+            Pitch = Pitch,
+            Yaw = Yaw,
+            Roll = Roll,
+            Sequence = sequence,
+            PlaybackRate = playbackRate,
+        };
+}
