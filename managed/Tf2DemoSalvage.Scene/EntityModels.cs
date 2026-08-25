@@ -137,6 +137,59 @@ public sealed class EntityModelSet
     /// <summary>What bringing every entity's state up to date has cost, ever.</summary>
     public long SimulateTicks { get; set; }
 
+    /// <summary>Every pose-phase counter at one instant, for diffing across a call.</summary>
+    /// <remarks>
+    /// **One value instead of ten out-parameters.** Each counter is a running total, so a caller
+    /// wanting "what did THIS call cost" reads them either side and subtracts — which was ten pairs
+    /// of local variables at the call site and thirteen parameters on the report that consumed
+    /// them. The arithmetic is identical; only the bookkeeping moves.
+    ///
+    /// A per-second total cannot attribute a single freeze: it says how much was spent, never
+    /// whether it was spent all at once. That is why these are read per call rather than reported
+    /// per second (B189, B191).
+    /// </remarks>
+    public readonly record struct PoseCounters(
+        long Lighting,
+        long Simulate,
+        long WornLight,
+        long Report,
+        long ReportLog,
+        long Setup,
+        long Skin,
+        long Animation,
+        int AnimationCalls,
+        int Built)
+    {
+        /// <summary>What happened between an earlier snapshot and this one.</summary>
+        /// <param name="before">The earlier snapshot.</param>
+        /// <returns>The difference, field by field.</returns>
+        public PoseCounters Since(PoseCounters before) =>
+            new(
+                Lighting - before.Lighting,
+                Simulate - before.Simulate,
+                WornLight - before.WornLight,
+                Report - before.Report,
+                ReportLog - before.ReportLog,
+                Setup - before.Setup,
+                Skin - before.Skin,
+                Animation - before.Animation,
+                AnimationCalls - before.AnimationCalls,
+                Built - before.Built);
+    }
+
+    /// <summary>Every pose-phase counter as it stands now.</summary>
+    public PoseCounters Counters => new(
+        _lighting.Ticks,
+        SimulateTicks,
+        WornLightTicks,
+        ReportTicks,
+        _reports.LogTicks,
+        SetupTicks,
+        SkinTicks,
+        SkeletonPose.AnimationTicks,
+        SkeletonPose.AnimationCalls,
+        EntitiesBuilt);
+
     /// <summary>What per-prop reporting has cost, ever.</summary>
     public long ReportTicks { get; set; }
 
