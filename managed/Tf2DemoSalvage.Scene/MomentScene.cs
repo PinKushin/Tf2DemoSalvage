@@ -266,8 +266,32 @@ public sealed class MomentScene
         // across demos, so after a switch it already holds what the new demo needs and does not grow
         // — but the GPU buffer it was uploaded into is gone. Every posed model then took the "posed
         // before any geometry was uploaded" branch, 440,412 times in one five-minute run.
-        if ((!grew && Uploaded) || Upload is not { } upload)
+        if (!grew && Uploaded)
         {
+            return;
+        }
+
+        if (Upload is not { } upload)
+        {
+            // **Reported once, because forgetting this draws NOTHING and says nothing** (B193). The
+            // set has grown — there is geometry to hand over — and no device to hand it to, so every
+            // model will be posed against a vertex buffer the renderer never received. That is
+            // B148's symptom, and B148 took a 37 MB log to find.
+            //
+            // **Conditioned on there being VERTICES, not merely on having taken this branch.** The
+            // first version fired for an idle viewer with nothing packed at all — where an absent
+            // device is not a fault and cannot be one — which a control test caught. A warning that
+            // fires before anything is wrong is how a real warning stops being read.
+            if (!_reportedNoUpload && _models.Vertices.Count > 0)
+            {
+                _reportedNoUpload = true;
+
+                _render.LogWarning(
+                    "{Message}",
+                    "no model upload: the packed set grew but nothing set MomentScene.Upload, so " +
+                    "no entity geometry will reach the device");
+            }
+
             return;
         }
 
@@ -370,6 +394,14 @@ public sealed class MomentScene
         // **Resolved from the players this moment already sampled**, rather than being handed in.
         // The arms come from the class script exactly as the body does, and the weapon from the item
         // schema — both questions the scene can answer for itself now that it holds the roster.
+        //
+        // **This resolves the holder at a different tick than the original did, deliberately.**
+        // `MainForm` looked them up at `_transport.CurrentTick` — a whole tick — while the props
+        // being drawn were sampled at the FRACTIONAL tick. Reading them off the sampled roster makes
+        // the weapon and the world agree on which moment they are showing, which is the off-by-one
+        // that produces "the weapon is one frame stale". In practice the two resolve identically,
+        // because the fields consulted here — `PlayerClass`, `WeaponItem`, `WeaponClass` — are
+        // retained entity state rather than interpolated values, so both land on the same frame.
         ScenePlayer? held = null;
 
         foreach (ScenePlayer player in players)
@@ -504,6 +536,9 @@ public sealed class MomentScene
 
     /// <summary>Whether the missing-viewmodel-source warning has already been given.</summary>
     private bool _reportedNoViewmodels;
+
+    /// <summary>Whether the missing-upload warning has already been given.</summary>
+    private bool _reportedNoUpload;
 
     /// <summary>Says where every carried weapon is, once a second.</summary>
     /// <remarks>

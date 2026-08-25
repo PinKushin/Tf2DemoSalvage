@@ -269,7 +269,9 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 # the right mechanism" from "only ever does one thing".
 # 135: the two viewmodel-source cases in MomentSceneTests, which exist because the missing wiring
 # they now report actually shipped (B193).
-run Tf2DemoSalvage.Scene.Tests    scene     135
+# 138: the three model-upload cases, added after an audit found `MomentScene.Upload` was assigned
+# NOWHERE — so no entity geometry ever reached the GPU (B193, third occurrence).
+run Tf2DemoSalvage.Scene.Tests    scene     138
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

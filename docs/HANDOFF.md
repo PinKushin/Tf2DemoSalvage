@@ -183,6 +183,40 @@ short it is.
 
 ---
 
+## 2a. Audit every move for WIRING, because that is what breaks
+
+**Three regressions in one day of extracting, two of which shipped, and not one was a logic error.**
+The moved body is covered by the tests written with it; what breaks is the assignment that used to
+be implicit. `new TimelineViewmodels(timeline)` written INLINE becomes a `Viewmodels` property, and
+a property nobody sets is null — a legal state the guard already handles, written for "no demo open
+yet" and unable to tell that from "nobody wired this".
+
+| what moved | what broke | shipped? |
+|---|---|---|
+| `EnsureWeaponRoles` | the call was dropped; every weapon suffix answered null | no — an analyzer saw the method go unreachable |
+| `AddViewmodel` | `MomentScene.Viewmodels` never assigned; **the weapon never drew** | **yes** |
+| `ShowMoment`'s upload | `MomentScene.Upload` assigned NOWHERE; **no geometry reached the GPU** | **yes** |
+
+The viewer suite reported **620/620 green** through all three.
+
+**Run this at the END of every move**, not only when something looks wrong — the worst of the three
+was completely invisible:
+
+```bash
+for p in "_moment.Upload" "_moment.Viewmodels" "_spectator.Eyes"; do
+  printf "%-24s %s\n" "$p" "$(grep -c "$p *=" managed/Tf2DemoSalvage.Viewer3D/MainForm.cs)"
+done
+```
+
+Zero is a regression. Then three more passes, each of which found something: diff the log STRINGS
+before and after, diff the moved BODY against the original, and check that a counter which kept its
+NAME kept its MEANING. Full method and the reasoning in
+`docs/memory/a-moves-regressions-are-wiring.md`.
+
+**All three now report themselves** — `no player appearance`, `no viewmodel source`, `no model
+upload` — once rather than per frame, each guarded on there actually being work to do, each with a
+control test proving the legitimate case stays silent.
+
 ## 3. Valve parity auditing — keep doing this
 
 The owner asked repeatedly, and it paid every time. **A refactor is when the check is cheapest**

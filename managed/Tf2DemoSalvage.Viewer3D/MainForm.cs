@@ -3007,11 +3007,27 @@ internal class MainForm : Form
         // scene rebuild is TOLD the tick, the camera and the followed entity through `MomentInfo`,
         // which is `SetupRenderInfo_t`'s arrangement (`clientleafsystem.h:75`) rather than reaching
         // back into a window for them (B188, D90).
+        // **Timed here, because `sampling` in the per-second line MEANS this.** For one commit that
+        // counter was fed `phases.DrawList` — the draw-list build and its visibility filters, which
+        // is a different quantity under the same name. A log that names the wrong thing misdirects
+        // with authority (`docs/memory/a-log-must-name-what-it-measured.md`).
+        long sampledAt = Stopwatch.GetTimestamp();
+
         timeline.PlayersAt(tick, _players);
         timeline.PropsAt(tick, _props);
 
-        // Cheap after the first call, and this is the first point where both the demo and the game's
-        // archives are certain to be open. It hands the roles to the scene when it reads them.
+        long sampleTicks = Stopwatch.GetTimestamp() - sampledAt;
+
+        _samplingTicks += sampleTicks;
+
+        // **Outside the timer, which is where it was and where it belongs.** It is cheap after the
+        // first call, but the FIRST call reads the weapon scripts out of the archives and each one
+        // costs an ICE decryption — so counting it as sampling would report one enormous `sampling`
+        // spike for work that is not sampling. Putting it inside was a slip caught by diffing this
+        // method against the original.
+        //
+        // Here rather than earlier because this is the first point where both the demo and the
+        // game's archives are certain to be open. It hands the roles to the scene when it reads them.
         EnsureWeaponRoles();
 
         MomentPhases phases = _moment.Build(
@@ -3026,12 +3042,15 @@ internal class MainForm : Form
                 timeline.IntervalPerTick,
                 _settings.ViewmodelFieldOfView));
 
-        _samplingTicks += phases.DrawList;
         _posingTicks += phases.Pose;
+
+        // **Timed because it was, and the column went missing when the rebuild moved out.** Three
+        // untimed steps once hid 129 ms of a 133 ms pose (B191), and this is the one still here.
+        long playersAt = Stopwatch.GetTimestamp();
 
         ShowPlayers(_players);
 
-        ReportSlowMoment(phases);
+        ReportSlowMoment(phases, sampleTicks, Stopwatch.GetTimestamp() - playersAt);
     }
 
     // `HandsForFollowed` lived here for exactly one commit, and its own comment admitted what it
@@ -3041,6 +3060,8 @@ internal class MainForm : Form
 
     /// <summary>Names where a slow scene rebuild went, when one is slow.</summary>
     /// <param name="phases">What <see cref="MomentScene.Build"/> measured.</param>
+    /// <param name="sampleTicks">Reading the tick's players and props off the timeline.</param>
+    /// <param name="playerTicks">Building the overhead marker list.</param>
     /// <remarks>
     /// **The frame ledger says `advance`, and this says which part of it** — the two compose, so a
     /// slow frame names a phase and then a sub-phase rather than a range of 350 lines.
@@ -3056,11 +3077,15 @@ internal class MainForm : Form
     /// **Ten parameters became one** (B188). The phases are a record now, so this reads them by name
     /// rather than differencing seven timestamps the caller had to pass in the right order.
     /// </remarks>
-    private void ReportSlowMoment(in MomentPhases phases)
+    private void ReportSlowMoment(in MomentPhases phases, long sampleTicks, long playerTicks)
     {
         static double Of(long ticks) => ticks / (double)Stopwatch.Frequency * 1000d;
 
-        double total = Of(phases.Total);
+        // **The whole moment, which is the scene rebuild PLUS the two phases still measured here.**
+        // Reporting only the rebuild's own total would exclude the sampling and the marker pass from
+        // the threshold as well as from the line, so a moment slow because of one of those would not
+        // be reported at all.
+        double total = Of(phases.Total + sampleTicks + playerTicks);
 
         if (total <= MomentScene.StallSeconds * 1000d)
         {
@@ -3084,7 +3109,8 @@ internal class MainForm : Form
             "{Message}",
             string.Create(
                 CultureInfo.InvariantCulture,
-                $"SLOW MOMENT {total:0} ms: drawlist {Of(phases.DrawList):0.#}" +
+                $"SLOW MOMENT {total:0} ms: sample {Of(sampleTicks):0.#}" +
+                $", drawlist {Of(phases.DrawList):0.#}" +
                 $", models {Of(phases.Models):0.#}" +
                 $", pose {Of(phases.Pose):0.#}" +
                 $" (lighting {lighting:0.#}, viewmodel {viewmodel:0.#}" +
@@ -3100,6 +3126,7 @@ internal class MainForm : Form
                 $", anim {Of(pose.Animation):0.#}" +
                 $" over {pose.AnimationCalls.ToString(CultureInfo.InvariantCulture)})" +
                 $", weapons {Of(phases.Weapons):0.#}" +
+                $", players {Of(playerTicks):0.#}" +
                 $"; unaccounted {Of(phases.Unaccounted):0.#} ms"));
     }
 
@@ -3915,6 +3942,13 @@ internal class MainForm : Form
                 _viewport.ClientSize.Height,
                 _loggers);
             _device.VerticalSync = _settings.VerticalSync;
+
+            // **Where packed geometry goes, and forgetting it draws NOTHING** (B193). Without this
+            // the scene packs every model, poses it, transforms it correctly and submits it against
+            // a vertex buffer the renderer never received — B148's symptom exactly, and silent.
+            // Assigned here rather than at construction because the device does not exist until the
+            // viewport has a handle.
+            _moment.Upload = _device;
 
             _renderLog.LogInformation(
                 "{Message}",
@@ -5657,6 +5691,9 @@ internal class MainForm : Form
             }
 
             TimeSpan idleStopped = closing.Elapsed;
+
+            // Dropped before the device is disposed, so nothing can hand geometry to a dead one.
+            _moment.Upload = null;
 
             _device?.Dispose();
             _device = null;
