@@ -529,18 +529,44 @@ public sealed class EntityModelSet
     /// Keeping it out of the pose path is what leaves one array per entity with nothing to choose
     /// wrongly between.
     /// </remarks>
-    private static float[][] Skinning(IReadOnlyList<StudioBone> bones, BoneAccessor accessor)
+    private float[][] Skinning(int entity, IReadOnlyList<StudioBone> bones, BoneAccessor accessor)
     {
-        float[][] skinning = new float[accessor.Count][];
+        // **Reused per entity, because this ran once per bone per drawn prop per FRAME.** At around
+        // 250 props of eighty bones that is twenty thousand twelve-float arrays every frame, and
+        // the allocating overload was being called for every one of them.
+        //
+        // Measured 2026-08-25: gen0 was collecting 34 times a second. The first attempt at this
+        // fixed FromQuaternion and the O(n²) override scan and bought about 20 ms of the 545 —
+        // because THIS was the cost, and it was left alone. A plausible fix to the wrong line reads
+        // exactly like a fix that did not help.
+        //
+        // Safe to reuse because an instance list is consumed within the frame that built it, and
+        // the viewmodel's entities carry their own indices (4096-4098) so they cannot collide with
+        // a world entity's buffer.
+        if (!_skinning.TryGetValue(entity, out float[][]? buffer) ||
+            buffer.Length != accessor.Count)
+        {
+            buffer = new float[accessor.Count][];
+
+            for (int bone = 0; bone < buffer.Length; bone++)
+            {
+                buffer[bone] = new float[12];
+            }
+
+            _skinning[entity] = buffer;
+        }
 
         for (int bone = 0; bone < accessor.Count; bone++)
         {
-            skinning[bone] = StudioBones.Concatenate(
-                accessor.Bone(bone), bones[bone].PoseToBone.Span);
+            StudioBones.Concatenate(
+                accessor.Bone(bone), bones[bone].PoseToBone.Span, buffer[bone]);
         }
 
-        return skinning;
+        return buffer;
     }
+
+    /// <summary>Each entity's skinning matrices, reused between frames.</summary>
+    private readonly Dictionary<int, float[][]> _skinning = [];
 
     /// <summary>Measures a skinned model with its pose applied on the processor.</summary>
     private void ReportPosedExtents(
@@ -1098,7 +1124,7 @@ public sealed class EntityModelSet
                     continue;
                 }
 
-                bones = Skinning(skinned.Bones, animating.Bones);
+                bones = Skinning(prop.EntityIndex, skinned.Bones, animating.Bones);
 
                 // **The bones are already in world space**, so the model matrix must not place the
                 // model a second time (finding 35 section 7a). This is where the merged item's

@@ -43,12 +43,20 @@ public sealed class SkeletonPose : IBonePose
         _bones = bones;
         _animation = animation;
         _local = new float[bones.Count][];
+        _overrideOf = new int[bones.Count];
 
         for (int bone = 0; bone < bones.Count; bone++)
         {
             _local[bone] = new float[12];
         }
     }
+
+    /// <summary>Which entry of the animation overrides each bone, or −1.</summary>
+    /// <remarks>
+    /// Allocated once per entity and refilled per build, per D87: the size is known when the model
+    /// is, and a frame has a deadline that RAM does not.
+    /// </remarks>
+    private readonly int[] _overrideOf;
 
     /// <summary>Which sequence this entity is playing.</summary>
     /// <remarks>
@@ -137,15 +145,24 @@ public sealed class SkeletonPose : IBonePose
 
         IReadOnlyList<StudioBonePose> animated = _animation(Sequence, Frame, PoseValues);
 
-        // A sparse override list, indexed once rather than searched per bone: an animation naming
-        // one elbow would otherwise cost a scan of the whole list for every bone in the skeleton.
-        Span<bool> overridden = _bones.Count <= 256 ? stackalloc bool[_bones.Count] : new bool[_bones.Count];
+        // **Indexed once, not searched per bone — and the first version of this did the latter.**
+        // It set a `bool` here and then scanned `animated` again INSIDE the per-bone loop, which is
+        // O(bones × animated): about 6,400 iterations for an eighty-bone player, times every
+        // animated entity, every frame. Measured 2026-08-25: bone posing had gone from ~220 ms of
+        // every second to ~400 while lighting IMPROVED, and this was most of it.
+        //
+        // The arrangement it replaced (StudioBones.Posed) applied overrides by index and was O(n).
+        // Losing that was a silent cost — the pose is identical either way, so nothing but a
+        // stopwatch could see it.
+        Array.Fill(_overrideOf, -1);
 
-        foreach (StudioBonePose moved in animated)
+        for (int entry = 0; entry < animated.Count; entry++)
         {
-            if (moved.Bone >= 0 && moved.Bone < _bones.Count)
+            int bone = animated[entry].Bone;
+
+            if (bone >= 0 && bone < _bones.Count)
             {
-                overridden[moved.Bone] = true;
+                _overrideOf[bone] = entry;
             }
         }
 
@@ -161,20 +178,17 @@ public sealed class SkeletonPose : IBonePose
             (float X, float Y, float Z, float W) rotation = rest.Rotation;
             (float X, float Y, float Z) position = rest.Position;
 
-            if (overridden[bone])
+            if (_overrideOf[bone] is var entry && entry >= 0)
             {
-                foreach (StudioBonePose moved in animated)
-                {
-                    if (moved.Bone == bone)
-                    {
-                        rotation = moved.Rotation;
-                        position = moved.Position;
-                        break;
-                    }
-                }
+                StudioBonePose moved = animated[entry];
+
+                rotation = moved.Rotation;
+                position = moved.Position;
             }
 
-            StudioBones.FromQuaternion(rotation, position).CopyTo(_local[bone], 0);
+            // Written in place. The allocating overload returns a fresh twelve floats per bone per
+            // entity per frame, which measured as 34 gen0 collections a second.
+            StudioBones.FromQuaternion(rotation, position, _local[bone]);
 
             float[] destination = into.BoneForWrite(bone);
 

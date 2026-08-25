@@ -220,7 +220,16 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 # the class's arms — because drawing both is how one weapon becomes two on screen. The path
 # comparison has its own test: the two names come from different places and disagree on slashes, and
 # getting it wrong does not throw, it draws the wrong number of models.
-run Tf2DemoSalvage.Scene.Tests    scene      34
+#
+# **Lowered 645 -> 625 on the viewer and raised 34 -> 54 here in the same commit, and the
+# arithmetic is the justification**: exactly twenty moved, nothing was deleted. EntityModelsTests,
+# SyntheticSkinnedModel and PlayerAnimationFallbackTests all test Tf2DemoSalvage.Scene types and
+# reference no device, no form and nothing from Windows — measured, zero hits for Device3D,
+# MainForm, System.Windows.Forms or Silk across all three.
+#
+# This is the rule B184 records, applied: a piece's test moves in the same commit as the piece, or
+# the Windows pin is recreated one file at a time. That is how it reached 115 of 119.
+run Tf2DemoSalvage.Scene.Tests    scene      54
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -479,7 +488,9 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     109
 #   Shortcuts_EveryMenuItem_…                  no key claimed twice. Third instance in one file
 #                                              after B165's F11: F12 was dead, and F8 was claimed
 #                                              by both the frame rate and reflections.
-run Tf2DemoSalvage.Viewer3D.Tests viewer    645
+# Lowered 645 -> 625: twenty tests moved to Scene.Tests with their subjects, which is the +20 there.
+# Nothing was deleted, and the two numbers are checked against each other rather than separately.
+run Tf2DemoSalvage.Viewer3D.Tests viewer    625
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."

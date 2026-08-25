@@ -3,7 +3,7 @@ using System.Linq;
 
 using Tf2DemoSalvage.Content.Assets;
 
-namespace Tf2DemoSalvage.Viewer3D.Tests;
+namespace Tf2DemoSalvage.Scene.Tests;
 
 /// <summary>
 /// A skinned model whose sequences are chosen by the test rather than read from the game.

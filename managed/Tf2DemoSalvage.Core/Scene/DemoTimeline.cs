@@ -388,6 +388,46 @@ public sealed class DemoTimeline
         }
     }
 
+    /// <summary>Every distinct sound this recording will ever play.</summary>
+    /// <returns>Sound names, without duplicates and in no particular order.</returns>
+    /// <remarks>
+    /// **The sibling of <see cref="ModelPaths"/>, and for the same reason** (D87, B163). Valve does
+    /// not merely prefer to load audio at level load — <c>CBaseEntity::PrecacheSound</c> refuses to
+    /// do it later: <c>SoundEmitterSystem.cpp:1497</c> is
+    /// <c>if ( !CBaseEntity::IsPrecacheAllowed() )</c> followed by
+    /// <c>Assert( !"CBaseEntity::PrecacheSound:  too late" )</c>. Decoding on first play is the same
+    /// departure D86 caught for models, sitting behind the same guard.
+    ///
+    /// **Measured 2026-08-25, and it is what the owner had been hearing.** Of eleven slow frames in
+    /// one run, six were dominated by the sound step at 27-91 ms while posing and drawing sat at
+    /// 1.7-2.6 ms. Only ONE decode logged a stall, because the per-decode threshold is 30 ms and a
+    /// frame that starts three sounds pays three decodes that each fall under it — which is why an
+    /// instrument watching single decodes reported almost nothing while the frames were visibly
+    /// freezing.
+    ///
+    /// **Names, not paths, because the name is what the schedule replays.** A name may be a script
+    /// rather than a file — see <c>SoundScript</c> — and resolving it is the caller's job, exactly
+    /// as it is when the sound is played.
+    ///
+    /// A stop carries a name but plays nothing, so decoding it would read a file to throw it away.
+    /// </remarks>
+    /// <remarks>
+    /// Not <c>SoundNames</c>, which is the <c>soundprecache</c> string table READER
+    /// (<c>Core/Net/SoundNames.cs</c>) and is used by name inside this very class.
+    /// </remarks>
+    public IEnumerable<string> SoundsToPrecache()
+    {
+        HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (SceneSound sound in _sounds)
+        {
+            if (!sound.IsStop && sound.Name is { Length: > 0 } && seen.Add(sound.Name))
+            {
+                yield return sound.Name;
+            }
+        }
+    }
+
     /// <summary>Every recorded moment, in tick order.</summary>
     public IReadOnlyList<TimelineFrame> Frames => _frames;
 
@@ -664,6 +704,11 @@ public sealed class DemoTimeline
     /// question. Nothing outside the tests should be assembling tracks by hand.
     /// </remarks>
     internal static DemoTimeline ForTracks(List<ScenePropTrack> tracks) => new([], tracks);
+
+    /// <summary>A timeline carrying nothing but these sounds, for testing the precache list.</summary>
+    internal static DemoTimeline ForSounds(List<SceneSound> sounds) =>
+        new([], props: null, playerTracks: null, recordedViews: null, viewmodels: null,
+            fog: null, sounds: sounds);
 
     /// <summary>Walks a demo and records where everyone was.</summary>
     /// <param name="file">The whole demo file, header included.</param>

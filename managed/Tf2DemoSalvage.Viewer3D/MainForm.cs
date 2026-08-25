@@ -4189,6 +4189,10 @@ internal class MainForm : Form
                     // barrier that already holds the render loop off during a map read (B146).
                     PrecacheModels(decoded.Timeline);
 
+                    // Same timing, same reason, and the audio path is where the cost actually
+                    // landed once the model stalls were gone.
+                    PrecacheSounds(decoded.Timeline);
+
                     return found;
                 }).ConfigureAwait(false);
             }
@@ -4431,6 +4435,10 @@ internal class MainForm : Form
         // decoded into `_assets.EntityModels`. Called earlier it would find nothing, mark every path
         // as seen, and models would never load at all.
         PrecacheModels(_timeline);
+
+        // Cheap to call twice for the same reason models are: `Sample` returns the cached decode,
+        // so on the async path this finds the work already done.
+        PrecacheSounds(_timeline);
 
         _status.Text = _mapProblem
             ?? (_demo.Describe() + (haveMap ? string.Empty : "  (map not found)"));
@@ -5585,6 +5593,85 @@ internal class MainForm : Form
         }
     }
 
+    /// <summary>Decodes every sound the demo will play, before playback starts.</summary>
+    /// <param name="timeline">The decoded timeline, or null when the demo carried none.</param>
+    /// <remarks>
+    /// **The engine's own timing, and here it is a refusal rather than a preference** (D86, D87).
+    /// `CBaseEntity::PrecacheSound` opens with `if ( !CBaseEntity::IsPrecacheAllowed() )` and then
+    /// `Assert( !"CBaseEntity::PrecacheSound:  too late" )` — `SoundEmitterSystem.cpp:1497`. Loading
+    /// a sound during play is something Source treats as a programming error, and it passes
+    /// `bPreload: true` to `enginesound->PrecacheSound` at `:1507`.
+    ///
+    /// **This is B163's model stall, in the audio path, and it was found the same way.** Of eleven
+    /// slow frames on cp_process, six were dominated by the sound step at 27-91 ms while posing and
+    /// drawing sat at 1.7-2.6 ms. Only one decode logged a stall of its own, because the per-decode
+    /// threshold is 30 ms and a frame that starts three sounds pays three decodes that each fall
+    /// under it — an instrument watching single decodes therefore reported almost nothing while the
+    /// frames were visibly freezing. `Sample` already carried a comment naming the cost exactly:
+    /// "a 'once per sound' cost wearing the clothes of a cache".
+    ///
+    /// **Runs on the map-read worker on the async path**, where `_readingMap` holds the render loop
+    /// off (B146) — so nothing else touches `_soundCache` while this fills it.
+    ///
+    /// A failure costs the precache and nothing else: anything missed is decoded on first play
+    /// exactly as before, which is slower rather than broken.
+    /// </remarks>
+    private void PrecacheSounds(DemoTimeline? timeline)
+    {
+        if (timeline is null || _archives is null)
+        {
+            return;
+        }
+
+        try
+        {
+            long decodedAt = Stopwatch.GetTimestamp();
+            int named = 0;
+            int decoded = 0;
+
+            // **Suppresses the per-decode stall warning, which would otherwise assert something
+            // false.** Its text is "this frame is a freeze", and during a precache there is no
+            // frame — every decode here is deliberately outside one.
+            _precaching = true;
+
+            try
+            {
+                foreach (string name in timeline.SoundsToPrecache())
+                {
+                    named++;
+
+                    if (Sample(name) is not null)
+                    {
+                        decoded++;
+                    }
+                }
+            }
+            finally
+            {
+                _precaching = false;
+            }
+
+            double seconds = (Stopwatch.GetTimestamp() - decodedAt) / (double)Stopwatch.Frequency;
+
+            // **Both numbers, because they answer different questions.** The gap between them is
+            // how many sounds the install could not supply, which is the difference between "the
+            // precache worked" and "the precache found nothing to do".
+            _audioLog.LogInformation(
+                "{Message}",
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"precached {decoded} of {named} sounds in {seconds * 1000d:0} ms"));
+        }
+        catch (Exception failure) when (
+            failure is InvalidDataException or ArgumentException or KeyNotFoundException)
+        {
+            _audioLog.LogWarning(failure, "precaching sounds");
+        }
+    }
+
+    /// <summary>Whether a precache is filling the sound cache, so no decode is inside a frame.</summary>
+    private bool _precaching;
+
     /// <summary>Builds this frame's HUD: the frame rate meter, when it is switched on.</summary>
     /// <returns>Quads in screen pixels, empty when there is no HUD to draw.</returns>
     /// <remarks>
@@ -6270,7 +6357,7 @@ internal class MainForm : Form
 
         double readSeconds = (Stopwatch.GetTimestamp() - readAt) / (double)Stopwatch.Frequency;
 
-        if (readSeconds > StallSeconds)
+        if (readSeconds > StallSeconds && !_precaching)
         {
             _audioLog.LogWarning(
                 "{Message}",

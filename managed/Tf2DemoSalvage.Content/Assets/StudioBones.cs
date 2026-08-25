@@ -519,14 +519,44 @@ public static class StudioBones
     public static float[] FromQuaternion(
         (float X, float Y, float Z, float W) rotation, (float X, float Y, float Z) position)
     {
+        float[] matrix = new float[12];
+
+        FromQuaternion(rotation, position, matrix);
+
+        return matrix;
+    }
+
+    /// <summary>A quaternion and a position as a 3×4, written into an existing array.</summary>
+    /// <param name="rotation">The bone's rotation.</param>
+    /// <param name="position">Where it sits relative to its parent.</param>
+    /// <param name="matrix">Where the twelve floats go.</param>
+    /// <remarks>
+    /// **The allocation-free form, for the per-frame path.** The bone pipeline calls this once per
+    /// bone per entity per frame — a player is around eighty bones and a match has two dozen
+    /// players — so returning a fresh array each time is megabytes a second through the collector.
+    /// Measured 2026-08-25: 34 gen0 collections a second with the allocating form.
+    /// </remarks>
+    public static void FromQuaternion(
+        (float X, float Y, float Z, float W) rotation,
+        (float X, float Y, float Z) position,
+        Span<float> matrix)
+    {
         float x = rotation.X, y = rotation.Y, z = rotation.Z, w = rotation.W;
 
-        return
-        [
-            1f - (2f * ((y * y) + (z * z))), 2f * ((x * y) - (z * w)), 2f * ((x * z) + (y * w)), position.X,
-            2f * ((x * y) + (z * w)), 1f - (2f * ((x * x) + (z * z))), 2f * ((y * z) - (x * w)), position.Y,
-            2f * ((x * z) - (y * w)), 2f * ((y * z) + (x * w)), 1f - (2f * ((x * x) + (y * y))), position.Z,
-        ];
+        matrix[0] = 1f - (2f * ((y * y) + (z * z)));
+        matrix[1] = 2f * ((x * y) - (z * w));
+        matrix[2] = 2f * ((x * z) + (y * w));
+        matrix[3] = position.X;
+
+        matrix[4] = 2f * ((x * y) + (z * w));
+        matrix[5] = 1f - (2f * ((x * x) + (z * z)));
+        matrix[6] = 2f * ((y * z) - (x * w));
+        matrix[7] = position.Y;
+
+        matrix[8] = 2f * ((x * z) - (y * w));
+        matrix[9] = 2f * ((y * z) + (x * w));
+        matrix[10] = 1f - (2f * ((x * x) + (y * y)));
+        matrix[11] = position.Z;
     }
 
     /// <summary>One 3×4 transform applied after another.</summary>
