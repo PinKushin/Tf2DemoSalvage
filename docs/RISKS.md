@@ -10334,6 +10334,38 @@ takes the system mutex for a listener that usually is not there.
 Not measured separately yet; the remaining 44 ms moment carried `setup 35.5`, which is `SetupBones`
 and unrelated.
 
+### B193 — Nothing catches the view failing to hand the scene its weapon roles — OPEN
+
+**Found by nearly shipping it.** Moving `ShowMoment` out of `MainForm` dropped the
+`EnsureWeaponRoles()` call, and only an analyzer noticing the method had become unreachable caught
+it. Nothing else would have.
+
+**Measured, not assumed.** With the wiring deliberately broken —
+`_moment.Appearance = new GameAppearance(_classModels, null)` — the viewer suite reported
+**Passed: 566, Skipped: 54, Total: 620**. All green, on a defect that gives every player the wrong
+weapon animation.
+
+**Why it is invisible:** the chain is `EnsureWeaponRoles` → `GameAppearance` captures the roles →
+`WeaponSuffix` → `prop.Pose.Slot` (`PlayerProps.cs:154`). Break any link and every suffix answers
+null, the animation silently falls back to the generic primary form, and nothing throws.
+
+**What now covers what:**
+
+| failure | caught by |
+|---|---|
+| the mechanism — a suffix not reaching `Pose.Slot` | `MomentSceneTests`, three cases |
+| the wiring — `MainForm` not handing the roles over | **nothing** |
+| the wiring, at runtime | a `no player appearance` warning, added with the move |
+
+**Deliberately not fixed with a Viewer3D test, and the reason is the refactor itself.** A test there
+would need an STA, a device and a real TF2 install to read the weapon scripts — so it would skip on
+any machine without one, and a skip is not a pass. It would also be thrown away: the owner's plan is
+that `Viewer3D` gets the same treatment `MainForm` is getting, and its tests move with it.
+
+**The gap closes as a side effect of finishing that work.** Once the wiring lives outside
+`Viewer3D`, asserting it needs neither a window nor an install. Until then the warning is the
+instrument, and it fires once rather than per frame.
+
 ### B192 — A scene rebuild still spikes to ~120 ms, and the fat column is still the subtracted one — OPEN
 
 **After B191 was fixed**, the recurring stall is gone from the frame rate — but three to five moments

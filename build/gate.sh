@@ -80,6 +80,22 @@ run() {
 
 rm -f /tmp/gate-*.log
 
+# **Leave nothing running, and clean up on FAILURE too — hence the trap rather than a last line.**
+# MSBuild's node reuse and the Roslyn `VBCSCompiler` both outlive the build that spawned them, on
+# purpose, so eleven `dotnet test` invocations leave a pile behind: measured 2026-08-25 after one
+# gate run, eight MSBuild nodes at ~110 MB each plus a VBCSCompiler holding 502 MB and 547 seconds
+# of CPU — about 1.4 GB still resident with the gate long finished.
+#
+# **Shut down rather than disabled.** `MSBUILDDISABLENODEREUSE=1` would prevent them existing at
+# all, but node reuse is worth having ACROSS the eleven projects while the gate runs; the defect is
+# only that they persist afterwards. Measured cost of the leftovers on the run itself was small —
+# the viewer stage went 2m18s standalone to 2m30s here — so the reason to do this is the memory,
+# not the seconds.
+#
+# `dotnet build-server shutdown` rather than pkill: CLAUDE.md's gotcha 10 is that `pkill -f` matches
+# the shell running it, and this script's own command line contains every pattern worth matching.
+trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
+
 # **The floors are the CURRENT counts, not a comfortable distance below them.**
 #
 # A floor exists to catch a run that reported success while executing a fraction of the suite —
@@ -237,7 +253,12 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 # 97: DecodedDemoTests (7), out of MainForm.Decode. Two of them need a demo that carries no schema
 # and one that carries a corrupt one — inputs no real file contains, so they are authored through
 # DemoWriter rather than taken from the corpus.
-run Tf2DemoSalvage.Scene.Tests    scene      97
+# 115: MomentSceneTests (18), out of MainForm.ShowMoment and the four members it drove. Three of
+# them exist because of a regression this move nearly shipped: dropping the EnsureWeaponRoles call
+# leaves every weapon suffix null and the animation falls back silently, and the viewer suite passes
+# 620/620 against it (B193). The tests read `Pose.Slot` out the far end, which is the only place the
+# difference shows.
+run Tf2DemoSalvage.Scene.Tests    scene     115
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

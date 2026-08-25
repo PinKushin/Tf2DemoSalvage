@@ -205,11 +205,8 @@ internal class MainForm : Form
     /// </remarks>
     private WeaponRoles? _weaponRoles;
 
-    /// <summary>Players turned into drawable models, rebuilt each frame.</summary>
-    /// <remarks>
-    /// Kept as a field so the per-frame allocation happens once rather than per tick.
-    /// </remarks>
-    private readonly List<SceneProp> _drawn = [];
+    // `_drawn` moved with the rebuild that fills it (B188, D90). It is `MomentScene.Drawn`, still a
+    // field there so the per-frame allocation happens once rather than per tick.
 
     /// <summary>The loaded map's surfaces, kept so the world can be rebuilt on resize.</summary>
     private IReadOnlyList<BspSurface> _surfaceList = [];
@@ -266,16 +263,10 @@ internal class MainForm : Form
 
     private readonly ILogger _configLog;
 
-    /// <summary>Which followed entity the first-person keep-list was last reported for.</summary>
-    private int? _lastFirstPersonReport;
-
-    /// <summary>What light the map casts, which the models and the asset loader both ask.</summary>
-    /// <remarks>
-    /// **The engine's <c>ComputeLighting</c>, behind an interface** (<c>cdll_int.h:392</c>). The
-    /// ambient samples, the world lights and the sun were three fields here, read by nothing but the
-    /// two methods that have moved onto this type (B188, D90).
-    /// </remarks>
-    private LevelLighting _lighting;
+    // What light the map casts is `LevelLighting`, the engine's `ComputeLighting` behind an
+    // interface (`cdll_int.h:392`). It stopped being a field here on 2026-08-25: the scene owns the
+    // one the models ask, and the asset loader takes it as a local while the map is being read. The
+    // ambient samples, the world lights and the sun were three fields before that (B188, D90).
 
     /// <summary>How high and how low the loaded map goes, once it has been read.</summary>
     private (float Lowest, float Highest)? _heightRange;
@@ -291,10 +282,14 @@ internal class MainForm : Form
     // Constructed in the constructor rather than inline, so it gets the form's loggers (D83).
     private readonly EntityModelSet _models;
 
-    private readonly List<ModelInstance> _instances = [];
-
-    /// <summary>Last reported instance count, so the log records changes rather than frames.</summary>
-    private int _lastInstanceCount = -1;
+    /// <summary>Assembles what one moment draws: the draw list, the packing, the poses.</summary>
+    /// <remarks>
+    /// **`ShowMoment` and the four members it drove** (B188, D90). It is told the tick, the camera
+    /// and the followed entity through <see cref="MomentInfo"/> — <c>SetupRenderInfo_t</c>'s
+    /// arrangement (<c>clientleafsystem.h:75</c>) — rather than reaching back here for them, and the
+    /// one thing it needed a window for is <see cref="IModelUpload"/>.
+    /// </remarks>
+    private readonly MomentScene _moment;
 
     /// <summary>Turns real time into demo ticks at the rate the recording server ran.</summary>
     private PlaybackClock? _clock;
@@ -733,7 +728,10 @@ internal class MainForm : Form
         // **A real source that answers unlit, rather than a null field checked at every call.** The
         // asset loader and the model set both take it as a delegate, and a null there is the shape
         // that hid a missed wiring across 193 call sites once already (D83).
-        _lighting = LevelLighting.Unlit(_renderLog);
+        _moment = new MomentScene(_models, _viewmodelScene, _renderLog)
+        {
+            Lighting = LevelLighting.Unlit(_renderLog),
+        };
 
         // **A capture flag, because the alternative was asking a person to press F12.** Several
         // rendering defects this session were found by the owner photographing their own screen and
@@ -1534,12 +1532,9 @@ internal class MainForm : Form
         return ReadMapNamed(mapName);
     }
 
-    /// <summary>Whether the packed model geometry is on the device right now.</summary>
-    /// <remarks>
-    /// **Not the same question as "has the set grown", and conflating them was B148.** The packed
-    /// set outlives a map; the buffer it was uploaded into does not.
-    /// </remarks>
-    private bool _modelsUploaded;
+    // `_modelsUploaded` was here until 2026-08-25. It is `MomentScene.Uploaded` now, beside the
+    // packing it guards (B188, D90) — and the question it answers is unchanged: "is the packed
+    // geometry on the device right now", which is NOT "has the set grown". Conflating them was B148.
 
     /// <summary>Whether a map is being read on another thread right now.</summary>
     /// <remarks>
@@ -1578,7 +1573,7 @@ internal class MainForm : Form
         // disposes the `WorldRenderer`, and `_modelVertices` is one of its fields — so the packed
         // set that is still in memory has nowhere on the device to live until it is uploaded again
         // (B148).
-        _modelsUploaded = false;
+        _moment.Uploaded = false;
 
         _device?.ClearWorld();
     }
@@ -1779,7 +1774,12 @@ internal class MainForm : Form
                 // **Handed the level, the same way the soundscape system is** — each system
                 // initialises itself from the map rather than the window unpacking lumps into
                 // fields for it (`IGameSystem::LevelInitPreEntity`, `igamesystem.h:39`).
-                _lighting = LevelLighting.From(level, _renderLog);
+                // **Handed to the scene, the same way the soundscape system is handed the level.**
+                // Each system initialises itself from the map rather than the window keeping a copy
+                // for it (`IGameSystem::LevelInitPreEntity`, `igamesystem.h:39`).
+                LevelLighting lighting = LevelLighting.From(level, _renderLog);
+
+                _moment.Lighting = lighting;
 
                 using (_assetLog.Time("reading textures"))
                 {
@@ -1827,7 +1827,7 @@ internal class MainForm : Form
                         // (B123). Usable here because the level was read a few lines above, before
                         // any asset is loaded — the ordering is what makes this a delegate rather
                         // than a second pass.
-                        _lighting.ComputeLighting,
+                        lighting.ComputeLighting,
 
                         // **Passed explicitly, and forgetting it is silent (D83).** The parameter
                         // defaults to a null logger so tests need not supply one — which means an
@@ -2237,6 +2237,13 @@ internal class MainForm : Form
         }
 
         _weaponRoles = WeaponRoles.Read(archives.Read, held);
+
+        // **Handed on the moment they exist, because `GameAppearance` captures them.** It is a
+        // record built from the two values, so a scene holding one made before the roles were read
+        // keeps answering null for every weapon suffix — which does not fail, it silently falls back
+        // to the primary forms and draws the wrong animation. Rebuilt HERE rather than per frame,
+        // since this method populates the roles exactly once.
+        _moment.Appearance = new GameAppearance(_classModels, _weaponRoles);
 
         _demoLog.LogInformation(
             "{Message}",
@@ -2794,146 +2801,19 @@ internal class MainForm : Form
         return true;
     }
 
-    /// <summary>Puts the followed player's weapon in front of the camera.</summary>
-    /// <param name="seconds">Demo time, for advancing the weapon's own animation.</param>
-    /// <remarks>
-    /// **A viewmodel has no position of its own, so this is where it gets one.** Its table is
-    /// declared <c>BEGIN_NETWORK_TABLE_NOBASE</c> and carries no origin and no angles at all — the
-    /// demo names the model and the pose, and <c>CBaseViewModel::CalcViewModelView</c> starts it at
-    /// the eye:
-    ///
-    /// <code>
-    /// QAngle vmangles = eyeAngles;
-    /// Vector vmorigin = eyePosition;
-    /// </code>
-    ///
-    /// **The bob, the lag and the shake that follow in the engine are deliberately not copied.**
-    /// Every one of them is a function of movement and elapsed time rather than of anything the
-    /// recording holds, so reproducing them would be this viewer inventing motion — which is the
-    /// one thing it exists not to do. What is drawn is where the weapon was; how it swayed is not
-    /// in the file.
-    ///
-    /// Mirrored, because a viewmodel is drawn mirrored and the cull flips with it. Getting that
-    /// wrong does not fail, it draws the weapon inside out.
-    /// </remarks>
-    /// <summary>Poses whatever the first-person view shows at this moment.</summary>
-    /// <remarks>
-    /// **This was 319 lines and is now a guard, a call and the drawing** (B188). What it decides —
-    /// which models the view contains, under which of the engine's two exclusive schemes — moved to
-    /// <see cref="ViewmodelScene"/> in the scene layer, where it can be tested without a window.
-    /// It could not be before: reaching it meant constructing a MainForm, which needs the STA, a
-    /// Direct3D device and the desktop lock, and three open bugs against this path (B170, B186,
-    /// B187) had no regression test between them.
-    ///
-    /// What stays here is what genuinely needs the form: which entity the camera follows, where
-    /// that camera is, packing geometry onto the device, and the camera the pass draws with.
-    /// </remarks>
-    private void AddViewmodel(double seconds)
-    {
-        if (!_firstPerson ||
-            _timeline is not { } timeline ||
-            FollowedEntity() is not { } follower ||
-            FirstPersonCamera() is not { } camera)
-        {
-            // **Dropping the camera is how "draw none" is said.** The instance list is owned by the
-            // pose step and survives paused frames on purpose, so leaving it populated while first
-            // person is off would keep a weapon on screen after V was pressed.
-            _viewmodelCamera = null;
-            return;
-        }
+    // The prose about WHY a viewmodel is placed at the eye — `CBaseViewModel::CalcViewModelView`,
+    // and why the bob, lag and shake are deliberately not copied — moved with the code that acts on
+    // it, onto `MomentScene.AddViewmodel` (B188, D90). It was orphaned here the moment the placement
+    // left, and commentary that outlives its code is how a comment starts describing something that
+    // is no longer true.
 
-        string? hands = PlayerAt(_transport.CurrentTick, follower) is { PlayerClass: { } playerClass }
-            ? _classModels?.Hands(playerClass)
-            : null;
-
-        ViewmodelSceneResult scene = _viewmodelScene.Build(
-            new TimelineViewmodels(timeline),
-            _transport.CurrentTick,
-            follower,
-            new ViewmodelPlacement(
-                camera.Origin.X,
-                camera.Origin.Y,
-                camera.Origin.Z,
-                camera.Angles.Pitch,
-                camera.Angles.Yaw,
-                camera.Angles.Roll),
-            hands,
-            WeaponModelFor(follower));
-
-        bool changed = scene.Changed;
-
-        if (scene.Props.Count == 0)
-        {
-            _renderLog.LogWarning(
-                "{Message}",
-                $"no viewmodel for entity {follower} at tick {_transport.CurrentTick}");
-
-            _viewmodelCamera = null;
-            return;
-        }
-
-        // **Whether the set grew, because packing is not uploading.** `Add` fills this process's
-        // copy of the geometry; the renderer keeps its own on the GPU and only receives it when
-        // `UploadModels` is called. The viewmodel's Add was once ignoring that signal, so the arms
-        // were packed, posed, instanced, transformed correctly and submitted against geometry the
-        // renderer did not have.
-        if (_models.Add(scene.Props) && _device is { } packed)
-        {
-            packed.UploadModels(_models);
-
-            _renderLog.LogDebug(
-                "{Message}",
-                $"viewmodel models uploaded: {_models.Count} packed, " +
-                $"{_models.Vertices.Count} vertices");
-        }
-
-        // **Names each prop, because the count says two and cannot say two of WHAT.** The merged
-        // arms model already carries a weapon part — c_soldier_arms pairs as hands, sleeves and
-        // w_rocketlauncher — so a second prop naming the same geometry draws the gun twice, which
-        // is what "2 sticky launchers overlapping" looks like.
-        if (changed)
-        {
-            foreach (SceneProp shown in scene.Props)
-            {
-                _renderLog.LogDebug(
-                    "{Message}",
-                    $"  viewmodel prop '{shown.ModelPath}' seq {shown.Pose.Sequence}");
-            }
-        }
-
-        // **One call for all of them, because Instances CLEARS the list it is given.** Posing the
-        // arms and then the weapon into the same list threw the arms away and drew the gun alone.
-        _models.Instances(
-            scene.Props,
-            _viewmodelInstances,
-            _lighting.ComputeLighting,
-            _lighting.SunAt,
-            seconds);
-
-        if (changed)
-        {
-            _renderLog.LogDebug(
-                "{Message}",
-                $"viewmodel at tick {_transport.CurrentTick}: {scene.Props.Count} props, " +
-                $"{_viewmodelInstances.Count} instances");
-        }
-
-        _viewmodelCamera = new FreeCamera
-        {
-            Origin = camera.Origin,
-            Angles = camera.Angles,
-            Aspect = camera.Aspect,
-            FarZ = camera.FarZ,
-            FieldOfView = _settings.ViewmodelFieldOfView,
-            NearZ = ViewmodelPass.NearPlane,
-        };
-    }
-
-    /// <summary>Decides what the first-person view contains; the form supplies where and whose.</summary>
+    /// <summary>Decides what the first-person view contains; the scene supplies where and whose.</summary>
+    /// <remarks>Constructed here and handed to <see cref="MomentScene"/>, which drives it.</remarks>
     private readonly ViewmodelScene _viewmodelScene = new();
 
-    /// <summary>The camera the viewmodel pass uses, or null when nothing is drawn in it.</summary>
-    private FreeCamera? _viewmodelCamera;
+    // `_viewmodelCamera` went with `AddViewmodel` on 2026-08-25 (B188, D90). It is
+    // `MomentScene.ViewmodelCamera`, set by the pass that decides whether anything is drawn in it at
+    // all — which is what makes "null means draw none" one fact rather than two that can disagree.
 
     /// <summary>The model of the weapon in a player's hands, or <c>null</c>.</summary>
     /// <param name="player">The player being followed.</param>
@@ -3023,8 +2903,8 @@ internal class MainForm : Form
     private bool _itemSchemaMissing;
 
 
-    /// <summary>Scratch list for the viewmodel's instances, reused between frames.</summary>
-    private readonly List<ModelInstance> _viewmodelInstances = [];
+    // The viewmodel's instance list moved with the pass that fills it (B188, D90). It is
+    // `MomentScene.ViewmodelInstances`, still reused between frames rather than allocated.
 
     // The three viewmodel entity indices moved to ViewmodelScene on 2026-08-24 (B188), with the
     // code that uses them. They are this project's own numbering rather than anything the engine
@@ -3341,275 +3221,54 @@ internal class MainForm : Form
             return;
         }
 
-        // **A ledger over ShowMoment, because the frame ledger's `advance` bucket is all of it.**
-        // `AdvancePlayback` raises `MomentChanged`, which lands here — so a 180 ms `advance` says
-        // only "somewhere in the scene rebuild", across sampling, weapon roles, model reads, the
-        // upload, posing, the weapon report and ShowPlayers. Four of those seven were never timed.
-        //
-        // Same shape as the frame ledger and for the same reason (B163): phases with a residual,
-        // rather than a threshold on one event. The residual is the column that matters.
-        long momentAt = Stopwatch.GetTimestamp();
-
-        long sampledAt = Stopwatch.GetTimestamp();
-
+        // **The sampling stays with whoever holds the timeline; everything after it does not.** The
+        // scene rebuild is TOLD the tick, the camera and the followed entity through `MomentInfo`,
+        // which is `SetupRenderInfo_t`'s arrangement (`clientleafsystem.h:75`) rather than reaching
+        // back into a window for them (B188, D90).
         timeline.PlayersAt(tick, _players);
         timeline.PropsAt(tick, _props);
 
-        _samplingTicks += Stopwatch.GetTimestamp() - sampledAt;
-
-        long momentSampledAt = Stopwatch.GetTimestamp();
-
-        // Packing is a no-op after the first sighting of each model, so this costs a dictionary
-        // lookup per entity per frame once the demo has been running for a moment.
-        // **Players become props, rather than getting a pipeline of their own.** A player is a
-        // model at a pose, which is exactly what the prop path already draws, lights and
-        // interpolates - and a second implementation would agree with the first only until one of
-        // them gained a feature. The pose comes from the timeline, so they move and turn.
-        _drawn.Clear();
-        _drawn.AddRange(_props);
-
-        // Cheap after the first call, and this is the first point where both the demo and the
-        // game's archives are certain to be open.
+        // Cheap after the first call, and this is the first point where both the demo and the game's
+        // archives are certain to be open. It hands the roles to the scene when it reads them.
         EnsureWeaponRoles();
 
-        // **Ninety lines that were never about a window** (B188, B184). Every reason a player is or
-        // is not drawn, and every field their pose carries, is scene logic — and none of it could
-        // be asserted while it lived here, because reaching it meant constructing a MainForm, which
-        // needs the STA, a device and the desktop lock.
-        //
-        // It now has nine tests in a plain net10.0 project, including the controls that matter: a
-        // spectator and a corpse must NOT appear, and a red and a blu player must take different
-        // skins — a single team cannot tell "computed from team" from "always zero".
-        PlayerProps.Add(_players, _drawn, new GameAppearance(_classModels, _weaponRoles));
+        MomentPhases phases = _moment.Build(
+            _players,
+            _props,
+            new MomentInfo(
+                tick,
+                _transport.CurrentTick,
+                _firstPerson,
+                FollowedEntity(),
+                _firstPerson ? FirstPersonCamera() : null,
+                timeline.IntervalPerTick,
+                _settings.ViewmodelFieldOfView,
+                HandsForFollowed(),
+                FollowedEntity() is { } held ? WeaponModelFor(held) : null));
 
-        // **The engine does not draw the player whose eyes you are using**, and cosmetics merge
-        // onto their wearer's bones, so the hat goes with them. Without this the first-person view
-        // is the inside of the recorder's own model and a hat hanging over the lens — which is
-        // exactly what the first capture showed. See FirstPersonVisibility.
-        if (_firstPerson && FollowedEntity() is { } looking)
-        {
-            // **Says what it is deciding about, because three fixes have now been aimed at this
-            // from a screenshot.** The question is never "is something wrong" — it is which prop is
-            // still drawn and what it claims about its owner, and no count can answer that.
-            if (_lastFirstPersonReport != looking)
-            {
-                _lastFirstPersonReport = looking;
-
-                foreach (SceneProp prop in _drawn)
-                {
-                    if (prop.EntityIndex == looking ||
-                        prop.AttachedTo == looking ||
-                        prop.OwnedBy == looking)
-                    {
-                        continue;
-                    }
-
-                    _renderLog.LogDebug(
-                        "{Message}",
-                        $"first person keeps entity {prop.EntityIndex} '{prop.ModelPath}' " +
-                        $"attachedTo={prop.AttachedTo?.ToString(CultureInfo.InvariantCulture) ?? "-"} " +
-                        $"ownedBy={prop.OwnedBy?.ToString(CultureInfo.InvariantCulture) ?? "-"} " +
-                        $"(following {looking})");
-                }
-            }
-
-            DrawList.KeepOnly(_drawn, FirstPersonVisibility.Visible(_drawn, looking));
-        }
-
-        // **Every camera, not just first person.** `C_BaseCombatWeapon::ShouldDraw` hides a
-        // player's holstered weapons from everybody — it is a property of the weapon rather than of
-        // who is looking — so this sits outside the first-person block above. A player carries
-        // three and holds one; without it all three bone-merge into the same hand.
-        DrawList.KeepOnly(_drawn, WeaponVisibility.Visible(_drawn));
-
-        // **Timed because nothing else times it, which is how it hid.** `Add` reads and decodes an
-        // MDL the first time a model path appears, and the upload below rebuilds the whole packed
-        // vertex buffer — both on the UI thread, both in one frame, and both OUTSIDE `_posingTicks`
-        // and `_drawTicks`. So a frame that spent a second here reported no time anywhere and only
-        // ever showed as the owner's "everything freezes for a half a second to maybe a second".
-        long addedAt = Stopwatch.GetTimestamp();
-
-        long momentRolesAt = addedAt;
-
-        bool grew = _models.Add(_drawn);
-
-        double addSeconds = (Stopwatch.GetTimestamp() - addedAt) / (double)Stopwatch.Frequency;
-
-        if (addSeconds > StallSeconds)
-        {
-            _renderLog.LogWarning(
-                "{Message}",
-                string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"STALL reading models took {addSeconds * 1000d:0} ms for {_drawn.Count} props " +
-                    $"({_models.Count} packed); this frame is a freeze"));
-        }
-
-        // **Valve's own pass, under Valve's own name** (B188). `UpdateClientSideAnimations` →
-        // `SimulateEntities` → `ThreadedBoneSetup` is the engine's order
-        // (`cdll_client_int.cpp:2188-2210`), and ours is the same: this, then `Instances`, which
-        // simulates and then builds bones. It has to follow `Add` because nothing on the wire
-        // carries a player's sequence and choosing one needs the model's merged sequence table.
-        _models.UpdateClientSideAnimations(_drawn);
-
-        // **`grew` alone is wrong the moment a second demo is opened (B148).** The packed set lives
-        // for the life of the form, so after a switch it already holds what the new demo needs and
-        // does not grow — but the GPU buffer it was uploaded into is gone, because `ClearWorld`
-        // disposed the whole `WorldRenderer` and a new one was built for the new map.
-        //
-        // The result was every posed model failing `_modelVertices.Handle is null` and taking the
-        // "a model was posed before any model geometry was uploaded" branch — **440,412 times in one
-        // five-minute run**, each an open, append and close of a log file that reached 37 MB. That
-        // is the whole of B148: the viewer fell from 290 frames a second to 20, and the cost sat
-        // inside the draw where the timers could see it but no counter named it.
-        //
-        // The warning was right and doing its job — "a wiring fault … looks exactly like a model
-        // that is correctly invisible". Nothing was listening.
-        if ((grew || !_modelsUploaded) && _device is { } device)
-        {
-            _modelsUploaded = true;
-
-            long uploadedAt = Stopwatch.GetTimestamp();
-
-            device.UploadModels(_models);
-
-            double uploadSeconds =
-                (Stopwatch.GetTimestamp() - uploadedAt) / (double)Stopwatch.Frequency;
-
-            if (uploadSeconds > StallSeconds)
-            {
-                // **The whole buffer is rebuilt whenever the set GROWS**, so this is not a one-off
-                // cost at load: it is paid again every time a model nobody has seen yet comes into
-                // view, and it gets more expensive as the set gets bigger.
-                _renderLog.LogWarning(
-                    "{Message}",
-                    string.Create(
-                        CultureInfo.InvariantCulture,
-                        $"STALL uploading {_models.Vertices.Count} vertices took " +
-                        $"{uploadSeconds * 1000d:0} ms because the model set grew to {_models.Count}"));
-            }
-
-            // **Logged because a model that draws nothing looks exactly like one that was never
-            // uploaded.** The counts separate the two: no vertices means the packing failed, and
-            // vertices with no instances means the posing did.
-            _renderLog.LogDebug(
-                "{Message}",
-                $"entity models: {_models.Count} packed, {_models.Vertices.Count} vertices");
-
-            // **Named, not counted.** A count says how many arrived and nothing about which are
-            // missing, and "the health packs are not drawing" is a question about names.
-            foreach (string path in _models.Paths)
-            {
-                string indices = string.Join(
-                    ", ",
-                    _models.Batches(path).Select(batch => $"{batch.MaterialIndex}x{batch.VertexCount}"));
-
-                _renderLog.LogDebug(
-                    "{Message}",
-                    $"  packed {path}: {indices} of {_assets?.Textures.Count ?? 0} textures");
-            }
-        }
-
-        // **Demo time, from the demo's own tick interval rather than an assumed 66.67.** The
-        // cycle of an animation is advanced by elapsed time, the way the client advances it in
-        // C_BaseAnimating::FrameAdvance - the server never sends one, so a viewer replaying only
-        // what was networked leaves every health pack frozen on its first frame.
-        double seconds = tick * (_timeline.IntervalPerTick > 0f
-            ? _timeline.IntervalPerTick
-            : PlaybackClock.DefaultIntervalPerTick);
-
-        long posedAt = Stopwatch.GetTimestamp();
-
-        long momentUploadedAt = posedAt;
-
-        // **Read across the call rather than per second, because a total cannot see a spike.** The
-        // per-second line already reports lighting, and it says lighting is about a third of posing
-        // — but posing spiking to 168 ms on one moment and 3 ms on the next is invisible in a
-        // per-second sum. This splits the one moment that was slow.
-        EntityModelSet.PoseCounters before = _models.Counters;
-
-        _models.Instances(
-            _drawn, _instances, _lighting.ComputeLighting, _lighting.SunAt, seconds);
-
-        EntityModelSet.PoseCounters moment = _models.Counters.Since(before);
-
-        // **Timed apart from the counters above, because `pose` spans this too.** They are read
-        // across `Instances` alone, so every millisecond spent building the viewmodel scene was
-        // landing in the "bones" column — which is arrived at by subtraction, and a derived column
-        // inherits every error of the ones it is derived from (B191).
-        long viewmodelAt = Stopwatch.GetTimestamp();
-
-        AddViewmodel(seconds);
-
-        long momentViewmodelTicks = Stopwatch.GetTimestamp() - viewmodelAt;
-
-        _posingTicks += Stopwatch.GetTimestamp() - posedAt;
-
-        long momentPosedAt = Stopwatch.GetTimestamp();
-
-        ReportWeapons();
-
-        long momentReportedAt = Stopwatch.GetTimestamp();
-
-        if (_instances.Count != _lastInstanceCount)
-        {
-            _lastInstanceCount = _instances.Count;
-
-            // **Named and counted.** "Some models are missing" is a question about which, and a
-            // total cannot answer it - a demo only carries what the recorder could see, so an
-            // absent pickup may be correct rather than broken.
-            string names = string.Join(
-                ", ",
-                _instances
-                    .GroupBy(instance => instance.ModelPath, StringComparer.Ordinal)
-                    .Select(group => $"{group.Count()}x{Path.GetFileNameWithoutExtension(group.Key)}"));
-
-            // **How many were actually lit, not just how many were drawn.** A model with no cube
-            // draws at full brightness and looks like a rendering fault; the count is what says
-            // whether the leaf lookup found anything, without anyone having to judge by eye.
-            int unlit = _instances.Count(instance => instance.Light == default(AmbientCube));
-
-            // Debug, because "the instance count changed" happens whenever a prop enters or leaves
-            // the visible set — measured at 13 lines in 10 seconds of ordinary play, which is
-            // per-frame detail wearing a change guard (B191).
-            _renderLog.LogDebug(
-                "{Message}",
-                $"drawing {_instances.Count} posed models ({unlit} unlit): {names}");
-
-            // The first medkit's actual transform. A model posed with a zero scale collapses to a
-            // point and draws nothing, while every count above still reads correctly.
-
-        }
+        _samplingTicks += phases.DrawList;
+        _posingTicks += phases.Pose;
 
         ShowPlayers(_players);
 
-        ReportSlowMoment(
-            momentAt, momentSampledAt, momentRolesAt, momentUploadedAt, momentPosedAt,
-            momentReportedAt, Stopwatch.GetTimestamp(), moment, _drawn.Count, momentViewmodelTicks);
+        ReportSlowMoment(phases);
     }
 
+    /// <summary>The arms model the followed player wears, or null when nobody is followed.</summary>
+    /// <remarks>
+    /// **Still here because the weapon-model resolver still is** — <c>WeaponModelFor</c>,
+    /// <c>WeaponModel</c> and <c>ItemDefinitions</c> are a cluster of their own and move together,
+    /// not with the scene rebuild. Named rather than inlined so the remaining coupling is one line
+    /// that a search finds, instead of an expression buried in an argument list.
+    /// </remarks>
+    private string? HandsForFollowed() =>
+        FollowedEntity() is { } follower &&
+        PlayerAt(_transport.CurrentTick, follower) is { PlayerClass: { } playerClass }
+            ? _classModels?.Hands(playerClass)
+            : null;
+
     /// <summary>Names where a slow scene rebuild went, when one is slow.</summary>
-    /// <param name="momentAt">Entry.</param>
-    /// <param name="sampledAt">After the timeline was sampled for players and props.</param>
-    /// <param name="rolesAt">After weapon roles, first-person filtering and visibility.</param>
-    /// <param name="uploadedAt">After models were read and the vertex buffer uploaded.</param>
-    /// <param name="posedAt">After posing and the viewmodel.</param>
-    /// <param name="reportedAt">After the weapon report.</param>
-    /// <param name="finishedAt">After ShowPlayers.</param>
-    /// <param name="pose">
-    /// Every pose-phase counter for THIS moment, already differenced. Read across the call rather
-    /// than per second, because a per-second total cannot tell one 168 ms moment from fifty even
-    /// ones — it says how much was spent, never whether it was spent all at once.
-    /// </param>
-    /// <param name="drawn">
-    /// How many props were posed, which is the control for <c>pose.Built</c> — without it, "more
-    /// entities arrived" and "the same entities cost more" are indistinguishable.
-    /// </param>
-    /// <param name="viewmodelTicks">
-    /// What <c>AddViewmodel</c> cost. Inside the pose phase but outside every counter in
-    /// <paramref name="pose"/>, so until it was split out it was reported as bone work by
-    /// subtraction.
-    /// </param>
+    /// <param name="phases">What <see cref="MomentScene.Build"/> measured.</param>
     /// <remarks>
     /// **The frame ledger says `advance`, and this says which part of it** — the two compose, so a
     /// slow frame names a phase and then a sub-phase rather than a range of 350 lines.
@@ -3619,39 +3278,27 @@ internal class MainForm : Form
     /// and its `sink` half held all of it (B191).
     ///
     /// **The bone column is a residual and the rest are measured**, which is worth knowing when
-    /// reading a line: every direct column being small while `bones` is large means the cost is in
+    /// reading a line: every direct column being small while `rest` is large means the cost is in
     /// something still unmeasured, not in bone work. That pattern is what found B191.
+    ///
+    /// **Ten parameters became one** (B188). The phases are a record now, so this reads them by name
+    /// rather than differencing seven timestamps the caller had to pass in the right order.
     /// </remarks>
-    private void ReportSlowMoment(
-        long momentAt,
-        long sampledAt,
-        long rolesAt,
-        long uploadedAt,
-        long posedAt,
-        long reportedAt,
-        long finishedAt,
-        EntityModelSet.PoseCounters pose,
-        int drawn,
-        long viewmodelTicks)
+    private void ReportSlowMoment(in MomentPhases phases)
     {
-        double total = (finishedAt - momentAt) / (double)Stopwatch.Frequency;
+        static double Of(long ticks) => ticks / (double)Stopwatch.Frequency * 1000d;
 
-        if (total <= StallSeconds)
+        double total = Of(phases.Total);
+
+        if (total <= MomentScene.StallSeconds * 1000d)
         {
             return;
         }
 
-        static double Ms(long from, long to) =>
-            (to - from) / (double)Stopwatch.Frequency * 1000d;
-
-        double named =
-            Ms(momentAt, sampledAt) + Ms(sampledAt, rolesAt) + Ms(rolesAt, uploadedAt) +
-            Ms(uploadedAt, posedAt) + Ms(posedAt, reportedAt) + Ms(reportedAt, finishedAt);
-
-        static double Of(long ticks) => ticks / (double)Stopwatch.Frequency * 1000d;
+        EntityModelSet.PoseCounters pose = phases.Counters;
 
         double lighting = Of(pose.Lighting);
-        double viewmodel = Of(viewmodelTicks);
+        double viewmodel = Of(phases.Viewmodel);
         double simulate = Of(pose.Simulate);
         double wornLight = Of(pose.WornLight);
         double reports = Of(pose.Report);
@@ -3659,17 +3306,15 @@ internal class MainForm : Form
         double skin = Of(pose.Skin);
 
         double rest =
-            Ms(uploadedAt, posedAt) - lighting - viewmodel - simulate - wornLight - reports
-            - setup - skin;
+            Of(phases.Pose) - lighting - viewmodel - simulate - wornLight - reports - setup - skin;
 
         _renderLog.LogWarning(
             "{Message}",
             string.Create(
                 CultureInfo.InvariantCulture,
-                $"SLOW MOMENT {total * 1000d:0} ms: sample {Ms(momentAt, sampledAt):0.#}" +
-                $", roles {Ms(sampledAt, rolesAt):0.#}" +
-                $", models {Ms(rolesAt, uploadedAt):0.#}" +
-                $", pose {Ms(uploadedAt, posedAt):0.#}" +
+                $"SLOW MOMENT {total:0} ms: drawlist {Of(phases.DrawList):0.#}" +
+                $", models {Of(phases.Models):0.#}" +
+                $", pose {Of(phases.Pose):0.#}" +
                 $" (lighting {lighting:0.#}, viewmodel {viewmodel:0.#}" +
                 $", simulate {simulate:0.#}" +
                 $", wornlight {wornLight:0.#}" +
@@ -3679,12 +3324,11 @@ internal class MainForm : Form
                 $", skin {skin:0.#}" +
                 $", rest {rest:0.#}" +
                 $", built {pose.Built.ToString(CultureInfo.InvariantCulture)}" +
-                $" of {drawn.ToString(CultureInfo.InvariantCulture)}" +
+                $" of {phases.Drawn.ToString(CultureInfo.InvariantCulture)}" +
                 $", anim {Of(pose.Animation):0.#}" +
                 $" over {pose.AnimationCalls.ToString(CultureInfo.InvariantCulture)})" +
-                $", weapons {Ms(posedAt, reportedAt):0.#}" +
-                $", players {Ms(reportedAt, finishedAt):0.#}" +
-                $"; unaccounted {(total * 1000d) - named:0.#} ms"));
+                $", weapons {Of(phases.Weapons):0.#}" +
+                $"; unaccounted {Of(phases.Unaccounted):0.#} ms"));
     }
 
     /// <summary>Draws the players recorded at one moment, coloured by team.</summary>
@@ -5043,149 +4687,6 @@ internal class MainForm : Form
             _heightCut);
     }
 
-    /// <summary>When the weapon report last printed.</summary>
-    private long _weaponReportedAt;
-
-    /// <summary>Says how many carried weapons reached the scene, and how many reached the GPU.</summary>
-    /// <remarks>
-    /// **Written because the owner's answer was "i think nothing … but measurement beats all".**
-    /// Weapons in other players' hands are not drawn, and everything upstream says they should be:
-    /// `HeldWeaponProbe` reports 16 held weapons with 16 resolved world models on a six-class demo,
-    /// and the viewer's own log shows `c_sniperrifle`, `c_directhit`, `c_quadball` and the rest
-    /// being packed. So the loss is between the timeline and the screen, and this says which side.
-    ///
-    /// **Three numbers, because they separate three different faults.** In the scene but not
-    /// instanced is a posing or visibility fault; instanced but invisible is a transform fault, and
-    /// the position says which — a weapon at its owner's feet is a bone merge falling back to the
-    /// entity origin, and one at (0,0,0) never got a transform at all.
-    ///
-    /// Matched on the path rather than on a kind, because a weapon has no kind of its own: it is
-    /// `Studio` exactly like a player or a health pack.
-    /// </remarks>
-    private void ReportWeapons()
-    {
-        // **Nothing at all unless someone is listening** (B191). Everything below walks every
-        // instance, formats nine numbers per weapon and joins them — work CA1873 exists to keep out
-        // of a disabled log — and then writes a line, which is a disk flush.
-        //
-        // Measured 2026-08-25 on the moment ledger: `weapons 193.6` of a 198 ms scene rebuild, with
-        // every other column at a millisecond or less. The rate limit below already held it to once
-        // a second; once a second is still enough to be the worst frame in that second.
-        //
-        // Debug rather than Information, because this is per-frame detail and `developer 0` admits
-        // Information. Same reasoning as the brush, viewmodel-pass and instance-count lines.
-        if (!_renderLog.IsEnabled(LogLevel.Debug))
-        {
-            return;
-        }
-
-        long now = Stopwatch.GetTimestamp();
-
-        if (now - _weaponReportedAt < Stopwatch.Frequency)
-        {
-            return;
-        }
-
-        _weaponReportedAt = now;
-
-        static bool IsWeapon(string path) =>
-            path.Contains("/weapons/", StringComparison.OrdinalIgnoreCase) ||
-            path.Contains("\\weapons\\", StringComparison.OrdinalIgnoreCase);
-
-        int inScene = 0;
-        int atOrigin = 0;
-        int owned = 0;
-        int attached = 0;
-        string first = "none";
-
-        foreach (SceneProp prop in _drawn)
-        {
-            if (!IsWeapon(prop.ModelPath))
-            {
-                continue;
-            }
-
-            inScene++;
-
-            if (prop.OwnedBy is not null)
-            {
-                owned++;
-            }
-
-            if (prop.AttachedTo is not null)
-            {
-                attached++;
-            }
-
-            // The signature of a carried weapon that never got a transform: an owner, no
-            // attachment, and the world origin.
-            if (prop.Pose is { X: 0f, Y: 0f, Z: 0f })
-            {
-                atOrigin++;
-
-                if (first == "none")
-                {
-                    first = string.Create(
-                        CultureInfo.InvariantCulture,
-                        $"{System.IO.Path.GetFileNameWithoutExtension(prop.ModelPath)}" +
-                        $" entity {prop.EntityIndex}" +
-                        $" owner {prop.OwnedBy?.ToString(CultureInfo.InvariantCulture) ?? "-"}" +
-                        $" attached {prop.AttachedTo?.ToString(CultureInfo.InvariantCulture) ?? "-"}");
-                }
-            }
-        }
-
-        int instanced = 0;
-        int drawnAtOrigin = 0;
-        string drawn = "none";
-
-        foreach (ModelInstance instance in _instances)
-        {
-            if (!IsWeapon(instance.ModelPath))
-            {
-                continue;
-            }
-
-            instanced++;
-
-            // **Where it actually DRAWS, which is its bones and not its matrix** (D88). A skinned
-            // model's bones are in world space and its model matrix is deliberately identity, so
-            // reading the matrix reports (0,0,0) for every correctly placed weapon in the game.
-            //
-            // This line said "9 AT THE ORIGIN" on a demo where all nine had merged onto their
-            // owners correctly — 2 of 5 bones on weapon_bone, confirmed in the same log. An
-            // instrument that reports a defect which is not there costs exactly what a missing one
-            // does, and this one nearly bought a second night of chasing.
-            (float x, float y, float z) = instance.Bones is { Count: > 0 } bones
-                ? (bones[0][3], bones[0][7], bones[0][11])
-                : (instance.Matrix[12], instance.Matrix[13], instance.Matrix[14]);
-
-            if (x == 0f && y == 0f && z == 0f)
-            {
-                drawnAtOrigin++;
-            }
-
-            if (drawn == "none")
-            {
-                drawn = string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"{System.IO.Path.GetFileNameWithoutExtension(instance.ModelPath)}" +
-                    $" at ({x:0}, {y:0}, {z:0})" +
-                    $" [{(instance.Bones is { Count: > 0 } ? "bone" : "matrix")}]");
-            }
-        }
-
-        _renderLog.LogDebug(
-            "{Message}",
-            string.Create(
-                CultureInfo.InvariantCulture,
-                $"weapons: {inScene} in the scene, {instanced} instanced, " +
-                $"{owned} owned, {attached} attached; " +
-                $"{atOrigin} sent no origin of their own, which is what a bone merge looks like; " +
-                $"{drawnAtOrigin} DRAWN AT THE ORIGIN; " +
-                $"first without an origin {first}; first instanced {drawn}"));
-    }
-
     /// <summary>Names where a slow frame's time went, phase by phase.</summary>
     /// <param name="frameAt">When the frame began.</param>
     /// <param name="soundedAt">After <c>PlaySounds</c>.</param>
@@ -5785,9 +5286,9 @@ internal class MainForm : Form
             // was actually wanted.
             LeafBoxLines(ViewMatrix(MapCamera())),
             _scene,
-            _instances,
-            _viewmodelInstances,
-            _viewmodelCamera?.ToMatrix(),
+            _moment.Instances,
+            _moment.ViewmodelInstances,
+            _moment.ViewmodelCamera?.ToMatrix(),
             hud);
 
         long finishedAt = Stopwatch.GetTimestamp();

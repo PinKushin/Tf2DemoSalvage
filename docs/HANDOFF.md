@@ -85,12 +85,17 @@ Time the remaining calls in the `Instances` loop individually.
 
 ## 2. Where the `MainForm` refactor stands
 
-**7,409 → 6,697 lines this session.** Everything below is committed.
+**7,409 → 6,425 lines, of which 2,981 are code.** Everything below is committed.
 
 ### Done
 
 | moved | to | why that home |
 |---|---|---|
+| `LightAt`, `SunAt` → `LevelLighting` | Scene | **The engine answers this query.** `IVEngineClient::ComputeLighting( pt, pNormal, bClamp, color, pBoxColors )` at `cdll_int.h:392` — "an array of 6 … the light contribution at each box side" IS an ambient cube — and clients ask for it as `engine->ComputeLighting( pos, … )` from three separate files. 12 tests where there were none. |
+| `ModelGeometry` → `MapAssets.Geometry` + `EntityModelSet.Geometry` | Scene | `IVModelInfo::GetStudiomodel` (`IVModelInfo.h:146`) is an interface pointer set at init, **not** a parameter threaded through every call. Passing the source per call was our invention and was the only thing keeping the wrapper alive. |
+| `Sample` + 3 fields → `SoundCache` | Audio | `IEngineSound` carries `PrecacheSound`/`IsSoundPrecached`/`PrefetchSound` together (`IEngineSound.h:89-91`); game code asks rather than holding samples. 10 tests where there were none. |
+| `BuildHud` → `FpsOverlay` | Presentation | **The name was wrong too.** The meter is `CFPSPanel : vgui::Panel` on `PANEL_TOOLS` (`vgui_int.cpp:209`), not a `CHudElement`. `HudQuad`/`HudRenderer` in Render name the screen-space LAYER and are correct. |
+| `Decode`, `Decoded` → `DecodedDemo` | Scene | Already `static` and form-free — the only thing keeping it untested was the file it sat in. |
 | `AddViewmodel` → `ViewmodelScene` | Scene | (earlier session) |
 | `PlayerProps` (players → props) | Scene | Valve has **no** equivalent step — a player is already a `C_BaseAnimating` in the renderables list. Ours exists only because `DemoTimeline` splits `PlayerTracks` from `Props`. Our invention, so it needed its own tests. |
 | `UpdateClientSideAnimations` | Scene (`EntityModelSet`) | **Valve's own name.** `C_BaseAnimating::UpdateClientSideAnimations()` is a static batch walk (`c_baseanimating.cpp:6368`), run BEFORE simulate and bones (`cdll_client_int.cpp:2188-2210`). Ours already was. |
@@ -103,18 +108,42 @@ Time the remaining calls in the `Instances` loop individually.
 
 ### Remaining in `MainForm`, by role
 
+**This list is the tracker** — work it to zero, and read the line count only as a symptom.
+
 | member | lines | role |
 |---|---|---|
-| constructor (menus, layout, wiring) | 733 | **view — stays** |
-| `ShowMoment` | 287 | presenter (thin now; mostly ledger + device upload) |
-| `ReadMap` | 224 | presenter |
-| `SetFullScreen` | 198 | **view — stays** |
-| `ProjectMap` | 168 | presenter |
-| `RenderFrame` | 162 | mixed — pump is view, orchestration is presenter |
-| `ReportWeapons` | 147 | presenter (diagnostics) |
-| `ReadCaptureOptions` | 139 | presenter |
-| `ProcessCmdKey` | 116 | **view — stays** |
-| `FirstPersonCamera`, `FlyCamera`, `ViewMatrix` | ~300 | presenter |
+| constructor (menus, layout, wiring) | 739 | **view — stays** |
+| `ShowMoment` | 287 | presenter |
+| `ReadMap` | 237 | presenter |
+| `SetFullScreen` | 197 | **view — stays** |
+| `ProjectMap` | 173 | presenter |
+| `RenderFrame` | 161 | **splits** — pump is view, phase order is presenter |
+| `ReportWeapons` | 146 | presenter (diagnostics over `_drawn`/`_instances`) |
+| `ReadCaptureOptions` | 138 | presenter (CLI parsing) |
+| `OnIdle` | 137 | **view — stays** |
+| `ProcessCmdKey` | 129 | **view — stays** |
+| `AddViewmodel` | 128 | presenter |
+| `OnViewportHandleCreated` | 116 | **view — stays** (device creation) |
+| `Apply` | 114 | presenter |
+| `FlyCamera` | 97 | presenter |
+| `LoadDemoAsync` | 79 | presenter |
+| `OnDeactivate`, `Dispose`, mouse handlers | ~270 | **view — stays** |
+| `PrecacheModels` | 74 | presenter |
+| `ReportSlowMoment`/`ReportSlowSounds`/`ReportSlowFrame` | 194 | presenter (diagnostics) |
+| `LeafBoxLines` | 71 | presenter (debug viz) |
+| `ApplyOpeningState` | 69 | presenter |
+| `ToggleFirstPerson` | 68 | presenter |
+| `ShowPlayers` | 67 | presenter |
+| `HeldWeaponModels`, `EnsureWeaponRoles` | 126 | domain |
+| `CountFrame` | 65 | presenter (metrics) |
+| `FirstPersonCamera`, `PlayerAt`, `Spectated`, `Ducking`, `FreeLookCamera`, `MapCamera`, `ViewMatrix` | ~300 | presenter — this is Valve's `CalcView` dispatch (`c_baseplayer.h:112`, `:455`, `:463`) |
+
+**The next move is the `ShowMoment` cluster, and it is one move rather than several**, because
+`ShowMoment`, `AddViewmodel`, `ReportWeapons`, `ShowPlayers` and `ReportSlowMoment` all operate on
+the same state: `_players`, `_props`, `_drawn`, `_instances`, `_models`, `_lighting`, the viewmodel
+scene and the pose counters. That state IS the scene for the current moment, and the only thing in
+the whole cluster that needs a window is `device.UploadModels(_models)` — one call, which wants an
+interface the way `LevelLighting` and `SoundCache` took one.
 
 **The owner's instruction: finish `MainForm.cs` before touching the rest of `Viewer3D`** — *"we will
 forget about mainforms if you switched I guarantee it lol"*. Other files in the project have the same
