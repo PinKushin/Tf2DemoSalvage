@@ -229,7 +229,15 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 #
 # This is the rule B184 records, applied: a piece's test moves in the same commit as the piece, or
 # the Windows pin is recreated one file at a time. That is how it reached 115 of 119.
-run Tf2DemoSalvage.Scene.Tests    scene      76
+# 88: LevelLightingTests (12), out of MainForm.LightAt/SunAt. The map's lighting query is the
+# engine's — IVEngineClient::ComputeLighting, cdll_int.h:392 — and had no test at all, because
+# reaching it needed an STA thread, a device and a real map.
+# 90: EntityModelSet.Geometry (2), the model source set at map load rather than passed per call,
+# which is how the client reaches modelinfo (IVModelInfo.h:146).
+# 97: DecodedDemoTests (7), out of MainForm.Decode. Two of them need a demo that carries no schema
+# and one that carries a corrupt one — inputs no real file contains, so they are authored through
+# DemoWriter rather than taken from the corpus.
+run Tf2DemoSalvage.Scene.Tests    scene      97
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -269,7 +277,10 @@ run Tf2DemoSalvage.Scene.Tests    scene      76
 # 142: SoundscapeSelectionConformance gains the PVS sensitivity case (B177) — every capture still
 # resolves to what the client said with the filter ON, which is exactly what would happen if the
 # filter did nothing, so one test measures the reduction instead: 6 of 44 placements from a spawn.
-run Tf2DemoSalvage.Audio.Tests    audio     151
+# 161: SoundCacheTests (10), out of MainForm.Sample and the three fields beside it. The engine keeps
+# its sample cache behind IEngineSound (IEngineSound.h:89-91) and game code asks it, so a window
+# owning one was ours alone — and none of it had a test.
+run Tf2DemoSalvage.Audio.Tests    audio     161
 
 # The presenter suite (D62). Sixteen tests, ~24 ms, no window and no desktop lock — which is the
 # whole point: this logic lived in MainForm and could only be reached by driving a real form, so
@@ -295,7 +306,9 @@ run Tf2DemoSalvage.Audio.Tests    audio     151
 # transport's setter deliberately does not raise, so the elapsed clock stayed stopped and the viewer
 # sat at tick zero insisting it was playing. Finding it also required making FakeElapsedTime model
 # STOPPED: it reported time passing after Reset, which made the fixture blind to the whole class.
-run Tf2DemoSalvage.Presentation.Tests presentation 139
+# 146: FpsOverlayTests (7), out of MainForm.BuildHud. Every placement case is a pair, because one
+# viewport width cannot tell "tracks the viewport" from "sits at a fixed x".
+run Tf2DemoSalvage.Presentation.Tests presentation 146
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.
@@ -393,7 +406,10 @@ run Tf2DemoSalvage.Content.Tests  content   707
 # 109: SoundscapeWireProbe (3 cases, [Explicit]). Which demo kinds carry m_audio at all — the
 # measurement that showed an STV recording carries the SourceTV CAMERA's soundscape rather than any
 # player's, which is why the map's own entities are needed rather than the wire (B173).
-run Tf2DemoSalvage.Corpus.Tests   corpus     109
+# 112: CorpusDecodedDemoTests (3), the end-to-end half of the DecodedDemo move. The synthetic
+# fixtures in Scene.Tests carry the load — a corpus test skips without the corpus and so kills no
+# mutants — but only a real demo can catch a roster that decodes to nothing.
+run Tf2DemoSalvage.Corpus.Tests   corpus     112
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that
