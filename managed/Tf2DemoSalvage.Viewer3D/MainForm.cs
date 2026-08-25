@@ -3910,7 +3910,7 @@ internal class MainForm : Form
 
         try
         {
-            return Apply(Decode(_demoLog, path));
+            return Apply(DecodedDemo.Read(path, _demoLog));
         }
         catch (Exception failure) when (failure is IOException or InvalidDataException)
         {
@@ -3929,8 +3929,8 @@ internal class MainForm : Form
     /// crosses — the owner watched it happen.
     ///
     /// **The split is decode-then-show, and the line between them is "does this touch the form".**
-    /// <see cref="Decode"/> reads and decodes and is a static method with no access to any field, so
-    /// it cannot accidentally reach the UI; <see cref="Apply"/> assigns the fields, the transport, the
+    /// <see cref="DecodedDemo.Read"/> reads and decodes and lives in another project entirely, so it
+    /// cannot reach the UI at all; <see cref="Apply"/> assigns the fields, the transport, the
     /// clock and the map, and must be on the UI thread because it ends in Direct3D. The `await`
     /// returns to the UI thread on its own — WinForms installs a synchronisation context, so there
     /// is no marshalling to write and none to get wrong.
@@ -3952,7 +3952,8 @@ internal class MainForm : Form
         try
         {
             ILogger demoLog = _demoLog;
-            Decoded decoded = await Task.Run(() => Decode(demoLog, path)).ConfigureAwait(false);
+            DecodedDemo decoded =
+                await Task.Run(() => DecodedDemo.Read(path, demoLog)).ConfigureAwait(false);
 
             if (ticket != _loadsRequested)
             {
@@ -4051,99 +4052,10 @@ internal class MainForm : Form
     /// <summary>How many loads have been asked for, so a stale one can tell.</summary>
     private int _loadsRequested;
 
-    /// <summary>A demo read off disk and decoded, with nothing of the form touched.</summary>
-    /// <param name="Demo">The header and what it claims.</param>
-    /// <param name="Timeline">Player positions over time, or null when they could not be built.</param>
-    private sealed record Decoded(LoadedDemo Demo, DemoTimeline? Timeline);
-
-    /// <summary>Reads and decodes a demo. Safe to call off the UI thread; touches no field.</summary>
-    /// <remarks>
-    /// **Static deliberately.** The whole point of the split is that this half cannot reach the
-    /// form, and a static method makes that a compile error rather than a rule to remember — the
-    /// same argument as the project boundaries in D54.
-    ///
-    /// Logging is fine from here: <c>ViewerLog</c> takes a lock and never throws at its caller.
-    /// </remarks>
-    // The logger is a parameter because this is static (D83): Decode runs on a worker thread via
-    // Task.Run and must not reach for form state.
-    private static Decoded Decode(ILogger demoLog, string path)
-    {
-        demoLog.LogInformation("{Message}", $"opening {Path.GetFileName(path)}");
-
-        LoadedDemo demo = LoadedDemo.Load(path);
-
-        demoLog.LogInformation(
-            "{Message}",
-            $"{demo.MapName}, {demo.LastTick} ticks, protocol {demo.NetworkProtocol}" +
-            (demo.LengthWasMeasured ? ", length measured (truncated)" : string.Empty));
-
-        DemoTimeline? timeline = null;
-
-        // **Its own guard, because a timeline is not worth the demo.** A file with no schema,
-        // or one truncated mid-packet, still has a header, a map name and a length worth
-        // showing - so a failure here costs the player positions and nothing else.
-        try
-        {
-            using (demoLog.Time("building the position timeline"))
-            {
-                timeline = DemoTimeline.Build(File.ReadAllBytes(path));
-            }
-
-            demoLog.LogInformation(
-                "{Message}",
-                $"{timeline.Frames.Count} recorded moments, ticks {timeline.FirstTick} to " +
-                $"{timeline.LastTick}");
-
-            float interval = timeline.IntervalPerTick > 0f
-                ? timeline.IntervalPerTick
-                : PlaybackClock.DefaultIntervalPerTick;
-
-            string source = timeline.IntervalPerTick > 0f
-                ? "from svc_ServerInfo"
-                : "the engine default - the demo never said";
-
-            demoLog.LogInformation(
-                "{Message}",
-                string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"{interval:F6}s per tick ({1f / interval:F1} per second), {source}"));
-
-            // **What is actually going to be drawn, said once per demo.** Counts here are what
-            // a defect looks like from the outside: a team colour that never arrives shows up
-            // as "0 red, 0 blu" the moment the file opens, rather than as grey dots that have
-            // to be noticed and then chased through a seven-minute suite.
-            ScenePlayer[] roster =
-            [
-                .. timeline.Frames
-                    .SelectMany(frame => frame.Players)
-                    .GroupBy(player => player.EntityIndex)
-                    .Select(group => group.First()),
-            ];
-
-            demoLog.LogInformation(
-                "{Message}",
-                $"roster: {roster.Count(p => p.Team == SceneTeams.Red)} red, " +
-                $"{roster.Count(p => p.Team == SceneTeams.Blu)} blu, " +
-                $"{roster.Count(p => p.Team is SceneTeams.Spectator or SceneTeams.Unassigned)} watching, " +
-                $"{roster.Count(p => p.Team is null)} unknown, " +
-                $"{roster.Count(p => p.PlayerClass is >= 1 and <= 9)} of {roster.Length} with a class");
-
-            int drawn = timeline.Frames.Count == 0
-                ? 0
-                : timeline.PlayersAt(timeline.Frames[timeline.Frames.Count / 2].Tick)
-                    .Count(player => player.IsPlaying);
-
-            demoLog.LogInformation("{Message}", $"{drawn} players drawn at the midpoint of the demo");
-        }
-        catch (Exception failure) when (
-            failure is ArgumentException or InvalidDataException or IOException)
-        {
-            timeline = null;
-            demoLog.LogWarning(failure, "{Message}", "building the position timeline");
-        }
-
-        return new Decoded(demo, timeline);
-    }
+    // `Decoded` and `Decode` were here until 2026-08-25. They are `DecodedDemo` in the Scene project
+    // now (B188, D90). Nothing about them was ever window work: the static was made static when the
+    // load went off-thread, precisely so it could not reach the form — so the only thing keeping it
+    // here, and untested, was the file it sat in. That is the drift D89 names.
 
     /// <summary>Puts a decoded demo on screen. UI thread only.</summary>
     /// <param name="decoded">The demo and its timeline.</param>
@@ -4154,7 +4066,7 @@ internal class MainForm : Form
     /// the split is where it is rather than a few lines either side. `LoadMap` reads a BSP and
     /// uploads textures to the device, and a device is owned by the thread that made it.
     /// </remarks>
-    private DemoLoadResult Apply(Decoded decoded, bool? read = null)
+    private DemoLoadResult Apply(DecodedDemo decoded, bool? read = null)
     {
         _demo = decoded.Demo;
         _timeline = decoded.Timeline;
