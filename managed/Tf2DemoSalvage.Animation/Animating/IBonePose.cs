@@ -73,6 +73,17 @@ public interface IBonePose
     /// <returns>The flags word from the model.</returns>
     public int FlagsOf(int bone);
 
+    /// <summary>One bone's name, which is how two skeletons are paired.</summary>
+    /// <param name="bone">Which bone.</param>
+    /// <returns>The name as the model spells it.</returns>
+    /// <remarks>
+    /// **Bone merging is a name match and nothing else.** <c>CBoneMergeCache::UpdateCache</c> pairs
+    /// with <c>Studio_BoneIndexByName( m_pFollowHdr, pOwnerBones[i].pszName() )</c>
+    /// (<c>bone_merge_cache.cpp:83</c>) — there is no index correspondence between a hat's skeleton
+    /// and a scout's, and there could not be, since the same hat is worn by nine classes.
+    /// </remarks>
+    public string NameOf(int bone);
+
     /// <summary>Builds the bones a mask covers, into the accessor.</summary>
     /// <param name="boneMask">Which bones are wanted.</param>
     /// <param name="currentTime">Demo time, for advancing cycles.</param>

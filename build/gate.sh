@@ -168,7 +168,18 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 #     and passes the other EIGHT. SetupBones_ForABitNotYetBuilt_BuildsAgain is the single test
 #     standing between a correct mask cache and a plausible wrong one that returns attachment bones
 #     nobody built, which places every attachment at the map origin.
-run Tf2DemoSalvage.Animation.Tests animation 24
+#
+# 33: BoneMergeCache (9). The three-deep test is B180, and it is not "fixed" — the state B180
+# described no longer exists. One array per entity, the merge writes into it before the transform
+# stage, so a bone whose parent was merged rides the merged position with nothing written to make it
+# happen. The numbers are chosen so the two readings differ: 40 if the sight rode the merged hand,
+# 7 if it read the weapon's own skeleton.
+#
+# Two tests changed meaning when the merge arrived and that is worth knowing: an entity whose bones
+# share no NAME with its parent's does not cause the parent to be posed at all — nothing pairs, the
+# follow mask is 0, and the early-out returns. Every test about the recursion has to give the two
+# skeletons a bone in common or it measures an entity that never asks.
+run Tf2DemoSalvage.Animation.Tests animation 33
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

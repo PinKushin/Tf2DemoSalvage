@@ -155,14 +155,6 @@ public sealed class AnimatingEntity
             return true;
         }
 
-        // **The parent is asked FIRST, and asked rather than scheduled.** This is the whole of
-        // Valve's ordering: bone_merge_cache.cpp:130 calls SetupBones on the followed entity where
-        // it stands, and the guards above make a repeat free.
-        if (Follows is { } parent && !parent.SetupBones(boneMask, currentTime, budget - 1))
-        {
-            return false;
-        }
-
         _written.Clear();
 
         // **Widened to include what was already built**, per c_baseanimating.cpp:2920. A second
@@ -173,8 +165,48 @@ public sealed class AnimatingEntity
         _accessor.WritableBones = wanted;
         _accessor.ReadableBones = wanted;
 
+        // **The merge runs BEFORE the transform stage, into the same array** — the ordering of
+        // BuildTransformations, where MergeMatchingBones is called at :1496 and the per-bone loop
+        // that follows skips what it wrote (:1519) while building everything else from
+        // GetBone( parent ) out of that same array (:1595).
+        //
+        // That ordering is not a detail: it is what makes a bone whose parent was merged ride the
+        // merged position, with nothing written to make it happen. B180 was the consequence of
+        // doing it the other way round.
+        if (Follows is { } parent)
+        {
+            _merge ??= new BoneMergeCache(_pose);
+            _merge.UpdateCache(parent._pose);
+
+            // **The parent is asked HERE, with the merge's own mask** — bone_merge_cache.cpp:130.
+            // This is the whole of Valve's ordering: no list, no pass, no sort, and the guards
+            // above make a repeat free. The mask is the merge's rather than the caller's, because
+            // what the parent must build is the bones this item hangs off, not the bones this item
+            // was asked to draw.
+            if (!parent.SetupBones(_merge.FollowBoneSetupMask, currentTime, budget - 1))
+            {
+                // Valve shrinks the merged bones rather than drawing them somewhere wrong, and
+                // then reports failure so a caller that checks declines to draw at all.
+                _merge.ShrinkToNothing(_accessor, _written);
+                return false;
+            }
+
+            _merge.MergeMatchingBones(parent._accessor, _accessor, _written, wanted);
+        }
+
         _pose.Build(wanted, currentTime, _accessor, _written);
 
         return true;
     }
+
+    /// <summary>The name pairing onto whatever this entity follows, or null when it follows nothing.</summary>
+    /// <remarks>
+    /// Built on first use rather than in the constructor, because most entities never merge — and
+    /// re-paired by <see cref="BoneMergeCache.UpdateCache"/> when the followed entity changes, which
+    /// is what a weapon changing hands looks like on the wire.
+    /// </remarks>
+    private BoneMergeCache? _merge;
+
+    /// <summary>The name pairing, for a caller that wants to report on it.</summary>
+    public BoneMergeCache? Merge => _merge;
 }

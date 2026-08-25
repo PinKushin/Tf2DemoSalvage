@@ -90,7 +90,7 @@ public sealed class AnimatingEntityTests
     [Test]
     public void SetupBones_AParentSharedBySixChildren_BuildsThatParentOnce()
     {
-        CountingPose wearerPose = new();
+        CountingPose wearerPose = new(shared: true);
         BoneFrameCounter clock = new();
         AnimatingEntity wearer = new(wearerPose, clock);
 
@@ -98,7 +98,7 @@ public sealed class AnimatingEntityTests
 
         for (int index = 0; index < 6; index++)
         {
-            worn.Add(new AnimatingEntity(new CountingPose(), clock) { Follows = wearer });
+            worn.Add(new AnimatingEntity(new CountingPose(shared: true), clock) { Follows = wearer });
         }
 
         foreach (AnimatingEntity item in worn)
@@ -132,20 +132,58 @@ public sealed class AnimatingEntityTests
     }
 
     [Test]
-    public void SetupBones_AFollowCycle_StopsRatherThanOverflowingTheStack()
+    public void SetupBones_AFollowCycle_TerminatesRatherThanOverflowingTheStack()
     {
         BoneFrameCounter clock = new();
 
-        AnimatingEntity first = new(new CountingPose(), clock);
-        AnimatingEntity second = new(new CountingPose(), clock) { Follows = first };
+        // Shared bone names, so the merge actually pairs and the recursion actually fires. Without
+        // that, nothing matches, the follow mask is 0, and the early-out returns before any
+        // recursion happens — a test that would pass while measuring nothing.
+        AnimatingEntity first = new(new CountingPose(shared: true), clock);
+        AnimatingEntity second = new(new CountingPose(shared: true), clock) { Follows = first };
 
         first.Follows = second;
 
-        // **Valve has no such bound and this needs one.** The engine's parent links are built by
-        // the engine; a demo this project exists to open may carry anything, and the recursion the
-        // depth sort replaced would run until the stack ends. Refused, not clamped — a chain that
-        // deep has no correct partial reading.
-        second.SetupBones(Vertices, 0d).ShouldBeFalse();
+        // **It terminates by the EARLY-OUT, not by the depth budget, and that was a surprise.**
+        // Readable bones are set before the parent is asked — Valve does the same, so a stage
+        // part-way through a build can read what an earlier stage wrote — and the side effect is
+        // that re-entering an entity at the same mask inside one frame hits
+        // `(readable & wanted) == wanted` and returns. A two-entity cycle therefore resolves after
+        // one lap instead of recursing.
+        //
+        // So this asserts TERMINATION rather than refusal. The first version of this test asserted
+        // false and was wrong about which mechanism was doing the work — the depth budget is a
+        // backstop for a chain that keeps widening its mask, not the guard that catches this.
+        Should.NotThrow(() => second.SetupBones(Vertices, 0d));
+    }
+
+    [Test]
+    public void SetupBones_AChainDeeperThanTheBudget_IsRefused()
+    {
+        BoneFrameCounter clock = new();
+
+        // Twenty links against a budget of sixteen. The deepest legitimate chain is three — an
+        // attachment on a weapon on a player — so this is a corruption check rather than a feature
+        // limit, and it needs a case that actually reaches it.
+        List<AnimatingEntity> chain = [];
+
+        for (int index = 0; index < 20; index++)
+        {
+            AnimatingEntity link = new(new CountingPose(shared: true), clock);
+
+            if (chain.Count > 0)
+            {
+                link.Follows = chain[^1];
+            }
+
+            chain.Add(link);
+        }
+
+        chain[^1].SetupBones(Vertices, 0d).ShouldBeFalse();
+
+        // The control: the same chain within the budget builds. Without it, a guard that refused
+        // everything would satisfy the assertion above.
+        chain[8].SetupBones(Vertices, 0d).ShouldBeTrue();
     }
 
     [Test]
@@ -162,10 +200,10 @@ public sealed class AnimatingEntityTests
     [Test]
     public void SetupBones_AChildWhoseParentCannotBuild_ReportsFailureAndDoesNotBuildItself()
     {
-        CountingPose childPose = new();
+        CountingPose childPose = new(shared: true);
         BoneFrameCounter clock = new();
 
-        AnimatingEntity parent = new(new CountingPose(bones: 0), clock);
+        AnimatingEntity parent = new(new CountingPose(bones: 0, shared: true), clock);
         AnimatingEntity child = new(childPose, clock) { Follows = parent };
 
         child.SetupBones(Vertices, 0d).ShouldBeFalse();
@@ -176,22 +214,36 @@ public sealed class AnimatingEntityTests
     }
 
     /// <summary>A pose source that records what was asked of it and nothing else.</summary>
+    /// <remarks>
+    /// **The <c>shared</c> flag decides whether a merge pairs, and that changes what a test
+    /// measures.** An entity whose bones share no name with its parent's does not cause the parent
+    /// to be posed at all: nothing matches, the follow mask is 0, and Valve's readable-bones
+    /// early-out returns immediately. That is correct — and it means every test about the
+    /// RECURSION has to give the two skeletons a bone in common, or it is measuring an entity that
+    /// never asks.
+    ///
+    /// Found by writing those tests before the merge existed and watching them go red when it
+    /// arrived. The premise had changed, not the code.
+    /// </remarks>
     private sealed class CountingPose : IBonePose
     {
         private readonly List<string>? _order;
         private readonly string _name;
+        private readonly bool _shared;
 
-        public CountingPose(int bones = 4)
+        public CountingPose(int bones = 4, bool shared = false)
         {
             BoneCount = bones;
             _name = "unnamed";
+            _shared = shared;
         }
 
-        public CountingPose(List<string> order, string name)
+        public CountingPose(List<string> order, string name, bool shared = true)
         {
             BoneCount = 4;
             _order = order;
             _name = name;
+            _shared = shared;
         }
 
         public int BoneCount { get; }
@@ -205,6 +257,9 @@ public sealed class AnimatingEntityTests
         /// carry the requested bit would make a skipped build look like a working cache.
         /// </remarks>
         public int FlagsOf(int bone) => ~0;
+
+        /// <summary>Shared across entities when the test needs a merge to pair, unique otherwise.</summary>
+        public string NameOf(int bone) => _shared ? $"bone_{bone}" : $"{_name}_{bone}";
 
         public void Build(int boneMask, double currentTime, BoneAccessor into, BoneBitList alreadyWritten)
         {
