@@ -253,7 +253,12 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 # 97: DecodedDemoTests (7), out of MainForm.Decode. Two of them need a demo that carries no schema
 # and one that carries a corrupt one — inputs no real file contains, so they are authored through
 # DemoWriter rather than taken from the corpus.
-run Tf2DemoSalvage.Scene.Tests    scene      97
+# 115: MomentSceneTests (18), out of MainForm.ShowMoment and the four members it drove. Three of
+# them exist because of a regression this move nearly shipped: dropping the EnsureWeaponRoles call
+# leaves every weapon suffix null and the animation falls back silently, and the viewer suite passes
+# 620/620 against it (B193). The tests read `Pose.Slot` out the far end, which is the only place the
+# difference shows.
+run Tf2DemoSalvage.Scene.Tests    scene     115
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
