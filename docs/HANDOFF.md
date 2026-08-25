@@ -120,6 +120,27 @@ Time the remaining calls in the `Instances` loop individually.
 forget about mainforms if you switched I guarantee it lol"*. Other files in the project have the same
 fault; they wait.
 
+### The bar, stated by the owner and stricter than "mostly view"
+
+> "everything that is not view gets pulled out, thin view means literally no non view code in the
+> view"
+
+**Take that literally.** Three things follow that an earlier estimate in this file got wrong:
+
+- **No delegating wrappers.** `PlayerModel(player) => PlayerProps.ModelFor(...)` is the view knowing
+  a domain operation exists. It is not view code because it is short. The view asks the presenter;
+  it does not keep a shim.
+- **`RenderFrame` splits rather than shrinks.** The message pump and the yield are view. The phase
+  ORDER — sound, camera, project, advance, capture, hud, draw — is orchestration and leaves entirely.
+- **The callbacks the view supplies are domain services.** `LightAt`, `SunAt`, `Sample`,
+  `ModelGeometry` are handed to the scene by the form today. The form has no business owning them.
+
+**Expected end state: ~1,200–1,600 total lines**, dominated by the 733-line constructor, containing
+menus, layout, input translation, window state, the pump and disposal — and nothing else.
+
+**The test is not the line count.** It is whether a second frontend would have to REIMPLEMENT
+anything in the file. If it would, that thing is not view.
+
 ---
 
 ## 3. Valve parity auditing — keep doing this
