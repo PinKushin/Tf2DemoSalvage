@@ -4777,10 +4777,11 @@ internal class MainForm : Form
     /// </remarks>
     private double _lastFrameSeconds;
 
-    /// <summary>TF2's frame rate meter, off unless <c>cl_showfps</c> says otherwise.</summary>
-    private readonly FpsMeter _fpsMeter = new();
+    // `_fpsMeter` was here until 2026-08-25. The meter belongs to `FpsOverlay` now, which composes
+    // the whole readout — the mode, the sampling, the map name and Valve's placement — and needs no
+    // window to do it (B188, D90).
 
-    /// <summary>The HUD font's glyphs, packed; null until the first HUD element is wanted.</summary>
+    /// <summary>The overlay font's glyphs, packed; null until the overlay is first wanted.</summary>
     /// <remarks>
     /// **Built lazily, because most sessions never turn a HUD element on.** Rasterising a hundred
     /// glyphs is cheap but not free, and it needs a device to upload to — which does not exist until
@@ -5468,66 +5469,50 @@ internal class MainForm : Form
         }
     }
 
-    /// <summary>Builds this frame's HUD: the frame rate meter, when it is switched on.</summary>
-    /// <returns>Quads in screen pixels, empty when there is no HUD to draw.</returns>
+    /// <summary>This frame's screen-space overlay, which is the frame-rate meter and nothing else.</summary>
+    /// <returns>Quads in screen pixels, empty when there is nothing to draw.</returns>
     /// <remarks>
-    /// **The meter is sampled every frame whatever its mode**, because <see cref="FpsMeter"/> owns
-    /// the "first frame after being shown draws nothing" rule and the watermarks that go with it.
-    /// Sampling only while visible would hand it a frame duration covering however long it was off.
+    /// **All that is left here is the atlas and the viewport width** (D90). Composing the readout —
+    /// the mode, the sampling, the map name, Valve's placement — is <see cref="FpsOverlay"/>;
+    /// rasterising a font is the one genuinely platform-bound part, because ours is GDI and a Linux
+    /// port swaps it for FreeType (D84).
     ///
-    /// **Top right, as `CFPSPanel::ComputeSize` places it**: `x = wide - FPS_PANEL_WIDTH` with the
-    /// text at panel-local (2, 2), so two pixels in from a panel 300 wide. Reproduced as a right
-    /// edge rather than a fixed 300-pixel panel, because ours has no panel to size — the effect is
-    /// the same for any line shorter than 300 and better for a longer one, which would otherwise
-    /// run off Valve's panel.
+    /// **This was called <c>BuildHud</c> and the name was wrong.** Source's meter is
+    /// <c>CFPSPanel : vgui::Panel</c> on <c>PANEL_TOOLS</c> (<c>vgui_int.cpp:209</c>), not a
+    /// <c>CHudElement</c> — so a method named for the HUD that returns the fps readout would have
+    /// had to split the moment a real HUD element existed. The <c>HudQuad</c> and
+    /// <c>HudRenderer</c> names in <c>Render</c> name the screen-space LAYER and are correct.
     /// </remarks>
-    private IReadOnlyList<HudQuad> BuildHud()
+    private IReadOnlyList<HudQuad> BuildOverlay()
     {
-        // Assigned every frame rather than on a change event, because the setter is what notices a
-        // transition into being shown and resets the watermarks — and assigning the same value is a
-        // no-op for that check. One place, so `cl_showfps` from a config, from a launch option and
-        // from the menu all arrive the same way.
-        _fpsMeter.Mode = _settings.ShowFrameRate;
+        _overlayQuads.Mode = _settings.ShowFrameRate;
 
-        if (_fpsMeter.Mode != FpsMeter.Hidden)
+        if (_overlayQuads.NeedsAtlas)
         {
-            EnsureHudAtlas();
+            EnsureOverlayAtlas();
         }
 
-        FpsReading? reading = _fpsMeter.Sample(_lastFrameSeconds);
-
-        if (reading is not { } meter || _hudAtlas is not { } atlas)
-        {
-            return [];
-        }
-
-        // `V_GetFileName( engine->GetLevelName() )` keeps the extension, so TF2 shows
-        // `cp_process_f12.bsp`. Ours is stored without one, so it is put back rather than the line
-        // quietly differing from the game's.
-        string map = _demo?.MapName is { Length: > 0 } named ? named + ".bsp" : "no map";
-
-        string line = meter.Text(map);
-
-        (byte Red, byte Green, byte Blue) colour = meter.Colour;
-
-        const int Margin = 2;
-        const int PanelWidth = 300;
-
-        int right = Math.Max(0, _viewport.ClientSize.Width - PanelWidth) + Margin;
-
-        return HudText.Quads(atlas, line, right, Margin, colour.Red, colour.Green, colour.Blue);
+        return _overlayQuads.Quads(
+            _hudAtlas, _viewport.ClientSize.Width, _demo?.MapName, _lastFrameSeconds);
     }
 
-    /// <summary>Rasterises the HUD font and gives it to the device, once.</summary>
+    /// <summary>The frame-rate readout, which owns everything about it except the glyphs.</summary>
+    private readonly FpsOverlay _overlayQuads = new();
+
+    /// <summary>Rasterises the overlay font and gives it to the device, once.</summary>
     /// <remarks>
-    /// **Called when a HUD element is first wanted rather than at startup**, so a session that never
-    /// switches one on never pays for it and never compiles the HUD shaders.
+    /// **Called when the overlay is first wanted rather than at startup**, so a session that never
+    /// switches it on never pays for it and never compiles the overlay shaders.
     ///
-    /// A failure costs the HUD and nothing else. A viewer that refuses to play a demo because a font
-    /// would not rasterise has its priorities backwards — the same argument the file logger is built
-    /// around.
+    /// **Stays in the view, and it is the one piece here that genuinely must.** <c>GdiGlyphRasteriser</c>
+    /// is Windows — a Linux frontend supplies FreeType instead, which is exactly the seam D84 put
+    /// behind <c>IGlyphRasteriser</c> in the portable project.
+    ///
+    /// A failure costs the overlay and nothing else. A viewer that refuses to play a demo because a
+    /// font would not rasterise has its priorities backwards — the same argument the file logger is
+    /// built around.
     /// </remarks>
-    private void EnsureHudAtlas()
+    private void EnsureOverlayAtlas()
     {
         if (_hudAtlas is not null || _device is null)
         {
@@ -5862,7 +5847,7 @@ internal class MainForm : Form
         // B148.** After a demo switch the viewer reports 20 frames a second with sampling, posing
         // and lighting all at zero — so the hundred milliseconds are somewhere none of those three
         // counters could see, and this is the only step left.
-        IReadOnlyList<HudQuad> hud = BuildHud();
+        IReadOnlyList<HudQuad> hud = BuildOverlay();
 
         long hudAt = Stopwatch.GetTimestamp();
 

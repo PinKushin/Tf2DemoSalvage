@@ -135,11 +135,22 @@ fault; they wait.
 - **The callbacks the view supplies are domain services.** `LightAt`, `SunAt`, `Sample`,
   `ModelGeometry` are handed to the scene by the form today. The form has no business owning them.
 
-**Expected end state: ~1,200–1,600 total lines**, dominated by the 733-line constructor, containing
-menus, layout, input translation, window state, the pump and disposal — and nothing else.
+**THE LINE COUNT IS NOT THE TARGET, and reading it as one sends the work the wrong way.** The
+owner, 2026-08-25:
 
-**The test is not the line count.** It is whether a second frontend would have to REIMPLEMENT
-anything in the file. If it would, that thing is not view.
+> "the line count isnt a actual target, making the mainform into a true thin view is, the line
+> count is just a smell that the view has domain knowledge"
+
+So track the LIST — every member, classified by whether a second frontend would have to
+reimplement it — and work that list to zero. An earlier version of this file named
+"~1,200–1,600 total lines" as the end state, which was wrong twice over: wrong as a target at all,
+and wrong as an estimate, because at this comment density a member is roughly one line of code to
+two of commentary. Measured on 2026-08-25 the file was 6,513 lines: **883 blank, 1,517 doc, 1,074
+inline, 3,039 code.** A thin view lands somewhere near a thousand lines of code — but that is a
+consequence, not the goal.
+
+**The test:** would a second frontend have to REIMPLEMENT this? If so it is not view, however
+short it is.
 
 ---
 
