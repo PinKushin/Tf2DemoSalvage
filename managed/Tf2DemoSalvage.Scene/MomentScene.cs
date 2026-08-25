@@ -339,6 +339,22 @@ public sealed class MomentScene
     /// </remarks>
     private void AddViewmodel(IReadOnlyList<ScenePlayer> players, in MomentInfo info)
     {
+        // **Reported once when first person is on and the source is missing, because that pair is a
+        // WIRING fault rather than an ordinary state.** A viewer with no demo open legitimately has
+        // no source and must not throw — but it is also not in first person. When it is, an unset
+        // source and a demo that genuinely carries no viewmodel look identical from the outside, and
+        // the first of those shipped: nothing assigned `Viewmodels` when this moved out of the form,
+        // so the weapon never drew and the suite stayed green (B193).
+        if (info.FirstPerson && Viewmodels is null && !_reportedNoViewmodels)
+        {
+            _reportedNoViewmodels = true;
+
+            _render.LogWarning(
+                "{Message}",
+                "no viewmodel source: first person is on but nothing set MomentScene.Viewmodels, " +
+                "so no weapon will be drawn in hand");
+        }
+
         if (!info.FirstPerson ||
             Viewmodels is not { } source ||
             info.Followed is not { } follower ||
@@ -485,6 +501,9 @@ public sealed class MomentScene
 
     /// <summary>Whether the undressed-players warning has already been given.</summary>
     private bool _reportedNoAppearance;
+
+    /// <summary>Whether the missing-viewmodel-source warning has already been given.</summary>
+    private bool _reportedNoViewmodels;
 
     /// <summary>Says where every carried weapon is, once a second.</summary>
     /// <remarks>

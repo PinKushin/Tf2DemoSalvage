@@ -257,6 +257,46 @@ public sealed class MomentSceneTests
     }
 
     [Test]
+    public void Build_InFirstPersonWithNoViewmodelSource_SaysSoRatherThanDrawingNothingQuietly()
+    {
+        // **This is a regression that shipped, found two commits later.** When the scene rebuild
+        // moved out of the form, nothing assigned `Viewmodels` — so `AddViewmodel` returned on its
+        // first guard and the first-person weapon never drew, with the viewer suite green at 620/620
+        // throughout. Exactly B193's shape, for the second time in three commits.
+        //
+        // The guard is right: a viewer with no demo open has no viewmodel source and must not throw.
+        // What was wrong is that it was SILENT, so an unset source and a demo that genuinely carries
+        // no viewmodel looked identical.
+        RecordingLogger log = new();
+        MomentScene scene = new(new EntityModelSet(), new ViewmodelScene(), log)
+        {
+            Appearance = new Appearance(),
+        };
+
+        scene.Build(
+            [Soldier(entity: 3)],
+            [],
+            Info() with { FirstPerson = true, Followed = 3, EyeCamera = Eye() });
+
+        scene.ViewmodelCamera.ShouldBeNull();
+        log.Count("no viewmodel source").ShouldBe(1);
+    }
+
+    [Test]
+    public void Build_OutOfFirstPersonWithNoViewmodelSource_SaysNothing()
+    {
+        // **The control.** Third person does not want a viewmodel at all, so an absent source is not
+        // a fault there — and a warning every frame from a viewer nobody has put into first person
+        // is how a real warning stops being read.
+        RecordingLogger log = new();
+        MomentScene scene = new(new EntityModelSet(), new ViewmodelScene(), log);
+
+        scene.Build([Soldier(entity: 3)], [], Info());
+
+        log.Count("no viewmodel source").ShouldBe(0);
+    }
+
+    [Test]
     public void Build_OutOfFirstPerson_ClearsTheViewmodelCamera()
     {
         // **Dropping the camera is how "draw none" is said.** The instance list is owned by the pose

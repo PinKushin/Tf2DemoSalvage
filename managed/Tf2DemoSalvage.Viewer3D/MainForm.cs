@@ -291,6 +291,14 @@ internal class MainForm : Form
     /// </remarks>
     private WeaponModels _weapons;
 
+    /// <summary>Whose eyes the first-person view is using, and where they are.</summary>
+    /// <remarks>
+    /// **Valve's <c>CalcView</c> dispatch, and it is not window work** (<c>c_baseplayer.h:112</c>).
+    /// The form asks it two questions — which entity to hide, and where the eye is — and supplies
+    /// only the viewport's aspect ratio (B188, D90).
+    /// </remarks>
+    private readonly SpectatorView _spectator;
+
     /// <summary>Assembles what one moment draws: the draw list, the packing, the poses.</summary>
     /// <remarks>
     /// **`ShowMoment` and the four members it drove** (B188, D90). It is told the tick, the camera
@@ -738,6 +746,7 @@ internal class MainForm : Form
         // asset loader and the model set both take it as a delegate, and a null there is the shape
         // that hid a missed wiring across 193 call sites once already (D83).
         _weapons = WeaponModels.None(_renderLog);
+        _spectator = new SpectatorView(_spectateLog);
 
         _moment = new MomentScene(_models, _viewmodelScene, _renderLog)
         {
@@ -2492,7 +2501,7 @@ internal class MainForm : Form
                 if (int.TryParse(
                         value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int entity))
                 {
-                    _spectating = entity;
+                    _spectator.Spectating = entity;
                     continue;
                 }
 
@@ -2822,155 +2831,24 @@ internal class MainForm : Form
     /// disagree. On a point-of-view demo it is the recorder; on a SourceTV demo it is whoever is
     /// being spectated.
     /// </remarks>
-    private int? FollowedEntity()
-    {
-        if (_timeline is not { } timeline)
-        {
-            return null;
-        }
+    private int? FollowedEntity() => _spectator.Followed(_transport.CurrentTick);
 
-        if (timeline.RecordedViewAt(_transport.CurrentTick) is not null)
-        {
-            return timeline.RecorderEntityIndex;
-        }
+    // `Spectated`, `FirstPersonCamera`, `PlayerAt`, `Ducking` and `_spectating` are `SpectatorView`
+    // in Scene (B188, D90). Valve computes a view on the PLAYER and dispatches on observer mode —
+    // `C_BasePlayer::CalcView` (`c_baseplayer.h:112`) to `CalcObserverView` (`:455`) to
+    // `CalcInEyeCamView`/`CalcChaseCamView`/`CalcRoamingView` (`:463`) — so none of it belonged in a
+    // window there either. The only thing it wanted from one was the viewport's aspect ratio.
 
-        // Whoever the camera is spectating, asked in one place so the two cannot disagree — this
-        // decides which player is hidden from their own view, and a mismatch would hide the wrong
-        // body or leave the spectated one standing in front of the lens.
-        return Spectated(_transport.CurrentTick)?.EntityIndex;
-    }
-
-    /// <summary>The player being spectated at a tick, honouring <c>--spectate</c>.</summary>
-    /// <remarks>
-    /// **One resolver, because two call sites decide different halves of the same picture** — the
-    /// camera's position and which body to hide. They read this rather than
-    /// <see cref="SpectatorTarget.Choose"/> directly, so an override cannot reach one and miss the
-    /// other and leave a player standing in front of their own lens.
-    ///
-    /// The override falls back rather than failing when the named entity is not playing at this
-    /// tick: a spy is dead, in the lobby, or another class for most of a match, and a viewer that
-    /// went black for those stretches would be worse than one that shows somebody. It says so in the
-    /// log rather than silently, because "I asked for entity 11 and got somebody else" is exactly
-    /// the kind of thing that reads as a decode bug.
-    /// </remarks>
-    private ScenePlayer? Spectated(int tick)
-    {
-        if (_timeline is not { } timeline)
-        {
-            return null;
-        }
-
-        IReadOnlyList<ScenePlayer> players = timeline.PlayersAt(tick);
-
-        if (_spectating is { } wanted)
-        {
-            foreach (ScenePlayer player in players)
-            {
-                if (player.EntityIndex == wanted)
-                {
-                    return player;
-                }
-            }
-
-            _log.LogWarning(
-                "{Message}",
-                $"--spectate {wanted} is not playing at tick {tick}; following the default");
-        }
-
-        return SpectatorTarget.Choose(players);
-    }
-
-    /// <summary>The entity <c>--spectate</c> named, or <c>null</c> to choose automatically.</summary>
-    private int? _spectating;
-
-    /// <summary>The camera for the first-person view, or <c>null</c> when there is none.</summary>
-    /// <remarks>
-    /// **Two mechanisms behind one mode, and which applies is a property of the demo.**
-    ///
-    /// A point-of-view demo carries the camera the recording client computed, in
-    /// <c>democmdinfo_t</c>. That is used as it stands: it already accounts for death, spectating
-    /// and every observer mode, and rebuilding it from the recorder's entity would be right while
-    /// they lived and wrong for the rest — measured, the two part company by 169 units on the 2009
-    /// demo the moment the recorder dies. Only the eye height is added, because the recorded origin
-    /// is the feet.
-    ///
-    /// A SourceTV demo carries no camera, so the view is built from a player's own position and
-    /// eye angles — what the engine does when you spectate in game, and what
-    /// <see cref="FreeCamera.SpectatingEye"/> exists for. The heights differ between the two paths
-    /// and that is Valve's doing rather than an approximation; see <see cref="PlayerEye"/>.
-    /// </remarks>
-    private FreeCamera? FirstPersonCamera()
-    {
-        if (_timeline is not { } timeline)
-        {
-            return null;
-        }
-
-        float aspect = _viewport.ClientSize.Height > 0
+    /// <summary>The viewport's width over its height, which is all a camera needs from a window.</summary>
+    /// <remarks>16:9 before the control has a size, so a camera built during construction is sane.</remarks>
+    private float Aspect =>
+        _viewport.ClientSize.Height > 0
             ? _viewport.ClientSize.Width / (float)_viewport.ClientSize.Height
             : 16f / 9f;
 
-        int tick = _transport.CurrentTick;
-
-        if (timeline.RecordedViewAt(tick) is { } recorded)
-        {
-            ScenePlayer? recorder = PlayerAt(tick, timeline.RecorderEntityIndex);
-
-            return FreeCamera.AtEye(
-                recorded,
-                recorder?.PlayerClass ?? 0,
-                Ducking(recorder),
-                aspect);
-        }
-
-        // No recorded camera: spectate somebody who is actually playing. Taking the first player
-        // in the list took the SourceTV camera instead — see SpectatorTarget, and
-        // docs/findings/29 for the three identical captures that found it.
-        if (Spectated(tick) is not { } target)
-        {
-            return null;
-        }
-
-        return FreeCamera.SpectatingEye(
-            (target.X, target.Y, target.Z),
-            target.EyePitch ?? 0f,
-            target.EyeYaw ?? target.Yaw,
-            Ducking(target),
-            aspect);
-    }
-
-    /// <summary>One player at a tick, by entity index.</summary>
-    /// <remarks>
-    /// <see cref="ScenePlayer"/> is a record STRUCT, so <c>FirstOrDefault</c> hands back a zeroed
-    /// player rather than null and a <c>is null</c> check never fires — which would put the camera
-    /// at the world origin with class zero rather than reporting that nobody was found.
-    /// </remarks>
-    private ScenePlayer? PlayerAt(int tick, int? entityIndex)
-    {
-        if (entityIndex is not { } index || _timeline is not { } timeline)
-        {
-            return null;
-        }
-
-        foreach (ScenePlayer player in timeline.PlayersAt(tick))
-        {
-            if (player.EntityIndex == index)
-            {
-                return player;
-            }
-        }
-
-        return null;
-    }
-
-    /// <summary>Whether a player is crouched, which lowers the eye by more than a foot.</summary>
-    /// <remarks>
-    /// <c>FL_DUCKING</c> on <c>m_fFlags</c>. A player whose flags the recording never stated is
-    /// treated as standing, which is what they usually are — the same default the animation state
-    /// machine takes.
-    /// </remarks>
-    private static bool Ducking(ScenePlayer? player) =>
-        player?.Flags is { } flags && (flags & PlayerActivityState.Ducking) != 0;
+    /// <summary>The camera for the first-person view, or <c>null</c> when there is none.</summary>
+    private FreeCamera? FirstPersonCamera() =>
+        _spectator.Eye(_transport.CurrentTick, Aspect);
 
     /// <summary>The free camera, placed by the controller if nothing has placed it yet.</summary>
     /// <remarks>
@@ -3608,6 +3486,15 @@ internal class MainForm : Form
     {
         _demo = decoded.Demo;
         _timeline = decoded.Timeline;
+
+        // **Every per-demo source, set in ONE place, because two of them were missed separately.**
+        // `MomentScene.Viewmodels` was never assigned at all when the scene rebuild moved out — so
+        // `AddViewmodel` returned on its first guard and the first-person weapon simply never drew,
+        // with the viewer suite green throughout. That is B193's shape for the second time in three
+        // commits, and the answer is that a demo's sources are assigned together where the demo
+        // arrives rather than wherever each one happened to be constructed.
+        _spectator.Eyes = _timeline is { } eyes ? new TimelineEyes(eyes) : null;
+        _moment.Viewmodels = _timeline is { } weapons ? new TimelineViewmodels(weapons) : null;
 
         // **The sounds this recording plays, ready before the first frame asks.** Rebuilt per demo
         // rather than kept: a schedule holds a cursor into one timeline's list, and carrying it
@@ -5432,13 +5319,14 @@ internal class MainForm : Form
 
         IReadOnlyList<ScenePlayer> players = timeline.PlayersAt(_transport.CurrentTick);
 
-        if (SpectatorTarget.Next(players, _spectating ?? FollowedEntity(), reverse) is not { } next)
+        if (SpectatorTarget.Next(
+                players, _spectator.Spectating ?? FollowedEntity(), reverse) is not { } next)
         {
             _spectateLog.LogDebug("{Message}", "nobody else to follow at this tick");
             return;
         }
 
-        _spectating = next.EntityIndex;
+        _spectator.Spectating = next.EntityIndex;
         _worldIsStale = true;
         _viewport.Invalidate();
 

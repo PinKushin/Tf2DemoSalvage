@@ -263,7 +263,13 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 # and the weapon class only knows the stock version — preferring it would draw a stock rocket
 # launcher for every reskin in the game. Measured on z1800, 22 of 56 held weapons send no item index
 # at all, so the second route is not a fallback for rare cases.
-run Tf2DemoSalvage.Scene.Tests    scene     123
+# 133: SpectatorViewTests (10), out of MainForm.FollowedEntity/Spectated/FirstPersonCamera/PlayerAt/
+# Ducking. Every case is a pair of demo KINDS, because the two mechanisms are the subject: a POV
+# demo carries a recorded camera and an STV demo does not, and one kind alone cannot tell "picked
+# the right mechanism" from "only ever does one thing".
+# 135: the two viewmodel-source cases in MomentSceneTests, which exist because the missing wiring
+# they now report actually shipped (B193).
+run Tf2DemoSalvage.Scene.Tests    scene     135
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
