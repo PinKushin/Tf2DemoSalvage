@@ -5067,6 +5067,42 @@ in `Viewer3D` is exactly that: work a second frontend would have to write again.
 That is the argument for the split, and it is a better one than tidiness — it is the difference
 between "write a new window" and "write a new viewer".
 
+### Why a PARTIAL thin view is worse than none, which is the real argument
+
+The owner, 2026-08-25:
+
+> "a true view has zero domain knowledge, nothing a presenter or model would do. it also is one of
+> those things that are worse when its not followed since im using AI, because it invites later AI
+> to not follow the convention and we get a fat view again. we also get far better compile time
+> protection by moving it all out."
+
+All three hold, and the middle one is the reason this cannot be left at ninety percent.
+
+**Zero domain knowledge is the definition, not an ideal.** A passive view renders what it is told and
+forwards input; it cannot answer a question about the domain. Being one line does not make a
+delegator view code — it makes it a concise violation.
+
+**A convention that lives only in surrounding code drifts, and this repository has proved it twice.**
+The strongest signal for "how do I write this" is "what do the neighbours do", which is true of any
+contributor and especially of one that pattern-matches on context:
+
+- **MVP itself.** D54 chose it, D62 built the first presenter, and B188 records the outcome —
+  *"Nothing else followed… everything written since has gone into the form because that is where its
+  neighbours are."*
+- **Test naming.** `CLAUDE.md`: *"one early file set the style, every later file matched its
+  neighbours, and nobody compared practice against the standard."* 2,132 tests drifted to the exact
+  opposite of the written rule.
+
+So a mostly-thin view does not read as "nearly done". It reads as **"logic in the view is acceptable
+here"**, and the next change extends the precedent instead of the rule. That is why the bar is
+literal: everything that is not view comes out.
+
+**And the enforcement is the TFM, not the file.** `net10.0` cannot reference WinForms — that is the
+compiler refusing, which is what D54 meant by a boundary that is a compile error. Moving logic to
+another FILE inside `Viewer3D` buys nothing: the project is still `net10.0-windows` and the next
+person can reach for a `Control` freely. **"Move it out" therefore means out of the PROJECT.** Given
+the drift above, only the kind of rule a compiler enforces survives contact with the next session.
+
 ### How it proceeds
 
 Presenter pieces move to a `net10.0` project as they are extracted, so the compiler refuses a

@@ -139,3 +139,4 @@
 - [Refactors are when to check parity](refactors-are-when-to-check-parity.md) — a divergence written into a new type is harder to see than one left in an old method.
 - [Decide home and parity before writing](decide-home-and-parity-before-writing.md) — three days of rework; answer both questions before the code exists.
 - [custom/ and choosable huds](custom-folder-and-choosable-huds.md) — several huds at once is a deliberate step BEYOND TF2; do not "fix" it toward parity.
+- [A partial thin view is worse than none](a-partial-thin-view-is-worse-than-none.md) — it reads as permission; enforcement is the TFM, not the file.
