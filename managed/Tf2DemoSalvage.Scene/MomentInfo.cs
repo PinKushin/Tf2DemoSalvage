@@ -10,8 +10,6 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="EyeCamera">Where that eye is, or null when there is none to draw from.</param>
 /// <param name="IntervalPerTick">Seconds per tick, from the demo rather than an assumed 66.67.</param>
 /// <param name="ViewmodelFieldOfView">The first-person weapon's own FOV, which is not the world's.</param>
-/// <param name="Hands">The followed player's arms model, or null when they have none.</param>
-/// <param name="HeldWeapon">The weapon model in their hands, or null.</param>
 /// <remarks>
 /// **This is <c>SetupRenderInfo_t</c>'s shape, and the shape is the point.** Valve's renderables-list
 /// builder takes one:
@@ -40,6 +38,13 @@ namespace Tf2DemoSalvage.Scene;
 /// is stateless between frames; ours keeps the packed set and the instance lists alive across
 /// frames, because packing an MDL is expensive and the set stops growing seconds into playback.
 /// Stated because it is a real difference rather than an oversight.
+///
+/// **Nor the followed player's arms and weapon**, which were fields here for one commit. They came
+/// from the window computing two lookups to fill them in — a shim in everything but name. The scene
+/// already holds the roster this moment sampled, so it finds the followed player and asks
+/// <see cref="IPlayerAppearance.Hands"/> and <see cref="WeaponModels"/> itself. **A parameter that
+/// exists because the CALLER happened to know the answer is the coupling this record was created to
+/// remove.**
 /// </remarks>
 public readonly record struct MomentInfo(
     double Tick,
@@ -48,9 +53,7 @@ public readonly record struct MomentInfo(
     int? Followed,
     FreeCamera? EyeCamera,
     float IntervalPerTick,
-    float ViewmodelFieldOfView,
-    string? Hands = null,
-    string? HeldWeapon = null)
+    float ViewmodelFieldOfView)
 {
     /// <summary>How far into the demo this moment is, in seconds.</summary>
     /// <remarks>

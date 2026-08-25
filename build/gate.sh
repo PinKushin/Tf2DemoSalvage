@@ -258,7 +258,12 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 # leaves every weapon suffix null and the animation falls back silently, and the viewer suite passes
 # 620/620 against it (B193). The tests read `Pose.Slot` out the far end, which is the only place the
 # difference shows.
-run Tf2DemoSalvage.Scene.Tests    scene     115
+# 123: WeaponModelsTests (8), out of MainForm.WeaponModelFor/WeaponModel/ItemDefinitions. Both
+# routes are pinned and so is the order between them: the item index is what the player equipped,
+# and the weapon class only knows the stock version — preferring it would draw a stock rocket
+# launcher for every reskin in the game. Measured on z1800, 22 of 56 held weapons send no item index
+# at all, so the second route is not a fallback for rare cases.
+run Tf2DemoSalvage.Scene.Tests    scene     123
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
