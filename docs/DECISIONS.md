@@ -4758,84 +4758,23 @@ worked example: it suggested keeping the packed buffer and appending to it, whic
 while preserving the undeclared departure that caused it. Overruled — *"so we switch to valves,
 which is what we should have been using in the first place, becasue valves imp is blazingly fast"*.
 
+### The bone-merge ordering departure was DELETED on 2026-08-24, not amended
 
-### Declared departure: bone-merge ordering is a depth sort, not recursion — PROVISIONAL, TO BE REMOVED
+A subsection here declared the depth sort as a departure from Valve's recursion. B181 said to delete
+it rather than amend it when the code changed, and the code has changed (D88): `EntityModelSet` now
+drives `AnimatingEntity`, and `_ordered`, `_worn`, `_wanted`, `_wearerBones`, `_parents` and
+`Depth()` are gone.
 
-The first thing D86 governs, declared rather than assumed.
+**What is worth keeping is why the declaration was wrong, and it was wrong twice.** It claimed the
+outputs were identical — they were not, a chain three deep mixed two spaces (B180) — and it named
+`DrawModel`'s recursion as the mechanism it was trading against, when the ordering is actually solved
+by `CBoneMergeCache::MergeMatchingBones` calling `SetupBones` on its parent directly. There was no
+ordering code on Valve's side to trade against. It was forty lines against zero.
 
-**This departure is not settled and is scheduled for removal — see B181.** The owner accepted it to
-ship the weapon work and then said plainly: *"im going to regret letting you make that depth sort
-thing"* and *"im not leaving it, im going to compact you and have the next session fix that fuck
-up"*. When B181 is done, delete this subsection rather than amending it.
-
-**The reason it is being removed is the reason it was allowed**, which is worth keeping even after
-the code changes: the justification offered was that matching Valve would mean restructuring a
-150-line loop body. That is an argument for fixing the loop body. A structural problem was allowed
-to buy itself a permanent exemption from D86, by the same assistant that had just written D86.
-
-**What Valve does.** `C_BaseAnimating::DrawModel` recurses up the follow chain:
-
-```cpp
-C_BaseAnimating *follow = FindFollowedEntity();
-if ( follow )
-{
-    // recompute master entity bone structure
-    int baseDrawn = follow->DrawModel( 0 );   // flags 0: set up bones, do not render
-    if ( baseDrawn )
-        drawn = InternalDrawModel( STUDIO_RENDER|extraFlags );
-}
-```
-
-Two mechanisms, not one: the recursion orders the work, and `m_iMostRecentModelBoneCounter` caches
-per frame so a parent shared by several children is not rebuilt for each of them.
-
-**What we do.** Sort the attached props by attachment DEPTH — computed by walking up the parent
-links iteratively, bounded by the prop count — then make a single pass. Same order, and the
-deduplication is free: a player wearing five cosmetics with a weapon and an attachment on it has
-their bones built once by construction, so no counter is needed.
-
-**Why the departure is allowed here.** The outputs are identical, and the one place the two differ
-is not observable: Valve computes a parent's bones even when the parent will not render and then
-declines to draw the child, while we drop the child when the parent is not in the drawn set. A child
-of an undrawn parent is not drawn either way.
-
-**CORRECTION, 2026-08-24 — the paragraph above is wrong on both counts, and it is left standing
-because the wrong reasoning is the point of keeping this.** The audit is
-`docs/findings/35-the-bone-pipeline-audit.md`.
-
-- **"The outputs are identical" is false.** A chain three deep gets different bones, because we
-  record the parent's UNMERGED skeleton where the engine has one bone array with the merge written
-  into it (B180). It was written as a settled fact and was never measured.
-- **"What Valve does" named the wrong mechanism.** `DrawModel`'s recursion is real but is not where
-  ordering is solved; `CBoneMergeCache::MergeMatchingBones` calls `m_pFollow->SetupBones(...)`
-  directly (`bone_merge_cache.cpp:130`). The engine has **no ordering code at all**. So this was
-  never a trade-off between two orderings — it was ~40 lines against zero, and the declaration
-  presented it as a considered equivalence.
-
-That is a sharper reason to remove it than the one recorded above, and a sharper warning: a
-departure declared under D86 is only as good as the reading behind it, and this one cited the second
-mechanism it found rather than the one that mattered.
-
-Against it, honestly: it is a different structure from the engine, and this project's bugs are
-overwhelmingly where it differs. That is the whole reason D86 exists, and it is why this is written
-down instead of left to be discovered.
-
-**The owner's call**, when the alternative was offered: *"keep the depth sort, declare it under
-D86"*. Converting to Valve's shape would mean restructuring the pose loop into a recursive function
-for identical pixels.
-
-**What replaced what.** The ordering used to be a two-way split — unattached first, attached second
-— which is exactly one link of chain. A weapon attachment is two: `CTFWeaponAttachmentModel::Init`
-parents to the WEAPON (`tf_weaponbase.cpp:6960`) and the weapon parents to the player, so the
-attachment was reached before its parent had been posed and was dropped as "the wearer is not being
-drawn". An attached prop also never recorded its own bones, so nothing could hang off it at all.
-
-**Filed against it: the pose loop body is about 150 lines.** The owner: *"a loop body of 150 fucking
-lines is a massive code smell as it is"*. It is — it poses, merges, resolves attachment points,
-lights, records bones and emits an instance, which is at least five responsibilities in one block,
-and the depth ordering only exists as a separate pass because the body is too large to nest. Splitting
-it is a prerequisite for ever matching Valve's structure, since a recursive version needs the body to
-be a function in the first place.
+That is recorded in `docs/findings/35-the-bone-pipeline-audit.md`, which is where the reasoning
+belongs now that the code it governed no longer exists. **A departure declared under D86 is only as
+good as the reading behind it**, and this one cited the second mechanism it found rather than the one
+that mattered.
 
 ## D87 — PROJECT RULE: load at load time, not on sight
 

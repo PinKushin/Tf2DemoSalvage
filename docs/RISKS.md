@@ -10240,6 +10240,40 @@ chequer, so where it sits cannot be judged by looking.
 next link needs is bone-to-world. It has to return both, as `StudioBones.Skeleton` already does with
 `new StudioSkeleton(skinning, boneToWorld)`.
 
+### B185 — the viewer suite peaks at 21 GB, so any concurrent load OOMs it — OPEN
+
+**Measured 2026-08-24**, while diagnosing what looked like a regression and was not.
+
+A full `Tf2DemoSalvage.Viewer3D.Tests` run peaks at **21,232 MB** on the current commit and
+**21,832 MB** on the one before it — sampled by polling every `testhost` process's working set for
+the length of the run. The machine has 31.9 GB. So the suite normally succeeds with about ten
+gigabytes of headroom and fails the moment anything else wants memory.
+
+**What it looks like when it tips is not a memory error.** It is an
+`OutOfMemoryException` inside `PropModels.Load`'s `List<T>.AddWithResize` — the largest allocator in
+the process, which is where exhaustion lands rather than where it is caused — and the tests it kills
+are *different every run*: eleven one time, three the next, two the next. Every one of them passes in
+isolation.
+
+That combination reads exactly like flake, and this repository's standing rule says flake is a defect
+rather than noise. It is: the defect is that the suite's peak sits close enough to the machine's
+ceiling that scheduling decides the outcome.
+
+**It cost a full diagnosis to rule out as a regression**, which is the argument for filing it. The
+sequence was: full suite fails, previous commit passes, therefore mine. The measurement inverted
+that — the current commit uses *less* memory, consistent with the new pose path allocating two arrays
+per bone where the old one allocated three. What had actually changed was that a second build was
+running in a comparison worktree at the same time.
+
+**Where the memory goes is not yet measured**, and that is the next step rather than a guess: the
+suspects are `MapCache`'s `Lazy` map retention across fixtures, `ParallelScope.All` letting several
+full map loads run at once, and the static prop vertex buffers each load builds. Any one of those is
+a bounded fix; which one it is needs a heap snapshot, not an argument.
+
+Worth pairing with B184's observation that 115 of 119 files here need nothing from Windows: a suite
+that ran on the Linux measurement boxes could be given a memory ceiling and would fail loudly instead
+of at random.
+
 ### B184 — 115 of 119 test files are pinned to Windows for no reason — OPEN
 
 **Filed 2026-08-24**, prompted by the owner:
