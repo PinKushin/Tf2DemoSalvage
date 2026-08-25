@@ -769,6 +769,84 @@ public sealed class EntityModelSet
         return skinned.SequenceByActivity(fragment);
     }
 
+    /// <summary>Chooses each drawn player's sequence, now that their models are loaded.</summary>
+    /// <param name="drawn">The draw list, updated in place.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="drawn"/> is null.</exception>
+    /// <remarks>
+    /// **Named for Valve's own pass, because it IS Valve's own pass.**
+    /// <c>C_BaseAnimating::UpdateClientSideAnimations()</c> (<c>c_baseanimating.cpp:6368</c>) is a
+    /// static batch walk over <c>g_ClientSideAnimationList</c> calling
+    /// <c>UpdateClientSideAnimation()</c> on each — a loop over a list, exactly this shape, rather
+    /// than something each entity does for itself. Per entity it reaches
+    /// <c>CMultiPlayerAnimState::ComputeMainSequence</c> (<c>multiplayer_animstate.cpp:1125</c>),
+    /// which is what <see cref="SequenceFor"/> stands in for.
+    ///
+    /// **And the ORDER is Valve's too**, which is worth stating because it is the part that is easy
+    /// to get wrong later. `cdll_client_int.cpp:2188-2210` runs
+    /// `UpdateClientSideAnimations()` → `SimulateEntities()` → `ThreadedBoneSetup()`, so sequence
+    /// selection happens BEFORE simulation and before any bone is built. Ours matches: this runs
+    /// before <see cref="Instances"/>, which does <c>Simulate</c> and then the bones.
+    ///
+    /// **After the models are loaded, and that is a real constraint rather than a convenience.**
+    /// Nothing on the wire carries a player's sequence, and choosing one needs the model's merged
+    /// sequence table — which does not exist until <see cref="Add"/> has read it. Asked earlier it
+    /// answers -1, and -1 is a real answer meaning "no such sequence", so an early call looks like a
+    /// lookup that failed rather than one that ran too soon.
+    ///
+    /// Lived in <c>MainForm.ShowMoment</c> until 2026-08-25 (B188).
+    /// </remarks>
+    public void UpdateClientSideAnimations(IList<SceneProp> drawn)
+    {
+        ArgumentNullException.ThrowIfNull(drawn);
+
+        for (int index = 0; index < drawn.Count; index++)
+        {
+            SceneProp prop = drawn[index];
+
+            if (prop.Pose.Speed is not { } speed)
+            {
+                continue;
+            }
+
+            int chosen = SequenceFor(
+                prop.ModelPath,
+                speed,
+                prop.Pose.Flags,
+
+                // **True because the dead never reach here, not because death is ignored.**
+                // `PlayerProps.ModelFor` refuses a player the engine would not draw, and TF2 turns
+                // a dead player off with EF_NODRAW while a separate CTFRagdoll becomes the corpse.
+                //
+                // An earlier comment claimed a ragdoll was already doing that job, which was false
+                // in both directions: nothing here draws ragdolls, and dead players WERE reaching
+                // this call. With their ground flag clear they were then given ACT_MP_JUMP_FLOAT,
+                // so seventeen seconds of a respawn drew a soldier falling through the air.
+                alive: true,
+
+                // The weapon's suffix, or the primary forms when nothing resolved it — which is
+                // what the engine falls back to as well.
+                slot: prop.Pose.Slot ?? "PRIMARY",
+
+                // Splits the jump into its push-off and its float.
+                airborneSeconds: prop.Pose.AirborneSeconds,
+
+                // Supersedes the jump for a fast-rising player.
+                airwalking: prop.Pose.Airwalking,
+
+                // Waist deep turns a jump into a swim.
+                waterLevel: prop.Pose.WaterLevel);
+
+            // **A negative answer is left alone rather than written.** -1 means "this model has no
+            // such sequence", and storing it would replace a working sequence with one that decodes
+            // to nothing — a model frozen on frame zero, which reads as a broken animation rather
+            // than as a failed lookup.
+            if (chosen >= 0)
+            {
+                drawn[index] = prop with { Pose = prop.Pose with { Sequence = chosen } };
+            }
+        }
+    }
+
     /// <summary>Which sequence a player of this model should play.</summary>
     /// <param name="modelPath">The model's path.</param>
     /// <param name="speed">Horizontal speed in units a second.</param>

@@ -3673,46 +3673,12 @@ internal class MainForm : Form
                     $"({_models.Count} packed); this frame is a freeze"));
         }
 
-        // **Now the models are loaded, so a player's sequence can be chosen.** Nothing on the wire
-        // carries one, and picking it needs the model's own merged sequence table - which only
-        // exists after the model has been read.
-        for (int index = 0; index < _drawn.Count; index++)
-        {
-            SceneProp prop = _drawn[index];
-
-            if (prop.Pose.Speed is { } speed &&
-                _models.SequenceFor(
-                    prop.ModelPath,
-                    speed,
-                    prop.Pose.Flags,
-
-                    // **True because the dead never reach here, not because death is ignored.**
-                    // PlayerModel refuses a player the engine would not draw, and TF2 turns a dead
-                    // player off with EF_NODRAW while a separate CTFRagdoll becomes the corpse.
-                    //
-                    // This comment previously claimed a ragdoll was already doing that job, which
-                    // was false in both directions: nothing here draws ragdolls, and dead players
-                    // WERE reaching this call. With their ground flag clear they were then given
-                    // ACT_MP_JUMP_FLOAT, so seventeen seconds of a respawn drew a soldier falling
-                    // through the air.
-                    alive: true,
-
-                    // The weapon's suffix, or the primary forms when nothing resolved it — which is
-                    // what the engine falls back to as well.
-                    slot: prop.Pose.Slot ?? "PRIMARY",
-
-                    // Splits the jump into its push-off and its float.
-                    airborneSeconds: prop.Pose.AirborneSeconds,
-
-                    // Supersedes the jump for a fast-rising player.
-                    airwalking: prop.Pose.Airwalking,
-
-                    // Waist deep turns a jump into a swim.
-                    waterLevel: prop.Pose.WaterLevel) is var chosen and >= 0)
-            {
-                _drawn[index] = prop with { Pose = prop.Pose with { Sequence = chosen } };
-            }
-        }
+        // **Valve's own pass, under Valve's own name** (B188). `UpdateClientSideAnimations` →
+        // `SimulateEntities` → `ThreadedBoneSetup` is the engine's order
+        // (`cdll_client_int.cpp:2188-2210`), and ours is the same: this, then `Instances`, which
+        // simulates and then builds bones. It has to follow `Add` because nothing on the wire
+        // carries a player's sequence and choosing one needs the model's merged sequence table.
+        _models.UpdateClientSideAnimations(_drawn);
 
         // **`grew` alone is wrong the moment a second demo is opened (B148).** The packed set lives
         // for the life of the form, so after a switch it already holds what the new demo needs and
