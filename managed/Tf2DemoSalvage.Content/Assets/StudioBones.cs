@@ -507,7 +507,16 @@ public static class StudioBones
     /// <see cref="StudioSkeleton.Skin"/> — a transposed rotation is the classic silent failure here, and it looks
     /// like a model turned inside out rather than like an error.
     /// </remarks>
-    private static float[] FromQuaternion(
+    /// <param name="rotation">The bone's rotation.</param>
+    /// <param name="position">Where it sits relative to its parent.</param>
+    /// <returns>Twelve floats, row-major 3×4.</returns>
+    /// <remarks>
+    /// **Public since 2026-08-24 because the bone pipeline needs the same convention** (D88). Two
+    /// copies of this expansion in one solution is the drift this project has been bitten by
+    /// before, and a transposed rotation is the classic silent failure: it looks like a model
+    /// turned inside out rather than like an error.
+    /// </remarks>
+    public static float[] FromQuaternion(
         (float X, float Y, float Z, float W) rotation, (float X, float Y, float Z) position)
     {
         float x = rotation.X, y = rotation.Y, z = rotation.Z, w = rotation.W;
@@ -521,10 +530,36 @@ public static class StudioBones
     }
 
     /// <summary>One 3×4 transform applied after another.</summary>
-    private static float[] Concatenate(ReadOnlySpan<float> first, ReadOnlySpan<float> second)
+    /// <param name="first">The outer transform, applied second.</param>
+    /// <param name="second">The inner transform, applied first.</param>
+    /// <returns>Twelve floats, row-major 3×4.</returns>
+    public static float[] Concatenate(ReadOnlySpan<float> first, ReadOnlySpan<float> second)
     {
         float[] result = new float[12];
 
+        Concatenate(first, second, result);
+
+        return result;
+    }
+
+    /// <summary>One 3×4 transform applied after another, written into an existing array.</summary>
+    /// <param name="first">The outer transform, applied second.</param>
+    /// <param name="second">The inner transform, applied first.</param>
+    /// <param name="result">Where the twelve floats go.</param>
+    /// <remarks>
+    /// **The allocation-free form, for the per-frame path.** The bone pipeline runs this once per
+    /// bone per entity per frame — a player is around eighty bones and a match has two dozen
+    /// players — so returning a fresh array each time puts kilobytes a frame through the collector
+    /// for no reason. D87's argument in miniature: a frame has a deadline.
+    ///
+    /// **<paramref name="result"/> may not alias either input.** Each output cell is written before
+    /// the later cells of the same row are read, so writing into <paramref name="first"/> would
+    /// feed partly-updated values back into the multiply. Callers pass a distinct destination; the
+    /// bone accessor's arrays are per bone, so they never alias their own parent.
+    /// </remarks>
+    public static void Concatenate(
+        ReadOnlySpan<float> first, ReadOnlySpan<float> second, Span<float> result)
+    {
         for (int row = 0; row < 3; row++)
         {
             for (int column = 0; column < 3; column++)
@@ -541,7 +576,5 @@ public static class StudioBones
                 (first[(row * 4) + 2] * second[11]) +
                 first[(row * 4) + 3];
         }
-
-        return result;
     }
 }

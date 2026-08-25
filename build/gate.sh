@@ -179,7 +179,17 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 # share no NAME with its parent's does not cause the parent to be posed at all — nothing pairs, the
 # follow mask is 0, and the early-out returns. Every test about the recursion has to give the two
 # skeletons a bone in common or it measures an entity that never asks.
-run Tf2DemoSalvage.Animation.Tests animation 33
+#
+# 36: SkeletonPose, the adapter between the architecture and a real .mdl, with three tests that run
+# the WHOLE pipeline on models TF2 ships — a scout's skeleton, a hat merged onto it, and the hat's
+# unmatched bones riding the merged parent. Every other test in this assembly uses a fake, so
+# together they prove the architecture agrees with fakes written by the same hand; these read
+# Valve's files and are the only ones that can fail if the wiring is wrong.
+#
+# The control test measures along Y, not Z, and that is not a typo: the BIND pose is Y-up, and Z-up
+# is what an animation produces. Asserting Z first measured -1.43 and read as "the head is at the
+# feet" when it means "the head is where the artist modelled it".
+run Tf2DemoSalvage.Animation.Tests animation 36
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
