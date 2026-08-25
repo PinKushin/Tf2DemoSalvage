@@ -428,6 +428,12 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// <inheritdoc/>
     void IAudioSink.Silence(int entity, int channel) => Stop(entity, channel);
 
+    /// <inheritdoc/>
+    void IAudioSink.SilenceAll() => StopAll();
+
+    /// <inheritdoc/>
+    int IAudioSink.Reclaim() => Reclaim();
+
     /// <inheritdoc />
     public void Dispose()
     {

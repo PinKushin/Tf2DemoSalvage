@@ -114,5 +114,15 @@ public sealed class SoundscapeSystemTests
         public bool SetGain(int entity, int channel, float gain) => true;
 
         public void Silence(int entity, int channel) => Silenced.Add((entity, channel));
+
+        public void SilenceAll() => Silenced.Add((AllEntities, AllChannels));
+
+        public int Reclaim() => 0;
+
+        /// <summary>Marks a SilenceAll in <see cref="Silenced"/>, so a seek is distinguishable.</summary>
+        public const int AllEntities = int.MinValue;
+
+        /// <summary>The channel half of that marker.</summary>
+        public const int AllChannels = int.MinValue;
     }
 }

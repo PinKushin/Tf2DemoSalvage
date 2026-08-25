@@ -39,8 +39,20 @@ public sealed class SoundscapeSystem(
     /// <remarks>
     /// **Chosen on a timer, advanced every frame.** The choice traces rays and is slow-moving; the
     /// fade is cheap and has to be smooth, so they run at different rates.
+    ///
+    /// **0.2 because that is the engine's, and it was 0.25 for no reason until it was checked**
+    /// (2026-08-25). The number is the SERVER's: <c>C_SoundscapeSystem::Update</c> does not choose
+    /// at all — it only fades loops and picks random sounds — because a live client is TOLD which
+    /// soundscape it is in, through <c>audioparams_t</c> in its own private data. Choosing is
+    /// <c>CEnvSoundscape</c>'s job, and its player update thinks at
+    /// <c>SetNextThink( gpGlobals-&gt;curtime + 0.2 )</c> (<c>soundscape.cpp:534</c>, and again at
+    /// <c>:549</c> for the triggerable form).
+    ///
+    /// So this whole class reproduces a SERVER job, which is why it exists at all: a SourceTV
+    /// recording carries no player's audio params, so nothing in the demo says which soundscape
+    /// anyone was in (B173).
     /// </remarks>
-    private const double ChooseInterval = 0.25;
+    private const double ChooseInterval = 0.2;
 
     /// <summary>The entity index soundscape voices are played under.</summary>
     /// <remarks>
@@ -54,6 +66,8 @@ public sealed class SoundscapeSystem(
 
     private double _chosenAt;
     private double _advancedAt;
+    private bool _reportedNoPlacements;
+    private bool _reportedFirstChoice;
 
     /// <summary>The map's soundscape scripts, or null before a map is read.</summary>
     public SoundscapeCatalog? Catalog { get; set; }
@@ -96,6 +110,16 @@ public sealed class SoundscapeSystem(
 
         if (Placements is not { } placements)
         {
+            // **Said once, because "no placements" and "none reaches the listener" are different
+            // faults and were previously the same silence.** A null choice logs nothing at all when
+            // the mixer is also empty — both are null, so the change test is false — so a system
+            // that never chose anything looked identical to one that was never asked.
+            if (!_reportedNoPlacements)
+            {
+                _reportedNoPlacements = true;
+                audio.LogDebug("{Message}", "no soundscape placements, so none can be chosen");
+            }
+
             return;
         }
 
@@ -152,6 +176,32 @@ public sealed class SoundscapeSystem(
         // chosen and never heard are the same silence.** The loop logging below answers the second;
         // nothing answered the first, so "the outdoor ambience is missing" could not be narrowed
         // without a relaunch. Changes only — this is asked four times a second.
+        // **The FIRST choice is always reported, even when it is "none".** The change test below
+        // cannot see it: before anything is chosen both `chosen` and `Current` are null, so
+        // "nothing reaches the listener, ever" and "never asked" produce identical silence — which
+        // is exactly the pair this system's own B173 note says must stay distinguishable.
+        if (!_reportedFirstChoice)
+        {
+            _reportedFirstChoice = true;
+
+            string leaves = Leaves is null ? "MISSING" : "read";
+            string pvs = Visibility is null ? "MISSING" : "read";
+            int cluster = Leaves?.ClusterAt(listener.X, listener.Y, listener.Z) ?? -1;
+
+            audio.LogInformation(
+                "{Message}",
+                chosen is { } first
+                    ? $"first soundscape: {first.Index.ToString(CultureInfo.InvariantCulture)} " +
+                      $"'{first.Name}'"
+                    : $"no soundscape reaches the listener from " +
+                      $"{placements.Placements.Count.ToString(CultureInfo.InvariantCulture)} " +
+                      $"placements; leaves {leaves}, pvs {pvs}, " +
+                      $"cluster {cluster.ToString(CultureInfo.InvariantCulture)} at " +
+                      $"({listener.X.ToString("0", CultureInfo.InvariantCulture)}," +
+                      $"{listener.Y.ToString("0", CultureInfo.InvariantCulture)}," +
+                      $"{listener.Z.ToString("0", CultureInfo.InvariantCulture)})");
+        }
+
         if (chosen?.Id != _mixer.Current?.Id || chosen?.Index != _mixer.Current?.Index)
         {
             string loopNames = definition is { } script

@@ -711,6 +711,7 @@ internal class MainForm : Form
         // tested without a window: the loops it shares with one-shot playback, the decode cache,
         // and somewhere to report. Its map-dependent state arrives when a map is read.
         _soundscape = new SoundscapeSystem(_loops, Sample, _audioLog);
+        _sound = new SoundPresenter(_soundscape, _loops, Sample, _audioLog);
 
         // **A capture flag, because the alternative was asking a person to press F12.** Several
         // rendering defects this session were found by the owner photographing their own screen and
@@ -4383,7 +4384,7 @@ internal class MainForm : Form
         // **The sounds this recording plays, ready before the first frame asks.** Rebuilt per demo
         // rather than kept: a schedule holds a cursor into one timeline's list, and carrying it
         // across a load would index the previous demo's sounds.
-        _soundSchedule = _timeline is { } withSound ? new SoundSchedule(withSound.Sounds) : null;
+        _sound.Schedule = _timeline is { } withSound ? new SoundSchedule(withSound.Sounds) : null;
         _audio?.StopAll();
         _loops.Clear();
 
@@ -5889,22 +5890,16 @@ internal class MainForm : Form
     /// <summary>The audio device, or null when the machine has none.</summary>
     private AudioOutput? _audio;
 
-    /// <summary>Which sounds are due, as playback moves.</summary>
-    private SoundSchedule? _soundSchedule;
-
-    /// <summary>The looping sounds in flight, re-attenuated each frame as the listener moves.</summary>
+    /// <summary>The looping sounds in flight, shared by the presenter and the soundscape.</summary>
+    /// <remarks>
+    /// **Still here only because two collaborators share it**, and the window is where they are
+    /// both constructed. The schedule, the audible-crossing memory and Valve's MIN_AUDIBLE_VOLUME
+    /// went with SoundPresenter on 2026-08-25 (B188) — they were its state, not a window's.
+    /// </remarks>
     private readonly ActiveLoops _loops = new();
 
-    /// <summary>Below this a loop is treated as silent, for the crossing log only.</summary>
-    /// <remarks>
-    /// Valve's own <c>MIN_AUDIBLE_VOLUME</c> is <c>1.01e-3</c> (<c>sound.cpp:314</c>), which is the
-    /// threshold the engine uses when it computes how far an <c>ambient_generic</c> carries. Reused
-    /// here so "audible" means the same thing in the log as it does to the engine.
-    /// </remarks>
-    private const float InaudibleGain = 1.01e-3f;
-
-    /// <summary>Whether each tracked loop was audible last frame, so only crossings are logged.</summary>
-    private readonly Dictionary<(int Entity, int Channel), bool> _loopAudible = [];
+    /// <summary>Decides what should be audible at a tick.</summary>
+    private readonly SoundPresenter _sound;
 
     /// <summary>The map's ambience, chosen and faded as the listener moves through it.</summary>
     /// <remarks>
@@ -5938,55 +5933,18 @@ internal class MainForm : Form
     /// </remarks>
     private void PlaySounds()
     {
-        if (_audio is not { } output || _soundSchedule is not { } schedule)
+        if (_audio is not { } output)
         {
             return;
         }
 
-        // **A ledger over PlaySounds, because the frame ledger's `sound` bucket is all of it.**
-        // Precaching every decode moved 394 sounds off the frame and this bucket STILL read 27-105
-        // ms, which says the cost was never only decoding. Reclaim, the per-frame loop
-        // re-attenuation, the soundscape and the OpenAL starts are each candidates and none was
-        // timed.
-        long soundAt = Stopwatch.GetTimestamp();
-
-        IReadOnlyList<SceneSound> starting = schedule.Advance(_transport.CurrentTick);
-
-        long advancedAt = Stopwatch.GetTimestamp();
-
-        // **A seek silences what is in flight.** Those sounds belong to the moment the viewer has
-        // just left, and letting them finish plays the old place over the new one. The loops go
-        // with them: those voices no longer exist, so following them would re-attenuate nothing.
-        if (schedule.Jumped)
-        {
-            output.StopAll();
-            _loops.Clear();
-
-            // **The soundscape has to be forgotten too, and leaving it out was a silent bug.**
-            // `StopAll` deletes every OpenAL source, including the soundscape's — but
-            // the voice keys still held, so the system saw them as already playing and only ever
-            // called `SetGain` on sources that no longer existed. The map's room tone died at the
-            // first seek and never came back, with nothing reported anywhere.
-            _soundscape.Clear();
-        }
-
-        output.Reclaim();
-
-        long reclaimedAt = Stopwatch.GetTimestamp();
-
-        // The listener is wherever the camera is, which is the eye in first person and the free
-        // camera otherwise. Valve's right vector for a yaw, from which the pan follows.
+        // **What is left here is the LISTENER and nothing else** (B188). Deciding what should be
+        // audible moved to SoundPresenter; a window's remaining business is that the ears are
+        // wherever the camera is, which is view state and cannot come from anywhere else.
         FreeCamera? camera = _firstPerson ? FirstPersonCamera() : FreeLookCamera();
 
         if (camera is not { } ears)
         {
-            // **Reported here too, because a ledger that misses an exit is a ledger that lies.**
-            // Everything above it has already run — the schedule advance, a seek's StopAll, and
-            // Reclaim — so this path can be slow and would otherwise vanish from the record.
-            ReportSlowSounds(
-                soundAt, advancedAt, reclaimedAt, reclaimedAt, reclaimedAt,
-                Stopwatch.GetTimestamp());
-
             return;
         }
 
@@ -5994,214 +5952,40 @@ internal class MainForm : Form
         (float X, float Y, float Z) right = (MathF.Sin(yaw), -MathF.Cos(yaw), 0f);
         (float X, float Y, float Z) listener = (ears.Origin.X, ears.Origin.Y, ears.Origin.Z);
 
-        // **Every frame, before the early exit below, because this is the whole of B169.** A loop
-        // is started once and runs for the match, so its attenuation has to follow the listener or
-        // it keeps whatever the camera implied at the instant it began — which made the map's
-        // ambience inaudible. Ordering matters: this must not sit after a `starting.Count == 0`
-        // return, or the loops would only be re-attenuated on the frames something else happened
-        // to start, which is most obviously wrong exactly when the map is quiet.
-        foreach ((int entity, int channel, float loopGain) in
-            _loops.GainsAt(listener.X, listener.Y, listener.Z))
-        {
-            output.SetGain(entity, channel, loopGain);
+        long soundAt = Stopwatch.GetTimestamp();
 
-            // **Logged only when a loop crosses between silent and audible**, which is the question
-            // a listener actually has: "I walked up to the machine and heard nothing". Per-frame
-            // logging would be sixty lines a second per loop and unreadable; the crossing is a
-            // handful of lines for a whole match and says whether the gain ever came up at all.
-            bool audible = loopGain > InaudibleGain;
+        SoundPhases phases = _sound.Update(
+            output,
+            _transport.CurrentTick,
+            listener,
+            right,
+            _audioClock.Elapsed.TotalSeconds);
 
-            if (_loopAudible.TryGetValue((entity, channel), out bool was) && was == audible)
-            {
-                continue;
-            }
-
-            _loopAudible[(entity, channel)] = audible;
-
-            _audioLog.LogInformation(
-                "{Message}",
-                $"loop entity {entity.ToString(CultureInfo.InvariantCulture)} chan " +
-                $"{channel.ToString(CultureInfo.InvariantCulture)} is now " +
-                $"{(audible ? "audible" : "silent")} at gain " +
-                $"{loopGain.ToString("0.####", CultureInfo.InvariantCulture)}");
-        }
-
-        long loopsAt = Stopwatch.GetTimestamp();
-
-        _soundscape.Update(output, listener, right, _audioClock.Elapsed.TotalSeconds);
-
-        long soundscapedAt = Stopwatch.GetTimestamp();
-
-        // **Re-establishing, not replaying.** `Advance` carries EVENTS, and a looping ambient is
-        // state: cp_process starts six `)ambient/machine_hum.wav` at tick 4 and does not mention
-        // them again until a round restart minutes later. Opening the demo, or seeking anywhere
-        // past tick 4, therefore left the map's machinery silent for the rest of the recording with
-        // nothing to explain it — the engine never has this problem because a live client starts
-        // the loop once and the source simply keeps running.
-        bool reestablishing = schedule.Repositioned;
-
-        if (reestablishing)
-        {
-            starting = schedule.LiveAt(_transport.CurrentTick);
-        }
-
-        if (starting.Count == 0)
-        {
-            return;
-        }
-
-        foreach (SceneSound sound in starting)
-        {
-            // **A stop silences a channel rather than starting anything, and dropping it is
-            // audible.** Measured: 15 of movement-test-pov-cp_process's 89 sounds are stops, and
-            // they name the looping ones — doors/door_metal_rusty_move five times against eight
-            // starts, metal_box_scrape_rough_loop four, )ambient/machine_hum six. Unhonoured, each
-            // loop runs the length of its file, which the owner heard as "gate sounds are either
-            // playing too slow or just playing too long".
-            if (sound.IsStop)
-            {
-                output.Stop(sound.EntityIndex, sound.Channel);
-                _loops.Forget(sound.EntityIndex, sound.Channel);
-                continue;
-            }
-
-            if (sound.Name.Length == 0)
-            {
-                continue;
-            }
-
-            if (Sample(sound.Name) is not { } sample)
-            {
-                continue;
-            }
-
-            // **Only loops are re-established.** `LiveAt` answers which sounds still hold a named
-            // channel, and a one-shot that was never explicitly stopped still holds one — a voice
-            // line from four minutes ago is "live" by that rule and finished long ago in fact.
-            // Starting those on arrival would be the seek-replay stutter `Advance` refuses to make.
-            if (reestablishing && !sample.Loops)
-            {
-                continue;
-            }
-
-            (float X, float Y, float Z) source = (sound.OriginX, sound.OriginY, sound.OriginZ);
-
-            float distance = MathF.Sqrt(
-                ((source.X - listener.X) * (source.X - listener.X)) +
-                ((source.Y - listener.Y) * (source.Y - listener.Y)) +
-                ((source.Z - listener.Z) * (source.Z - listener.Z)));
-
-            // **Attenuation comes from the SOUNDLEVEL, for every sound, with no special case.**
-            //
-            // This first read `bIsAmbient` as "plays at full volume everywhere", and the owner heard
-            // exactly what that produces: "the ambient sounds were way way too loud compared to
-            // everything else, and started playing at the start of the demo even though i was in
-            // free cam and no one was in the spawn room".
-            //
-            // It was invented. `bIsAmbient` is written and read on the wire (`soundinfo.h:185`) and
-            // **no published client or engine code reads it for gain** — it is a routing hint for
-            // the ambient channel. What Valve actually uses is the soundlevel, and `AtDistance`
-            // already implements the one case that matters: SNDLVL_NONE means no attenuation, so a
-            // genuinely global sound is global because its own data says so. `)ambient/machine_hum`
-            // is not one of those — it is a room sound with a real soundlevel, and it should fade
-            // with distance like everything else.
-            //
-            // The general lesson is D80's, one layer up: a special case that makes something
-            // audible is indistinguishable from a working feature until somebody listens.
-            float gain = sound.Volume * SoundGain.AtDistance(sound.SoundLevel, distance);
-
-            // **A loop is started even when it is currently inaudible, and a one-shot is not.**
-            // Silence now is permanent for a one-shot, so skipping it saves a buffer nobody hears.
-            // A loop that is out of range at the moment it starts is the ordinary case — the map's
-            // ambience begins on the first tick, wherever the camera happens to be — and refusing
-            // it would mean the sound never exists to be turned up when the listener walks over.
-            if (gain <= 0f && !sample.Loops)
-            {
-                continue;
-            }
-
-            (float left, float rightGain) = SoundGain.Pan(
-                SoundGain.Rightward(listener, right, source));
-
-            // **Pan and gain go separately now.** The pan is baked into the samples and fixed for
-            // the life of the sound; the gain is a scalar on the source and is what SetGain moves
-            // as the listener travels (B169).
-            output.Play(
-                sample,
-                left,
-                rightGain,
-                gain,
-
-                // TF2 sends a percentage where 100 is unshifted. Measured across a real match: 100
-                // dominates with a spread of 95..99 around it, which is the engine's own random
-                // variation and not a decode fault.
-                sound.Pitch > 0 ? sound.Pitch / 100f : 1f,
-
-                // **The channel is what makes a stop possible and a voice line replace itself.**
-                // Passed through rather than defaulted, because CHAN_AUTO is a real value with its
-                // own meaning — the engine picks the channel and the sound is meant to overlap.
-                sound.EntityIndex,
-                sound.Channel);
-
-            // **Every looping sound is logged as it starts, because a loop is the only kind whose
-            // silence can be a defect rather than an event.** A one-shot that never plays is gone
-            // in a second; a loop that never plays is a piece of the map missing for the whole
-            // recording, and from the speakers "never started", "started at gain zero and never
-            // came up" and "started and was stopped again" are the same silence. This says which,
-            // and it costs a line per loop rather than per sound.
-            if (sample.Loops)
-            {
-                _audioLog.LogInformation(
-                    "{Message}",
-                    $"loop '{sound.Name}' entity " +
-                    $"{sound.EntityIndex.ToString(CultureInfo.InvariantCulture)} chan " +
-                    $"{sound.Channel.ToString(CultureInfo.InvariantCulture)} at tick " +
-                    $"{sound.Tick.ToString(CultureInfo.InvariantCulture)}: " +
-                    $"{distance.ToString("0", CultureInfo.InvariantCulture)} units away, " +
-                    $"sndlvl {sound.SoundLevel.ToString(CultureInfo.InvariantCulture)}, " +
-                    $"gain {gain.ToString("0.###", CultureInfo.InvariantCulture)}" +
-                    (reestablishing ? " (re-established)" : string.Empty));
-            }
-
-            // **Followed from here so it can be re-attenuated as the listener moves.** Only loops:
-            // a one-shot is over before the listener has travelled far enough for its gain to be
-            // wrong, and tracking hundreds of them would be a per-frame walk for nothing.
-            //
-            // CHAN_AUTO loops are tracked too even though Stop cannot reach them, because the gain
-            // update keys on the same pair and an untracked loop is the bug either way. They end
-            // when the demo does.
-            if (sample.Loops)
-            {
-                _loops.Track(sound);
-            }
-        }
-
-        ReportSlowSounds(
-            soundAt, advancedAt, reclaimedAt, loopsAt, soundscapedAt, Stopwatch.GetTimestamp());
+        ReportSlowSounds(soundAt, phases, Stopwatch.GetTimestamp());
     }
+
+    // **Two hundred and thirty lines moved to SoundPresenter on 2026-08-25** (B188). Deciding what
+    // should be audible at a tick is not a window's job, and none of it needed one: the schedule,
+    // the seek, the loop re-attenuation, the soundscape and every start now sit behind
+    // `IAudioSink`, where a test needs no sound card.
+    //
+    // Valve's split is the same — `CSoundEmitterSystem : CBaseGameSystem`
+    // (`SoundEmitterSystem.cpp:134`) decides what to emit and calls through `enginesound`.
 
     /// <summary>Names where a slow sound step went, when one is slow.</summary>
     /// <param name="soundAt">Entry.</param>
-    /// <param name="advancedAt">After the schedule advanced and a seek's StopAll.</param>
-    /// <param name="reclaimedAt">After finished voices were reclaimed.</param>
-    /// <param name="loopsAt">After every tracked loop was re-attenuated to the listener.</param>
-    /// <param name="soundscapedAt">After the soundscape was updated.</param>
-    /// <param name="finishedAt">After every sound starting this tick was played.</param>
+    /// <param name="phases">What each phase cost, from the presenter.</param>
+    /// <param name="finishedAt">After the presenter returned.</param>
     /// <remarks>
     /// **Written because precaching the decodes did not empty this bucket.** 394 sounds moved to
     /// load time and the `sound` phase still read 27-105 ms on the frames that froze, so the
     /// remaining cost is one of these five and a single number could not say which.
     ///
-    /// The `starting` column is what is left after the other four, and it is the one that contains
-    /// both the OpenAL `Play` calls and any decode the precache missed.
+    /// **The phases are measured by the presenter and formatted here**, which is the split that
+    /// keeps both honest: it can see its own boundaries, and what a slow line looks like is the
+    /// view's business (B188).
     /// </remarks>
-    private void ReportSlowSounds(
-        long soundAt,
-        long advancedAt,
-        long reclaimedAt,
-        long loopsAt,
-        long soundscapedAt,
-        long finishedAt)
+    private void ReportSlowSounds(long soundAt, SoundPhases phases, long finishedAt)
     {
         double total = (finishedAt - soundAt) / (double)Stopwatch.Frequency;
 
@@ -6210,18 +5994,17 @@ internal class MainForm : Form
             return;
         }
 
-        static double Ms(long from, long to) =>
-            (to - from) / (double)Stopwatch.Frequency * 1000d;
+        static double Of(long ticks) => ticks / (double)Stopwatch.Frequency * 1000d;
 
         _audioLog.LogWarning(
             "{Message}",
             string.Create(
                 CultureInfo.InvariantCulture,
-                $"SLOW SOUND {total * 1000d:0} ms: advance {Ms(soundAt, advancedAt):0.#}" +
-                $", reclaim {Ms(advancedAt, reclaimedAt):0.#}" +
-                $", loops {Ms(reclaimedAt, loopsAt):0.#}" +
-                $", soundscape {Ms(loopsAt, soundscapedAt):0.#}" +
-                $", starting {Ms(soundscapedAt, finishedAt):0.#}"));
+                $"SLOW SOUND {total * 1000d:0} ms: advance {Of(phases.Advance):0.#}" +
+                $", reclaim {Of(phases.Reclaim):0.#}" +
+                $", loops {Of(phases.Loops):0.#}" +
+                $", soundscape {Of(phases.Soundscape):0.#}" +
+                $", starting {Of(phases.Starting):0.#}"));
     }
 
     // **The soundscape system moved to Tf2DemoSalvage.Scene on 2026-08-25** (B188). What stood here

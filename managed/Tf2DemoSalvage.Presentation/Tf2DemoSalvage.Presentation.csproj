@@ -29,6 +29,14 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Tf2DemoSalvage.Core\Tf2DemoSalvage.Core.csproj" />
+
+    <!-- **A presenter uses services, which is the direction that keeps this acyclic** (D54, D62).
+         Audio references Core and Content and knows nothing about presenters, so this adds no
+         cycle — and SoundSchedule already lived here, so the alternative was Audio reaching UP into
+         the presenter layer to find it.
+
+         Added 2026-08-25 with SoundPresenter, which came out of MainForm.PlaySounds (B188). -->
+    <ProjectReference Include="..\Tf2DemoSalvage.Audio\Tf2DemoSalvage.Audio.csproj" />
   </ItemGroup>
 
 </Project>

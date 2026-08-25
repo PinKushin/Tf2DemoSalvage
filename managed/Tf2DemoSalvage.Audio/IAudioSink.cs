@@ -43,6 +43,18 @@ public interface IAudioSink
     /// <returns>Whether anything was playing there to change.</returns>
     public bool SetGain(int entity, int channel, float gain);
 
+    /// <summary>Silences everything at once, for a seek.</summary>
+    /// <remarks>
+    /// **A seek silences the world rather than fading it.** Sounds are scheduled from the timeline
+    /// by tick, so after a jump the ones in flight belong to a moment the viewer has left, and
+    /// letting them finish plays the old place over the new one.
+    /// </remarks>
+    public void SilenceAll();
+
+    /// <summary>Releases voices that have finished, and says how many.</summary>
+    /// <returns>How many were freed.</returns>
+    public int Reclaim();
+
     /// <summary>Silences one channel.</summary>
     /// <param name="entity">Which entity.</param>
     /// <param name="channel">Which channel.</param>
