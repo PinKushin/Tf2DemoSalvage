@@ -850,7 +850,8 @@ public sealed class EntityModelSet
     ///
     /// **After the models are loaded, and that is a real constraint rather than a convenience.**
     /// Nothing on the wire carries a player's sequence, and choosing one needs the model's merged
-    /// sequence table — which does not exist until <see cref="Add"/> has read it. Asked earlier it
+    /// sequence table — which does not exist until <see cref="Add(IReadOnlyList{SceneProp})"/> has
+    /// read it. Asked earlier it
     /// answers -1, and -1 is a real answer meaning "no such sequence", so an early call looks like a
     /// lookup that failed rather than one that ran too soon.
     ///
@@ -989,7 +990,36 @@ public sealed class EntityModelSet
     private static bool IsDrawable(SceneModelKind kind) =>
         kind is SceneModelKind.Studio or SceneModelKind.Brush;
 
+    /// <summary>Where geometry comes from, set once when a map is read.</summary>
+    /// <remarks>
+    /// **A global the renderer dereferences, which is Valve's arrangement rather than ours.** The
+    /// client reaches model geometry through <c>modelinfo</c> —
+    /// <c>virtual studiohdr_t *GetStudiomodel( const model_t *mod )</c>,
+    /// <c>src/public/engine/IVModelInfo.h:146</c> — an interface pointer set at init, not a
+    /// parameter threaded through every call. Passing the source per call was our invention, and it
+    /// is what kept <c>MainForm.ModelGeometry</c> alive: a five-line dictionary lookup that existed
+    /// only because three call sites in the window had to hand it over (B188, D90).
+    ///
+    /// Answers nothing until a map sets it, so the frames drawn before one is open take the same
+    /// path as any other rather than a null check at each call site.
+    /// </remarks>
+    public Func<string, PropModels.ModelFrames?> Geometry { get; set; } = NoGeometry;
+
+    /// <summary>The source a viewer with no map open reads from, which has nothing in it.</summary>
+    public static Func<string, PropModels.ModelFrames?> NoGeometry { get; } = _ => null;
+
     /// <summary>Packs whatever a moment needs that is not packed already.</summary>
+    /// <param name="props">What exists at this tick, from the timeline.</param>
+    /// <returns>Whether anything was added, so the caller knows to re-upload.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="props"/> is null.</exception>
+    /// <remarks>
+    /// Reads through <see cref="Geometry"/>, which a map load sets. **This is the production
+    /// call** — the overload taking an explicit source exists for tests, which need a different
+    /// loader per case and are the reason the seam is worth keeping.
+    /// </remarks>
+    public bool Add(IReadOnlyList<SceneProp> props) => Add(props, Geometry);
+
+    /// <summary>Packs a moment's models, reading through a source given here.</summary>
     /// <param name="props">What exists at this tick, from the timeline.</param>
     /// <param name="load">Reads a model in its own coordinates, or answers null.</param>
     /// <returns>Whether anything was added, so the caller knows to re-upload.</returns>

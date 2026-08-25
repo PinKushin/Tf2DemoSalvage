@@ -725,8 +725,9 @@ internal class MainForm : Form
         // **Given its collaborators rather than reaching for them**, which is what lets it be
         // tested without a window: the loops it shares with one-shot playback, the decode cache,
         // and somewhere to report. Its map-dependent state arrives when a map is read.
-        _soundscape = new SoundscapeSystem(_loops, Sample, _audioLog);
-        _sound = new SoundPresenter(_soundscape, _loops, Sample, _audioLog);
+        _sounds = new SoundCache(_audioLog);
+        _soundscape = new SoundscapeSystem(_loops, _sounds.Sample, _audioLog);
+        _sound = new SoundPresenter(_soundscape, _loops, _sounds.Sample, _audioLog);
         _freeCamera = new FreeCameraController(_renderLog);
 
         // **A real source that answers unlit, rather than a null field checked at every call.** The
@@ -1567,6 +1568,7 @@ internal class MainForm : Form
         _map = null;
         _surfaceList = [];
         _assets = null;
+        _models.Geometry = EntityModelSet.NoGeometry;
         _terrain = null;
         _overlays = null;
         _texturesUploaded = false;
@@ -1691,6 +1693,12 @@ internal class MainForm : Form
                     string? game = FindGameFolder();
                     _assetLog.LogInformation("{Message}", $"game folder: {game ?? "not found"}");
                     _archives = GameArchives.Open(game);
+
+                    // **Where sounds are read from, set once when the archives open.** The engine
+                    // reaches its sample cache through `IEngineSound` rather than being handed a
+                    // reader per call (`IEngineSound.h:89-91`), and doing the same is what let
+                    // `Sample` leave the window rather than shrink to a wrapper (D90).
+                    _sounds.Read = _archives.Read;
 
                     LoadEntityPalette(game);
                     _assetLog.LogInformation(
@@ -1829,6 +1837,12 @@ internal class MainForm : Form
                         _loggers);
                 }
 
+                // **Where the renderer reads geometry from, set once for this map.** The client
+                // dereferences `modelinfo` rather than being handed a source at every call
+                // (`IVModelInfo.h:146`), and doing the same here is what let `ModelGeometry` leave
+                // the window entirely rather than shrink to a wrapper (D90).
+                _models.Geometry = _assets.Geometry;
+
                 int displacements = 0;
 
                 foreach (BspSurface surface in _surfaceList)
@@ -1857,6 +1871,7 @@ internal class MainForm : Form
             {
                 _surfaceList = [];
                 _assets = null;
+                _models.Geometry = EntityModelSet.NoGeometry;
                 _mapProblem = "Map content unavailable: " + failure.Message;
                 _assetLog.LogWarning(failure, "{Message}", "reading the map's content");
             }
@@ -2149,17 +2164,12 @@ internal class MainForm : Form
     // owning the map's lighting lumps, and away from a form they can finally be tested — a control
     // pair for the leaf lookup, one for the sun's sky trace, and one asserting the per-place report
     // is `Debug` so a release run never pays for it (B191).
-    /// <summary>One model's triangles, from the set preloaded with the map.</summary>
-    /// <remarks>
-    /// Answers null for anything the load did not find, which <see cref="EntityModelSet"/>
-    /// remembers rather than asking again every frame. The miss was already reported once, at
-    /// load, where a missing asset is worth reading.
-    /// </remarks>
-    private PropModels.ModelFrames? ModelGeometry(string path) =>
-        _assets is { } assets &&
-        assets.EntityModels.TryGetValue(path, out PropModels.ModelFrames? frames)
-            ? frames
-            : null;
+    //
+    // `ModelGeometry` went the same way and for the same reason: it knew that geometry is
+    // `MapAssets.EntityModels` keyed by path, so a second frontend would have had to know it too.
+    // The lookup is `MapAssets.Geometry` and the renderer reads it through `EntityModelSet.Geometry`
+    // — an interface pointer set at map load, which is how the client reaches `modelinfo`
+    // (`IVModelInfo.h:146`) rather than being handed a source at every call.
 
     /// <summary>The model every playable class wears.</summary>
     /// <remarks>
@@ -2867,11 +2877,11 @@ internal class MainForm : Form
         // `UploadModels` is called. The viewmodel's Add was once ignoring that signal, so the arms
         // were packed, posed, instanced, transformed correctly and submitted against geometry the
         // renderer did not have.
-        if (_models.Add(scene.Props, ModelGeometry) && _device is { } packed)
+        if (_models.Add(scene.Props) && _device is { } packed)
         {
             packed.UploadModels(_models);
 
-            _renderLog.LogInformation(
+            _renderLog.LogDebug(
                 "{Message}",
                 $"viewmodel models uploaded: {_models.Count} packed, " +
                 $"{_models.Vertices.Count} vertices");
@@ -2885,7 +2895,7 @@ internal class MainForm : Form
         {
             foreach (SceneProp shown in scene.Props)
             {
-                _renderLog.LogInformation(
+                _renderLog.LogDebug(
                     "{Message}",
                     $"  viewmodel prop '{shown.ModelPath}' seq {shown.Pose.Sequence}");
             }
@@ -2902,7 +2912,7 @@ internal class MainForm : Form
 
         if (changed)
         {
-            _renderLog.LogInformation(
+            _renderLog.LogDebug(
                 "{Message}",
                 $"viewmodel at tick {_transport.CurrentTick}: {scene.Props.Count} props, " +
                 $"{_viewmodelInstances.Count} instances");
@@ -3394,7 +3404,7 @@ internal class MainForm : Form
                         continue;
                     }
 
-                    _renderLog.LogInformation(
+                    _renderLog.LogDebug(
                         "{Message}",
                         $"first person keeps entity {prop.EntityIndex} '{prop.ModelPath}' " +
                         $"attachedTo={prop.AttachedTo?.ToString(CultureInfo.InvariantCulture) ?? "-"} " +
@@ -3421,7 +3431,7 @@ internal class MainForm : Form
 
         long momentRolesAt = addedAt;
 
-        bool grew = _models.Add(_drawn, ModelGeometry);
+        bool grew = _models.Add(_drawn);
 
         double addSeconds = (Stopwatch.GetTimestamp() - addedAt) / (double)Stopwatch.Frequency;
 
@@ -3482,7 +3492,7 @@ internal class MainForm : Form
             // **Logged because a model that draws nothing looks exactly like one that was never
             // uploaded.** The counts separate the two: no vertices means the packing failed, and
             // vertices with no instances means the posing did.
-            _renderLog.LogInformation(
+            _renderLog.LogDebug(
                 "{Message}",
                 $"entity models: {_models.Count} packed, {_models.Vertices.Count} vertices");
 
@@ -3494,7 +3504,7 @@ internal class MainForm : Form
                     ", ",
                     _models.Batches(path).Select(batch => $"{batch.MaterialIndex}x{batch.VertexCount}"));
 
-                _renderLog.LogInformation(
+                _renderLog.LogDebug(
                     "{Message}",
                     $"  packed {path}: {indices} of {_assets?.Textures.Count ?? 0} textures");
             }
@@ -5064,7 +5074,7 @@ internal class MainForm : Form
         // it.** Flying the camera used to re-project the whole map every frame (B98); the average
         // barely moved while the longest frame in each second grew enormously, which is exactly
         // what stutter is. A rate on its own could not have shown that, and did not.
-        _renderLog.LogInformation(
+        _renderLog.LogDebug(
             "{Message}",
             $"{_framesDrawn / elapsed:0.#} frames a second, " +
             $"longest {_longestFrameSeconds * 1000d:0.##} ms" +
@@ -5383,7 +5393,7 @@ internal class MainForm : Form
                 synthetic.Add(new SceneProp(0, path, ScenePropTrack.Classify(path), default));
             }
 
-            _models.Add(synthetic, ModelGeometry);
+            _models.Add(synthetic);
 
             double packedSeconds =
                 (Stopwatch.GetTimestamp() - packedAt) / (double)Stopwatch.Frequency;
@@ -5411,16 +5421,12 @@ internal class MainForm : Form
     /// a sound during play is something Source treats as a programming error, and it passes
     /// `bPreload: true` to `enginesound->PrecacheSound` at `:1507`.
     ///
-    /// **This is B163's model stall, in the audio path, and it was found the same way.** Of eleven
-    /// slow frames on cp_process, six were dominated by the sound step at 27-91 ms while posing and
-    /// drawing sat at 1.7-2.6 ms. Only one decode logged a stall of its own, because the per-decode
-    /// threshold is 30 ms and a frame that starts three sounds pays three decodes that each fall
-    /// under it — an instrument watching single decodes therefore reported almost nothing while the
-    /// frames were visibly freezing. `Sample` already carried a comment naming the cost exactly:
-    /// "a 'once per sound' cost wearing the clothes of a cache".
+    /// **What this method is, now that <see cref="SoundCache.Precache"/> does the decoding: the
+    /// LIST.** Which sounds are worth having ready is the only part that needs a demo and a map —
+    /// the measurement that made a precache necessary lives with the code that acts on it.
     ///
     /// **Runs on the map-read worker on the async path**, where `_readingMap` holds the render loop
-    /// off (B146) — so nothing else touches `_soundCache` while this fills it.
+    /// off (B146) — so nothing else touches the cache while this fills it.
     ///
     /// A failure costs the precache and nothing else: anything missed is decoded on first play
     /// exactly as before, which is slower rather than broken.
@@ -5434,64 +5440,26 @@ internal class MainForm : Form
 
         try
         {
-            long decodedAt = Stopwatch.GetTimestamp();
-            int named = 0;
-            int decoded = 0;
+            // **The map's ambience is listed alongside the demo's own sounds, because no demo
+            // message names it.** A soundscape's loops come from the map's `env_soundscape`
+            // entities via `scripts/soundscapes.txt`, so the timeline cannot list them and the
+            // first pass here missed them entirely: measured 2026-08-25, `ambient/indoors.wav`
+            // still cost 103 ms in one frame after the timeline's 395 sounds were already
+            // precached.
+            //
+            // Every soundscape in the catalog rather than the ones this recording enters — which
+            // soundscape is active changes as a player walks and a seek can land anywhere, so being
+            // selective would only move the hitch to the next doorway.
+            PrecacheResult result = _sounds.Precache(
+                timeline.SoundsToPrecache()
+                    .Concat(_soundscape.Catalog?.WaveNames() ?? []));
 
-            // **Suppresses the per-decode stall warning, which would otherwise assert something
-            // false.** Its text is "this frame is a freeze", and during a precache there is no
-            // frame — every decode here is deliberately outside one.
-            _precaching = true;
-
-            try
-            {
-                foreach (string name in timeline.SoundsToPrecache())
-                {
-                    named++;
-
-                    if (Sample(name) is not null)
-                    {
-                        decoded++;
-                    }
-                }
-
-                // **The map's ambience, which no demo message names.** A soundscape's loops come
-                // from the map's `env_soundscape` entities via `scripts/soundscapes.txt`, so the
-                // timeline cannot list them and the first pass here missed them entirely: measured
-                // 2026-08-25, `ambient/indoors.wav` still cost 103 ms in one frame after the
-                // timeline's 395 sounds were already precached.
-                //
-                // Every soundscape in the catalog rather than the ones this recording enters —
-                // which soundscape is active changes as a player walks and a seek can land
-                // anywhere, so being selective would only move the hitch to the next doorway.
-                if (_soundscape.Catalog is { } soundscapes)
-                {
-                    foreach (string wave in soundscapes.WaveNames())
-                    {
-                        named++;
-
-                        if (Sample(wave) is not null)
-                        {
-                            decoded++;
-                        }
-                    }
-                }
-            }
-            finally
-            {
-                _precaching = false;
-            }
-
-            double seconds = (Stopwatch.GetTimestamp() - decodedAt) / (double)Stopwatch.Frequency;
-
-            // **Both numbers, because they answer different questions.** The gap between them is
-            // how many sounds the install could not supply, which is the difference between "the
-            // precache worked" and "the precache found nothing to do".
             _audioLog.LogInformation(
                 "{Message}",
                 string.Create(
                     CultureInfo.InvariantCulture,
-                    $"precached {decoded} of {named} sounds in {seconds * 1000d:0} ms"));
+                    $"precached {result.Decoded} of {result.Named} sounds " +
+                    $"in {result.Seconds * 1000d:0} ms"));
         }
         catch (Exception failure) when (
             failure is InvalidDataException or ArgumentException or KeyNotFoundException)
@@ -5499,9 +5467,6 @@ internal class MainForm : Form
             _audioLog.LogWarning(failure, "precaching sounds");
         }
     }
-
-    /// <summary>Whether a precache is filling the sound cache, so no decode is inside a frame.</summary>
-    private bool _precaching;
 
     /// <summary>Builds this frame's HUD: the frame rate meter, when it is switched on.</summary>
     /// <returns>Quads in screen pixels, empty when there is no HUD to draw.</returns>
@@ -5578,7 +5543,7 @@ internal class MainForm : Form
             _device.SetHudAtlas(atlas.Pixels, atlas.Width, atlas.Height);
             _hudAtlas = atlas;
 
-            _renderLog.LogInformation(
+            _renderLog.LogDebug(
                 "{Message}",
                 string.Create(
                     CultureInfo.InvariantCulture,
@@ -5682,14 +5647,13 @@ internal class MainForm : Form
 
     /// <summary>Decoded sounds, kept because a demo plays the same footstep hundreds of times.</summary>
     /// <remarks>
-    /// **A null value is a remembered failure, not an absent one.** A sound the install cannot open
-    /// would otherwise be looked up, searched for across every container and logged on every one of
-    /// the hundreds of times it is played.
+    /// **The engine's sample cache, behind the engine's own interface shape.** <c>IEngineSound</c>
+    /// carries <c>PrecacheSound</c>, <c>IsSoundPrecached</c> and <c>PrefetchSound</c> together
+    /// (<c>IEngineSound.h:89-91</c>); game code asks rather than holding samples. The dictionary,
+    /// the unopened count, the precache flag and <c>Sample</c> were all fields and methods here
+    /// (B188, D90).
     /// </remarks>
-    private readonly Dictionary<string, SoundSample?> _soundCache = new(StringComparer.OrdinalIgnoreCase);
-
-    /// <summary>How many sounds could not be opened, reported once rather than per play.</summary>
-    private int _soundsUnopened;
+    private readonly SoundCache _sounds;
 
     /// <summary>Starts whatever the recording plays at this tick.</summary>
     /// <remarks>
@@ -5796,74 +5760,11 @@ internal class MainForm : Form
     /// </remarks>
     private readonly System.Diagnostics.Stopwatch _audioClock = System.Diagnostics.Stopwatch.StartNew();
 
-    /// <summary>Decodes a named sound, once.</summary>
-    private SoundSample? Sample(string name)
-    {
-        if (_soundCache.TryGetValue(name, out SoundSample? cached))
-        {
-            return cached;
-        }
-
-        SoundSample? sample = null;
-
-        // **Timed because this is a file read and a decode INSIDE the frame.** A sound reaches here
-        // once, the first time it plays — so every new sound in a match pays a VPK read plus a full
-        // decode on the UI thread, and a voice line is an MP3. That is a "once per sound" cost
-        // wearing the clothes of a cache, and it lands wherever in playback the sound happens to
-        // first occur.
-        long readAt = Stopwatch.GetTimestamp();
-
-        if (_archives is { } archives)
-        {
-            // **The soundchars come off first.** A precached name carries Valve's prefixes — ')'
-            // for spatialised, '#' for a stream, '*' and the rest — and they are instructions to
-            // the engine rather than part of the path. Left on, every one of them is a file that
-            // does not exist.
-            Tf2DemoSalvage.Core.Net.SoundName parsed =
-                Tf2DemoSalvage.Core.Net.SoundName.Parse(name);
-
-            if (SoundFile.Open("sound/" + parsed.Path, archives.Read) is { } opened)
-            {
-                SoundSampleResult result = SoundSampleReader.Read(opened.Bytes);
-
-                sample = result.Sample;
-
-                if (!result.Succeeded)
-                {
-                    _audioLog.LogWarning("{Message}", $"{opened.Path}: {result.Refusal}");
-                }
-            }
-            else
-            {
-                // **Counted and named, once per sound rather than once per play.** The cache means
-                // a name reaches here exactly once, so this is a list of what the install could not
-                // supply rather than a stream of the same failure. Silence with no explanation is
-                // the outcome this exists to prevent.
-                _soundsUnopened++;
-
-                _audioLog.LogWarning(
-                    "{Message}",
-                    $"could not open '{parsed.Path}' (from '{name}'); " +
-                    $"{_soundsUnopened.ToString(CultureInfo.InvariantCulture)} unopened so far");
-            }
-        }
-
-        _soundCache[name] = sample;
-
-        double readSeconds = (Stopwatch.GetTimestamp() - readAt) / (double)Stopwatch.Frequency;
-
-        if (readSeconds > StallSeconds && !_precaching)
-        {
-            _audioLog.LogWarning(
-                "{Message}",
-                string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"STALL decoding '{name}' took {readSeconds * 1000d:0} ms " +
-                    $"({sample?.FrameCount ?? 0} frames); this frame is a freeze"));
-        }
-
-        return sample;
-    }
+    // `Sample` was here until 2026-08-25, with `_soundCache`, `_soundsUnopened` and `_precaching`.
+    // It is `SoundCache` in the Audio project now (B188, D90) — the engine keeps its sample cache
+    // behind `IEngineSound` (`IEngineSound.h:89-91`) and game code asks it, so a window owning one
+    // was ours alone. Ten tests came with the move; it had none, because reaching it needed an STA
+    // thread, a device and a TF2 install.
 
     /// <returns>Whether a frame was actually drawn.</returns>
     /// <remarks>
@@ -6011,7 +5912,7 @@ internal class MainForm : Form
         {
             _fullScreenClock = null;
 
-            _renderLog.LogInformation(
+            _renderLog.LogDebug(
                 "{Message}",
                 string.Create(
                     CultureInfo.InvariantCulture,
@@ -6241,7 +6142,7 @@ internal class MainForm : Form
 
         if (SpectatorTarget.Next(players, _spectating ?? FollowedEntity(), reverse) is not { } next)
         {
-            _spectateLog.LogInformation("{Message}", "nobody else to follow at this tick");
+            _spectateLog.LogDebug("{Message}", "nobody else to follow at this tick");
             return;
         }
 
@@ -6249,7 +6150,7 @@ internal class MainForm : Form
         _worldIsStale = true;
         _viewport.Invalidate();
 
-        _spectateLog.LogInformation(
+        _spectateLog.LogDebug(
             "{Message}",
             $"following entity {next.EntityIndex} (team {next.Team}) " +
             $"of {players.Count} at tick {_transport.CurrentTick}");
@@ -6301,7 +6202,7 @@ internal class MainForm : Form
 
             _heightCut = keyData == Keys.Home ? 0f : Math.Clamp(_heightCut + step, 0f, 0.95f);
 
-            _renderLog.LogInformation(
+            _renderLog.LogDebug(
                 "{Message}",
                 string.Create(
                     CultureInfo.InvariantCulture, $"height cut {_heightCut:P0} of the map"));
@@ -6361,7 +6262,7 @@ internal class MainForm : Form
             // or "free camera off, back to the map view", and both are now false: there is one
             // camera and this key does not switch anything. A log that names the wrong quantity
             // misdirects with authority (`docs/memory/a-log-must-name-what-it-measured.md`).
-            _renderLog.LogInformation("{Message}", "camera reset to the overhead placement");
+            _renderLog.LogDebug("{Message}", "camera reset to the overhead placement");
 
             return true;
         }

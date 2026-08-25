@@ -92,6 +92,35 @@ public sealed class EntityModelsTests
     }
 
     [Test]
+    public void Add_WithNoGeometrySourceSet_PacksNothingRatherThanThrowing()
+    {
+        // **Every frame before a map is read takes this path**, and there are a lot of them: the
+        // viewer pumps frames from the moment the window opens. Answering nothing is what lets the
+        // source be set once at map load rather than null-checked at each call — the null-object
+        // shape D83 settled on.
+        EntityModelSet models = new();
+
+        Should.NotThrow(() => models.Add([Prop("models/props/crate.mdl")]));
+
+        models.Vertices.ShouldBeEmpty();
+    }
+
+    [Test]
+    public void Add_WithAGeometrySourceSet_PacksThroughIt()
+    {
+        // **The control for the case above**, and the one that makes it a measurement rather than
+        // an assertion that packing never works. Same prop, same call, only the source differs.
+        EntityModelSet models = new()
+        {
+            Geometry = OneTriangle,
+        };
+
+        models.Add([Prop("models/props/crate.mdl")]);
+
+        models.Vertices.Count.ShouldBe(3);
+    }
+
+    [Test]
     public void EntityModels_AFailedModel_IsNotRetriedEveryFrame()
     {
         // Asking again sixty times a second buries the log in one repeated line, which is how a

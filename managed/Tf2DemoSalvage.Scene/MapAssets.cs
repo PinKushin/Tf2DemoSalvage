@@ -351,6 +351,21 @@ public sealed class MapAssets
     public IReadOnlyDictionary<string, PropModels.ModelFrames> EntityModels { get; private init; } =
         new Dictionary<string, PropModels.ModelFrames>(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>One model's triangles, or null for anything this load did not find.</summary>
+    /// <param name="path">The model path, as the demo names it.</param>
+    /// <returns>The frames, or null.</returns>
+    /// <remarks>
+    /// **The lookup lives with the dictionary it reads**, which is the whole of why it moved:
+    /// <c>MainForm.ModelGeometry</c> knew that geometry is <see cref="EntityModels"/> keyed by path,
+    /// and a second frontend would have had to know it too (D90).
+    ///
+    /// A miss answers null rather than throwing, and <see cref="EntityModelSet"/> remembers it
+    /// rather than asking again every frame — the miss was already reported once, at load, where a
+    /// missing asset is worth reading.
+    /// </remarks>
+    public PropModels.ModelFrames? Geometry(string path) =>
+        EntityModels.TryGetValue(path, out PropModels.ModelFrames? frames) ? frames : null;
+
     /// <summary>One decoded texture per material, null where none was found.</summary>
     public IReadOnlyList<MapTexture?> Textures { get; }
 
