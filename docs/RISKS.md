@@ -10320,6 +10320,28 @@ three open viewmodel bugs all have to change `AddViewmodel`, and `AddViewmodel` 
 without constructing a `MainForm` — which needs the STA, a device, and the desktop lock. That is why
 `viewmodel pass skipped` has been in every log this evening with nobody able to assert on it.
 
+#### B184 is the tests for this, and that is the owner's framing rather than a coincidence
+
+> *"B188 and B184 are connected, 184 is worse than 188 itself but they are connected because 184 is
+> the tests for 188"*
+
+Right, and it changes what "fixing B188" means. The 115 Windows-pinned test files are not pinned
+because they need Windows — four of the 119 do. They are pinned because they live beside those four,
+and what most of them exercise is what lives in `MainForm`.
+
+So the two are one job seen from both ends. **A piece extracted from `MainForm` can be tested from a
+`net10.0` project**, which is precisely what B184 costs today: no Stryker, no Linux measurement box.
+`Viewer3D.Tests/GlobalUsings.cs` already promised this after D59 — *"the suite follows its subjects
+across in its own change"* — and the subjects moved while the tests did not.
+
+**The test for a piece therefore moves in the same commit that moves the piece.** Anything else
+recreates the pin one file at a time, which is how it got to 115.
+
+**And it decides WHERE each piece goes.** `AddViewmodel` needs `EntityModelSet`, the timeline and a
+camera, and none of that is WinForms — so it belongs in `Tf2DemoSalvage.Scene`, not in a new folder
+under the viewer. What stays behind is what genuinely needs a window: the menus, the message pump,
+full screen, the key handling.
+
 #### What to pull out, in the order that pays
 
 Not a general tidy-up. The point is to extract what the pending work touches and stop:
