@@ -195,6 +195,21 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 # say whether they had paired — the diagnostic for the thing that broke had been deleted with the
 # code it lived in, and is now back in BoneMergeCache where it belongs.
 run Tf2DemoSalvage.Animation.Tests animation 41
+
+# 23: the scene layer's first test project of its own, and the reason it exists is B184 — Scene is
+# plain net10.0 and holds the densest behaviour in the renderer, but every test of it lived in the
+# Windows-pinned Viewer3D.Tests, so it had NO Stryker config and could not run on the Linux boxes.
+#
+# What is in it is the three collaborators B181 pulled out of the draw loop, and the assertions are
+# about FREQUENCY rather than values — which is the half that has actually gone wrong here. A
+# per-frame line once printed 1,280 times a second (B163); a once-per-model line let a bright
+# control point silence a dark one for ever; and the bone-merge report vanished entirely with the
+# method it lived in, leaving a viewer run unable to say whether weapons had paired.
+#
+# "Sampled once" and "sampled every frame" produce identical cubes, so no assertion on a cube can
+# separate them. Verified by sabotage: one flipped comparison in the lighting cache reddens exactly
+# For_AModelThatHasNotMoved_IsSampledOnce and nothing else.
+run Tf2DemoSalvage.Scene.Tests    scene      23
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

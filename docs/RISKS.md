@@ -10275,6 +10275,67 @@ chequer, so where it sits cannot be judged by looking.
 next link needs is bone-to-world. It has to return both, as `StudioBones.Skeleton` already does with
 `new StudioSkeleton(skinning, boneToWorld)`.
 
+### B188 — MainForm is 87% of the viewer, and the viewmodel bugs all live in it — OPEN
+
+**The owner, 2026-08-24**, on being told B186, B187 and B170 all point at the viewmodel pass:
+
+> *"i think we actually need to fix the viewer becoming a fat viewer when i shouldnt have too,
+> before we can fix those viewmodel bugs, because the bugs are going to have to change that file,
+> and theres no need doing double work"*
+
+That is the same argument as doing B182 before B181 — split along the seams before working inside
+them, or the work is done twice — and it is right for the same reason.
+
+#### Measured, 2026-08-24
+
+`MainForm.cs` is **7,263 lines, 3,444 of them code**, against **8,303 lines in the whole
+`Tf2DemoSalvage.Viewer3D` project**. So one file is **87%** of the viewer. The next largest is
+`TransportBar.cs` at 382.
+
+Its largest members, and each is a separate job:
+
+| lines | member | what it is |
+|---|---|---|
+| 727 | the constructor | menus, layout, wiring |
+| 366 | `PlaySounds` | audio scheduling |
+| 348 | `ShowMoment` | scene assembly per tick |
+| **319** | **`AddViewmodel`** | **the viewmodel pass** |
+| 275 | `ReadMap` | asset loading |
+| 198 | `SetFullScreen` | window state |
+| 192 | `ReportWeapons` | diagnostics |
+| 168 | `ProjectMap` | projection |
+| 162 | `RenderFrame` | the frame loop |
+| 150 / 128 / 100 | `FreeLookCamera`, `FlyCamera`, `ViewMatrix` | the camera |
+
+#### Why this is a defect and not an aesthetic complaint
+
+**D54 chose MVP so the boundary would be a compiler error rather than a convention.** D62 built the
+first presenter and moved playback out. Nothing else followed. So the pattern the project committed
+to is holding one method's worth of ground out of a 3,444-line file, and everything written since has
+gone into the form because that is where its neighbours are — the same drift B184 records for the
+test project, in the other direction.
+
+**And it has a measurable cost right now**, which is what makes it a risk rather than a wish: the
+three open viewmodel bugs all have to change `AddViewmodel`, and `AddViewmodel` cannot be tested
+without constructing a `MainForm` — which needs the STA, a device, and the desktop lock. That is why
+`viewmodel pass skipped` has been in every log this evening with nobody able to assert on it.
+
+#### What to pull out, in the order that pays
+
+Not a general tidy-up. The point is to extract what the pending work touches and stop:
+
+1. **`AddViewmodel` → its own type.** *Measured*: it reads about fifteen real form fields, the rest
+   of what it names being SDK string literals (`_szHandModelName`, `_iItemDefinitionIndex`) and model
+   path fragments. That is a collaborator, not a knot.
+2. **`ShowMoment`**, which feeds it.
+3. Stop there. The camera (378 lines across three members) and `PlaySounds` (366) are bigger and
+   cohesive, and splitting them now is the double work this entry exists to avoid — in the other
+   direction.
+
+**The test that becomes possible is the point of the exercise**, not the line count: a viewmodel pass
+that is a type takes a fake and can be asserted without a window, which is what B186 and B187 need
+and what nothing in this repository can do today.
+
 ### B187 — the debug views do not apply to viewmodels — OPEN
 
 **Reported by the owner 2026-08-24**, alongside B186 and B170 as things that survived the D88 bone

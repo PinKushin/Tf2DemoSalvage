@@ -103,6 +103,13 @@ jobs:
           dotnet test tests/Tf2DemoSalvage.Animation.Tests -c Release
           --logger 'trx;LogFileName=animation.trx'
 
+      # The scene layer's own suite (B184). Device-free and net10.0, so unlike the tests of Scene
+      # that live in Viewer3D.Tests it runs here and on the Linux measurement boxes.
+      - name: Scene
+        run: >
+          dotnet test tests/Tf2DemoSalvage.Scene.Tests -c Release
+          --logger 'trx;LogFileName=scene.trx'
+
       - name: Check the counts
         # "Passed!" is not the result, the count is. A crashed test host prints a pass line with
         # a truncated total, and a --filter matching nothing exits 0 with no summary at all.
@@ -157,6 +164,7 @@ jobs:
           # and still appear in the total. That is the same reason Content's 645 holds while it
           # executes a fraction of its cases here.
           ./build/assert-test-count.sh '**/animation.trx' 41 Animation
+          ./build/assert-test-count.sh '**/scene.trx' 23 Scene
 
       # **Coverage, gated PER ASSEMBLY rather than per report.** A Cobertura file's root line-rate
       # averages every assembly the run loaded, including ones the suite never touches — measured

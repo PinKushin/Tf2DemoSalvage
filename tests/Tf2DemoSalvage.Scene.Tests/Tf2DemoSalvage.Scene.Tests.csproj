@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The scene layer's own suite, and it did not have one.
+
+    Tf2DemoSalvage.Scene is plain net10.0 and holds the densest behaviour in the renderer, but every
+    test of it lived in Viewer3D.Tests — which is pinned to net10.0-windows. So it could not run on
+    the Linux measurement boxes and it had NO Stryker config at all: the pose loop, the material
+    table, the map assets and the lighting have never been mutation tested (B184).
+
+    This is not the deferred 115-file sweep that B184 describes. It is the correct home for tests
+    written from here on, so the pin stops spreading while that sweep waits.
+
+    **What belongs here**: anything in Scene that needs no device. What does not: anything that
+    builds a D3D device or a Windows Form, which stays in Viewer3D.Tests with the GPU it needs.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Tf2DemoSalvage.Scene.Tests</RootNamespace>
+    <IsTestProject>true</IsTestProject>
+
+    <!-- NUnit discovers public fixtures; CA1515 wants an application's types internal.
+         Inapplicable here rather than ignored. -->
+    <NoWarn>$(NoWarn);CA1515</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="NUnit" />
+    <PackageReference Include="NUnit3TestAdapter" />
+    <PackageReference Include="NUnit.Analyzers">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Shouldly" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\managed\Tf2DemoSalvage.Scene\Tf2DemoSalvage.Scene.csproj" />
+  </ItemGroup>
+
+</Project>
