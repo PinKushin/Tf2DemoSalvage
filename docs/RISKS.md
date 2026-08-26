@@ -12019,3 +12019,55 @@ than the observation. Playing `20130518_0313_cp_process_granary_blu_blu.dem`-era
 enemies are absent there too it is PVS and expected; if they draw, it is ours. **Do not substitute a
 different demo or map to check** — that is what turned a half-hour question into an evening once
 already.
+
+### B203 — The frame ran its stages in the wrong order, for as long as it lived in the form — FIXED 2026-08-26
+
+**Found by auditing `MainForm.RenderFrame` against Valve before extracting it**, which is the only
+reason it was found at all: nothing about the symptom said "frame order", and every stage had its own
+passing tests.
+
+**Two independent divergences, both in the same eight lines.**
+
+**1. Sound ran before the camera was placed.** Valve computes the camera basis and the listener from
+the *same* `viewEye`, four statements apart (`game/client/view.cpp:778-796`, read from source):
+
+```cpp
+ComputeCameraVariables( viewEye.origin, viewEye.angles, &g_vecVForward, &g_vecVRight, ... );
+
+// set up the hearing origin...
+AudioState_t audioState;
+audioState.m_Origin = viewEye.origin;
+audioState.m_Angles = viewEye.angles;
+engine->SetAudioState( audioState );
+```
+
+Ours called `PlaySounds()` **first**, so the listener sat where the eye had been on the *previous*
+frame. Audible as sound lagging the view through a fast turn, and indistinguishable by ear from a
+wrong panning law — which is why it survived the whole of the audio work.
+
+**2. The world advanced after the camera was uploaded.** Valve simulates in `CHLClient::HudUpdate`
+via `IGameSystem::UpdateAllSystems( frametime )` (`cdll_client_int.cpp:1308`), which runs before the
+view is built at all. Ours called `AdvancePlayback()` *after* `UploadCamera()`, so each frame drew
+**tick T+1's entities through tick T's eye** — and worse, the viewmodel camera *is* rebuilt during
+the advance (`ShowMoment` passes `FirstPersonCamera()` into `MomentInfo`), so **the viewmodel and the
+world were drawn through cameras one tick apart from each other**.
+
+**Why no test could see it.** The order was a sequence of statements inside a `Form`. A window cannot
+be asked what order it does things in, and every stage's own tests passed throughout — the exact
+shape of *three test levels, and the third is missing*.
+
+**Fixed by extracting the order into `FrameSequence` + `IFrameSteps`** (Presentation), which is
+testable: `FrameSequenceTests` asserts the stage order against Valve's citations. The red step was
+run deliberately with the shipped order in place, and the three order assertions failed — so the test
+is known to detect the bug it was written for, not merely to pass.
+
+**A second, quieter half of the same defect went with it.** `FramePhases.Between` took eight
+cumulative timestamps and subtracted adjacent pairs, so its *parameter names* were a second copy of
+the frame's order. Reordering the stages without reordering that argument list would have relabelled
+every stall column silently — reporting the fix as a regression somewhere else. The order is now
+written once, executably, and each phase is named at the call that produces it.
+
+**Not yet judged by eye.** The suites are green (3,659 plus 19 UI) and the reorder is correct against
+the citations, but *what it looks like* is a question for the owner, per the standing rule that a UI
+claim which cannot be checked by looking is a question rather than a statement. It is plausible that
+this is behind some of B198's visual reports; it is not established, and it should not be assumed.

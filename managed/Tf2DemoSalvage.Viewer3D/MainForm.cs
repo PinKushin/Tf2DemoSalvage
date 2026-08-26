@@ -41,7 +41,7 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// needs a real handle and the panel does not have one until it is shown. Constructing the form
 /// therefore stays free of side effects, which is also what lets it be tested without a display.
 /// </remarks>
-internal class MainForm : Form
+internal class MainForm : Form, IFrameSteps
 {
     /// <summary>Automation id of the Direct3D viewport panel.</summary>
     public const string ViewportId = "Viewport";
@@ -3249,13 +3249,11 @@ internal class MainForm : Form
     /// <inheritdoc cref="BackgroundRed"/>
     private const float BackgroundBlue = 0.20f;
 
-    /// <summary>Moves playback on by however long the last frame took.</summary>
-    /// <remarks>
-    /// **Nothing is invalidated here.** The idle loop this runs inside already draws every frame,
-    /// and asking for a repaint as well is what made the mouse sluggish over the transport
-    /// buttons - paint messages queued faster than the pump could drain them.
-    /// </remarks>
-    private void AdvancePlayback() => _playback.Advance();
+    // **`AdvancePlayback` was here until 2026-08-26** (B188, B203, D90). It is now `Simulate`, the
+    // first stage of `FrameSequence`, and its note is worth keeping: **nothing is invalidated
+    // there.** The idle loop it runs inside already draws every frame, and asking for a repaint as
+    // well is what made the mouse sluggish over the transport buttons — paint messages queued
+    // faster than the pump could drain them.
 
     /// <summary>Renders continuously for as long as Windows has nothing else for this thread.</summary>
     /// <remarks>
@@ -3717,10 +3715,15 @@ internal class MainForm : Form
     }
 
     // **`ReportSlowFrame` was here until 2026-08-25** (B188, D90). It is `StallReport.Frame`, and
-    // its eight timestamp parameters are now a `FramePhases` record built by `FramePhases.Between`
-    // — the same correction `MomentPhases` already carried. Eight `long`s in the right order is a
-    // signature that can be called in the wrong one, and the failure is silent: seven plausible
-    // numbers against the wrong labels.
+    // its eight timestamp parameters became a `FramePhases` record — the same correction
+    // `MomentPhases` already carried. Eight `long`s in the right order is a signature that can be
+    // called in the wrong one, and the failure is silent: seven plausible numbers against the wrong
+    // labels.
+    //
+    // **That correction was half of one, and the other half arrived on 2026-08-26** (B203). Wrapping
+    // the timestamps in a record stopped the CALL being mis-ordered, but `FramePhases.Between` still
+    // named the frame's stages in its parameter list, so the order was written down twice. It is now
+    // written once, executably, in `FrameSequence.Run`.
     //
     // The reasoning is worth keeping, because it is why the ledger exists at all. It was built
     // after four rounds of one-suspect-at-a-time, three right and one wrong: the model upload, the
@@ -3850,7 +3853,7 @@ internal class MainForm : Form
     /// had to split the moment a real HUD element existed. The <c>HudQuad</c> and
     /// <c>HudRenderer</c> names in <c>Render</c> name the screen-space LAYER and are correct.
     /// </remarks>
-    private IReadOnlyList<HudQuad> BuildOverlay()
+    public IReadOnlyList<HudQuad> BuildOverlay()
     {
         _overlayQuads.Mode = _settings.ShowFrameRate;
 
@@ -4029,24 +4032,19 @@ internal class MainForm : Form
         // **What is left here is the LISTENER and nothing else** (B188). Deciding what should be
         // audible moved to SoundPresenter; a window's remaining business is that the ears are
         // wherever the camera is, which is view state and cannot come from anywhere else.
-        FreeCamera? camera = _firstPerson ? FirstPersonCamera() : FreeLookCamera();
-
-        if (camera is not { } ears)
+        if (SoundListener.From(_firstPerson ? FirstPersonCamera() : FreeLookCamera())
+            is not { } ears)
         {
             return;
         }
-
-        float yaw = ears.Angles.Yaw * (MathF.PI / 180f);
-        (float X, float Y, float Z) right = (MathF.Sin(yaw), -MathF.Cos(yaw), 0f);
-        (float X, float Y, float Z) listener = (ears.Origin.X, ears.Origin.Y, ears.Origin.Z);
 
         long soundAt = Stopwatch.GetTimestamp();
 
         SoundPhases phases = _sound.Update(
             output,
             _transport.CurrentTick,
-            listener,
-            right,
+            ears.Origin,
+            ears.Right,
             _audioClock.Elapsed.TotalSeconds);
 
         StallReport.Sounds(phases, Stopwatch.GetTimestamp() - soundAt, _audioLog);
@@ -4136,104 +4134,15 @@ internal class MainForm : Form
         // The residual is the important column: it is everything between these timers, so a large
         // one says the cost is somewhere nobody has thought to measure yet, which is precisely the
         // state this whole hunt started in.
-        long frameAt = Stopwatch.GetTimestamp();
-
-        PlaySounds();
-
-        long soundedAt = Stopwatch.GetTimestamp();
-
-        FlyCamera();
-
-        // **Every frame, because the view can change without anything here being told.** This used
-        // to be sent only from FlyCamera, and only when the free camera had actually moved — so in
-        // the first-person view the recorded camera advanced every tick, produced a correct matrix,
-        // and never reached the GPU. The owner: "pov isnt actually updating cam position at the
-        // tick rate either, the only way to get the cam in pov to move is by clicking and moving
-        // the mouse", which is mouse-look going through the flight path that does upload.
         //
-        // Same shape as the debug views not appearing until the camera moved, and the same lesson:
-        // a value computed correctly and not sent is indistinguishable from one computed wrongly.
-        // Uploading unconditionally costs one 112-byte constant write per frame and removes the
-        // whole class — a spectator switch, a scrub, a demo change and playback itself all move the
-        // view without touching FlyCamera.
-        UploadCamera();
+        // **The ORDER of those phases moved to `FrameSequence`** (B188, B203, D90). It is the
+        // engine's frame order, it was wrong here for months, and it was wrong because a window
+        // cannot be asked what order it does things in.
+        FramePhases phases = FrameSequence.Run(this);
 
-        long flownAt = Stopwatch.GetTimestamp();
+        _ledger.Drawing(phases.Draw);
 
-        // **Reprojected here rather than in the resize handler**, which is what coalesces a burst
-        // of resizes into one rebuild. Idle runs when the message queue empties, so every layout
-        // step of a full-screen transition - or every pixel of a window drag - is collapsed into
-        // the single size that was current when the pump went quiet.
-        if (_worldIsStale)
-        {
-            _worldIsStale = false;
-            ProjectMap();
-
-            // **The scene is projected too, so a camera change invalidates it as well.** Points
-            // are stored in screen space while the world's vertices are not, so rebuilding one and
-            // not the other left every dot at the pixel it had before the zoom while the map moved
-            // underneath it. Playback hid this by rebuilding the scene every frame regardless; it
-            // only showed while paused.
-            //
-            // Done here rather than beside each camera change: five places already set this flag,
-            // and the next one added would have had the same bug again.
-            ReprojectScene();
-        }
-
-        long projectedAt = Stopwatch.GetTimestamp();
-
-        AdvancePlayback();
-
-        long advancedAt = Stopwatch.GetTimestamp();
-
-        TakeAutomaticShot();
-
-        long shotAt = Stopwatch.GetTimestamp();
-
-        // **Timed because everything else in a frame already was, and none of it accounted for
-        // B148.** After a demo switch the viewer reports 20 frames a second with sampling, posing
-        // and lighting all at zero — so the hundred milliseconds are somewhere none of those three
-        // counters could see, and this is the only step left.
-        IReadOnlyList<HudQuad> hud = BuildOverlay();
-
-        long hudAt = Stopwatch.GetTimestamp();
-
-        long drewAt = Stopwatch.GetTimestamp();
-
-        _device?.DrawFrame(
-            BackgroundRed,
-            BackgroundGreen,
-            BackgroundBlue,
-            // Empty, always. The flat fill was drawn only when there was no textured map and was
-            // built from the map, so it was dead in both branches (see ProjectMap). The parameter
-            // stays until Device3D's signature is revised, which is a change to the render seam and
-            // not to this frame.
-            [],
-            // **The line channel carries mat_leafvis, in WORLD units, drawn depth-tested** (D95).
-            // It used to be the BSP's own edge segments projected for the overhead view; that view
-            // is gone (D49) and `mat_wireframe` replaced the outline, so the channel now does what
-            // the engine's debug lines do — absolute coordinates, transformed on the GPU, occluded
-            // by the geometry the box describes.
-            //
-            // The projected outline is gone entirely (B151 closed by deletion rather than by the
-            // split it proposed): nothing read it, and 615 ms of a 679 ms frame was spent building
-            // it. `MapOutline` still supplies the play-area bounds, which is the half that was
-            // actually wanted.
-            LeafBoxLines(),
-            _scene,
-            _moment.Instances,
-            _moment.ViewmodelInstances,
-            _moment.ViewmodelCamera?.ToMatrix(),
-            hud);
-
-        long finishedAt = Stopwatch.GetTimestamp();
-
-        _ledger.Drawing(finishedAt - drewAt);
-
-        StallReport.Frame(
-            FramePhases.Between(
-                frameAt, soundedAt, flownAt, projectedAt, advancedAt, shotAt, hudAt, finishedAt),
-            _renderLog);
+        StallReport.Frame(phases, _renderLog);
 
         // **NOT cleared here, and that was a real bug.** `Instances` clears the list it fills, so
         // it is emptied and refilled by the pose step exactly like the world's own list — and the
@@ -4258,6 +4167,106 @@ internal class MainForm : Form
 
         return true;
     }
+
+    /// <summary>Advance the world to the moment this frame shows.</summary>
+    /// <remarks>
+    /// **This ran AFTER the camera until 2026-08-26** (B203), so every frame drew tick T+1's
+    /// entities through tick T's eye. Valve simulates in `CHLClient::HudUpdate`, before the view is
+    /// built at all (`cdll_client_int.cpp:1308`).
+    /// </remarks>
+    public void Simulate() => _playback.Advance();
+
+    /// <summary>Work out where the eye is and hand the camera to the GPU.</summary>
+    /// <remarks>
+    /// **Uploaded every frame, because the view can change without anything here being told.** This
+    /// used to be sent only from FlyCamera, and only when the free camera had actually moved — so in
+    /// the first-person view the recorded camera advanced every tick, produced a correct matrix, and
+    /// never reached the GPU. The owner: "pov isnt actually updating cam position at the tick rate
+    /// either, the only way to get the cam in pov to move is by clicking and moving the mouse",
+    /// which is mouse-look going through the flight path that does upload.
+    ///
+    /// Same shape as the debug views not appearing until the camera moved, and the same lesson: a
+    /// value computed correctly and not sent is indistinguishable from one computed wrongly.
+    /// Uploading unconditionally costs one 112-byte constant write per frame and removes the whole
+    /// class — a spectator switch, a scrub, a demo change and playback itself all move the view
+    /// without touching FlyCamera.
+    /// </remarks>
+    public void PlaceCamera()
+    {
+        FlyCamera();
+        UploadCamera();
+    }
+
+    /// <summary>Put the ears where the eye is, and play what is due.</summary>
+    /// <remarks>
+    /// **This ran FIRST until 2026-08-26** (B203), so the listener sat at the previous frame's eye.
+    /// Valve sets the audio state from the same `viewEye` it just built the camera from, four
+    /// statements later (`view.cpp:779-796`).
+    /// </remarks>
+    public void UpdateListener() => PlaySounds();
+
+    /// <summary>Rebuild the projected world, if anything invalidated it.</summary>
+    /// <remarks>
+    /// **Reprojected here rather than in the resize handler**, which is what coalesces a burst of
+    /// resizes into one rebuild. Idle runs when the message queue empties, so every layout step of a
+    /// full-screen transition — or every pixel of a window drag — is collapsed into the single size
+    /// that was current when the pump went quiet.
+    ///
+    /// **The scene is projected too, so a camera change invalidates it as well.** Points are stored
+    /// in screen space while the world's vertices are not, so rebuilding one and not the other left
+    /// every dot at the pixel it had before the zoom while the map moved underneath it. Playback hid
+    /// this by rebuilding the scene every frame regardless; it only showed while paused.
+    ///
+    /// Done here rather than beside each camera change: five places already set this flag, and the
+    /// next one added would have had the same bug again.
+    /// </remarks>
+    public void ProjectWorld()
+    {
+        if (!_worldIsStale)
+        {
+            return;
+        }
+
+        _worldIsStale = false;
+        ProjectMap();
+        ReprojectScene();
+    }
+
+    /// <summary>Take a screenshot if one was asked for.</summary>
+    /// <remarks>
+    /// **Not named `Capture`**, which is `Control.Capture` — WinForms' mouse capture. See
+    /// <see cref="IFrameSteps.TakeShot"/>.
+    /// </remarks>
+    public void TakeShot() => TakeAutomaticShot();
+
+    /// <summary>Draw the frame.</summary>
+    /// <param name="overlay">The quads built for this frame.</param>
+    public void Draw(IReadOnlyList<HudQuad> overlay) =>
+        _device?.DrawFrame(
+            BackgroundRed,
+            BackgroundGreen,
+            BackgroundBlue,
+            // Empty, always. The flat fill was drawn only when there was no textured map and was
+            // built from the map, so it was dead in both branches (see ProjectMap). The parameter
+            // stays until Device3D's signature is revised, which is a change to the render seam and
+            // not to this frame.
+            [],
+            // **The line channel carries mat_leafvis, in WORLD units, drawn depth-tested** (D95).
+            // It used to be the BSP's own edge segments projected for the overhead view; that view
+            // is gone (D49) and `mat_wireframe` replaced the outline, so the channel now does what
+            // the engine's debug lines do — absolute coordinates, transformed on the GPU, occluded
+            // by the geometry the box describes.
+            //
+            // The projected outline is gone entirely (B151 closed by deletion rather than by the
+            // split it proposed): nothing read it, and 615 ms of a 679 ms frame was spent building
+            // it. `MapOutline` still supplies the play-area bounds, which is the half that was
+            // actually wanted.
+            LeafBoxLines(),
+            _scene,
+            _moment.Instances,
+            _moment.ViewmodelInstances,
+            _moment.ViewmodelCamera?.ToMatrix(),
+            overlay);
 
     /// <summary>
     /// Notes that the viewport changed size, without doing the work yet.

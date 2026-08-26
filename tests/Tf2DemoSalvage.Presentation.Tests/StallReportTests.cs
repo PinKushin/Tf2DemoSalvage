@@ -85,38 +85,14 @@ public sealed class StallReportTests
         log.Lines[0].Message.ShouldContain("unaccounted 93");
     }
 
-    [Test]
-    public void Frame_BuiltFromTimestamps_MeasuresTheGapsBetweenThem()
-    {
-        // `Between` is what the render loop actually calls, and the failure it can have is
-        // off-by-one pairing: measuring `flownAt - soundedAt` as the CAMERA phase when it is the
-        // project phase. Distinct durations make that visible — with equal ones every pairing
-        // agrees.
-        long start = 0;
-        long sounded = Ticks(1d);
-        long flown = Ticks(3d);
-        long projected = Ticks(7d);
-        long advanced = Ticks(15d);
-        long shot = Ticks(31d);
-        long hud = Ticks(63d);
-        long finished = Ticks(127d);
-
-        FramePhases phases =
-            FramePhases.Between(start, sounded, flown, projected, advanced, shot, hud, finished);
-
-        Ms(phases.Sound).ShouldBe(1d, 0.01d);
-        Ms(phases.Camera).ShouldBe(2d, 0.01d);
-        Ms(phases.Project).ShouldBe(4d, 0.01d);
-        Ms(phases.Advance).ShouldBe(8d, 0.01d);
-        Ms(phases.Capture).ShouldBe(16d, 0.01d);
-        Ms(phases.Hud).ShouldBe(32d, 0.01d);
-        Ms(phases.Draw).ShouldBe(64d, 0.01d);
-        Ms(phases.Total).ShouldBe(127d, 0.01d);
-
-        // Powers of two, so any mis-pairing gives a different sum: the columns account for all of
-        // it and nothing is left over.
-        Ms(phases.Unaccounted).ShouldBe(0d, 0.01d);
-    }
+    // **`Frame_BuiltFromTimestamps_MeasuresTheGapsBetweenThem` was here until 2026-08-26** (B203).
+    // It guarded `FramePhases.Between` against off-by-one PAIRING — charging `flownAt - soundedAt`
+    // to the camera column when it belonged to the project one — and both the method and that
+    // failure mode are now gone: `FrameSequence` names each phase at the call that produces it, so
+    // there is no pairing step left to get wrong.
+    //
+    // Its replacement is `FrameSequenceTests.Run_WithOneSlowStage_ChargesTheTimeToThatStagesColumn`,
+    // which is strictly stronger — it walks every stage rather than checking one arithmetic chain.
 
     [Test]
     public void Frame_WithNoLogger_Refuses()
@@ -247,6 +223,5 @@ public sealed class StallReportTests
     private static long Ticks(double milliseconds) =>
         (long)(milliseconds / 1000d * Stopwatch.Frequency);
 
-    /// <summary>Stopwatch ticks back to milliseconds.</summary>
-    private static double Ms(long ticks) => ticks / (double)Stopwatch.Frequency * 1000d;
+    // `Ms`, the inverse of `Ticks`, went with the `Between` test it existed for (B203).
 }

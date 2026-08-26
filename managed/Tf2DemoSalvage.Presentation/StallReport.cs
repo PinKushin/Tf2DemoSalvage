@@ -45,34 +45,13 @@ public readonly record struct FramePhases(
     public long Unaccounted =>
         Total - Sound - Camera - Project - Advance - Capture - Hud - Draw;
 
-    /// <summary>The phases between the timestamps a frame stamps as it runs.</summary>
-    /// <param name="frameAt">When the frame started.</param>
-    /// <param name="soundedAt">After the sound systems advanced.</param>
-    /// <param name="flownAt">After the camera moved.</param>
-    /// <param name="projectedAt">After any reprojection.</param>
-    /// <param name="advancedAt">After the scene was rebuilt.</param>
-    /// <param name="shotAt">After any automatic capture.</param>
-    /// <param name="hudAt">After the overlay was built.</param>
-    /// <param name="finishedAt">When the device returned.</param>
-    /// <returns>The durations between them.</returns>
-    public static FramePhases Between(
-        long frameAt,
-        long soundedAt,
-        long flownAt,
-        long projectedAt,
-        long advancedAt,
-        long shotAt,
-        long hudAt,
-        long finishedAt) =>
-        new(
-            soundedAt - frameAt,
-            flownAt - soundedAt,
-            projectedAt - flownAt,
-            advancedAt - projectedAt,
-            shotAt - advancedAt,
-            hudAt - shotAt,
-            finishedAt - hudAt,
-            finishedAt - frameAt);
+    // **`Between` was here until 2026-08-26** (B203). It took eight cumulative timestamps and
+    // subtracted adjacent pairs, so its PARAMETER NAMES were a second copy of the frame's order —
+    // and reordering the stages without reordering that argument list would have relabelled every
+    // column silently, reporting a fix as a regression somewhere else.
+    //
+    // `FrameSequence.Run` builds this record instead, naming each phase at the call that produces
+    // it. There is now one statement of the order, and it is the executable one.
 }
 
 /// <summary>Names where a slow step went, when one is slow.</summary>
