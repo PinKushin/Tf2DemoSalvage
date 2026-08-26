@@ -216,6 +216,25 @@ really a presenter driving the device: `UploadWorldTextures`, `SetCamera`, `HasW
 members still on this list (`ViewMatrix`, `LeafBoxLines`, `ProjectMap`, the pan and zoom handlers).
 Moving it first would mean rewriting each of those twice.
 
+### Where it stands after 2026-08-26
+
+**MainForm 3,039 → 2,032 code lines**, over ten extractions. Done since the list above was written:
+`StallReport`, `FreeCameraController.Fly`, `SpectatorView.Enter`, `DemoAppearance`, `FrameLedger`,
+`LevelSystems` + the `GameSystems` project, `WorldPresenter` + `IWorldUpload`, `DemoSounds`.
+
+**What is left is one cluster and its camera.** `Apply`, `LoadDemoAsync`, `ShowMoment`,
+`ApplyOpeningState` and `RenderFrame`'s phase order all wire the same collaborators for a newly
+opened DEMO — the mirror of what `LevelSystems` now does for a level, and the same shape B193 broke
+three times. Then `MapCamera` and the camera helpers (`ViewMatrix`, `FirstPersonCamera`,
+`FreeLookCamera`, `PlayerAt`, `Spectated`, `Ducking`, `FollowedEntity`).
+
+**A parity note for whoever does that cluster.** In the engine, **playing a demo IS loading a
+level** — `playdemo` runs the ordinary level-load path, so systems get `LevelInit*` and there is no
+separate "demo applied" event to copy. Our split exists because this viewer opens a demo BEFORE it
+knows whether it has the map, which the engine never has to handle. So a `DemoSystems` mirroring
+`LevelSystems` is ours by necessity rather than by parity — worth saying in its remarks, and worth
+asking about before building, since the alternative is folding demo-apply into the level walk.
+
 **`ShowPositions` has no production caller** — only `ShowPositionsTests`. So two viewer tests
 exercise a path the running program never takes, which is worth knowing before anyone treats them as
 coverage. Left in place rather than deleted, because the assertions are real and `MapOverview` now
