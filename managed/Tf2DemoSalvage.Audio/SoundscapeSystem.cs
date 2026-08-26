@@ -6,6 +6,7 @@ using System.Linq;
 using Microsoft.Extensions.Logging;
 
 using Tf2DemoSalvage.Content.Bsp;
+using Tf2DemoSalvage.GameSystems;
 
 namespace Tf2DemoSalvage.Audio;
 
@@ -33,8 +34,28 @@ namespace Tf2DemoSalvage.Audio;
 public sealed class SoundscapeSystem(
     ActiveLoops loops,
     Func<string, SoundSample?> sample,
-    ILogger audio)
+    ILogger audio) : IGameSystemPerFrame
 {
+    /// <inheritdoc/>
+    public string Name => "soundscape";
+
+    /// <summary>Forgets the level's placements, its tree and everything currently sounding.</summary>
+    /// <remarks>
+    /// **`LevelShutdownPreEntity` rather than the post half, because these ARE the entity data.**
+    /// A placement holds a leaf index into the map it was built from, so carrying one across a load
+    /// chooses ambience by the previous map's geometry — which sounds like a bug in the chooser
+    /// rather than like stale state. The catalog is NOT cleared: it comes from the install, not the
+    /// level, and survives a map change exactly as it does in the engine.
+    /// </remarks>
+    public void LevelShutdownPreEntity()
+    {
+        Placements = null;
+        Leaves = null;
+        Visibility = null;
+
+        Clear();
+    }
+
     /// <summary>How often a soundscape is CHOSEN, in seconds.</summary>
     /// <remarks>
     /// **Chosen on a timer, advanced every frame.** The choice traces rays and is slow-moving; the

@@ -691,6 +691,12 @@ internal class MainForm : Form
             Weapons = WeaponModels.None(_renderLog),
         };
 
+        // **Registered here, after every system exists, and this is the only place the list is
+        // written.** A system added later is added to this call rather than to whichever method
+        // happens to load a map — which is the arrangement that let three assignments go missing
+        // separately (B193) and two more sit unnoticed for a day (B196).
+        _levels = new LevelSystems(_moment, _models, _sounds, _soundscape, _sound, _loggers);
+
         // **A capture flag, because the alternative was asking a person to press F12.** Several
         // rendering defects this session were found by the owner photographing their own screen and
         // describing it, which is slow for them and leaves the loop dependent on someone being at
@@ -1537,7 +1543,14 @@ internal class MainForm : Form
     private void ClearMap()
     {
         _loaded = null;
-        _models.Geometry = EntityModelSet.NoGeometry;
+
+        // **Every system is told the level is going, in reverse registration order** — Valve's
+        // `LevelShutdownPreEntity`/`PostEntity`, which this window did not have.
+        //
+        // Teardown used to be split three ways and was asymmetric: two systems were reset here, the
+        // soundscape was cleared inside the map READ, and the sound schedule was never torn down at
+        // all. Adding a fifth system meant guessing which of the three places it belonged in.
+        _levels.Shutdown();
 
         // **One field where four were cleared, and the fourth was never cleared at all.** `_terrain`
         // and `_overlays` were dropped here while `_brushModels` and `_leaves` were left pointing at
@@ -1556,7 +1569,8 @@ internal class MainForm : Form
         // disposes the `WorldRenderer`, and `_modelVertices` is one of its fields — so the packed
         // set that is still in memory has nowhere on the device to live until it is uploaded again
         // (B148).
-        _moment.Uploaded = false;
+        // `_moment.Uploaded = false` was here. It is `MomentScene.LevelShutdownPreEntity`, told by
+        // the walk above — the scene knows what it uploaded, so the scene is what forgets it.
 
         _device?.ClearWorld();
     }
@@ -1658,80 +1672,34 @@ internal class MainForm : Form
 
             if (_game is null)
             {
-                // **Opened once, and everything it provides is set together.** The archives, the
-                // editor palette, the class scripts and the item schema all come off disk here and
-                // are asked on every frame afterwards — none of it is per-map, and none of it was
-                // ever window work (B188, D90).
-                //
-                // **Every source it feeds is assigned in this one block**, because assignments
-                // scattered across a method are how three of them were missed separately (B193). If
-                // a collaborator needs something from the install, it is wired here.
+                // **Opened once, on the first map read rather than at startup**, because finding and
+                // opening the archives is slow and a viewer with no demo open needs none of it.
                 _game = GameContent.Open(FindGameFolder(), _loggers);
 
-                _sounds.Read = _game.Archives.Read;
-                _moment.Weapons = _game.Weapons;
-
-                // The soundscape catalog reads from the same archives but belongs to the audio
-                // layer, so `GameContent` deliberately does not hold it — Scene would have to
-                // reference Audio for an edge that forbids nothing (D92).
-                _soundscape.Catalog = _game.Archives.IsEmpty
-                    ? null
-                    : SoundscapeCatalog.Load(_game.Archives.Read);
+                _levels.OpenGame(_game);
             }
 
             _texturesUploaded = false;
 
-            // **Reading a map is not window work, and now none of it happens here** (B188, D90).
-            // What is left is handing the result to the systems that asked for it — which is the
-            // `LevelInitPreEntity` shape the engine uses (`igamesystem.h:39`): the window says "here
-            // is the map", and each system takes what it needs.
-            LoadedMap map = LoadedMap.Read(
+            // **Reading a map is not window work and telling the systems about it is not either**
+            // (B188, D90). `LevelSystems` is the engine's own shape: a registered LIST walked at the
+            // level boundary — `LevelInitPreEntityAllSystems( pMapName )` (`igamesystem.h:77`) —
+            // rather than one method reaching into six collaborators, which is the arrangement that
+            // let B193 and B196 drop assignments unnoticed.
+            LoadedMap map = _levels.Load(
                 bytes,
                 _game,
                 _timeline,
                 (int)_settings.TextureQuality,
-                _surfaceColours.Checked,
-                _loggers);
+                _surfaceColours.Checked);
 
-            // **The LEVEL survives a content failure now, and it did not before.** The old catch set
+            // **The LEVEL survives a content failure, and it did not before.** The old catch set
             // `_level = null` alongside `_assets = null`, throwing away lumps that had read
             // perfectly because the TEXTURES did not — so `mat_leafvis` went blank on a map whose
             // BSP tree was fine. `LoadedMap` separates the two: the lumps are read or they throw,
             // and the content is a nullable beside them.
             _loaded = map;
             _mapProblem = map.Problem;
-
-            _moment.Lighting = map.Lighting;
-            _models.Geometry = map.Assets is { } content
-                ? content.Geometry
-                : EntityModelSet.NoGeometry;
-
-            _soundscape.Placements = _soundscape.Catalog is { } loaded
-                ? SoundscapePlacements.From(map.Level.Entities, loaded, map.Level.Leaves)
-                : null;
-
-            _soundscape.Leaves = map.Level.Leaves;
-            _soundscape.Visibility = map.Level.Visibility;
-
-            _soundscape.Clear();
-
-            _audioLog.LogInformation(
-                "{Message}",
-                map.Level.Visibility is { HasData: true } pvs
-                    ? $"visibility: {pvs.ClusterCount.ToString(CultureInfo.InvariantCulture)} " +
-                      "clusters, so soundscape selection is restricted to what the listener can see"
-                    : "no visibility data, so every soundscape on the map contends");
-
-            _audioLog.LogInformation(
-                "{Message}",
-                _soundscape.Placements is { } placed
-                    ? $"{placed.Placements.Count} soundscape placements, " +
-                      string.Join(
-                          ", ",
-                          placed.Placements
-                              .GroupBy(placement => placement.Name)
-                              .Select(group => $"{group.Count()}x {group.Key}"))
-                    : "no archives, so no soundscapes");
 
             ProjectMap();
             return !map.Outline.IsEmpty;
@@ -4102,6 +4070,22 @@ internal class MainForm : Form
 
     /// <summary>Decides what should be audible at a tick.</summary>
     private readonly SoundPresenter _sound;
+
+    /// <summary>The registered game systems, told about every level load and teardown.</summary>
+    /// <remarks>
+    /// **Valve's arrangement: a LIST walked at the level boundary** —
+    /// `LevelInitPreEntityAllSystems( pMapName )` (`igamesystem.h:77`) — rather than one method
+    /// reaching into six collaborators. That reaching is what let B193 and B196 drop assignments
+    /// with every test still green, and what left teardown split across three places with one
+    /// system torn down nowhere at all.
+    ///
+    /// **Three systems, and the two absences were checked rather than assumed.** Valve models the
+    /// renderables builder as a game system (`IClientLeafSystem : … IGameSystemPerFrame`), and the
+    /// soundscape and sound emitter likewise; it does NOT model model-geometry or the sample cache
+    /// that way — `IVModelInfo` and `IEngineSound` are plain interfaces set up once. So those two
+    /// are configured rather than walked.
+    /// </remarks>
+    private readonly LevelSystems _levels;
 
     /// <summary>The map's ambience, chosen and faded as the listener moves through it.</summary>
     /// <remarks>

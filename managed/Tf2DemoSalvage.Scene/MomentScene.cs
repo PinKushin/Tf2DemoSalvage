@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Scene;
+using Tf2DemoSalvage.GameSystems;
 
 namespace Tf2DemoSalvage.Scene;
 
@@ -77,8 +78,32 @@ public readonly record struct MomentPhases(
 /// arrangement (<c>clientleafsystem.h:75</c>) rather than reaching back into a form for the camera
 /// mode, the followed entity and the tick.
 /// </remarks>
-public sealed class MomentScene
+public sealed class MomentScene : IGameSystemPerFrame
 {
+    /// <inheritdoc/>
+    public string Name => "clientleafsystem";
+
+    /// <summary>Forgets the level: its lighting, and the fact that its geometry was uploaded.</summary>
+    /// <remarks>
+    /// **This is a game system because Valve's equivalent is one.** `IClientLeafSystem` derives from
+    /// `IClientLeafSystemEngine` AND `IGameSystemPerFrame` (`clientleafsystem.h:135`), so the thing
+    /// that builds the renderables list is told about levels by the same walk that tells everything
+    /// else. Ours already took `SetupRenderInfo_t`'s shape; this is the other half of it.
+    ///
+    /// **`Uploaded` is the load-bearing reset.** It records that THIS level's geometry reached the
+    /// GPU; carried into the next one it says the new map is already uploaded, and nothing draws.
+    /// The lighting goes back to <see cref="LevelLighting.Unlit"/> rather than null for the reason
+    /// D83 gives — a null object that reports itself beats a null that throws somewhere later.
+    /// </remarks>
+    public void LevelShutdownPreEntity()
+    {
+        Uploaded = false;
+        Lighting = LevelLighting.Unlit(_render);
+
+        _drawn.Clear();
+        _instances.Clear();
+    }
+
     private readonly EntityModelSet _models;
     private readonly ViewmodelScene _viewmodels;
     private readonly ILogger _render;

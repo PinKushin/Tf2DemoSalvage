@@ -64,6 +64,14 @@
          a soundscript is a game file, and reading game files is Content's job - but deciding
          what a sound IS belongs here, with everything else about sound. -->
     <ProjectReference Include="..\Tf2DemoSalvage.Content\Tf2DemoSalvage.Content.csproj" />
+
+    <!-- For IGameSystem. `C_SoundscapeSystem : CBaseGameSystemPerFrame` (c_soundscape.cpp:78) is
+         one of Valve's own, so ours implements the same lifecycle.
+
+         A true LEAF with no ProjectReference of its own, which is the whole reason this is possible:
+         Audio does not reference Scene, and an interface carrying a level would have forced it to.
+         Valve's `LevelInitPreEntity()` takes no parameters, so nothing has to be carried. -->
+    <ProjectReference Include="..\Tf2DemoSalvage.GameSystems\Tf2DemoSalvage.GameSystems.csproj" />
   </ItemGroup>
 
   <!-- celt.dll and speex.dll are not committed (tools/native-audio/README.md) - built once by

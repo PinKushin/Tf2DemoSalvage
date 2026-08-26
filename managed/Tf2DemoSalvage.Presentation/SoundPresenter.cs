@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 
 using Tf2DemoSalvage.Audio;
 using Tf2DemoSalvage.Core.Scene;
+using Tf2DemoSalvage.GameSystems;
 
 namespace Tf2DemoSalvage.Presentation;
 
@@ -52,8 +53,24 @@ public sealed class SoundPresenter(
     SoundscapeSystem soundscape,
     ActiveLoops loops,
     Func<string, SoundSample?> sample,
-    ILogger audio)
+    ILogger audio) : IGameSystem
 {
+    /// <inheritdoc/>
+    public string Name => "soundemitter";
+
+    /// <summary>Drops the schedule, which belongs to the demo that is being closed.</summary>
+    /// <remarks>
+    /// **`IGameSystem` and NOT the per-frame one, which is Valve's split rather than ours.**
+    /// `CSoundEmitterSystem : CBaseGameSystem` (`SoundEmitterSystem.cpp:134`) — deciding what to
+    /// emit is not a per-frame walk; the engine drives it from events. `C_SoundscapeSystem` next
+    /// door IS per-frame, because a soundscape fades and re-chooses on a timer.
+    ///
+    /// **A schedule holds a cursor into one timeline's sound list**, so carrying it across a load
+    /// indexes the previous demo's sounds — replaced rather than kept, and null is the honest value
+    /// when no demo is open.
+    /// </remarks>
+    public void LevelShutdownPreEntity() => Schedule = null;
+
     /// <summary>Below this a loop is treated as silent, for the crossing log only.</summary>
     /// <remarks>
     /// Valve's own <c>MIN_AUDIBLE_VOLUME</c> is <c>1.01e-3</c> (<c>sound.cpp:314</c>), the threshold

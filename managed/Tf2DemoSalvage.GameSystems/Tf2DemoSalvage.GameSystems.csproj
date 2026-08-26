@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The lifecycle contract Valve's game systems implement, and nothing else.
+
+    **A true leaf: no ProjectReference, deliberately.** That is what lets Audio and Scene both
+    depend on it without depending on each other — Audio does not reference Scene, and inverting
+    that to gain an interface would be serving a shape rather than a need (D92's test: does a
+    project boundary FORBID something? this one forbids a lifecycle contract from ever coming to
+    depend on a decoder, a scene or a renderer type).
+
+    **It carries no payload for the same reason Valve's does not.** `IGameSystem::LevelInitPreEntity()`
+    takes no parameters (`game/shared/igamesystem.h:39`); a system pulls what it needs from globals
+    rather than being handed a level. That was checked before this project existed, because the
+    assistant had claimed a shared interface was impossible on the grounds that it would need
+    `LoadedMap` visible to Audio — one grep of the header killed the claim.
+
+    net10.0 rather than net10.0-windows, like Logging and Scene: the measurement boxes are Linux and
+    a contract locked to Windows would lock every implementer with it.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Tf2DemoSalvage.GameSystems</RootNamespace>
+  </PropertyGroup>
+
+</Project>
