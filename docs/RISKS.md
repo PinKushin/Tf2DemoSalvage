@@ -10488,6 +10488,25 @@ So the answer to a demo the game refuses is never to refuse it too. Where the ga
 tool carries on — and where a map version is missing, the answer is to FIND the old map, and warn
 only when it cannot be found.
 
+### Why this specimen matters more than the bug it was found chasing
+
+**It is the first demo in the corpus PROVED unplayable by the live client, with the engine's own
+reasons attached.** Everything before it was inference: protocol windows estimated from changelogs,
+a premise stated in `CLAUDE.md` and never demonstrated. This is the demonstration, and it is only six
+years old — which is the part worth sitting with. The tool was justified by TF2's *full history*;
+the evidence says a demo from 2020 already needs it.
+
+**Rendering it correctly is therefore a milestone, not a bug fix.** The measure is not "no
+exceptions" — this project's own rule is that decoding must be TOTAL and anything below 100% with no
+errors is our defect (D-decode-total). The measure is that a demo the shipping engine cannot open
+plays here, correctly, with its entities decoded off its own embedded schema. That is the whole
+thesis in one file.
+
+**Keep it as a regression fixture in both directions.** It must keep decoding as the decoder changes,
+and its three named drifts — a removed property, an array whose LENGTH is part of the table name, and
+a retyped property under a stable name — are the three shapes any schema-drift handling has to
+survive. A synthetic fixture cannot supply the third convincingly; this one does, with a date.
+
 ### B200 — The demo carries a map hash and nothing checks it — OPEN, cause UNPROVEN
 
 **This is the answer to B198, and it cost an evening to reach.** The five "regressions" reported on
