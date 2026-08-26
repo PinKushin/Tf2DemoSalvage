@@ -11079,8 +11079,18 @@ and what nothing in this repository can do today.
 #### Both items are done, 2026-08-26
 
 `MainForm.cs` is **4,554 lines, 1,670 of them code** — down from 3,444, so more than half the code is
-gone and the file is now **30% of a 5,541-line project** rather than 87% of an 8,303-line one.
-`ShowMoment` is **19 lines**, of which 8 are a comment explaining an ordering constraint.
+gone. `ShowMoment` is **19 lines**, of which 8 are a comment explaining an ordering constraint.
+
+> **A share-of-project figure was here and it was wrong.** It read *"30% of a 5,541-line project
+> rather than 87% of an 8,303-line one"*, which compared `MainForm`'s **code** lines against the
+> project's **total** lines while the 87% it was measured against compared total with total. Like
+> against unlike, and it flattered the result by more than a factor of two: after the menu moved the
+> honest figures are **73% of the project by total lines and 65% by code lines**.
+>
+> **The share barely moves however the work goes, and that is the real point.** Almost everything
+> extracted left for `Presentation` or `Scene`, so the denominator shrinks with the numerator.
+> `ViewerMenu` is the only piece that stayed in `Viewer3D`. The number that means something is the
+> absolute one: **3,444 → 1,424 code lines, 59% gone.**
 
 **The list above said "stop there", and the work went further than that, deliberately and on the
 owner's instruction.** Twice, in these words:
