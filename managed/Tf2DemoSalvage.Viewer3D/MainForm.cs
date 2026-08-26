@@ -347,8 +347,15 @@ internal class MainForm : Form
     /// </remarks>
     private readonly FrameLedger _ledger = new();
 
-    /// <summary>Whether the resident textures belong to the map currently loaded.</summary>
-    private bool _texturesUploaded;
+    // `_texturesUploaded` was here until 2026-08-26. It is `WorldPresenter.TexturesAreCurrent`,
+    // beside the code that reads it (B188, D90).
+    //
+    // **It has to exist at all because `HasWorldTextures` answers a different question.** The device
+    // knows whether textures are RESIDENT, which stays true across a map change — they are simply
+    // the wrong ones. Only something that knows about levels can say "resident AND for this one".
+
+    /// <summary>The world upload, and whether this level's textures are the resident ones.</summary>
+    private readonly WorldPresenter _world;
 
     /// <summary>Whether the empty leaf outline has already been explained for this map.</summary>
     /// <remarks>
@@ -696,6 +703,7 @@ internal class MainForm : Form
         // happens to load a map — which is the arrangement that let three assignments go missing
         // separately (B193) and two more sit unnoticed for a day (B196).
         _levels = new LevelSystems(_moment, _models, _sounds, _soundscape, _sound, _loggers);
+        _world = new WorldPresenter(_renderLog);
 
         // **A capture flag, because the alternative was asking a person to press F12.** Several
         // rendering defects this session were found by the owner photographing their own screen and
@@ -1562,7 +1570,7 @@ internal class MainForm : Form
         // the move that created `LoadedMap`, never assigned anything but null, and `mat_leafvis`
         // read it (B196).
         _reportedNoLeafBox = false;
-        _texturesUploaded = false;
+        _world.TexturesAreCurrent = false;
         _mapProblem = null;
 
         // **The models go with the world, because the world owned their buffer.** `ClearWorld`
@@ -1679,7 +1687,7 @@ internal class MainForm : Form
                 _levels.OpenGame(_game);
             }
 
-            _texturesUploaded = false;
+            _world.TexturesAreCurrent = false;
 
             // **Reading a map is not window work and telling the systems about it is not either**
             // (B188, D90). `LevelSystems` is the engine's own shape: a registered LIST walked at the
@@ -1851,65 +1859,24 @@ internal class MainForm : Form
         // the fill must not drop the world.
         TopDownCamera camera = MapCamera();
 
-        if (map.Assets is not { } assets || map.Level.Surfaces.Count == 0 || _device is null)
+        // **What is left here is the camera, the viewport and the status bar.** Deciding whether the
+        // world needs uploading is a question about a level and about what already reached the GPU;
+        // performing the upload needs a device, which arrives through `IWorldUpload` — the same seam
+        // `IModelUpload` already uses, and the same reason: the decision becomes testable with a
+        // fake, and the code that decides stops being the code that talks to Direct3D.
+        WorldUpload result = _world.Project(
+            map,
+            _device,
+            camera,
+            ViewMatrix(camera),
+            _surfaceColours.Checked,
+            _heightCut,
+            (_viewport.ClientSize.Width, _viewport.ClientSize.Height),
+            _loggers);
+
+        if (result.Problem is { } problem)
         {
-            return;
-        }
-
-        try
-        {
-            // **Textures first, and only once per map.** They do not depend on the camera, so a
-            // resize needs new vertices and nothing else.
-            if (!_texturesUploaded || !_device.HasWorldTextures)
-            {
-                using (_renderLog.Time("uploading textures"))
-                {
-                    _device.UploadWorldTextures(assets);
-                }
-
-                _texturesUploaded = true;
-            }
-
-            // **The camera is a matrix, so a resize is not a rebuild.** The world's vertices are in
-            // map coordinates and never move; only the view does. That is what took a viewport
-            // change from 0.33 seconds to a 64-byte upload, and it is the reason a free camera or a
-            // per-player view can exist at all.
-            _device.SetCamera(ViewMatrix(camera), _surfaceColours.Checked, _heightCut);
-
-            // **Logged because this is the whole cost of a resize**, and a rebuild is not. Counting
-            // these against "building the world" lines is what proves the geometry survived a
-            // viewport change rather than being quietly rebuilt: many camera lines and one build
-            // line is the fix working, one of each per resize is not.
-            _renderLog.LogInformation(
-                "{Message}",
-                $"camera set for a {_viewport.ClientSize.Width}x{_viewport.ClientSize.Height} viewport");
-
-            if (_device.HasWorld)
-            {
-                return;
-            }
-
-            MapWorld built;
-
-            using (_renderLog.Time("building the world"))
-            {
-                built = map.BuildWorld(camera, _loggers);
-            }
-
-            _renderLog.LogInformation(
-                "{Message}",
-                $"world: {built.Vertices.Count} vertices in {built.Batches.Count} material " +
-                $"batches for a {_viewport.ClientSize.Width}x{_viewport.ClientSize.Height} viewport");
-
-            _device.UploadWorldGeometry(built);
-        }
-        catch (Exception failure) when (
-            failure is InvalidOperationException or InvalidDataException or IOException)
-        {
-            _device.ClearWorld();
-            _texturesUploaded = false;
-            _status.Text = "Textures unavailable: " + failure.Message;
-            _renderLog.LogWarning(failure, "{Message}", "uploading the textured world");
+            _status.Text = problem;
         }
     }
 
