@@ -5407,18 +5407,34 @@ thing this entry forbids until the first one matches the engine.
 has to reconcile two renderers first.
 
 
-## D96 — The CLI can drive the real game, which makes TF2 a scriptable reference
+## D96 — `playdemo` becomes one of OUR commands — ROADMAP, not now
 
-Proposed by the owner on 2026-08-25, while trying to establish whether a rendering fault was ours or
-a map-version mismatch:
+Proposed by the owner on 2026-08-25:
 
 > "can our cli tool be made to turn playdemo into a shell command so you can actually start viewing a
 > demo from command line without any other shell?"
 
-**Yes, and it is worth more than the convenience.** Source takes console commands as launch options,
-so `tf_win64.exe -game tf +playdemo <name>` starts playback with no console typing. What makes it a
-DECISION rather than a shortcut is the second flag: **`-condebug` writes the console to
-`tf/console.log`**, which turns the shipping engine into an instrument this project can read.
+**This is about THIS tool's own command surface**, and the assistant first misread it as launching
+TF2 from PowerShell — recorded because a decisions entry that misattributes an idea is worse than no
+entry. The owner's clarification:
+
+> "i meant turning playdemo into our own shell command not starting tf2 from powershell but it
+> doesnt matter its a roadmap item not something for now"
+
+**It fits what already exists rather than adding a vocabulary.** The viewer speaks Source's console
+language (D69, D70): a real `.cfg` works wholesale, `+command value` is honoured on the command line,
+and unknown commands are ignored on purpose. `playdemo` is the missing verb in that set — the one
+command a person watching demos actually types in TF2 — and adding it to `ConfigConsole` would mean a
+real config, alias or `exec` could drive this viewer the way it drives the game. That is the D69
+requirement carried one step further: not just "a paste works", but "the thing you would type works".
+
+**Roadmap, explicitly. Not to be started as part of the thin-view refactor.**
+
+### The assistant's misreading, kept because the capability is separately worth having
+
+Source also takes console commands as LAUNCH options, so `tf_win64.exe -game tf +playdemo <name>`
+starts the real game on a demo, and **`-condebug` writes the console to `tf/console.log`** — which
+turns the shipping engine into an instrument this project can read.
 
 ### Why that matters here specifically
 
