@@ -152,3 +152,4 @@
 - [Ask if the view must hold it](ask-if-the-view-must-hold-it.md) — a field only ever passed along belongs on the other side.
 - [Set the opposite state first](set-the-opposite-state-first.md) — a precondition equal to the assertion cannot fail.
 - [A log level regression is invisible to unit tests](a-log-level-regression-is-invisible-to-unit-tests.md) — the double records every level; the app discards below its own.
+- [A walking test cannot see a deletion](a-walking-test-cannot-see-a-deletion.md) — generate the denominator; a shortcut-collision test passed with an item removed.
