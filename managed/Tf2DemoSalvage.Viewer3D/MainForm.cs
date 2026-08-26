@@ -5,7 +5,6 @@ using System.Drawing;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,8 +13,19 @@ using System.Windows.Forms;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
+// **`Content.Bsp` and `System.Net.Http` were imported here until 2026-08-26** (B208). Neither
+// contributed a type any more — HTTP survived only inside a COMMENT — and a stale using is a false
+// statement about what this file depends on, which is exactly what `ImplicitUsings` is disabled to
+// prevent.
+//
+// **`Content.Assets` stays, and checking it was the point.** A grep for likely type names said it
+// was dead too; the compiler said `GlyphAtlas` and `SchemeFont`. Guessing which types a namespace
+// contributes is not a test of whether it is used — removing it and building is.
+//
+// `Core.Scene` is the honest remaining coupling: the window holds a `DemoTimeline`, a
+// `PlaybackClock`, and lists of `ScenePlayer` and `ScenePoint` to hand to the presenters that act
+// on them. It reasons about none of them.
 using Tf2DemoSalvage.Content.Assets;
-using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Logging;
 
@@ -540,12 +550,10 @@ internal class MainForm : Form, IFrameSteps
             return;
         }
 
-        LogLevel level = _settings.Developer switch
-        {
-            >= 2 => LogLevel.Trace,
-            1 => LogLevel.Debug,
-            _ => LogLevel.Information,
-        };
+        // **`ViewerSettings.Verbosity` rather than a switch here** (B208). The mapping was stated in
+        // `Developer`'s own documentation over in `Scene` and implemented here — the same rule
+        // written twice, in two projects, with only one of them running.
+        LogLevel level = _settings.Verbosity;
 
         set(level);
 

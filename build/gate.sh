@@ -574,7 +574,7 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     112
 # 623 -> 619 on 2026-08-26 (B208): CaptureNameTests (4) MOVED to Presentation.Tests with
 # MainForm.CaptureName, which became Captures.Name. Nothing was deleted — presentation went 257 ->
 # 283, which is 17 WindowGeometry + 5 Captures + those 4, and that arithmetic is the check.
-run Tf2DemoSalvage.Viewer3D.Tests viewer    619
+run Tf2DemoSalvage.Viewer3D.Tests viewer    623
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."
