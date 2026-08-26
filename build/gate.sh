@@ -352,7 +352,13 @@ run Tf2DemoSalvage.Audio.Tests    audio     161
 # 159: LaunchOptionsTests (13), out of MainForm.ReadCaptureOptions. Every malformed case is a PAIR
 # with its well-formed twin, because a parser that ignored an option entirely passes any test that
 # only checks the bad input is refused.
-run Tf2DemoSalvage.Presentation.Tests presentation 246
+# 246 -> 240 on 2026-08-26 (B206): FreeLookStateTests (11) DELETED and FreeCameraControllerTests (5)
+# added, which is a net -6 and the only floor drop here that is not a move. FreeLookState had no
+# production caller at all — eleven tests on a type the viewer never ran, while the drag it actually
+# performed was written out longhand in MainForm with none. The Fly cases were not ported because
+# CameraFlightTests (6) and FreeFlightPathTests (10) already cover the live path including D65's
+# cancel guard; the Drag cases and the pitch clamp were, since nothing else asserted them.
+run Tf2DemoSalvage.Presentation.Tests presentation 240
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.

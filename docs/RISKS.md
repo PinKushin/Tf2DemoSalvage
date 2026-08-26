@@ -12118,3 +12118,79 @@ remaining hits are quaternion half-angle builders (`* 0.5f`) in `StudioAnimation
 and `ScenePropTrack`, which are a different Valve function (`AngleQuaternion`) and were **not**
 audited for duplication here. **`up` is not provided at all**, because nothing needed it — adding it
 later means adding the `roll` parameter the full formula requires, not amending these two.
+
+### B205 — The overhead camera survives D49 as a fallback nobody chose — OPEN, needs the owner
+
+**Found while auditing the mouse wheel for B204, and deliberately not acted on.** This is a question
+about our own design intent, not a Valve divergence, so it is the owner's to settle.
+
+**The arithmetic.** `CameraMode` has exactly two members since D49 deleted `Map`, so `_freeLook` and
+`_firstPerson` are exact complements — `!_firstPerson` *is* `_freeLook`. Given that,
+`ViewCamera.Matrix` reduces:
+
+```csharp
+if (firstPerson && eye is { } through) { return through.ToMatrix(); }
+return freeLook ? free.ToMatrix() : overhead.ToMatrix();
+```
+
+The `overhead` branch is unreachable via `!firstPerson && !freeLook`, which cannot happen. It is
+reached by exactly one path: **first person, when no eye is available** — a demo that has lost its
+subject, or a SourceTV recording with nobody being followed.
+
+**Two consequences, and the second is probably a defect.**
+
+1. **The overhead camera is now a first-person fallback**, which is not what D49 left it as. The
+   owner's position: *"the overhead view is gone unless it is specifically talking about the free
+   cams default poistion"*. On that reading the fallback should be the **free camera**, since
+   overhead is a *placement* of it rather than a view of its own. That is a one-line change and it
+   is not being made unilaterally, because it changes what a viewer shows in a real situation.
+
+2. **The mouse wheel's zoom branch runs only in first person.** `OnViewportWheel` flies the camera
+   when `_freeLook` and otherwise adjusts `_zoom` and `_lookingAt` — so in first person, scrolling
+   retunes a camera that is normally invisible, and the wheel appears to do nothing. Whether the
+   wheel *should* do something in first person (Valve's `spec_` modes offer no zoom) is the same
+   question.
+
+**How to settle it:** decide whether losing the subject should drop the viewer into the free camera
+or into an overhead placement of it, and whether the wheel does anything in first person. Both are
+small once decided. **Do not "tidy" `_zoom`/`_lookingAt`/`MapCamera` away before deciding** — they
+are live on that fallback path, and deleting them would silently turn the fallback into a black
+screen rather than into a chosen behaviour.
+
+### B206 — Eleven tests on a camera the viewer never ran — FIXED 2026-08-26
+
+**Third finding from the same audit as B203 and B204, and the worst of the three**, because it is
+not a duplicate that might drift — it is coverage pointing at nothing.
+
+`FreeLookState` (Presentation) had `Drag`, `PlaceAt`, `Unplace`, `Fly`, `DegreesPerPixel`,
+`PitchLimit`, and **eleven tests**. It had **no production caller anywhere.** The only references
+outside its own test file were a stale `<c>FreeLookState</c>` in an `OverheadPlacement` doc comment.
+
+**Meanwhile the drag the viewer actually performs was written out longhand inside
+`MainForm.OnViewportMouseMove`, with its own copy of `DegreesPerPixel` and a hardcoded `-89f, 89f`,
+and had no tests at all.** So the position was exactly inverted: the mouse look that ran was
+unwatched, and the one with eleven tests never executed.
+
+**This is B196's shape** — `_level` and `_shotPath` shipped as dead features invisible to the
+compiler — with an extra turn of the screw. Dead code is merely waste; **dead code with a green test
+suite is a false negative**, because "is the drag tested?" answers yes.
+
+**How it happened, as far as the record shows:** `FreeLookState` was the earlier design (D66 moved
+three fields and two handlers out of `MainForm` into it), and `FreeCameraController` superseded it
+later (D90, B188, and the D91 field-of-view work). The replacement took over the call sites; nothing
+took over the tests, and nothing failed when they stopped describing anything.
+
+**Fixed by moving `Drag` and the two constants onto `FreeCameraController`**, pointing the window at
+`_freeCamera.Drag(dx, dy)`, and deleting `FreeLookState` with its tests.
+
+**The migration was selective rather than wholesale, and the arithmetic is the check.** Of eleven
+tests, the six `Fly` cases were **not** ported: `CameraFlightTests` (6) and `FreeFlightPathTests`
+(10) already cover the live flight path, including D65's cancel-at-vertical guard. The four `Drag`
+cases were ported, and `PlaceAt`'s pitch clamp became a `Parse` test — since `TF2VIEW_CAMERA` is
+what D65 was actually about, and its clamp had been asserted only against the dead type. Net 11
+removed, 5 added, and the gate refused the drop until the floor was corrected with that reasoning
+written next to it.
+
+**One thing the analyzer contributed and it is worth noting:** after the change, `_freeAngles`'s
+setter became unused and Sonar said so immediately. That is a small independent confirmation that
+the drag really was the last writer of the camera's angles from the window.

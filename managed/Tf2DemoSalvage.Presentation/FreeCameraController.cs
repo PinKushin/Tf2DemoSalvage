@@ -31,11 +31,46 @@ public sealed class FreeCameraController(ILogger log)
     /// </remarks>
     public const string CameraVariable = "TF2VIEW_CAMERA";
 
+    /// <summary>Degrees the camera turns per pixel dragged.</summary>
+    /// <remarks>
+    /// A quarter of a degree, so a full turn is about a screen and a half of dragging.
+    ///
+    /// **Source's own `sensitivity` is a different quantity and is deliberately not used here** — it
+    /// scales a raw device count rather than a pixel, so a number taken from a config would not mean
+    /// the same thing. This is chosen for the drag. Recorded because it looks like a D69 gap and is
+    /// not one.
+    /// </remarks>
+    public const float DegreesPerPixel = 0.25f;
+
+    /// <summary>How far the camera may pitch, in degrees.</summary>
+    /// <remarks>
+    /// The engine's own clamp for a player, and it is not a matter of taste: the camera basis is
+    /// degenerate looking exactly along the world's up axis.
+    /// </remarks>
+    public const float PitchLimit = 89f;
+
     /// <summary>Where the camera is, or null until something places it.</summary>
     public (float X, float Y, float Z)? Origin { get; set; }
 
     /// <summary>Where it is looking.</summary>
     public (float Pitch, float Yaw) Angles { get; set; } = (35f, 0f);
+
+    /// <summary>Turn the camera by a mouse drag.</summary>
+    /// <param name="deltaX">Pixels dragged rightward.</param>
+    /// <param name="deltaY">Pixels dragged downward.</param>
+    /// <remarks>
+    /// **This was inline in `MainForm.OnViewportMouseMove`, and identically in `FreeLookState`,
+    /// which nothing ran** (B206). Two copies of one formula and the tested copy was the dead one:
+    /// the mouse look the viewer actually performed had no tests at all.
+    ///
+    /// **Yaw is subtracted and pitch added**, which is not symmetry for its own sake — dragging
+    /// right turns the view left because the world moves under a fixed camera, and dragging down
+    /// pitches down because screen Y grows downward.
+    /// </remarks>
+    public void Drag(float deltaX, float deltaY) =>
+        Angles = (
+            Math.Clamp(Angles.Pitch + (deltaY * DegreesPerPixel), -PitchLimit, PitchLimit),
+            Angles.Yaw - (deltaX * DegreesPerPixel));
 
     /// <summary>The world field of view, in degrees.</summary>
     /// <remarks>
@@ -234,7 +269,7 @@ public sealed class FreeCameraController(ILogger log)
         // stops producing an angle the rest of the viewer treats as impossible.
         return (
             (values[0], values[1], values[2]),
-            Math.Clamp(values[3], -89f, 89f),
+            Math.Clamp(values[3], -PitchLimit, PitchLimit),
             values[4]);
     }
 }

@@ -431,11 +431,13 @@ internal class MainForm : Form, IFrameSteps
     /// two are accessors onto it, so the flight and drag handlers that live in this window — which
     /// genuinely are input handling — read and write one place.
     /// </remarks>
-    private (float Pitch, float Yaw) _freeAngles
-    {
-        get => _freeCamera.Angles;
-        set => _freeCamera.Angles = value;
-    }
+    /// <remarks>
+    /// **Read-only since 2026-08-26** (B206). The drag handler was the last writer, and it now asks
+    /// the controller to turn itself rather than computing new angles and assigning them back — so
+    /// the window reads the camera's state and never sets it. The analyzer found the dead setter
+    /// immediately, which is a small piece of evidence that nothing else was writing angles either.
+    /// </remarks>
+    private (float Pitch, float Yaw) _freeAngles => _freeCamera.Angles;
 
     // FreeEntryDistance (800 units) went with the orbit placement on 2026-08-22 (D67). The camera
     // no longer sits a fixed distance from a focus point — it is placed above the map at whatever
@@ -461,13 +463,10 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>Where the free camera is and how it is placed.</summary>
     private readonly FreeCameraController _freeCamera;
 
-    /// <summary>Degrees the free camera turns per pixel dragged.</summary>
-    /// <remarks>
-    /// A quarter of a degree, so a full turn is about a screen and a half of dragging. Source's own
-    /// mouse sensitivity is a different quantity — it scales a raw device count rather than a
-    /// pixel — so this is chosen for the drag rather than taken from the engine.
-    /// </remarks>
-    private const float DegreesPerPixel = 0.25f;
+    // **`DegreesPerPixel` was here until 2026-08-26** (B206). It is
+    // `FreeCameraController.DegreesPerPixel`, along with the drag arithmetic it belonged to — which
+    // this file had one copy of and the unused `FreeLookState` had another. How far a drag turns a
+    // camera is not a fact about a window.
 
     /// <summary>Which key performs which action (D68).</summary>
     /// <remarks>
@@ -4305,9 +4304,7 @@ internal class MainForm : Form, IFrameSteps
         // because the basis is degenerate looking exactly along the world's up axis.
         if (_freeLook)
         {
-            _freeAngles = (
-                Math.Clamp(_freeAngles.Pitch + ((e.Location.Y - from.Y) * DegreesPerPixel), -89f, 89f),
-                _freeAngles.Yaw - ((e.Location.X - from.X) * DegreesPerPixel));
+            _freeCamera.Drag(e.Location.X - from.X, e.Location.Y - from.Y);
 
             _dragFrom = e.Location;
             _worldIsStale = true;
