@@ -1233,6 +1233,37 @@ public sealed class EntityModelSet
         return added;
     }
 
+    /// <summary>Packs a whole set of model paths ahead of playback.</summary>
+    /// <param name="paths">Every model the demo will ever show.</param>
+    /// <returns>Whether anything was added.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="paths"/> is null.</exception>
+    /// <remarks>
+    /// **The engine's own timing, and it is a refusal rather than a preference** (D86, D87). Source
+    /// treats loading geometry during play as a programming error, and the reason is visible here —
+    /// an MDL read lands on the thread that draws.
+    ///
+    /// **The synthetic props are the trick worth naming.** The packer takes props rather than paths
+    /// because that is what a moment supplies, and only the path and the kind are ever read from one
+    /// — the rest of a <see cref="SceneProp"/> describes where an entity STANDS, which is not a
+    /// question about geometry. So a path becomes a prop at the origin purely to reach the packer,
+    /// and that construction belongs beside the packer rather than in whatever called it.
+    ///
+    /// **Which paths to pass is B195**: this set and the asset loader's disagree today.
+    /// </remarks>
+    public bool Precache(IEnumerable<string> paths)
+    {
+        ArgumentNullException.ThrowIfNull(paths);
+
+        List<SceneProp> synthetic = [];
+
+        foreach (string path in paths)
+        {
+            synthetic.Add(new SceneProp(0, path, ScenePropTrack.Classify(path), default));
+        }
+
+        return Add(synthetic);
+    }
+
     /// <summary>Where each model stands at this moment.</summary>
     /// <param name="props">What exists at this tick.</param>
     /// <param name="into">Filled with one entry per drawable entity; cleared first.</param>

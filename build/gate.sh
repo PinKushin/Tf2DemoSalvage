@@ -349,7 +349,10 @@ run Tf2DemoSalvage.Audio.Tests    audio     161
 # STOPPED: it reported time passing after Reset, which made the fixture blind to the whole class.
 # 146: FpsOverlayTests (7), out of MainForm.BuildHud. Every placement case is a pair, because one
 # viewport width cannot tell "tracks the viewport" from "sits at a fixed x".
-run Tf2DemoSalvage.Presentation.Tests presentation 146
+# 159: LaunchOptionsTests (13), out of MainForm.ReadCaptureOptions. Every malformed case is a PAIR
+# with its well-formed twin, because a parser that ignored an option entirely passes any test that
+# only checks the bad input is refused.
+run Tf2DemoSalvage.Presentation.Tests presentation 159
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.

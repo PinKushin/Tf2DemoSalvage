@@ -1,0 +1,200 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+
+using Microsoft.Extensions.Logging;
+
+using Tf2DemoSalvage.Scene;
+
+namespace Tf2DemoSalvage.Presentation;
+
+/// <summary>What the command line asked for, and whatever it did not recognise.</summary>
+/// <param name="Settings">The config, with any <c>+command value</c> applied over it.</param>
+/// <param name="Paths">Everything that was not an option: the demos to open.</param>
+/// <param name="ShotPath">Where an automatic capture goes, or null when none was asked for.</param>
+/// <param name="ShotTick">Which tick to show before capturing.</param>
+/// <param name="FirstPerson">Whether the capture is taken through a player's eyes.</param>
+/// <param name="LookAt">Where the overhead camera is centred, or null to frame the map.</param>
+/// <param name="Zoom">The overhead camera's zoom.</param>
+/// <param name="SurfaceColours">Whether the capture uses the surface-category view.</param>
+/// <param name="Spectate">Which entity to follow, or null to choose automatically.</param>
+public readonly record struct LaunchOptions(
+    ViewerSettings Settings,
+    IReadOnlyList<string> Paths,
+    string? ShotPath = null,
+    int ShotTick = 0,
+    bool FirstPerson = false,
+    (float X, float Y)? LookAt = null,
+    float Zoom = 1f,
+    bool SurfaceColours = false,
+    int? Spectate = null);
+
+/// <summary>Reads the viewer's launch options.</summary>
+/// <remarks>
+/// **This was <c>MainForm.ReadCaptureOptions</c>, writing into eight fields as it went** (B188,
+/// D90). Parsing a command line is not window work, and nothing about it could be tested where it
+/// was: reaching it meant constructing a form, so every option was covered only by whichever UI
+/// test happened to pass one.
+///
+/// **`+command value` is Valve's own mechanism, not a second spelling of it.** Source sets a cvar at
+/// startup exactly this way, and this viewer already speaks Source's vocabulary in its config
+/// (D69, D70) — so the command line hands the string to the SAME parser reading the SAME command
+/// names. Every setting the config understands is settable from the command line for free, and an
+/// unknown command is ignored here exactly as it is in a config.
+///
+/// **It overrides the config rather than merging into it.** A value passed for one launch must not
+/// become the value for every later launch — which is also what makes it usable from the UI suite,
+/// which redirects its captures without editing, and therefore without clobbering, the settings the
+/// owner actually uses.
+///
+/// **Every malformed value is reported rather than ignored.** A mistyped tick that quietly captures
+/// tick zero is a picture of the wrong moment, which is worse than no picture.
+/// </remarks>
+public static class LaunchOptionsReader
+{
+    /// <summary>Reads the arguments over a starting configuration.</summary>
+    /// <param name="arguments">The command line, less the executable.</param>
+    /// <param name="settings">The config as loaded, which options override.</param>
+    /// <param name="log">Where a malformed or unrecognised value is reported.</param>
+    /// <returns>What was asked for.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public static LaunchOptions Read(
+        IReadOnlyList<string> arguments, ViewerSettings settings, ILogger log)
+    {
+        ArgumentNullException.ThrowIfNull(arguments);
+        ArgumentNullException.ThrowIfNull(settings);
+        ArgumentNullException.ThrowIfNull(log);
+
+        List<string> paths = [];
+        Queue<string> pending = new(arguments);
+
+        LaunchOptions read = new(settings, paths);
+
+        // A queue rather than an indexed loop: an option consumes the value after it, and moving a
+        // loop counter from inside the body is the shape analyzers rightly object to.
+        while (pending.Count > 0)
+        {
+            string argument = pending.Dequeue();
+
+            if (argument == "--shot" && pending.Count > 0)
+            {
+                read = read with { ShotPath = pending.Dequeue() };
+                continue;
+            }
+
+            if (argument == "--look" && pending.Count > 1)
+            {
+                string x = pending.Dequeue();
+                string y = pending.Dequeue();
+
+                if (Number(x) is { } worldX && Number(y) is { } worldY)
+                {
+                    read = read with { LookAt = (worldX, worldY) };
+                    continue;
+                }
+
+                log.LogWarning("{Message}", $"--look {x} {y} is not a position; ignoring it");
+                continue;
+            }
+
+            if (argument == "--colours")
+            {
+                read = read with { SurfaceColours = true };
+                continue;
+            }
+
+            if (argument.StartsWith('+') && argument.Length > 1 && pending.Count > 0)
+            {
+                string command = argument[1..];
+                string value = pending.Dequeue();
+
+                read = read with
+                {
+                    Settings = ViewerSettings.Parse(
+                        string.Create(CultureInfo.InvariantCulture, $"{command} \"{value}\""),
+                        onto: read.Settings),
+                };
+
+                log.LogInformation("{Message}", $"{command} {value} (from the command line)");
+                continue;
+            }
+
+            // **The capture a person actually wants to look at is the first-person one**, and until
+            // this flag existed the only route to it was the UI suite pressing V — which meant it
+            // could only be taken on whichever demo that suite happens to open, at whichever tick it
+            // could reach. See docs/findings/29 for what that produced: a picture of a wall at the
+            // last tick of a solo recording.
+            if (argument == "--first-person")
+            {
+                read = read with { FirstPerson = true };
+                continue;
+            }
+
+            if (argument == "--zoom" && pending.Count > 0)
+            {
+                string value = pending.Dequeue();
+
+                if (Number(value) is { } zoom)
+                {
+                    read = read with { Zoom = zoom };
+                    continue;
+                }
+
+                log.LogWarning("{Message}", $"--zoom {value} is not a number; ignoring it");
+                continue;
+            }
+
+            // **Which player to watch, because otherwise there is no choosing.** The viewer
+            // spectates whoever `SpectatorTarget.Choose` picks — the lowest entity index on a
+            // playing team — and a match has eighteen players. Anything that happens to anybody else
+            // is on screen for nobody, which made the off hand unviewable: z1800 carries six spies
+            // with a watch drawn, and not one of them is ever the chosen target.
+            if (argument == "--spectate" && pending.Count > 0)
+            {
+                string value = pending.Dequeue();
+
+                if (Whole(value) is { } entity)
+                {
+                    read = read with { Spectate = entity };
+                    continue;
+                }
+
+                log.LogWarning("{Message}", $"--spectate {value} is not a number; ignoring it");
+                continue;
+            }
+
+            if (argument == "--tick" && pending.Count > 0)
+            {
+                string value = pending.Dequeue();
+
+                if (Whole(value) is { } tick)
+                {
+                    read = read with { ShotTick = tick };
+                    continue;
+                }
+
+                // Not silent: a mistyped tick that quietly captures tick zero is a picture of the
+                // wrong moment, which is worse than no picture.
+                log.LogWarning("{Message}", $"--tick {value} is not a number; capturing tick 0");
+                continue;
+            }
+
+            paths.Add(argument);
+        }
+
+        return read;
+    }
+
+    /// <summary>A number as the command line spells it, or null.</summary>
+    /// <remarks>Invariant culture: a launch option is not localised, and "1,5" is not 1.5 here.</remarks>
+    private static float? Number(string value) =>
+        float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out float read)
+            ? read
+            : null;
+
+    /// <summary>A whole number as the command line spells it, or null.</summary>
+    private static int? Whole(string value) =>
+        int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int read)
+            ? read
+            : null;
+}
