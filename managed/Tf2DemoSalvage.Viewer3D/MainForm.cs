@@ -214,25 +214,22 @@ internal class MainForm : Form
     // `_drawn` moved with the rebuild that fills it (B188, D90). It is `MomentScene.Drawn`, still a
     // field there so the per-frame allocation happens once rather than per tick.
 
-    // `_surfaceList` was here until 2026-08-25. It is `_level.Surfaces` — the field was a copy of
-    // one property of a record the form was already holding, and keeping both is how they come to
-    // disagree: the catch below cleared the copy and left the record.
+    // `_surfaceList` was here until 2026-08-25. It is `_loaded.Level.Surfaces` — the field was a
+    // copy of one property of a record the form was already holding, and keeping both is how they
+    // come to disagree: the catch below cleared the copy and left the record.
 
     // `_assets` is `_loaded.Assets` — nullable there for the same reason it was here: textures
     // failing costs the textures, not the map.
 
-    /// <summary>Every lump the loaded map carries, kept as the record it was read into.</summary>
-    /// <remarks>
-    /// **Six fields until 2026-08-25, and all six were this record unpacked** — the terrain, the
-    /// decals, the brush models, the BSP tree, the surfaces and the brush-model classes. Nothing
-    /// transformed them on the way out; `ReadMap` assigned them straight across and `ProjectMap`
-    /// read them straight back.
-    ///
-    /// **That is the answer to "should maps be their own project" (D92): no, because the problem
-    /// was never a missing boundary.** A cluster of ten fields that came out of one type is fixed by
-    /// keeping the type, not by building a project around the fields.
-    /// </remarks>
-    private MapLevel? _level;
+    // **`_level` was here until 2026-08-25 and it is the reason this warning is worth reading.**
+    // `MapLevel` was collapsed into `LoadedMap` and this field was left behind: still declared,
+    // still cleared to null in `ClearMap`, still READ by `mat_leafvis` — and never assigned
+    // anything. So the overlay drew nothing on every map, with 620 viewer tests green, because
+    // `_level?.Leaves` on a permanently-null field is a legal expression that answers null (B196).
+    //
+    // **That is the answer to "should maps be their own project" (D92): no, because the problem was
+    // never a missing boundary.** A cluster of eleven fields that came out of one type is fixed by
+    // keeping the type — and by keeping exactly ONE of it, which is the half that got missed.
 
     // The PVS was a field here until 2026-08-25 (B188). It is read at map load and handed to
     // SoundscapeSystem, which is the only thing that ever asked it anything — so it is a local in
@@ -337,6 +334,15 @@ internal class MainForm : Form
 
     /// <summary>Whether the resident textures belong to the map currently loaded.</summary>
     private bool _texturesUploaded;
+
+    /// <summary>Whether the empty leaf outline has already been explained for this map.</summary>
+    /// <remarks>
+    /// **Once per map, not once per frame.** `LeafBoxLines` runs on every frame the overlay is on,
+    /// and a warning written from there unguarded is B191 exactly: one log line per frame taking a
+    /// machine-wide lock and a disk flush, which cost 120 ms of a 133 ms frame the last time.
+    /// Cleared by `ClearMap`, so the next map gets its own answer.
+    /// </remarks>
+    private bool _reportedNoLeafBox;
 
     /// <summary>Whether the viewport has changed size since the world was last projected.</summary>
     private bool _worldIsStale;
@@ -686,6 +692,15 @@ internal class MainForm : Form
 
         _settings = _launch.Settings;
         _spectator.Spectating = _launch.Spectate;
+
+        // **This line was MISSING for a day and `--shot` did nothing at all** (B196). `_shotPath`
+        // stayed out of the record because taking the shot CONSUMES it, and staying out of the
+        // record is exactly how it stopped being assigned: the six `_shot*` fields the parser used
+        // to write into went away together, and the one that had to survive them was not wired back
+        // up. `TakeAutomaticShot` then read a permanently-null field and returned every frame.
+        //
+        // Nothing failed. No test passes `--shot`, so the whole option was covered by nobody.
+        _shotPath = _launch.ShotPath;
 
         initialPaths = [.. _launch.Paths];
 
@@ -1514,7 +1529,11 @@ internal class MainForm : Form
         // the previous map's lumps until the next read replaced them. Nothing read them in between —
         // `ClearMap` is followed immediately by a read — but "correct because of the call order two
         // methods away" is the kind of thing a record makes impossible to get wrong.
-        _level = null;
+        //
+        // `_level` was cleared here too until 2026-08-25. It was a SECOND map field left behind by
+        // the move that created `LoadedMap`, never assigned anything but null, and `mat_leafvis`
+        // read it (B196).
+        _reportedNoLeafBox = false;
         _texturesUploaded = false;
         _mapProblem = null;
 
@@ -1983,23 +2002,19 @@ internal class MainForm : Form
                         _weaponRoles.Suffix(pair.Weapon, pair.Class))));
     }
 
-    /// <summary>The model a player is drawn as, or null when they are not drawn as one.</summary>
-    /// <param name="player">The player.</param>
-    /// <remarks>
-    /// **One predicate, used by both the model pass and the dot pass.** A player drawn as a model
-    /// must not also get a flat marker on top of it, and a player without a model must still get
-    /// one or they vanish. Asking the question in two places is how the two answers drift apart -
-    /// and they did: the markers were still being drawn over the models the moment those started
-    /// working, which hid whether the models were there at all.
-    /// </remarks>
-    /// <remarks>
-    /// **Delegates rather than repeating the rule** (B188). This and <c>PlayerProps.Add</c> were the
-    /// same three conditions written twice: the draw loop adds a model for a player, and the marker
-    /// pass draws a DOT for a player with no model. Two copies of one question asked from opposite
-    /// sides is how a player ends up with both a body and a dot on top of it.
-    /// </remarks>
-    private string? PlayerModel(ScenePlayer player) =>
-        PlayerProps.ModelFor(player, new GameAppearance(_game?.Classes, _weaponRoles));
+    // **`PlayerModel` was here until 2026-08-25** (B188, D90). It was a one-line delegation to
+    // `PlayerProps.ModelFor`, and a delegating wrapper is the view knowing that a domain operation
+    // exists — which being short does not make into view code.
+    //
+    // It also built a SECOND `GameAppearance` on every call, beside the one `_moment.Appearance`
+    // already holds. Its only caller was the marker pass, which now passes that one, so there is a
+    // single appearance where there were two.
+    //
+    // The rule it carried is worth keeping written down, because it is the reason the two passes
+    // must ask ONE question: a player drawn as a model must not also get a flat marker on top of
+    // it, and a player without a model must still get one or they vanish. Asked in two places the
+    // answers drift, and they did — the markers were still being drawn over the models the moment
+    // those started working, which hid whether the models were there at all.
 
     // `DemoModelPaths` and `WornModelPaths` are `DemoModels.Needed` and `DemoModels.Worn` (B188,
     // D90) — a question about a demo and an install, asked from a window that had nothing to do
@@ -2021,7 +2036,6 @@ internal class MainForm : Form
     /// </remarks>
     private string? _shotPath;
 
-    /// <summary>Frames still to draw before the shutter, so the world is finished and settled.</summary>
     /// <summary>Frames to let the world settle before the opening state is applied.</summary>
     /// <remarks>
     /// **Counted in frames, not seconds**, so it measures settled frames rather than guessing at a
@@ -2178,87 +2192,64 @@ internal class MainForm : Form
         return _freeLook ? FreeLookCamera().ToMatrix() : map.ToMatrix();
     }
 
-    /// <summary>The twelve edges of the leaf the camera stands in, projected — <c>mat_leafvis</c>.</summary>
+    /// <summary>The leaf outline to draw over the world, when that overlay is switched on.</summary>
     /// <param name="matrix">The view-projection the world is drawn with, row major.</param>
     /// <returns>Clip-space segments, or nothing when the mode is off or there is no leaf.</returns>
     /// <remarks>
-    /// **The leaf the CAMERA is in, which is what Valve draws.** A BSP leaf is the unit the engine
-    /// culls and traces against, so "which one am I in and how big is it" is the question behind
-    /// every visibility oddity — a prop that vanishes at a doorway, a sound that carries too far.
-    /// Drawing all of them would be a wireframe of the whole tree and answer nothing.
+    /// **What is left here is the TOGGLE, which is view state, and the eye, which the camera owns.**
+    /// The tree walk and the projection are <see cref="LeafVis"/>'s — see there for what the box is
+    /// and why it is drawn in clip space.
     ///
-    /// **Projected here rather than drawn in world space** because the line channel takes clip-space
-    /// segments and ignores depth, which is what an annotation should do: the box is a statement
-    /// about where you are, and a box half-hidden by the wall it describes would be worse than
-    /// useless. That is the same reason the player markers ignore depth.
+    /// The origin is the one the free camera flies from, so the box is the leaf the VIEWER is in
+    /// rather than the one the recording happens to be looking from.
     ///
-    /// A corner behind the eye is dropped rather than projected: dividing by a w at or below zero
-    /// mirrors the point through the camera, and the edge then streaks across the screen from
-    /// somewhere it is not.
+    /// **It reads `_loaded` rather than a field of its own, and that is the fix for a regression
+    /// this method carried for a day** (B196). A separate `_level` survived the move that created
+    /// <see cref="LoadedMap"/> and its assignment did not, so it held null for ever and this drew
+    /// nothing on every map. One field, or it drifts.
     /// </remarks>
-    private List<((float X, float Y) From, (float X, float Y) To)> LeafBoxLines(
+    private IReadOnlyList<((float X, float Y) From, (float X, float Y) To)> LeafBoxLines(
         float[] matrix)
     {
-        if (!_debug.LeafVis || _level?.Leaves is not { } tree)
+        if (!_debug.LeafVis)
         {
             return [];
         }
 
-        // The same origin the free camera flies from, so the box is the leaf the VIEWER is in
-        // rather than the one the recording happens to be looking from.
-        (float X, float Y, float Z) eye = _freeOrigin ?? FreeLookCamera().Origin;
+        IReadOnlyList<((float X, float Y) From, (float X, float Y) To)> lines =
+            LeafVis.Lines(_loaded?.Level.Leaves, _freeOrigin ?? FreeLookCamera().Origin, matrix);
 
-        if (tree.Bounds(tree.LeafAt(eye.X, eye.Y, eye.Z)) is not { } box)
+        // **Says which of the three silences this is, once** (D83). An overlay that is switched on
+        // and draws nothing is the exact shape the regression above wore for a day, and it is
+        // indistinguishable by eye from standing in a leaf whose box is off screen. Naming the
+        // measurement is the difference between a diagnostic and a shrug.
+        if (lines.Count == 0 && !_reportedNoLeafBox)
         {
-            return [];
-        }
+            _reportedNoLeafBox = true;
 
-        (float X, float Y, float Z) Corner(int which) => (
-            (which & 1) == 0 ? box.Min.X : box.Max.X,
-            (which & 2) == 0 ? box.Min.Y : box.Max.Y,
-            (which & 4) == 0 ? box.Min.Z : box.Max.Z);
-
-        (float X, float Y)? Project((float X, float Y, float Z) point)
-        {
-            // **Row-vector, which is what the shader does: `mul(world, viewProjection)` with the
-            // matrix declared `row_major`.** So a point multiplies the matrix from the LEFT, the
-            // translation lives in elements 12–14, and w comes from element 11 — `FreeCamera` sets
-            // `projection[11] = 1`, which is the giveaway.
-            //
-            // The first version indexed this as column-vector, taking w from 12–15. That does not
-            // fail, it produces a projection: the owner saw the box as "a dot that gets kinda
-            // triangular", which is a room-sized box collapsed through the wrong transform. This
-            // project already carries a memory about the two conventions it uses on purpose; this
-            // is what mixing them looks like from the outside.
-            float x = (point.X * matrix[0]) + (point.Y * matrix[4]) + (point.Z * matrix[8]) + matrix[12];
-            float y = (point.X * matrix[1]) + (point.Y * matrix[5]) + (point.Z * matrix[9]) + matrix[13];
-            float w = (point.X * matrix[3]) + (point.Y * matrix[7]) + (point.Z * matrix[11]) + matrix[15];
-
-            return w > 0.0001f ? (x / w, y / w) : null;
-        }
-
-        List<((float X, float Y) From, (float X, float Y) To)> lines = [];
-
-        // The twelve edges of a box: every pair of corners differing in exactly one axis bit.
-        for (int from = 0; from < 8; from++)
-        {
-            foreach (int axis in new[] { 1, 2, 4 })
-            {
-                int to = from | axis;
-
-                if (to == from)
-                {
-                    continue;
-                }
-
-                if (Project(Corner(from)) is { } a && Project(Corner(to)) is { } b)
-                {
-                    lines.Add((a, b));
-                }
-            }
+            _renderLog.LogWarning("{Message}", WhyNoLeafBox());
         }
 
         return lines;
+    }
+
+    /// <summary>Which of the three reasons the leaf outline came back empty.</summary>
+    /// <remarks>
+    /// **A log must name what it measured.** "no leaf box" is true of all three and useful for
+    /// none: a map that never loaded, a map with no BSP tree, and a camera standing in a leaf whose
+    /// bounds the lump does not carry are three different problems with three different fixes, and
+    /// only the first two are ours.
+    /// </remarks>
+    private string WhyNoLeafBox()
+    {
+        if (_loaded is null)
+        {
+            return "mat_leafvis is on with no map loaded";
+        }
+
+        return _loaded.Level.Leaves is null or { IsEmpty: true }
+            ? "mat_leafvis is on but the map carried no BSP tree"
+            : "mat_leafvis is on but the leaf under the camera has no bounds";
     }
 
     /// <summary>Enters or leaves the first-person view, saying why when it cannot be entered.</summary>
@@ -2459,36 +2450,13 @@ internal class MainForm : Form
     /// bounds are not known until BSP reading exists - and fitting to the entities is what a
     /// viewer wants anyway when a scrub lands on a moment where everyone is in one corner.
     /// </remarks>
-    public void ShowPositions(IReadOnlyList<(float X, float Y)> positions)
-    {
-        ArgumentNullException.ThrowIfNull(positions);
-
-        if (positions.Count == 0)
-        {
-            _scene = [];
-            return;
-        }
-
-        // With a map loaded the players are projected through the MAP's camera, so they land where
-        // they actually are in the world. Fitting to the players instead would place them
-        // correctly relative to each other and wrongly relative to everything around them.
-        TopDownCamera camera = _loaded is { } outlined && !outlined.Outline.IsEmpty
-            ? MapCamera()
-            : TopDownCamera.Fit(
-                positions,
-                Math.Max(1, _viewport.ClientSize.Width),
-                Math.Max(1, _viewport.ClientSize.Height));
-
-        List<ScenePoint> points = new(positions.Count);
-
-        foreach ((float worldX, float worldY) in positions)
-        {
-            (float x, float y) = camera.Project(worldX, worldY);
-            points.Add(new ScenePoint(x, y, 1f, 0.85f, 0.3f));
-        }
-
-        _scene = points;
-    }
+    public void ShowPositions(IReadOnlyList<(float X, float Y)> positions) =>
+        _scene = MapOverview.Positions(
+            positions,
+            _loaded,
+            MapCamera(),
+            _viewport.ClientSize.Width,
+            _viewport.ClientSize.Height);
 
     /// <summary>Draws the whole world at a moment: players and every model-bearing entity.</summary>
     /// <param name="tick">The moment to show, which may fall between ticks.</param>
@@ -2644,60 +2612,14 @@ internal class MainForm : Form
     /// rather than guessed at — a wrong team colour is worse than no colour, because it is read as
     /// information.
     /// </remarks>
-    public void ShowPlayers(IReadOnlyList<ScenePlayer> players)
-    {
-        ArgumentNullException.ThrowIfNull(players);
-
-        if (players.Count == 0)
-        {
-            _scene = [];
-            return;
-        }
-
-        TopDownCamera camera = _loaded is { } outlined && !outlined.Outline.IsEmpty
-            ? MapCamera()
-            : TopDownCamera.Fit(
-                [.. players.Select(player => (player.X, player.Y))],
-                Math.Max(1, _viewport.ClientSize.Width),
-                Math.Max(1, _viewport.ClientSize.Height));
-
-        List<ScenePoint> points = new(players.Count + _props.Count);
-
-        foreach (ScenePlayer player in players)
-        {
-            // **Spectators and the SourceTV camera are CTFPlayer entities too**, with real
-            // positions that follow the action - so drawing everything puts convincing dots on the
-            // map where nobody is standing.
-            //
-            // **The dead are skipped here for the same reason, and the marker pass is where that
-            // is easiest to get wrong.** A player the engine would not draw has no model, and the
-            // rule below is "no model means a dot" - so removing dead players from the model pass
-            // alone would have turned every corpse into a marker gliding around the map behind
-            // whoever it was spectating, which is the same defect in a cheaper primitive.
-            if (!player.IsPlaying || !player.Drawn)
-            {
-                continue;
-            }
-
-            // **A marker only for a player with no model.** Once the class models draw, a dot on
-            // top of one hides the very thing it was standing in for - which is exactly what
-            // happened, and made a working render look like a failed one.
-            if (PlayerModel(player) is not null)
-            {
-                continue;
-            }
-
-            (float x, float y) = camera.Project(player.X, player.Y);
-
-            (float red, float green, float blue) = player.Team == SceneTeams.Red
-                ? (0.90f, 0.31f, 0.27f)
-                : (0.34f, 0.60f, 0.78f);
-
-            points.Add(new ScenePoint(x, y, red, green, blue));
-        }
-
-        _scene = points;
-    }
+    public void ShowPlayers(IReadOnlyList<ScenePlayer> players) =>
+        _scene = MapOverview.Players(
+            players,
+            _loaded,
+            MapCamera(),
+            _viewport.ClientSize.Width,
+            _viewport.ClientSize.Height,
+            _moment.Appearance);
 
     /// <summary>Writes the next drawn frame to a PNG.</summary>
     /// <param name="path">Where to write it.</param>

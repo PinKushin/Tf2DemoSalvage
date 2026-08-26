@@ -120,6 +120,8 @@ convention already broken and matches its neighbours. Enforcement is the TFM, no
 | `LaunchOptions` + `LaunchOptionsReader` (was `ReadCaptureOptions`, writing into 8 fields) | Presentation | |
 | `SoundCache.Precache` | Audio | |
 | `EntityModelSet.Precache` | Scene | |
+| `LeafBoxLines` → `LeafVis` | Scene | `mat_leafvis` is engine-side and not in the SDK; the published analogue is `cl_drawleaf` (`clientleafsystem.cpp:32`), and `dleaf_t`'s mins/maxs are "for frustum culling", so the loose box is the right thing to draw. What stayed in the view is the TOGGLE and the eye. |
+| `ShowPlayers` + `ShowPositions` + `PlayerModel` → `MapOverview` | Presentation | **Valve's own name and its own rules.** `CMapOverview` (`game_controls/MapOverview.cpp`) is the spectator map panel; `MapPlayer_t` carries `Color color; // players team color`, and `CanPlayerBeSeen` says "we never track unassigned or real spectators" — which is our `IsPlaying` filter, stated by the engine. Presentation rather than Scene because it turns domain state into drawable primitives, like `FpsOverlay`, and it is the only project that can see both `ScenePoint` (Render) and `LoadedMap` (Scene). |
 
 ### Field collapses that made those moves possible
 
@@ -180,13 +182,22 @@ device callbacks and the capture path.
 **Clear the independent pieces first** so the big move is as small as it can be. In rough order of
 how self-contained they are:
 
-1. `LeafBoxLines` (71) — debug visualisation, reads only `_loaded`
-2. `ShowPlayers` (67) — already nearly pass-through to `MomentScene`
+1. ~~`LeafBoxLines`~~ — **done**, and it is what turned up B196
+2. ~~`ShowPlayers`, `ShowPositions`, `PlayerModel`~~ — **done** as `MapOverview`
 3. the three slow-frame reporters (~190 together) — diagnostics over `_drawn`/`_instances`
 4. `ToggleFirstPerson` (92) and `FlyCamera` (97) — camera mode, wants `SpectatorView`
 5. `EnsureWeaponRoles` (103) — domain, and it is the member that already caused one regression
 6. `ProjectMap` (107) — splits: the projection is Scene, the control invalidation is view
 7. `ReadMap` (116) — mostly `LoadedMap.Read` already; what is left is error presentation
+
+**`MapCamera` moves LAST, after everything that calls it.** Nine call sites, most of them inside
+members still on this list (`ViewMatrix`, `LeafBoxLines`, `ProjectMap`, the pan and zoom handlers).
+Moving it first would mean rewriting each of those twice.
+
+**`ShowPositions` has no production caller** — only `ShowPositionsTests`. So two viewer tests
+exercise a path the running program never takes, which is worth knowing before anyone treats them as
+coverage. Left in place rather than deleted, because the assertions are real and `MapOverview` now
+carries the same cases with its own tests; decide it deliberately rather than as part of a move.
 
 Then `Apply` + `LoadDemoAsync` + `ShowMoment` + `ApplyOpeningState` + `RenderFrame`'s order as one
 commit, with the §3 audit run on it twice.
@@ -231,6 +242,27 @@ done
 4. **Check that a counter which kept its NAME kept its MEANING.**
 
 Full reasoning in `docs/memory/a-moves-regressions-are-wiring.md`.
+
+**Pass 1 now has a test behind it: `FieldSeedingTests` in `Viewer3D.Tests`** (B196). It scans the
+viewer's own source and fails when any field is READ but only ever assigned `null` — which is what a
+dropped assignment looks like after the write has moved away. It found two shipped regressions the
+hour it was written: `mat_leafvis` had drawn nothing on every map since `MapLevel` became
+`LoadedMap`, and `--shot` had done nothing at all since the `_shot*` fields became `LaunchOptions`.
+
+**It is a source scan rather than reflection because the question is about INSTRUCTIONS, not state.**
+At runtime a permanently-null field is indistinguishable from one that is legitimately empty right
+now. Two things follow, both learned by getting them wrong:
+
+- **Strip comments before asking anything.** This repo records every field it deletes in a note that
+  names the field, and one of those notes contains ``_level = null`` in backticks. That is not an
+  assignment, but it does not read as `= null;` either, so a naive guard counted it as seeding —
+  and the scan reported the OTHER bug while staying blind to the one it was written for.
+- **A regex lookahead after `\s*` is not a guard.** When it fails, the engine backtracks the `\s*`
+  to zero width and the lookahead then sees whitespace instead of the token it was refusing. Needs
+  an atomic group.
+
+Both were caught only because the test carries a **control that feeds it a known-broken input**. A
+detector with no control is indistinguishable from a detector that matches nothing.
 
 **All three now report themselves** — `no player appearance`, `no viewmodel source`, `no model
 upload` — once rather than per frame, each guarded on there actually being work to do, each with a

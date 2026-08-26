@@ -10443,6 +10443,52 @@ any `$bumpmap` on brushwork — because the tangent basis those need is built fr
 lumps. Anyone adding that must read them first rather than deriving a normal from the plane, which
 is flat by construction and wrong on every displacement.
 
+### B196 — Two features shipped dead because a field outlived its assignment — FIXED 2026-08-25
+
+**Both were found by the wiring audit B193 asks for, one by grep and one by a new test. Neither was
+visible to the compiler, the analyzers or 620 green viewer tests.**
+
+| field | move that dropped it | what stopped working |
+|---|---|---|
+| `_level` | `MapLevel` collapsed into `LoadedMap` (`a04f0fe`) | `mat_leafvis` drew nothing on every map |
+| `_shotPath` | the six `_shot*` fields became `LaunchOptions` | `--shot` did nothing at all |
+
+**The shape is identical and it is the shape every extraction can produce.** A field that used to be
+written by the code being moved is left behind, still declared and still read, and the write goes
+with the move. It then holds null for ever.
+
+**Why nothing caught it.** `_level = null` in `ClearMap` IS an assignment, so CS0649 stays quiet.
+The field is read, so the unused-member analyzers stay quiet. `_level?.Leaves` on a permanently null
+field is a legal expression with a legal answer, so nothing throws. And the observable effect —
+an overlay drawing nothing — is indistinguishable by eye from standing in a leaf whose box is off
+screen. For `--shot` there was no observation at all: **no test in the repository passes it**, so
+the option was covered by nobody.
+
+**The irony is worth keeping.** `a04f0fe`'s own comment says the change was made so that
+*"`mat_leafvis` went blank on a map whose BSP tree was fine"* would stop happening. The commit that
+fixed a conditional blankness introduced an unconditional one.
+
+**Fixed three ways, and the third is the one that generalises:**
+
+1. `_level` deleted; `mat_leafvis` reads `_loaded.Level.Leaves`. **One place, or it drifts** — the
+   duplicate was the failure mode, not the missing assignment.
+2. `_shotPath = _launch.ShotPath` restored, and the empty-outline case now reports which of three
+   silences it is (D83), once per map rather than per frame.
+3. **`FieldSeedingTests` — a source-level scan that fails when any field in `Viewer3D` is read but
+   only ever assigned null.** Validated by running it against the pre-fix source, where it names
+   both. This is the instrument B193 has been asking for.
+
+**Two defects in the instrument itself, both of which made it pass vacuously**, and both caught only
+because it carries a control that feeds it a known-broken input:
+
+- `=(?!=)\s*(?!null\s*;)` does not mean "an `=` not followed by null". When the lookahead fails the
+  engine backtracks `\s*` to zero width, the lookahead then sees a SPACE rather than `null`, and
+  succeeds. Needs an atomic group.
+- **A comment counted as an assignment.** This file records every field it removes in a note naming
+  it, and one reads ``the old catch set `_level = null` alongside…``. The backtick after `null`
+  defeats the guard, so the note marked the field seeded — and the scan reported `_shotPath` alone
+  while staying blind to the very bug it was written for.
+
 ### B195 — Two different answers to "what models does this demo need" — OPEN
 
 **Found while moving `PrecacheModels` out of `MainForm`, by reading what it asked for.** Two sets

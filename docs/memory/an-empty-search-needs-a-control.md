@@ -1,8 +1,11 @@
 ---
 name: an-empty-search-needs-a-control
 description: A search returning nothing is evidence about the search until a positive control proves it could have found something.
-metadata:
+metadata: 
+  node_type: memory
   type: project
+  originSessionId: 4774a88b-811c-40bb-9c79-9b22dc0a4474
+  modified: 2026-08-26T01:21:47.049Z
 ---
 
 **A grep that returns nothing is not a fact about the format. It is a fact about the grep**, until a
@@ -70,5 +73,35 @@ from a `.cpp`-only sweep when the real answer spans `.h` and `.fxc` too.
 An absence CAN be the answer — `demo_interpolateview` really is an engine ConVar with nothing in the
 tree. The difference is that the claim is worth making only once the search has been shown to work.
 
+## A detector shipped as a TEST needs the control permanently, not just once — B196, 2026-08-25
+
+The rule above is usually applied to a one-off grep. It matters more when the search becomes a
+standing test, because then the empty result is re-asserted on every run and nobody looks again.
+
+`FieldSeedingTests` scans the viewer's source for a field that is READ but only ever assigned
+`null` — the shape a dropped assignment leaves behind after an extraction. It found two shipped
+regressions. It also failed **twice, silently, in the direction of reporting nothing**, and each
+time the only thing that noticed was a control test feeding it a known-broken input:
+
+1. **`=(?!=)\s*(?!null\s*;)` does not mean "an `=` not followed by null".** When the lookahead
+   fails, the engine backtracks the `\s*` to zero width; the lookahead then sees a SPACE rather
+   than `null` and succeeds. Every `= null;` counted as a real assignment and the whole scan passed
+   vacuously. Needs an atomic group — `(?>\s*)`.
+2. **A COMMENT counted as an assignment.** This repo records every deleted field in a note naming
+   it, and one reads ``the old catch set `_level = null` alongside…``. The backtick after `null`
+   defeats the guard, so the note marked the field seeded — and the scan reported the second bug
+   while staying blind to the first, which is the one it was written for. Strip comments before
+   asking anything about code.
+
+**A partially-blind detector is worse than no detector**, because it produces findings and
+therefore reads as working. The output was "1 item" rather than "0 items", which is the most
+convincing possible wrong answer.
+
+**So: validate a detector against the real historical defect, not only a synthetic one.** The
+decisive check here was `git stash push -- <the file>`, running the scan against the pre-fix source,
+and confirming it named BOTH fields — sensitivity to a case someone invented is weaker evidence
+than sensitivity to the case that actually shipped.
+
 Related: [[an-uncoverable-gap-is-usually-your-reader]], [[tf2-game-code-is-in-the-sdk]],
-[[binaries-answer-what-the-sdk-cannot]].
+[[binaries-answer-what-the-sdk-cannot]], [[a-moves-regressions-are-wiring]],
+[[instrument-bugs-outnumber-decoder-bugs]].
