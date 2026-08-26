@@ -1267,12 +1267,30 @@ internal class MainForm : Form, IFrameSteps
                 "normal maps shown as colour.",
         };
 
-        foreach ((string label, string cvar, Keys key) in new[]
+        // **Each entry carries the flag it sets, and that is a bug fix rather than a tidy-up**
+        // (B210). This was a name and a `switch` on that name — five arms with a default that set
+        // `LeafVis`, against a list of SIX entries. So `mat_showlowresimage` could not be reached
+        // from the UI at all, and Ctrl+T silently toggled the leaf box, which Ctrl+L then fought
+        // over. Everything around it was tested: the flag, the renderer that reads it, a render
+        // test, and a shortcut-collision test proving Ctrl+T claims a key nothing else has.
+        //
+        // The mapping sits beside the label now, so a seventh mode cannot be added without saying
+        // what it sets — rather than being a second list, elsewhere, that has to agree with this one.
+        foreach ((string label, string cvar, Keys key, Func<DebugModes, bool, DebugModes> set)
+            in new (string, string, Keys, Func<DebugModes, bool, DebugModes>)[]
         {
-            ("Flat &shading (mat_drawflat)", nameof(DebugModes.DrawFlat), Keys.F1),
-            ("&Luxel grid (mat_luxels)", nameof(DebugModes.Luxels), Keys.F2),
-            ("&Normal maps (mat_normalmaps)", nameof(DebugModes.NormalMaps), Keys.F3),
-            ("Bump &basis (mat_bumpbasis)", nameof(DebugModes.BumpBasis), Keys.F4),
+            ("Flat &shading (mat_drawflat)", nameof(DebugModes.DrawFlat), Keys.F1,
+                static (modes, on) => modes with { DrawFlat = on }),
+
+            ("&Luxel grid (mat_luxels)", nameof(DebugModes.Luxels), Keys.F2,
+                static (modes, on) => modes with { Luxels = on }),
+
+            ("&Normal maps (mat_normalmaps)", nameof(DebugModes.NormalMaps), Keys.F3,
+                static (modes, on) => modes with { NormalMaps = on }),
+
+            ("Bump &basis (mat_bumpbasis)", nameof(DebugModes.BumpBasis), Keys.F4,
+                static (modes, on) => modes with { BumpBasis = on }),
+
             // **Not F11, which is full screen — this collided and full screen lost.** The debug
             // group runs F1..F4 and every remaining function key was already taken (F5..F7
             // lighting, F8 reflections, F9 surface colours, F10 wireframe, F11 full screen, F12
@@ -1288,17 +1306,20 @@ internal class MainForm : Form, IFrameSteps
             // Off the function-key run rather than onto Shift+F11, deliberately: a modified twin of
             // the full-screen key is a mis-press away from the bug this fixes. Ctrl+L is mnemonic
             // for leaf, and the menu shows the binding.
-            ("Leaf &box (mat_leafvis)", nameof(DebugModes.LeafVis), Keys.Control | Keys.L),
+            ("Leaf &box (mat_leafvis)", nameof(DebugModes.LeafVis), Keys.Control | Keys.L,
+                static (modes, on) => modes with { LeafVis = on }),
 
             // **Ctrl+T, and for the same reason as Ctrl+L above: the function keys are full.** The
             // last of B153's set, and the only one that needed the asset rather than a shader
             // branch — every VTF's thumbnail had been skipped on the way past until now.
             ("Low-res &image (mat_showlowresimage)",
                 nameof(DebugModes.ShowLowResImage),
-                Keys.Control | Keys.T),
+                Keys.Control | Keys.T,
+                static (modes, on) => modes with { ShowLowResImage = on }),
         })
         {
             string which = cvar;
+            Func<DebugModes, bool, DebugModes> apply = set;
 
             ToolStripMenuItem item = new(label)
             {
@@ -1314,14 +1335,7 @@ internal class MainForm : Form, IFrameSteps
                     return;
                 }
 
-                _debug = which switch
-                {
-                    nameof(DebugModes.DrawFlat) => _debug with { DrawFlat = toggled.Checked },
-                    nameof(DebugModes.Luxels) => _debug with { Luxels = toggled.Checked },
-                    nameof(DebugModes.NormalMaps) => _debug with { NormalMaps = toggled.Checked },
-                    nameof(DebugModes.BumpBasis) => _debug with { BumpBasis = toggled.Checked },
-                    _ => _debug with { LeafVis = toggled.Checked },
-                };
+                _debug = apply(_debug, toggled.Checked);
 
                 _renderLog.LogInformation("{Message}", $"debug views: {_debug}");
 
@@ -1566,13 +1580,14 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private volatile bool _readingMap;
 
-    /// <summary>What went wrong reading the map, for the UI thread to show.</summary>
-    /// <remarks>
-    /// **A field rather than a direct `_status.Text`, because the read runs off the UI thread now.**
-    /// Setting a control property from a worker is the kind of thing that works until the day a
-    /// handle exists.
-    /// </remarks>
-    private string? _mapProblem;
+    // **`_mapProblem` was here until 2026-08-26, and it was a second copy of `_loaded.Problem`.**
+    // Four assignments, in two perfectly matched pairs — `ClearMap` nulled both, `LoadMap` set both
+    // from the same `map` — with nothing making them agree except that they were written next to
+    // each other. Its own doc argued it had to be a field because the read runs off the UI thread,
+    // which is true of `_loaded` as well and is therefore an argument for one field, not two.
+    //
+    // The status bar asks `_loaded?.Problem` now. That is the same value by construction rather
+    // than by care, which is the whole of the difference.
 
     /// <summary>Drops the current map and its GPU resources. UI thread only.</summary>
     /// <remarks>
@@ -1604,7 +1619,6 @@ internal class MainForm : Form, IFrameSteps
         // read it (B196).
         _reportedNoLeafBox = false;
         _world.TexturesAreCurrent = false;
-        _mapProblem = null;
 
         // **The models go with the world, because the world owned their buffer.** `ClearWorld`
         // disposes the `WorldRenderer`, and `_modelVertices` is one of its fields — so the packed
@@ -1616,16 +1630,15 @@ internal class MainForm : Form, IFrameSteps
         _device?.ClearWorld();
     }
 
-    /// <summary>Finds and reads a map. Safe off the UI thread once <see cref="ClearMap"/> has run.</summary>
-    /// <remarks>
-    /// **Verified by reading rather than assumed**: across its hundred and forty lines this path
-    /// touches no control, no demo, no timeline and no device — the one exception was a `_status.Text`
-    /// assignment in a catch, which now records <see cref="_mapProblem"/> for the UI thread to show.
-    /// </remarks>
     /// <summary>Reads a map by name, and hands back the install it opened.</summary>
     /// <param name="mapName">The map the demo names.</param>
     /// <returns>Whether a world was drawn, and the game content now open.</returns>
     /// <remarks>
+    /// **Safe off the UI thread once <see cref="ClearMap"/> has run, verified by reading rather than
+    /// assumed**: across its hundred and forty lines this path touches no control, no demo, no
+    /// timeline and no device. The one exception was a `_status.Text` assignment in a catch, which
+    /// records the failure on <see cref="LoadedMap.Problem"/> for the UI thread to show.
+    ///
     /// **The `GameContent` is RETURNED rather than left in a field, and that is a correctness fix
     /// rather than a tidy-up** (B208). Reading a map is what opens the install, and both precaches
     /// begin `if (timeline is null || game is null) return;` — **silently**. So the three calls in
@@ -1753,7 +1766,6 @@ internal class MainForm : Form, IFrameSteps
             // BSP tree was fine. `LoadedMap` separates the two: the lumps are read or they throw,
             // and the content is a nullable beside them.
             _loaded = map;
-            _mapProblem = map.Problem;
 
             ProjectMap();
             return !map.Outline.IsEmpty;
@@ -2469,7 +2481,9 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     public DemoLoadResult LoadDemo(string path)
     {
-        _loadsRequested++;
+        // **Takes a ticket it never asks about**, so that starting a synchronous load supersedes any
+        // async one already decoding. Both paths end by assigning the same fields.
+        _loads.Take();
 
         try
         {
@@ -2508,7 +2522,7 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     public async Task<DemoLoadResult> LoadDemoAsync(string path)
     {
-        int ticket = ++_loadsRequested;
+        int ticket = _loads.Take();
 
         _status.Text = "Opening " + Path.GetFileName(path) + "...";
 
@@ -2518,7 +2532,7 @@ internal class MainForm : Form, IFrameSteps
             DecodedDemo decoded =
                 await Task.Run(() => DecodedDemo.Read(path, demoLog)).ConfigureAwait(false);
 
-            if (ticket != _loadsRequested)
+            if (!_loads.IsCurrent(ticket))
             {
                 return OnUi(() => Superseded(_demoLog, path));
             }
@@ -2577,13 +2591,13 @@ internal class MainForm : Form, IFrameSteps
                 });
             }
 
-            return OnUi(() => ticket == _loadsRequested
+            return OnUi(() => _loads.IsCurrent(ticket)
                 ? Apply(decoded, read)
                 : Superseded(_demoLog, path));
         }
         catch (Exception failure) when (failure is IOException or InvalidDataException)
         {
-            return OnUi(() => ticket == _loadsRequested
+            return OnUi(() => _loads.IsCurrent(ticket)
                 ? CouldNotOpen(path, failure)
                 : Superseded(_demoLog, path));
         }
@@ -2616,8 +2630,13 @@ internal class MainForm : Form, IFrameSteps
     private T OnUi<T>(Func<T> work) =>
         IsHandleCreated && InvokeRequired ? Invoke(work) : work();
 
-    /// <summary>How many loads have been asked for, so a stale one can tell.</summary>
-    private int _loadsRequested;
+    /// <summary>Which load is still the one wanted.</summary>
+    /// <remarks>
+    /// **Was `_loadsRequested` and four bare comparisons against it** (B188, D90). The policy — a
+    /// newer request wins — needed no window to state and could only be reached by racing two real
+    /// loads against a real 24-minute demo.
+    /// </remarks>
+    private readonly LoadTickets _loads = new();
 
     // `Decoded` and `Decode` were here until 2026-08-25. They are `DecodedDemo` in the Scene project
     // now (B188, D90). Nothing about them was ever window work: the static was made static when the
@@ -2686,7 +2705,7 @@ internal class MainForm : Form, IFrameSteps
         // so on the async path this finds the work already done.
         DemoSounds.Precache(_sounds, _timeline, _game, _soundscape, _audioLog);
 
-        _status.Text = _mapProblem
+        _status.Text = _loaded?.Problem
             ?? (_demo.Describe() + (haveMap ? string.Empty : "  (map not found)"));
 
         // **A marker pass ran here so opening a demo showed the players standing where they

@@ -366,7 +366,7 @@ run Tf2DemoSalvage.Audio.Tests    audio     161
 # Nothing was lost that mattered: Valve's CanPlayerBeSeen rules, which MapOverviewTests asserted,
 # are written up in docs/findings/38-which-players-can-be-shown.md because the markers return as a
 # free-camera option and will need every one of them again.
-run Tf2DemoSalvage.Presentation.Tests presentation 292
+run Tf2DemoSalvage.Presentation.Tests presentation 298
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.
@@ -589,7 +589,7 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     113
 # CameraMatrixTests is the one worth naming: every case asserted TopDownCamera.ToMatrix, the
 # orthographic projection itself. There is no replacement because there is no projection; the free
 # camera's matrix is FreeCamera.ToMatrix and has its own tests.
-run Tf2DemoSalvage.Viewer3D.Tests viewer    602
+run Tf2DemoSalvage.Viewer3D.Tests viewer    609
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."

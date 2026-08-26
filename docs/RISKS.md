@@ -11162,6 +11162,49 @@ reporter.
 So `WiringUiTests` gained `TheFrameReporter_AfterASecondOfFrames_WroteItsAccount`, and it was proved
 by manipulation: the only failure of twenty under exactly that sabotage.
 
+#### The map-loading fields, and the three that stay
+
+The last cluster the field audit named. Two came out and three did not, and the three are worth
+recording because "I looked and left it" is not distinguishable from "I did not look".
+
+**`_mapProblem` was a second copy of `_loaded.Problem`, and is gone.** Four assignments in two
+perfectly matched pairs — `ClearMap` nulled both, `LoadMap` set both from the same `map` — with
+nothing making them agree except that they were written next to each other. Its own doc argued it had
+to be a field because the map read runs off the UI thread, which is equally true of `_loaded` and is
+therefore an argument for one field rather than two. The status bar asks `_loaded?.Problem` now: the
+same value by construction instead of by care. This is B196's shape — *"two pieces of state
+describing one fact"* — which `WorldPresenter.TexturesAreCurrent` already documents from the other
+side.
+
+**`_loadsRequested` and four bare comparisons became `LoadTickets`**, six tests. The policy is "a
+newer request wins" and it needed no window to state; it was reachable only by racing two real
+`LoadDemoAsync` calls against a real 24-minute demo, which is a test that can exercise the orderings
+the machine happens to produce and cannot reach a boundary at all. That integration test stays.
+
+**Writing its tests first turned up a design question rather than a bug**, which is the argument for
+the order. The first draft asserted `IsCurrent(0)` is false — zero being what an uninitialised `int`
+holds. It is not false: the counter starts at zero, so zero compares equal to it. Making it false
+means adding `ticket != 0 &&`, a branch no caller can reach because every holder got its ticket from
+`Take` — dead code, and dead code under a condition is a permanent mutation survivor, since nothing
+can distinguish the guard from its absence. The invariant moved to where it can hold: `Take` counts
+from one, which is falsifiable (a post-increment hands out zero first) and is the whole reason no
+guard is needed downstream.
+
+**Three stay, and each for a stated reason:**
+
+- **`_worldIsStale`** is view-invalidation state. The consistency argument for moving it is real —
+  `WorldPresenter` already holds `TexturesAreCurrent`, so two flags about one object would sit in two
+  places — but its consumer, `ProjectWorld`, calls `ProjectMap` and `ReprojectScene`, both of which
+  are already thin view methods gathering view state (`_device`, `ViewMatrix()`, the viewport size)
+  for the presenter. Moving the flag alone gives `WorldPresenter` a flag it does not act on: **a flag
+  with a remote owner is worse than a local one**, not better. It moves when its consumer does.
+- **`_readingMap`** is the barrier that holds the render loop off while the map read replaces a dozen
+  fields (B146). Both ends are window activities. It goes with the loader, if the loader goes.
+- **`_openingDone`** latches `ApplyOpeningState`, whose body is a seek, a transport update, a moment
+  and a menu check — window work driven by `LaunchOptions`, which is already a Presentation type.
+
+`_reportedNoLeafBox` is a log-once latch for one diagnostic line and is not worth a type.
+
 ### B187 — the debug views do not apply to viewmodels — OPEN
 
 **Reported by the owner 2026-08-24**, alongside B186 and B170 as things that survived the D88 bone
@@ -12366,6 +12409,57 @@ is dropped without a word.
 describing a constant that no longer existed. **An orphaned doc comment does not warn — it silently
 reattaches to the next member**, so `Lines` had been documented as being about clip-space W for
 however long the constant had been gone.
+
+### B210 — A debug view was unreachable, and its shortcut toggled a different one — FIXED 2026-08-26
+
+**`mat_showlowresimage` could not be turned on from the user interface at all**, and Ctrl+T — the
+key bound to it — silently toggled the leaf-box view instead. Ctrl+L then fought over the same flag,
+so checking one unchecked the other.
+
+**The mechanism, in one line.** The six debug items are built in a loop and share one handler, which
+decided which mode to set by switching on the item's name:
+
+```csharp
+_debug = which switch
+{
+    nameof(DebugModes.DrawFlat)   => _debug with { DrawFlat   = toggled.Checked },
+    nameof(DebugModes.Luxels)     => _debug with { Luxels     = toggled.Checked },
+    nameof(DebugModes.NormalMaps) => _debug with { NormalMaps = toggled.Checked },
+    nameof(DebugModes.BumpBasis)  => _debug with { BumpBasis  = toggled.Checked },
+    _                             => _debug with { LeafVis    = toggled.Checked },
+};
+```
+
+**Five arms for six entries.** `LeafVis` worked by being the default; `ShowLowResImage` fell into it.
+Measured directly — checking the low-res item logged
+`DebugModes { … LeafVis = True, ShowLowResImage = False … }`.
+
+#### Everything around it was tested, which is the point
+
+`DebugModes` carries the flag. `WorldRenderer` reads it (`WorldRenderer.cs:2761`).
+`LowResImageRenderTests` renders with it. `ShortcutCollisionTests` proves Ctrl+T claims a key nothing
+else has — and passes, because the *shortcut* was never the problem.
+
+**Only the wiring between the menu item and the mode was wrong, and nothing looked there.** That is
+the third instance this session of a tested component reached by broken production wiring, after the
+frame reporter's log level and B193's three assignments. The pattern is now well enough evidenced to
+state plainly: **the tests cluster where the code is interesting, and the defects cluster where it is
+boring.**
+
+#### The fix removes the class, not the instance
+
+Each entry carries the flag it sets — `Func<DebugModes, bool, DebugModes>` beside the label — so the
+name-to-flag mapping is declared once instead of being a second list elsewhere that has to agree.
+A seventh mode cannot be added without saying what it sets.
+
+**A `default` arm that does real work is the shape to distrust.** Falling through to "set `LeafVis`"
+reads as a sensible catch-all and is indistinguishable, at the call site, from a case somebody
+forgot. An arm per case with no default would have been a compiler error the day the sixth entry
+landed.
+
+`DebugMenuWiringTests` covers all six as cases plus a control that the low-res item leaves the leaf
+box alone — the half a per-item test cannot see, since an item that set its own flag *and* stamped on
+a neighbour's would pass every per-item case.
 
 ### B209 — Two frame-pacing parity questions, found but not answered — OPEN, needs the owner
 
