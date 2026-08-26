@@ -180,8 +180,14 @@ internal class MainForm : Form
     // Dead by construction — drawn only when there was no textured map, and built from the map — so
     // it could never produce a visible triangle. Deleted with the projection that built it.
 
-    /// <summary>The loaded map in world units, kept so it can be re-projected on resize.</summary>
-    private MapOutline? _map;
+    /// <summary>The map, read and ready to draw, or null when none is open.</summary>
+    /// <remarks>
+    /// **Eleven fields until 2026-08-25** — the outline, the assets, the height range and the eight
+    /// that were `MapLevel` unpacked. Reading a map is not window work and none of it happens here
+    /// any more: what is left is handing the result to the systems that asked for it, which is the
+    /// engine's `LevelInitPreEntity` shape (`igamesystem.h:39`).
+    /// </remarks>
+    private LoadedMap? _loaded;
 
     /// <summary>Fetches maps that are not installed; created on first need.</summary>
     private MapDownloader? _downloader;
@@ -212,8 +218,8 @@ internal class MainForm : Form
     // one property of a record the form was already holding, and keeping both is how they come to
     // disagree: the catch below cleared the copy and left the record.
 
-    /// <summary>The loaded map's textures and lighting.</summary>
-    private MapAssets? _assets;
+    // `_assets` is `_loaded.Assets` — nullable there for the same reason it was here: textures
+    // failing costs the textures, not the map.
 
     /// <summary>Every lump the loaded map carries, kept as the record it was read into.</summary>
     /// <remarks>
@@ -239,19 +245,21 @@ internal class MainForm : Form
 
     /// <summary>One logger per area ViewerLog used to take as a string argument.</summary>
     /// <remarks>
-    /// **Nine of them, because this type genuinely writes to nine areas.** A logger's category is
-    /// exactly the old area string, so `_assetLog.LogInformation(...)` produces the same
-    /// `[assets]` line `_assetLog.LogInformation("{Message}", ...)` did — which matters because the UI suite
-    /// counts literal substrings in that file and several diagnostics here are greps over it.
+    /// **A logger's category is exactly the old area string**, so `_mapLog.LogInformation(...)`
+    /// produces the same `[map]` line the old call did — which matters because the UI suite counts
+    /// literal substrings in that file and several diagnostics here are greps over it.
     ///
     /// Fields rather than a lookup by name: a dictionary would move the area from a compile-time
     /// fact to a runtime string, which is the direction this conversion is travelling away from.
+    ///
+    /// **`_assetLog` is gone, and its absence is a measure of the refactor.** Every `[assets]` line
+    /// this form used to write came from reading a map, and reading a map does not happen here any
+    /// more — `LoadedMap` and `GameContent` create their own from the factory (D83). The remaining
+    /// eight are what a WINDOW still has to say.
     /// </remarks>
     private readonly ILogger _log;
 
     private readonly ILogger _mapLog;
-
-    private readonly ILogger _assetLog;
 
     private readonly ILogger _renderLog;
 
@@ -268,8 +276,9 @@ internal class MainForm : Form
     // one the models ask, and the asset loader takes it as a local while the map is being read. The
     // ambient samples, the world lights and the sun were three fields before that (B188, D90).
 
-    /// <summary>How high and how low the loaded map goes, once it has been read.</summary>
-    private (float Lowest, float Highest)? _heightRange;
+    // `_heightRange` is `_loaded.HeightRange`, recorded during the world build rather than after it
+    // — a camera projects height on the very first frame, and taking it afterwards leaves one frame
+    // drawn with a pass-through depth.
 
     private DemoTimeline? _timeline;
 
@@ -539,50 +548,10 @@ internal class MainForm : Form
     // `_brushModelClasses` was here until 2026-08-25. It is `_level.BrushModelClasses` — the form
     // was copying the record's dictionary into a field of its own, entry by entry, on every map
     // read. `MapLevel` already built that join from the entity lump, which is where it belongs.
-
-    /// <summary>Valve's colour for the class a brush model belongs to, 0..1, or null.</summary>
-    /// <remarks>
-    /// **Null rather than a default at every step**, and each null means something different: the
-    /// map may not name this model, the class may state no colour and inherit none, or the FGDs may
-    /// not be readable at all. A fallback colour at any of those points would report "Valve says
-    /// grey" where the truth is "nobody said", which is the sentinel-shaped mistake this project has
-    /// made before. The caller draws such an entity as ordinary brushwork.
-    /// </remarks>
-
-    private (float Red, float Green, float Blue)? EntityTint(int model)
-    {
-        if (_game?.EntityClasses is not { } classes ||
-            _level is not { } level ||
-            !level.BrushModelClasses.TryGetValue(model, out string? classname))
-        {
-            // Not an entity at all, or the map named no class for it. Ordinary brushwork.
-            return null;
-        }
-
-        if (classes.Colour(classname) is not { } colour)
-        {
-            // **Hammer's default, which is magenta.** 58 of the 598 classes in the shipped FGDs
-            // state a colour, so this is the common case rather than the exceptional one, and
-            // leaving it uncoloured would mean most entities never showed as entities at all.
-            //
-            // The hue is documented — TWHL's FGD reference: "Otherwise it will use the default
-            // magenta" — and the exact RGB is published nowhere reachable, so this is full magenta
-            // as the plainest reading of the word. Labelled rather than smuggled in: it is the one
-            // number here that is not lifted from a Valve file.
-            return HammerDefaultEntityColour;
-        }
-
-        return (colour.Red / 255f, colour.Green / 255f, colour.Blue / 255f);
-    }
-
-    /// <summary>What Hammer draws an entity class that states no colour of its own.</summary>
-    /// <remarks>
-    /// **This collided with the missing-material colour, and the missing-material colour moved.**
-    /// The owner's rule when a real Valve behaviour meets one of our inventions: "if the default
-    /// would colide with our imp, then we need to change our imp to not block". Magenta belongs to
-    /// Hammer here; the category view's "no material" signal is ours and had no claim on it.
-    /// </remarks>
-    private static (float Red, float Green, float Blue) HammerDefaultEntityColour => (1f, 0f, 1f);
+    //
+    // `EntityTint` and Hammer's default colour went with them, to `LoadedMap` — the tint needs the
+    // install's FGD palette AND this map's brush-model classes, and the only place that holds both
+    // is the loaded map. The window was the join only because it happened to hold both fields.
 
     /// <summary>Chooses a lighting substitution and ticks the matching menu item.</summary>
     /// <param name="mode">Which substitution to show.</param>
@@ -676,7 +645,6 @@ internal class MainForm : Form
         _models = new EntityModelSet(loggers);
         _log = loggers.CreateLogger("viewer");
         _mapLog = loggers.CreateLogger("map");
-        _assetLog = loggers.CreateLogger("assets");
         _renderLog = loggers.CreateLogger("render");
         _demoLog = loggers.CreateLogger("demo");
         _audioLog = loggers.CreateLogger("audio");
@@ -1529,8 +1497,7 @@ internal class MainForm : Form
     /// </remarks>
     private void ClearMap()
     {
-        _map = null;
-        _assets = null;
+        _loaded = null;
         _models.Geometry = EntityModelSet.NoGeometry;
 
         // **One field where four were cleared, and the fourth was never cleared at all.** `_terrain`
@@ -1642,200 +1609,84 @@ internal class MainForm : Form
         {
             byte[] bytes = File.ReadAllBytes(path);
 
-            _mapLog.LogInformation("{Message}", $"loading {Path.GetFileName(path)} ({bytes.Length / 1024 / 1024} MB)");
-
-            BspGeometry geometry = BspGeometry.Read(bytes);
-            _map = MapOutline.FromFaces(geometry.OverheadFaces);
-
             _mapLog.LogInformation(
                 "{Message}",
-                $"{geometry.Faces.Count} faces, {geometry.OverheadFaces.Count} overhead, " +
-                $"{_map.Segments.Count} outline segments");
+                $"loading {Path.GetFileName(path)} ({bytes.Length / 1024 / 1024} MB)");
 
-            // The textured world: the game's own materials and the map's baked lighting. Failing
-            // here costs the textures, not the map - the outline still draws.
-            try
+            if (_game is null)
             {
-                if (_game is null)
-                {
-                    // **Opened once, and everything it provides is set together.** The archives, the
-                    // editor palette, the class scripts and the item schema all come off disk here
-                    // and are asked on every frame afterwards — none of it is per-map, and none of
-                    // it was ever window work (B188, D90).
-                    //
-                    // **Every source it feeds is assigned in this one block**, because assignments
-                    // scattered across a method are how three of them were missed separately
-                    // (B193). If a collaborator needs something from the install, it is wired here.
-                    _game = GameContent.Open(FindGameFolder(), _loggers);
+                // **Opened once, and everything it provides is set together.** The archives, the
+                // editor palette, the class scripts and the item schema all come off disk here and
+                // are asked on every frame afterwards — none of it is per-map, and none of it was
+                // ever window work (B188, D90).
+                //
+                // **Every source it feeds is assigned in this one block**, because assignments
+                // scattered across a method are how three of them were missed separately (B193). If
+                // a collaborator needs something from the install, it is wired here.
+                _game = GameContent.Open(FindGameFolder(), _loggers);
 
-                    _sounds.Read = _game.Archives.Read;
-                    _moment.Weapons = _game.Weapons;
+                _sounds.Read = _game.Archives.Read;
+                _moment.Weapons = _game.Weapons;
 
-                    // The soundscape catalog reads from the same archives but belongs to the audio
-                    // layer, so `GameContent` deliberately does not hold it — Scene would have to
-                    // reference Audio for an edge that forbids nothing (D92).
-                    _soundscape.Catalog = _game.Archives.IsEmpty
-                        ? null
-                        : SoundscapeCatalog.Load(_game.Archives.Read);
-                }
-
-                _texturesUploaded = false;
-
-                // **Every lump this viewer keeps, read by one type that knows how** (B188). What
-                // stood here was three try/catch shapes and the brush-class join, none of it window
-                // work — and the engine's own arrangement is that each system initialises itself
-                // from the level (`IGameSystem::LevelInitPreEntity`, `igamesystem.h:39`) rather
-                // than the window building everyone's state.
-                MapLevel level;
-
-                using (_assetLog.Time("reading the map's lumps"))
-                {
-                    level = MapLevel.Read(bytes, _assetLog);
-                }
-
-                _level = level;
-
-                // **The soundscape system is handed the level, not built from lumps here.** That is
-                // the LevelInitPreEntity shape: the window says "here is the map", and the system
-                // decides what it needs from it (B173, B177).
-                // **The catalog is install data and is set with the install, once.** It was
-                // reassigned on every map read, which was harmless and wrong in the same way the
-                // eight unpacked fields were: `scripts/soundscapes.txt` does not change between
-                // maps. The PLACEMENTS do, because they come from this map's entity lump.
-                _soundscape.Placements = _soundscape.Catalog is { } loaded
-                    ? SoundscapePlacements.From(level.Entities, loaded, level.Leaves)
-                    : null;
-
-                _soundscape.Leaves = level.Leaves;
-                _soundscape.Visibility = level.Visibility;
-
-                _soundscape.Clear();
-
-                _audioLog.LogInformation(
-                    "{Message}",
-                    level.Visibility is { HasData: true } pvs
-                        ? $"visibility: {pvs.ClusterCount.ToString(CultureInfo.InvariantCulture)} " +
-                          "clusters, so soundscape selection is restricted to what the listener can see"
-                        : "no visibility data, so every soundscape on the map contends");
-
-                _audioLog.LogInformation(
-                    "{Message}",
-                    _soundscape.Placements is { } placed
-                        ? $"{placed.Placements.Count} soundscape placements, " +
-                          string.Join(
-                              ", ",
-                              placed.Placements
-                                  .GroupBy(placement => placement.Name)
-                                  .Select(group => $"{group.Count()}x {group.Key}"))
-                        : "no archives, so no soundscapes");
-
-                // **Handed the level, the same way the soundscape system is** — each system
-                // initialises itself from the map rather than the window unpacking lumps into
-                // fields for it (`IGameSystem::LevelInitPreEntity`, `igamesystem.h:39`).
-                LevelLighting lighting = LevelLighting.From(level, _renderLog);
-
-                _moment.Lighting = lighting;
-
-                using (_assetLog.Time("reading textures"))
-                {
-                    // **Every model the demo will ever show, loaded with the map.** The timeline
-                    // is already built, so the whole set is known before anything is drawn - and
-                    // loading them here means their materials join the map's table and the
-                    // textures upload once. Loading during playback would grow that table and
-                    // force a re-upload mid-match.
-                    _assets = MapAssets.Load(
-                        bytes,
-                        _game.Archives,
-                        (int)_settings.TextureQuality,
-                        DemoModels.Needed(_timeline, _game),
-                        DemoModels.Worn(_timeline, _game),
-
-                        // Built from the surfaces just read rather than from a second pass over
-                        // the file: the models lump names face RANGES, so it needs the same
-                        // surface list the world was built from and nothing else.
-                        //
-                        // **No models lump means no brush entities, and that agrees with the world
-                        // build on purpose.** MapWorld treats an absent lump as "build every
-                        // face", so the doors stay baked into the static world exactly as they
-                        // were before this work. The two decisions have to move together: holding
-                        // faces back here while the world declined to bake them would lose the
-                        // geometry entirely rather than degrade to the old behaviour.
-                        // **A factory rather than finished geometry, because the atlas is packed
-                        // inside Load.** A door's faces carry baked lightmap samples in the same
-                        // atlas as the wall's, so the geometry cannot be built before it exists
-                        // (B131).
-                        atlas => BrushModels.Build(
-                            level.BrushModels ?? [],
-                            level.Surfaces,
-                            atlas,
-
-                            // **Valve's colour for the entity's class, and only in the category
-                            // view.** A brush entity is a door, a lift, an areaportal or a
-                            // trigger, and drawn as plain brushwork none of that is visible — the
-                            // one view whose whole job is "what is this" was the one view that
-                            // could not say. The numbers are Valve's, out of the FGDs the game
-                            // ships, so a capture reads the same way as Hammer's own colouring
-                            // rather than needing a second legend (B156).
-                            _surfaceColours.Checked ? EntityTint : null),
-
-                        // **The light cache, for props whose baked lighting is absent or refused**
-                        // (B123). Usable here because the level was read a few lines above, before
-                        // any asset is loaded — the ordering is what makes this a delegate rather
-                        // than a second pass.
-                        lighting.ComputeLighting,
-
-                        // **Passed explicitly, and forgetting it is silent (D83).** The parameter
-                        // defaults to a null logger so tests need not supply one — which means an
-                        // omission here costs every asset line in the run and nothing reports it.
-                        // Caught by reading the log after the conversion: 13 assets lines and zero
-                        // warnings, against dozens of each before.
-                        _loggers);
-                }
-
-                // **Where the renderer reads geometry from, set once for this map.** The client
-                // dereferences `modelinfo` rather than being handed a source at every call
-                // (`IVModelInfo.h:146`), and doing the same here is what let `ModelGeometry` leave
-                // the window entirely rather than shrink to a wrapper (D90).
-                _models.Geometry = _assets.Geometry;
-
-                int displacements = 0;
-
-                foreach (BspSurface surface in level.Surfaces)
-                {
-                    displacements += surface.IsDisplacement ? 1 : 0;
-                }
-
-                _assetLog.LogInformation(
-                    "{Message}",
-                    $"{level.Surfaces.Count} surfaces ({displacements} displacements), " +
-                    $"{_assets.Resolved} materials resolved, {_assets.Missing} missing, " +
-                    $"lightmap atlas {_assets.Lightmaps.Width}x{_assets.Lightmaps.Height}, " +
-                    $"texture quality {_settings.TextureQuality}");
-
-                (double seconds, long count) = Tf2DemoSalvage.Content.Assets.VtfTexture.DecodeCost;
-
-                _assetLog.LogInformation(
-                    "{Message}",
-                    string.Create(
-                        CultureInfo.InvariantCulture,
-                        $"VTF decode so far: {seconds:F2}s CPU over {count} textures " +
-                        $"(decoded in parallel, so wall clock is less); " +
-                        $"baking {Tf2DemoSalvage.Scene.PropModels.BakeSeconds:F2}s"));
+                // The soundscape catalog reads from the same archives but belongs to the audio
+                // layer, so `GameContent` deliberately does not hold it — Scene would have to
+                // reference Audio for an edge that forbids nothing (D92).
+                _soundscape.Catalog = _game.Archives.IsEmpty
+                    ? null
+                    : SoundscapeCatalog.Load(_game.Archives.Read);
             }
-            catch (Exception failure) when (failure is IOException or InvalidDataException)
-            {
-                // **The level goes too, and it did not before.** `_surfaceList` was cleared here
-                // while the six other lumps were left pointing at whatever had been read — a
-                // half-cleared map that nothing happened to read. One field cannot be half-cleared.
-                _level = null;
-                _assets = null;
-                _models.Geometry = EntityModelSet.NoGeometry;
-                _mapProblem = "Map content unavailable: " + failure.Message;
-                _assetLog.LogWarning(failure, "{Message}", "reading the map's content");
-            }
+
+            _texturesUploaded = false;
+
+            // **Reading a map is not window work, and now none of it happens here** (B188, D90).
+            // What is left is handing the result to the systems that asked for it — which is the
+            // `LevelInitPreEntity` shape the engine uses (`igamesystem.h:39`): the window says "here
+            // is the map", and each system takes what it needs.
+            LoadedMap map = LoadedMap.Read(
+                bytes,
+                _game,
+                _timeline,
+                (int)_settings.TextureQuality,
+                _surfaceColours.Checked,
+                _loggers);
+
+            _loaded = map;
+            _mapProblem = map.Problem;
+
+            _moment.Lighting = map.Lighting;
+            _models.Geometry = map.Assets is { } content
+                ? content.Geometry
+                : EntityModelSet.NoGeometry;
+
+            _soundscape.Placements = _soundscape.Catalog is { } loaded
+                ? SoundscapePlacements.From(map.Level.Entities, loaded, map.Level.Leaves)
+                : null;
+
+            _soundscape.Leaves = map.Level.Leaves;
+            _soundscape.Visibility = map.Level.Visibility;
+
+            _soundscape.Clear();
+
+            _audioLog.LogInformation(
+                "{Message}",
+                map.Level.Visibility is { HasData: true } pvs
+                    ? $"visibility: {pvs.ClusterCount.ToString(CultureInfo.InvariantCulture)} " +
+                      "clusters, so soundscape selection is restricted to what the listener can see"
+                    : "no visibility data, so every soundscape on the map contends");
+
+            _audioLog.LogInformation(
+                "{Message}",
+                _soundscape.Placements is { } placed
+                    ? $"{placed.Placements.Count} soundscape placements, " +
+                      string.Join(
+                          ", ",
+                          placed.Placements
+                              .GroupBy(placement => placement.Name)
+                              .Select(group => $"{group.Count()}x {group.Key}"))
+                    : "no archives, so no soundscapes");
 
             ProjectMap();
-            return !_map.IsEmpty;
+            return !map.Outline.IsEmpty;
         }
         catch (Exception failure) when (failure is IOException or InvalidDataException)
         {
@@ -1968,157 +1819,81 @@ internal class MainForm : Form
     /// </remarks>
     private void ProjectMap()
     {
-        if (_map is null || _map.IsEmpty)
+        if (_loaded is not { } map || map.Outline.IsEmpty)
         {
             return;
         }
 
-        // **The segment projection is gone, not skipped.** It projected all 60,764 of the BSP's edge
-        // segments into screen space for the overhead view, and that view was removed — *"there is
-        // no overhead map view now its free cam or POV, the ortho cam was ripped out"*. Nothing in
-        // the solution read the result: `MapLines` had no consumer, in production or in a test, and
-        // the lines channel of the draw carries `mat_leafvis` now.
+        // **The segment projection and the flat fill are gone, not skipped.** The first projected all
+        // 60,764 of the BSP's edge segments for an overhead view that was removed; the second was
+        // dead by construction, built FROM the map as a fallback for having no map. Together they
+        // measured `project 615.8 ms` in a 679 ms frame, re-run on every camera change, for
+        // triangles nothing would draw.
         //
-        // Removed rather than left behind a condition, on the owner's direction: *"If something did
-        // depend on it it needs ripped out too more than likely, or it needs to be massively changed
-        // so wed be better off starting from scratch anyway."*
+        // **The early return that replaced them was a real bug, caught before it shipped.** Returning
+        // here skips everything below, and everything below is the TEXTURED WORLD UPLOAD. Dropping
+        // the fill must not drop the world.
         TopDownCamera camera = MapCamera();
 
-        // **The flat fill is gone too, and it was dead by construction rather than merely unused.**
-        // `DrawFrame` drew it in the `else` of `if (_world is { HasMap: true })` — the fallback for
-        // having no textured map — and it was built from `_surfaces`, which comes FROM the map. So:
-        //
-        //   map present  -> the world is drawn and the fill is not
-        //   map absent   -> `_surfaces` is null and the fill is empty
-        //
-        // A fallback for "no map" that is built from the map cannot produce a visible triangle in
-        // either branch. It could only ever cost: the ledger measured `project 615.8 ms` in a 679 ms
-        // frame, re-run on every camera change, projecting triangles nothing would draw.
-        //
-        // It had stopped making sense as a picture too. Projected through a TOP-DOWN camera and
-        // drawn full screen in clip space, with the ortho view removed the best it could have
-        // managed was an overhead fill painted across a first-person view.
-        //
-        // **The early return this replaces was a real bug, caught before it shipped.** Returning
-        // here skips everything below, and everything below is the TEXTURED WORLD UPLOAD — rebuilt
-        // on resize because the projection is baked into its vertices. Dropping the fill must not
-        // drop the world.
-
-        // The textured world is projected through the SAME camera, then uploaded. It is rebuilt on
-        // a resize because the projection is baked into the vertices - which is what keeps the
-        // shader a sample and a multiply.
-        // **`_level` joins the guard rather than being read through `?.` below.** The three were
-        // always set together and cleared together; making that a condition says so once instead of
-        // leaving four null-conditionals to imply it.
-        if (_assets is { } assets &&
-            _level is { } level &&
-            level.Surfaces.Count > 0 &&
-            _device is not null)
+        if (map.Assets is not { } assets || map.Level.Surfaces.Count == 0 || _device is null)
         {
-            try
+            return;
+        }
+
+        try
+        {
+            // **Textures first, and only once per map.** They do not depend on the camera, so a
+            // resize needs new vertices and nothing else.
+            if (!_texturesUploaded || !_device.HasWorldTextures)
             {
-                // **Textures first, and only once per map.** They do not depend on the camera, so
-                // a resize needs new vertices and nothing else - see UploadWorldGeometry.
-                if (!_texturesUploaded || !_device.HasWorldTextures)
+                using (_renderLog.Time("uploading textures"))
                 {
-                    using (_renderLog.Time("uploading textures"))
-                    {
-                        _device.UploadWorldTextures(assets);
-                    }
-
-                    _texturesUploaded = true;
+                    _device.UploadWorldTextures(assets);
                 }
 
-                // **The camera is a matrix now, so a resize is not a rebuild.** The world's
-                // vertices are in map coordinates and never move; only the view does. This is what
-                // took a viewport change from 0.33 seconds to a 64-byte upload, and it is the
-                // reason a free camera or a per-player view can exist at all.
-                // **One matrix either way**, which is the whole reason this could be added without
-                // touching the renderer: the geometry is in map coordinates and only the view
-                // changes, so a free camera is a different sixty-four bytes rather than a
-                // different pipeline.
-                _device.SetCamera(
-                    ViewMatrix(camera),
-                    _surfaceColours.Checked,
-                    _heightCut);
-
-                // **Logged because this is now the whole cost of a resize**, and a rebuild is not.
-                // Counting these against "building the world" lines is what proves the geometry
-                // survived a viewport change rather than being quietly rebuilt: many camera lines
-                // and one build line is the fix working, and one of each per resize is not.
-                _renderLog.LogInformation(
-                    "{Message}",
-                    $"camera set for a {_viewport.ClientSize.Width}x{_viewport.ClientSize.Height} viewport");
-
-                if (_device.HasWorld)
-                {
-                    return;
-                }
-
-                MapWorld built;
-
-                using (_renderLog.Time("building the world"))
-                {
-                    // Recorded before the build so MapCamera can project height on the very first
-                    // frame; taking it afterwards leaves one frame drawn with a pass-through depth.
-                    _heightRange = MapWorldBuilder.HeightRange(level.Surfaces, _map.MainBounds);
-
-                    // **No decal bias is set here any more, and its removal is the point (B135).**
-                    // This called SetDecalBias with the map's height range, which DISPOSED the
-                    // rasteriser state built at load and replaced it with one computed from
-                    // 2^24 / range. So every experiment that edited the constant in WorldRenderer
-                    // measured nothing: the value was overwritten before a frame was drawn, and
-                    // zero and Valve's -262144 produced identical pictures because neither was ever
-                    // in effect. The bias now lives in exactly one place, where it is created.
-
-                    built = MapWorldBuilder.Build(
-                        level.Terrain,
-                        level.Surfaces,
-                        assets.Materials,
-                        assets.Lightmaps,
-                        assets.Props,
-                        camera,
-
-                        // **No play-area cull, and the 3D skybox stays (owner's direction).** This
-                        // passed MainBounds, which discarded every surface and every prop whose
-                        // placement sat outside a box fitted to the map's main cluster — the
-                        // miniature scenery room a TF2 map keeps far outside the level.
-                        //
-                        // That was right for a camera framed to the play area and is wrong for one
-                        // that can go anywhere: "you cannot see it from here" stopped being true
-                        // when the free camera arrived, exactly as it did for the downward-normal
-                        // cull and the decal bias before it. The owner's reason is forward-looking
-                        // rather than corrective — "we are going to need it later to make the maps
-                        // look right in free cam and pov" — so the skybox is kept now rather than
-                        // deleted and rebuilt.
-                        //
-                        // Drawing it raw puts a miniature copy of the surroundings far outside the
-                        // level, at its own scale and position. That is what the file contains; the
-                        // sky_camera transform that makes it read correctly is a separate piece of
-                        // work, and a visible wrong-looking skybox is a better starting point than
-                        // an invisible one.
-                        area: null,
-                        _surfaceColours.Checked,
-                        level.Overlays,
-                        level.BrushModels,
-                        _loggers);
-                }
-
-                _renderLog.LogInformation(
-                    "{Message}",
-                    $"world: {built.Vertices.Count} vertices in {built.Batches.Count} material " +
-                    $"batches for a {_viewport.ClientSize.Width}x{_viewport.ClientSize.Height} viewport");
-
-                _device.UploadWorldGeometry(built);
+                _texturesUploaded = true;
             }
-            catch (Exception failure) when (
-                failure is InvalidOperationException or InvalidDataException or IOException)
+
+            // **The camera is a matrix, so a resize is not a rebuild.** The world's vertices are in
+            // map coordinates and never move; only the view does. That is what took a viewport
+            // change from 0.33 seconds to a 64-byte upload, and it is the reason a free camera or a
+            // per-player view can exist at all.
+            _device.SetCamera(ViewMatrix(camera), _surfaceColours.Checked, _heightCut);
+
+            // **Logged because this is the whole cost of a resize**, and a rebuild is not. Counting
+            // these against "building the world" lines is what proves the geometry survived a
+            // viewport change rather than being quietly rebuilt: many camera lines and one build
+            // line is the fix working, one of each per resize is not.
+            _renderLog.LogInformation(
+                "{Message}",
+                $"camera set for a {_viewport.ClientSize.Width}x{_viewport.ClientSize.Height} viewport");
+
+            if (_device.HasWorld)
             {
-                _device.ClearWorld();
-                _texturesUploaded = false;
-                _status.Text = "Textures unavailable: " + failure.Message;
-                _renderLog.LogWarning(failure, "{Message}", "uploading the textured world");
+                return;
             }
+
+            MapWorld built;
+
+            using (_renderLog.Time("building the world"))
+            {
+                built = map.BuildWorld(camera, _loggers);
+            }
+
+            _renderLog.LogInformation(
+                "{Message}",
+                $"world: {built.Vertices.Count} vertices in {built.Batches.Count} material " +
+                $"batches for a {_viewport.ClientSize.Width}x{_viewport.ClientSize.Height} viewport");
+
+            _device.UploadWorldGeometry(built);
+        }
+        catch (Exception failure) when (
+            failure is InvalidOperationException or InvalidDataException or IOException)
+        {
+            _device.ClearWorld();
+            _texturesUploaded = false;
+            _status.Text = "Textures unavailable: " + failure.Message;
+            _renderLog.LogWarning(failure, "{Message}", "uploading the textured world");
         }
     }
 
@@ -2713,8 +2488,8 @@ internal class MainForm : Form
 
         return _freeCamera.Camera(
             Math.Max(1, _viewport.ClientSize.Width) / (float)Math.Max(1, _viewport.ClientSize.Height),
-            _map,
-            _heightRange is { } range ? range.Highest : 0f);
+            _loaded?.Outline,
+            _loaded?.HeightRange is { } range ? range.Highest : 0f);
     }
 
     // **Placing the free camera and parsing a placement moved to FreeCameraController on
@@ -2765,7 +2540,7 @@ internal class MainForm : Form
         // code could not support, and the assertion was simply false. Eleven call sites reach this,
         // several from layout and paint handlers that run before anything is loaded, so the answer
         // is a camera over nothing rather than a null every caller has to test.
-        (float MinX, float MinY, float MaxX, float MaxY) bounds = _map is { } loaded
+        (float MinX, float MinY, float MaxX, float MaxY) bounds = _loaded?.Outline is { } loaded
             ? (loaded.MainBounds.MinX, loaded.MainBounds.MinY,
                loaded.MainBounds.MaxX, loaded.MainBounds.MaxY)
             : (-EmptyMapExtent, -EmptyMapExtent, EmptyMapExtent, EmptyMapExtent);
@@ -2788,7 +2563,7 @@ internal class MainForm : Form
         // world Z now; without this the third row is a pass-through and every surface lands at a
         // depth of its own world height in units, which is far outside the clip range and draws
         // nothing at all.
-        return _heightRange is { } range
+        return _loaded?.HeightRange is { } range
             ? placed.WithHeights(range.Lowest, range.Highest)
             : placed;
     }
@@ -2814,7 +2589,7 @@ internal class MainForm : Form
         // With a map loaded the players are projected through the MAP's camera, so they land where
         // they actually are in the world. Fitting to the players instead would place them
         // correctly relative to each other and wrongly relative to everything around them.
-        TopDownCamera camera = _map is not null && !_map.IsEmpty
+        TopDownCamera camera = _loaded is { } outlined && !outlined.Outline.IsEmpty
             ? MapCamera()
             : TopDownCamera.Fit(
                 positions,
@@ -2996,7 +2771,7 @@ internal class MainForm : Form
             return;
         }
 
-        TopDownCamera camera = _map is not null && !_map.IsEmpty
+        TopDownCamera camera = _loaded is { } outlined && !outlined.Outline.IsEmpty
             ? MapCamera()
             : TopDownCamera.Fit(
                 [.. players.Select(player => (player.X, player.Y))],
@@ -5004,7 +4779,7 @@ internal class MainForm : Form
     /// </remarks>
     private void OnViewportWheel(object? sender, MouseEventArgs e)
     {
-        if (_map is null || _map.IsEmpty)
+        if (_loaded is not { } shown || shown.Outline.IsEmpty)
         {
             return;
         }
@@ -5115,7 +4890,7 @@ internal class MainForm : Form
 
     private void OnViewportMouseMove(object? sender, MouseEventArgs e)
     {
-        if (_dragFrom is not { } from || _map is null || _map.IsEmpty)
+        if (_dragFrom is not { } from || _loaded is not { } shown || shown.Outline.IsEmpty)
         {
             return;
         }
@@ -5257,7 +5032,7 @@ internal class MainForm : Form
         // them back. The obvious reading of the key is the one to follow: the first version had it
         // inverted, and pressing page down 166 times did nothing because the cut was already at
         // zero and the log said so.
-        if (keyData is Keys.PageUp or Keys.PageDown or Keys.Home && _map is not null)
+        if (keyData is Keys.PageUp or Keys.PageDown or Keys.Home && _loaded is not null)
         {
             float step = keyData == Keys.PageDown ? 0.02f : -0.02f;
 

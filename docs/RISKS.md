@@ -10334,6 +10334,46 @@ takes the system mutex for a listener that usually is not there.
 Not measured separately yet; the remaining 44 ms moment carried `setup 35.5`, which is `SetupBones`
 and unrelated.
 
+### B194 — The engine loads 31 world lumps; we read about 25 — OPEN, mostly by design
+
+**Measured from the shipped binary rather than guessed**, because `worldbrushdata_t` — the engine's
+own aggregate of a map's lumps — is defined in `gl_model_private.h`, which `source-sdk-2013` does
+not ship. `model_t` is forward-declared in the public headers and nothing more.
+
+**No decompiler pass was needed.** Source binaries carry their function names as literals, so the
+loader set falls straight out of `engine.dll`:
+
+```bash
+grep -aoE "Mod_Load[A-Za-z]{2,24}" ".../Team Fortress 2/bin/engine.dll" | sort -u
+```
+
+Thirty-one loaders, one per lump the engine keeps in its world data. That list IS the structure's
+field set in effect, and it is a cheaper and more reliable instrument than reading a decompiled
+struct — see `docs/memory/binaries-answer-what-the-sdk-cannot.md`.
+
+**What we do not read, and whether it matters:**
+
+| lump | why the engine wants it | costs us |
+|---|---|---|
+| `VertNormals` + `VertNormalIndices` | per-vertex normals, for smooth shading and the tangent basis bumpmapping needs | **nothing today** — see below |
+| `Marksurfaces` | the leaf-to-face map, which is how the engine draws only what the PVS admits | performance, not correctness: we draw everything |
+| `AreaPortals` | sealing areas for visibility | nothing — same reason |
+| `LeafWaterData`, `BrushSides` | water volumes and collision | nothing — we neither swim nor collide |
+
+**The vertex-normal one is worth stating precisely, because it looks alarming and is not.** Our
+world faces take the normal of their PLANE (`BspSurfaces.ReadNormal`), and the world builder never
+sets a per-vertex normal at all — every `WorldVertex` keeps the record default `NormalZ = 1f`. That
+sounds like every surface lit as though facing up.
+
+It is not, because **the world pass never uploads a normal**: `WorldRenderer`'s input layout is
+`POSITION` plus texcoords, with no `NORMAL` semantic. World lighting is the map's baked lightmap, so
+a per-vertex normal has nothing to feed. Models are a different path and do carry one.
+
+**It becomes a real gap the moment the world is lit per pixel** — world bumpmapping, specular, or
+any `$bumpmap` on brushwork — because the tangent basis those need is built from exactly these two
+lumps. Anyone adding that must read them first rather than deriving a normal from the plane, which
+is flat by construction and wrong on every displacement.
+
 ### B193 — Nothing catches the view failing to hand the scene a source it needs — OPEN
 
 **Twice in three commits, and the second one SHIPPED.** This is the defect class of the whole
