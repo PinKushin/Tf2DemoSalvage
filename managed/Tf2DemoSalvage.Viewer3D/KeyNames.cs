@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Windows.Forms;
 
 namespace Tf2DemoSalvage.Viewer3D;
@@ -37,6 +38,45 @@ internal static class KeyNames
             return Keys.None;
         }
 
+        // **`CTRL+o` and friends, which are a deliberate SUPERSET of Source's vocabulary** (B214).
+        // Source's `bind` takes one key and has no syntax for a modifier, so no real config can
+        // contain such a name and nothing pasted is misparsed by this branch — it only adds names
+        // that were previously unspellable.
+        //
+        // **The viewer needs them because TF2 leaves almost nothing free.** `config_default.cfg`
+        // binds 64 keys, every letter except `o`, so a default on any other single key is taken away
+        // the moment a real config loads. Modifier combinations are unreachable from a config and
+        // are therefore the only safe home for this viewer's own actions.
+        //
+        // Split from the RIGHT, so the key itself may be `+` if it ever needs to be.
+        int plus = name.LastIndexOf('+');
+
+        if (plus > 0 && plus < name.Length - 1)
+        {
+            Keys modifiers = Keys.None;
+            bool known = true;
+
+            foreach (string part in name[..plus].Split('+', StringSplitOptions.RemoveEmptyEntries))
+            {
+                switch (part.Trim().ToUpperInvariant())
+                {
+                    case "CTRL" or "CONTROL": modifiers |= Keys.Control; break;
+                    case "SHIFT": modifiers |= Keys.Shift; break;
+                    case "ALT": modifiers |= Keys.Alt; break;
+                    default: known = false; break;
+                }
+            }
+
+            if (known)
+            {
+                Keys bare = Resolve(name[(plus + 1)..]);
+
+                // A combination naming an unresolvable key is `None`, not a bare modifier — which
+                // would otherwise be a shortcut that fires on Ctrl alone.
+                return bare == Keys.None ? Keys.None : bare | modifiers;
+            }
+        }
+
         // The handful with names of their own, either because the toolkit's spelling is unfriendly
         // (ControlKey, ShiftKey) or because they are mouse buttons, which are not Keys at all.
         return name.Trim().ToUpperInvariant() switch
@@ -68,7 +108,21 @@ internal static class KeyNames
             // different reasons is how a rename goes unnoticed.
             "MOUSE1" or "MOUSE2" or "MOUSE3" or "MOUSE4" or "MOUSE5" => Keys.None,
 
-            _ => Enum.TryParse(name.Trim(), ignoreCase: true, out Keys parsed) ? parsed : Keys.None,
+            // **Digits, and this was a live defect until 2026-08-26** (B214). `NameOf` spells
+            // `Keys.D1` as `"1"`, exactly as a config does — `config_default.cfg` binds every digit
+            // to `slot1`..`slot10` — but the fallback below could not read one back. Worse than
+            // failing: `Enum.TryParse` accepts a NUMERIC string as an enum value, so `"1"` became
+            // `Keys.LButton`, `"2"` became `Keys.RButton`, and `"0"` became `Keys.None`. A digit
+            // binding was silently attached to a key that cannot be pressed.
+            [var only] when char.IsAsciiDigit(only) => Keys.D0 + (only - '0'),
+
+            // **The numeric guard closes the same hole for anything else**, such as a hand-typed
+            // `"13"`. A name is a NAME; a number that happens to index the enum is not one, and
+            // accepting it turns a typo into a plausible key rather than into a reported miss.
+            _ => !name.Trim().All(char.IsAsciiDigit) &&
+                 Enum.TryParse(name.Trim(), ignoreCase: true, out Keys parsed)
+                ? parsed
+                : Keys.None,
         };
     }
 

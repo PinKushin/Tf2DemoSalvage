@@ -1011,7 +1011,12 @@ internal class MainForm : Form, IFrameSteps
                 SetDebugMode: SetDebugMode,
                 SetSpecular: SetSpecular,
                 Screenshot: CaptureViewportToFile),
-            _settings);
+            _settings,
+
+            // **The menu's shortcuts come from the same table the flight keys do** (B214, D101).
+            // Fourteen `ShortcutKeys = Keys.<something>` literals lived in `ViewerMenu` until now,
+            // six of them on keys TF2 binds to something else.
+            _bindings);
 
         MenuStrip menu = _menu.Strip;
 
@@ -4076,7 +4081,12 @@ internal class MainForm : Form, IFrameSteps
             return true;
         }
 
-        if (keyData == Keys.F12)
+        // **Through the binding table, and its default key MOVED** (B214, D101). This was
+        // `Keys.F12` — which TF2 gives to `replay_togglereplaytips` and Steam's overlay claims for
+        // its own capture — while our F5 was a debug view. TF2's screenshot key is F5, so the two
+        // were swapped against the game. `ViewerAction.Screenshot` speaks Valve's `screenshot`
+        // command, so a config that rebinds screenshots moves this with it.
+        if (keyData == KeyNames.Resolve(_bindings.KeyFor(ViewerAction.Screenshot)))
         {
             CaptureViewportToFile();
             return true;
@@ -4086,7 +4096,8 @@ internal class MainForm : Form, IFrameSteps
         // did.** Full screen has twice been reported as impossible to leave, and the two states
         // look identical from outside: the key reaching this method and being ignored, and the key
         // going to whichever window took the foreground. Only a line written here separates them.
-        if (keyData is Keys.Escape or Keys.F11)
+        if (keyData == Keys.Escape ||
+            keyData == KeyNames.Resolve(_bindings.KeyFor(ViewerAction.FullScreen)))
         {
             _renderLog.LogInformation(
                 "{Message}",
@@ -4095,6 +4106,14 @@ internal class MainForm : Form, IFrameSteps
                     $"{keyData} reached the form; full screen is {IsFullScreen}"));
         }
 
+        // **Escape stays a literal, and this is the ONE exception D101 gets** (B214). Every other
+        // key in this window now resolves through `KeyBindings`; this one is the way out of full
+        // screen, so a config that rebound it away would leave a user with no menu, no title bar and
+        // no key that closes either. TF2 binds `ESCAPE` to `escape` for the same structural reason —
+        // it is the escape hatch, not a control.
+        //
+        // Stated rather than left as an oversight, because an unexplained literal in this method is
+        // exactly what B212 and B214 were both about.
         if (keyData == Keys.Escape && IsFullScreen)
         {
             SetFullScreen(false);

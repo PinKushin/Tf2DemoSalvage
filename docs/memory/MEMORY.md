@@ -158,3 +158,4 @@
 - [A ConVar registration is three pushes](a-convar-registration-is-three-pushes.md) — default, flags and help from ~20 bytes of x86.
 - [An impossibility claim expires](an-impossibility-claim-expires.md) — "X cannot be known" is never re-read once X is established.
 - [Ask which engine mechanism you are copying](ask-which-engine-mechanism-you-are-copying.md) — a citation makes a wrong reference look settled.
+- [TF2 binds every letter but o](tf2-binds-every-letter-but-o.md) — a pasted config TAKES keys; CTRL combos are the only safe space.
