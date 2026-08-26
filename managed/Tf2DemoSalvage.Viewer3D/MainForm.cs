@@ -2105,15 +2105,8 @@ internal class MainForm : Form
     /// recorded view runs out before the first packet, and a spectated player can leave — and a
     /// black screen would read as a rendering fault rather than as the end of the material.
     /// </remarks>
-    private float[] ViewMatrix(TopDownCamera map)
-    {
-        if (_firstPerson && FirstPersonCamera() is { } eye)
-        {
-            return eye.ToMatrix();
-        }
-
-        return _freeLook ? FreeLookCamera().ToMatrix() : map.ToMatrix();
-    }
+    private float[] ViewMatrix(TopDownCamera map) => ViewCamera.Matrix(
+        _firstPerson, FirstPersonCamera(), _freeLook, FreeLookCamera(), map);
 
     /// <summary>The leaf outline to draw over the world, when that overlay is switched on.</summary>
     /// <returns>World-space segments, or nothing when the mode is off or there is no leaf.</returns>
@@ -2310,13 +2303,16 @@ internal class MainForm : Form
     // anything wants it again — the first-person camera takes its eye position from the demo
     // rather than from a constant, so nothing does today.
 
-    /// <summary>How wide the empty view is when no map is loaded, in world units.</summary>
-    /// <remarks>
-    /// Arbitrary and only ever seen as an empty viewport — nothing is drawn without a map. It
-    /// exists so the camera is a real camera rather than a special case every caller has to know
-    /// about.
-    /// </remarks>
-    private const float EmptyMapExtent = 1024f;
+    // `EmptyMapExtent` was here until 2026-08-26. It is `ViewCamera.EmptyMapExtent`, with the
+    // overhead placement that is its only reader (B188, D90).
+    //
+    // **The reason it exists is worth keeping: `_loaded` is genuinely null before a demo is opened,
+    // and this code used to write `_map!`.** Starting the viewer with no map crashed on the first
+    // layout with a NullReferenceException — the owner hit it running Viewer3D straight from the
+    // IDE, which is the ordinary way to start it with no arguments. That `!` asserted a fact the
+    // code could not support, and the assertion was simply false. Eleven call sites reach the
+    // overhead camera, several from layout and paint handlers that run before anything is loaded,
+    // so the answer is a camera over NOTHING rather than a null every caller has to test.
 
     private TopDownCamera MapCamera()
     {
@@ -2329,33 +2325,14 @@ internal class MainForm : Form
         // code could not support, and the assertion was simply false. Eleven call sites reach this,
         // several from layout and paint handlers that run before anything is loaded, so the answer
         // is a camera over nothing rather than a null every caller has to test.
-        (float MinX, float MinY, float MaxX, float MaxY) bounds = _loaded?.Outline is { } loaded
-            ? (loaded.MainBounds.MinX, loaded.MainBounds.MinY,
-               loaded.MainBounds.MaxX, loaded.MainBounds.MaxY)
-            : (-EmptyMapExtent, -EmptyMapExtent, EmptyMapExtent, EmptyMapExtent);
-
-        TopDownCamera fitted = TopDownCamera.Fit(
-            [
-                (bounds.MinX, bounds.MinY),
-                (bounds.MaxX, bounds.MaxY),
-            ],
-            Math.Max(1, _viewport.ClientSize.Width),
-            Math.Max(1, _viewport.ClientSize.Height));
-
-        TopDownCamera zoomed = _zoom > 1f ? fitted.WithZoom(_zoom) : fitted;
-
-        TopDownCamera placed = _lookingAt is { } centre
-            ? zoomed.LookingAt(centre.X, centre.Y)
-            : zoomed;
-
-        // **D35: the camera projects height, so it has to know the range.** The geometry carries
-        // world Z now; without this the third row is a pass-through and every surface lands at a
-        // depth of its own world height in units, which is far outside the clip range and draws
-        // nothing at all.
-        return _loaded?.HeightRange is { } range
-            ? placed.WithHeights(range.Lowest, range.Highest)
-            : placed;
+        return ViewCamera.Overhead(
+            _loaded,
+            _viewport.ClientSize.Width,
+            _viewport.ClientSize.Height,
+            _zoom,
+            _lookingAt);
     }
+
 
     /// <summary>Shows a set of world positions in the viewport.</summary>
     /// <param name="positions">World XY positions, in Source units.</param>
