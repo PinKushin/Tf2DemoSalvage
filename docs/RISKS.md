@@ -10487,6 +10487,46 @@ NOT the placement — `bspfile.h:445` comments it "for sounds or lights".
 **Stop proposing suspects.** That is B191's lesson and this is the fifth one to die; the next step is
 a bisect, not a sixth.
 
+### What the bisect ELIMINATED, measured 2026-08-25
+
+A probe was built that launches the viewer on a fixed demo, waits for the load lines and kills it —
+`scratchpad/probe.sh` in the session, worth rebuilding if it is wanted again. Validated against a
+number from the owner's own session before being trusted. **Every load-side figure is IDENTICAL
+between `main` and the refactor tip, on `cp_process_final`:**
+
+| measurement | `main` | tip |
+|---|---|---|
+| world vertices / material batches | 4,363,083 / 137 | **same** |
+| brush entities named a class | 159 | **same** |
+| brush entities built from the models lump | 159 | **same** |
+| brush faces | 12,306 | **same** |
+| faces held back for entity models | 250 | **same** |
+
+**So hypothesis 5 is dead twice over and the whole map pipeline is exonerated.** Brush and tool faces
+are NOT leaking into world geometry; the geometry is byte-identical; the same 250 faces are withheld
+for entity models on both sides. It also means the world-vertex count is useless as a bisect
+predicate, which is why the run stopped rather than continuing on a number that cannot separate the
+two ends.
+
+**The moment pipeline is exonerated too, by diffing the moved body** — the audit pass that had never
+been run on `MomentScene`, which is the largest move in the refactor at 768 lines. `Build`'s call
+sequence matches the old `ShowMoment` step for step: clear, add props, player props, first-person
+filter, weapon-visibility filter, pack, instances. **`UpdateClientSideAnimations` is still called
+every frame** — it moved inside `Pack()` but sits ABOVE its `if (!grew && Uploaded) return`, so it
+runs whether or not the model set grew. And `Build` receives the same `_players`/`_props`, sampled by
+the same `timeline.PlayersAt`/`PropsAt` calls.
+
+**What is therefore left, and where to look next:** the transform itself. A brush entity's geometry
+and the map's answer about it are identical on both sides, so the difference has to be in what
+`EntityModelSet.Instances` does with a `SceneProp`, or in the arguments it is now given — the
+lighting sources moved to `LevelLighting` in this refactor, and `Instances` gained parameters. That
+is the one seam between "the map is right" and "it draws in the wrong place" that has not been
+diffed.
+
+**A predicate for that seam has to be measured during PLAYBACK, not at load**, which is why the
+load-line probe cannot do it. `--shot --tick N` would give a reproducible frame — but it works only
+on the branch, since `--shot` on `main` is B196.
+
 **It can be bisected AUTOMATICALLY, with nobody looking.** The world build logs
 `world: N vertices in M material batches`, and leaked brush or tool faces change it for a fixed map.
 HEAD, measured 2026-08-25:
