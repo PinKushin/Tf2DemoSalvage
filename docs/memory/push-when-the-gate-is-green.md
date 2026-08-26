@@ -71,10 +71,28 @@ merge pushed to `main` at 15:14 UTC produced **no workflow run at all**. Fifteen
 different commit. Reading that list casually says "main is green".
 
 Everything checked out: `origin/main` and `gh api repos/{repo}/commits/main` both held the merge,
-all four workflows reported `state=active`, Actions permissions were `enabled`. The repository's
-own event list had no `PushEvent` for `refs/heads/main` at that time either, though it did list a
-sub-branch push twenty minutes earlier. A `workflow_dispatch` on the same ref queued immediately, so
-nothing was broken — the push just did not dispatch.
+all four workflows reported `state=active`, Actions permissions were `enabled`, and the repository
+is public so minutes are unlimited. The repository's own event list had no `PushEvent` for
+`refs/heads/main` at that time either.
+
+**The cause was a GitHub Actions outage, and checking that should have been the FIRST move, not the
+last.** The status page reported a major Actions outage beginning 15:11 UTC — upstream database
+failure, inbound traffic throttled. The push was at 15:14. A `workflow_dispatch` sixteen minutes
+later was accepted and then sat with **zero jobs** for forty minutes: accepted, never expanded.
+
+```bash
+curl -s https://www.githubstatus.com/api/v2/summary.json | jq '.components[] | select(.name=="Actions")'
+```
+
+**The order was backwards and it cost half a dozen tool calls.** Workflow states, Actions
+permissions, YAML validity, repository visibility, billing — every one came back healthy, which is
+what "the problem is not yours" looks like from the inside, one negative result at a time. **When an
+external service behaves impossibly, ask the service before auditing your own configuration.** The
+tell is a symptom no configuration could produce: a run created with zero jobs is not something a
+repository setting can express.
+
+**A run with `total_count: 0` jobs is the distinguishing observation.** A run waiting for a runner
+has jobs in `queued`; a run with none was never expanded, which is the provider's side of the line.
 
 **So verify by SHA, never by reading the top of the list:**
 
