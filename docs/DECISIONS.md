@@ -5529,6 +5529,20 @@ view was quantising it, which is why this needed no change below the presentatio
 contains Valve's and our resolution is at least as fine, over Valve's own span rather than ours — a
 coarser slider must not be able to pass by being wider.
 
+**Corrected 2026-08-26, after decompiling: `demo_timescale` is a ConCommand, not a ConVar.** This
+entry's commit message and the conformance test both described it as "a float convar whose help
+string reads *Sets demo replay speed*". The help string is right; the kind was read off the help
+string alone and never checked. Its registration is five pushes with a `.text` pointer in the
+callback slot — see `docs/findings/37-the-engines-demo-vocabulary.md` — so it has no default and no
+flags, because a command has neither.
+
+**The decision above is unaffected, and saying why matters more than the correction.** The parity
+reference for the numbers is the *slider* in `replayperformanceeditor.cpp`, read from published
+source; the console command was context. What the error cost was a false claim sitting in a
+decisions document — which is exactly the failure the owner named when he asked that no research be
+left unused: the convar/command distinction was available in the same twenty bytes as the help
+string, and taking only the string is what let the wrong claim through.
+
 ---
 
 ## D98 — The orthographic camera goes entirely (closes B205)

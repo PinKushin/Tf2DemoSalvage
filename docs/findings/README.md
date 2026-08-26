@@ -58,6 +58,7 @@ it, because a second copy is a copy that goes stale.
 | [34-a-carried-weapon-is-two-models.md](34-a-carried-weapon-is-two-models.md) | A carried weapon is two models, and `m_nModelIndex` is the wrong one |
 | [35-the-bone-pipeline-audit.md](35-the-bone-pipeline-audit.md) | How far the pose loop diverged: the engine has no ordering step, and 177 of 200 lines are not pose work |
 | [36-the-frame-order.md](36-the-frame-order.md) | The camera and the ears come from one `viewEye`; we drew tick T+1 through tick T's eye |
+| [37-the-engines-demo-vocabulary.md](37-the-engines-demo-vocabulary.md) | `demo_*` declarations read from `engine.dll`: most are ConCommands, `fps_max` is 400 and unarchived, `engine_no_focus_sleep` is 50 and archived |
 
 ## Which of this is original
 
