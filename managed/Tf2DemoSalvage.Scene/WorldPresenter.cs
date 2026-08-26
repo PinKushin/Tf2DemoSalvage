@@ -49,7 +49,6 @@ public sealed class WorldPresenter(ILogger render)
     /// <param name="upload">The device, or null before one exists.</param>
     /// <param name="view">The view-projection to draw with, row major.</param>
     /// <param name="surfaceColours">Whether to draw the surface-category view.</param>
-    /// <param name="heightCut">Where to cut the world away above, or zero for none.</param>
     /// <param name="viewport">The viewport's size, which the world is BUILT for and so is reported.</param>
     /// <param name="loggers">Where the world build reports what it built.</param>
     /// <returns>What happened, and what to tell the user if it failed.</returns>
@@ -71,7 +70,6 @@ public sealed class WorldPresenter(ILogger render)
         IWorldUpload? upload,
         float[] view,
         bool surfaceColours,
-        float heightCut,
         (int Width, int Height) viewport,
         ILoggerFactory loggers)
     {
@@ -105,7 +103,7 @@ public sealed class WorldPresenter(ILogger render)
             // map coordinates and never move; only the view does. That is what took a viewport
             // change from 0.33 seconds to a 64-byte upload, and it is the reason a free camera or a
             // per-player view can exist at all.
-            upload.SetCamera(view, surfaceColours, heightCut);
+            upload.SetCamera(view, surfaceColours);
 
             // **Logged because this is the whole cost of a resize**, and a rebuild is not. Counting
             // these against "building the world" lines is what PROVES the geometry survived a

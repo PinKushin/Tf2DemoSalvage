@@ -521,17 +521,16 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>Where a drag started, in viewport pixels.</summary>
     private Point? _dragFrom;
 
-    /// <summary>
-    /// How much of the map's height is cut away from the top, from 0 to 1.
-    /// </summary>
-    /// <remarks>
-    /// **What lets an overhead view see inside a building.** A roof is an upward-facing surface, so
-    /// nothing culls it and everything under it - the hallways into last on cp_process, the rooms
-    /// under the domes at mid - is simply hidden. Slicing the map at a height is how every level
-    /// editor solves this, and it costs nothing here because the shader discards on the depth the
-    /// vertices already carry.
-    /// </remarks>
-    private HeightCut _heightCut = HeightCut.None;
+    // **`_heightCut` was here until 2026-08-26** (B213). Its doc explained it as "what lets an
+    // OVERHEAD VIEW see inside a building" — which names the projection it belonged to, and that
+    // projection went with D98.
+    //
+    // It survived the ortho removal because it looked like a rendering feature rather than a piece
+    // of the overhead camera: the shader discarded on depth, and under an orthographic top-down
+    // view depth IS height. Under the free camera it is distance from the eye, so the control cut
+    // away whatever was nearest. The owner's verdict — *"that was a ortho thing that should be
+    // ripped out and never worked in the first place"* — is what a half measure leaves behind
+    // (D98: *"half measures are why we have old ortho code unused, still around"*).
 
     /// <summary>Times a full screen transition from the keystroke to the first frame drawn.</summary>
     /// <remarks>
@@ -1479,7 +1478,6 @@ internal class MainForm : Form, IFrameSteps
             _device,
             ViewMatrix(),
             _menu.SurfaceColours.Checked,
-            _heightCut.Fraction,
             (_viewport.ClientSize.Width, _viewport.ClientSize.Height),
             _loggers);
 
@@ -3232,10 +3230,7 @@ internal class MainForm : Form, IFrameSteps
             return;
         }
 
-        _device.SetCamera(
-            ViewMatrix(),
-            _menu.SurfaceColours.Checked,
-            _heightCut.Fraction);
+        _device.SetCamera(ViewMatrix(), _menu.SurfaceColours.Checked);
     }
 
     // **`ReportSlowFrame` was here until 2026-08-25** (B188, D90). It is `StallReport.Frame`, and
@@ -3944,33 +3939,77 @@ internal class MainForm : Form, IFrameSteps
     /// Deliberately does nothing when windowed. Swallowing Escape everywhere would break the
     /// ordinary meaning of the key: cancelling a dialog, closing a menu.
     /// </remarks>
+    /// <summary>The control that actually has the keyboard, however deeply nested.</summary>
+    /// <returns>The focused control, or null when nothing on the form has focus.</returns>
+    /// <remarks>
+    /// **`Form.ActiveControl` is not this**, and assuming it was cost a wrong fix (B212). It answers
+    /// with the active child of the FORM, so when focus is inside a `UserControl` — which
+    /// <see cref="TransportBar"/> is, and `UserControl` derives from `ContainerControl` — it returns
+    /// the transport bar rather than the slider inside it. A guard written against it therefore
+    /// matched nothing and changed nothing, and the test that found the bug went on failing in
+    /// exactly the same way, which is the worst outcome a fix can have.
+    ///
+    /// Each container on the chain holds its own `ActiveControl`, so the real answer is the bottom
+    /// of that chain.
+    /// </remarks>
+    private Control? FocusedControl()
+    {
+        Control? focused = ActiveControl;
+
+        while (focused is ContainerControl { ActiveControl: { } inner })
+        {
+            focused = inner;
+        }
+
+        return focused;
+    }
+
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
+        // **Nothing is a shortcut while somebody is typing** (B212). `ProcessCmdKey` runs before any
+        // control sees a key and returning true consumes it, so every binding below was reaching
+        // over the search box.
+        //
+        // **`Space` is the DEFAULT bind for switch-camera-mode**, so typing `cp process` toggled
+        // first person instead of inserting a space — and in the free camera the flight keys took
+        // `w`, `a`, `s` and `d` as well. Neither needed an unusual configuration to hit; the shipped
+        // defaults are enough.
+        //
+        // This is a guard on the binds rather than a binding of its own: no key is named here, so it
+        // adds nothing to un-hardcode later (D101).
+        if (FocusedControl() is TextBoxBase)
+        {
+            return base.ProcessCmdKey(ref msg, keyData);
+        }
+
         // **Page DOWN descends through the map**, taking the roofs off first, and page up brings
         // them back. The obvious reading of the key is the one to follow: the first version had it
         // inverted, and pressing page down 166 times did nothing because the cut was already at
         // zero and the log said so.
-        if (keyData is Keys.PageUp or Keys.PageDown or Keys.Home && _loaded is not null)
-        {
-            _heightCut = keyData switch
-            {
-                Keys.Home => HeightCut.None,
-                Keys.PageDown => _heightCut.Deeper(),
-                _ => _heightCut.Shallower(),
-            };
-
-            _renderLog.LogDebug(
-                "{Message}",
-                string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"height cut {_heightCut.Fraction:P0} of the map"));
-
-            _status.Text = _heightCut.Describe();
-
-            _worldIsStale = true;
-
-            return true;
-        }
+        // **Not while a control that uses these keys has focus** (B212). `ProcessCmdKey` runs before
+        // any control sees a key and returning true consumes it, so this stole Home, Page Up and
+        // Page Down from everything on the form: Home in the search box changed the map's height cut
+        // instead of moving the caret, and the scrub bar, the playlist and the speed slider all lost
+        // their standard navigation.
+        //
+        // Found because a UI test pressed Home on the focused speed slider and nothing happened —
+        // the same shape as B165's F11 and the F12 double-bind, which is now three times in this
+        // file. **A form-level shortcut must not take a key a focused control already means
+        // something by.**
+        // **The height cut was here, on hardcoded Home, Page Up and Page Down** (B213, D101). It is
+        // gone, and both reasons matter.
+        //
+        // **It never worked.** Its shader comment said "the cut is on depth, which is height" — an
+        // equivalence that holds ONLY under the orthographic top-down projection D98 deleted. Under
+        // a perspective camera `pos.z` is distance from the eye, so it cut away whatever was nearest
+        // rather than whatever was highest. The owner: *"that was a ortho thing that should be
+        // ripped out and never worked in the first place"*.
+        //
+        // **And the keys were hardcoded, which is now forbidden outright** (D101): *"no hard coded
+        // controls ever"*, *"everything gets to be customized so runs through the config"*. Three
+        // literal `Keys.` comparisons ahead of every control on the form, stealing Home from the
+        // search box and Page Up from the playlist — found because a test pressed Home on a focused
+        // slider and nothing happened (B212).
 
         // **Flying the camera.** W and S run along the way it is looking, A and D strafe, and
         // Space and Control lift and drop it along the world's up axis rather than the camera's —

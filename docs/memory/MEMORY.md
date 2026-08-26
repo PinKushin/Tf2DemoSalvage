@@ -154,4 +154,5 @@
 - [The game folder is the user's to provide](the-game-folder-is-the-users-to-provide.md) — not-yet-knowable is not laziness; a missing install must error clearly.
 - [Ask Valve before designing, not after](ask-valve-before-designing-not-after.md) — a design defended by taste gets undone by taste; cite the engine.
 - [CI is the machine without TF2](ci-is-the-machine-without-tf2.md) — the only place the no-install path runs; never gate that failure away.
+- [No hardcoded controls ever](no-hardcoded-controls-ever.md) — D101; every key through the config, and never add a new literal.
 - [A ConVar registration is three pushes](a-convar-registration-is-three-pushes.md) — default, flags and help from ~20 bytes of x86.

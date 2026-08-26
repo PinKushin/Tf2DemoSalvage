@@ -3,6 +3,9 @@ using System.IO;
 
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Tools;
+using FlaUI.Core.WindowsAPI;
+
+using Tf2DemoSalvage.Presentation;
 
 namespace Tf2DemoSalvage.Viewer3D.UiTests;
 
@@ -35,8 +38,18 @@ public sealed class TransportUiTests
         // instead of breaking it.
         AutomationElement speed = _viewer.Find(TransportBar.SpeedLabelId);
 
+        // **Put the speed somewhere known first, because this fixture is shared and arrival state
+        // is not a given** — the same lesson `Transport_JumpToEnd_MovesTheScrubBar` records forty
+        // lines below, learned again the moment a second test touched the speed.
+        //
+        // This asserted the readout was 1x on arrival, which held only while nothing else in the
+        // assembly changed the speed. `SpeedSlider_AtEachEnd_...` now leaves it at 8x, and this went
+        // red against a shuttle that works. The claim here is "the buttons step the ladder", so it
+        // is measured from a speed this test set itself.
+        StepTo(1d);
+
         speed.Name.ShouldBe(
-            TransportBar.SpeedDescription(1), "a freshly opened demo plays at real time");
+            TransportBar.SpeedDescription(1), "the shuttle was stepped to real time");
 
         _viewer.Find(TransportBar.FasterButtonId).AsButton().Invoke();
 
@@ -135,6 +148,100 @@ public sealed class TransportUiTests
         // stays true whatever the readout's wording is and whatever tick a demo starts on. Demo
         // ticks do not begin at zero, so a literal 0 here would be wrong for most files.
         StartTick().ShouldBe(before, "the start button seeks back to the demo's first tick");
+    }
+
+    [Test]
+    public void SpeedSlider_AtEachEnd_ReachesSpeedsTheButtonsCannot()
+    {
+        // **The point of D97, and the only test that can show it.** The model went continuous from
+        // 0.01 to 8 while the buttons still stepped eleven fixed stops, so the fine band existed and
+        // no person could reach it. This drives the slider to each end and asks the readout.
+        //
+        // **Driven by the keyboard, because this assembly already knows a `TrackBar` cannot be set
+        // through automation.** `Transport_JumpToEnd_MovesTheScrubBar` records it thirty lines above
+        // — *"The requested pattern 'RangeValue' is not supported"* — and `ViewerSession` passes
+        // `--tick` on the command line for the same reason rather than dragging the scrub bar. The
+        // first draft of this test asked for `RangeValue` anyway and got "Native pattern is null",
+        // which is that note being rediscovered the expensive way.
+        //
+        // `Home` and `End` are what a person pressing the control would use, so this is real input
+        // rather than a poke at the model, and no value has to be typed out.
+        //
+        // **`Home` reaches −8x, which is NOT one of the stops** (they run
+        // −4 −2 −1 −0.5 −0.25 0.25 0.5 1 2 4 8). So it proves two things at once: the slider spans
+        // into reverse, and it reaches past the ladder. A speed the buttons could also produce would
+        // pass whether or not the slider did anything.
+        string Readout() => _viewer.Find(TransportBar.SpeedLabelId).Name;
+
+        _viewer.Find(TransportBar.SpeedBarId).Focus();
+        _viewer.PressKey(VirtualKeyShort.HOME);
+
+        // **The message reports what it SAW, not only what it wanted.** The first version said only
+        // "did not reach the fastest reverse speed", so two runs were spent guessing at a cause the
+        // failure could have named — and the cause was that `Home` never reached the slider at all,
+        // which a readout still showing 1x would have said immediately.
+        Retry.WhileFalse(
+            () => Readout() == TimeScale.From(-TimeScale.Fastest).Description(),
+            TimeSpan.FromSeconds(5),
+            throwOnTimeout: true,
+            timeoutMessage:
+                $"Home on the focused speed slider did not reach {TimeScale.From(-TimeScale.Fastest).Label()}; "
+                + $"the readout says '{Readout()}'.");
+
+        _viewer.Find(TransportBar.SpeedLabelId).Name.ShouldBe(
+            TimeScale.From(-TimeScale.Fastest).Description(),
+            "the left end runs backwards at a speed no button offers");
+
+        // **The control, and it is the half that matters.** Without it a readout stuck on "reversed"
+        // — or a slider whose halves both mean forward — would pass everything above.
+        _viewer.PressKey(VirtualKeyShort.END);
+
+        Retry.WhileFalse(
+            () => _viewer.Find(TransportBar.SpeedLabelId).Name
+                == TimeScale.From(TimeScale.Fastest).Description(),
+            TimeSpan.FromSeconds(5),
+            throwOnTimeout: true,
+            timeoutMessage: "The slider's right end did not reach the fastest forward speed.");
+
+        _viewer.Find(TransportBar.SpeedLabelId).Name.ShouldBe(
+            TimeScale.From(TimeScale.Fastest).Description(),
+            "and the right end runs forwards");
+
+        TestContext.Out.WriteLine(
+            $"TRANSPORT speed slider spans {TimeScale.From(-TimeScale.Fastest).Label()} to "
+            + $"{TimeScale.From(TimeScale.Fastest).Label()}");
+    }
+
+    /// <summary>Drives the shuttle to a known speed, wherever it started.</summary>
+    /// <param name="speed">One of <see cref="TimeScale.ShuttleStops"/>.</param>
+    /// <remarks>
+    /// **Bottoms out first, then counts up**, so it needs no knowledge of where the speed was. The
+    /// ladder is eleven stops, so eleven presses of slower reaches the bottom from anywhere, and the
+    /// index of the wanted speed is how many presses of faster then reach it.
+    ///
+    /// The alternative — reading the readout and stepping toward it — would depend on parsing a
+    /// label this file deliberately does not parse.
+    /// </remarks>
+    private static void StepTo(double speed)
+    {
+        for (int press = 0; press < TimeScale.ShuttleStops.Length; press++)
+        {
+            _viewer.Find(TransportBar.SlowerButtonId).AsButton().Invoke();
+        }
+
+        for (int press = 0; press < Array.IndexOf(TimeScale.ShuttleStops, speed); press++)
+        {
+            _viewer.Find(TransportBar.FasterButtonId).AsButton().Invoke();
+        }
+
+        Retry.WhileFalse(
+            () => _viewer.Find(TransportBar.SpeedLabelId).Name
+                == TimeScale.From(speed).Description(),
+            TimeSpan.FromSeconds(5),
+            throwOnTimeout: true,
+            timeoutMessage:
+                $"Could not step the shuttle to {TimeScale.From(speed).Label()}; the readout says "
+                + $"'{_viewer.Find(TransportBar.SpeedLabelId).Name}'.");
     }
 
     /// <summary>Whether a tick readout says playback has reached the last tick.</summary>

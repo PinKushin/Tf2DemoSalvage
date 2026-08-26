@@ -87,27 +87,45 @@ public readonly record struct TimeScale(double Speed)
         return new TimeScale(speed < 0d ? -magnitude : magnitude);
     }
 
-    /// <summary>The speed at a slider position, mirrored for reverse.</summary>
-    /// <param name="position">Zero to <see cref="Positions"/>.</param>
-    /// <param name="reverse">Whether the transport is running backwards.</param>
+    /// <summary>The speed at a slider position. The sign is the direction.</summary>
+    /// <param name="position">Minus <see cref="Positions"/> to plus <see cref="Positions"/>.</param>
     /// <returns>The speed that position selects.</returns>
     /// <remarks>
+    /// **One slider through zero rather than a magnitude and a separate direction**, at the owner's
+    /// request: drag left to run backwards, right to run forwards, and reverse stops being a mode to
+    /// find. It also makes the control honest about the range, which really is
+    /// <c>[-8, -0.01] ∪ [0.01, 8]</c>.
+    ///
+    /// **The CENTRE is the slowest speed, not a stop**, which is the one thing about this that
+    /// surprises. Zero is not in the range — stopping is what the play button is for — so the middle
+    /// of the travel is 0.01 in whichever direction was last chosen, and either side accelerates away
+    /// from it. A centre that meant "stopped" would be a second pause control disagreeing with the
+    /// first.
+    ///
     /// **Linear over the range, as Valve's is** (`replayperformanceeditor.cpp:567,669,724`). A
     /// logarithmic mapping would give the slow band more of the slider and is not what the engine
-    /// does; matching the shape keeps a person's muscle memory from TF2 worth something.
+    /// does; matching the shape keeps a person's muscle memory from TF2 worth something. It does mean
+    /// 1× sits about a tenth of the way along each half, exactly as it sits a third of the way along
+    /// Valve's narrower one.
     /// </remarks>
-    public static TimeScale At(int position, bool reverse = false)
+    public static TimeScale At(int position)
     {
-        double fraction = Math.Clamp(position, 0, Positions) / (double)Positions;
+        int clamped = Math.Clamp(position, -Positions, Positions);
+        double fraction = Math.Abs(clamped) / (double)Positions;
         double speed = Slowest + ((Fastest - Slowest) * fraction);
 
-        return new TimeScale(reverse ? -speed : speed);
+        return new TimeScale(clamped < 0 ? -speed : speed);
     }
 
-    /// <summary>Where this speed sits on a slider.</summary>
-    /// <returns>Zero to <see cref="Positions"/>.</returns>
-    public int Position() =>
-        (int)Math.Round((Math.Abs(Speed) - Slowest) / (Fastest - Slowest) * Positions);
+    /// <summary>Where this speed sits on a slider, signed by direction.</summary>
+    /// <returns>Minus <see cref="Positions"/> to plus <see cref="Positions"/>.</returns>
+    public int Position()
+    {
+        int magnitude =
+            (int)Math.Round((Math.Abs(Speed) - Slowest) / (Fastest - Slowest) * Positions);
+
+        return IsReverse ? -magnitude : magnitude;
+    }
 
     /// <summary>The speeds the shuttle buttons step between.</summary>
     /// <remarks>

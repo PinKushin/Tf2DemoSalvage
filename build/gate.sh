@@ -589,7 +589,15 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     113
 # CameraMatrixTests is the one worth naming: every case asserted TopDownCamera.ToMatrix, the
 # orthographic projection itself. There is no replacement because there is no projection; the free
 # camera's matrix is FreeCamera.ToMatrix and has its own tests.
-run Tf2DemoSalvage.Viewer3D.Tests viewer    616
+# viewer 616 -> 613 on 2026-08-26: `HeightCutTests` (3) went with the height cut itself (B213). The
+# feature never worked — it clipped on DEPTH, which is world height only under the orthographic
+# projection D98 deleted — so the tests were passing against arithmetic nothing rendered. Nothing
+# was lost: the type, its two test files and its three hardcoded keys all went together.
+#
+# Presentation held at 343 across the same change and that is a COINCIDENCE worth naming, not a
+# sign nothing moved: its own `HeightCutTests` (6) went while `TimeScale`'s tests arrived, and the
+# floor was raised to 343 in the same session. A floor that happens to hold is not evidence.
+run Tf2DemoSalvage.Viewer3D.Tests viewer    613
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."

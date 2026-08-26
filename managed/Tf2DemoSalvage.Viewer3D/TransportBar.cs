@@ -42,6 +42,9 @@ internal sealed class TransportBar : UserControl, IPlaybackView
     /// <summary>Automation id of the speed readout.</summary>
     public const string SpeedLabelId = "SpeedLabel";
 
+    /// <summary>The continuous speed slider (D97).</summary>
+    public const string SpeedBarId = "SpeedBar";
+
     // **The speed ladder was here until 2026-08-26** (D97, D90). It is `TimeScale.ShuttleStops` in
     // Presentation, with the clamping and the spoken description that were beside it.
     //
@@ -56,10 +59,33 @@ internal sealed class TransportBar : UserControl, IPlaybackView
     private readonly Button _faster;
     private readonly Button _end;
     private readonly TrackBar _scrub;
+
+    /// <summary>The continuous speed control (D97).</summary>
+    /// <remarks>
+    /// **The buttons could not reach what D97 made reachable.** The model went continuous from 0.01
+    /// to 8 while the only way in was eleven fixed stops, so the fine band — the one frame-exact
+    /// review needs — existed and had no control. The owner asked for the slider beside the buttons
+    /// rather than instead of them: presets for the speeds people actually use, and a slider for the
+    /// rest.
+    ///
+    /// **Integer positions, because that is what a `TrackBar` is**, mapped onto the range by
+    /// <see cref="TimeScale.At"/>. The mapping is Presentation's; this control only reports where the
+    /// thumb is.
+    /// </remarks>
+    private readonly TrackBar _speedBar;
+
     private readonly Label _speed;
     private readonly Label _tick;
 
     private int _speedIndex = Array.IndexOf(TimeScale.ShuttleStops, 1.0);
+
+    /// <summary>Guards the slider's own event while a button moves the thumb.</summary>
+    /// <remarks>
+    /// **The same guard `_suppressScrubEvent` exists for, and for the same reason.** A button press
+    /// sets the thumb, the thumb raises `ValueChanged`, and the handler would announce a speed change
+    /// the user did not make — which on the scrub bar was a seek loop.
+    /// </remarks>
+    private bool _suppressSpeedEvent;
 
     private bool _playing;
     private bool _suppressScrubEvent;
@@ -111,8 +137,17 @@ internal sealed class TransportBar : UserControl, IPlaybackView
             // which read as a broken transport bar.
             Text = "1x",
             AutoSize = true,
-            Top = 12,
-            Anchor = AnchorStyles.Right | AnchorStyles.Top,
+
+            // **Above the slider, at the owner's direction** — *"the readout could be above the
+            // slider"*. The two then read as one control with its value on top, rather than a number
+            // sitting next to a bar and belonging to neither it nor the scrub bar beyond it.
+            Top = 1,
+
+            // **Left-anchored since it moved beside the speed slider** (2026-08-26). It was
+            // right-anchored while it lived by the tick counter; keeping that would have pinned it
+            // to the far edge while `LayoutChildren` placed it on the left, so it would drift on
+            // every resize.
+            Anchor = AnchorStyles.Left | AnchorStyles.Top,
         };
 
         _scrub = new TrackBar
@@ -132,6 +167,42 @@ internal sealed class TransportBar : UserControl, IPlaybackView
             Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top,
         };
         _scrub.ValueChanged += OnScrubValueChanged;
+
+        // **Spans both directions**, at the owner's request: left of centre runs the demo backwards,
+        // right runs it forwards, and reverse stops being a mode to find. The centre is the SLOWEST
+        // speed rather than a stop, because zero is not in the range — stopping is the play button's
+        // job, and a centre that meant stopped would be a second pause control disagreeing with the
+        // first.
+        //
+        // **Narrow on purpose.** It sits between the buttons and the scrub bar, and the scrub bar is
+        // the one that must stay long — a speed slider competing with the one for POSITION would
+        // shrink the important control for a setting most people leave alone.
+        //
+        // `TickStyle.None` to match `_scrub`: 60,001 positions of tick marks is a grey smear.
+        _speedBar = new TrackBar
+        {
+            Name = SpeedBarId,
+            AccessibleName = "Playback speed",
+            AccessibleDescription =
+                "Sets playback speed continuously. Right of centre plays forwards, left plays "
+                + "backwards, and the centre is the slowest speed in either direction.",
+            // **Below its readout, and shorter than the scrub bar to make room for it.** The bar is
+            // 44 pixels tall and a default `TrackBar` is 45, so stacking a label above one needs the
+            // slider told a height rather than left to its own. `TickStyle.None` is what makes a
+            // short one look right — the ticks are what need the space.
+            Top = 16,
+            Height = 26,
+            Width = 140,
+            Minimum = -TimeScale.Positions,
+            Maximum = TimeScale.Positions,
+            Value = TimeScale.From(1d).Position(),
+            TickStyle = TickStyle.None,
+            Enabled = false,
+
+            // Left-anchored, unlike `_scrub`: the growth belongs to the scrub bar.
+            Anchor = AnchorStyles.Left | AnchorStyles.Top,
+        };
+        _speedBar.ValueChanged += OnSpeedBarChanged;
 
         // Wired here rather than beside the buttons: these lambdas read _scrub, and the compiler
         // is right that it does not exist yet at the point the buttons are built.
@@ -158,6 +229,7 @@ internal sealed class TransportBar : UserControl, IPlaybackView
         Controls.Add(_playPause);
         Controls.Add(_faster);
         Controls.Add(_end);
+        Controls.Add(_speedBar);
         Controls.Add(_scrub);
         Controls.Add(_speed);
         Controls.Add(_tick);
@@ -249,6 +321,7 @@ internal sealed class TransportBar : UserControl, IPlaybackView
         }
 
         _scrub.Enabled = playable;
+        _speedBar.Enabled = playable;
         _playPause.Enabled = playable;
         Playing = false;
         UpdateTickLabel();
@@ -298,6 +371,7 @@ internal sealed class TransportBar : UserControl, IPlaybackView
             _faster.Dispose();
             _end.Dispose();
             _scrub.Dispose();
+            _speedBar.Dispose();
             _speed.Dispose();
             _tick.Dispose();
         }
@@ -318,10 +392,23 @@ internal sealed class TransportBar : UserControl, IPlaybackView
             left += control.Width + gap;
         }
 
+        // **Speed slider then its readout, both beside the buttons** (D97). The order left to right
+        // is: transport buttons, speed slider, speed readout, scrub bar, tick readout.
+        //
+        // **The readout moved to the slider, and the owner is why.** He looked for it *"near the
+        // slider not next to the demo play track bar"* and did not find it — it lived at the far
+        // right by the tick counter, which was fine while it was the only speed indicator. With a
+        // control to describe, a readout at the opposite end of the bar is a label for something
+        // else. Then: *"the readout could be above the slider"*, so it is.
+        //
+        // Centred over the slider rather than left-aligned with it, because the text changes width
+        // — `0.01x` against `-8x` — and a left-aligned label makes the group look like it shifts.
+        _speedBar.Left = left + gap;
+        _speed.Left = _speedBar.Left + ((_speedBar.Width - _speed.Width) / 2);
+
         _tick.Left = Math.Max(margin, ClientSize.Width - _tick.Width - margin);
-        _speed.Left = Math.Max(margin, _tick.Left - _speed.Width - (gap * 3));
-        _scrub.Left = left + gap;
-        _scrub.Width = Math.Max(80, _speed.Left - _scrub.Left - margin);
+        _scrub.Left = _speedBar.Right + (gap * 3);
+        _scrub.Width = Math.Max(80, _tick.Left - _scrub.Left - (gap * 3));
     }
 
     /// <summary>One of the small shuttle buttons either side of play.</summary>
@@ -341,9 +428,57 @@ internal sealed class TransportBar : UserControl, IPlaybackView
     {
         _speedIndex = Math.Clamp(_speedIndex + direction, 0, TimeScale.ShuttleStops.Length - 1);
 
+        // **Moves the slider rather than holding a speed of its own**, so the thumb, the readout and
+        // what is playing cannot disagree. Suppressed because the slider's own handler would
+        // otherwise announce the change a second time.
+        _suppressSpeedEvent = true;
+        _speedBar.Value = TimeScale.From(TimeScale.ShuttleStops[_speedIndex]).Position();
+        _suppressSpeedEvent = false;
+
         UpdateSpeedLabel();
 
         SpeedChanged?.Invoke(this, new SpeedEventArgs(PlaybackSpeed.Speed));
+    }
+
+    /// <summary>The slider was dragged, so the speed changed continuously.</summary>
+    /// <remarks>
+    /// **Re-homes the button ladder to where the thumb now is**, so the next press of slower or
+    /// faster steps from the speed on screen rather than from wherever the buttons were left. Without
+    /// it, dragging to 0.05 and pressing faster would jump back to a stop chosen before the drag.
+    /// </remarks>
+    private void OnSpeedBarChanged(object? sender, EventArgs e)
+    {
+        if (_suppressSpeedEvent)
+        {
+            return;
+        }
+
+        double speed = PlaybackSpeed.Speed;
+
+        _speedIndex = NearestStop(speed);
+
+        UpdateSpeedLabel();
+
+        SpeedChanged?.Invoke(this, new SpeedEventArgs(speed));
+    }
+
+    /// <summary>The shuttle stop closest to a speed, for re-homing the buttons.</summary>
+    /// <param name="speed">The speed the slider is showing.</param>
+    /// <returns>An index into <see cref="TimeScale.ShuttleStops"/>.</returns>
+    private static int NearestStop(double speed)
+    {
+        int nearest = 0;
+
+        for (int stop = 1; stop < TimeScale.ShuttleStops.Length; stop++)
+        {
+            if (Math.Abs(TimeScale.ShuttleStops[stop] - speed)
+                < Math.Abs(TimeScale.ShuttleStops[nearest] - speed))
+            {
+                nearest = stop;
+            }
+        }
+
+        return nearest;
     }
 
     private void Seek(int tick)
@@ -358,9 +493,16 @@ internal sealed class TransportBar : UserControl, IPlaybackView
     /// **A `TimeScale` rather than a `double`**, so the range, the clamp and the wording travel with
     /// the number instead of being restated by whoever holds it (D97).
     /// </remarks>
-    // Not `Scale`: `Control.Scale(SizeF)` already owns that name, and hiding a base member to save
-    // five characters is how a resize silently stops resizing.
-    public TimeScale PlaybackSpeed => TimeScale.From(TimeScale.ShuttleStops[_speedIndex]);
+    /// <summary>The speed the transport is set to.</summary>
+    /// <remarks>
+    /// **Read off the SLIDER, so there is one source of truth.** The buttons move the thumb rather
+    /// than keeping a speed of their own; two holders of one value is how a readout comes to
+    /// disagree with what is playing, which is [[one-place-or-it-drifts]] in a control.
+    ///
+    /// Not named `Scale`: `Control.Scale(SizeF)` already owns that name, and hiding a base member to
+    /// save five characters is how a resize silently stops resizing.
+    /// </remarks>
+    public TimeScale PlaybackSpeed => TimeScale.At(_speedBar.Value);
 
     private void UpdateSpeedLabel()
     {

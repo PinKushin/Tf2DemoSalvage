@@ -56,6 +56,10 @@ public sealed class TimeScaleTests
         TimeScale.From(double.NaN).Speed.ShouldBe(1d);
     }
 
+    [TestCase(-30_000)]
+    [TestCase(-29_999)]
+    [TestCase(-12_345)]
+    [TestCase(-1)]
     [TestCase(0)]
     [TestCase(1)]
     [TestCase(15_000)]
@@ -63,35 +67,54 @@ public sealed class TimeScaleTests
     [TestCase(30_000)]
     public void At_ThenPosition_RoundTrips(int position)
     {
-        // **The mapping has to be reversible or the slider fights the label.** Ends and interior
-        // both, because a linear map is easiest to get wrong at its endpoints.
+        // **The mapping has to be reversible or the slider fights the label.** Both ends, both
+        // signs, and either side of the centre — a signed linear map is easiest to get wrong exactly
+        // where it crosses.
         TimeScale.At(position).Position().ShouldBe(position);
     }
 
     [Test]
-    public void At_TheBottomOfTheSlider_IsTheSlowestNotAStop()
+    public void At_TheCentreOfTheSlider_IsTheSlowestNotAStop()
     {
+        // **The one surprising thing about a slider that spans both directions.** Zero is not in the
+        // range — stopping is the play button's job — so the middle of the travel is the slowest
+        // speed, and either side accelerates away from it. A centre that meant "stopped" would be a
+        // second pause control disagreeing with the first.
         TimeScale.At(0).Speed.ShouldBe(TimeScale.Slowest);
     }
 
     [Test]
-    public void At_TheTopOfTheSlider_IsTheFastest()
+    public void At_TheRightEnd_IsTheFastestForwards()
     {
         TimeScale.At(TimeScale.Positions).Speed.ShouldBe(TimeScale.Fastest);
     }
 
     [Test]
-    public void At_InReverse_MirrorsTheSameSpeed()
+    public void At_TheLeftEnd_IsTheFastestBackwards()
     {
-        // Mirrored rather than a separate range, so the slider means one thing and the direction is
-        // a sign — which is why `Position()` takes the magnitude.
-        TimeScale.At(12_345, reverse: true).Speed.ShouldBe(-TimeScale.At(12_345).Speed);
+        TimeScale.At(-TimeScale.Positions).Speed.ShouldBe(-TimeScale.Fastest);
     }
 
     [Test]
-    public void Position_ForAReverseSpeed_IsTheSameAsItsForwardTwin()
+    public void At_EitherSideOfTheCentre_MirrorsTheSameSpeed()
     {
-        TimeScale.From(-2d).Position().ShouldBe(TimeScale.From(2d).Position());
+        // The two halves are the same ramp, so a person who knows where 2x is going forwards knows
+        // where it is going backwards.
+        TimeScale.At(-12_345).Speed.ShouldBe(-TimeScale.At(12_345).Speed);
+    }
+
+    [Test]
+    public void Position_ForAReverseSpeed_IsTheMirrorOfItsForwardTwin()
+    {
+        TimeScale.From(-2d).Position().ShouldBe(-TimeScale.From(2d).Position());
+    }
+
+    [Test]
+    public void Position_ForAReverseSpeed_IsNegative()
+    {
+        // **The control for the mirror test above**, which two magnitudes would also satisfy if the
+        // sign were dropped on both sides.
+        TimeScale.From(-2d).Position().ShouldBeLessThan(0);
     }
 
     [Test]
