@@ -96,5 +96,63 @@ public sealed class FreeCameraControllerTests
         parsed.Value.Origin.ShouldBe((10f, 20f, 30f));
     }
 
+    [Test]
+    public void Dolly_Forward_MovesAlongTheLookDirection()
+    {
+        // At yaw and pitch zero the camera faces +X, so one notch forward is one notch of +X and
+        // nothing else. Any other axis moving means the basis and the travel disagree.
+        FreeCameraController camera = Camera();
+        camera.Angles = (0f, 0f);
+        camera.Origin = (0f, 0f, 0f);
+
+        camera.Dolly(forward: true, ifUnplaced: (0f, 0f, 0f));
+
+        camera.Origin.GetValueOrDefault().X.ShouldBe(FreeCameraController.WheelTravel, 0.01);
+        camera.Origin.GetValueOrDefault().Y.ShouldBe(0f, 0.01);
+        camera.Origin.GetValueOrDefault().Z.ShouldBe(0f, 0.01);
+    }
+
+    [Test]
+    public void Dolly_Backward_MovesTheOtherWay()
+    {
+        // **The control on the direction flag.** Without it, `forward` could be ignored and the
+        // forward case would still pass — correct and broken predicting the same observation.
+        FreeCameraController camera = Camera();
+        camera.Angles = (0f, 0f);
+        camera.Origin = (0f, 0f, 0f);
+
+        camera.Dolly(forward: false, ifUnplaced: (0f, 0f, 0f));
+
+        camera.Origin.GetValueOrDefault().X.ShouldBe(-FreeCameraController.WheelTravel, 0.01);
+    }
+
+    [Test]
+    public void Dolly_LookingDown_DescendsRatherThanTravellingFlat()
+    {
+        // Pitch has to reach the travel, or the wheel becomes a flat pan that ignores where the
+        // camera is pointed — which looks like the camera refusing to go down through a map.
+        FreeCameraController camera = Camera();
+        camera.Angles = (90f, 0f);
+        camera.Origin = (0f, 0f, 0f);
+
+        camera.Dolly(forward: true, ifUnplaced: (0f, 0f, 0f));
+
+        camera.Origin.GetValueOrDefault().Z.ShouldBeLessThan(-1f, "positive pitch looks DOWN");
+    }
+
+    [Test]
+    public void Dolly_BeforeTheCameraIsPlaced_StartsFromTheFallback()
+    {
+        // Same contract as Fly: the camera is placed on first use, so a wheel before that must
+        // travel from where the view currently is rather than from the corner of the map.
+        FreeCameraController camera = Camera();
+        camera.Angles = (0f, 0f);
+
+        camera.Dolly(forward: true, ifUnplaced: (100f, 200f, 300f));
+
+        camera.Origin.GetValueOrDefault().X.ShouldBe(100f + FreeCameraController.WheelTravel, 0.01);
+        camera.Origin.GetValueOrDefault().Y.ShouldBe(200f, 0.01);
+    }
+
     private static FreeCameraController Camera() => new(NullLogger.Instance);
 }

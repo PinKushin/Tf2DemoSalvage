@@ -420,24 +420,13 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>Whether the viewport is drawn through a player's eyes.</summary>
     private bool _firstPerson => _cameraMode == CameraMode.FirstPerson;
 
-    /// <summary>Pitch and yaw of the free camera, in degrees.</summary>
-    /// <remarks>
-    /// Starts at a shallow angle rather than at zero: a camera on the horizon looking across a map
-    /// shows mostly wall, and the first thing anyone wants from this view is to see whether the
-    /// players are standing up.
-    /// </remarks>
-    /// <remarks>
-    /// **The state itself moved to <see cref="FreeCameraController"/> on 2026-08-25** (D90). These
-    /// two are accessors onto it, so the flight and drag handlers that live in this window — which
-    /// genuinely are input handling — read and write one place.
-    /// </remarks>
-    /// <remarks>
-    /// **Read-only since 2026-08-26** (B206). The drag handler was the last writer, and it now asks
-    /// the controller to turn itself rather than computing new angles and assigning them back — so
-    /// the window reads the camera's state and never sets it. The analyzer found the dead setter
-    /// immediately, which is a small piece of evidence that nothing else was writing angles either.
-    /// </remarks>
-    private (float Pitch, float Yaw) _freeAngles => _freeCamera.Angles;
+    // **`_freeAngles` is gone entirely as of 2026-08-26** (B206). It was an accessor onto
+    // `FreeCameraController.Angles` for the drag and wheel handlers to read and write; both now ask
+    // the controller to move itself, so the window neither reads nor writes the camera's angles.
+    //
+    // It went in two steps, each one announced by the analyzer: the setter died when `Drag` moved,
+    // and the property died when `Dolly` moved. That is a cleaner proof than reading the file — the
+    // second removal was not planned, it was reported.
 
     // FreeEntryDistance (800 units) went with the orbit placement on 2026-08-22 (D67). The camera
     // no longer sits a fixed distance from a focus point — it is placed above the map at whatever
@@ -2213,14 +2202,10 @@ internal class MainForm : Form, IFrameSteps
     // `OverheadPlacement` replaces it, anchoring to the highest geometry within MainBounds and
     // taking whichever is greater of that and the distance needed to frame the play area.
 
-    /// <summary>World units the free camera moves per wheel notch.</summary>
-    /// <remarks>
-    /// **A distance, unlike flight, because a wheel notch IS a discrete event.** Thirty-two units is
-    /// half a player's height. Key-driven flight used to work the same way and could not — a held
-    /// key is a duration and became one in <see cref="FreeFlight"/> (B97) — but a notch has no
-    /// duration to integrate over.
-    /// </remarks>
-    private const float FlySpeed = 32f;
+    // **`FlySpeed` was here until 2026-08-26** (B204, B206). It was 32 units and every use of it
+    // read `FlySpeed * 4f`, so it is `FreeCameraController.WheelTravel` at 128 now — the number a
+    // reader had to compute is the number they read. Its note about a notch being a discrete event
+    // rather than a duration went with it, since that is the reason it is a distance at all.
 
     // PlayerEyeHeight (VEC_VIEW, 64) went with FreeFocus on 2026-08-22 (D66): the free camera no
     // longer arrives at a player's eye height above the lowest floor, it arrives above the map
@@ -4194,19 +4179,11 @@ internal class MainForm : Form, IFrameSteps
         // editor and is far quicker than tapping W across a map.
         if (_freeLook)
         {
-            // **`AngleVectors.Forward` rather than the formula, since 2026-08-26** (B204). This was
-            // a hand-inlined `(cp*cy, cp*sy, -sp)` inside a mouse-wheel handler, and it was the
-            // fourth copy of Valve's one function in this repository.
-            (float X, float Y, float Z) forward =
-                AngleVectors.Forward(_freeAngles.Pitch, _freeAngles.Yaw);
-
-            float travel = e.Delta > 0 ? FlySpeed * 4f : -FlySpeed * 4f;
-            (float X, float Y, float Z) where = _freeOrigin ?? FreeLookCamera().Origin;
-
-            _freeOrigin = (
-                where.X + (forward.X * travel),
-                where.Y + (forward.Y * travel),
-                where.Z + (forward.Z * travel));
+            // **The whole branch is one call now** (B204, B206). It was a hand-inlined copy of
+            // `AngleVectors`' forward vector — the fourth in this repository — multiplied by a
+            // travel distance spelled `FlySpeed * 4f`. How far a notch flies and along which vector
+            // are both camera rules; that the WHEEL is what asks is the part this window owns.
+            _freeCamera.Dolly(e.Delta > 0, FreeLookCamera().Origin);
 
             _worldIsStale = true;
             _viewport.Invalidate();

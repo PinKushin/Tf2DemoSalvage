@@ -52,7 +52,13 @@ public sealed class FreeCameraController(ILogger log)
     /// <summary>Where the camera is, or null until something places it.</summary>
     public (float X, float Y, float Z)? Origin { get; set; }
 
-    /// <summary>Where it is looking.</summary>
+    /// <summary>Where it is looking, in degrees.</summary>
+    /// <remarks>
+    /// **Starts at a shallow angle rather than at zero**, and the reason travelled here from
+    /// `MainForm._freeAngles` when that accessor died (B206): a camera on the horizon looking across
+    /// a map shows mostly wall, and the first thing anyone wants from this view is to see whether the
+    /// players are standing up.
+    /// </remarks>
     public (float Pitch, float Yaw) Angles { get; set; } = (35f, 0f);
 
     /// <summary>Turn the camera by a mouse drag.</summary>
@@ -71,6 +77,47 @@ public sealed class FreeCameraController(ILogger log)
         Angles = (
             Math.Clamp(Angles.Pitch + (deltaY * DegreesPerPixel), -PitchLimit, PitchLimit),
             Angles.Yaw - (deltaX * DegreesPerPixel));
+
+    /// <summary>How far one wheel notch travels, in world units.</summary>
+    /// <remarks>
+    /// **A distance, unlike flight, because a wheel notch IS a discrete event.** Key-driven flight
+    /// used to work this way and could not — a held key is a duration and became one in
+    /// <c>FreeFlight</c> (B97) — but a notch has no duration to integrate over.
+    ///
+    /// **128 units.** It was written `FlySpeed * 4f` at the call site, where `FlySpeed` was 32 and
+    /// used for nothing else (B204, B206) — so the number a reader had to compute is now the number
+    /// they read.
+    /// </remarks>
+    public const float WheelTravel = 128f;
+
+    /// <summary>Move the camera along its own view direction.</summary>
+    /// <param name="forward">Whether to travel forwards.</param>
+    /// <param name="ifUnplaced">Where to start from when the camera has not been placed yet.</param>
+    /// <remarks>
+    /// **This was the free-look branch of `MainForm.OnViewportWheel`** (B204, B206), including a
+    /// hand-inlined copy of `AngleVectors`' forward vector. In every editor the wheel flies, and it
+    /// is far quicker than tapping W across a map.
+    ///
+    /// **Travels along the full forward vector, pitch included**, so looking down and scrolling
+    /// descends. Flattening it to the XY plane would make the wheel refuse to go down through a map,
+    /// which reads as the camera being blocked rather than as the travel being wrong.
+    ///
+    /// **The unplaced fallback matches <c>Fly</c>'s**, deliberately: the camera is placed on first
+    /// use, and travelling from an unset origin would silently define it as (0,0,0), the corner of
+    /// the map.
+    /// </remarks>
+    public void Dolly(bool forward, (float X, float Y, float Z) ifUnplaced)
+    {
+        (float X, float Y, float Z) heading = AngleVectors.Forward(Angles.Pitch, Angles.Yaw);
+        (float X, float Y, float Z) from = Origin ?? ifUnplaced;
+
+        float travel = forward ? WheelTravel : -WheelTravel;
+
+        Origin = (
+            from.X + (heading.X * travel),
+            from.Y + (heading.Y * travel),
+            from.Z + (heading.Z * travel));
+    }
 
     /// <summary>The world field of view, in degrees.</summary>
     /// <remarks>
