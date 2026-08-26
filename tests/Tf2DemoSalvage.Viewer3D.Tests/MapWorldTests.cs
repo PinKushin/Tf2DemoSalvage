@@ -25,15 +25,15 @@ public sealed class MapWorldTests
     /// <summary>No terrain reader: these fixtures have no displacements to read terrain for.</summary>
     private static BspTerrain? Map => null;
 
-    private static readonly TopDownCamera Camera =
-        TopDownCamera.Fit([(0f, 0f), (1000f, 1000f)], 800, 600);
+    // A `TopDownCamera Camera` fixture sat here until 2026-08-26 (D98) and was passed to every
+    // `Build` call. `Build` never read it.
 
     [Test]
     public void Build_NoSurfaces_ProducesNothing()
     {
         MapWorld world = MapWorldBuilder.Build(
             Map,
-            [], Materials, LightmapAtlas.Pack([]), [], Camera, null);
+            [], Materials, LightmapAtlas.Pack([]), [], null);
 
         world.Vertices.ShouldBeEmpty();
         world.Batches.ShouldBeEmpty();
@@ -44,7 +44,7 @@ public sealed class MapWorldTests
     {
         MapWorld world = MapWorldBuilder.Build(
             Map,
-            [Surface(0, material: 3, corners: 4)], Materials, LightmapAtlas.Pack([]), [], Camera, null);
+            [Surface(0, material: 3, corners: 4)], Materials, LightmapAtlas.Pack([]), [], null);
 
         world.Vertices.Count.ShouldBe(6);
         world.Batches.Count.ShouldBe(1);
@@ -76,7 +76,6 @@ public sealed class MapWorldTests
             Map,
             [Surface(0, material: 0, corners: 3, normalZ: -1f)], Materials, LightmapAtlas.Pack([]),
             [],
-            Camera,
             null);
 
         world.Vertices.Count.ShouldBe(3);
@@ -107,7 +106,6 @@ public sealed class MapWorldTests
             materials,
             LightmapAtlas.Pack([]),
             [],
-            Camera,
             null);
 
         // **toolsblack is kept, and that is the point of this test now.** It shares the tools/
@@ -128,7 +126,6 @@ public sealed class MapWorldTests
             Map,
             [Surface(0, material: 0, corners: 3, flags: SurfaceProperties.NoDraw)], Materials, LightmapAtlas.Pack([]),
             [],
-            Camera,
             null);
 
         world.Vertices.ShouldBeEmpty();
@@ -149,7 +146,7 @@ public sealed class MapWorldTests
 
         MapWorld world = MapWorldBuilder.Build(
             Map,
-            surfaces, Materials, LightmapAtlas.Pack([]), [], Camera, null);
+            surfaces, Materials, LightmapAtlas.Pack([]), [], null);
 
         world.Batches.Count.ShouldBe(2);
         world.Vertices.Count.ShouldBe(9);
@@ -175,7 +172,7 @@ public sealed class MapWorldTests
 
         MapWorld world = MapWorldBuilder.Build(
             Map,
-            [Surface(1, material: 0, corners: 3)], Materials, atlas, [], Camera, null);
+            [Surface(1, material: 0, corners: 3)], Materials, atlas, [], null);
 
         AtlasRect rectangle = atlas.Rectangles[1];
 
@@ -193,7 +190,7 @@ public sealed class MapWorldTests
         // 0..1 are the normal case and clamping them would stretch one texel across the surface.
         MapWorld world = MapWorldBuilder.Build(
             Map,
-            [Surface(0, material: 0, corners: 3, u: 12.5f)], Materials, LightmapAtlas.Pack([]), [], Camera, null);
+            [Surface(0, material: 0, corners: 3, u: 12.5f)], Materials, LightmapAtlas.Pack([]), [], null);
 
         world.Vertices[0].U.ShouldBe(12.5f);
     }
@@ -220,7 +217,7 @@ public sealed class MapWorldTests
         ];
 
         MapWorld world = MapWorldBuilder.Build(
-            Map, [], Materials, LightmapAtlas.Pack([]), straddling, Camera, area);
+            Map, [], Materials, LightmapAtlas.Pack([]), straddling, area);
 
         world.Vertices.ShouldBeEmpty("a prop standing in the skybox room is not in the map");
     }
@@ -240,7 +237,7 @@ public sealed class MapWorldTests
         ];
 
         MapWorld world = MapWorldBuilder.Build(
-            Map, [], Materials, LightmapAtlas.Pack([]), inside, Camera, area);
+            Map, [], Materials, LightmapAtlas.Pack([]), inside, area);
 
         world.Vertices.Count.ShouldBe(3);
 
@@ -276,7 +273,7 @@ public sealed class MapWorldTests
         ];
 
         MapWorld world = MapWorldBuilder.Build(
-            Map, [], Materials, LightmapAtlas.Pack([]), unpainted, Camera, null);
+            Map, [], Materials, LightmapAtlas.Pack([]), unpainted, null);
 
         world.Vertices.Count.ShouldBe(3, "a prop with no material draws in the missing chequer");
     }

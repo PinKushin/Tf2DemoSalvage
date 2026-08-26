@@ -44,10 +44,15 @@ internal sealed unsafe class PointRenderer : IDisposable
     /// A pass-through vertex shader and a flat pixel shader.
     /// </summary>
     /// <remarks>
-    /// Positions arrive already in clip space, because the projection is
-    /// <see cref="TopDownCamera"/>'s job and it is tested on its own. Keeping the transform out of
-    /// the shader means the thing that decides where a player appears is ordinary arithmetic that
-    /// can be asserted exactly, rather than something only observable through a GPU.
+    /// Positions arrive already in clip space, because projecting them is the caller's job and is
+    /// tested on its own. Keeping the transform out of the shader means the thing that decides
+    /// where a player appears is ordinary arithmetic that can be asserted exactly, rather than
+    /// something only observable through a GPU.
+    ///
+    /// **That caller was `MapOverview` through `TopDownCamera`, both deleted by D98 with the flat
+    /// markers.** This renderer is currently fed nothing: the markers return as a free-camera
+    /// option, and drawing small quads is what they will need again. If that reimplementation does
+    /// not happen, this goes — it is unexercised in production until then.
     /// </remarks>
     private const string ShaderSource = """
         struct VsIn  { float2 pos : POSITION; float3 col : COLOR; };

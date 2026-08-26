@@ -7,9 +7,9 @@ namespace Tf2DemoSalvage.Scene;
 /// </summary>
 /// <remarks>
 /// **A reflection needs the eye position and nothing in this renderer was passing one.** The obvious
-/// fix is a parameter threaded from every camera down through <c>SetCamera</c> — four call sites,
-/// two unrelated camera types, and one of them (<see cref="TopDownCamera"/>) does not hold a
-/// position at all, it computes one on the way to a matrix.
+/// fix is a parameter threaded from every camera down through <c>SetCamera</c> — four call sites and,
+/// when this was written, two unrelated camera types, one of which (`TopDownCamera`, deleted by D98)
+/// did not hold a position at all: it computed one on the way to a matrix.
 ///
 /// The matrix already contains the answer, so none of that is necessary. That keeps the property
 /// the free camera was built on: **the geometry is in map coordinates and only the view changes**,

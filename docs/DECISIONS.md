@@ -5581,6 +5581,29 @@ The build path needs no camera at all.
 through, the viewer falls back to the **free camera**, not to an overhead placement of it. A demo
 that loses its subject drops the viewer into the view it can always offer.
 
+**The flat player markers go with it, and that is the owner's call rather than a consequence**
+(2026-08-26):
+
+> "get rid of the flat markers for now, we will reimplement them into the flycam and make it on
+> option later"
+
+**They were the orthographic camera's last real consumer.** `MapOverview.Players` and
+`MapOverview.Positions` turn `ScenePlayer`s into `ScenePoint(X, Y, R, G, B)` — flat, two-dimensional,
+positioned by projecting through `MapCamera()`. With the world drawn in perspective through the eye
+or the free camera and the markers placed by a top-down orthographic projection, **the two do not
+agree about where anything is**; the markers were correct only for a view that no longer exists.
+
+**"For now" is load-bearing and this is not a deletion on the merits.** The feature returns as a free
+camera option — billboards or a 3D overlay that shares the actual view matrix — which is a different
+implementation of the same idea rather than a revival of this one. Recorded so nobody later reads the
+empty space as "markers were tried and rejected".
+
+**One older note is worth carrying forward**, because it states the rule any reimplementation has to
+obey and it was learned the hard way: **a player drawn as a model must not also get a flat marker on
+top of it, and a player without a model must still get one or they vanish.** Asked in two places the
+answers drifted, and they did — the markers went on being drawn over the models the moment those
+started working, which hid whether the models were there at all.
+
 ---
 
 ## D99 — `fps_max`'s "cannot be set while connected" is not adopted

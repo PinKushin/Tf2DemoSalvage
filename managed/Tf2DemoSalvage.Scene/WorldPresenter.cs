@@ -47,7 +47,6 @@ public sealed class WorldPresenter(ILogger render)
     /// <summary>Ensures the level is on the device and aimed at a camera.</summary>
     /// <param name="map">The loaded level, or null when none is open.</param>
     /// <param name="upload">The device, or null before one exists.</param>
-    /// <param name="camera">The overhead camera the world is built for.</param>
     /// <param name="view">The view-projection to draw with, row major.</param>
     /// <param name="surfaceColours">Whether to draw the surface-category view.</param>
     /// <param name="heightCut">Where to cut the world away above, or zero for none.</param>
@@ -56,6 +55,13 @@ public sealed class WorldPresenter(ILogger render)
     /// <returns>What happened, and what to tell the user if it failed.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="loggers"/> is null.</exception>
     /// <remarks>
+    /// **A `TopDownCamera camera` parameter sat between `upload` and `view` until 2026-08-26**
+    /// (D98), documented as "the overhead camera the world is built for". It was passed down to
+    /// `LoadedMap.BuildWorld` and from there to `MapWorld.Build`, which **never read it** — a
+    /// leftover of the top-down culling that broke the free camera once already. The world is built
+    /// in world space; what points it is <paramref name="view"/>, set per frame.
+    /// </remarks>
+    /// <remarks>
     /// **Nothing to do is a normal answer, not a guard clause worth logging.** A viewer with no map,
     /// no device or a map whose outline is empty is in an ordinary state — the same one it is in
     /// before anything is opened — so it reports neither an upload nor a problem.
@@ -63,7 +69,6 @@ public sealed class WorldPresenter(ILogger render)
     public WorldUpload Project(
         LoadedMap? map,
         IWorldUpload? upload,
-        TopDownCamera camera,
         float[] view,
         bool surfaceColours,
         float heightCut,
@@ -123,7 +128,7 @@ public sealed class WorldPresenter(ILogger render)
 
             using (render.Time("building the world"))
             {
-                built = level.BuildWorld(camera, loggers);
+                built = level.BuildWorld(loggers);
             }
 
             render.LogInformation(

@@ -50,7 +50,6 @@ public static class MapWorldBuilder
     /// <param name="materials">The map's texture table, for identifying tool materials.</param>
     /// <param name="atlas">Where each face's lighting sits.</param>
     /// <param name="props">The map's placed models, in world space.</param>
-    /// <param name="camera">Projection from world to clip space.</param>
     /// <param name="area">Ground-plane area to keep, or null for all of it.</param>
     /// <param name="overlays">The map decals, or null to draw none.</param>
     /// <param name="categoryColours">Flat colours by surface kind instead of the map's own light.</param>
@@ -75,7 +74,6 @@ public static class MapWorldBuilder
         IReadOnlyList<BspMaterial> materials,
         LightmapAtlas atlas,
         IReadOnlyList<PropVertex> props,
-        TopDownCamera camera,
         MapBounds? area,
         bool categoryColours = false,
         IReadOnlyList<BspOverlay>? overlays = null,

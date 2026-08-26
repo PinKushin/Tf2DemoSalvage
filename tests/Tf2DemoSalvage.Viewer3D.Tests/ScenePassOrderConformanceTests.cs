@@ -118,7 +118,6 @@ public sealed class ScenePassOrderConformanceTests
                 new PropVertex(1f, 0f, 0f, 1f, 0f, 0),
                 new PropVertex(1f, 1f, 0f, 1f, 1f, 0),
             ],
-            TopDownCamera.Fit([(0f, 0f), (1000f, 1000f)], 800, 600),
             area: null);
 
         world.Props.ShouldNotBeEmpty("a static prop must be its own run, drawn after the overlays");

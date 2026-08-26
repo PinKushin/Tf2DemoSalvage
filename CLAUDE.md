@@ -27,7 +27,13 @@ A standalone TF2 `.dem` parser that works across TF2's full history, including d
 Two corpora, and the distinction matters when you are told to add a demo:
 
 - **gcor** — `tools/corpus/demos/`, committed, one specimen per era × point of view. It grows **only for a new generation**, because GitHub's free Git LFS tier is 1 GiB/month and every CI job pays for it. Era specimens are kept to 2–4 minutes deliberately (`manifest.json` notes).
-- **lcor** — `tools/corpus/local/`, git-ignored, currently **49 demos**. Modern matches, extra specimens, anything for volume. Tests pick it up automatically, so a local run is a superset of CI. **"Add these demos" means lcor unless the demo is a new protocol.**
+- **lcor** — `tools/corpus/local/`, git-ignored, **49 demos there**. Modern matches, extra specimens, anything for volume. Tests pick it up automatically, so a local run is a superset of CI. **"Add these demos" means lcor unless the demo is a new protocol.**
+
+**`tools/corpus/local/` is NOT all of lcor, and assuming it is will mislead you about scale.** The owner, 2026-08-26: *"the FULL lcor includes the 3 gigs of esea and etf2l demos, and the benroads demos, and the 20 demos found by another agent on d:, and the tf2 research repo"*. So the real pool is several gigabytes across at least four locations, and the 774 MB in `tools/corpus/local/` is the part a test currently sees.
+
+**Planned, after the current refactor:** consolidate onto `D:` as one demo archive and point lcor at it — *"i kinda want all the lcor demos in the d: demo archive, although that still leaves a bunch of demos actually in another repo too, but we might be able to use symlinks for those or for all of the consolidation so nothing has to actually move"*. Symlinks mean nothing is copied and no repo loses its own copy.
+
+**Meanwhile: never walk the whole thing in a test.** A measurement wants a handful of demos chosen deliberately — real matches, one or two per era, both points of view. **Era specimens cannot answer a rendering or roster question at all**: they are solo recordings on period clients with no other players and no worn items, so they inflate a denominator and measure nothing. `CorpusPlayerOriginTests` is the worked example of picking a sample and saying why.
 
 **Both of these are about to change, and D81 is why.** The corpus is moving to archive.org and will
 be fetched rather than committed. The gcor/lcor split exists because GitHub's free Git LFS tier is

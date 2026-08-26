@@ -178,13 +178,10 @@ internal class MainForm : Form, IFrameSteps
 
     private LoadedDemo? _demo;
 
-    /// <summary>What the viewport draws: entity positions already projected to clip space.</summary>
-    /// <remarks>
-    /// Held as projected points rather than world positions so the render loop does no work per
-    /// frame beyond handing them over. Re-projection happens when the tick or the viewport size
-    /// changes, which is far rarer than a frame.
-    /// </remarks>
-    private IReadOnlyList<ScenePoint> _scene = [];
+    // **`_scene` was here until 2026-08-26** (D98) — entity positions already projected to clip
+    // space, held that way so the render loop did no per-frame work beyond handing them over. That
+    // caching was the right shape for a projection that only changed on a scrub or a resize, and it
+    // is exactly the shape that stopped being possible once the camera moved every frame.
 
     // `_mapFill` was here: the map's surfaces projected to clip space for the overhead fallback.
     // Dead by construction — drawn only when there was no textured map, and built from the map — so
@@ -395,16 +392,9 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>Whether the viewport has changed size since the world was last projected.</summary>
     private bool _worldIsStale;
 
-    /// <summary>How far the view is zoomed in past the fitted whole map.</summary>
-    /// <remarks>
-    /// **Free to change now, which it was not before.** The projection used to be baked into every
-    /// vertex, so zooming meant rebuilding 2.6 million of them; the camera is a matrix, so this is
-    /// a 64-byte upload and can be driven by a mouse wheel.
-    /// </remarks>
-    private MapZoom _zoom = MapZoom.None;
-
-    /// <summary>Where the view is centred, or null to keep it on the whole map.</summary>
-    private (float X, float Y)? _lookingAt;
+    // **`_zoom` and `_lookingAt` were here until 2026-08-26** (D98) — how far into the orthographic
+    // map the view was magnified, and where it was centred. Both are meaningless without that
+    // projection: the free camera has a position, not a zoom and a centre.
 
     /// <summary>Whether the view is the free camera rather than the map's top-down one.</summary>
     /// <remarks>
@@ -1796,18 +1786,20 @@ internal class MainForm : Form, IFrameSteps
         // **The early return that replaced them was a real bug, caught before it shipped.** Returning
         // here skips everything below, and everything below is the TEXTURED WORLD UPLOAD. Dropping
         // the fill must not drop the world.
-        TopDownCamera camera = MapCamera();
-
         // **What is left here is the camera, the viewport and the status bar.** Deciding whether the
         // world needs uploading is a question about a level and about what already reached the GPU;
         // performing the upload needs a device, which arrives through `IWorldUpload` — the same seam
         // `IModelUpload` already uses, and the same reason: the decision becomes testable with a
         // fake, and the code that decides stops being the code that talks to Direct3D.
+        //
+        // **A `TopDownCamera` was passed alongside the matrix until 2026-08-26** (D98). It was
+        // threaded down through `BuildWorld` into `MapWorld.Build`, which never read it — a leftover
+        // of the top-down culling that broke the free camera once already. The matrix is what the
+        // world is actually pointed with.
         WorldUpload result = _world.Project(
             map,
             _device,
-            camera,
-            ViewMatrix(camera),
+            ViewMatrix(),
             _surfaceColours.Checked,
             _heightCut.Fraction,
             (_viewport.ClientSize.Width, _viewport.ClientSize.Height),
@@ -2007,14 +1999,12 @@ internal class MainForm : Form, IFrameSteps
             _ = ToggleFirstPerson();
         }
 
-        if (_launch.LookAt is { } centre)
-        {
-            // **`Of` clamps and the constructor is private**, so a `--zoom 1000` from the command
-            // line cannot put the camera inside a wall (B208). It used to be assigned raw.
-            _zoom = MapZoom.Of(_launch.Zoom);
-            _lookingAt = centre;
-            _worldIsStale = true;
-        }
+        // **`--look-at` and `--zoom` applied here until 2026-08-26** (D98). They centred and
+        // magnified the orthographic map, and neither has a meaning for a camera that is placed in
+        // the world rather than fitted to it. `LaunchOptions` still carries both fields; what they
+        // should mean for a free camera — fly to a point, at what distance — is a question for
+        // whoever reimplements them, and inventing an answer here would be the guess this project
+        // keeps paying for.
     }
 
     /// <summary>Whether the opening tick, view and target have been applied.</summary>
@@ -2034,8 +2024,7 @@ internal class MainForm : Form, IFrameSteps
     /// a focus at floor level puts half the picture below the world, and the range is already known
     /// because the depth projection needs it.
     /// </remarks>
-    /// <summary>The view matrix for whichever camera mode is active.</summary>
-    /// <param name="map">The map camera, already built by the caller.</param>
+    /// <summary>The view matrix for whichever camera is active.</summary>
     /// <returns>Sixteen floats for the camera constant buffer.</returns>
     /// <remarks>
     /// **One chooser rather than a conditional at each draw site.** There are two places that set
@@ -2246,41 +2235,19 @@ internal class MainForm : Form, IFrameSteps
     // overhead camera, several from layout and paint handlers that run before anything is loaded,
     // so the answer is a camera over NOTHING rather than a null every caller has to test.
 
-    private TopDownCamera MapCamera()
-    {
-        // **`_map` is genuinely null before a demo is opened, and this used to write `_map!`.**
-        // Starting the viewer with no map crashed on the first layout with a NullReferenceException
-        // out of here — the owner hit it running Viewer3D straight from the IDE, which is the
-        // ordinary way to start it with no arguments.
-        //
-        // That `!` is the pattern this project's standards call a smell: it asserted a fact the
-        // code could not support, and the assertion was simply false. Eleven call sites reach this,
-        // several from layout and paint handlers that run before anything is loaded, so the answer
-        // is a camera over nothing rather than a null every caller has to test.
-        return ViewCamera.Overhead(
-            _loaded,
-            _viewport.ClientSize.Width,
-            _viewport.ClientSize.Height,
-            _zoom.Factor,
-            _lookingAt);
-    }
+    // **`MapCamera` was here until 2026-08-26** (D98) — the last thing that built the orthographic
+    // projection. The free camera does not need it: it is placed rather than fitted, and it is
+    // valid before a map exists, which is what the deleted null-safety above was protecting.
 
 
-    /// <summary>Shows a set of world positions in the viewport.</summary>
-    /// <param name="positions">World XY positions, in Source units.</param>
-    /// <exception cref="ArgumentNullException"><paramref name="positions"/> is null.</exception>
-    /// <remarks>
-    /// Fits the camera to whatever is passed rather than to the map's bounds, because the map's
-    /// bounds are not known until BSP reading exists - and fitting to the entities is what a
-    /// viewer wants anyway when a scrub lands on a moment where everyone is in one corner.
-    /// </remarks>
-    public void ShowPositions(IReadOnlyList<(float X, float Y)> positions) =>
-        _scene = MapOverview.Positions(
-            positions,
-            _loaded,
-            MapCamera(),
-            _viewport.ClientSize.Width,
-            _viewport.ClientSize.Height);
+    // **`ShowPositions` and `ShowPlayers` were here until 2026-08-26** (D98). Both projected world
+    // coordinates through the orthographic camera into flat `ScenePoint` markers — two dimensions,
+    // no depth — which agreed with the view only while that view was itself orthographic.
+    //
+    // The markers come back as a free camera option that shares the real view matrix, so this is a
+    // removal rather than a rejection. The rule any reimplementation has to obey is in D98, and it
+    // was learned the hard way: a player drawn as a MODEL must not also get a marker on top, and a
+    // player without one must still get a marker or they vanish.
 
     /// <summary>Draws the whole world at a moment: players and every model-bearing entity.</summary>
     /// <param name="tick">The moment to show, which may fall between ticks.</param>
@@ -2341,13 +2308,11 @@ internal class MainForm : Form, IFrameSteps
 
         _ledger.Posed(phases.Pose);
 
-        // **Timed because it was, and the column went missing when the rebuild moved out.** Three
-        // untimed steps once hid 129 ms of a 133 ms pose (B191), and this is the one still here.
-        long playersAt = Stopwatch.GetTimestamp();
-
-        ShowPlayers(_players);
-
-        StallReport.Moment(phases, sampleTicks, Stopwatch.GetTimestamp() - playersAt, _renderLog);
+        // **The marker pass was timed here and is gone with the markers** (D98). Its column measured
+        // projecting every player through the overhead camera; there is nothing left to project.
+        // The note is kept because the reason for timing it still applies to whatever replaces it:
+        // three untimed steps once hid 129 ms of a 133 ms pose (B191).
+        StallReport.Moment(phases, sampleTicks, playerTicks: 0, _renderLog);
     }
 
     // `HandsForFollowed` lived here for exactly one commit, and its own comment admitted what it
@@ -2369,23 +2334,11 @@ internal class MainForm : Form, IFrameSteps
     // stated to be narrower is how two independent judgements get tied together. `StallReport` has
     // its own, for the whole-step measurements it makes.
 
-    /// <summary>Draws the players recorded at one moment, coloured by team.</summary>
-    /// <param name="players">The players, from the timeline.</param>
-    /// <exception cref="ArgumentNullException"><paramref name="players"/> is null.</exception>
-    /// <remarks>
-    /// **Team two is RED and team three is BLU**, which is the engine's own numbering: nought is
-    /// unassigned and one is spectator. A player whose team has not arrived yet is drawn grey
-    /// rather than guessed at — a wrong team colour is worse than no colour, because it is read as
-    /// information.
-    /// </remarks>
-    public void ShowPlayers(IReadOnlyList<ScenePlayer> players) =>
-        _scene = MapOverview.Players(
-            players,
-            _loaded,
-            MapCamera(),
-            _viewport.ClientSize.Width,
-            _viewport.ClientSize.Height,
-            _moment.Appearance);
+    // The team colours the markers used are not lost with them: **team two is RED and team three is
+    // BLU**, the engine's own numbering, with nought unassigned and one spectator. A player whose
+    // team has not arrived is drawn grey rather than guessed at, because a wrong team colour is
+    // worse than none — it is read as information. `MapOverview` still holds that mapping for
+    // whatever draws markers next.
 
     /// <summary>Writes the next drawn frame to a PNG.</summary>
     /// <param name="path">Where to write it.</param>
@@ -2489,8 +2442,9 @@ internal class MainForm : Form, IFrameSteps
     // to `Presentation.Tests` — a test on a public static naming policy was never a viewer test.
     //
 
-    /// <summary>The points the viewport is currently drawing.</summary>
-    public IReadOnlyList<ScenePoint> Scene => _scene;
+    // **`Scene` was here until 2026-08-26** (D98) — the projected marker points, exposed so a test
+    // could read what the viewport was drawing. With the markers gone there is nothing flat left to
+    // expose, and what the viewport draws now is a 3D scene that a property cannot summarise.
 
     /// <summary>Loads a demo by path and brings the transport up on it.</summary>
     /// <param name="path">Full path to the demo.</param>
@@ -2722,9 +2676,10 @@ internal class MainForm : Form, IFrameSteps
         _status.Text = _mapProblem
             ?? (_demo.Describe() + (haveMap ? string.Empty : "  (map not found)"));
 
-        // The first frame, so opening a demo shows the players standing where they started
-        // rather than an empty map waiting for someone to press play.
-        ShowPlayers(_timeline?.PlayersAt(_timeline.FirstTick) ?? []);
+        // **A marker pass ran here so opening a demo showed the players standing where they
+        // started, rather than an empty map waiting for someone to press play** (D98). The intent
+        // survives the markers: `ShowMoment` below draws the first tick's MODELS for the same
+        // reason, which is the half that was always the better answer.
 
         // **Restart the settling countdown, rather than applying the opening state here.** A demo
         // opened from the playlist arrives long after the frame the countdown used to fire on, so
@@ -2749,7 +2704,6 @@ internal class MainForm : Form, IFrameSteps
         _demo = null;
         _timeline = null;
         _clock = null;
-        _scene = [];
         _transport.SetDemoLength(0);
         _status.Text = "Could not open " + System.IO.Path.GetFileName(path) + ": " + failure.Message;
 
@@ -3619,7 +3573,7 @@ internal class MainForm : Form, IFrameSteps
         }
 
         _device.SetCamera(
-            ViewMatrix(MapCamera()),
+            ViewMatrix(),
             _surfaceColours.Checked,
             _heightCut.Fraction);
     }
@@ -4085,7 +4039,12 @@ internal class MainForm : Form, IFrameSteps
             // it. `MapOutline` still supplies the play-area bounds, which is the half that was
             // actually wanted.
             LeafBoxLines(),
-            _scene,
+
+            // **Empty since 2026-08-26** (D98), like the fill above it. This channel carried the
+            // flat player markers, projected through the orthographic camera. The parameter stays
+            // until `Device3D`'s signature is revised, which belongs with the render seam rather
+            // than with this window.
+            [],
             _moment.Instances,
             _moment.ViewmodelInstances,
             _moment.ViewmodelCamera?.ToMatrix(),
@@ -4138,26 +4097,13 @@ internal class MainForm : Form, IFrameSteps
             return;
         }
 
-        // **The step, the range and the recentring formula are `MapZoom`'s** (B208). What is left is
-        // the sequence a window has to perform, which needs a camera and a cursor and so is genuinely
-        // its own: sample the world under the pointer, change the zoom, sample the same pixel through
-        // the new camera, and cancel the drift between them.
-        MapZoom zoomed = e.Delta > 0 ? _zoom.In() : _zoom.Out();
-
-        if (zoomed == _zoom)
-        {
-            return;
-        }
-
-        (float X, float Y) before = WorldAt(e.Location);
-
-        _zoom = zoomed;
-
-        (float X, float Y) after = WorldAt(e.Location);
-
-        _lookingAt = MapZoom.Recentre(MapCamera().Centre, before, after);
-
-        _worldIsStale = true;
+        // **The zoom-at-cursor branch was here until 2026-08-26** (D98). It magnified the
+        // orthographic map and recentred so the world point under the pointer stayed put — correct
+        // for a projection that no longer exists.
+        //
+        // **The wheel is not lost, and never was**: in the free camera it flies, which is the branch
+        // above and the one that was always used. The owner: *"the mouse wheel was working in free
+        // cam before, i used it all the time"*. What is gone is its SECOND meaning, not the wheel.
     }
 
     /// <summary>Rebuilds the projected scene after the camera has moved.</summary>
@@ -4224,25 +4170,14 @@ internal class MainForm : Form, IFrameSteps
             return;
         }
 
-        // **In the free view a drag turns the camera rather than moving the map.** Pitch is
-        // clamped by the camera itself, at the same 89 degrees the engine clamps a player to,
-        // because the basis is degenerate looking exactly along the world's up axis.
-        if (_freeLook)
-        {
-            _freeCamera.Drag(e.Location.X - from.X, e.Location.Y - from.Y);
-
-            _dragFrom = e.Location;
-            _worldIsStale = true;
-            return;
-        }
-
-        float perPixel = MapCamera().WorldUnitsPerPixel(_viewport.ClientSize.Width);
-        (float centreX, float centreY) = MapCamera().Centre;
-
-        // Y is inverted between the screen and the world, the same flip the projection makes.
-        _lookingAt = (
-            centreX - ((e.Location.X - from.X) * perPixel),
-            centreY + ((e.Location.Y - from.Y) * perPixel));
+        // **A drag turns the camera.** Pitch is clamped by the camera itself, at the same 89 degrees
+        // the engine clamps a player to, because the basis is degenerate looking exactly along the
+        // world's up axis.
+        //
+        // **The `if (_freeLook)` around this went with the pan branch on 2026-08-26** (D98). The
+        // other arm slid the orthographic map by converting pixels to world units through
+        // `WorldUnitsPerPixel`; with one camera left there is no second thing for a drag to mean.
+        _freeCamera.Drag(e.Location.X - from.X, e.Location.Y - from.Y);
 
         _dragFrom = e.Location;
         _worldIsStale = true;
@@ -4316,14 +4251,10 @@ internal class MainForm : Form, IFrameSteps
         _viewport.Invalidate();
     }
 
-    /// <summary>The world position under a point in the viewport.</summary>
-    private (float X, float Y) WorldAt(Point point)
-    {
-        // **The arithmetic moved to `TopDownCamera.Unproject`** (B208). What is left is the only
-        // part a window owns: which pixel, and how big the viewport is.
-        return MapCamera().Unproject(
-            point.X, point.Y, _viewport.ClientSize.Width, _viewport.ClientSize.Height);
-    }
+    // **`WorldAt` was here until 2026-08-26** (D98). It answered "which world point is under this
+    // pixel", which only has an answer for a projection that maps the screen onto a plane. A
+    // perspective view of a 3D world does not: a pixel is a ray, not a point, and answering it
+    // properly is a trace rather than an unprojection.
 
     private void OnViewportResize(object? sender, EventArgs e)
     {

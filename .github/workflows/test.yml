@@ -375,7 +375,7 @@ jobs:
           ./build/assert-test-count.sh '**/fonts.trx' 7 Fonts
           ./build/assert-test-count.sh '**/viewer.trx' 623 Viewer
           ./build/assert-test-count.sh '**/viewer-ui.trx' 14 ViewerUi
-          ./build/assert-test-count.sh '**/corpus.trx' 112 Corpus
+          ./build/assert-test-count.sh '**/corpus.trx' 113 Corpus
 
       - uses: actions/upload-artifact@v7
         if: failure()
