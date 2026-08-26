@@ -5300,3 +5300,62 @@ it before reaching for a decompiler, a binary, or a fresh count.
 stale; the numerator — `ImplementedLumps()` — is a hand-maintained list. Adding a reader without
 adding its name there fails nothing and quietly understates coverage. So a new lump reader is two
 edits, and the second is not optional.
+
+
+## D94 — Core stays the demo decoder, and a shared constant needs a shared REASON
+
+Two things were settled in one exchange on 2026-08-25, and the second reversed what the assistant
+was about to do.
+
+### Core does not grow
+
+The owner, when asked where a threshold shared by four projects should live:
+
+> "i mean if that needs to go into a shared project then do it, thats the more proper implementation
+> isnt it? or a global variable?"
+
+> "id prefer core to stay mostly centered on the pure demo decode, theres probably stuff there that
+> should not be already though, but we shouldnt add to it"
+
+**So: Core is the demo decoder, and things that are not decoding do not move into it — even when it
+is the only project everything already references.** The convenient answer and the correct one point
+in opposite directions here, which is exactly how Core would have accumulated a viewer's perception
+threshold.
+
+**When something genuinely is shared, `Tf2DemoSalvage.Logging` is the diagnostics home** and it
+satisfies D92's test for reusing or adding a project: it has no `ProjectReference` of its own, so
+depending on it can create no cycle and can pull no decoder, scene or renderer type in behind it.
+It already holds `LoggerTiming`, which is the same concern.
+
+**The owner's aside — "theres probably stuff there that should not be already" — is filed rather
+than acted on.** `Core/Scene/DemoTimeline.cs` holds `ScenePlayer` and `SceneProp`, which are
+arguably scene types in the decoder. Not moved: that is a large change with its own audit, and
+nothing is broken by it today.
+
+### A constant is shared only when the REASON is shared
+
+The prompt for the above was three declarations of `StallSeconds = 0.03` — in `SoundCache`,
+`MomentScene` and `MainForm` — which read as an obvious DRY violation.
+
+**It was not one, and unifying them would have reverted two recorded decisions.** Both of the
+first two say in their own remarks why they are separate:
+
+> "Its own threshold rather than the frame loop's, even though the numbers agree. A constant carries
+> no scope: this one is applied to one decode blocking the thread that draws, and the viewer's frame
+> threshold is applied to a whole frame. Sharing the symbol would tie two independent judgements
+> together, and changing either would silently move the other."
+
+**Three symbols that agree on a number are three judgements, not one fact repeated.** The test for
+merging is not "are the values equal" but "is the REASON the same" — and here it is demonstrably
+not: one decode, one rebuild step, one whole frame.
+
+**There was a real defect underneath, and it is the mirror image of the one being guarded against.**
+`MainForm.ReportSlowMoment` compared a whole moment — the rebuild plus the sampling plus the marker
+pass — against `MomentScene.StallSeconds`, a constant whose own documentation says it is "applied to
+one step of a scene rebuild". Borrowing a symbol whose stated meaning is narrower than the use is
+how the two judgements get tied together, which is the thing the separation exists to prevent.
+`StallReport` now declares its own, for the whole-step measurements it makes.
+
+**The general rule, and it is cheap to apply:** before merging two constants that happen to be
+equal, read what each is applied TO. Before borrowing one, read whether its documentation describes
+your use. Both questions are answered by the declaration site, and neither was asked.
