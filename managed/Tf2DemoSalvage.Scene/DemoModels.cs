@@ -74,6 +74,49 @@ public static class DemoModels
         return paths;
     }
 
+    /// <summary>Every model to pack before playback, so nothing is read mid-match.</summary>
+    /// <param name="timeline">The decoded demo, or null when none is open.</param>
+    /// <param name="game">What the install provides.</param>
+    /// <returns>Distinct model paths, compared without regard to case.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="game"/> is null.</exception>
+    /// <remarks>
+    /// **This is NOT <see cref="Needed"/>, and the two disagreeing is B195.** This set is what gets
+    /// PACKED into the vertex buffer; `Needed` is what gets DECODED by the asset loader. They are
+    /// built from different sources — this one from the timeline's own accessor plus the class
+    /// roster, that one from the prop tracks, the viewmodels and the item schema — so a path in one
+    /// and not the other either packs to nothing or hitches on first sight. Neither fails loudly.
+    ///
+    /// Kept as it was rather than unified here, because merging them changes which models are packed
+    /// and that wants its own measurement rather than riding along with a move.
+    ///
+    /// **The class models are added because a player's model is chosen at runtime.** Nothing on the
+    /// wire carries it — `CTFPlayerClassShared::GetModelName` resolves it from the class script — so
+    /// a player track's own path may not name every model that player will wear.
+    /// </remarks>
+    public static HashSet<string> ToPack(DemoTimeline? timeline, GameContent game)
+    {
+        ArgumentNullException.ThrowIfNull(game);
+
+        HashSet<string> paths = new(StringComparer.OrdinalIgnoreCase);
+
+        if (timeline is { } demo)
+        {
+            // Props, players and — the one a caller would miss — the viewmodels, which change on
+            // every weapon switch and are private to the timeline.
+            foreach (string path in demo.ModelPaths())
+            {
+                paths.Add(path);
+            }
+        }
+
+        foreach (string model in game.ModelPaths())
+        {
+            paths.Add(model);
+        }
+
+        return paths;
+    }
+
     /// <summary>The models the demo ever hangs off another entity's skeleton.</summary>
     /// <param name="timeline">The decoded demo, or null when none is open.</param>
     /// <param name="game">What the install provides.</param>

@@ -10443,6 +10443,36 @@ any `$bumpmap` on brushwork — because the tangent basis those need is built fr
 lumps. Anyone adding that must read them first rather than deriving a normal from the plane, which
 is flat by construction and wrong on every displacement.
 
+### B195 — Two different answers to "what models does this demo need" — OPEN
+
+**Found while moving `PrecacheModels` out of `MainForm`, by reading what it asked for.** Two sets
+are built, for two purposes, and they do not agree:
+
+| | the LOAD set | the PRECACHE set |
+|---|---|---|
+| built by | `DemoModels.Needed(timeline, game)` | `timeline.ModelPaths()` plus `game.ModelPaths()` |
+| given to | `MapAssets.Load` — decides what geometry is DECODED | `EntityModelSet.Add` — decides what is PACKED |
+| props | studio only | every kind, including `*N` brushes and sprites |
+| weapons | resolved through the item schema | viewmodels only |
+| players | the class roster | each player track's own path |
+
+**Neither direction fails loudly, which is why it has survived:**
+
+- a path in the PRECACHE set but not the LOAD set is decoded to nothing, so `Add` records it as
+  empty and the model silently never draws;
+- a path in the LOAD set but not the PRECACHE set is decoded but not pre-packed, so it packs on
+  first sight — a hitch mid-playback, which is exactly what the precache exists to remove.
+
+**This is the same shape as the weapon disagreement already recorded**, where the set decided which
+models were packed and the draw path decided which was shown: two answers to one question drift, and
+the symptom is a model that resolves and cannot be drawn. That one was fixed by making both sides
+call `WeaponModels.For`. This one wants the same treatment.
+
+**Deliberately not fixed in the refactor commit that found it.** Unifying them changes WHICH models
+are packed, which is a behaviour change wanting its own measurement — how many paths differ on a
+real demo, and whether the difference is the brush/sprite filter or the roster. A refactor that
+quietly changes what is drawn is the thing this whole effort is trying to stop.
+
 ### B193 — Nothing catches the view failing to hand the scene a source it needs — OPEN
 
 **Twice in three commits, and the second one SHIPPED.** This is the defect class of the whole

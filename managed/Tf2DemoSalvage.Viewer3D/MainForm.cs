@@ -4092,7 +4092,7 @@ internal class MainForm : Form
     /// </remarks>
     private void PrecacheModels(DemoTimeline? timeline)
     {
-        if (timeline is null)
+        if (timeline is null || _game is null)
         {
             return;
         }
@@ -4101,33 +4101,7 @@ internal class MainForm : Form
         {
             long packedAt = Stopwatch.GetTimestamp();
 
-            HashSet<string> paths = new(StringComparer.OrdinalIgnoreCase);
-
-            // Props, players and — the one a caller would miss — the viewmodels, which change on
-            // every weapon switch and are private to the timeline.
-            foreach (string path in timeline.ModelPaths())
-            {
-                paths.Add(path);
-            }
-
-            // **The class models too, because a player's model is chosen at runtime.** Nothing on
-            // the wire carries it — `CTFPlayerClassShared::GetModelName` resolves it from the class
-            // script — so a player track's own path may not name every model that player will wear.
-            foreach (string model in _game?.ModelPaths() ?? [])
-            {
-                paths.Add(model);
-            }
-
-            List<SceneProp> synthetic = [];
-
-            foreach (string path in paths)
-            {
-                // Only the path and the kind are read by the packer; the rest of a SceneProp
-                // describes where an entity stands, which is not a question about geometry.
-                synthetic.Add(new SceneProp(0, path, ScenePropTrack.Classify(path), default));
-            }
-
-            _models.Add(synthetic);
+            _models.Precache(DemoModels.ToPack(timeline, _game));
 
             double packedSeconds =
                 (Stopwatch.GetTimestamp() - packedAt) / (double)Stopwatch.Frequency;
@@ -4136,7 +4110,7 @@ internal class MainForm : Form
                 "{Message}",
                 string.Create(
                     CultureInfo.InvariantCulture,
-                    $"precached {paths.Count} models in {packedSeconds * 1000d:0} ms " +
+                    $"precached models in {packedSeconds * 1000d:0} ms " +
                     $"({_models.Count} packed, {_models.Vertices.Count} vertices)"));
         }
         catch (Exception failure) when (
