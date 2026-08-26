@@ -1403,7 +1403,7 @@ internal class MainForm : Form, IFrameSteps
         }
         catch (Exception failure) when (failure is IOException or InvalidDataException)
         {
-            _status.Text = "Map " + mapName + " could not be read: " + failure.Message;
+            _status.Text = MapProvider.CouldNotRead(mapName, failure);
             return false;
         }
     }
@@ -2133,7 +2133,7 @@ internal class MainForm : Form, IFrameSteps
     {
         int ticket = _loads.Take();
 
-        _status.Text = "Opening " + Path.GetFileName(path) + "...";
+        _status.Text = DemoLoadResult.Opening(path);
 
         try
         {
@@ -2216,11 +2216,16 @@ internal class MainForm : Form, IFrameSteps
     // The logger is a parameter because this is static (D83).
     private static DemoLoadResult Superseded(ILogger demoLog, string path)
     {
-        string message = $"discarding {Path.GetFileName(path)}: a newer demo was asked for";
+        // **The wording is `DemoLoadResult`'s** (B188, D90). This method was already static so it
+        // could not reach the form — the same shape `DecodedDemo` was in before it moved, and the
+        // same note applies: the only thing keeping the sentence here was the file it sat in.
+        //
+        // What is left is the logging, which is a side effect the result cannot perform for itself.
+        DemoLoadResult result = DemoLoadResult.Superseded(path);
 
-        demoLog.LogInformation("{Message}", message);
+        demoLog.LogInformation("{Message}", result.Message);
 
-        return new DemoLoadResult(DemoLoadOutcome.Superseded, message);
+        return result;
     }
 
     /// <summary>Runs something on the UI thread and waits for its answer.</summary>
@@ -2353,11 +2358,17 @@ internal class MainForm : Form, IFrameSteps
         _playback.Load(null);
 
         _transport.SetDemoLength(0);
-        _status.Text = "Could not open " + System.IO.Path.GetFileName(path) + ": " + failure.Message;
+
+        // **The wording is `DemoLoadResult`'s** (B188, D90), which also keeps the status line and
+        // the returned message identically worded by construction rather than by `_status.Text`
+        // being read back — two wordings for one event is how a log and a window come to disagree.
+        DemoLoadResult result = DemoLoadResult.CouldNotOpen(path, failure);
+
+        _status.Text = result.Message;
 
         _demoLog.LogWarning(failure, "{Message}", $"opening {System.IO.Path.GetFileName(path)}");
 
-        return new DemoLoadResult(DemoLoadOutcome.Failed, _status.Text);
+        return result;
     }
 
     /// <summary>The playback controls, exposed for the tests that address them.</summary>
@@ -2386,7 +2397,7 @@ internal class MainForm : Form, IFrameSteps
 
             if (!_device.SetExclusiveFullScreen(wanted) && wanted)
             {
-                _status.Text = "Exclusive full screen was refused; using borderless.";
+                _status.Text = ViewerSettings.ExclusiveFullScreenRefused;
             }
         }
 
@@ -2396,7 +2407,7 @@ internal class MainForm : Form, IFrameSteps
         {
             // Reported rather than swallowed: a preference that silently does not stick is worse
             // than one that says so.
-            _status.Text = "Setting saved for this session only: " + failure;
+            _status.Text = ViewerSettings.SavedForThisSessionOnly(failure);
         }
     }
 
@@ -2423,7 +2434,7 @@ internal class MainForm : Form, IFrameSteps
 
         _status.Text = failure is null
             ? "Texture quality: " + quality + ". Applies to the next map opened."
-            : "Setting saved for this session only: " + failure;
+            : ViewerSettings.SavedForThisSessionOnly(failure);
     }
 
     /// <summary>Turns the surface-category view on or off.</summary>
@@ -2652,7 +2663,7 @@ internal class MainForm : Form, IFrameSteps
             {
                 // Refused - another application holds the output, or this is a WARP device.
                 // Borderless is already in effect, so this is a note rather than a failure.
-                _status.Text = "Exclusive full screen was refused; using borderless.";
+                _status.Text = ViewerSettings.ExclusiveFullScreenRefused;
             }
 
             _overlay = new OverlayWindow(_transport);

@@ -95,6 +95,30 @@ public sealed record ViewerSettings
     /// </remarks>
     public const string FullScreenModeCommand = "mat_fullscreen_mode";
 
+    /// <summary>What to say when DXGI declines exclusive full screen.</summary>
+    /// <remarks>
+    /// **This sentence was written out TWICE in `MainForm`** (B188, D90) — once where full screen is
+    /// entered and once where the mode is changed — which is the repeated literal the standards
+    /// forbid outright. Two copies of a sentence are two chances for a reword to reach one of them.
+    ///
+    /// **It says what happened AND what it did instead**, because exclusive being refused is not a
+    /// failure: borderless always works, and a person who reads only "refused" will go looking for
+    /// a broken setting.
+    /// </remarks>
+    public const string ExclusiveFullScreenRefused =
+        "Exclusive full screen was refused; using borderless.";
+
+    /// <summary>What to say when a setting could not be written to disk.</summary>
+    /// <param name="failure">Why the write failed.</param>
+    /// <returns>The line.</returns>
+    /// <remarks>
+    /// **The setting still applied**, which is the half a bare error would lose: the value is live
+    /// for this session and only the saving failed, so "could not save" alone would read as the
+    /// change having been rejected.
+    /// </remarks>
+    public static string SavedForThisSessionOnly(string failure) =>
+        "Setting saved for this session only: " + failure;
+
     /// <summary>Command name for the texture detail.</summary>
     public const string TextureQualityCommand = "texture_quality";
 

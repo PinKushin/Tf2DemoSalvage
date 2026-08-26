@@ -104,6 +104,25 @@ public sealed class MapProvider : IDisposable
     /// <returns>The line.</returns>
     public static string Fetching(string mapName) => "Downloading map " + mapName + "...";
 
+    /// <summary>What to say when a map was found but could not be read.</summary>
+    /// <param name="mapName">The map.</param>
+    /// <param name="failure">Why it could not be read.</param>
+    /// <returns>The line.</returns>
+    /// <remarks>
+    /// **A different case from every other map message**, and worth keeping distinct: the file is
+    /// here and the install is here, so neither downloading it nor pointing at TF2 will help. The
+    /// reason carries that — a truncated BSP and a locked file need different answers.
+    ///
+    /// Written out in `MainForm` until 2026-08-26, beside `Fetching`'s call site, which had been
+    /// doing it properly all along (B188, D90).
+    /// </remarks>
+    public static string CouldNotRead(string mapName, Exception failure)
+    {
+        ArgumentNullException.ThrowIfNull(failure);
+
+        return "Map " + mapName + " could not be read: " + failure.Message;
+    }
+
     /// <summary>Where a map already is, if it is anywhere.</summary>
     /// <param name="mapName">The map, without extension.</param>
     /// <returns>Its path, or null if no search root holds it.</returns>

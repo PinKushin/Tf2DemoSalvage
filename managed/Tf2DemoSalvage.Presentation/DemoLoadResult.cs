@@ -1,3 +1,6 @@
+using System;
+using System.IO;
+
 namespace Tf2DemoSalvage.Presentation;
 
 /// <summary>How an attempt to open a demo ended.</summary>
@@ -40,4 +43,52 @@ public readonly record struct DemoLoadResult(DemoLoadOutcome Outcome, string Mes
 {
     /// <summary>Whether the demo is now on screen.</summary>
     public bool Loaded => Outcome == DemoLoadOutcome.Loaded;
+
+    /// <summary>What to say while a demo is being decoded.</summary>
+    /// <param name="path">The demo's full path.</param>
+    /// <returns>The line.</returns>
+    /// <remarks>
+    /// **A line, not a result**, because opening is not an outcome — the decode has not finished and
+    /// there is nothing yet to report. Its first draft returned a `DemoLoadResult` with an invented
+    /// `Loading` outcome, which would have added a state to the enum for the sake of one status
+    /// line. `MapProvider.Fetching` is the shape to match.
+    ///
+    /// **The file name rather than the path.** A status bar is one line, and a real archive path —
+    /// `D:\demos\season31\esea_match_13977649.dem` — pushes the interesting half off the end.
+    /// </remarks>
+    public static string Opening(string path) =>
+        "Opening " + Path.GetFileName(path) + "...";
+
+    /// <summary>What to say when a newer demo overtook this one.</summary>
+    /// <param name="path">The demo being abandoned.</param>
+    /// <returns>The line, with a `Superseded` outcome.</returns>
+    /// <remarks>
+    /// **Superseded is not failed**, which is the distinction the outcome exists for: it is the
+    /// transport working as designed, and an error on screen for a demo the person deliberately
+    /// moved on from would be wrong. Saying nothing would be wrong too — silence reads as a load
+    /// that broke.
+    /// </remarks>
+    public static DemoLoadResult Superseded(string path) =>
+        new(
+            DemoLoadOutcome.Superseded,
+            "discarding " + Path.GetFileName(path) + ": a newer demo was asked for");
+
+    /// <summary>What to say when a demo could not be read.</summary>
+    /// <param name="path">The demo.</param>
+    /// <param name="failure">Why it could not be read.</param>
+    /// <returns>The line, with a `Failed` outcome.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="failure"/> is null.</exception>
+    /// <remarks>
+    /// **The reason is the useful half.** "Could not open X" is equally true of a missing file, a
+    /// truncated one and a permissions error, and the person's next step differs for each — the same
+    /// argument `LeafVis.WhyNothing` makes about naming which silence it is.
+    /// </remarks>
+    public static DemoLoadResult CouldNotOpen(string path, Exception failure)
+    {
+        ArgumentNullException.ThrowIfNull(failure);
+
+        return new DemoLoadResult(
+            DemoLoadOutcome.Failed,
+            "Could not open " + Path.GetFileName(path) + ": " + failure.Message);
+    }
 }
