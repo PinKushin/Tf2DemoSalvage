@@ -5611,9 +5611,55 @@ B209. The owner, 2026-08-26:
 > "oh and the no focus we should probably implement, but i think the background fps is a cvar, in
 > real tf2, if its not then we should make it one so it can be users choice."
 
-**It is a cvar, and it is called `engine_no_focus_sleep`** — confirmed present in TF2's
-`bin/engine.dll`. So the question of whether to invent one does not arise: D69 already says our
-vocabulary *is* Source's, and a real config setting it must work.
+**It is a real ConVar, and the decompile settles it exactly.** The owner searched first and found
+nothing:
+
+> "yea it doesnt look like theres a cvar for it in tf2, at least not that i could find on
+> google/bing, the sleep per frame isnt even mentioned, so i think most people and the searc, diesnt
+> know tf2 has a sleep time when in the background because it all talks about lowing graphics setting
+> to get better fps int he background"
+
+then: *"check the decomp, see what it really is"*. The registration decodes from twenty bytes of x86
+in `bin/engine.dll` at `0x100436AA`:
+
+```asm
+push 0x80              ; flags
+push 0x102eb2f8        ; default -> the string "50"
+push 0x1032e4b8        ; name    -> "engine_no_focus_sleep"
+mov  ecx, 0x1066f840   ; the ConVar object
+call ConVar::ConVar
+```
+
+which is
+
+```cpp
+ConVar engine_no_focus_sleep( "engine_no_focus_sleep", "50", FCVAR_ARCHIVE );
+```
+
+`FCVAR_ARCHIVE` is `(1<<7)` — *"set to cause it to be saved to vars.rc"*
+(`public/tier1/iconvar.h:48`).
+
+**So it is not hidden and not development-only: it is archived, which means Valve treats it as a
+user setting and persists it to the config.** Three arguments were pushed, not four, so it has **no
+help string** — and that is the entire reason it is undocumented and the searching turned up
+graphics advice instead. An undocumented convar and an internal one look identical from outside; the
+flag distinguishes them and only the binary carries the flag.
+
+**Default: 50 milliseconds of sleep per frame while the engine lacks focus.**
+
+**Evidence class: measured**, all of it — the name, the default, the flag, and the argument count.
+Nothing here is interpolated. An earlier draft of this entry hedged it as "present in the binary,
+exposure inferred"; that hedge was correct at the time and is now superseded by the measurement.
+
+**A note on why adjacency could not have answered this**, since it is a reusable trap: the default
+`"50"` lives in a pool of short numeric strings beside `dsp_speaker` and `"40"`, nowhere near the
+name. Short literals are string-pooled and shared across every convar that wants them, so reading
+the bytes around a cvar's NAME finds its neighbours' help text and never its own default.
+
+**What we build:** the same convar, same name, same units, defaulting to 50. D69 makes our
+vocabulary Source's, so a real config that sets it works — which is the outcome the owner asked for
+either way (*"if its not then we should make it one so it can be users choice"*), reached here
+without having to invent anything.
 
 **One precision on the mechanism, because it changes what gets built.** It is a **sleep duration per
 frame while unfocused**, not a background frame-rate cap. The name says sleep, and the engine's

@@ -2047,8 +2047,8 @@ internal class MainForm : Form, IFrameSteps
     /// recorded view runs out before the first packet, and a spectated player can leave — and a
     /// black screen would read as a rendering fault rather than as the end of the material.
     /// </remarks>
-    private float[] ViewMatrix(TopDownCamera map) => ViewCamera.Matrix(
-        _firstPerson, FirstPersonCamera(), _freeLook, FreeLookCamera(), map);
+    private float[] ViewMatrix() =>
+        ViewCamera.Matrix(_firstPerson, FirstPersonCamera(), FreeLookCamera());
 
     /// <summary>The leaf outline to draw over the world, when that overlay is switched on.</summary>
     /// <returns>World-space segments, or nothing when the mode is off or there is no leaf.</returns>
