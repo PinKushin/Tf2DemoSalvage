@@ -10443,7 +10443,52 @@ any `$bumpmap` on brushwork — because the tangent basis those need is built fr
 lumps. Anyone adding that must read them first rather than deriving a normal from the plane, which
 is flat by construction and wrong on every displacement.
 
-### B200 — The demo carries a map CRC and nothing checks it — OPEN
+### B201 — The live client REFUSES this demo, and it is schema drift, not the map — CONFIRMED 2026-08-25
+
+**The owner played `etf2l-12030-stv-2020-07-23.dem` in the current TF2. It aborts:**
+
+```
+Missing RecvProp for DT_BasePlayer - DT_Local/m_audio.ent
+Missing RecvProp for DT_BonusRoundLogic - _ST_m_aBonusPlayerRoll_33/lengthproxy
+Missing RecvProp for DT_BonusRoundLogic - _ST_m_aBonusPlayerRoll_33/000 .. /032
+RecvProp type doesn't match server type for DT_ObjectDispenser/"healing_array"
+Host_EndGame: CL_ParseClassInfo_EndClasses: CreateDecoders failed.
+```
+
+**This is the project's founding premise, caught in the act.** `CLAUDE.md` opens by saying this tool
+exists for "demos the live game client can no longer play due to Valve's own schema changes" — and
+here is a 2020 demo, six years old, that the 2026 client cannot build decoders for. The specimen is
+now in the corpus and the exact failure is written down.
+
+**It also CORRECTS B200, which is why that entry is now marked unproven.** The client never reached
+the map: `CreateDecoders` fails during `CL_ParseClassInfo_EndClasses`, before any world is loaded. So
+this run says nothing about whether `cp_process_final` matches, and my map-version explanation for
+the door grates has no support from it. Everything after the abort — `Could not find table
+"modelprecache"`, `"soundprecache"`, the wall of "Cannot figure out which search path" lines — is
+TEARDOWN noise, not evidence. Reading it as causes would be the same mistake twice.
+
+**Three drifts are named precisely, which is the valuable part:**
+
+| symbol | drift |
+|---|---|
+| `DT_Local/m_audio.ent` | a property the 2026 client no longer receives |
+| `_ST_m_aBonusPlayerRoll_33` | an ARRAY LENGTH baked into the table name — 33 slots then, something else now |
+| `DT_ObjectDispenser/"healing_array"` | same name, **different type** — the drift that cannot be detected by name alone |
+
+The third is the interesting one. A missing property is obvious; a property whose TYPE changed under
+a stable name is the failure that decodes to plausible garbage in any parser that trusts names. This
+project decodes generically off each demo's own embedded schema precisely so that cannot happen, and
+this is the evidence that the danger is real rather than theoretical.
+
+**The owner's standing requirement, which this entry exists to serve:**
+
+> "we have to allow the demo to be viewed no matter what, and get it rendering right, no matter what"
+
+So the answer to a demo the game refuses is never to refuse it too. Where the game gives up, this
+tool carries on — and where a map version is missing, the answer is to FIND the old map, and warn
+only when it cannot be found.
+
+### B200 — The demo carries a map hash and nothing checks it — OPEN, cause UNPROVEN
 
 **This is the answer to B198, and it cost an evening to reach.** The five "regressions" reported on
 2026-08-25 — door grates piled or absent, trigger volumes visible, a missing model — were one cause,
