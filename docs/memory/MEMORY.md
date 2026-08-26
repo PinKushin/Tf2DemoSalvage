@@ -63,6 +63,7 @@
 - [Read the map before the renderer](read-the-map-before-the-renderer.md) — ask the BSP what the broken thing actually is.
 - [Measure every hop before blaming one](measure-every-hop-before-blaming-one.md) — three correct measurements locate the fourth hop.
 - [Read the spec before measuring our data](read-the-spec-before-measuring-our-data.md) — measurement cannot find a feature never implemented.
+- [The denominator is already written down](the-denominator-is-already-written-down.md) — `docs/SDK-COVERAGE.md` names every unhandled thing; read it before a decompiler.
 - [Conformance test before implementation](conformance-test-before-implementation.md) — parity test with its citation first.
 - [Surf and jump are an audience](surf-and-jump-are-an-audience.md) — old runs need exact ticks, angles and inputs.
 - [An uncoverable gap is usually your reader](an-uncoverable-gap-is-usually-your-reader.md) — exclusions are usually facts about your parser.

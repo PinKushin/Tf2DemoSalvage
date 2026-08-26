@@ -196,8 +196,21 @@ public sealed class SdkCoverageTests
         MaterialCensus.ImplementedParameters;
 
     /// <summary>The BSP lumps this project reads.</summary>
+    /// <remarks>
+    /// **Hand-maintained, and that is this instrument's one weak joint.** The DENOMINATOR is
+    /// extracted from the SDK and cannot go stale; this numerator is a list somebody has to
+    /// remember to extend. Adding a reader without adding its name here does not fail anything — it
+    /// makes the generated report understate coverage, which is the flattering direction to be
+    /// wrong in reverse.
+    ///
+    /// **A lump belongs here when it is READ, not when it is drawn** (D93). `LUMP_VERTNORMALS` and
+    /// `LUMP_VERTNORMALINDICES` are decoded into `MapLevel.Normals` and nothing consumes them yet;
+    /// they are handled, because the question this report answers is whether the file is understood.
+    /// What each gap COSTS on screen is `docs/CONFORMANCE.md`'s job.
+    /// </remarks>
     private static string[] ImplementedLumps() =>
     [
+        "LUMP_VERTNORMALS", "LUMP_VERTNORMALINDICES",
         "LUMP_ENTITIES", "LUMP_PLANES", "LUMP_TEXDATA", "LUMP_VERTEXES", "LUMP_NODES",
         "LUMP_TEXINFO", "LUMP_FACES", "LUMP_LIGHTING", "LUMP_LEAFS", "LUMP_EDGES",
         "LUMP_SURFEDGES", "LUMP_MODELS", "LUMP_WORLDLIGHTS", "LUMP_LEAFFACES",

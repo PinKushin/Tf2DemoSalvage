@@ -21,6 +21,13 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="Ambient">Per-leaf ambient samples, which light anything that moves.</param>
 /// <param name="WorldLights">Every light, not only the sun (B95, D37).</param>
 /// <param name="Sun">The single directional light, when the map has one.</param>
+/// <param name="Normals">
+/// Per-vertex normals and the indices faces use. **Read but not yet drawn (D93):** nothing consumes
+/// them today, because the world is lit by its baked lightmaps and Valve's bumped path takes its
+/// normal from the bump map rather than from a vertex. They are decoded because decoding is total
+/// and rendering is not — and because the plane normal is NOT a substitute: vrad replaces the
+/// compiler's plane normals with true smoothed ones wherever a smoothing group applies (B194).
+/// </param>
 /// <remarks>
 /// **One read, because the engine gives each system a level-load hook rather than making the
 /// window build them all.** <c>IGameSystem</c> declares <c>LevelInitPreEntity()</c> and
@@ -55,7 +62,8 @@ public sealed record MapLevel(
     IReadOnlyList<BspSurface> Surfaces,
     IReadOnlyList<AmbientSamples> Ambient,
     IReadOnlyList<BspWorldLight> WorldLights,
-    BspWorldLight? Sun)
+    BspWorldLight? Sun,
+    VertexNormals Normals)
 {
     /// <summary>Reads every lump the viewer keeps, once.</summary>
     /// <param name="bytes">The whole BSP.</param>
@@ -166,6 +174,11 @@ public sealed record MapLevel(
             surfaces,
             ambient,
             lights,
-            BspWorldLights.Sun(lights));
+            BspWorldLights.Sun(lights),
+
+            // **Unguarded like the surfaces and the lighting**, because a map whose vertex normals
+            // will not read is malformed in the same way — and unlike the decals, nothing degrades
+            // gracefully without them once something does consume them (D93).
+            BspVertexNormals.Read(bytes));
     }
 }

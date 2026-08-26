@@ -1650,6 +1650,11 @@ internal class MainForm : Form
                 _surfaceColours.Checked,
                 _loggers);
 
+            // **The LEVEL survives a content failure now, and it did not before.** The old catch set
+            // `_level = null` alongside `_assets = null`, throwing away lumps that had read
+            // perfectly because the TEXTURES did not — so `mat_leafvis` went blank on a map whose
+            // BSP tree was fine. `LoadedMap` separates the two: the lumps are read or they throw,
+            // and the content is a nullable beside them.
             _loaded = map;
             _mapProblem = map.Problem;
 

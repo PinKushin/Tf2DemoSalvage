@@ -10334,7 +10334,76 @@ takes the system mutex for a listener that usually is not there.
 Not measured separately yet; the remaining 44 ms moment carried `setup 35.5`, which is `SetupBones`
 and unrelated.
 
-### B194 — The engine loads 31 world lumps; we read about 25 — OPEN, mostly by design
+### B194 — The engine loads 31 world lumps; we read about 25 — VERTEX NORMALS NOW READ, rest deferred
+
+**This entry was filed, closed as "nothing to fix", and reopened within the hour, and the reversal
+is the useful part.** I checked whether anything CONSUMES the vertex normal lumps today, found
+nothing did, and closed it. The owner:
+
+> "the reason i dont like dropping anything valve does is because i dont want to need it later and
+> require a uge change"
+
+That is a different question and the right one. **Reading a lump and consuming it are separate
+costs** — the reader is one type and one field, the consumer is a vertex-layout element plus a
+shader signature plus a buffer re-upload — and only the second ripples. Deferring the first buys
+nothing. Recorded as D93: decode is total, rendering is not.
+
+**`LUMP_VERTNORMALS` and `LUMP_VERTNORMALINDICES` are now read** into `MapLevel.Normals`, with four
+synthetic-fixture tests and both indices pinned against the real `bspfile.h`. Nothing draws them
+yet, and nothing should until there is a feature that needs a tangent basis.
+
+**And the "we can always derive it from the plane" assumption was wrong**, which is what makes
+reading them worth it rather than merely tidy. `vbsp` does write the plane normal into the lump —
+
+```cpp
+// Add this face plane's normal.
+// Note: this doesn't do an exhaustive vertex normal match because the vrad does it.
+g_vertnormals[g_numvertnormals] = dplanes[f->planenum].normal;
+```
+
+— `src/utils/vbsp/normals.cpp:38`. But read the comment: **vrad replaces them.** In a shipped map
+the lump holds true smoothed normals wherever a smoothing group applies, and the plane normal only
+where none does. The two agree on flat unsmoothed brushwork and nowhere else.
+
+**Why nothing consumes them today, which is still true and still correct.** Our world builder sets
+no per-vertex normal — every `WorldVertex` keeps the default `NormalZ = 1f` — and the world layout
+has no `NORMAL` semantic. That reads like every surface lit facing up, and it is not: the normal fed
+to `CombineBumped` is the **tangent-space normal sampled from the bump map**, weighted against
+`g_localBumpBasis` from Valve's `bumpvects.h`:
+
+```hlsl
+float4 texel = bumpMap.Sample(wrapSampler, input.uv);
+float3 normal = bump.y > 0.5f ? texel.rgb : texel.rgb * 2.0f - 1.0f;
+light = CombineBumped(normal, first, second, third, bump.y > 0.5f);
+```
+
+That is exactly how `LightmappedGeneric` does bumped lighting: the three directional lightmaps
+already carry the lighting in the surface's own tangent frame, so no per-vertex world normal is
+involved anywhere in that path — not in ours, and not in Valve's.
+
+| lump | state |
+|---|---|
+| `VertNormals`, `VertNormalIndices` | **READ** into `MapLevel.Normals`; no consumer yet, by design |
+| `Marksurfaces` | still unread — a FEATURE: it is the PVS draw list, and using it is visibility culling |
+| `AreaPortals` | still unread — area sealing, same thing |
+| `LeafWaterData`, `BrushSides` | still unread — water volumes and collision; this viewer neither swims nor collides |
+
+**The remaining four are deferred as a stated decision rather than an oversight**, which is the
+distinction D93 asks for. The first two are features: reading them is easy and using them is
+visibility culling, which changes what is drawn and wants its own measurement. The last two are the
+honest edge of the rule — a demo viewer neither collides nor swims — and the argument for reading
+them anyway is that showing trigger volumes in a demo-analysis tool is not far-fetched. They are the
+ones to do next if this is taken further.
+
+**What a consumer for the normals would be:** lighting the world PER PIXEL — dynamic lights,
+specular, or a `$bumpmap` on brushwork evaluated against a real light rather than a baked lightmap.
+That needs a tangent basis, and now the data it is built from is already decoded.
+
+**Method worth keeping:** none of this needed a decompiler pass. `worldbrushdata_t` is not in the
+published SDK, but Source binaries carry their function names as literals, so
+`grep -aoE "Mod_Load[A-Za-z]+" engine.dll` yields all 31 loaders — the field set in effect, and a
+cheaper and steadier instrument than a decompiled struct
+(`docs/memory/binaries-answer-what-the-sdk-cannot.md`).
 
 **Measured from the shipped binary rather than guessed**, because `worldbrushdata_t` — the engine's
 own aggregate of a map's lumps — is defined in `gl_model_private.h`, which `source-sdk-2013` does

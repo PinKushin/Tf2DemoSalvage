@@ -424,7 +424,10 @@ run Tf2DemoSalvage.Presentation.Tests presentation 146
 # int unused[8] tail every neighbouring struct has and this one does not. It reddens 2 of 17, and
 # WHICH two is the useful part: the SDK stride assertion, and the multi-chain test. A single-chain
 # fixture sits at offset 0 under either stride and cannot see it.
-run Tf2DemoSalvage.Content.Tests  content   707
+# 713: BspVertexNormalsTests (4) and two lump indices pinned against bspfile.h. Read but not drawn
+# (D93): the plane normal is NOT a substitute, because vrad replaces the compiler's plane normals
+# with true smoothed ones wherever a smoothing group applies (B194).
+run Tf2DemoSalvage.Content.Tests  content   713
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
