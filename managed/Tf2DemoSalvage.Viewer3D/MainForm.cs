@@ -678,7 +678,16 @@ internal class MainForm : Form
         //
         // Deliberately not a test harness: it drives the real viewer through the real renderer,
         // which is the whole reason the offscreen target was deleted. See CaptureViewport.
-        initialPaths = ReadCaptureOptions(initialPaths);
+        // **Parsing a command line is not window work** (B188, D90). What comes back is a record;
+        // the six `_shot*` fields it used to write into are gone, and the two things it configures
+        // that live elsewhere — the settings and the spectator target — are applied here where both
+        // are visible together.
+        _launch = LaunchOptionsReader.Read(initialPaths, _settings, _log);
+
+        _settings = _launch.Settings;
+        _spectator.Spectating = _launch.Spectate;
+
+        initialPaths = [.. _launch.Paths];
 
         // **The player's own TF2 controls, loaded before anything can be pressed (D69/D70).** This
         // is what makes the console a feature rather than a capability: without it the interpreter
@@ -1996,23 +2005,21 @@ internal class MainForm : Form
     // D90) — a question about a demo and an install, asked from a window that had nothing to do
     // with either.
 
-    /// <summary>Where to write an automatic capture, when one was asked for.</summary>
+    /// <summary>What the command line asked for.</summary>
+    /// <remarks>
+    /// **Six `_shot*` fields until 2026-08-25**, written one at a time by a parser in this form.
+    /// Reading a command line is not window work and could not be tested where it was, so every
+    /// option was covered only by whichever UI test happened to pass one (B188, D90).
+    /// </remarks>
+    private LaunchOptions _launch;
+
+    /// <summary>Where an automatic capture goes; cleared once taken, so it happens once.</summary>
+    /// <remarks>
+    /// **Mutable where the rest of <see cref="_launch"/> is not**, because this one is not only a
+    /// request: taking the shot consumes it. Kept beside the record rather than inside it, since a
+    /// record of what was ASKED for should not be edited to record what has been done.
+    /// </remarks>
     private string? _shotPath;
-
-    /// <summary>Which tick to show before capturing.</summary>
-    private int _shotTick;
-
-    /// <summary>Whether an automatic capture should be taken from the player's own eyes.</summary>
-    private bool _shotFirstPerson;
-
-    /// <summary>Where to point the camera before capturing, in world units.</summary>
-    private (float X, float Y)? _shotLookAt;
-
-    /// <summary>How far to zoom in before capturing.</summary>
-    private float _shotZoom = 1f;
-
-    /// <summary>Whether to capture the category view rather than the textured one.</summary>
-    private bool _shotSurfaceColours;
 
     /// <summary>Frames still to draw before the shutter, so the world is finished and settled.</summary>
     /// <summary>Frames to let the world settle before the opening state is applied.</summary>
@@ -2025,139 +2032,10 @@ internal class MainForm : Form
 
     private int _shotDelay = OpeningFrames;
 
-    /// <summary>Pulls the capture options out of the paths, returning what is left.</summary>
-    private string[] ReadCaptureOptions(string[] arguments)
-    {
-        List<string> paths = [];
-        Queue<string> pending = new(arguments);
-
-        // A queue rather than an indexed loop: an option consumes the value after it, and moving a
-        // loop counter from inside the body is the shape analyzers rightly object to.
-        while (pending.Count > 0)
-        {
-            string argument = pending.Dequeue();
-
-            if (argument == "--shot" && pending.Count > 0)
-            {
-                _shotPath = pending.Dequeue();
-                continue;
-            }
-
-            if (argument == "--look" && pending.Count > 1)
-            {
-                string x = pending.Dequeue();
-                string y = pending.Dequeue();
-
-                if (float.TryParse(x, NumberStyles.Float, CultureInfo.InvariantCulture, out float worldX) &&
-                    float.TryParse(y, NumberStyles.Float, CultureInfo.InvariantCulture, out float worldY))
-                {
-                    _shotLookAt = (worldX, worldY);
-                    continue;
-                }
-
-                _log.LogWarning("{Message}", $"--look {x} {y} is not a position; ignoring it");
-                continue;
-            }
-
-            if (argument == "--colours")
-            {
-                _shotSurfaceColours = true;
-                continue;
-            }
-
-            // **`+command value`, which is how Source itself sets a cvar at startup.** The viewer
-            // already speaks Source's vocabulary in its config (D69/D70), so the command line
-            // speaks it too rather than growing a second spelling of the same settings.
-            //
-            // It overrides the config file rather than being merged into it: a value passed for one
-            // launch should not become the value for every later launch. That is also what makes it
-            // usable from the UI suite, which must redirect its captures without editing — and
-            // therefore without clobbering — the settings the owner actually uses.
-            if (argument.StartsWith('+') && argument.Length > 1 && pending.Count > 0)
-            {
-                string command = argument[1..];
-                string value = pending.Dequeue();
-
-                // **General, not a list of blessed commands.** Every setting the config file
-                // understands is settable this way for free, because it is the same parser reading
-                // the same command names — which is the property that makes Valve's launch options
-                // and Valve's cvars the same thing rather than two mechanisms that must be kept in
-                // step. An unknown command is ignored here exactly as it is in a config (D69).
-                _settings = ViewerSettings.Parse(
-                    string.Create(CultureInfo.InvariantCulture, $"{command} \"{value}\""),
-                    onto: _settings);
-
-                _log.LogInformation("{Message}", $"{command} {value} (from the command line)");
-                continue;
-            }
-
-            // **The capture that a person actually wants to look at is the first-person one**, and
-            // until this flag existed the only route to it was the UI suite pressing V — which
-            // meant it could only be taken on whichever demo that suite happens to open, at
-            // whichever tick it could reach. See docs/findings/29 for what that produced: a
-            // picture of a wall at the last tick of a solo recording.
-            if (argument == "--first-person")
-            {
-                _shotFirstPerson = true;
-                continue;
-            }
-
-            if (argument == "--zoom" && pending.Count > 0)
-            {
-                string value = pending.Dequeue();
-
-                if (float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out float zoom))
-                {
-                    _shotZoom = zoom;
-                    continue;
-                }
-
-                _log.LogWarning("{Message}", $"--zoom {value} is not a number; ignoring it");
-                continue;
-            }
-
-            // **Which player to watch, because otherwise there is no choosing.** The viewer
-            // spectates whoever `SpectatorTarget.Choose` picks — the lowest entity index on a
-            // playing team — and a match has eighteen players. Anything that happens to anybody
-            // else is on screen for nobody, which made the off hand unviewable: z1800 carries six
-            // spies with a watch drawn, and not one of them is ever the chosen target.
-            if (argument == "--spectate" && pending.Count > 0)
-            {
-                string value = pending.Dequeue();
-
-                if (int.TryParse(
-                        value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int entity))
-                {
-                    _spectator.Spectating = entity;
-                    continue;
-                }
-
-                _log.LogWarning("{Message}", $"--spectate {value} is not a number; ignoring it");
-                continue;
-            }
-
-            if (argument == "--tick" && pending.Count > 0)
-            {
-                string value = pending.Dequeue();
-
-                if (int.TryParse(
-                        value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int tick))
-                {
-                    _shotTick = tick;
-                    continue;
-                }
-
-                // Not silent: a mistyped tick that quietly captures tick zero is a picture of the
-                // wrong moment, which is worse than no picture.
-                _log.LogWarning("{Message}", $"--tick {value} is not a number; capturing tick 0");
-                continue;
-            }
-
-            paths.Add(argument);
-        }
-
-        return [.. paths];
-    }
+    // `ReadCaptureOptions` is `LaunchOptionsReader.Read` in Presentation (B188, D90), and it returns
+    // a record rather than writing into six fields as it goes. Thirteen tests came with the move; it
+    // had none, because reaching it meant constructing a form — so every option was covered only by
+    // whichever UI test happened to pass one.
 
     /// <summary>Takes the automatic capture once the world has settled, then closes.</summary>
     /// <remarks>
@@ -2232,13 +2110,13 @@ internal class MainForm : Form
         // **The clock too, not just the transport.** Moving the camera marks the world stale, and
         // the reprojection that follows re-reads the moment from the clock - so a capture that only
         // told the transport photographed tick zero while every log line said otherwise.
-        _clock?.Seek(_shotTick);
-        _transport.ShowTick(_shotTick);
-        ShowMoment(_shotTick);
+        _clock?.Seek(_launch.ShotTick);
+        _transport.ShowTick(_launch.ShotTick);
+        ShowMoment(_launch.ShotTick);
 
-        _log.LogInformation("{Message}", $"opening state applied at tick {_shotTick}");
+        _log.LogInformation("{Message}", $"opening state applied at tick {_launch.ShotTick}");
 
-        if (_shotSurfaceColours)
+        if (_launch.SurfaceColours)
         {
             _surfaceColours.Checked = true;
         }
@@ -2247,14 +2125,14 @@ internal class MainForm : Form
         // is placed from the recorded view or from the followed player at the CURRENT tick, so
         // switching before the clock moves photographs the right mode at the wrong instant — and
         // the picture looks like a camera bug rather than an ordering one.
-        if (_shotFirstPerson)
+        if (_launch.FirstPerson)
         {
             _ = ToggleFirstPerson();
         }
 
-        if (_shotLookAt is { } centre)
+        if (_launch.LookAt is { } centre)
         {
-            _zoom = _shotZoom;
+            _zoom = _launch.Zoom;
             _lookingAt = centre;
             _worldIsStale = true;
         }
