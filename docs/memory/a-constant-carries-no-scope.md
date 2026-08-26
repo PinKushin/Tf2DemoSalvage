@@ -1,8 +1,11 @@
 ---
 name: a-constant-carries-no-scope
-description: Quoting Valve's decal bias with a file and line said nothing about which surfaces it applies to; ask what a value is applied TO before matching it.
-metadata:
+description: "Quoting Valve's decal bias with a file and line said nothing about which surfaces it applies to; ask what a value is applied TO before matching it."
+metadata: 
+  node_type: memory
   type: project
+  originSessionId: 4774a88b-811c-40bb-9c79-9b22dc0a4474
+  modified: 2026-08-26T01:44:47.064Z
 ---
 
 **A number copied from Valve's source with a correct citation is still a guess about scope.**
@@ -34,6 +37,32 @@ better-sounding reason the earlier attempt was invalid — and the owner's stand
 "look at the sdk and decomp to confirm anything you think about valves code", which is what turns an
 argument into a reading.
 
+## The same rule applies to OUR constants, in both directions — D94, 2026-08-25
+
+The entry above is about adopting a value. The mirror case is merging two, and it nearly cost two
+recorded decisions.
+
+Three declarations of `StallSeconds = 0.03` sat in `SoundCache`, `MomentScene` and `MainForm`, and
+they read as a plain DRY violation — three copies of one number, only one carrying a reason. I was
+one edit away from unifying them into a shared project when reading the declarations showed that two
+of the three say, in their own remarks, exactly why they are separate: one is applied to a single
+decode blocking the draw thread, one to a single step of a scene rebuild, one to a whole frame.
+
+**Three symbols that agree on a number are three judgements, not one fact repeated.** The test for
+merging is not "are the values equal" but "is the REASON the same". Merging them would have tied
+independent judgements together so that tuning either silently moved the other — which is what the
+separation was written to prevent, and what the merge would have been justified as preventing.
+
+**And the real defect was the mirror image, found in the same read.** `ReportSlowMoment` compared a
+WHOLE moment against `MomentScene.StallSeconds`, whose own documentation says "applied to one step
+of a scene rebuild". Borrowing a symbol whose stated meaning is narrower than your use is the same
+error as adopting Valve's decal bias for the wrong surfaces — a scope mismatch wearing a citation.
+
+**Two cheap questions, both answered at the declaration site, neither asked:** before merging two
+equal constants, read what each is applied TO; before borrowing one, read whether its documentation
+describes your use.
+
 Related: [[nothing-is-closed]], [[read-the-spec-before-measuring-our-data]],
 [[arithmetic-settles-disputes]], [[a-filed-design-choice-may-not-be-one]],
-[[read-the-sdk-for-the-whole-mechanism]].
+[[read-the-sdk-for-the-whole-mechanism]], [[never-revert-without-asking]],
+[[one-place-or-it-drifts]].

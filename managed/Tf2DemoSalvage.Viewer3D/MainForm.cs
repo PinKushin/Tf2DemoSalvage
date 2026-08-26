@@ -2523,7 +2523,7 @@ internal class MainForm : Form
 
         ShowPlayers(_players);
 
-        ReportSlowMoment(phases, sampleTicks, Stopwatch.GetTimestamp() - playersAt);
+        StallReport.Moment(phases, sampleTicks, Stopwatch.GetTimestamp() - playersAt, _renderLog);
     }
 
     // `HandsForFollowed` lived here for exactly one commit, and its own comment admitted what it
@@ -2531,77 +2531,19 @@ internal class MainForm : Form
     // scene holds the roster this moment sampled, so it finds the followed player and asks
     // `IPlayerAppearance.Hands` and `WeaponModels` itself (B188, D90).
 
-    /// <summary>Names where a slow scene rebuild went, when one is slow.</summary>
-    /// <param name="phases">What <see cref="MomentScene.Build"/> measured.</param>
-    /// <param name="sampleTicks">Reading the tick's players and props off the timeline.</param>
-    /// <param name="playerTicks">Building the overhead marker list.</param>
-    /// <remarks>
-    /// **The frame ledger says `advance`, and this says which part of it** — the two compose, so a
-    /// slow frame names a phase and then a sub-phase rather than a range of 350 lines.
-    ///
-    /// Three of these had no timer at all before: the weapon-role and visibility stretch, the weapon
-    /// report, and ShowPlayers. That mattered: `reports` turned out to hold 129 ms of a 133 ms pose,
-    /// and its `sink` half held all of it (B191).
-    ///
-    /// **The bone column is a residual and the rest are measured**, which is worth knowing when
-    /// reading a line: every direct column being small while `rest` is large means the cost is in
-    /// something still unmeasured, not in bone work. That pattern is what found B191.
-    ///
-    /// **Ten parameters became one** (B188). The phases are a record now, so this reads them by name
-    /// rather than differencing seven timestamps the caller had to pass in the right order.
-    /// </remarks>
-    private void ReportSlowMoment(in MomentPhases phases, long sampleTicks, long playerTicks)
-    {
-        static double Of(long ticks) => ticks / (double)Stopwatch.Frequency * 1000d;
-
-        // **The whole moment, which is the scene rebuild PLUS the two phases still measured here.**
-        // Reporting only the rebuild's own total would exclude the sampling and the marker pass from
-        // the threshold as well as from the line, so a moment slow because of one of those would not
-        // be reported at all.
-        double total = Of(phases.Total + sampleTicks + playerTicks);
-
-        if (total <= MomentScene.StallSeconds * 1000d)
-        {
-            return;
-        }
-
-        EntityModelSet.PoseCounters pose = phases.Counters;
-
-        double lighting = Of(pose.Lighting);
-        double viewmodel = Of(phases.Viewmodel);
-        double simulate = Of(pose.Simulate);
-        double wornLight = Of(pose.WornLight);
-        double reports = Of(pose.Report);
-        double setup = Of(pose.Setup);
-        double skin = Of(pose.Skin);
-
-        double rest =
-            Of(phases.Pose) - lighting - viewmodel - simulate - wornLight - reports - setup - skin;
-
-        _renderLog.LogWarning(
-            "{Message}",
-            string.Create(
-                CultureInfo.InvariantCulture,
-                $"SLOW MOMENT {total:0} ms: sample {Of(sampleTicks):0.#}" +
-                $", drawlist {Of(phases.DrawList):0.#}" +
-                $", models {Of(phases.Models):0.#}" +
-                $", pose {Of(phases.Pose):0.#}" +
-                $" (lighting {lighting:0.#}, viewmodel {viewmodel:0.#}" +
-                $", simulate {simulate:0.#}" +
-                $", wornlight {wornLight:0.#}" +
-                $", reports {reports:0.#}" +
-                $" (sink {Of(pose.ReportLog):0.#})" +
-                $", setup {setup:0.#}" +
-                $", skin {skin:0.#}" +
-                $", rest {rest:0.#}" +
-                $", built {pose.Built.ToString(CultureInfo.InvariantCulture)}" +
-                $" of {phases.Drawn.ToString(CultureInfo.InvariantCulture)}" +
-                $", anim {Of(pose.Animation):0.#}" +
-                $" over {pose.AnimationCalls.ToString(CultureInfo.InvariantCulture)})" +
-                $", weapons {Of(phases.Weapons):0.#}" +
-                $", players {Of(playerTicks):0.#}" +
-                $"; unaccounted {Of(phases.Unaccounted):0.#} ms"));
-    }
+    // **`ReportSlowMoment` was here until 2026-08-25** (B188, D90). It is `StallReport.Moment` in
+    // Presentation, with `ReportSlowFrame` and `ReportSlowSounds` beside it — around 190 lines of
+    // arithmetic and formatting, none of which needed a window and none of which had a test,
+    // because reaching them meant constructing a form.
+    //
+    // **They earned the tests they now have: B191 was found by reading these lines.** A report whose
+    // own arithmetic was wrong would have sent that hunt somewhere else entirely.
+    //
+    // **One real defect went with the move.** This compared a WHOLE moment against
+    // `MomentScene.StallSeconds` — a constant whose own documentation says it is "applied to one
+    // step of a scene rebuild". A constant carries no scope, and borrowing one whose meaning is
+    // stated to be narrower is how two independent judgements get tied together. `StallReport` has
+    // its own, for the whole-step measurements it makes.
 
     /// <summary>Draws the players recorded at one moment, coloured by team.</summary>
     /// <param name="players">The players, from the timeline.</param>
@@ -3427,14 +3369,15 @@ internal class MainForm : Form
     /// <summary>Longest frame playback will believe in, in seconds.</summary>
     private const double MaximumFrameSeconds = 0.1;
 
-    /// <summary>How long a single step must take before it counts as a visible freeze.</summary>
-    /// <remarks>
-    /// **Thirty milliseconds is two frames at the rate this viewer actually runs**, which is the
-    /// point at which a person sees a hitch rather than a slightly late frame. Deliberately far
-    /// below the half-second the owner reports, so the log catches the smaller ones too and can show
-    /// whether they share a cause with the big ones.
-    /// </remarks>
-    private const double StallSeconds = 0.03;
+    // `StallSeconds` was here until 2026-08-25. It is `StallReport.StallSeconds`, and it went with
+    // the three reporters that were its only readers — which an analyzer confirmed the moment they
+    // left, by declaring the field unused (CA1823, S1144).
+    //
+    // **The reasoning went with it, and the other two copies in this solution are NOT duplicates of
+    // it.** `SoundCache.StallSeconds` and `MomentScene.StallSeconds` hold the same number for
+    // deliberately different scopes, each saying so where it is declared: one decode blocking the
+    // draw thread, and one step of a scene rebuild. A constant carries no scope, so three symbols
+    // that happen to agree on 0.03 are three judgements, not one fact repeated.
 
     /// <summary>The colour behind everything: a dark blue, and deliberately not black.</summary>
     /// <remarks>
@@ -3929,67 +3872,19 @@ internal class MainForm : Form
             _heightCut);
     }
 
-    /// <summary>Names where a slow frame's time went, phase by phase.</summary>
-    /// <param name="frameAt">When the frame began.</param>
-    /// <param name="soundedAt">After <c>PlaySounds</c>.</param>
-    /// <param name="flownAt">After the camera flew and uploaded.</param>
-    /// <param name="projectedAt">After any map or scene reprojection.</param>
-    /// <param name="advancedAt">After playback advanced.</param>
-    /// <param name="shotAt">After any automatic capture.</param>
-    /// <param name="hudAt">After the HUD was built.</param>
-    /// <param name="finishedAt">After the draw returned.</param>
-    /// <remarks>
-    /// **Built after four rounds of one-suspect-at-a-time, three of which were right and one of
-    /// which was not.** The model upload, the model packing and the per-frame logging were each
-    /// found by instrumenting a hypothesis; the sound decode was instrumented on the same reasoning
-    /// and recorded nothing. Proposing suspects does not converge — a ledger over the whole frame
-    /// does, because the residual column is the part nobody has thought to measure.
-    ///
-    /// **The residual is the point.** Every named phase subtracted from the frame leaves whatever
-    /// happens between them, so a frame that is slow with every column small says the cost is
-    /// somewhere this list does not mention — which is exactly the state the whole hunt began in,
-    /// with `posing`, `sampling` and `drawing` all looking reasonable.
-    ///
-    /// Only slow frames print, so this is silent in ordinary running.
-    /// </remarks>
-    private void ReportSlowFrame(
-        long frameAt,
-        long soundedAt,
-        long flownAt,
-        long projectedAt,
-        long advancedAt,
-        long shotAt,
-        long hudAt,
-        long finishedAt)
-    {
-        double total = (finishedAt - frameAt) / (double)Stopwatch.Frequency;
-
-        if (total <= StallSeconds)
-        {
-            return;
-        }
-
-        static double Ms(long from, long to) =>
-            (to - from) / (double)Stopwatch.Frequency * 1000d;
-
-        double named =
-            Ms(frameAt, soundedAt) + Ms(soundedAt, flownAt) + Ms(flownAt, projectedAt) +
-            Ms(projectedAt, advancedAt) + Ms(advancedAt, shotAt) + Ms(shotAt, hudAt) +
-            Ms(hudAt, finishedAt);
-
-        _renderLog.LogWarning(
-            "{Message}",
-            string.Create(
-                CultureInfo.InvariantCulture,
-                $"SLOW FRAME {total * 1000d:0} ms: sound {Ms(frameAt, soundedAt):0.#}" +
-                $", camera {Ms(soundedAt, flownAt):0.#}" +
-                $", project {Ms(flownAt, projectedAt):0.#}" +
-                $", advance {Ms(projectedAt, advancedAt):0.#}" +
-                $", capture {Ms(advancedAt, shotAt):0.#}" +
-                $", hud {Ms(shotAt, hudAt):0.#}" +
-                $", draw {Ms(hudAt, finishedAt):0.#}" +
-                $"; unaccounted {(total * 1000d) - named:0.#} ms"));
-    }
+    // **`ReportSlowFrame` was here until 2026-08-25** (B188, D90). It is `StallReport.Frame`, and
+    // its eight timestamp parameters are now a `FramePhases` record built by `FramePhases.Between`
+    // — the same correction `MomentPhases` already carried. Eight `long`s in the right order is a
+    // signature that can be called in the wrong one, and the failure is silent: seven plausible
+    // numbers against the wrong labels.
+    //
+    // The reasoning is worth keeping, because it is why the ledger exists at all. It was built
+    // after four rounds of one-suspect-at-a-time, three right and one wrong: the model upload, the
+    // model packing and the per-frame logging were each found by instrumenting a hypothesis, and
+    // the sound decode was instrumented on the same reasoning and recorded nothing. Proposing
+    // suspects does not converge. A ledger over the whole frame does, because the RESIDUAL column
+    // is the part nobody has thought to measure — and a frame that is slow with every named column
+    // small says exactly that. `unaccounted` is Valve's own name for it.
 
     /// <summary>Packs every model the demo will ever show, before playback starts.</summary>
     /// <param name="timeline">The decoded timeline, or null when the demo carried none.</param>
@@ -4307,7 +4202,7 @@ internal class MainForm : Form
             right,
             _audioClock.Elapsed.TotalSeconds);
 
-        ReportSlowSounds(soundAt, phases, Stopwatch.GetTimestamp());
+        StallReport.Sounds(phases, Stopwatch.GetTimestamp() - soundAt, _audioLog);
     }
 
     // **Two hundred and thirty lines moved to SoundPresenter on 2026-08-25** (B188). Deciding what
@@ -4318,40 +4213,16 @@ internal class MainForm : Form
     // Valve's split is the same — `CSoundEmitterSystem : CBaseGameSystem`
     // (`SoundEmitterSystem.cpp:134`) decides what to emit and calls through `enginesound`.
 
-    /// <summary>Names where a slow sound step went, when one is slow.</summary>
-    /// <param name="soundAt">Entry.</param>
-    /// <param name="phases">What each phase cost, from the presenter.</param>
-    /// <param name="finishedAt">After the presenter returned.</param>
-    /// <remarks>
-    /// **Written because precaching the decodes did not empty this bucket.** 394 sounds moved to
-    /// load time and the `sound` phase still read 27-105 ms on the frames that froze, so the
-    /// remaining cost is one of these five and a single number could not say which.
-    ///
-    /// **The phases are measured by the presenter and formatted here**, which is the split that
-    /// keeps both honest: it can see its own boundaries, and what a slow line looks like is the
-    /// view's business (B188).
-    /// </remarks>
-    private void ReportSlowSounds(long soundAt, SoundPhases phases, long finishedAt)
-    {
-        double total = (finishedAt - soundAt) / (double)Stopwatch.Frequency;
-
-        if (total <= StallSeconds)
-        {
-            return;
-        }
-
-        static double Of(long ticks) => ticks / (double)Stopwatch.Frequency * 1000d;
-
-        _audioLog.LogWarning(
-            "{Message}",
-            string.Create(
-                CultureInfo.InvariantCulture,
-                $"SLOW SOUND {total * 1000d:0} ms: advance {Of(phases.Advance):0.#}" +
-                $", reclaim {Of(phases.Reclaim):0.#}" +
-                $", loops {Of(phases.Loops):0.#}" +
-                $", soundscape {Of(phases.Soundscape):0.#}" +
-                $", starting {Of(phases.Starting):0.#}"));
-    }
+    // **`ReportSlowSounds` was here until 2026-08-25.** It is `StallReport.Sounds` (B188, D90).
+    //
+    // It was written because precaching the decodes did not empty this bucket: 394 sounds moved to
+    // load time and the `sound` phase still read 27-105 ms on the frames that froze, so the
+    // remaining cost was one of five and a single number could not say which.
+    //
+    // **Its old note claimed "what a slow line looks like is the view's business", and that was
+    // wrong** — it is what a form happened to be doing, which is not the same thing. Formatting a
+    // measurement needs no window, could not be tested inside one, and a second frontend would have
+    // to write it again. The presenter measures the phases and Presentation formats them.
 
     // **The soundscape system moved to Tf2DemoSalvage.Scene on 2026-08-25** (B188). What stood here
     // was 165 lines with no window in any of it — Valve makes this a per-frame GAME system,
@@ -4511,8 +4382,10 @@ internal class MainForm : Form
 
         _drawTicks += finishedAt - drewAt;
 
-        ReportSlowFrame(
-            frameAt, soundedAt, flownAt, projectedAt, advancedAt, shotAt, hudAt, finishedAt);
+        StallReport.Frame(
+            FramePhases.Between(
+                frameAt, soundedAt, flownAt, projectedAt, advancedAt, shotAt, hudAt, finishedAt),
+            _renderLog);
 
         // **NOT cleared here, and that was a real bug.** `Instances` clears the list it fills, so
         // it is emptied and refilled by the pose step exactly like the world's own list — and the
