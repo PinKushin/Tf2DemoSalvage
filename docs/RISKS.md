@@ -10443,7 +10443,42 @@ any `$bumpmap` on brushwork — because the tangent basis those need is built fr
 lumps. Anyone adding that must read them first rather than deriving a normal from the plane, which
 is flat by construction and wrong on every displacement.
 
-### B198 — Brush entities draw wrong after the thin-view refactor — OPEN, main is clean
+### B200 — The demo carries a map CRC and nothing checks it — OPEN
+
+**This is the answer to B198, and it cost an evening to reach.** The five "regressions" reported on
+2026-08-25 — door grates piled or absent, trigger volumes visible, a missing model — were one cause,
+and it was not the refactor. The owner, after comparing against `main`:
+
+> "ok its pre existing, its the demo you picked versus the one we have been using, lots of problems
+> in this demo and i dont understand why when the f_12 demo runs fine"
+
+**A competitive map is recompiled repeatedly** — `cp_process_f9`, `f10`, `f11`, `f12` — and this
+viewer loads the map **by NAME** out of the local install. A 2020 ETF2L demo drawn against a
+different compile of the same name is a demo whose entity model indices point into somebody else's
+BSP: every `*N` submodel resolves to the WRONG brush entity. Doors take another door's geometry, an
+entity lands on a trigger's submodel and becomes visible, a model is absent because that index is
+something else now.
+
+**The engine does not allow this, and we already decode the field that prevents it.**
+`svc_ServerInfo` carries a map CRC; it is read in `NetMessageReader` (`mapCrc = reader.ReadUInt32(32)`),
+kept on `ServerInfoMessage.MapCrc`, written back by `NetMessageWriter`, and printed by
+`MessageAssembly`. **Nothing compares it to the map that was loaded** — outside the round-trip and
+the trace, the only references in the repository are test fixtures.
+
+**The fix is a comparison, not a feature**: on map load, check the BSP against the demo's `MapCrc`
+and say so when they differ. Refusing outright is the engine's behaviour; for a salvage tool a loud
+warning is probably better, since drawing the wrong map is still more useful than drawing nothing —
+but it must not be SILENT, which is what it is today.
+
+**Why it cost so much to find, which is the lesson worth keeping.** Every instrument said the code
+was fine, and every one was right: the world build, the brush-entity counts and the faces held back
+are identical between `main` and the branch; `EntityModelSet.Add` and `Instances` are byte-identical;
+`MomentScene.Build` matches the old `ShowMoment` step for step; Core is untouched. Six hypotheses
+died. **The defect was not in any code that changed — it was in a check that has never existed**, and
+no amount of diffing two versions can find something absent from both. The tell, in hindsight: the
+symptoms were *specific to one demo*, and nobody asked which demo differed until the end.
+
+### B198 — Brush entities draw wrong after the thin-view refactor — NOT A REGRESSION, see B200
 
 **Reported by the owner 2026-08-25, looking at the running viewer.** Five symptoms, at least the
 first two certainly related:
