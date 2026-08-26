@@ -41,6 +41,21 @@ public enum ViewerAction
     /// <summary>Start or stop playback.</summary>
     PlayPause,
 
+    /// <summary>Put playback back to normal speed, forwards.</summary>
+    /// <remarks>
+    /// **The owner asked for this on `HOME` and gave the reason** (D101, B216): *"'Home means
+    /// minimum' is literally 1x when it comes to video playback, its the default too"*.
+    ///
+    /// **It was proposed, agreed and deliberately NOT built** at the time — *"do not hard code home,
+    /// no new hard codes"* — because every control was still a literal and this would have been one
+    /// more to migrate. B214 built the mechanism; this is the first binding added through it.
+    ///
+    /// `HOME` is one of the keys `tf/cfg/config_default.cfg` leaves unbound, so it survives a pasted
+    /// config. It is also a key real widgets use, which is what
+    /// <see cref="WidgetKeys"/> is for.
+    /// </remarks>
+    ResetSpeed,
+
     /// <summary>Fly the free camera forward.</summary>
     FlyForward,
 
@@ -256,6 +271,11 @@ public sealed class KeyBindings
             // `o` is the ONLY letter TF2 leaves unbound, and play/pause earns a single key.
             [ViewerAction.PlayPause] = "o",
 
+            // **`HOME`, and it is free in TF2** — `END`, `INS`, `PGUP` and `PGDN` are all bound in
+            // `config_default.cfg` and `HOME` is not. So it needs no `CTRL`, which matters: the
+            // combinations exist because the letters ran out, not because they are preferable.
+            [ViewerAction.ResetSpeed] = "HOME",
+
             [ViewerAction.NormalMaps] = "F3",
             [ViewerAction.BumpBasis] = "F4",
 
@@ -326,6 +346,13 @@ public sealed class KeyBindings
             // Valve's to borrow.
             [ViewerAction.ResetCamera] = "resetcamera",
             [ViewerAction.OpenDemo] = "opendemo",
+
+            // **`demo_timescale` is Valve's, but it is a ConCommand taking an argument** — "Sets
+            // demo replay speed" — so `demo_timescale 1` would be the faithful spelling. It is not
+            // used here because this action also clears REVERSE, which Valve's timescale cannot
+            // express (D97): the engine has nothing that plays a demo backwards, so there is no
+            // command of Valve's that means what this one means.
+            [ViewerAction.ResetSpeed] = "resetspeed",
             [ViewerAction.FullScreen] = "togglefullscreen",
             [ViewerAction.SurfaceColours] = "mat_surfacecolours",
         };

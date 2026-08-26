@@ -3983,6 +3983,27 @@ internal class MainForm : Form, IFrameSteps
         return focused;
     }
 
+    /// <summary>What kind of thing has focus, in terms no toolkit owns.</summary>
+    /// <returns>The focused widget's kind.</returns>
+    /// <remarks>
+    /// **This is the whole WinForms-specific half of the shortcut guard**, and it is deliberately
+    /// this small. <see cref="WidgetKeys"/> holds which keys each kind uses, in `Presentation`, which
+    /// cannot reference a toolkit at all — so moving this viewer to another front end means writing
+    /// these ten lines against that toolkit's focus API, not working the key rules out again.
+    ///
+    /// **Ordered from the specific to the general**, since `ComboBox` is a `Control` and
+    /// `CheckBox` is a `ButtonBase`; a broader arm placed first would swallow the narrower ones.
+    /// </remarks>
+    private FocusedWidget FocusKind() => FocusedControl() switch
+    {
+        null => FocusedWidget.None,
+        TextBoxBase => FocusedWidget.Text,
+        TrackBar or ScrollBar or NumericUpDown => FocusedWidget.Slider,
+        ListBox or ListView or ComboBox or TreeView or DataGridView => FocusedWidget.List,
+        ButtonBase => FocusedWidget.Button,
+        _ => FocusedWidget.Other,
+    };
+
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
         // **Nothing is a shortcut while somebody is typing** (B212). `ProcessCmdKey` runs before any
@@ -3996,7 +4017,15 @@ internal class MainForm : Form, IFrameSteps
         //
         // This is a guard on the binds rather than a binding of its own: no key is named here, so it
         // adds nothing to un-hardcode later (D101).
-        if (FocusedControl() is TextBoxBase)
+        // **Widened 2026-08-26 from "is it a text box" to "does the focused thing use this key".**
+        // The old guard excused text alone, which was enough for the search box and wrong in general:
+        // D101 lets a person bind anything, so `bind "UPARROW" "+forward"` in someone's config takes
+        // the arrow keys away from the playlist, and binding `HOME` to a speed reset takes it from
+        // both sliders. Nobody had to introduce that defect — it was waiting for one line of config.
+        //
+        // The decision is `WidgetKeys.Keeps`, in `Presentation`, which knows nothing about WinForms;
+        // this line and `FocusKind` are the whole of the toolkit-specific part.
+        if (WidgetKeys.Keeps(FocusKind(), KeyNames.NameOf(keyData & Keys.KeyCode)))
         {
             return base.ProcessCmdKey(ref msg, keyData);
         }
@@ -4054,6 +4083,15 @@ internal class MainForm : Form, IFrameSteps
         if (keyData == KeyNames.Resolve(_bindings.KeyFor(ViewerAction.SwitchCameraMode)))
         {
             return ToggleFirstPerson();
+        }
+
+        // **The first binding added through B214's mechanism rather than as a literal** (B216). It
+        // was agreed weeks ago and deliberately not built — *"do not hard code home, no new hard
+        // codes"* — because there was nothing to add it to.
+        if (keyData == KeyNames.Resolve(_bindings.KeyFor(ViewerAction.ResetSpeed)))
+        {
+            _transport.ResetSpeed();
+            return true;
         }
 
         if (keyData == KeyNames.Resolve(_bindings.KeyFor(ViewerAction.ResetCamera)))

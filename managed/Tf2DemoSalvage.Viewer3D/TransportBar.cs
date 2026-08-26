@@ -436,6 +436,32 @@ internal sealed class TransportBar : UserControl, IPlaybackView
             Enabled = false,
         };
 
+    /// <summary>Put playback back to normal speed, forwards.</summary>
+    /// <remarks>
+    /// **Normal is 1×, not the slider's minimum**, which is the whole reason the owner wanted `HOME`
+    /// for it: *"'Home means minimum' is literally 1x when it comes to video playback, its the
+    /// default too"*. The slider's actual minimum is 8× in REVERSE, since the range is mirrored for
+    /// reverse playback (D97), so "go to the left-hand end" would be the opposite of what the key
+    /// means in every video player there is.
+    ///
+    /// **Also clears reverse**, and that is why this is not `demo_timescale 1`: Valve's command sets
+    /// a speed and the engine has no concept of playing backwards at all, so there is no command of
+    /// Valve's that means what this one means.
+    ///
+    /// Shares `StepSpeed`'s shape deliberately — moving the slider rather than holding a speed of its
+    /// own, so the thumb, the readout and what is playing cannot disagree.
+    /// </remarks>
+    public void ResetSpeed()
+    {
+        _suppressSpeedEvent = true;
+        _speedBar.Value = TimeScale.From(1d).Position();
+        _suppressSpeedEvent = false;
+
+        UpdateSpeedLabel();
+
+        SpeedChanged?.Invoke(this, new SpeedEventArgs(PlaybackSpeed.Speed));
+    }
+
     private void StepSpeed(int direction)
     {
         // **Moves the slider rather than holding a speed of its own**, so the thumb, the readout and

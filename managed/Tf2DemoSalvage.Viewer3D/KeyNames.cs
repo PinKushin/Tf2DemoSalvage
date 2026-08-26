@@ -96,6 +96,28 @@ internal static class KeyNames
             "'" or "APOSTROPHE" or "QUOTE" => Keys.OemQuotes,
             "/" or "SLASH" => Keys.OemQuestion,
 
+            // **Source's spellings for the navigation cluster, which WinForms names differently.**
+            // A config writes `bind "UPARROW" "+forward"` and `bind "PGDN" "invnext"`; WinForms calls
+            // those `Up` and `PageDown`, so `Enum.TryParse` missed every one and they resolved to
+            // `Keys.None` — bindings that read as correct in a file and did nothing.
+            //
+            // **This is also where the vocabulary stops being WinForms-shaped**, which matters for
+            // more than correctness: the names in `KeyBindings` and `WidgetKeys` are the portable
+            // half of the controls, so they should be Source's everywhere and translated only here.
+            "UPARROW" => Keys.Up,
+            "DOWNARROW" => Keys.Down,
+            "LEFTARROW" => Keys.Left,
+            "RIGHTARROW" => Keys.Right,
+            "PGUP" => Keys.PageUp,
+            "PGDN" => Keys.PageDown,
+            "INS" => Keys.Insert,
+            "DEL" => Keys.Delete,
+            "BACKSPACE" => Keys.Back,
+            "CAPSLOCK" => Keys.CapsLock,
+            "SEMICOLON" => Keys.OemSemicolon,
+            "[" or "LBRACKET" => Keys.OemOpenBrackets,
+            "]" or "RBRACKET" => Keys.OemCloseBrackets,
+
             // **Mouse buttons are bound like keys by every Source game and are not members of
             // `Keys`.** They are resolved by the mouse handlers, through
             // <see cref="NameOf(System.Windows.Forms.MouseButtons)"/>, so this reports "not a key" rather than guessing.
@@ -155,6 +177,22 @@ internal static class KeyNames
         Keys.Escape => "ESCAPE",
         Keys.OemQuotes => "'",
         Keys.OemQuestion => "/",
+
+        // The same Source spellings coming back the other way, so a name written into a settings
+        // file round-trips and `WidgetKeys` is asked about `PGDN` rather than about `PageDown`.
+        Keys.Up => "UPARROW",
+        Keys.Down => "DOWNARROW",
+        Keys.Left => "LEFTARROW",
+        Keys.Right => "RIGHTARROW",
+        Keys.PageUp => "PGUP",
+        Keys.PageDown => "PGDN",
+        Keys.Insert => "INS",
+        Keys.Delete => "DEL",
+        Keys.Back => "BACKSPACE",
+        Keys.CapsLock => "CAPSLOCK",
+        Keys.OemSemicolon => "SEMICOLON",
+        Keys.OemOpenBrackets => "[",
+        Keys.OemCloseBrackets => "]",
 
         >= Keys.A and <= Keys.Z => ((char)('a' + (key & Keys.KeyCode) - Keys.A)).ToString(),
         >= Keys.D0 and <= Keys.D9 => ((char)('0' + (key & Keys.KeyCode) - Keys.D0)).ToString(),

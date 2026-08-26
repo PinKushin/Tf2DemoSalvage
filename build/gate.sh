@@ -375,7 +375,12 @@ run Tf2DemoSalvage.Audio.Tests    audio     161
 # which ships at 50ms and FCVAR_ARCHIVE. One asserts the value, one is the control that separates
 # "sleeps when unfocused" from "sleeps always", and one pins zero as a real setting rather than a
 # rejected one. Sabotage-verified: dropping the focus term reddens the control and nothing else.
-run Tf2DemoSalvage.Presentation.Tests presentation 382
+# 382 -> 389 on 2026-08-26: WidgetKeysTests, seven, for the widened shortcut guard (B216). The type
+# is in Presentation and names no toolkit, which is the point -- porting the front end rewrites the
+# ten-line MainForm.FocusKind adapter, not the key rules. Sabotage-verified by dropping HOME from the
+# slider set: one test reddened, and it exposed that an eighth assertion compared two calls that move
+# together and so could never fail. That one now asserts a value.
+run Tf2DemoSalvage.Presentation.Tests presentation 389
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.
