@@ -97,6 +97,75 @@ public sealed class PlaylistFilterTests
             .ShouldBe(["esea_match_13977649.dem", "esea_match_13977650.dem"]);
     }
 
+    [Test]
+    public void Order_ALibraryInAnyOrder_GroupsByFolderThenName()
+    {
+        // **`Apply`'s own contract depends on this and could not enforce it.** Its documentation
+        // says order is preserved *"because the playlist groups by folder afterwards, and reordering
+        // would scatter one folder across several groups of the same name"* — so the grouping is a
+        // PRECONDITION of the filter, and it lived three lines inline in `MainForm` while the filter
+        // lived in Scene. Two halves of one policy, in two projects, with nothing making them agree.
+        DemoEntry[] shuffled =
+        [
+            Entry(@"D:\demos\season31\b.dem"),
+            Entry(@"D:\demos\pugs\z.dem"),
+            Entry(@"D:\demos\season31\a.dem"),
+            Entry(@"D:\demos\pugs\a.dem"),
+        ];
+
+        PlaylistFilter.Order(shuffled).Select(entry => entry.Path)
+            .ShouldBe([
+                @"D:\demos\pugs\a.dem",
+                @"D:\demos\pugs\z.dem",
+                @"D:\demos\season31\a.dem",
+                @"D:\demos\season31\b.dem",
+            ]);
+    }
+
+    [Test]
+    public void Order_FoldersWhoseCaseDisagreesWithOrdinal_SortsAlphabetically()
+    {
+        // **Case-insensitive, because the library is read off a Windows disk** where folder names
+        // are spelled however whoever made them felt like. An ordinal sort puts every capital before
+        // every lowercase, so `Ultiduo` lands before `esea` and the list stops being alphabetical to
+        // the person reading it.
+        //
+        // **The first version of this test used `esea`, `ESEA` and `pugs` and could not fail.**
+        // Under `Ordinal` the folders differ, so `ESEA` sorts first; under `OrdinalIgnoreCase` they
+        // compare equal and `ThenBy` on the name puts `ESEA`'s `a.dem` first — the same output for
+        // opposite reasons. That is the "wrong condition" case from the testing standards: an input
+        // for which correct and broken predict the same observation, and the instinct to strengthen
+        // the assertion would not have helped.
+        //
+        // The input below is chosen so the two orders genuinely disagree: ordinal puts `Ultiduo`
+        // first because `U` is 85 and `e` is 101.
+        DemoEntry[] mixed =
+        [
+            Entry(@"D:\demos\Ultiduo\a.dem"),
+            Entry(@"D:\demos\esea\a.dem"),
+        ];
+
+        PlaylistFilter.Order(mixed).Select(entry => entry.Folder)
+            .ShouldBe(["esea", "Ultiduo"]);
+    }
+
+    [Test]
+    public void Order_ThenApply_KeepsTheGroupingTheFilterPromises()
+    {
+        // The two halves together, which is the claim neither can make alone: after ordering, a
+        // filter that preserves order still hands back one contiguous run per folder.
+        DemoEntry[] shuffled =
+        [
+            Entry(@"D:\demos\season31\esea_b.dem"),
+            Entry(@"D:\demos\pugs\esea_z.dem"),
+            Entry(@"D:\demos\season31\esea_a.dem"),
+        ];
+
+        PlaylistFilter.Apply(PlaylistFilter.Order(shuffled), "esea")
+            .Select(entry => entry.Folder)
+            .ShouldBe(["pugs", "season31", "season31"]);
+    }
+
     private static DemoEntry Entry(string path)
     {
         string folder = System.IO.Path.GetDirectoryName(path)!;

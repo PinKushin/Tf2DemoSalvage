@@ -33,6 +33,7 @@ public sealed class DemoSystemsTests
         SpectatorView spectator = new(NullLogger.Instance);
         MomentScene moment = Scene();
         MomentPresenter moments = Moments(moment);
+        PlayerAppearances appearances = Appearances();
         SoundPresenter sound = Sound();
 
         // **Each one set to something first, or the assertions below cannot fail.** A source that was
@@ -42,12 +43,22 @@ public sealed class DemoSystemsTests
         moment.Viewmodels = new StubViewmodels();
         moments.Source = new StubMoments();
 
+        // **`appearances.Timeline` is deliberately NOT asserted here, and that is a gap worth
+        // naming rather than papering over.** It is a `DemoTimeline?`, whose constructor is private,
+        // so a test cannot put a non-null value there — and asserting it is null after `Open` when
+        // it was already null before is the precondition-equals-assertion shape that made the rest
+        // of this test worthless until it was fixed (`docs/memory/set-the-opposite-state-first.md`).
+        //
+        // The third level covers it: an unset timeline gives `DemoAppearance.None` for ever, which
+        // `MomentScene` reports as "no player appearance" and `WiringUiTests` asserts against a
+        // running viewer.
+
         // **Asserted through the presenter rather than a returned clock** (2026-08-26). `Open`
         // used to hand one back, and once `MainForm` stopped keeping a copy the return value's
         // only reader was this line — so it asks the thing that owns the clock instead.
         PlaybackPresenter playback = new(new FakePlaybackView(), new StopwatchTime());
 
-        Systems(spectator, moment, moments, sound, playback)
+        Systems(spectator, moment, moments, appearances, sound, playback)
             .Open(timeline: null, lastTick: 100, audio: null, autoPlay: null, autoPlayName: "X");
 
         playback.HasDemo.ShouldBeFalse("there is no timeline to run a clock over");
@@ -83,7 +94,7 @@ public sealed class DemoSystemsTests
         MomentScene scene = Scene();
 
         new DemoSystems(
-            new SpectatorView(NullLogger.Instance), scene, Moments(scene), Sound(),
+            new SpectatorView(NullLogger.Instance), scene, Moments(scene), Appearances(), Sound(),
             new PlaybackPresenter(new FakePlaybackView(), new StopwatchTime()), new ActiveLoops(),
             new StubLoggerFactory(log))
             .Open(timeline: null, lastTick: 0, audio: null, autoPlay: null, autoPlayName: "X");
@@ -97,25 +108,31 @@ public sealed class DemoSystemsTests
         // A null collaborator is a system that silently stops being told — the exact failure this
         // type exists to prevent, refused where the caller still has a stack that names it.
         Should.Throw<ArgumentNullException>(() => new DemoSystems(
-            null!, Scene(), Moments(Scene()), Sound(),
+            null!, Scene(), Moments(Scene()), Appearances(), Sound(),
             new PlaybackPresenter(new FakePlaybackView(), new StopwatchTime()), new ActiveLoops(),
             NullLoggerFactory.Instance));
 
         Should.Throw<ArgumentNullException>(() => new DemoSystems(
-            new SpectatorView(NullLogger.Instance), Scene(), moments: null!, Sound(),
+            new SpectatorView(NullLogger.Instance), Scene(), moments: null!, Appearances(), Sound(),
             new PlaybackPresenter(new FakePlaybackView(), new StopwatchTime()), new ActiveLoops(),
             NullLoggerFactory.Instance));
 
         Should.Throw<ArgumentNullException>(() => new DemoSystems(
-            new SpectatorView(NullLogger.Instance), Scene(), Moments(Scene()), Sound(),
+            new SpectatorView(NullLogger.Instance), Scene(), Moments(Scene()), Appearances(), Sound(),
             new PlaybackPresenter(new FakePlaybackView(), new StopwatchTime()), loops: null!,
             NullLoggerFactory.Instance));
+
+        Should.Throw<ArgumentNullException>(() => new DemoSystems(
+            new SpectatorView(NullLogger.Instance), Scene(), Moments(Scene()), appearances: null!,
+            Sound(), new PlaybackPresenter(new FakePlaybackView(), new StopwatchTime()),
+            new ActiveLoops(), NullLoggerFactory.Instance));
     }
 
     private static DemoSystems Systems(
         SpectatorView? spectator = null,
         MomentScene? moment = null,
         MomentPresenter? moments = null,
+        PlayerAppearances? appearances = null,
         SoundPresenter? sound = null,
         PlaybackPresenter? playback = null)
     {
@@ -125,11 +142,15 @@ public sealed class DemoSystemsTests
             spectator ?? new SpectatorView(NullLogger.Instance),
             scene,
             moments ?? Moments(scene),
+            appearances ?? Appearances(),
             sound ?? Sound(),
             playback ?? new PlaybackPresenter(new FakePlaybackView(), new StopwatchTime()),
             new ActiveLoops(),
             NullLoggerFactory.Instance);
     }
+
+    /// <summary>A fresh appearance holder.</summary>
+    private static PlayerAppearances Appearances() => new(NullLogger.Instance);
 
     private static MomentScene Scene() =>
         new(new EntityModelSet(), new ViewmodelScene(), NullLogger.Instance);

@@ -162,6 +162,17 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>Automation id of the texture quality menu.</summary>
     public const string TextureQualityMenuId = "TextureQualityMenu";
 
+    /// <summary>Shown when no TF2 installation could be found.</summary>
+    /// <remarks>
+    /// **It names the fix, not just the fault** (B211). "Map not found" was what this said before,
+    /// which sent the reader looking for the wrong thing entirely — and the demo still plays without
+    /// a map, so the sentence has to say that too or it reads as a refusal.
+    /// </remarks>
+    public const string NoGameInstalled =
+        "No Team Fortress 2 installation found, so maps and models cannot be loaded. "
+        + "The demo will still play. Install TF2 through Steam, or put maps in the viewer's own "
+        + "maps folder.";
+
     private readonly Panel _viewport;
     private readonly ToolStripStatusLabel _status;
     private readonly FlowLayoutPanel _actions;
@@ -213,6 +224,16 @@ internal class MainForm : Form, IFrameSteps
     ///
     /// Null until a map is read, because locating the install is the one thing that waits for a
     /// reason to happen.
+    ///
+    /// **Opening it stopped being this window's job on 2026-08-26** (B188, D90) —
+    /// `LevelSystems.Install` owns the branch, the caching and the `OpenGame` call. What is left
+    /// here is B208's arrangement and nothing else: the content is carried from the map read to the
+    /// two precaches **as a value**, so a wrong order has nothing to pass. Every remaining use is
+    /// either that assignment or one of those hand-offs; nothing asks it a question.
+    ///
+    /// **So this field is not a leftover, and the distinction matters** — the reason to keep it is
+    /// the same reason B208 introduced it, and deleting it would restore the silent-ordering bug it
+    /// was created to prevent.
     /// </remarks>
     private GameContent? _game;
 
@@ -734,7 +755,16 @@ internal class MainForm : Form, IFrameSteps
         // written.** A system added later is added to this call rather than to whichever method
         // happens to load a map — which is the arrangement that let three assignments go missing
         // separately (B193) and two more sit unnoticed for a day (B196).
-        _levels = new LevelSystems(_moment, _models, _sounds, _soundscape, _sound, _loggers);
+        // **One holder, two setters, and the window is neither.** The appearance needs a demo and an
+        // install, which arrive at different moments — `DemoSystems.Open` supplies the first and
+        // `LevelSystems.Install` the second. Held as a local here because both take it and neither
+        // hands it back, the same reason `FrameLedger` is a local (B188, D90).
+        PlayerAppearances appearances = new(_demoLog);
+
+        _levels = new LevelSystems(
+            _moment, _models, _sounds, _soundscape, _sound, appearances, _loggers);
+
+        _moments.Appearances = appearances;
         _world = new WorldPresenter(_renderLog);
 
         // **A capture flag, because the alternative was asking a person to press F12.** Several
@@ -918,7 +948,7 @@ internal class MainForm : Form, IFrameSteps
         // Registered after the presenter it drives, for the same reason `_levels` waits for the
         // scene: a system list is only as good as every member existing when it is built.
         _demoSystems = new DemoSystems(
-            _spectator, _moment, _moments, _sound, _playback, _loops, _loggers);
+            _spectator, _moment, _moments, appearances, _sound, _playback, _loops, _loggers);
 
         _playback.MomentChanged += (_, moment) =>
         {
@@ -1228,9 +1258,22 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private (bool Drawn, GameContent? Game) ReadMapNamed(string mapName)
     {
-        string? path = _maps.Locate(mapName);
+        MapSearch found = _maps.Find(mapName);
 
-        if (path is null)
+        // **Three outcomes, because "not here" had two causes and only one earns a download**
+        // (B211). This asked `Locate`, got null, and said "not installed; fetching it" — so a
+        // machine with no TF2 at all was told about the MAP and watched a download start, which is
+        // the wrong cause and useless work. The owner's requirement is that a missing install "must
+        // just error and mention it", and mentioning the wrong thing is worse than silence.
+        if (found.Outcome == MapOutcome.NoGame)
+        {
+            _status.Text = NoGameInstalled;
+            _mapLog.LogWarning("{Message}", NoGameInstalled);
+
+            return (false, _game);
+        }
+
+        if (found.Path is not { } path)
         {
             // Not on this machine. Fetch it the way joining a server would - in the background,
             // because a 40 MB download must not freeze the window, and the demo is watchable
@@ -1312,14 +1355,14 @@ internal class MainForm : Form, IFrameSteps
                 "{Message}",
                 $"loading {Path.GetFileName(path)} ({bytes.Length / 1024 / 1024} MB)");
 
-            if (_game is null)
-            {
-                // **Opened once, on the first map read rather than at startup**, because finding and
-                // opening the archives is slow and a viewer with no demo open needs none of it.
-                _game = GameContent.Open(_maps.GameFolder(), _loggers);
-
-                _levels.OpenGame(_game);
-            }
+            // **Opening the install is a lifecycle question, not a window's** (B188, D90). The
+            // branch, the field and the `OpenGame` call beside it were all here; `LevelSystems.Install`
+            // owns them and answers the same content every time after the first.
+            //
+            // It is deferred because the folder is not knowable until the user points at it, NOT
+            // because it is slow — which is what the comment here used to say, and is the difference
+            // between "this could be made eager" and "there is nothing to hurry".
+            _game = _levels.Install(_maps.GameFolder);
 
             _world.TexturesAreCurrent = false;
 
@@ -1454,20 +1497,18 @@ internal class MainForm : Form, IFrameSteps
     // `ClassModelPaths` is `GameContent.ModelPaths` now, beside the class scripts it reads. It is
     // what the install says, not what the window knows.
 
-    /// <summary>Reads each weapon's animation role, once both the demo and the game are open.</summary>
-    /// <remarks>
-    /// **Lazy because the two things it needs arrive in the opposite order to the obvious one.**
-    /// The first version built this beside the timeline, which is where the weapon classes become
-    /// known — and the archives are opened AFTER that, so <c>_archives</c> was null every time and
-    /// the roles were never read. Nothing failed: every suffix came back null, the lookup fell back
-    /// to the primary forms, and the viewer drew exactly what it had drawn before. The unit tests
-    /// passed throughout, because they call <c>WeaponRoles</c> directly.
-    ///
-    /// It was caught by a line missing from the log, which is the only instrument that could have
-    /// caught it — the defect is in the wiring, and every component was correct.
-    /// </remarks>
-    private void EnsureWeaponRoles() =>
-        _moment.Appearance = DemoAppearance.Ensure(_moment.Appearance, _timeline, _game, _demoLog);
+    // **`EnsureWeaponRoles` was here until 2026-08-26** (B188, D90). It is `PlayerAppearances`,
+    // asked by `MomentPresenter` once per moment, with the two halves set by whoever learns them:
+    // `DemoSystems.Open` supplies the demo and `LevelSystems.Install` the install.
+    //
+    // Its own documentation explains why it has to be lazy, and the reason is worth keeping where
+    // the code went: the first version built this beside the timeline, which is where the weapon
+    // classes become known — and the archives open AFTER that, so the roles were never read.
+    // Nothing failed. Every suffix came back null, the lookup fell back to the primary forms, and
+    // the viewer drew exactly what it had drawn before. The unit tests passed throughout, because
+    // they call `WeaponRoles` directly. It was caught by a line missing from the log, which is the
+    // only instrument that could have caught it — the defect was in the wiring and every component
+    // was correct.
 
     // **`PlayerModel` was here until 2026-08-25** (B188, D90). It was a one-line delegation to
     // `PlayerProps.ModelFor`, and a delegating wrapper is the view knowing that a domain operation
@@ -1895,16 +1936,12 @@ internal class MainForm : Form, IFrameSteps
             return;
         }
 
-        // **Before the presenter, and outside its timer, which is where it was and where it belongs.**
-        // It is cheap after the first call, but the FIRST call reads the weapon scripts out of the
-        // archives and each one costs an ICE decryption — so counting it as sampling would report one
-        // enormous `sampling` spike for work that is not sampling. Putting it inside was a slip
-        // caught by diffing this method against the original.
-        //
-        // Here rather than earlier because this is the first point where both the demo and the
-        // game's archives are certain to be open. It hands the roles to the scene when it reads them.
-        EnsureWeaponRoles();
-
+        // **`EnsureWeaponRoles()` was called here until 2026-08-26** (B188, D90). It was the last
+        // non-view work in the frame path: one line reaching for `_timeline` and `_game` on every
+        // frame, to keep `MomentScene.Appearance` current. `MomentPresenter` asks
+        // `PlayerAppearances` now, still before the sampling and still outside both timers — the
+        // first call reads weapon scripts out of the archives at an ICE decryption each, and
+        // charging that to `sampling` or to `posing` would misname the same spike either way.
         _moments.Show(
             tick,
             new MomentView(
@@ -2863,7 +2900,7 @@ internal class MainForm : Form, IFrameSteps
 
         do
         {
-            if (FrameIsDue())
+            if (_clock.IsDue(_settings.FrameRateLimit))
             {
                 // **Counted only when something was drawn.** RenderFrame declines during a map
                 // read, and counting those turned the per-second report into a measurement of how
@@ -2871,7 +2908,7 @@ internal class MainForm : Form, IFrameSteps
                 if (RenderFrame())
                 {
                     _frames.Drew(
-                        _lastFrameSeconds,
+                        _clock.LastFrameSeconds,
                         new FrameView(
                             _transport.Playing,
                             _freeLook && _console.AnyHeld,
@@ -2945,8 +2982,15 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private readonly ConfigConsole _console = ConfigConsole.WithDefaults();
 
-    /// <summary>Times the camera's frames, which run whether or not the demo is playing.</summary>
-    private readonly Stopwatch _flyWatch = Stopwatch.StartNew();
+    /// <summary>The frame clocks: when a frame may begin, and how long the last one took.</summary>
+    /// <remarks>
+    /// **Was `_flyWatch` and `_lastFrameAt`, two fields whose docs never mentioned each other**
+    /// (B188, D90). They are still two clocks — Valve keeps at least four and names each by what it
+    /// obeys, and the demo free camera flies by `absoluteframetime` while a limiter cannot pace
+    /// itself by the duration of the frame it is deciding to allow. `FrameClock` states the
+    /// relationship; `FrameTimingConformanceTests` carries the citations.
+    /// </remarks>
+    private readonly FrameClock _clock = new(new StopwatchTime(), new StopwatchTime());
 
     /// <summary>The key-release filter, kept so it can be removed on shutdown.</summary>
     private KeyReleaseFilter? _keyReleases;
@@ -2958,13 +3002,13 @@ internal class MainForm : Form, IFrameSteps
     // not be reported as worse than 100 ms, and the owner's "half a second to maybe a second" met a
     // log saying `longest 100 ms` every time. A saturating instrument is worse than a missing one.
 
-    /// <summary>How long the last frame took, in seconds.</summary>
-    /// <remarks>
-    /// **The meter reads this rather than keeping its own clock** (B174). Two clocks measuring the
-    /// frame rate is two answers to the question the meter exists to settle, and the camera's is
-    /// already the authoritative one — it is what the flight speed is scaled by.
-    /// </remarks>
-    private double _lastFrameSeconds;
+    // `_lastFrameSeconds` was here until 2026-08-26. It is `FrameClock.LastFrameSeconds`.
+    //
+    // **The rule it carried holds and is now citable** (B174): the meter reads the camera's clock
+    // rather than keeping its own, because two clocks measuring the frame rate is two answers to the
+    // question the meter exists to settle. Valve agrees — `cl_showfps` reads
+    // `gpGlobals->absoluteframetime` (`vgui_fpspanel.cpp:166`), the same quantity
+    // `CalcDemoViewOverride` flies its demo camera by (`view.cpp:153`).
 
     // `_fpsMeter` was here until 2026-08-25. The meter belongs to `FpsOverlay` now, which composes
     // the whole readout — the mode, the sampling, the map name and Valve's placement — and needs no
@@ -3093,59 +3137,23 @@ internal class MainForm : Form, IFrameSteps
         }
     }
 
-    /// <summary>When the last frame was presented.</summary>
-    private long _lastFrameAt;
-
-    /// <summary>Whether enough time has passed to draw another frame.</summary>
-    /// <remarks>
-    /// **The cap has to be applied here, because asking for vertical sync does not work.** The
-    /// swap chain presents with a sync interval of one and the viewer was still measured at about
-    /// 600 frames a second: a driver forcing vsync off globally outranks the present call. So the
-    /// only ceiling that holds is one this program keeps itself.
-    ///
-    /// **This does not affect what is drawn, only how often.** The animation cycle is advanced
-    /// from DEMO time - the tick and the demo's own interval - never from frame time, so a demo
-    /// looks identical at 24 frames a second and at 300. That separation is the thing GoldSrc got
-    /// wrong: tying movement to frame time made a player's speed depend on their frame rate, and
-    /// advancing a cycle per rendered frame here would have made every animation slow down the
-    /// moment a cap was applied.
-    /// </remarks>
-    private bool FrameIsDue()
-    {
-        if (_settings.FrameRateLimit <= 0)
-        {
-            return true;
-        }
-
-        long now = Stopwatch.GetTimestamp();
-
-        if (_lastFrameAt == 0)
-        {
-            _lastFrameAt = now;
-            return true;
-        }
-
-        // **The budget arithmetic moved to `FramePacer`** (B208), which is where its other copy in
-        // `WaitForTheNextFrame` went too — the same quantity was derived independently in both, and
-        // they had to agree with nothing making them.
-        if (!FramePacer.IsDue(SinceLastFrame(now), _settings.FrameRateLimit))
-        {
-            return false;
-        }
-
-        _lastFrameAt = now;
-        return true;
-    }
-
-    /// <summary>Seconds since the last frame was drawn.</summary>
-    /// <remarks>
-    /// **The window owns the clock**, which is the half of pacing that is genuinely its own: it
-    /// knows when it last drew. What that duration MEANS — whether a frame is due, whether to sleep
-    /// or spin — is `FramePacer`'s.
-    /// </remarks>
-    private double SinceLastFrame(long now) =>
-        (now - _lastFrameAt) / (double)Stopwatch.Frequency;
-
+    // **`_lastFrameAt`, `FrameIsDue` and `SinceLastFrame` were here until 2026-08-26** (B188, D90).
+    // They are `FrameClock`, beside the flight clock they had never been compared against — two
+    // fields measuring "time since the previous frame" whose documentation never mentioned each
+    // other, which is what made "were the clocks consolidated?" a fair question with no answer in
+    // the code.
+    //
+    // **They are still two, and Valve is why.** The engine keeps at least four time quantities and
+    // names each by what it obeys; its own demo free camera flies by `absoluteframetime`
+    // (`view.cpp:153`) while a limiter cannot pace itself by the duration of the frame it is
+    // deciding whether to allow. See `FrameTimingConformanceTests`.
+    //
+    // The reasoning the old members carried moved with them: the cap has to be applied in this
+    // program because asking for vertical sync does not work — the swap chain presents with a sync
+    // interval of one and the viewer was still measured at about 600 frames a second, since a driver
+    // forcing vsync off globally outranks the present call. And it changes only how OFTEN a frame is
+    // drawn, never what is in it: the animation cycle advances from demo time, so a demo looks
+    // identical at 24 frames a second and at 300. That separation is what GoldSrc got wrong.
     // **`SleepGranularitySeconds` was here until 2026-08-26** (B208). It is
     // `FramePacer.SleepGranularitySeconds`, and its measurement went with it: a limiter built on
     // sleep alone capped at about 64 frames a second whatever it was asked for, with a limit of 300
@@ -3167,8 +3175,7 @@ internal class MainForm : Form, IFrameSteps
         // **`FramePacer` decides, this acts** (B208). The threading primitive stays beside the
         // message pump; the policy — including the granularity threshold — is testable without any
         // test ever sleeping.
-        switch (FramePacer.WaitFor(
-            SinceLastFrame(Stopwatch.GetTimestamp()), _settings.FrameRateLimit))
+        switch (_clock.WaitFor(_settings.FrameRateLimit))
         {
             case FrameWait.Sleep:
                 Thread.Sleep(1);
@@ -3285,7 +3292,7 @@ internal class MainForm : Form, IFrameSteps
         }
 
         return _overlayQuads.Quads(
-            _hudAtlas, _viewport.ClientSize.Width, _demo?.MapName, _lastFrameSeconds);
+            _hudAtlas, _viewport.ClientSize.Width, _demo?.MapName, _clock.LastFrameSeconds);
     }
 
     /// <summary>The frame-rate readout, which owns everything about it except the glyphs.</summary>
@@ -3344,8 +3351,9 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private void FlyCamera()
     {
-        double seconds = _flyWatch.IsRunning ? _flyWatch.Elapsed.TotalSeconds : 0d;
-        _flyWatch.Restart();
+        // **`absoluteframetime`, which is what Valve's own demo camera flies by** — see
+        // `CalcDemoViewOverride` (`view.cpp:153`) and `FrameTimingConformanceTests`.
+        double seconds = _clock.Drew();
 
         // Every frame's duration passes through here, so this is where the worst one is noticed —
         // and where the meter takes its reading, rather than starting a second clock (B174).
@@ -3362,7 +3370,9 @@ internal class MainForm : Form, IFrameSteps
         // The longest frame is the LEDGER's business now — `FrameReporter.Drew` is handed this
         // duration from the idle loop and the ledger keeps the maximum itself, so there is one place
         // that knows what "worst frame this second" means rather than a field here and a reset there.
-        _lastFrameSeconds = seconds;
+        //
+        // `FrameClock.Drew` recorded it as `LastFrameSeconds` above; the assignment that used to be
+        // here is gone with the field (B188, D90).
 
         if (!_freeLook)
         {
@@ -3758,11 +3768,14 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private void ReprojectScene()
     {
-        if (_timeline is null)
-        {
-            return;
-        }
-
+        // **The `_timeline is null` guard here was redundant and is gone** (2026-08-26).
+        // `ShowMoment` opens with the same test, so this one could not change what happened — and a
+        // condition nothing can distinguish from its absence is dead code that also survives every
+        // mutation of itself. The same argument retired a `ticket != 0` guard in `LoadTickets` an
+        // hour earlier.
+        //
+        // The guard at `MomentChanged` is NOT redundant and stays: it also skips a
+        // `_viewport.Invalidate()`, so removing it would repaint for a demo that is not there.
         ShowMoment(_playback.Position ?? _transport.CurrentTick);
     }
 
@@ -4094,9 +4107,10 @@ internal class MainForm : Form, IFrameSteps
 
         // Sorted once per library change rather than per keystroke: folder first so the list
         // reads as folders, then name within each.
-        _ordered = [.. _library.Entries
-            .OrderBy(entry => entry.Folder, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase)];
+        // **Beside the filter whose contract depends on it** (B188, D90). This was three lines here
+        // while `PlaylistFilter.Apply` documented its dependence on them — a precondition stated in
+        // one assembly and satisfied in another is a precondition nothing enforces.
+        _ordered = PlaylistFilter.Order(_library.Entries);
 
         RefreshPlaylist();
 

@@ -7,6 +7,31 @@ using Tf2DemoSalvage.Scene;
 
 namespace Tf2DemoSalvage.Presentation;
 
+/// <summary>Why a map is or is not available.</summary>
+/// <remarks>
+/// **Three answers where there were two**, because "not here" had two causes and one of them is the
+/// person's to fix. See <see cref="MapProvider.Find"/>.
+/// </remarks>
+public enum MapOutcome
+{
+    /// <summary>The map is on disk and can be read.</summary>
+    Found,
+
+    /// <summary>TF2 is installed and this map is not among its maps. Worth downloading.</summary>
+    NotInstalled,
+
+    /// <summary>
+    /// No TF2 installation was located, so nothing can be said about the map. Downloading one would
+    /// put it nowhere useful, and the person needs to be told this rather than told about the map.
+    /// </summary>
+    NoGame,
+}
+
+/// <summary>The result of looking for a map.</summary>
+/// <param name="Outcome">Which of the three cases this is.</param>
+/// <param name="Path">The map's full path when <see cref="MapOutcome.Found"/>, otherwise null.</param>
+public readonly record struct MapSearch(MapOutcome Outcome, string? Path);
+
 /// <summary>What came of trying to fetch a map.</summary>
 /// <param name="Path">Where it landed, or null if it did not arrive.</param>
 /// <param name="Status">A line to show the user, whichever way it went.</param>
@@ -97,6 +122,38 @@ public sealed class MapProvider : IDisposable
         {
             return null;
         }
+    }
+
+    /// <summary>Finds a map, and says which of two failures happened when it cannot.</summary>
+    /// <param name="mapName">The map the demo names.</param>
+    /// <returns>Where the map is, or why it is not here.</returns>
+    /// <remarks>
+    /// **<see cref="Locate"/> answers null for two different facts**, and the viewer could not tell
+    /// them apart: the map is absent from an install we found, and we never found an install. So a
+    /// machine with no TF2 was told *"cp_badlands is not installed; fetching it"* and a download
+    /// started — the wrong cause, and pointless work, for a problem the person could have fixed in
+    /// one step if anything had said what it was.
+    ///
+    /// **The owner's requirement, 2026-08-26:** *"the user has to point us to their tf2 folder
+    /// before we can do anything, and the program cant crash because its missing it must just error
+    /// and mention it"*. Nothing here throws; the answer is a value that names which case it is.
+    ///
+    /// This is <c>docs/memory/sentinels-conflate-unknown-with-answer.md</c> in a place it had not
+    /// been looked for: one null standing in for "no" and for "I do not know".
+    /// </remarks>
+    public MapSearch Find(string mapName)
+    {
+        if (Locate(mapName) is { } path)
+        {
+            return new MapSearch(MapOutcome.Found, path);
+        }
+
+        // **Asked second, deliberately.** A found map proves an install without a second search, and
+        // this walk reads library folders off disk — so the ordinary case pays nothing for the
+        // diagnosis of the unusual one.
+        return GameFolder() is null
+            ? new MapSearch(MapOutcome.NoGame, null)
+            : new MapSearch(MapOutcome.NotInstalled, null);
     }
 
     /// <summary>Where TF2 itself is installed, if it is.</summary>

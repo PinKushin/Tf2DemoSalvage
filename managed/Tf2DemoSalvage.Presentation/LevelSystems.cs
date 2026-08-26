@@ -48,12 +48,25 @@ public sealed class LevelSystems
     private readonly ILogger _audio;
     private readonly IReadOnlyList<IGameSystem> _systems;
 
+    /// <summary>The appearance holder, told the install as soon as one is opened.</summary>
+    private readonly PlayerAppearances _appearances;
+
+    /// <summary>The install, once located. Null until the first map read.</summary>
+    /// <remarks>
+    /// **It is a field here and was a field in the window** (B188, D90). B208 made the content an
+    /// ARGUMENT to <see cref="Load"/> so a wrong precache order would have nothing to pass, and that
+    /// stays true: <see cref="Install"/> hands the value back rather than letting `Load` reach for
+    /// this. What moved is only the question of who opens it and when.
+    /// </remarks>
+    private GameContent? _game;
+
     /// <summary>Binds the systems that will be told about levels.</summary>
     /// <param name="moment">The scene rebuilt for each tick; Valve's client leaf system.</param>
     /// <param name="models">The packed entity geometry; Valve's <c>modelinfo</c>, not a system.</param>
     /// <param name="sounds">The sample cache; Valve's <c>enginesound</c>, not a system.</param>
     /// <param name="soundscape">The ambience system.</param>
     /// <param name="sound">The sound emitter.</param>
+    /// <param name="appearances">The player appearance, whose install half is set here.</param>
     /// <param name="loggers">Where each system's own log goes.</param>
     /// <exception cref="ArgumentNullException">A collaborator is null.</exception>
     /// <remarks>
@@ -67,6 +80,7 @@ public sealed class LevelSystems
         SoundCache sounds,
         SoundscapeSystem soundscape,
         SoundPresenter sound,
+        PlayerAppearances appearances,
         ILoggerFactory loggers)
     {
         ArgumentNullException.ThrowIfNull(moment);
@@ -74,8 +88,10 @@ public sealed class LevelSystems
         ArgumentNullException.ThrowIfNull(sounds);
         ArgumentNullException.ThrowIfNull(soundscape);
         ArgumentNullException.ThrowIfNull(sound);
+        ArgumentNullException.ThrowIfNull(appearances);
         ArgumentNullException.ThrowIfNull(loggers);
 
+        _appearances = appearances;
         _moment = moment;
         _models = models;
         _sounds = sounds;
@@ -103,9 +119,14 @@ public sealed class LevelSystems
     /// <param name="game">What the install provides.</param>
     /// <exception cref="ArgumentNullException"><paramref name="game"/> is null.</exception>
     /// <remarks>
-    /// **Once per process, on the first map read rather than at startup**, because finding and
-    /// opening the archives is slow and a viewer with no demo open needs none of it. That lateness
-    /// is also why <see cref="DemoAppearance"/> has to build lazily.
+    /// **Once per process, on the first map read rather than at startup — and the reason recorded
+    /// here was the wrong one until 2026-08-26.** It said the archives are slow to open and a viewer
+    /// with no demo needs none of it: true, and not what decides it. The owner's constraint is that
+    /// *"the user has to point us to their tf2 folder before we can do anything"*, so the install is
+    /// not deferred because it is expensive, it is deferred because it is **not yet knowable**. That
+    /// lateness is also why <see cref="DemoAppearance"/> has to build lazily.
+    ///
+    /// The distinction decides whether this is a candidate for being made eager. It is not.
     ///
     /// **The soundscape catalog is null when there are no archives, not empty.** An empty catalog
     /// would claim the install HAS no soundscapes, which is a statement about TF2 rather than about
@@ -121,6 +142,51 @@ public sealed class LevelSystems
         _soundscape.Catalog = game.Archives.IsEmpty
             ? null
             : SoundscapeCatalog.Load(game.Archives.Read);
+
+        // **The install is half of the player appearance and this is when it arrives.** The other
+        // half is the demo, which `DemoSystems.Open` supplies — two lifetimes, so two setters, and
+        // neither can wait for the other. Set here rather than left for a per-frame reach into a
+        // window field, which is what it was (B188, D90).
+        _appearances.Game = game;
+    }
+
+    /// <summary>The game install, opened on first use and reused after.</summary>
+    /// <param name="locate">Where TF2 is, asked only once; null when it cannot be found.</param>
+    /// <returns>The install's content, which may be empty.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="locate"/> is null.</exception>
+    /// <remarks>
+    /// **This was `if (_game is null) { … }` inside `MainForm.ReadMap`** (B188, D90) — a lifecycle
+    /// question answered in a window, with the field that carried it, a call to
+    /// <see cref="OpenGame"/> beside it, and no way to test any of it without a form.
+    ///
+    /// **Opening twice would be wrong rather than merely wasteful.** <see cref="OpenGame"/>
+    /// destructures the content into the sound cache, the weapon table and the soundscape catalog,
+    /// so a second open rebuilds all three mid-session and reloads every catalog.
+    ///
+    /// **`locate` is a delegate so this needs no map provider.** The dependency would run the wrong
+    /// way — level systems asking a downloader where Steam is — and it would make the "asked once"
+    /// property untestable, since counting calls is how a test can see it at all.
+    ///
+    /// **A null folder is a normal answer, not a failure**, per the owner's requirement that a
+    /// missing install "must just error and mention it": `GameContent.Open` yields empty archives
+    /// and the demo still plays. B211 covers what the person is told.
+    /// </remarks>
+    public GameContent Install(Func<string?> locate)
+    {
+        ArgumentNullException.ThrowIfNull(locate);
+
+        if (_game is { } already)
+        {
+            return already;
+        }
+
+        GameContent game = GameContent.Open(locate(), _loggers);
+
+        OpenGame(game);
+
+        _game = game;
+
+        return game;
     }
 
     /// <summary>Reads a level and tells every system about it.</summary>

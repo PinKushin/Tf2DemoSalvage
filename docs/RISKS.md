@@ -12466,6 +12466,84 @@ describing a constant that no longer existed. **An orphaned doc comment does not
 reattaches to the next member**, so `Lines` had been documented as being about clip-space W for
 however long the constant had been gone.
 
+### B188 addendum — the last non-view work in the frame path, 2026-08-26
+
+**`EnsureWeaponRoles` was one line, called from `ShowMoment` on every frame**, reaching for
+`_timeline` and `_game` to keep `MomentScene.Appearance` current. It was what kept both fields alive
+in the frame path, and it is `PlayerAppearances` now, asked once per moment by `MomentPresenter`.
+
+**Why it had resisted moving: two lifetimes, and nothing but the form saw both.** The appearance needs
+a demo — which arrives when one is opened and changes with each — and an install, located on the
+first map read and never again. There is no moment at which a finished appearance could be handed
+over, which is exactly why it ended up as a per-frame reach into a window that happened to hold both.
+
+So the holder has two setters with two owners: `DemoSystems.Open` supplies the demo half,
+`LevelSystems.Install` the install half. That reads like a smell and is the honest shape for the
+fact; a constructor argument would have to pick one lifetime and lose the other.
+
+**Still before the sampling and outside both timers.** The first call reads weapon scripts out of the
+archives at an ICE decryption each, so charging it to `sampling` reports an enormous spike for work
+that is not sampling — and charging it to `posing` moves the same lie one column along.
+
+**The return value is the wiring, and that is not a style choice.** The version that wrote into
+`MomentScene.Appearance` as a side effect is the one that shipped B193: every weapon suffix answering
+null, every player animating in the generic primary pose, the suite green throughout.
+
+#### Proved by manipulation, and the analyzer got there first again
+
+Deleting `_appearances.Game = game` **does not compile** — the field becomes unread and SonarLint
+says so (S4487), the same structural guard that caught the frame reporter. That covers only the
+crudest regression. Assigning `null` instead compiles, passes every unit test, and fails exactly one
+thing: `WiringUiTests.TheScene_AfterLoadingADemo_WasGivenThePlayersAppearance`, one of twenty.
+
+**One gap is recorded rather than papered over.** `DemoSystemsTests` does not assert that
+`PlayerAppearances.Timeline` is cleared on the null path. `DemoTimeline`'s constructor is private, so
+a test cannot put a non-null value there, and asserting null after `Open` when it was null before is
+the precondition-equals-assertion shape that made the rest of that test worthless until it was fixed
+this morning. The third level covers it instead.
+
+### B211 — With no TF2 installed, the viewer blamed the map and downloaded one — FIXED 2026-08-26
+
+**The owner's requirement, which is what found this:**
+
+> *"the user has to point us to their tf2 folder before we can do anything, and the program cant
+> crash because its missing it must just error and mention it"*
+
+It does not crash. It mentions the **wrong thing**, which is worse than silence: on a machine with no
+TF2 install the viewer said *"cp_badlands is not installed; fetching it"* and started a 40 MB
+download — of a map, into a game it could not find, for a person whose actual problem was one step
+away from fixed.
+
+**One null for two facts.** `MapProvider.Locate` returns null both when the map is absent from an
+install it found and when it found no install at all. `ReadMapNamed` had only that null to go on, so
+it assumed the first. This is `docs/memory/sentinels-conflate-unknown-with-answer.md` in a place
+nobody had looked: a sentinel standing in for "no" and for "I do not know".
+
+`MapProvider.Find` answers `Found` / `NotInstalled` / `NoGame` instead. The install search runs
+**second**, only when the map was not found, so the ordinary case pays nothing for the diagnosis of
+the unusual one.
+
+**The message names the fix, not just the fault**, and says the demo still plays — otherwise it reads
+as a refusal, and the viewer's whole point is that a demo is watchable without the map.
+
+#### The comment beside it stated the wrong reason for the laziness
+
+`_game` is opened on the first map read, and the comment said why: *"finding and opening the archives
+is slow and a viewer with no demo open needs none of it."* True, and not the reason. The reason is
+the owner's constraint above — **the location is not known until someone points at it**, which cannot
+be hurried.
+
+**That distinction is the whole value of the entry.** Lazy initialisation is a shape this codebase is
+right to distrust: D86 records that the engine precaches at level load *precisely* so nothing is
+decoded mid-game, and ours cost 385 ms in a single frame when it packed on sight. Read as
+lazy-because-slow, this looks like the next candidate for the same fix. Read correctly, it is not
+laziness at all — it is a resource that does not exist yet.
+
+A rule recorded with the wrong reason gets relaxed for the wrong reasons. The global standards say
+exactly this about the decompiler rule, and it was true here within the hour: the owner's *"lazy load
+is normally wrong in this codebase too"* was aimed at the reason as written, and would have been
+right if that reason had been the real one.
+
 ### B210 — A debug view was unreachable, and its shortcut toggled a different one — FIXED 2026-08-26
 
 **`mat_showlowresimage` could not be turned on from the user interface at all**, and Ctrl+T — the
