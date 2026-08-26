@@ -34,6 +34,7 @@ public sealed class DemoSystems
 {
     private readonly SpectatorView _spectator;
     private readonly MomentScene _moment;
+    private readonly MomentPresenter _moments;
     private readonly SoundPresenter _sound;
     private readonly PlaybackPresenter _playback;
     private readonly ActiveLoops _loops;
@@ -43,6 +44,7 @@ public sealed class DemoSystems
     /// <summary>Binds the systems that will be told about demos.</summary>
     /// <param name="spectator">Whose eyes can be borrowed.</param>
     /// <param name="moment">The scene rebuilt for each tick.</param>
+    /// <param name="moments">What samples that scene's contents out of the demo.</param>
     /// <param name="sound">The sound emitter.</param>
     /// <param name="playback">The transport, which owns the clock.</param>
     /// <param name="loops">The looping sounds in flight.</param>
@@ -51,6 +53,7 @@ public sealed class DemoSystems
     public DemoSystems(
         SpectatorView spectator,
         MomentScene moment,
+        MomentPresenter moments,
         SoundPresenter sound,
         PlaybackPresenter playback,
         ActiveLoops loops,
@@ -58,6 +61,7 @@ public sealed class DemoSystems
     {
         ArgumentNullException.ThrowIfNull(spectator);
         ArgumentNullException.ThrowIfNull(moment);
+        ArgumentNullException.ThrowIfNull(moments);
         ArgumentNullException.ThrowIfNull(sound);
         ArgumentNullException.ThrowIfNull(playback);
         ArgumentNullException.ThrowIfNull(loops);
@@ -65,6 +69,7 @@ public sealed class DemoSystems
 
         _spectator = spectator;
         _moment = moment;
+        _moments = moments;
         _sound = sound;
         _playback = playback;
         _loops = loops;
@@ -98,6 +103,7 @@ public sealed class DemoSystems
 
         _spectator.Eyes = timeline is { } eyes ? new TimelineEyes(eyes) : null;
         _moment.Viewmodels = timeline is { } weapons ? new TimelineViewmodels(weapons) : null;
+        _moments.Source = timeline is { } moments ? new TimelineMoments(moments) : null;
         _sound.Schedule = timeline is { } withSound ? new SoundSchedule(withSound.Sounds) : null;
 
         // **Forgotten rather than rebuilt.** The archives open later than this, so building the

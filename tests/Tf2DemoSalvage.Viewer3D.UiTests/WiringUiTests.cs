@@ -1,3 +1,7 @@
+using System;
+
+using FlaUI.Core.Tools;
+
 namespace Tf2DemoSalvage.Viewer3D.UiTests;
 
 /// <summary>
@@ -83,6 +87,44 @@ public sealed class WiringUiTests
         // falls back to the generic primary form — the right weapon, the wrong pose, on every
         // player.
         Viewer.Count("no player appearance").ShouldBe(0);
+    }
+
+    [Test]
+    public void TheFrameReporter_AfterASecondOfFrames_WroteItsAccount()
+    {
+        // **The per-second line is the instrument two defects were found with**, so it silently
+        // failing to appear is the worst outcome available here: B191 was found by reading which
+        // column stayed fat as the others were measured away, and B163 — *"everything freezes for a
+        // half a second to maybe a second"* — by the collection counts beside it.
+        //
+        // **Nothing else can catch it.** `FrameReporter` moved out of the window on 2026-08-26 and
+        // its own tests drive it directly with a fake clock; they hold identically whether or not the
+        // idle loop ever calls it. That is the B193 shape exactly — a component with green tests and
+        // no caller.
+        //
+        // **Proved sensitive by manipulation, and the interesting part is what the manipulation had
+        // to be.** Deleting the `Drew` call outright does not compile: `MessageName` and
+        // `_idleEndedBy` exist only to feed it, so the analyzers report both as orphaned (S1144,
+        // S4487). That is a structural guard rather than the luck WiringUiTests' table records for
+        // `EnsureWeaponRoles`, and it is worth knowing — but it covers only the crudest regression.
+        //
+        // What does compile, and what this test is actually for: `LogDebug` changed to `LogTrace`.
+        // The viewer runs at `+developer 1`, so the line simply stops being written, while
+        // `FrameReporterTests` stays green — `RecordingLogger` records every level and the assertions
+        // count messages, not levels. Measured 2026-08-26: unit suite 8/8 green, this test the only
+        // failure of twenty.
+        //
+        // Waits on the CONDITION rather than a duration: the line needs a real second of real frames
+        // and this suite has no business asserting how long that takes.
+        Retry.WhileFalse(
+            () => Viewer.Count("frames a second") > 0,
+            TimeSpan.FromSeconds(15),
+            throwOnTimeout: true,
+            timeoutMessage:
+                "No per-second frame line was written, so either the idle loop stopped reporting or "
+                + "the reporter's clock is never restarted.");
+
+        Viewer.Count("frames a second").ShouldBeGreaterThan(0);
     }
 
     [Test]
