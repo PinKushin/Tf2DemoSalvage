@@ -57,6 +57,7 @@ it, because a second copy is a copy that goes stale.
 | [33-the-rocket-lives-in-the-arms.md](33-the-rocket-lives-in-the-arms.md) | The rocket lives in the arms, and nothing can hide it |
 | [34-a-carried-weapon-is-two-models.md](34-a-carried-weapon-is-two-models.md) | A carried weapon is two models, and `m_nModelIndex` is the wrong one |
 | [35-the-bone-pipeline-audit.md](35-the-bone-pipeline-audit.md) | How far the pose loop diverged: the engine has no ordering step, and 177 of 200 lines are not pose work |
+| [36-the-frame-order.md](36-the-frame-order.md) | The camera and the ears come from one `viewEye`; we drew tick T+1 through tick T's eye |
 
 ## Which of this is original
 

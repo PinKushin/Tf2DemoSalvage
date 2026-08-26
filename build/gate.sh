@@ -80,6 +80,22 @@ run() {
 
 rm -f /tmp/gate-*.log
 
+# **Leave nothing running, and clean up on FAILURE too — hence the trap rather than a last line.**
+# MSBuild's node reuse and the Roslyn `VBCSCompiler` both outlive the build that spawned them, on
+# purpose, so eleven `dotnet test` invocations leave a pile behind: measured 2026-08-25 after one
+# gate run, eight MSBuild nodes at ~110 MB each plus a VBCSCompiler holding 502 MB and 547 seconds
+# of CPU — about 1.4 GB still resident with the gate long finished.
+#
+# **Shut down rather than disabled.** `MSBUILDDISABLENODEREUSE=1` would prevent them existing at
+# all, but node reuse is worth having ACROSS the eleven projects while the gate runs; the defect is
+# only that they persist afterwards. Measured cost of the leftovers on the run itself was small —
+# the viewer stage went 2m18s standalone to 2m30s here — so the reason to do this is the memory,
+# not the seconds.
+#
+# `dotnet build-server shutdown` rather than pkill: CLAUDE.md's gotcha 10 is that `pkill -f` matches
+# the shell running it, and this script's own command line contains every pattern worth matching.
+trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
+
 # **The floors are the CURRENT counts, not a comfortable distance below them.**
 #
 # A floor exists to catch a run that reported success while executing a fraction of the suite —
@@ -229,7 +245,40 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 #
 # This is the rule B184 records, applied: a piece's test moves in the same commit as the piece, or
 # the Windows pin is recreated one file at a time. That is how it reached 115 of 119.
-run Tf2DemoSalvage.Scene.Tests    scene      76
+# 88: LevelLightingTests (12), out of MainForm.LightAt/SunAt. The map's lighting query is the
+# engine's — IVEngineClient::ComputeLighting, cdll_int.h:392 — and had no test at all, because
+# reaching it needed an STA thread, a device and a real map.
+# 90: EntityModelSet.Geometry (2), the model source set at map load rather than passed per call,
+# which is how the client reaches modelinfo (IVModelInfo.h:146).
+# 97: DecodedDemoTests (7), out of MainForm.Decode. Two of them need a demo that carries no schema
+# and one that carries a corrupt one — inputs no real file contains, so they are authored through
+# DemoWriter rather than taken from the corpus.
+# 115: MomentSceneTests (18), out of MainForm.ShowMoment and the four members it drove. Three of
+# them exist because of a regression this move nearly shipped: dropping the EnsureWeaponRoles call
+# leaves every weapon suffix null and the animation falls back silently, and the viewer suite passes
+# 620/620 against it (B193). The tests read `Pose.Slot` out the far end, which is the only place the
+# difference shows.
+# 123: WeaponModelsTests (8), out of MainForm.WeaponModelFor/WeaponModel/ItemDefinitions. Both
+# routes are pinned and so is the order between them: the item index is what the player equipped,
+# and the weapon class only knows the stock version — preferring it would draw a stock rocket
+# launcher for every reskin in the game. Measured on z1800, 22 of 56 held weapons send no item index
+# at all, so the second route is not a fallback for rare cases.
+# 133: SpectatorViewTests (10), out of MainForm.FollowedEntity/Spectated/FirstPersonCamera/PlayerAt/
+# Ducking. Every case is a pair of demo KINDS, because the two mechanisms are the subject: a POV
+# demo carries a recorded camera and an STV demo does not, and one kind alone cannot tell "picked
+# the right mechanism" from "only ever does one thing".
+# 135: the two viewmodel-source cases in MomentSceneTests, which exist because the missing wiring
+# they now report actually shipped (B193).
+# 138: the three model-upload cases, added after an audit found `MomentScene.Upload` was assigned
+# NOWHERE — so no entity geometry ever reached the GPU (B193, third occurrence).
+# 142: GameInstallTests (4), out of ReadMap first-map-only branch. Every case runs WITHOUT TF2,
+# which is the path a fresh clone takes and the one that had no test at all.
+# 147: DemoModelsTests (5), out of MainForm.DemoModelPaths/WornModelPaths. A sixth was written and
+# removed: it asserted the class roster using the real locator and FAILED, because
+# Tf2ConfigFiles.DefaultGameFolder looks under Program Files while this machine keeps TF2 on another
+# drive. The code was right and the test was measuring the ENVIRONMENT — pointing it at a better
+# path would have hidden that rather than fixed it.
+run Tf2DemoSalvage.Scene.Tests    scene     184
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -269,7 +318,10 @@ run Tf2DemoSalvage.Scene.Tests    scene      76
 # 142: SoundscapeSelectionConformance gains the PVS sensitivity case (B177) — every capture still
 # resolves to what the client said with the filter ON, which is exactly what would happen if the
 # filter did nothing, so one test measures the reduction instead: 6 of 44 placements from a spawn.
-run Tf2DemoSalvage.Audio.Tests    audio     151
+# 161: SoundCacheTests (10), out of MainForm.Sample and the three fields beside it. The engine keeps
+# its sample cache behind IEngineSound (IEngineSound.h:89-91) and game code asks it, so a window
+# owning one was ours alone — and none of it had a test.
+run Tf2DemoSalvage.Audio.Tests    audio     161
 
 # The presenter suite (D62). Sixteen tests, ~24 ms, no window and no desktop lock — which is the
 # whole point: this logic lived in MainForm and could only be reached by driving a real form, so
@@ -295,7 +347,18 @@ run Tf2DemoSalvage.Audio.Tests    audio     151
 # transport's setter deliberately does not raise, so the elapsed clock stayed stopped and the viewer
 # sat at tick zero insisting it was playing. Finding it also required making FakeElapsedTime model
 # STOPPED: it reported time passing after Reset, which made the fixture blind to the whole class.
-run Tf2DemoSalvage.Presentation.Tests presentation 139
+# 146: FpsOverlayTests (7), out of MainForm.BuildHud. Every placement case is a pair, because one
+# viewport width cannot tell "tracks the viewport" from "sits at a fixed x".
+# 159: LaunchOptionsTests (13), out of MainForm.ReadCaptureOptions. Every malformed case is a PAIR
+# with its well-formed twin, because a parser that ignored an option entirely passes any test that
+# only checks the bad input is refused.
+# 246 -> 240 on 2026-08-26 (B206): FreeLookStateTests (11) DELETED and FreeCameraControllerTests (5)
+# added, which is a net -6 and the only floor drop here that is not a move. FreeLookState had no
+# production caller at all — eleven tests on a type the viewer never ran, while the drag it actually
+# performed was written out longhand in MainForm with none. The Fly cases were not ported because
+# CameraFlightTests (6) and FreeFlightPathTests (10) already cover the live path including D65's
+# cancel guard; the Drag cases and the pitch clamp were, since nothing else asserted them.
+run Tf2DemoSalvage.Presentation.Tests presentation 250
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.
@@ -370,7 +433,14 @@ run Tf2DemoSalvage.Presentation.Tests presentation 139
 # int unused[8] tail every neighbouring struct has and this one does not. It reddens 2 of 17, and
 # WHICH two is the useful part: the SDK stride assertion, and the multi-chain test. A single-chain
 # fixture sits at offset 0 under either stride and cannot see it.
-run Tf2DemoSalvage.Content.Tests  content   707
+# 713: BspVertexNormalsTests (4) and two lump indices pinned against bspfile.h. Read but not drawn
+# (D93): the plane normal is NOT a substitute, because vrad replaces the compiler's plane normals
+# with true smoothed ones wherever a smoothing group applies (B194).
+# **Lowered 713 -> 711 on 2026-08-26, and it is a correction rather than a loss.** The 713 was
+# never measured: BspVertexNormalsTests added FOUR tests to 707, and the commit that raised it
+# (bb8af0d) verified Viewer and Scene and not Content. A floor is the CURRENT count, so inventing
+# one makes the gate permanently red - which the ratchet then reports as missing tests.
+run Tf2DemoSalvage.Content.Tests  content   711
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
@@ -393,7 +463,10 @@ run Tf2DemoSalvage.Content.Tests  content   707
 # 109: SoundscapeWireProbe (3 cases, [Explicit]). Which demo kinds carry m_audio at all — the
 # measurement that showed an STV recording carries the SourceTV CAMERA's soundscape rather than any
 # player's, which is why the map's own entities are needed rather than the wire (B173).
-run Tf2DemoSalvage.Corpus.Tests   corpus     109
+# 112: CorpusDecodedDemoTests (3), the end-to-end half of the DecodedDemo move. The synthetic
+# fixtures in Scene.Tests carry the load — a corpus test skips without the corpus and so kills no
+# mutants — but only a real demo can catch a roster that decodes to nothing.
+run Tf2DemoSalvage.Corpus.Tests   corpus     112
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that
@@ -493,7 +566,12 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     109
 # 625 -> 621 on 2026-08-25: CameraPlacementTests (4) moved to Presentation.Tests with
 # FreeCameraController (B188, B184). Nothing was deleted — presentation went 135 -> 139, which is
 # exactly the four, and that arithmetic is the check that a move did not lose anything.
-run Tf2DemoSalvage.Viewer3D.Tests viewer    621
+# 629 -> 619 on 2026-08-26 (B207): MapSurfacesTests (10) deleted with MapSurfaces itself. It built
+# flat shaded triangles for the ORTHOGRAPHIC top-down view that D49 removed — sorted by height,
+# shaded by height, "no depth buffer and none is wanted for a flat view" — and had no production
+# caller. Nothing replaced the tests because nothing replaced the feature: under D95 the viewer is
+# always 3D. MapScene/MapSceneReader went in the same commit, with no test count to move at all.
+run Tf2DemoSalvage.Viewer3D.Tests viewer    619
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."

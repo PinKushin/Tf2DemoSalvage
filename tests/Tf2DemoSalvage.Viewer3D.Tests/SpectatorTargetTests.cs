@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Linq;
 
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Viewer3D;
@@ -78,6 +80,63 @@ public sealed class SpectatorTargetTests
     public void Choose_AnEmptyList_IsNobody()
     {
         SpectatorTarget.Choose([]).ShouldBeNull();
+    }
+
+    [Test]
+    public void Observable_AMixedRoster_IsOnlyThePlayersACycleCanReach()
+    {
+        // **Written because a log lied about which number it measured.** `CycleTarget` reported
+        // "following entity 7 of 12" using the RAW player count, while the cycle itself chose from
+        // the observable subset — which on a POV demo was one. Clicking repeatedly then returned
+        // the same player, because `(at + 1) % 1` is 0, and the line said twelve candidates.
+        //
+        // The set is what a cycle can reach, so it is the number worth printing.
+        SpectatorTarget.Observable(
+            [
+                Player(entity: 1, team: 1, playerClass: null, health: 1),
+                Player(entity: 2, team: 0, playerClass: null, health: 1),
+                Player(entity: 3, team: 2, playerClass: 3, health: 200),
+                Player(entity: 4, team: 3, playerClass: 5, health: 150),
+            ]).Count.ShouldBe(2, "a spectator and an unassigned player are not targets");
+    }
+
+    [Test]
+    public void Observable_TheSameRoster_AgreesWithWhatNextWillCycleThrough()
+    {
+        // **The control that makes the count honest rather than merely plausible.** A separate
+        // filter that happened to return a sensible number would still be a second opinion; this
+        // asserts the reported set IS the set `Next` walks, by cycling all the way round and
+        // checking every entity it visits is in it.
+        IReadOnlyList<ScenePlayer> roster =
+        [
+            Player(entity: 1, team: 1, playerClass: null, health: 1),
+            Player(entity: 3, team: 2, playerClass: 3, health: 200),
+            Player(entity: 4, team: 3, playerClass: 5, health: 150),
+        ];
+
+        IReadOnlyList<ScenePlayer> observable = SpectatorTarget.Observable(roster);
+
+        int? at = null;
+
+        for (int step = 0; step < observable.Count; step++)
+        {
+            at = SpectatorTarget.Next(roster, at, reverse: false)?.EntityIndex;
+
+            observable.Select(player => player.EntityIndex).ShouldContain(at!.Value);
+        }
+    }
+
+    [Test]
+    public void Observable_ARosterOfNobodyPlayable_IsEmpty()
+    {
+        SpectatorTarget.Observable(
+            [Player(entity: 1, team: 1, playerClass: null, health: 1)]).ShouldBeEmpty();
+    }
+
+    [Test]
+    public void Observable_WithNoRoster_Refuses()
+    {
+        Should.Throw<ArgumentNullException>(() => SpectatorTarget.Observable(null!));
     }
 
     private static ScenePlayer Player(int entity, int team, int? playerClass, int health) =>

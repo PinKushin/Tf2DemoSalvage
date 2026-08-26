@@ -13,7 +13,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// gives the same view with one projection.
 ///
 /// **So this computes a PLACEMENT rather than a projection.** The output is an origin and a pair of
-/// angles that go straight into <c>FreeLookState</c>, and the camera flies away from it normally
+/// angles that go straight into <see cref="FreeCameraController"/>, and the camera flies away from it normally
 /// afterwards. There is no mode to be in and nothing to switch between.
 ///
 /// **Pitch is 89 rather than 90, and that is not a rounding.** Looking exactly along the world's up

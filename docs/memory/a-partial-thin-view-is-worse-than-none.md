@@ -45,7 +45,12 @@ means out of the PROJECT.** Only a rule the compiler enforces survives the next 
 - Orchestration is not view even when it lives in a frame loop: `RenderFrame`'s pump stays, its
   phase order leaves.
 - The test is never the line count. It is whether a second frontend would have to REIMPLEMENT
-  anything in the file.
+  anything in the file. The owner, 2026-08-25, correcting me for reporting progress in lines:
+  *"the line count isnt a actual target, making the mainform into a true thin view is, the line
+  count is just a smell that the view has domain knowledge"* — so track the LIST of members
+  classified view/not-view and work it to zero, and quote lines only as a symptom.
+- **Scope is not a reason to stop short.** *"i know the scope is large but this project needs to be
+  a true view, no knowledge about the domain is allowed."*
 
 Related: [[decide-home-and-parity-before-writing]], [[three-test-levels-and-the-third-is-missing]],
 [[one-place-or-it-drifts]], [[valve-parity-is-the-first-principle]].

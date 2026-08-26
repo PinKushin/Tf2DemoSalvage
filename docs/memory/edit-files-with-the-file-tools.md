@@ -52,3 +52,14 @@ made a dead test look like a healthy one.
 Two fixes, and the second is the durable one: the path was repaired, and the 73 copies of it were
 given a single home in `GameInstall` ([[one-place-or-it-drifts]]). A hardcoded path is a claim about
 a machine, and a claim repeated 73 times is one nobody can check.
+
+**This rule is broken by REFLEX, not by decision, and that is the part to guard against.** On
+2026-08-26 a `sed -i` was used for two trivial call-site renames — in the same session where two
+`<system-reminder>` injections instructing exactly that had already been recognised and declined.
+Declining the instruction did nothing to stop the habit twenty minutes later.
+
+So the trigger is not "am I being told to script this". It is the shape of the edit: **two or more
+similar substitutions in one file feels like a job for `sed`, and that feeling is the whole failure
+mode.** Two `Edit` calls are cheaper than the revert. There was a `.bak`, so it cost only a `mv` and
+two redone edits and nothing reached a commit — but that was luck in the form of a flag, not a
+safeguard.

@@ -5162,3 +5162,299 @@ the feature is built: the config reader must keep ignoring what it does not impl
 using Valve's own cvar names, and never assume one config file — a `custom/` tree is several, and a
 hud carries its own.
 
+
+## D92 — Presenters compose DOWNWARD, and a new project must forbid something
+
+Two questions the owner asked while the `MainForm` refactor was in progress, 2026-08-25:
+
+> "should maps maybe become their own project… i know this solution is already super project heavy,
+> but the different projects is what give compile time protection for cross talk, likt are presenters
+> suppose to talk to each other? or no? i know models dont."
+
+Both answers were checked against the code before being given, and one of them changed as a result.
+
+### Presenters: downward yes, sideways no
+
+- **A presenter MAY own sub-presenters and presentation state types.** That is how a composite view
+  gets a composite presenter, and it is the direction that stays testable: the owner can be
+  constructed with fakes for what it owns.
+- **Peer presenters MUST NOT reach into each other.** If two need the same thing it goes DOWN into
+  the model layer, where both can reach it. Sideways coupling means neither presenter can be tested
+  or replaced alone, which is the whole point of the layer.
+- **Models never talk up**, which was already true and is not in question.
+
+**Measured before writing it down, and the repo is clean:** every reference between types in
+`Tf2DemoSalvage.Presentation` is a presenter owning something smaller — `FpsOverlay` owns `FpsMeter`,
+`SoundPresenter` owns `SoundSchedule`, `FreeCameraController` owns `OverheadPlacement`,
+`ConfigConsole` owns `FlightInput` and `SourceConfig`. Not one is peer-to-peer.
+
+### A new project must FORBID something
+
+**The test is not "this cluster is big". It is: is there a dependency direction I want the compiler
+to reject?**
+
+Maps were the case in point, and the answer is no — because the arrow already points the way a split
+would allow. Measured inside `Scene`:
+
+| entity-side type | depends on map-side type |
+|---|---|
+| `MomentScene` | `LevelLighting` |
+| `EntityModels` | `BrushModels` |
+| `PropModels` | `MaterialTable` |
+
+Models are lit by the level, brush entities ARE map geometry, and props resolve map materials. A
+`Maps` project would be referenced by the rest of `Scene` on its first day, so the ceremony and build
+time would buy an edge that already exists and is correct.
+
+**Contrast with the splits that did pay**, which is what makes this a rule rather than a preference:
+
+| split | what it forbids | real? |
+|---|---|---|
+| `net10.0` vs `net10.0-windows` | a presenter touching WinForms | **yes** — the compiler refuses (D54, D90) |
+| `Scene` cannot see `Presentation` | a model reaching up to a presenter | **yes** |
+| `Maps` vs entities | nothing — entities already depend on maps | no |
+
+**What WOULD trigger a maps project later:** a second consumer that needs map reading without the
+entity layer — a standalone BSP tool, say. That is a real trigger. "This cluster is large" is not,
+and the answer to a large cluster is usually one type instead of ten fields. Which is exactly what
+the map state turned out to be: six of `MainForm`'s ten map fields were `MapLevel` unpacked into the
+form, so the fix was to keep the record rather than to build a project around it.
+
+## D93 — Decode everything Valve writes; consume it when there is a reason
+
+The owner, 2026-08-25, on finding that six BSP lumps went unread:
+
+> "the reason i dont like dropping anything valve does is because i dont want to need it later and
+> require a uge change"
+
+**This corrects a conclusion I had just filed.** I had checked whether anything CONSUMES the vertex
+normal lumps today, found nothing did, and closed B194 as "nothing to fix". That answered the wrong
+question. The right one is what it costs to add when something does.
+
+### Two costs, and conflating them is the mistake
+
+| | cost | when |
+|---|---|---|
+| **Reading** a lump | one reader, one field on `MapLevel` — local and self-contained | **now** |
+| **Consuming** it | a new vertex-layout element, a changed shader signature, a world-buffer re-upload | when there is a reason |
+
+Only the second ripples. Deferring the first buys nothing and is exactly the "huge change later" the
+owner is describing — the archaeology of working out which lump held what, months after the context
+is gone.
+
+**So: decode is total, rendering is not.** `docs/memory/decode-must-be-total.md` already said the
+first half — "anything that does not decode to 100%, with no errors, is wrong" — and I had been
+reading it as though a lump with no consumer were exempt. It is not. What we DRAW is a separate
+question from what we READ, and only the drawing waits for a reason.
+
+### The evidence that settled the specific case
+
+Our world faces take their PLANE's normal. That looked equivalent to the lump, and `vbsp` even
+writes it that way:
+
+```cpp
+// Add this face plane's normal.
+// Note: this doesn't do an exhaustive vertex normal match because the vrad does it.
+g_vertnormals[g_numvertnormals] = dplanes[f->planenum].normal;
+```
+
+— `src/utils/vbsp/normals.cpp:38`. But the comment is the point: **vrad replaces them.** In a
+compiled map the lump holds true smoothed normals wherever a smoothing group applies, and the plane
+normal only where none does. The two are equal on flat unsmoothed brushwork and nowhere else, so
+"we can always derive it from the plane" was wrong.
+
+### What this does NOT license
+
+Reading a lump is not implementing a feature, and a reader with no consumer must not pretend
+otherwise: no vertex-layout change, no shader work, no "while I am here" rendering. The consumer
+arrives with the feature that needs it, and B194 records what that feature would be.
+
+Collision and water lumps (`BrushSides`, `LeafWaterData`, `AreaPortals`) are the honest edge of
+this rule: a demo viewer neither collides nor swims. They are still worth reading when something
+plausibly wants them — showing trigger volumes in a demo-analysis tool is not far-fetched — but they
+are the ones to defer if any are deferred, and deferring them is a decision to state rather than a
+default.
+
+### The conformance instrument already knew, which is the owner's point about ordering
+
+> "yep thats why i say conformance tests first too"
+
+`SdkCoverageTests` extracts every `LUMP_` the engine declares and diffs it against what this project
+reads, then writes `docs/SDK-COVERAGE.md`. That file said, in the repository, committed:
+
+```
+## BSP lumps
+**27 of 66** declared by the engine are handled here.
+Not handled: ... LUMP_VERTNORMALINDICES, LUMP_VERTNORMALS, ...
+```
+
+**I found the same gap by grepping `Mod_Load*` out of `engine.dll`.** The binary scan was a fine
+technique and it was the second time the answer had been derived — the conformance test wrote the
+denominator from the SDK first, exactly as the rule intends, and nobody read the output.
+
+**So the rule earns its keep at the point of ASKING, not only at the point of writing.** A
+conformance test's whole value is that it holds the denominator before our data can bias it; consult
+it before reaching for a decompiler, a binary, or a fresh count.
+
+**And it exposes the instrument's one weak joint.** The denominator is extracted and cannot go
+stale; the numerator — `ImplementedLumps()` — is a hand-maintained list. Adding a reader without
+adding its name there fails nothing and quietly understates coverage. So a new lump reader is two
+edits, and the second is not optional.
+
+
+## D94 — Core stays the demo decoder, and a shared constant needs a shared REASON
+
+Two things were settled in one exchange on 2026-08-25, and the second reversed what the assistant
+was about to do.
+
+### Core does not grow
+
+The owner, when asked where a threshold shared by four projects should live:
+
+> "i mean if that needs to go into a shared project then do it, thats the more proper implementation
+> isnt it? or a global variable?"
+
+> "id prefer core to stay mostly centered on the pure demo decode, theres probably stuff there that
+> should not be already though, but we shouldnt add to it"
+
+**So: Core is the demo decoder, and things that are not decoding do not move into it — even when it
+is the only project everything already references.** The convenient answer and the correct one point
+in opposite directions here, which is exactly how Core would have accumulated a viewer's perception
+threshold.
+
+**When something genuinely is shared, `Tf2DemoSalvage.Logging` is the diagnostics home** and it
+satisfies D92's test for reusing or adding a project: it has no `ProjectReference` of its own, so
+depending on it can create no cycle and can pull no decoder, scene or renderer type in behind it.
+It already holds `LoggerTiming`, which is the same concern.
+
+**The owner's aside — "theres probably stuff there that should not be already" — is filed rather
+than acted on.** `Core/Scene/DemoTimeline.cs` holds `ScenePlayer` and `SceneProp`, which are
+arguably scene types in the decoder. Not moved: that is a large change with its own audit, and
+nothing is broken by it today.
+
+### A constant is shared only when the REASON is shared
+
+The prompt for the above was three declarations of `StallSeconds = 0.03` — in `SoundCache`,
+`MomentScene` and `MainForm` — which read as an obvious DRY violation.
+
+**It was not one, and unifying them would have reverted two recorded decisions.** Both of the
+first two say in their own remarks why they are separate:
+
+> "Its own threshold rather than the frame loop's, even though the numbers agree. A constant carries
+> no scope: this one is applied to one decode blocking the thread that draws, and the viewer's frame
+> threshold is applied to a whole frame. Sharing the symbol would tie two independent judgements
+> together, and changing either would silently move the other."
+
+**Three symbols that agree on a number are three judgements, not one fact repeated.** The test for
+merging is not "are the values equal" but "is the REASON the same" — and here it is demonstrably
+not: one decode, one rebuild step, one whole frame.
+
+**There was a real defect underneath, and it is the mirror image of the one being guarded against.**
+`MainForm.ReportSlowMoment` compared a whole moment — the rebuild plus the sampling plus the marker
+pass — against `MomentScene.StallSeconds`, a constant whose own documentation says it is "applied to
+one step of a scene rebuild". Borrowing a symbol whose stated meaning is narrower than the use is
+how the two judgements get tied together, which is the thing the separation exists to prevent.
+`StallReport` now declares its own, for the whole-step measurements it makes.
+
+**The general rule, and it is cheap to apply:** before merging two constants that happen to be
+equal, read what each is applied TO. Before borrowing one, read whether its documentation describes
+your use. Both questions are answered by the declaration site, and neither was asked.
+
+
+## D95 — The viewer is another instance of TF2: always 3D, always the engine's camera
+
+Stated by the owner on 2026-08-25, while a stale comment in `PointRenderer` was being used to
+justify a clip-space drawing path:
+
+> "the whole idea is we never have to change the renderer from 3d or do anything special with the
+> cameras other then set that default wide overhead view to free cam, so we are always in engine and
+> the user is able to act as if the viewer is always just another instance of tf2 for the most part"
+
+**This extends D49 from a camera decision into a renderer one.** D49 removed `CameraMode.Map`
+because a top-down view is a *placement* of a perspective camera rather than a mode of its own.
+D95 says the same thing about everything downstream: there is no second projection, no second
+drawing path, and no primitive that exists only for a flat view.
+
+### What it settles
+
+- **Nothing is drawn in clip space because "the overhead view has no depth".** That reasoning is
+  D49's world, and D49 deleted it. `PointRenderer` still carried it in a comment — "a flat overhead
+  view has one axis that does not participate, so the caller sorts by height and the later triangle
+  wins" — which was true when written and had quietly become a justification for markers floating
+  over a 3D scene.
+- **Debug primitives take WORLD coordinates and choose depth per call**, which is what the engine
+  does: `DebugDrawLine( vecAbsStart, vecAbsEnd, r, g, b, bool test, duration )` and the
+  `bool noDepthTest` field on the overlay record (`game/server/ndebugoverlay.h:24`, `:28`). A leaf
+  box describes geometry and should be occluded by it; a player marker is an annotation about
+  somewhere you cannot see and should not be.
+- **The CPU does not project.** Transforming on the CPU to feed a clip-space shader is a second
+  implementation of the camera, and this project has already had it wrong once — the leaf box was
+  indexed as a column-vector transform and collapsed a room-sized box into, in the owner's words,
+  "a dot that gets kinda triangular".
+
+### What it defers, deliberately
+
+> "the seperate povs displaying at once and the rest of the security cam like stuff i want to add
+> comes after we get the 3d right and full parity"
+
+**Several points of view on screen at once, and the security-camera features around them, are wanted
+— and they are AFTER parity.** They are recorded here so nobody builds toward them early: a second
+simultaneous view is exactly the kind of feature that tempts a second render path, which is the
+thing this entry forbids until the first one matches the engine.
+
+**It is also the reason parity is worth the effort rather than an end in itself.** A viewer that is
+"another instance of TF2" can add a second camera by adding a second camera. One that has drifted
+has to reconcile two renderers first.
+
+
+## D96 — `playdemo` becomes one of OUR commands — ROADMAP, not now
+
+Proposed by the owner on 2026-08-25:
+
+> "can our cli tool be made to turn playdemo into a shell command so you can actually start viewing a
+> demo from command line without any other shell?"
+
+**This is about THIS tool's own command surface**, and the assistant first misread it as launching
+TF2 from PowerShell — recorded because a decisions entry that misattributes an idea is worse than no
+entry. The owner's clarification:
+
+> "i meant turning playdemo into our own shell command not starting tf2 from powershell but it
+> doesnt matter its a roadmap item not something for now"
+
+**It fits what already exists rather than adding a vocabulary.** The viewer speaks Source's console
+language (D69, D70): a real `.cfg` works wholesale, `+command value` is honoured on the command line,
+and unknown commands are ignored on purpose. `playdemo` is the missing verb in that set — the one
+command a person watching demos actually types in TF2 — and adding it to `ConfigConsole` would mean a
+real config, alias or `exec` could drive this viewer the way it drives the game. That is the D69
+requirement carried one step further: not just "a paste works", but "the thing you would type works".
+
+**Roadmap, explicitly. Not to be started as part of the thin-view refactor.**
+
+### The assistant's misreading, kept because the capability is separately worth having
+
+Source also takes console commands as LAUNCH options, so `tf_win64.exe -game tf +playdemo <name>`
+starts the real game on a demo, and **`-condebug` writes the console to `tf/console.log`** — which
+turns the shipping engine into an instrument this project can read.
+
+### Why that matters here specifically
+
+This repository's hardest questions are all of the form "what does the engine actually do", and the
+answers have come from reading `source-sdk-2013`, shipped data files, and occasionally a decompiler.
+None of those can answer a question about the CLOSED renderer's behaviour at runtime. A scripted
+`playdemo` plus a parsed `console.log` can:
+
+- **Does the engine object to this map?** The question that cost an evening (B198, B200). The SDK
+  snapshot predates TF2's map hash, so there is no citation for it — but the running game will say.
+- **Differential rendering.** Launch both, capture both, compare. The project already prefers
+  differential evidence to fixtures, because a fixture cannot falsify our own reading of a spec.
+- **Era clients.** `docs/TIMELINE.md`'s protocol windows are estimated from changelogs; the period
+  clients on `F:` can be driven the same way to turn estimates into measurements.
+
+### What it must not become
+
+**Not a dependency of the viewer, and not part of the gate.** It needs a TF2 install, a real desktop
+and Steam running — the three things the measurement boxes do not have and the gate must not require.
+It is a diagnostic verb, skipped when the install is absent, exactly as the SDK-backed suites skip.
+
+**And it takes the machine-wide lock.** Launching the game is a UI workload: it steals the
+foreground, so it belongs behind `run-exclusive.ps1` like every other desktop-taking run.

@@ -23,6 +23,17 @@ public interface IPlayerAppearance
 
     /// <summary>Whether a class air-walks at all. Only the medic opts out.</summary>
     public bool Airwalks(int playerClass);
+
+    /// <summary>The arms a class shows in first person, or null when the install cannot say.</summary>
+    /// <param name="playerClass">The class being drawn.</param>
+    /// <returns>The <c>c_&lt;class&gt;_arms</c> model, or null.</returns>
+    /// <remarks>
+    /// **The same question as the other three, and it was being asked from the window.** A player's
+    /// arms come from the class script exactly as their body does, so `MainForm` reaching for
+    /// <c>PlayerClassModels.Hands</c> to fill in a viewmodel argument was the view answering a
+    /// domain question (B188, D90). Asked here, the scene resolves it from what it already holds.
+    /// </remarks>
+    public string? Hands(int playerClass);
 }
 
 /// <summary>What the installed game actually says, from its own scripts.</summary>
@@ -51,6 +62,9 @@ public sealed record GameAppearance(PlayerClassModels? Classes, WeaponRoles? Rol
     /// TF2, which is a silent behaviour change rather than a missing asset.
     /// </remarks>
     public bool Airwalks(int playerClass) => Classes?.Airwalks(playerClass) != false;
+
+    /// <inheritdoc/>
+    public string? Hands(int playerClass) => Classes?.Hands(playerClass);
 }
 
 /// <summary>Turns the timeline's players into props the draw loop can pose.</summary>

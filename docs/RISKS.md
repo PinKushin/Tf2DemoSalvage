@@ -10334,6 +10334,530 @@ takes the system mutex for a listener that usually is not there.
 Not measured separately yet; the remaining 44 ms moment carried `setup 35.5`, which is `SetupBones`
 and unrelated.
 
+### B194 — The engine loads 31 world lumps; we read about 25 — VERTEX NORMALS NOW READ, rest deferred
+
+**This entry was filed, closed as "nothing to fix", and reopened within the hour, and the reversal
+is the useful part.** I checked whether anything CONSUMES the vertex normal lumps today, found
+nothing did, and closed it. The owner:
+
+> "the reason i dont like dropping anything valve does is because i dont want to need it later and
+> require a uge change"
+
+That is a different question and the right one. **Reading a lump and consuming it are separate
+costs** — the reader is one type and one field, the consumer is a vertex-layout element plus a
+shader signature plus a buffer re-upload — and only the second ripples. Deferring the first buys
+nothing. Recorded as D93: decode is total, rendering is not.
+
+**`LUMP_VERTNORMALS` and `LUMP_VERTNORMALINDICES` are now read** into `MapLevel.Normals`, with four
+synthetic-fixture tests and both indices pinned against the real `bspfile.h`. Nothing draws them
+yet, and nothing should until there is a feature that needs a tangent basis.
+
+**And the "we can always derive it from the plane" assumption was wrong**, which is what makes
+reading them worth it rather than merely tidy. `vbsp` does write the plane normal into the lump —
+
+```cpp
+// Add this face plane's normal.
+// Note: this doesn't do an exhaustive vertex normal match because the vrad does it.
+g_vertnormals[g_numvertnormals] = dplanes[f->planenum].normal;
+```
+
+— `src/utils/vbsp/normals.cpp:38`. But read the comment: **vrad replaces them.** In a shipped map
+the lump holds true smoothed normals wherever a smoothing group applies, and the plane normal only
+where none does. The two agree on flat unsmoothed brushwork and nowhere else.
+
+**Why nothing consumes them today, which is still true and still correct.** Our world builder sets
+no per-vertex normal — every `WorldVertex` keeps the default `NormalZ = 1f` — and the world layout
+has no `NORMAL` semantic. That reads like every surface lit facing up, and it is not: the normal fed
+to `CombineBumped` is the **tangent-space normal sampled from the bump map**, weighted against
+`g_localBumpBasis` from Valve's `bumpvects.h`:
+
+```hlsl
+float4 texel = bumpMap.Sample(wrapSampler, input.uv);
+float3 normal = bump.y > 0.5f ? texel.rgb : texel.rgb * 2.0f - 1.0f;
+light = CombineBumped(normal, first, second, third, bump.y > 0.5f);
+```
+
+That is exactly how `LightmappedGeneric` does bumped lighting: the three directional lightmaps
+already carry the lighting in the surface's own tangent frame, so no per-vertex world normal is
+involved anywhere in that path — not in ours, and not in Valve's.
+
+| lump | state |
+|---|---|
+| `VertNormals`, `VertNormalIndices` | **READ** into `MapLevel.Normals`; no consumer yet, by design |
+| `Marksurfaces` | still unread — a FEATURE: it is the PVS draw list, and using it is visibility culling |
+| `AreaPortals` | still unread — area sealing, same thing |
+| `LeafWaterData`, `BrushSides` | still unread — water volumes and collision; this viewer neither swims nor collides |
+
+**The remaining four are deferred as a stated decision rather than an oversight**, which is the
+distinction D93 asks for. The first two are features: reading them is easy and using them is
+visibility culling, which changes what is drawn and wants its own measurement. The last two are the
+honest edge of the rule — a demo viewer neither collides nor swims — and the argument for reading
+them anyway is that showing trigger volumes in a demo-analysis tool is not far-fetched. They are the
+ones to do next if this is taken further.
+
+**What a consumer for the normals would be:** lighting the world PER PIXEL — dynamic lights,
+specular, or a `$bumpmap` on brushwork evaluated against a real light rather than a baked lightmap.
+That needs a tangent basis, and now the data it is built from is already decoded.
+
+**Method worth keeping:** none of this needed a decompiler pass. `worldbrushdata_t` is not in the
+published SDK, but Source binaries carry their function names as literals, so
+`grep -aoE "Mod_Load[A-Za-z]+" engine.dll` yields all 31 loaders — the field set in effect, and a
+cheaper and steadier instrument than a decompiled struct
+(`docs/memory/binaries-answer-what-the-sdk-cannot.md`).
+
+**Measured from the shipped binary rather than guessed**, because `worldbrushdata_t` — the engine's
+own aggregate of a map's lumps — is defined in `gl_model_private.h`, which `source-sdk-2013` does
+not ship. `model_t` is forward-declared in the public headers and nothing more.
+
+**No decompiler pass was needed.** Source binaries carry their function names as literals, so the
+loader set falls straight out of `engine.dll`:
+
+```bash
+grep -aoE "Mod_Load[A-Za-z]{2,24}" ".../Team Fortress 2/bin/engine.dll" | sort -u
+```
+
+Thirty-one loaders, one per lump the engine keeps in its world data. That list IS the structure's
+field set in effect, and it is a cheaper and more reliable instrument than reading a decompiled
+struct — see `docs/memory/binaries-answer-what-the-sdk-cannot.md`.
+
+**What we do not read, and whether it matters:**
+
+| lump | why the engine wants it | costs us |
+|---|---|---|
+| `VertNormals` + `VertNormalIndices` | per-vertex normals, for smooth shading and the tangent basis bumpmapping needs | **nothing today** — see below |
+| `Marksurfaces` | the leaf-to-face map, which is how the engine draws only what the PVS admits | performance, not correctness: we draw everything |
+| `AreaPortals` | sealing areas for visibility | nothing — same reason |
+| `LeafWaterData`, `BrushSides` | water volumes and collision | nothing — we neither swim nor collide |
+
+**The vertex-normal one is worth stating precisely, because it looks alarming and is not.** Our
+world faces take the normal of their PLANE (`BspSurfaces.ReadNormal`), and the world builder never
+sets a per-vertex normal at all — every `WorldVertex` keeps the record default `NormalZ = 1f`. That
+sounds like every surface lit as though facing up.
+
+It is not, because **the world pass never uploads a normal**: `WorldRenderer`'s input layout is
+`POSITION` plus texcoords, with no `NORMAL` semantic. World lighting is the map's baked lightmap, so
+a per-vertex normal has nothing to feed. Models are a different path and do carry one.
+
+**It becomes a real gap the moment the world is lit per pixel** — world bumpmapping, specular, or
+any `$bumpmap` on brushwork — because the tangent basis those need is built from exactly these two
+lumps. Anyone adding that must read them first rather than deriving a normal from the plane, which
+is flat by construction and wrong on every displacement.
+
+### B201 — The live client REFUSES this demo, and it is schema drift, not the map — CONFIRMED 2026-08-25
+
+**The owner played `etf2l-12030-stv-2020-07-23.dem` in the current TF2. It aborts:**
+
+```
+Missing RecvProp for DT_BasePlayer - DT_Local/m_audio.ent
+Missing RecvProp for DT_BonusRoundLogic - _ST_m_aBonusPlayerRoll_33/lengthproxy
+Missing RecvProp for DT_BonusRoundLogic - _ST_m_aBonusPlayerRoll_33/000 .. /032
+RecvProp type doesn't match server type for DT_ObjectDispenser/"healing_array"
+Host_EndGame: CL_ParseClassInfo_EndClasses: CreateDecoders failed.
+```
+
+**This is the project's founding premise, caught in the act.** `CLAUDE.md` opens by saying this tool
+exists for "demos the live game client can no longer play due to Valve's own schema changes" — and
+here is a 2020 demo, six years old, that the 2026 client cannot build decoders for. The specimen is
+now in the corpus and the exact failure is written down.
+
+**It also CORRECTS B200, which is why that entry is now marked unproven.** The client never reached
+the map: `CreateDecoders` fails during `CL_ParseClassInfo_EndClasses`, before any world is loaded. So
+this run says nothing about whether `cp_process_final` matches, and my map-version explanation for
+the door grates has no support from it. Everything after the abort — `Could not find table
+"modelprecache"`, `"soundprecache"`, the wall of "Cannot figure out which search path" lines — is
+TEARDOWN noise, not evidence. Reading it as causes would be the same mistake twice.
+
+**Three drifts are named precisely, which is the valuable part:**
+
+| symbol | drift |
+|---|---|
+| `DT_Local/m_audio.ent` | a property the 2026 client no longer receives |
+| `_ST_m_aBonusPlayerRoll_33` | an ARRAY LENGTH baked into the table name — 33 slots then, something else now |
+| `DT_ObjectDispenser/"healing_array"` | same name, **different type** — the drift that cannot be detected by name alone |
+
+The third is the interesting one. A missing property is obvious; a property whose TYPE changed under
+a stable name is the failure that decodes to plausible garbage in any parser that trusts names. This
+project decodes generically off each demo's own embedded schema precisely so that cannot happen, and
+this is the evidence that the danger is real rather than theoretical.
+
+**The owner's standing requirement, which this entry exists to serve:**
+
+> "we have to allow the demo to be viewed no matter what, and get it rendering right, no matter what"
+
+So the answer to a demo the game refuses is never to refuse it too. Where the game gives up, this
+tool carries on — and where a map version is missing, the answer is to FIND the old map, and warn
+only when it cannot be found.
+
+### Why this specimen matters more than the bug it was found chasing
+
+**It is the first demo in the corpus PROVED unplayable by the live client, with the engine's own
+reasons attached.** Everything before it was inference: protocol windows estimated from changelogs,
+a premise stated in `CLAUDE.md` and never demonstrated. This is the demonstration, and it is only six
+years old — which is the part worth sitting with. The tool was justified by TF2's *full history*;
+the evidence says a demo from 2020 already needs it.
+
+**Rendering it correctly is therefore a milestone, not a bug fix.** The measure is not "no
+exceptions" — this project's own rule is that decoding must be TOTAL and anything below 100% with no
+errors is our defect (D-decode-total). The measure is that a demo the shipping engine cannot open
+plays here, correctly, with its entities decoded off its own embedded schema. That is the whole
+thesis in one file.
+
+**Keep it as a regression fixture in both directions.** It must keep decoding as the decoder changes,
+and its three named drifts — a removed property, an array whose LENGTH is part of the table name, and
+a retyped property under a stable name — are the three shapes any schema-drift handling has to
+survive. A synthetic fixture cannot supply the third convincingly; this one does, with a date.
+
+### B200 — The demo carries a map hash and nothing checks it — OPEN, cause UNPROVEN
+
+**This is the answer to B198, and it cost an evening to reach.** The five "regressions" reported on
+2026-08-25 — door grates piled or absent, trigger volumes visible, a missing model — were one cause,
+and it was not the refactor. The owner, after comparing against `main`:
+
+> "ok its pre existing, its the demo you picked versus the one we have been using, lots of problems
+> in this demo and i dont understand why when the f_12 demo runs fine"
+
+**A competitive map is recompiled repeatedly** — `cp_process_f9`, `f10`, `f11`, `f12` — and this
+viewer loads the map **by NAME** out of the local install. A 2020 ETF2L demo drawn against a
+different compile of the same name is a demo whose entity model indices point into somebody else's
+BSP: every `*N` submodel resolves to the WRONG brush entity. Doors take another door's geometry, an
+entity lands on a trigger's submodel and becomes visible, a model is absent because that index is
+something else now.
+
+**THE ENGINE ENFORCES THIS, and the proof is the owner's own workflow rather than anything measured
+here.** They had `cp_process_f12.bsp` copied into `tf/maps` *specifically so the real TF2 client
+would play an f12 demo*. The game would not do it without the matching map. That is the behaviour
+this viewer lacks: TF2 treats the map version as part of whether a demo is playable at all, and we
+treat the map NAME as sufficient.
+
+**We already decode the field that would detect it.** `svc_ServerInfo` carries both a CRC and, at
+protocol 24, a 16-byte hash. Both are read in `NetMessageReader`, kept on `ServerInfoMessage`
+(`MapCrc`, `MapHash`), written back by `NetMessageWriter` and printed by `MessageAssembly`.
+**Nothing compares either to the map that was loaded** — outside the round-trip and the trace, the
+only references in the repository are test fixtures.
+
+**Use the HASH, not the CRC.** Measured on `etf2l-12030-stv-2020-07-23.dem`: `MapCrc` is
+`4294967295` — `0xFFFFFFFF`, a sentinel — while `MapHash` is `7D81BAE6AEB7ED908E35FC7EF2A1D7CE`. The
+CRC is dead at this protocol; an implementation that checked it would compare a constant against a
+constant and always pass.
+
+**What is NOT established, so nobody treats it as settled:** whether that hash is a plain MD5 of the
+`.bsp`. It matches neither installed map — `cp_process_final` is
+`CE3C5D3C4580CB3CCF1C90CA5962634B` and `cp_process_f12` is `B18E4159616ACA5D3A6C6D37C219111A` — which
+is CONSISTENT with a version mismatch and does not prove one, because the field postdates the
+`source-sdk-2013` snapshot (which carries only `m_nMapCRC`) and there is therefore no citation for
+how it is computed. Settling it needs a positive control: take the hash from a demo whose matching
+map is known present, and see whether it equals that file's MD5. If it does, the algorithm is
+confirmed and every mismatch after it is real.
+
+**The fix is a comparison, not a feature**: on map load, check the BSP against the demo's `MapCrc`
+and say so when they differ. Refusing outright is the engine's behaviour; for a salvage tool a loud
+warning is probably better, since drawing the wrong map is still more useful than drawing nothing —
+but it must not be SILENT, which is what it is today.
+
+**Why it cost so much to find, which is the lesson worth keeping.** Every instrument said the code
+was fine, and every one was right: the world build, the brush-entity counts and the faces held back
+are identical between `main` and the branch; `EntityModelSet.Add` and `Instances` are byte-identical;
+`MomentScene.Build` matches the old `ShowMoment` step for step; Core is untouched. Six hypotheses
+died. **The defect was not in any code that changed — it was in a check that has never existed**, and
+no amount of diffing two versions can find something absent from both. The tell, in hindsight: the
+symptoms were *specific to one demo*, and nobody asked which demo differed until the end.
+
+### B198 — Brush entities draw wrong after the thin-view refactor — NOT A REGRESSION, see B200
+
+**Reported by the owner 2026-08-25, looking at the running viewer.** Five symptoms, at least the
+first two certainly related:
+
+| symptom | note |
+|---|---|
+| door grates piled several-in-one-place, or absent | "a massive regression" |
+| trigger volumes visible as translucent yellow boxes | `tools/toolstrigger` is never drawn by the engine |
+| a missing model | not yet characterised |
+| spy's watch/draw animation loops for ever | see below — probably a separate, KNOWN gap |
+| spy's firing animation never ends | same |
+
+**`main` is clean of this** — the owner's own statement, and it makes the refactor the bisect range.
+Their reading of the cause is worth recording verbatim, because it names a pattern rather than a
+bug:
+
+> "its just small random parity problems from where you think somethings to small to look at the sdk
+> or decomp and try to reason through"
+
+**What the DATA says, so nobody re-checks it.** The demo is fine. A `CBaseDoor` snapshot carries
+`m_vecOrigin (4234, 1732, 640)` with `m_vecMinsPreScaled (-5, -109, -65)` — bounds centred on zero,
+so the geometry is origin-relative exactly as `vbsp` writes it. Valve's own comment
+(`utils/vbsp/map.cpp:3064`): origin brushes "set the rotation origin for the rest of the brushes in
+the entity … the planenums and texinfos will be adjusted for the origin brush", and the entity gets
+an `origin` key. So `world = brushVertex + entityOrigin` is the invariant, and `dmodel_t.origin` is
+NOT the placement — `bspfile.h:445` comments it "for sounds or lights".
+
+**FIVE HYPOTHESES FALSIFIED, recorded so they are not re-run:**
+
+1. *`Precache`'s synthetic props place brush models at the origin.* No — `Add` is keyed by model
+   path and never reads a transform.
+2. *Precache runs before the map is read, caching every path empty.* No — `ReadMapNamed` precedes
+   it on the async path, and the sync path documents the ordering.
+3. *Packed models are stale across maps.* **A REAL DEFECT** (see B199) but not this: only one map
+   was loaded in the process that produced the screenshots.
+4. *`MapAssets.Geometry` lost the brush-model lookup.* No — behaviourally identical to the old
+   `MainForm.ModelGeometry`, both `assets.EntityModels.TryGetValue`.
+5. *`BuildWorld` stopped excluding brush faces from world geometry.* No — `Level.BrushModels` is
+   passed to `MapWorldBuilder.Build` in the same argument position as before.
+
+**Stop proposing suspects.** That is B191's lesson and this is the fifth one to die; the next step is
+a bisect, not a sixth.
+
+### What the bisect ELIMINATED, measured 2026-08-25
+
+A probe was built that launches the viewer on a fixed demo, waits for the load lines and kills it —
+`scratchpad/probe.sh` in the session, worth rebuilding if it is wanted again. Validated against a
+number from the owner's own session before being trusted. **Every load-side figure is IDENTICAL
+between `main` and the refactor tip, on `cp_process_final`:**
+
+| measurement | `main` | tip |
+|---|---|---|
+| world vertices / material batches | 4,363,083 / 137 | **same** |
+| brush entities named a class | 159 | **same** |
+| brush entities built from the models lump | 159 | **same** |
+| brush faces | 12,306 | **same** |
+| faces held back for entity models | 250 | **same** |
+
+**So hypothesis 5 is dead twice over and the whole map pipeline is exonerated.** Brush and tool faces
+are NOT leaking into world geometry; the geometry is byte-identical; the same 250 faces are withheld
+for entity models on both sides. It also means the world-vertex count is useless as a bisect
+predicate, which is why the run stopped rather than continuing on a number that cannot separate the
+two ends.
+
+**The moment pipeline is exonerated too, by diffing the moved body** — the audit pass that had never
+been run on `MomentScene`, which is the largest move in the refactor at 768 lines. `Build`'s call
+sequence matches the old `ShowMoment` step for step: clear, add props, player props, first-person
+filter, weapon-visibility filter, pack, instances. **`UpdateClientSideAnimations` is still called
+every frame** — it moved inside `Pack()` but sits ABOVE its `if (!grew && Uploaded) return`, so it
+runs whether or not the model set grew. And `Build` receives the same `_players`/`_props`, sampled by
+the same `timeline.PlayersAt`/`PropsAt` calls.
+
+**What is therefore left, and where to look next:** the transform itself. A brush entity's geometry
+and the map's answer about it are identical on both sides, so the difference has to be in what
+`EntityModelSet.Instances` does with a `SceneProp`, or in the arguments it is now given — the
+lighting sources moved to `LevelLighting` in this refactor, and `Instances` gained parameters. That
+is the one seam between "the map is right" and "it draws in the wrong place" that has not been
+diffed.
+
+**A predicate for that seam has to be measured during PLAYBACK, not at load**, which is why the
+load-line probe cannot do it. `--shot --tick N` would give a reproducible frame — but it works only
+on the branch, since `--shot` on `main` is B196.
+
+**It can be bisected AUTOMATICALLY, with nobody looking.** The world build logs
+`world: N vertices in M material batches`, and leaked brush or tool faces change it for a fixed map.
+HEAD, measured 2026-08-25:
+
+| map | vertices | batches |
+|---|---|---|
+| `cp_process_final` | 4,363,083 | 137 |
+| `cp_granary` | 3,459,024 | 82 |
+| `cp_badlands` | 3,057,228 | 93 |
+
+Take the same numbers on `main`; if they differ, that number is the bisect predicate. **Note `--shot`
+does not work on `main`** (that is B196, fixed only on the branch), so a run there has to be killed
+rather than exiting by itself.
+
+**The two animation symptoms are probably NOT this.** `docs/findings/25-gesture-layer.md` has a
+section headed "Open" saying slice 3b — feeding `m_iEvent` into the gesture layer — "remains to be
+built". Nothing ends a gesture because nothing starts one through that path. **But the owner's
+objection stands and is unanswered:** if gestures were simply absent, every class would look the
+same, and only the spy does. Spy is the one class whose active weapon changes on its own — cloak,
+disguise, and the watch as a second viewmodel — so a draw animation selected from "which weapon is
+active" would retrigger for ever. Unmeasured.
+
+### B199 — Packed entity models are never cleared between maps — OPEN
+
+**Found while investigating B198, and real regardless of it.** `EntityModelSet` has no reset method
+and nothing clears `_byModel`, `_frames` or `_raw`. `ClearMap` resets the LOADER
+(`_models.Geometry = NoGeometry`) and leaves everything already packed.
+
+**Brush submodels are named `*1`, `*2`, … PER MAP.** So loading a second map reuses the first map's
+geometry for entirely different doors, lifts and triggers. Studio models are path-unique globally,
+which is why this shows on brushwork alone.
+
+**Worse, the cache is poisoned on a miss.** `Add` writes `_byModel[path] = frames` BEFORE attempting
+the load and `continue`s when it fails, so a path packed while its geometry was unavailable is
+remembered as empty for ever — `_byModel.ContainsKey` short-circuits every later attempt. That is
+the failure B195 predicted in writing: "a path in the precache set and not the load set decodes to
+nothing, so `Add` records it empty and the model silently never draws".
+
+### B197 — Three divergences from Valve, decided by the assistant and written into comments — FIXED 2026-08-25
+
+**Not a code defect but a process one, and it produced code defects.** Three departures from what
+the engine does were chosen while refactoring, each explained in a doc comment, none asked about.
+The owner:
+
+> "if you diverge i need to be asked"
+
+> "i assume and want you to assume valve knew more than us and has the better idea, every time"
+
+| divergence | outcome |
+|---|---|
+| `MapOverview` omitted `CanPlayerBeSeen`'s origin check | **implemented** |
+| `LeafVis` projected on the CPU into clip space, undrawable behind geometry | **rewritten**, world space on the GPU |
+| `LevelSystems` wired systems explicitly instead of `IGameSystem` | **asked**; shared leaf project chosen |
+
+**The tell was in the wording, twice: "stated rather than dropped", "a divergence stated rather than
+hidden".** Writing a reason down feels like discharging it and is not — a well-explained wrong turn
+survives longer than an unexplained one, because it reads as settled.
+
+**The third is the argument for the rule, because the reason was simply FALSE.** The claim was that a
+shared `ILevelSystem` could not exist: it would need `LoadedMap` (Scene) visible to `SoundscapeSystem`
+(Audio), and Audio does not reference Scene. One grep killed it —
+`virtual void LevelInitPreEntity() = 0;` **takes no parameters** (`igamesystem.h:39`). Valve's systems
+pull what they need from globals, so the interface carries no payload and the boundary was never in
+the way. The divergence was invented to serve a reconstruction of Valve's design rather than Valve's
+design.
+
+**What the origin check is actually for**, in the owner's reading — better than the one the code
+originally carried:
+
+> "valve does the no draw at orgin thing because it doesnt want dead players or spectators drawn in
+> the map or sky somewhere if the origin is not under the map"
+
+An entity that exists without a position sits at (0,0,0), and (0,0,0) is a REAL place — mid-air,
+inside a wall, under the floor, depending on where the mapper put the world. The dot is not
+meaningless, it is convincing, which is the same failure the spectator filter beside it prevents.
+
+**A fixture was sitting on the sentinel.** `MapOverviewTests` defaulted every player to (0,0), so
+every test that did not care where its subject stood was unknowingly using the one position with a
+special meaning — harmless while the check was missing, and misleading the moment it arrived.
+
+**Still needing eyes, because no assertion can answer it:** the leaf box is now depth-tested and can
+be occluded by the geometry it describes. That is what the engine does and it is the point of the
+change, but whether it READS well — whether a box you are standing inside is still legible when the
+near walls hide most of it — is a question for someone looking at it (D95).
+
+### B196 — Two features shipped dead because a field outlived its assignment — FIXED 2026-08-25
+
+**Both were found by the wiring audit B193 asks for, one by grep and one by a new test. Neither was
+visible to the compiler, the analyzers or 620 green viewer tests.**
+
+| field | move that dropped it | what stopped working |
+|---|---|---|
+| `_level` | `MapLevel` collapsed into `LoadedMap` (`a04f0fe`) | `mat_leafvis` drew nothing on every map |
+| `_shotPath` | the six `_shot*` fields became `LaunchOptions` | `--shot` did nothing at all |
+
+**The shape is identical and it is the shape every extraction can produce.** A field that used to be
+written by the code being moved is left behind, still declared and still read, and the write goes
+with the move. It then holds null for ever.
+
+**Why nothing caught it.** `_level = null` in `ClearMap` IS an assignment, so CS0649 stays quiet.
+The field is read, so the unused-member analyzers stay quiet. `_level?.Leaves` on a permanently null
+field is a legal expression with a legal answer, so nothing throws. And the observable effect —
+an overlay drawing nothing — is indistinguishable by eye from standing in a leaf whose box is off
+screen. For `--shot` there was no observation at all: **no test in the repository passes it**, so
+the option was covered by nobody.
+
+**The irony is worth keeping.** `a04f0fe`'s own comment says the change was made so that
+*"`mat_leafvis` went blank on a map whose BSP tree was fine"* would stop happening. The commit that
+fixed a conditional blankness introduced an unconditional one.
+
+**Fixed three ways, and the third is the one that generalises:**
+
+1. `_level` deleted; `mat_leafvis` reads `_loaded.Level.Leaves`. **One place, or it drifts** — the
+   duplicate was the failure mode, not the missing assignment.
+2. `_shotPath = _launch.ShotPath` restored, and the empty-outline case now reports which of three
+   silences it is (D83), once per map rather than per frame.
+3. **`FieldSeedingTests` — a source-level scan that fails when any field in `Viewer3D` is read but
+   only ever assigned null.** Validated by running it against the pre-fix source, where it names
+   both. This is the instrument B193 has been asking for.
+
+**Two defects in the instrument itself, both of which made it pass vacuously**, and both caught only
+because it carries a control that feeds it a known-broken input:
+
+- `=(?!=)\s*(?!null\s*;)` does not mean "an `=` not followed by null". When the lookahead fails the
+  engine backtracks `\s*` to zero width, the lookahead then sees a SPACE rather than `null`, and
+  succeeds. Needs an atomic group.
+- **A comment counted as an assignment.** This file records every field it removes in a note naming
+  it, and one reads ``the old catch set `_level = null` alongside…``. The backtick after `null`
+  defeats the guard, so the note marked the field seeded — and the scan reported `_shotPath` alone
+  while staying blind to the very bug it was written for.
+
+### B195 — Two different answers to "what models does this demo need" — OPEN
+
+**Found while moving `PrecacheModels` out of `MainForm`, by reading what it asked for.** Two sets
+are built, for two purposes, and they do not agree:
+
+| | the LOAD set | the PRECACHE set |
+|---|---|---|
+| built by | `DemoModels.Needed(timeline, game)` | `timeline.ModelPaths()` plus `game.ModelPaths()` |
+| given to | `MapAssets.Load` — decides what geometry is DECODED | `EntityModelSet.Add` — decides what is PACKED |
+| props | studio only | every kind, including `*N` brushes and sprites |
+| weapons | resolved through the item schema | viewmodels only |
+| players | the class roster | each player track's own path |
+
+**Neither direction fails loudly, which is why it has survived:**
+
+- a path in the PRECACHE set but not the LOAD set is decoded to nothing, so `Add` records it as
+  empty and the model silently never draws;
+- a path in the LOAD set but not the PRECACHE set is decoded but not pre-packed, so it packs on
+  first sight — a hitch mid-playback, which is exactly what the precache exists to remove.
+
+**This is the same shape as the weapon disagreement already recorded**, where the set decided which
+models were packed and the draw path decided which was shown: two answers to one question drift, and
+the symptom is a model that resolves and cannot be drawn. That one was fixed by making both sides
+call `WeaponModels.For`. This one wants the same treatment.
+
+**Deliberately not fixed in the refactor commit that found it.** Unifying them changes WHICH models
+are packed, which is a behaviour change wanting its own measurement — how many paths differ on a
+real demo, and whether the difference is the brush/sprite filter or the roster. A refactor that
+quietly changes what is drawn is the thing this whole effort is trying to stop.
+
+### B193 — Nothing catches the view failing to hand the scene a source it needs — OPEN
+
+**Twice in three commits, and the second one SHIPPED.** This is the defect class of the whole
+refactor: a scene that is handed its collaborators cannot tell "nobody wired this" from "the demo
+genuinely has none", and every symptom is silent.
+
+| occurrence | what was dropped | caught by | shipped? |
+|---|---|---|---|
+| 1 | `EnsureWeaponRoles()`, so every weapon suffix answered null | an analyzer noticing the method had become unreachable | no |
+| 2 | `MomentScene.Viewmodels` was never assigned at all | reading the wiring two commits later, by eye | **yes** |
+
+The second is the worse one and is worth stating plainly: when the scene rebuild moved out of the
+form, nothing set `Viewmodels`, so `AddViewmodel` returned on its first guard and **the
+first-person weapon never drew at all**. The viewer suite reported 620/620 across that commit and
+the one after it.
+
+**Both are now reported rather than silent** — `no player appearance` and `no viewmodel source`,
+each once rather than per frame, each with a test. And every per-demo source is assigned in ONE
+place, where the demo arrives, rather than wherever each collaborator happened to be constructed.
+
+**The original finding, kept because it is the measurement:** the wiring was broken deliberately —
+`_moment.Appearance = new GameAppearance(_classModels, null)` — and the viewer suite reported
+**Passed: 566, Skipped: 54, Total: 620**. All green, on a defect that gives every player the wrong
+weapon animation.
+
+**Measured, not assumed.** With the wiring deliberately broken —
+`_moment.Appearance = new GameAppearance(_classModels, null)` — the viewer suite reported
+**Passed: 566, Skipped: 54, Total: 620**. All green, on a defect that gives every player the wrong
+weapon animation.
+
+**Why it is invisible:** the chain is `EnsureWeaponRoles` → `GameAppearance` captures the roles →
+`WeaponSuffix` → `prop.Pose.Slot` (`PlayerProps.cs:154`). Break any link and every suffix answers
+null, the animation silently falls back to the generic primary form, and nothing throws.
+
+**What now covers what:**
+
+| failure | caught by |
+|---|---|
+| the mechanism — a suffix not reaching `Pose.Slot` | `MomentSceneTests`, three cases |
+| the wiring — `MainForm` not handing the roles over | **nothing** |
+| the wiring, at runtime | a `no player appearance` warning, added with the move |
+
+**Deliberately not fixed with a Viewer3D test, and the reason is the refactor itself.** A test there
+would need an STA, a device and a real TF2 install to read the weapon scripts — so it would skip on
+any machine without one, and a skip is not a pass. It would also be thrown away: the owner's plan is
+that `Viewer3D` gets the same treatment `MainForm` is getting, and its tests move with it.
+
+**The gap closes as a side effect of finishing that work.** Once the wiring lives outside
+`Viewer3D`, asserting it needs neither a window nor an install. Until then the warning is the
+instrument, and it fires once rather than per frame.
+
 ### B192 — A scene rebuild still spikes to ~120 ms, and the fat column is still the subtracted one — OPEN
 
 **After B191 was fixed**, the recurring stall is gone from the frame rate — but three to five moments
@@ -11469,3 +11993,244 @@ more — and that is the same constraint `docs/DECISIONS.md` D5 describes. **A r
 stating with it:** the period clients have no internet connection, so a modern item cannot be loaded
 into an era client to compare against. Where an era question cannot be answered by playing one, it
 has to be answered from the shipped data and the SDK.
+
+
+### B202 — Players missing in the 2013 granary POV, never checked against main — OPEN, unjudged
+
+**Reported 2026-08-25 and deliberately left unresolved**, because the instrument was wrong rather
+than the observation. Playing `20130518_0313_cp_process_granary_blu_blu.dem`-era POV footage
+(`tools/corpus/local/20130518_0313_cp_granary_blu_blu.dem`), enemies did not draw.
+
+**It was never run on `main`, so nobody knows which it is.** The owner:
+
+> "i didnt check that pov demo on main though, so idk is the missing players in that demo were a
+> parity issue or a new bug, but its fine right now"
+
+**Two readings, both live:**
+
+- **Expected.** A POV demo is PVS-limited — only entities in the recorder's potentially-visible set
+  are networked, so a player behind a wall is absent from the DATA, not from the render. That is
+  `docs/memory/pov-demos-are-pvs-limited.md`, and it is the reading the log supports: the cycle
+  followed team-2 entities, so enemies existed and passed `Drawn` at the ticks it sampled.
+- **A defect.** Enemies passing `CanObserve` but never reaching the screen would be a real fault, and
+  the two are indistinguishable without the comparison.
+
+**How to settle it, and it is one run:** play that same file on `main`, on the same map, and look. If
+enemies are absent there too it is PVS and expected; if they draw, it is ours. **Do not substitute a
+different demo or map to check** — that is what turned a half-hour question into an evening once
+already.
+
+### B203 — The frame ran its stages in the wrong order, for as long as it lived in the form — FIXED 2026-08-26
+
+**Found by auditing `MainForm.RenderFrame` against Valve before extracting it**, which is the only
+reason it was found at all: nothing about the symptom said "frame order", and every stage had its own
+passing tests.
+
+**Two independent divergences, both in the same eight lines.**
+
+**1. Sound ran before the camera was placed.** Valve computes the camera basis and the listener from
+the *same* `viewEye`, four statements apart (`game/client/view.cpp:778-796`, read from source):
+
+```cpp
+ComputeCameraVariables( viewEye.origin, viewEye.angles, &g_vecVForward, &g_vecVRight, ... );
+
+// set up the hearing origin...
+AudioState_t audioState;
+audioState.m_Origin = viewEye.origin;
+audioState.m_Angles = viewEye.angles;
+engine->SetAudioState( audioState );
+```
+
+Ours called `PlaySounds()` **first**, so the listener sat where the eye had been on the *previous*
+frame. Audible as sound lagging the view through a fast turn, and indistinguishable by ear from a
+wrong panning law — which is why it survived the whole of the audio work.
+
+**2. The world advanced after the camera was uploaded.** Valve simulates in `CHLClient::HudUpdate`
+via `IGameSystem::UpdateAllSystems( frametime )` (`cdll_client_int.cpp:1308`), which runs before the
+view is built at all. Ours called `AdvancePlayback()` *after* `UploadCamera()`, so each frame drew
+**tick T+1's entities through tick T's eye** — and worse, the viewmodel camera *is* rebuilt during
+the advance (`ShowMoment` passes `FirstPersonCamera()` into `MomentInfo`), so **the viewmodel and the
+world were drawn through cameras one tick apart from each other**.
+
+**Why no test could see it.** The order was a sequence of statements inside a `Form`. A window cannot
+be asked what order it does things in, and every stage's own tests passed throughout — the exact
+shape of *three test levels, and the third is missing*.
+
+**Fixed by extracting the order into `FrameSequence` + `IFrameSteps`** (Presentation), which is
+testable: `FrameSequenceTests` asserts the stage order against Valve's citations. The red step was
+run deliberately with the shipped order in place, and the three order assertions failed — so the test
+is known to detect the bug it was written for, not merely to pass.
+
+**A second, quieter half of the same defect went with it.** `FramePhases.Between` took eight
+cumulative timestamps and subtracted adjacent pairs, so its *parameter names* were a second copy of
+the frame's order. Reordering the stages without reordering that argument list would have relabelled
+every stall column silently — reporting the fix as a regression somewhere else. The order is now
+written once, executably, and each phase is named at the call that produces it.
+
+**Not yet judged by eye.** The suites are green (3,659 plus 19 UI) and the reorder is correct against
+the citations, but *what it looks like* is a question for the owner, per the standing rule that a UI
+claim which cannot be checked by looking is a question rather than a statement. It is plausible that
+this is behind some of B198's visual reports; it is not established, and it should not be assumed.
+
+### B204 — Valve has one `AngleVectors` and we had four copies of it — FIXED 2026-08-26
+
+**Found by following B203's method one step further.** Auditing `MainForm` for domain knowledge
+turned up a hand-inlined forward vector inside a *mouse-wheel handler*:
+
+```csharp
+(float sinPitch, float cosPitch) = MathF.SinCos(_freeAngles.Pitch * (MathF.PI / 180f));
+(float sinYaw, float cosYaw) = MathF.SinCos(_freeAngles.Yaw * (MathF.PI / 180f));
+...
+where.X + (cosPitch * cosYaw * travel),
+where.Y + (cosPitch * sinYaw * travel),
+where.Z + (-sinPitch * travel));
+```
+
+That is `forward->x = cp*cy; forward->y = cp*sy; forward->z = -sp;` — `mathlib_base.cpp:911`.
+Grepping the arithmetic rather than the name found three more:
+
+| site | inlined |
+|---|---|
+| `FlightInput.Direction` | forward **and** right |
+| `FreeCamera.Orbiting` | forward |
+| `MainForm.OnViewportWheel` | forward |
+| `SoundListener.From` | right |
+
+**`FreeCamera` had a comment reading "AngleVectors' forward" directly above its copy.** The knowledge
+was present; only the reuse was missing. That is the useful detail — this was not ignorance of
+Valve's function, it was the same judgement made four times that two lines are too small to share.
+
+**Why it is a risk and not housekeeping:** four copies of one formula are four chances to fix a sign
+in one of them, and a disagreement between them does not crash. It shows as a camera that flies
+slightly wrong in one mode, or sound panning that disagrees with the picture — exactly the class of
+"small random parity problems" the owner named as the likely cause of the visual defects.
+
+**One `AngleVectors` in `Scene` now**, reproduced exactly rather than reformulated, since a nicer
+formulation is a place for a divergence to hide (D89).
+
+**The convergence was verified by manipulation, not by the suite passing.** Flipping the sign of
+`forward.Z` reddens tests in **Scene, Presentation and Viewer3D** — which is the evidence that all
+four sites genuinely route through the shared function rather than sitting beside dead code. A green
+suite alone cannot distinguish those two.
+
+**Not exhaustive, and this is the open part.** The grep covered `SinCos` and `MathF.Cos`; the
+remaining hits are quaternion half-angle builders (`* 0.5f`) in `StudioAnimation`, `PropPlacement`
+and `ScenePropTrack`, which are a different Valve function (`AngleQuaternion`) and were **not**
+audited for duplication here. **`up` is not provided at all**, because nothing needed it — adding it
+later means adding the `roll` parameter the full formula requires, not amending these two.
+
+### B205 — The overhead camera survives D49 as a fallback nobody chose — OPEN, needs the owner
+
+**Found while auditing the mouse wheel for B204, and deliberately not acted on.** This is a question
+about our own design intent, not a Valve divergence, so it is the owner's to settle.
+
+**The arithmetic.** `CameraMode` has exactly two members since D49 deleted `Map`, so `_freeLook` and
+`_firstPerson` are exact complements — `!_firstPerson` *is* `_freeLook`. Given that,
+`ViewCamera.Matrix` reduces:
+
+```csharp
+if (firstPerson && eye is { } through) { return through.ToMatrix(); }
+return freeLook ? free.ToMatrix() : overhead.ToMatrix();
+```
+
+The `overhead` branch is unreachable via `!firstPerson && !freeLook`, which cannot happen. It is
+reached by exactly one path: **first person, when no eye is available** — a demo that has lost its
+subject, or a SourceTV recording with nobody being followed.
+
+**Two consequences, and the second is probably a defect.**
+
+1. **The overhead camera is now a first-person fallback**, which is not what D49 left it as. The
+   owner's position: *"the overhead view is gone unless it is specifically talking about the free
+   cams default poistion"*. On that reading the fallback should be the **free camera**, since
+   overhead is a *placement* of it rather than a view of its own. That is a one-line change and it
+   is not being made unilaterally, because it changes what a viewer shows in a real situation.
+
+2. **The mouse wheel's zoom branch runs only in first person.** `OnViewportWheel` flies the camera
+   when `_freeLook` and otherwise adjusts `_zoom` and `_lookingAt` — so in first person, scrolling
+   retunes a camera that is normally invisible, and the wheel appears to do nothing. Whether the
+   wheel *should* do something in first person (Valve's `spec_` modes offer no zoom) is the same
+   question.
+
+**How to settle it:** decide whether losing the subject should drop the viewer into the free camera
+or into an overhead placement of it, and whether the wheel does anything in first person. Both are
+small once decided. **Do not "tidy" `_zoom`/`_lookingAt`/`MapCamera` away before deciding** — they
+are live on that fallback path, and deleting them would silently turn the fallback into a black
+screen rather than into a chosen behaviour.
+
+### B206 — Eleven tests on a camera the viewer never ran — FIXED 2026-08-26
+
+**Third finding from the same audit as B203 and B204, and the worst of the three**, because it is
+not a duplicate that might drift — it is coverage pointing at nothing.
+
+`FreeLookState` (Presentation) had `Drag`, `PlaceAt`, `Unplace`, `Fly`, `DegreesPerPixel`,
+`PitchLimit`, and **eleven tests**. It had **no production caller anywhere.** The only references
+outside its own test file were a stale `<c>FreeLookState</c>` in an `OverheadPlacement` doc comment.
+
+**Meanwhile the drag the viewer actually performs was written out longhand inside
+`MainForm.OnViewportMouseMove`, with its own copy of `DegreesPerPixel` and a hardcoded `-89f, 89f`,
+and had no tests at all.** So the position was exactly inverted: the mouse look that ran was
+unwatched, and the one with eleven tests never executed.
+
+**This is B196's shape** — `_level` and `_shotPath` shipped as dead features invisible to the
+compiler — with an extra turn of the screw. Dead code is merely waste; **dead code with a green test
+suite is a false negative**, because "is the drag tested?" answers yes.
+
+**How it happened, as far as the record shows:** `FreeLookState` was the earlier design (D66 moved
+three fields and two handlers out of `MainForm` into it), and `FreeCameraController` superseded it
+later (D90, B188, and the D91 field-of-view work). The replacement took over the call sites; nothing
+took over the tests, and nothing failed when they stopped describing anything.
+
+**Fixed by moving `Drag` and the two constants onto `FreeCameraController`**, pointing the window at
+`_freeCamera.Drag(dx, dy)`, and deleting `FreeLookState` with its tests.
+
+**The migration was selective rather than wholesale, and the arithmetic is the check.** Of eleven
+tests, the six `Fly` cases were **not** ported: `CameraFlightTests` (6) and `FreeFlightPathTests`
+(10) already cover the live flight path, including D65's cancel-at-vertical guard. The four `Drag`
+cases were ported, and `PlaceAt`'s pitch clamp became a `Parse` test — since `TF2VIEW_CAMERA` is
+what D65 was actually about, and its clamp had been asserted only against the dead type. Net 11
+removed, 5 added, and the gate refused the drop until the floor was corrected with that reasoning
+written next to it.
+
+**One thing the analyzer contributed and it is worth noting:** after the change, `_freeAngles`'s
+setter became unused and Sonar said so immediately. That is a small independent confirmation that
+the drag really was the last writer of the camera's angles from the window.
+
+### B207 — D49 removed the top-down mode and left its renderer behind — FIXED 2026-08-26
+
+**Found by generalising B206 into a sweep** rather than by noticing another one by hand. For every
+public type in `Presentation` and `Scene`, count production references outside its own file; anything
+at zero is either dead or reached by a name the grep did not use. Three came back, one a false
+positive (`WorldGeometry.cs` declares `WorldVertex`/`WorldBatch`/`SunLight`, which are live).
+
+**`MapSurfaces` — 188 lines, 10 tests, no production caller.** Its own documentation says what it
+was for:
+
+> *"What this layer has to decide is only what a top-down projection cannot get from the file …
+> There is no depth buffer and none is wanted for a flat view, so draw order is the depth test and
+> the list is sorted by height."*
+
+That is the **orthographic top-down view D49 removed**. The mode went; its renderer input stayed,
+along with `MapTriangle` and ten tests about fan winding, height shading and area clipping. Nothing
+replaced the tests because nothing replaced the feature — under D95 the viewer is always 3D.
+
+**`MapScene` and `MapSceneReader` — no caller and no tests either, and this one is worse than dead.**
+Read what it says it is for:
+
+> *"The point is that there is one of these. A renderer defect is only visible in a picture, and a
+> picture is only evidence if it was produced by the same code path the window uses. Before this,
+> the two agreed by hand and stopped agreeing the moment either gained an argument."*
+
+It was built to guarantee that the viewer and the tests read a map the same way — and **neither the
+viewer nor any test calls it.** The viewer reads through `LoadedMap.Read`. So the guarantee that
+comment asserts has not held for as long as the type has been orphaned, and a reader would conclude
+the opposite of the truth. **A comment describing a property of the system is a claim, and an
+orphaned type makes it a false one.**
+
+**The deletion is proved rather than assumed.** Every type in both files was checked for references
+(`MapTriangle` included), the solution builds, and the gate is green with the viewer floor lowered
+from 629 to 619 — exactly the ten tests, with the reasoning recorded beside the number.
+
+**The pattern across B206 and B207 is one thing worth naming:** when a feature or a type is
+superseded, the call sites move and the *tests and comments do not*. What is left is not inert —
+green tests answer "is this covered?" with yes, and orphaned comments answer "does the viewer share
+this path?" with yes. Both are wrong, and neither can fail.

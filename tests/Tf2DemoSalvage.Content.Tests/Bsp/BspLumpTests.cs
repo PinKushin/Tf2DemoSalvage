@@ -55,6 +55,8 @@ public sealed class BspLumpTests
             ("LUMP_LEAFFACES", BspLumpIndex.LeafFaces),
             ("LUMP_DISPINFO", BspLumpIndex.DispInfo),
             ("LUMP_DISP_VERTS", BspLumpIndex.DispVerts),
+            ("LUMP_VERTNORMALS", BspLumpIndex.VertNormals),
+            ("LUMP_VERTNORMALINDICES", BspLumpIndex.VertNormalIndices),
             ("LUMP_GAME_LUMP", BspLumpIndex.GameLump),
             ("LUMP_PAKFILE", BspLumpIndex.PakFile),
             ("LUMP_CUBEMAPS", BspLumpIndex.Cubemaps),

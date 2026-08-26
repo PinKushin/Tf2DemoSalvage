@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: feedback
   originSessionId: 9b3a8b35-1dc8-47b0-a320-73b01288f10c
-  modified: 2026-08-16T14:40:55.375Z
+  modified: 2026-08-26T01:02:11.296Z
 ---
 
 **Order of work on anything that reproduces engine behaviour: conformance test, then the ordinary
@@ -74,3 +74,26 @@ order the pictures happen to reveal them, which is the slowest possible sequence
 **The tell that this rule is being skipped:** editing renderer code with a citation in the commit
 message and no test beside it. A citation in prose does not redden when someone changes the value
 back, and it does not enumerate anything.
+
+---
+
+## Read the coverage report before re-deriving the gap — 2026-08-25
+
+Asked which world lumps the engine loads that we do not (B194), I grepped `Mod_Load*` out of a
+shipped `engine.dll` and worked out that vertex normals were missing.
+
+**`docs/SDK-COVERAGE.md` already said "27 of 66" and already named `LUMP_VERTNORMALS`.** The
+generated instrument had the answer before the measurement started. The owner's response was the
+rule:
+
+> *"yep thats why i say conformance tests first too"*
+
+**So the enumeration argument has a second half.** Writing the conformance test first enumerates the
+engine's behaviour — and once written, the generated half of that instrument *keeps* the enumeration,
+so the next question of the form "what are we missing" is a file to read rather than a measurement to
+take. Re-deriving it by hand is slower, produces a subset, and cannot be checked against anything.
+
+**Check the generated report first whenever the question is "what is missing".** Measurement can only
+find data that is wrong; it cannot find a feature that was never implemented.
+
+Related: [[read-the-spec-before-measuring-our-data]], [[an-uncoverable-gap-is-usually-your-reader]].

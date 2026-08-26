@@ -1,5 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+
+using Microsoft.Extensions.Logging;
+
+using Tf2DemoSalvage.Logging;
+using Tf2DemoSalvage.Scene;
 
 namespace Tf2DemoSalvage.Presentation;
 
@@ -471,6 +478,87 @@ public sealed class ConfigConsole
     /// **Not filled in from the defaults**, which is what <see cref="Bindings"/> does and why the
     /// two are separate. A settings screen wants every row populated; a diagnostic wants the truth.
     /// </remarks>
+    /// <summary>Read the user's own TF2 configs and take their bindings.</summary>
+    /// <param name="installedGameFolder">Where TF2 is, or null if it was not found.</param>
+    /// <param name="loggers">For the config reader's own diagnostics.</param>
+    /// <param name="config">The config log.</param>
+    /// <returns>The bindings, or null when nothing was loaded and the caller should keep its own.</returns>
+    /// <exception cref="ArgumentNullException">A collaborator is null.</exception>
+    /// <remarks>
+    /// **This was `MainForm.LoadUserConfig`** (B188, D90). Reading a user's `.cfg` files is the
+    /// heart of D69 — a real config must work wholesale — and none of it is window work.
+    ///
+    /// **Null rather than the default bindings when nothing loads, and that is a faithfulness
+    /// point rather than a style one.** `MainForm` assigned `_bindings` only on the success path, so
+    /// a failed read left whatever the field already held. Returning `Bindings()` here instead would
+    /// look equivalent and would silently overwrite the caller's bindings with this console's — a
+    /// difference that shows up only as keys quietly changing behaviour after an unreadable config.
+    ///
+    /// **Every applied bind is logged at Information, one line each.** That is verbose for
+    /// production and it stays: the whole promise of D69 is that a pasted config works, and the only
+    /// way a user can check which of their binds this viewer understood is to read them back. The
+    /// unbound list exists for the same reason from the other side.
+    /// </remarks>
+    public KeyBindings? LoadFrom(
+        string? installedGameFolder, ILoggerFactory loggers, ILogger config)
+    {
+        ArgumentNullException.ThrowIfNull(loggers);
+        ArgumentNullException.ThrowIfNull(config);
+
+        try
+        {
+            string? game = installedGameFolder ?? Tf2ConfigFiles.DefaultGameFolder;
+
+            if (game is null)
+            {
+                config.LogInformation(
+                    "{Message}", "no TF2 install found; using the built-in bindings");
+                return null;
+            }
+
+            IReadOnlyList<string> configs = Tf2ConfigFiles.Read(game, loggers.LogTo());
+
+            if (configs.Count == 0)
+            {
+                config.LogInformation(
+                    "{Message}", $"no configs under {game}; using the built-in bindings");
+                return null;
+            }
+
+            Load(configs);
+
+            KeyBindings bindings = Bindings();
+
+            config.LogInformation(
+                "{Message}", $"{configs.Count} files, {Applied} of {Bound} binds applied");
+
+            foreach ((ViewerAction action, string key) in bindings.All())
+            {
+                config.LogInformation("{Message}", $"  {action,-20} {key}");
+            }
+
+            // **The controls their config left unreachable, named rather than left to be noticed.**
+            // A key bound to a TF2 command this viewer does not implement — `bind "SHIFT" "+duck"`
+            // is the real example — takes that key away from whatever used to answer to it, and the
+            // symptom is a control that silently does nothing.
+            if (Unbound() is { Count: > 0 } unbound)
+            {
+                config.LogInformation(
+                    "{Message}",
+                    $"no key reaches: {string.Join(", ", unbound)} " +
+                    "(their config bound those keys to commands this viewer has no equivalent for)");
+            }
+
+            return bindings;
+        }
+        catch (Exception failure) when (failure is IOException or ArgumentException
+                                            or UnauthorizedAccessException or NotSupportedException)
+        {
+            config.LogInformation(failure, "could not read the TF2 configs");
+            return null;
+        }
+    }
+
     public IReadOnlyList<ViewerAction> Unbound()
     {
         HashSet<ViewerAction> reachable = [];

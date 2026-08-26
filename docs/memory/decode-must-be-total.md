@@ -24,9 +24,20 @@ significant bug this session was of that shape:
   4.8 million square units.
 - Props with unresolved materials were skipped, leaving holes nobody investigates.
 
+**The same rule stated for the demo pipeline**, the owner, 2026-08-25:
+
+> "build should basically never throw any exceptions, we just read bytes, turn them into quake
+> script, and compile that script back to a bite identical demo"
+
+That is `DemoTimeline.Build` and it is the project's whole loop. **A throw on a real demo is our
+defect**, so a `try/catch` around a decode is a BACKSTOP and never a design path — writing one is
+fine, treating its firing as normal is not. Two consequences worth keeping apart when writing tests:
+a guard that should never fire still has to work, so pinning it is legitimate; but pin it with
+deliberately synthetic garbage and say so, or the test reads as a claim that throwing is expected.
+
 **How to apply:** treat a non-zero count of unread, skipped or clamped anything as an open defect and
 name it in the log. Where something genuinely cannot be drawn yet, draw it in the engine's own
 missing-material chequer rather than hiding it — magenta gets reported, a hole does not. And when a
 map does turn out to contain something broken, handle it, because TF2 did. Related:
 [[research-before-code]], [[measure-the-output-not-the-capability]],
-[[fallbacks-do-not-make-guesses-safe]].
+[[fallbacks-do-not-make-guesses-safe]], [[author-the-specimen-the-corpus-lacks]].

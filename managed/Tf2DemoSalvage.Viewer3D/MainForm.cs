@@ -41,7 +41,7 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// needs a real handle and the panel does not have one until it is shown. Constructing the form
 /// therefore stays free of side effects, which is also what lets it be tested without a display.
 /// </remarks>
-internal class MainForm : Form
+internal class MainForm : Form, IFrameSteps
 {
     /// <summary>Automation id of the Direct3D viewport panel.</summary>
     public const string ViewportId = "Viewport";
@@ -180,56 +180,63 @@ internal class MainForm : Form
     // Dead by construction — drawn only when there was no textured map, and built from the map — so
     // it could never produce a visible triangle. Deleted with the projection that built it.
 
-    /// <summary>The loaded map in world units, kept so it can be re-projected on resize.</summary>
-    private MapOutline? _map;
-
-    /// <summary>Fetches maps that are not installed; created on first need.</summary>
-    private MapDownloader? _downloader;
-
-    /// <summary>The game's content, opened once and reused for every map.</summary>
-    private GameArchives? _archives;
-
-    /// <summary>Which model each class wears, read from the game's own class scripts.</summary>
+    /// <summary>The map, read and ready to draw, or null when none is open.</summary>
     /// <remarks>
-    /// **Read from the install, not hardcoded.** Only <c>m_iszCustomModel</c> is networked; a
-    /// player's ordinary model is resolved locally by <c>CTFPlayerClassShared::GetModelName</c>
-    /// from <c>m_iClass</c>, so a viewer has to do the same lookup the client does.
+    /// **Eleven fields until 2026-08-25** — the outline, the assets, the height range and the eight
+    /// that were `MapLevel` unpacked. Reading a map is not window work and none of it happens here
+    /// any more: what is left is handing the result to the systems that asked for it, which is the
+    /// engine's `LevelInitPreEntity` shape (`igamesystem.h:39`).
     /// </remarks>
-    private PlayerClassModels? _classModels;
+    private LoadedMap? _loaded;
 
-    /// <summary>Which activity suffix each weapon in this demo drives.</summary>
+    /// <summary>Where maps come from: the disk first, then the network.</summary>
     /// <remarks>
-    /// Per demo rather than per install, because it is built from the weapon classes the recording
-    /// mentions — reading all 78 shipped scripts to answer for the four a match uses would be work
-    /// for nothing, and each one costs an ICE decryption.
+    /// **Replaced a `MapDownloader?` created on first need** (B188, D90). The lazy construction is
+    /// still there and is still right — a viewer that never meets a missing map should never open an
+    /// `HttpClient` — but it belongs to the thing that owns the download, not to the window that
+    /// happens to notice a map is absent.
     /// </remarks>
-    private WeaponRoles? _weaponRoles;
+    private readonly MapProvider _maps = MapProvider.Installed();
 
-    /// <summary>Players turned into drawable models, rebuilt each frame.</summary>
+    /// <summary>What the installed game provides, opened once and reused for every map.</summary>
     /// <remarks>
-    /// Kept as a field so the per-frame allocation happens once rather than per tick.
+    /// **`_archives`, `_classModels` and `_entityClasses` were three fields opened inside the first
+    /// map read** (B188, D90). None of them is per-map: they are what the INSTALL supplies, and
+    /// they sat there because that is where the first caller happened to be.
+    ///
+    /// Null until a map is read, because locating the install is the one thing that waits for a
+    /// reason to happen.
     /// </remarks>
-    private readonly List<SceneProp> _drawn = [];
+    private GameContent? _game;
 
-    /// <summary>The loaded map's surfaces, kept so the world can be rebuilt on resize.</summary>
-    private IReadOnlyList<BspSurface> _surfaceList = [];
+    // **`_weaponRoles` was here until 2026-08-25** (B188, D90). It is inside the appearance that
+    // `DemoAppearance.Ensure` builds, and `_moment.Appearance` is now the only cache — where there
+    // used to be two things to keep in step, a nullable field and a record built from it.
+    //
+    // **That pairing is what made this member dangerous.** `GameAppearance` CAPTURES the roles, so
+    // an appearance built before they were read answers null for every weapon suffix for ever, and
+    // that does not fail: it falls back to the primary forms and draws the wrong animation on every
+    // player. One cache cannot get out of step with itself.
 
-    /// <summary>The loaded map's textures and lighting.</summary>
-    private MapAssets? _assets;
+    // `_drawn` moved with the rebuild that fills it (B188, D90). It is `MomentScene.Drawn`, still a
+    // field there so the per-frame allocation happens once rather than per tick.
 
-    /// <summary>The loaded map's bytes, kept for reading displacement terrain on re-projection.</summary>
-    /// <summary>The map's displacement lumps, read once rather than once per face.</summary>
-    private BspTerrain? _terrain;
+    // `_surfaceList` was here until 2026-08-25. It is `_loaded.Level.Surfaces` — the field was a
+    // copy of one property of a record the form was already holding, and keeping both is how they
+    // come to disagree: the catch below cleared the copy and left the record.
 
-    /// <summary>The map's decals, read once and reused across every rebuild.</summary>
-    private IReadOnlyList<BspOverlay>? _overlays;
+    // `_assets` is `_loaded.Assets` — nullable there for the same reason it was here: textures
+    // failing costs the textures, not the map.
 
-    /// <summary>The map's models: the world, then one per piece of moving brushwork.</summary>
-    private IReadOnlyList<BspModel>? _brushModels;
-
-    /// <summary>Where every player stood, for every moment the demo recorded.</summary>
-    /// <summary>The map's BSP tree, for finding which leaf a model stands in.</summary>
-    private BspLeafTree? _leaves;
+    // **`_level` was here until 2026-08-25 and it is the reason this warning is worth reading.**
+    // `MapLevel` was collapsed into `LoadedMap` and this field was left behind: still declared,
+    // still cleared to null in `ClearMap`, still READ by `mat_leafvis` — and never assigned
+    // anything. So the overlay drew nothing on every map, with 620 viewer tests green, because
+    // `_level?.Leaves` on a permanently-null field is a legal expression that answers null (B196).
+    //
+    // **That is the answer to "should maps be their own project" (D92): no, because the problem was
+    // never a missing boundary.** A cluster of eleven fields that came out of one type is fixed by
+    // keeping the type — and by keeping exactly ONE of it, which is the half that got missed.
 
     // The PVS was a field here until 2026-08-25 (B188). It is read at map load and handed to
     // SoundscapeSystem, which is the only thing that ever asked it anything — so it is a local in
@@ -242,19 +249,21 @@ internal class MainForm : Form
 
     /// <summary>One logger per area ViewerLog used to take as a string argument.</summary>
     /// <remarks>
-    /// **Nine of them, because this type genuinely writes to nine areas.** A logger's category is
-    /// exactly the old area string, so `_assetLog.LogInformation(...)` produces the same
-    /// `[assets]` line `_assetLog.LogInformation("{Message}", ...)` did — which matters because the UI suite
-    /// counts literal substrings in that file and several diagnostics here are greps over it.
+    /// **A logger's category is exactly the old area string**, so `_mapLog.LogInformation(...)`
+    /// produces the same `[map]` line the old call did — which matters because the UI suite counts
+    /// literal substrings in that file and several diagnostics here are greps over it.
     ///
     /// Fields rather than a lookup by name: a dictionary would move the area from a compile-time
     /// fact to a runtime string, which is the direction this conversion is travelling away from.
+    ///
+    /// **`_assetLog` is gone, and its absence is a measure of the refactor.** Every `[assets]` line
+    /// this form used to write came from reading a map, and reading a map does not happen here any
+    /// more — `LoadedMap` and `GameContent` create their own from the factory (D83). The remaining
+    /// eight are what a WINDOW still has to say.
     /// </remarks>
     private readonly ILogger _log;
 
     private readonly ILogger _mapLog;
-
-    private readonly ILogger _assetLog;
 
     private readonly ILogger _renderLog;
 
@@ -266,20 +275,14 @@ internal class MainForm : Form
 
     private readonly ILogger _configLog;
 
-    /// <summary>Which followed entity the first-person keep-list was last reported for.</summary>
-    private int? _lastFirstPersonReport;
+    // What light the map casts is `LevelLighting`, the engine's `ComputeLighting` behind an
+    // interface (`cdll_int.h:392`). It stopped being a field here on 2026-08-25: the scene owns the
+    // one the models ask, and the asset loader takes it as a local while the map is being read. The
+    // ambient samples, the world lights and the sun were three fields before that (B188, D90).
 
-    /// <summary>The ambient light each leaf holds, indexed by leaf.</summary>
-    private IReadOnlyList<AmbientSamples> _ambient = [];
-
-    /// <summary>The map's sun, when it has one.</summary>
-    private BspWorldLight? _sun;
-
-    /// <summary>Every light the map compiled, for the direct term a model receives.</summary>
-    private IReadOnlyList<BspWorldLight> _worldLights = [];
-
-    /// <summary>How high and how low the loaded map goes, once it has been read.</summary>
-    private (float Lowest, float Highest)? _heightRange;
+    // `_heightRange` is `_loaded.HeightRange`, recorded during the world build rather than after it
+    // — a camera projects height on the very first frame, and taking it afterwards leaves one frame
+    // drawn with a pass-through depth.
 
     private DemoTimeline? _timeline;
 
@@ -292,10 +295,27 @@ internal class MainForm : Form
     // Constructed in the constructor rather than inline, so it gets the form's loggers (D83).
     private readonly EntityModelSet _models;
 
-    private readonly List<ModelInstance> _instances = [];
+    // `_weapons` was here until the load set stopped asking the window for it. The form held a
+    // second reference to `GameContent.Weapons` so `DemoModelPaths` could reach it — and keeping the
+    // two in step was the reason both were assigned in one block. `DemoModels` reads it off the
+    // install itself now, so there is one holder and nothing to keep in step.
 
-    /// <summary>Last reported instance count, so the log records changes rather than frames.</summary>
-    private int _lastInstanceCount = -1;
+    /// <summary>Whose eyes the first-person view is using, and where they are.</summary>
+    /// <remarks>
+    /// **Valve's <c>CalcView</c> dispatch, and it is not window work** (<c>c_baseplayer.h:112</c>).
+    /// The form asks it two questions — which entity to hide, and where the eye is — and supplies
+    /// only the viewport's aspect ratio (B188, D90).
+    /// </remarks>
+    private readonly SpectatorView _spectator;
+
+    /// <summary>Assembles what one moment draws: the draw list, the packing, the poses.</summary>
+    /// <remarks>
+    /// **`ShowMoment` and the four members it drove** (B188, D90). It is told the tick, the camera
+    /// and the followed entity through <see cref="MomentInfo"/> — <c>SetupRenderInfo_t</c>'s
+    /// arrangement (<c>clientleafsystem.h:75</c>) — rather than reaching back here for them, and the
+    /// one thing it needed a window for is <see cref="IModelUpload"/>.
+    /// </remarks>
+    private readonly MomentScene _moment;
 
     /// <summary>Turns real time into demo ticks at the rate the recording server ran.</summary>
     private PlaybackClock? _clock;
@@ -319,8 +339,48 @@ internal class MainForm : Form
     /// </remarks>
     private readonly PlaybackPresenter _playback;
 
-    /// <summary>Whether the resident textures belong to the map currently loaded.</summary>
-    private bool _texturesUploaded;
+    /// <summary>The systems told about a newly-opened demo, as `_levels` are told about a level.</summary>
+    /// <remarks>
+    /// **The demo mirror of <c>LevelSystems</c>, and ours rather than Valve's — checked, not
+    /// assumed.** In the engine, playing a demo IS loading a level, so systems get `LevelInit*` and
+    /// there is no separate event. It does not bind here because this viewer opens a demo BEFORE it
+    /// knows whether the map exists, which the engine never faces: a client cannot play a demo whose
+    /// map it lacks, and ours must (B201).
+    /// </remarks>
+    private readonly DemoSystems _demoSystems;
+
+    /// <summary>Where a second of frames went, accumulated here and reported once a second.</summary>
+    /// <remarks>
+    /// **Was six fields and a format string in this window** (B188, D90): the frame count, the
+    /// longest frame, three phase totals and the idle-burst count, each reset by hand at the end of
+    /// `CountFrame`. Six counters that must all be cleared together is five chances to forget one,
+    /// and a counter that survives its report makes the NEXT second read as worse than it was.
+    ///
+    /// **Not <see cref="FpsMeter"/>, which is `cl_showfps`** — a smoothed average drawn on screen
+    /// for a person watching. This is a diagnostic ledger written to the log, and its value is the
+    /// breakdown rather than the number: B191 was found by reading which column stayed fat as the
+    /// others were measured away.
+    /// </remarks>
+    private readonly FrameLedger _ledger = new();
+
+    // `_texturesUploaded` was here until 2026-08-26. It is `WorldPresenter.TexturesAreCurrent`,
+    // beside the code that reads it (B188, D90).
+    //
+    // **It has to exist at all because `HasWorldTextures` answers a different question.** The device
+    // knows whether textures are RESIDENT, which stays true across a map change — they are simply
+    // the wrong ones. Only something that knows about levels can say "resident AND for this one".
+
+    /// <summary>The world upload, and whether this level's textures are the resident ones.</summary>
+    private readonly WorldPresenter _world;
+
+    /// <summary>Whether the empty leaf outline has already been explained for this map.</summary>
+    /// <remarks>
+    /// **Once per map, not once per frame.** `LeafBoxLines` runs on every frame the overlay is on,
+    /// and a warning written from there unguarded is B191 exactly: one log line per frame taking a
+    /// machine-wide lock and a disk flush, which cost 120 ms of a 133 ms frame the last time.
+    /// Cleared by `ClearMap`, so the next map gets its own answer.
+    /// </remarks>
+    private bool _reportedNoLeafBox;
 
     /// <summary>Whether the viewport has changed size since the world was last projected.</summary>
     private bool _worldIsStale;
@@ -360,22 +420,13 @@ internal class MainForm : Form
     /// <summary>Whether the viewport is drawn through a player's eyes.</summary>
     private bool _firstPerson => _cameraMode == CameraMode.FirstPerson;
 
-    /// <summary>Pitch and yaw of the free camera, in degrees.</summary>
-    /// <remarks>
-    /// Starts at a shallow angle rather than at zero: a camera on the horizon looking across a map
-    /// shows mostly wall, and the first thing anyone wants from this view is to see whether the
-    /// players are standing up.
-    /// </remarks>
-    /// <remarks>
-    /// **The state itself moved to <see cref="FreeCameraController"/> on 2026-08-25** (D90). These
-    /// two are accessors onto it, so the flight and drag handlers that live in this window — which
-    /// genuinely are input handling — read and write one place.
-    /// </remarks>
-    private (float Pitch, float Yaw) _freeAngles
-    {
-        get => _freeCamera.Angles;
-        set => _freeCamera.Angles = value;
-    }
+    // **`_freeAngles` is gone entirely as of 2026-08-26** (B206). It was an accessor onto
+    // `FreeCameraController.Angles` for the drag and wheel handlers to read and write; both now ask
+    // the controller to move itself, so the window neither reads nor writes the camera's angles.
+    //
+    // It went in two steps, each one announced by the analyzer: the setter died when `Drag` moved,
+    // and the property died when `Dolly` moved. That is a cleaner proof than reading the file — the
+    // second removal was not planned, it was reported.
 
     // FreeEntryDistance (800 units) went with the orbit placement on 2026-08-22 (D67). The camera
     // no longer sits a fixed distance from a focus point — it is placed above the map at whatever
@@ -401,13 +452,10 @@ internal class MainForm : Form
     /// <summary>Where the free camera is and how it is placed.</summary>
     private readonly FreeCameraController _freeCamera;
 
-    /// <summary>Degrees the free camera turns per pixel dragged.</summary>
-    /// <remarks>
-    /// A quarter of a degree, so a full turn is about a screen and a half of dragging. Source's own
-    /// mouse sensitivity is a different quantity — it scales a raw device count rather than a
-    /// pixel — so this is chosen for the drag rather than taken from the engine.
-    /// </remarks>
-    private const float DegreesPerPixel = 0.25f;
+    // **`DegreesPerPixel` was here until 2026-08-26** (B206). It is
+    // `FreeCameraController.DegreesPerPixel`, along with the drag arithmetic it belonged to — which
+    // this file had one copy of and the unused `FreeLookState` had another. How far a drag turns a
+    // camera is not a fact about a window.
 
     /// <summary>Which key performs which action (D68).</summary>
     /// <remarks>
@@ -431,7 +479,7 @@ internal class MainForm : Form
     /// editor solves this, and it costs nothing here because the shader discards on the depth the
     /// vertices already carry.
     /// </remarks>
-    private float _heightCut;
+    private HeightCut _heightCut = HeightCut.None;
 
     /// <summary>Times a full screen transition from the keystroke to the first frame drawn.</summary>
     /// <remarks>
@@ -525,104 +573,17 @@ internal class MainForm : Form
     /// <summary>Which of Valve's per-surface debug views are showing.</summary>
     private DebugModes _debug = DebugModes.None;
 
-    /// <summary>Valve's entity palette, read from the FGDs the game ships, or null.</summary>
-    private FgdClasses? _entityClasses;
+    // `_entityClasses` was here until 2026-08-25, with `LoadEntityPalette` beside it. Valve's entity
+    // palette is `GameContent.EntityClasses` — read from the FGDs the game ships, which makes it
+    // install data rather than window state (B188, D90).
 
-    /// <summary>Which brush model belongs to which entity class, from the map's entity lump.</summary>
-    private readonly Dictionary<int, string> _brushModelClasses = [];
-
-    /// <summary>Valve's colour for the class a brush model belongs to, 0..1, or null.</summary>
-    /// <remarks>
-    /// **Null rather than a default at every step**, and each null means something different: the
-    /// map may not name this model, the class may state no colour and inherit none, or the FGDs may
-    /// not be readable at all. A fallback colour at any of those points would report "Valve says
-    /// grey" where the truth is "nobody said", which is the sentinel-shaped mistake this project has
-    /// made before. The caller draws such an entity as ordinary brushwork.
-    /// </remarks>
-    /// <summary>Reads Valve's entity palette out of the FGDs beside the game.</summary>
-    /// <param name="game">The <c>tf</c> folder, whose sibling <c>bin</c> holds the FGDs.</param>
-    /// <remarks>
-    /// **Best effort, and silent about being absent rather than about failing.** The FGDs are
-    /// editor data: a game install has them, and a dedicated-server or content-only copy may not.
-    /// Losing them costs one colour in one diagnostic view, so it must not interrupt opening a
-    /// demo — but a file that exists and will not parse is a different thing and says so.
-    /// </remarks>
-    private void LoadEntityPalette(string? game)
-    {
-        if (game is null || Path.GetDirectoryName(game) is not { } install)
-        {
-            return;
-        }
-
-        string bin = Path.Combine(install, "bin");
-        List<string> read = [];
-
-        // In mount order, so a later file's redefinition wins — which is what tf.fgd's own
-        // `@include "base.fgd"` amounts to without needing to resolve includes.
-        foreach (string name in new[] { "base.fgd", "halflife2.fgd", "tf.fgd" })
-        {
-            string path = Path.Combine(bin, name);
-
-            try
-            {
-                if (File.Exists(path))
-                {
-                    read.Add(File.ReadAllText(path));
-                }
-            }
-            catch (Exception failure) when (
-                failure is IOException or UnauthorizedAccessException)
-            {
-                _assetLog.LogWarning(failure, "{Message}", $"reading {path}");
-            }
-        }
-
-        if (read.Count == 0)
-        {
-            _assetLog.LogInformation("{Message}", $"no FGD files in {bin}; entities draw as brushwork");
-            return;
-        }
-
-        _entityClasses = FgdClasses.Parse([.. read]);
-
-        _assetLog.LogInformation(
-            "{Message}",
-            $"entity palette: {_entityClasses.Count} classes from {read.Count} FGD files");
-    }
-
-    private (float Red, float Green, float Blue)? EntityTint(int model)
-    {
-        if (_entityClasses is not { } classes ||
-            !_brushModelClasses.TryGetValue(model, out string? classname))
-        {
-            // Not an entity at all, or the map named no class for it. Ordinary brushwork.
-            return null;
-        }
-
-        if (classes.Colour(classname) is not { } colour)
-        {
-            // **Hammer's default, which is magenta.** 58 of the 598 classes in the shipped FGDs
-            // state a colour, so this is the common case rather than the exceptional one, and
-            // leaving it uncoloured would mean most entities never showed as entities at all.
-            //
-            // The hue is documented — TWHL's FGD reference: "Otherwise it will use the default
-            // magenta" — and the exact RGB is published nowhere reachable, so this is full magenta
-            // as the plainest reading of the word. Labelled rather than smuggled in: it is the one
-            // number here that is not lifted from a Valve file.
-            return HammerDefaultEntityColour;
-        }
-
-        return (colour.Red / 255f, colour.Green / 255f, colour.Blue / 255f);
-    }
-
-    /// <summary>What Hammer draws an entity class that states no colour of its own.</summary>
-    /// <remarks>
-    /// **This collided with the missing-material colour, and the missing-material colour moved.**
-    /// The owner's rule when a real Valve behaviour meets one of our inventions: "if the default
-    /// would colide with our imp, then we need to change our imp to not block". Magenta belongs to
-    /// Hammer here; the category view's "no material" signal is ours and had no claim on it.
-    /// </remarks>
-    private static (float Red, float Green, float Blue) HammerDefaultEntityColour => (1f, 0f, 1f);
+    // `_brushModelClasses` was here until 2026-08-25. It is `_level.BrushModelClasses` — the form
+    // was copying the record's dictionary into a field of its own, entry by entry, on every map
+    // read. `MapLevel` already built that join from the entity lump, which is where it belongs.
+    //
+    // `EntityTint` and Hammer's default colour went with them, to `LoadedMap` — the tint needs the
+    // install's FGD palette AND this map's brush-model classes, and the only place that holds both
+    // is the loaded map. The window was the join only because it happened to hold both fields.
 
     /// <summary>Chooses a lighting substitution and ticks the matching menu item.</summary>
     /// <param name="mode">Which substitution to show.</param>
@@ -716,7 +677,6 @@ internal class MainForm : Form
         _models = new EntityModelSet(loggers);
         _log = loggers.CreateLogger("viewer");
         _mapLog = loggers.CreateLogger("map");
-        _assetLog = loggers.CreateLogger("assets");
         _renderLog = loggers.CreateLogger("render");
         _demoLog = loggers.CreateLogger("demo");
         _audioLog = loggers.CreateLogger("audio");
@@ -726,9 +686,28 @@ internal class MainForm : Form
         // **Given its collaborators rather than reaching for them**, which is what lets it be
         // tested without a window: the loops it shares with one-shot playback, the decode cache,
         // and somewhere to report. Its map-dependent state arrives when a map is read.
-        _soundscape = new SoundscapeSystem(_loops, Sample, _audioLog);
-        _sound = new SoundPresenter(_soundscape, _loops, Sample, _audioLog);
+        _sounds = new SoundCache(_audioLog);
+        _soundscape = new SoundscapeSystem(_loops, _sounds.Sample, _audioLog);
+        _sound = new SoundPresenter(_soundscape, _loops, _sounds.Sample, _audioLog);
         _freeCamera = new FreeCameraController(_renderLog);
+
+        // **A real source that answers unlit, rather than a null field checked at every call.** The
+        // asset loader and the model set both take it as a delegate, and a null there is the shape
+        // that hid a missed wiring across 193 call sites once already (D83).
+        _spectator = new SpectatorView(_spectateLog);
+
+        _moment = new MomentScene(_models, _viewmodelScene, _renderLog)
+        {
+            Lighting = LevelLighting.Unlit(_renderLog),
+            Weapons = WeaponModels.None(_renderLog),
+        };
+
+        // **Registered here, after every system exists, and this is the only place the list is
+        // written.** A system added later is added to this call rather than to whichever method
+        // happens to load a map — which is the arrangement that let three assignments go missing
+        // separately (B193) and two more sit unnoticed for a day (B196).
+        _levels = new LevelSystems(_moment, _models, _sounds, _soundscape, _sound, _loggers);
+        _world = new WorldPresenter(_renderLog);
 
         // **A capture flag, because the alternative was asking a person to press F12.** Several
         // rendering defects this session were found by the owner photographing their own screen and
@@ -738,7 +717,25 @@ internal class MainForm : Form
         //
         // Deliberately not a test harness: it drives the real viewer through the real renderer,
         // which is the whole reason the offscreen target was deleted. See CaptureViewport.
-        initialPaths = ReadCaptureOptions(initialPaths);
+        // **Parsing a command line is not window work** (B188, D90). What comes back is a record;
+        // the six `_shot*` fields it used to write into are gone, and the two things it configures
+        // that live elsewhere — the settings and the spectator target — are applied here where both
+        // are visible together.
+        _launch = LaunchOptionsReader.Read(initialPaths, _settings, _log);
+
+        _settings = _launch.Settings;
+        _spectator.Spectating = _launch.Spectate;
+
+        // **This line was MISSING for a day and `--shot` did nothing at all** (B196). `_shotPath`
+        // stayed out of the record because taking the shot CONSUMES it, and staying out of the
+        // record is exactly how it stopped being assigned: the six `_shot*` fields the parser used
+        // to write into went away together, and the one that had to survive them was not wired back
+        // up. `TakeAutomaticShot` then read a permanently-null field and returned every frame.
+        //
+        // Nothing failed. No test passes `--shot`, so the whole option was covered by nobody.
+        _shotPath = _launch.ShotPath;
+
+        initialPaths = [.. _launch.Paths];
 
         // **The player's own TF2 controls, loaded before anything can be pressed (D69/D70).** This
         // is what makes the console a feature rather than a capability: without it the interpreter
@@ -889,6 +886,10 @@ internal class MainForm : Form
         //
         // The form keeps exactly one job in this area: the moment changed, so redraw.
         _playback = new PlaybackPresenter(_transport, new StopwatchTime());
+
+        // Registered after the presenter it drives, for the same reason `_levels` waits for the
+        // scene: a system list is only as good as every member existing when it is built.
+        _demoSystems = new DemoSystems(_spectator, _moment, _sound, _playback, _loops, _loggers);
 
         _playback.MomentChanged += (_, moment) =>
         {
@@ -1529,12 +1530,9 @@ internal class MainForm : Form
         return ReadMapNamed(mapName);
     }
 
-    /// <summary>Whether the packed model geometry is on the device right now.</summary>
-    /// <remarks>
-    /// **Not the same question as "has the set grown", and conflating them was B148.** The packed
-    /// set outlives a map; the buffer it was uploaded into does not.
-    /// </remarks>
-    private bool _modelsUploaded;
+    // `_modelsUploaded` was here until 2026-08-25. It is `MomentScene.Uploaded` now, beside the
+    // packing it guards (B188, D90) — and the question it answers is unchanged: "is the packed
+    // geometry on the device right now", which is NOT "has the set grown". Conflating them was B148.
 
     /// <summary>Whether a map is being read on another thread right now.</summary>
     /// <remarks>
@@ -1560,19 +1558,35 @@ internal class MainForm : Form
     /// </remarks>
     private void ClearMap()
     {
-        _map = null;
-        _surfaceList = [];
-        _assets = null;
-        _terrain = null;
-        _overlays = null;
-        _texturesUploaded = false;
+        _loaded = null;
+
+        // **Every system is told the level is going, in reverse registration order** — Valve's
+        // `LevelShutdownPreEntity`/`PostEntity`, which this window did not have.
+        //
+        // Teardown used to be split three ways and was asymmetric: two systems were reset here, the
+        // soundscape was cleared inside the map READ, and the sound schedule was never torn down at
+        // all. Adding a fifth system meant guessing which of the three places it belonged in.
+        _levels.Shutdown();
+
+        // **One field where four were cleared, and the fourth was never cleared at all.** `_terrain`
+        // and `_overlays` were dropped here while `_brushModels` and `_leaves` were left pointing at
+        // the previous map's lumps until the next read replaced them. Nothing read them in between —
+        // `ClearMap` is followed immediately by a read — but "correct because of the call order two
+        // methods away" is the kind of thing a record makes impossible to get wrong.
+        //
+        // `_level` was cleared here too until 2026-08-25. It was a SECOND map field left behind by
+        // the move that created `LoadedMap`, never assigned anything but null, and `mat_leafvis`
+        // read it (B196).
+        _reportedNoLeafBox = false;
+        _world.TexturesAreCurrent = false;
         _mapProblem = null;
 
         // **The models go with the world, because the world owned their buffer.** `ClearWorld`
         // disposes the `WorldRenderer`, and `_modelVertices` is one of its fields — so the packed
         // set that is still in memory has nowhere on the device to live until it is uploaded again
         // (B148).
-        _modelsUploaded = false;
+        // `_moment.Uploaded = false` was here. It is `MomentScene.LevelShutdownPreEntity`, told by
+        // the walk above — the scene knows what it uploaded, so the scene is what forgets it.
 
         _device?.ClearWorld();
     }
@@ -1585,7 +1599,7 @@ internal class MainForm : Form
     /// </remarks>
     private bool ReadMapNamed(string mapName)
     {
-        string? path = FindMap(mapName);
+        string? path = _maps.Locate(mapName);
 
         if (path is null)
         {
@@ -1632,32 +1646,29 @@ internal class MainForm : Form
     /// </remarks>
     private async Task DownloadMapAsync(string mapName)
     {
-        _status.Text = "Downloading map " + mapName + "...";
+        _status.Text = MapProvider.Fetching(mapName);
 
-        try
+        // **`ConfigureAwait(true)` here, `false` inside the provider, and the asymmetry is the
+        // point.** Everything after this line touches `_status.Text` and `ReadMap`, so the
+        // continuation has to come back to the UI thread. The provider is a library and must not
+        // capture a context it knows nothing about.
+        //
+        // The `ArgumentException` that used to be caught here — a demo header naming something that
+        // is not a map name — is handled inside the provider now and arrives as a status line, since
+        // whether a name is fetchable is the downloader's question rather than the window's.
+        MapFetch fetch = await _maps
+            .FetchAsync(mapName, CancellationToken.None)
+            .ConfigureAwait(true);
+
+        if (fetch.Path is null)
         {
-            _downloader ??= MapDownloader.Create(MapDownloader.DefaultFolder);
-
-            string? downloaded = await _downloader
-                .TryDownloadAsync(mapName, CancellationToken.None)
-                .ConfigureAwait(true);
-
-            if (downloaded is null)
-            {
-                _status.Text = _downloader.DescribeFailure(mapName);
-                return;
-            }
-
-            if (ReadMap(mapName, downloaded))
-            {
-                _status.Text = (_demo?.Describe() ?? mapName) + "  (map downloaded)";
-            }
+            _status.Text = fetch.Status;
+            return;
         }
-        catch (ArgumentException failure)
+
+        if (ReadMap(mapName, fetch.Path))
         {
-            // A demo header naming something that is not a map name. The downloader refuses it,
-            // and it is not worth failing the load over.
-            _status.Text = "Map " + mapName + " could not be fetched: " + failure.Message;
+            _status.Text = (_demo?.Describe() ?? mapName) + "  (map downloaded)";
         }
     }
 
@@ -1668,196 +1679,43 @@ internal class MainForm : Form
         {
             byte[] bytes = File.ReadAllBytes(path);
 
-            _mapLog.LogInformation("{Message}", $"loading {Path.GetFileName(path)} ({bytes.Length / 1024 / 1024} MB)");
-
-            BspGeometry geometry = BspGeometry.Read(bytes);
-            _map = MapOutline.FromFaces(geometry.OverheadFaces);
-
             _mapLog.LogInformation(
                 "{Message}",
-                $"{geometry.Faces.Count} faces, {geometry.OverheadFaces.Count} overhead, " +
-                $"{_map.Segments.Count} outline segments");
+                $"loading {Path.GetFileName(path)} ({bytes.Length / 1024 / 1024} MB)");
 
-            // The textured world: the game's own materials and the map's baked lighting. Failing
-            // here costs the textures, not the map - the outline still draws.
-            try
+            if (_game is null)
             {
-                if (_archives is null)
-                {
-                    string? game = FindGameFolder();
-                    _assetLog.LogInformation("{Message}", $"game folder: {game ?? "not found"}");
-                    _archives = GameArchives.Open(game);
+                // **Opened once, on the first map read rather than at startup**, because finding and
+                // opening the archives is slow and a viewer with no demo open needs none of it.
+                _game = GameContent.Open(_maps.GameFolder(), _loggers);
 
-                    LoadEntityPalette(game);
-                    _assetLog.LogInformation(
-                        "{Message}",
-                        $"content sources: {(_archives.IsEmpty ? "none" : "archives plus " + _archives.FolderCount + " folders")}");
-
-                    // **The class scripts, which is where a player's model actually comes from.**
-                    // They are ICE-encrypted KeyValues in the install; nothing in the demo carries
-                    // a player's model path unless the server overrode it.
-                    _classModels = PlayerClassModels.Read(_archives.Read);
-
-                    _assetLog.LogInformation(
-                        "{Message}",
-                        $"class models: {string.Join(", ", ClassModelPaths())}");
-                }
-
-                _texturesUploaded = false;
-
-                // **Every lump this viewer keeps, read by one type that knows how** (B188). What
-                // stood here was three try/catch shapes and the brush-class join, none of it window
-                // work — and the engine's own arrangement is that each system initialises itself
-                // from the level (`IGameSystem::LevelInitPreEntity`, `igamesystem.h:39`) rather
-                // than the window building everyone's state.
-                MapLevel level;
-
-                using (_assetLog.Time("reading the map's lumps"))
-                {
-                    level = MapLevel.Read(bytes, _assetLog);
-                }
-
-                _terrain = level.Terrain;
-                _overlays = level.Overlays;
-                _brushModels = level.BrushModels;
-                _leaves = level.Leaves;
-
-                _brushModelClasses.Clear();
-
-                foreach ((int model, string classname) in level.BrushModelClasses)
-                {
-                    _brushModelClasses[model] = classname;
-                }
-
-                // **The soundscape system is handed the level, not built from lumps here.** That is
-                // the LevelInitPreEntity shape: the window says "here is the map", and the system
-                // decides what it needs from it (B173, B177).
-                _soundscape.Catalog = _archives is { } soundArchives
-                    ? SoundscapeCatalog.Load(soundArchives.Read)
-                    : null;
-
-                _soundscape.Placements = _soundscape.Catalog is { } loaded
-                    ? SoundscapePlacements.From(level.Entities, loaded, level.Leaves)
-                    : null;
-
-                _soundscape.Leaves = level.Leaves;
-                _soundscape.Visibility = level.Visibility;
-
-                _soundscape.Clear();
-
-                _audioLog.LogInformation(
-                    "{Message}",
-                    level.Visibility is { HasData: true } pvs
-                        ? $"visibility: {pvs.ClusterCount.ToString(CultureInfo.InvariantCulture)} " +
-                          "clusters, so soundscape selection is restricted to what the listener can see"
-                        : "no visibility data, so every soundscape on the map contends");
-
-                _audioLog.LogInformation(
-                    "{Message}",
-                    _soundscape.Placements is { } placed
-                        ? $"{placed.Placements.Count} soundscape placements, " +
-                          string.Join(
-                              ", ",
-                              placed.Placements
-                                  .GroupBy(placement => placement.Name)
-                                  .Select(group => $"{group.Count()}x {group.Key}"))
-                        : "no archives, so no soundscapes");
-
-                _surfaceList = level.Surfaces;
-                _ambient = level.Ambient;
-                _worldLights = level.WorldLights;
-                _sun = level.Sun;
-
-                using (_assetLog.Time("reading textures"))
-                {
-                    // **Every model the demo will ever show, loaded with the map.** The timeline
-                    // is already built, so the whole set is known before anything is drawn - and
-                    // loading them here means their materials join the map's table and the
-                    // textures upload once. Loading during playback would grow that table and
-                    // force a re-upload mid-match.
-                    _assets = MapAssets.Load(
-                        bytes,
-                        _archives,
-                        (int)_settings.TextureQuality,
-                        DemoModelPaths(),
-                        WornModelPaths(),
-
-                        // Built from the surfaces just read rather than from a second pass over
-                        // the file: the models lump names face RANGES, so it needs the same
-                        // surface list the world was built from and nothing else.
-                        //
-                        // **No models lump means no brush entities, and that agrees with the world
-                        // build on purpose.** MapWorld treats an absent lump as "build every
-                        // face", so the doors stay baked into the static world exactly as they
-                        // were before this work. The two decisions have to move together: holding
-                        // faces back here while the world declined to bake them would lose the
-                        // geometry entirely rather than degrade to the old behaviour.
-                        // **A factory rather than finished geometry, because the atlas is packed
-                        // inside Load.** A door's faces carry baked lightmap samples in the same
-                        // atlas as the wall's, so the geometry cannot be built before it exists
-                        // (B131).
-                        atlas => BrushModels.Build(
-                            _brushModels ?? [],
-                            _surfaceList,
-                            atlas,
-
-                            // **Valve's colour for the entity's class, and only in the category
-                            // view.** A brush entity is a door, a lift, an areaportal or a
-                            // trigger, and drawn as plain brushwork none of that is visible — the
-                            // one view whose whole job is "what is this" was the one view that
-                            // could not say. The numbers are Valve's, out of the FGDs the game
-                            // ships, so a capture reads the same way as Hammer's own colouring
-                            // rather than needing a second legend (B156).
-                            _surfaceColours.Checked ? EntityTint : null),
-
-                        // **The light cache, for props whose baked lighting is absent or refused**
-                        // (B123). Usable here because the leaves and the ambient samples were read
-                        // a few lines above, before any asset is loaded — the ordering is what
-                        // makes this a delegate rather than a second pass.
-                        LightAt,
-
-                        // **Passed explicitly, and forgetting it is silent (D83).** The parameter
-                        // defaults to a null logger so tests need not supply one — which means an
-                        // omission here costs every asset line in the run and nothing reports it.
-                        // Caught by reading the log after the conversion: 13 assets lines and zero
-                        // warnings, against dozens of each before.
-                        _loggers);
-                }
-
-                int displacements = 0;
-
-                foreach (BspSurface surface in _surfaceList)
-                {
-                    displacements += surface.IsDisplacement ? 1 : 0;
-                }
-
-                _assetLog.LogInformation(
-                    "{Message}",
-                    $"{_surfaceList.Count} surfaces ({displacements} displacements), " +
-                    $"{_assets.Resolved} materials resolved, {_assets.Missing} missing, " +
-                    $"lightmap atlas {_assets.Lightmaps.Width}x{_assets.Lightmaps.Height}, " +
-                    $"texture quality {_settings.TextureQuality}");
-
-                (double seconds, long count) = Tf2DemoSalvage.Content.Assets.VtfTexture.DecodeCost;
-
-                _assetLog.LogInformation(
-                    "{Message}",
-                    string.Create(
-                        CultureInfo.InvariantCulture,
-                        $"VTF decode so far: {seconds:F2}s CPU over {count} textures " +
-                        $"(decoded in parallel, so wall clock is less); " +
-                        $"baking {Tf2DemoSalvage.Scene.PropModels.BakeSeconds:F2}s"));
+                _levels.OpenGame(_game);
             }
-            catch (Exception failure) when (failure is IOException or InvalidDataException)
-            {
-                _surfaceList = [];
-                _assets = null;
-                _mapProblem = "Map content unavailable: " + failure.Message;
-                _assetLog.LogWarning(failure, "{Message}", "reading the map's content");
-            }
+
+            _world.TexturesAreCurrent = false;
+
+            // **Reading a map is not window work and telling the systems about it is not either**
+            // (B188, D90). `LevelSystems` is the engine's own shape: a registered LIST walked at the
+            // level boundary — `LevelInitPreEntityAllSystems( pMapName )` (`igamesystem.h:77`) —
+            // rather than one method reaching into six collaborators, which is the arrangement that
+            // let B193 and B196 drop assignments unnoticed.
+            LoadedMap map = _levels.Load(
+                bytes,
+                _game,
+                _timeline,
+                (int)_settings.TextureQuality,
+                _surfaceColours.Checked);
+
+            // **The LEVEL survives a content failure, and it did not before.** The old catch set
+            // `_level = null` alongside `_assets = null`, throwing away lumps that had read
+            // perfectly because the TEXTURES did not — so `mat_leafvis` went blank on a map whose
+            // BSP tree was fine. `LoadedMap` separates the two: the lumps are read or they throw,
+            // and the content is a nullable beside them.
+            _loaded = map;
+            _mapProblem = map.Problem;
 
             ProjectMap();
-            return !_map.IsEmpty;
+            return !map.Outline.IsEmpty;
         }
         catch (Exception failure) when (failure is IOException or InvalidDataException)
         {
@@ -1888,99 +1746,22 @@ internal class MainForm : Form
     /// </remarks>
     private void LoadUserConfig()
     {
-        try
+        // **Assigned only when something was actually read**, which is what the old body did by
+        // returning early. `LoadFrom` answers null rather than handing back its own defaults, so an
+        // unreadable config cannot quietly replace the bindings this form already has.
+        if (_console.LoadFrom(_maps.GameFolder(), _loggers, _configLog) is { } loaded)
         {
-            string? game = FindGameFolder() ?? Tf2ConfigFiles.DefaultGameFolder;
-
-            if (game is null)
-            {
-                _configLog.LogInformation("{Message}", "no TF2 install found; using the built-in bindings");
-                return;
-            }
-
-            IReadOnlyList<string> configs = Tf2ConfigFiles.Read(game, _loggers.LogTo());
-
-            if (configs.Count == 0)
-            {
-                _configLog.LogInformation("{Message}", $"no configs under {game}; using the built-in bindings");
-                return;
-            }
-
-            _console.Load(configs);
-            _bindings = _console.Bindings();
-
-            _configLog.LogInformation(
-                "{Message}",
-                $"{configs.Count} files, {_console.Applied} of {_console.Bound} binds applied");
-
-            foreach ((ViewerAction action, string key) in _bindings.All())
-            {
-                _configLog.LogInformation("{Message}", $"  {action,-20} {key}");
-            }
-
-            // **The controls their config left unreachable, named rather than left to be noticed.**
-            // A key bound to a TF2 command this viewer does not implement — `bind "SHIFT" "+duck"`
-            // is the real example — takes that key away from whatever used to answer to it, and the
-            // symptom is a control that silently does nothing.
-            if (_console.Unbound() is { Count: > 0 } unbound)
-            {
-                _configLog.LogInformation(
-                    "{Message}",
-                    $"no key reaches: {string.Join(", ", unbound)} " +
-                    "(their config bound those keys to commands this viewer has no equivalent for)");
-            }
-        }
-        catch (Exception failure) when (failure is IOException or ArgumentException
-                                            or UnauthorizedAccessException or NotSupportedException)
-        {
-            _configLog.LogInformation(failure, "could not read the TF2 configs");
+            _bindings = loaded;
         }
     }
 
-    /// <summary>Finds the game's <c>tf</c> folder, for its materials and textures.</summary>
-    /// <remarks>
-    /// The same Steam library search the map locator uses, stopping one level higher: the locator
-    /// wants <c>tf/maps</c> and this wants <c>tf</c> itself, where the archives and the custom
-    /// folder live. Null when the game is not installed, which costs the stock textures and
-    /// nothing else.
-    /// </remarks>
-    private static string? FindGameFolder()
-    {
-        try
-        {
-            string steam = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
-                "Steam", "steamapps", "libraryfolders.vdf");
-
-            return new MapLocator(steam, MapDownloader.DefaultFolder).FindGameFolder();
-        }
-        catch (Exception failure) when (failure is IOException or ArgumentException)
-        {
-            return null;
-        }
-    }
-
-    private static string? FindMap(string mapName)
-    {
-        try
-        {
-            string steam = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
-                "Steam", "steamapps", "libraryfolders.vdf");
-
-            string ours = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "Tf2DemoSalvage", "maps");
-
-            return new MapLocator(steam, ours).Find(mapName);
-        }
-        catch (ArgumentException)
-        {
-            // A demo header naming something that is not a map name. The locator refuses it, and
-            // it is not worth failing the whole load over.
-            return null;
-        }
-    }
+    // **`FindGameFolder` and `FindMap` were here until 2026-08-26** (B188, D90). They are
+    // `MapProvider.GameFolder` and `MapProvider.Locate` now, and between them they held two of the
+    // THREE hand-typed copies of `ProgramFilesX86/Steam/steamapps/libraryfolders.vdf` this file
+    // carried — the third being the downloader's default folder, which had to agree with `FindMap`'s
+    // search path and did so only because the same components were typed in both.
+    //
+    // Where Steam puts things is not a fact about a window.
 
     /// <summary>Projects the map through a camera fitted to its own bounds.</summary>
     /// <remarks>
@@ -1990,310 +1771,58 @@ internal class MainForm : Form
     /// </remarks>
     private void ProjectMap()
     {
-        if (_map is null || _map.IsEmpty)
+        if (_loaded is not { } map || map.Outline.IsEmpty)
         {
             return;
         }
 
-        // **The segment projection is gone, not skipped.** It projected all 60,764 of the BSP's edge
-        // segments into screen space for the overhead view, and that view was removed — *"there is
-        // no overhead map view now its free cam or POV, the ortho cam was ripped out"*. Nothing in
-        // the solution read the result: `MapLines` had no consumer, in production or in a test, and
-        // the lines channel of the draw carries `mat_leafvis` now.
+        // **The segment projection and the flat fill are gone, not skipped.** The first projected all
+        // 60,764 of the BSP's edge segments for an overhead view that was removed; the second was
+        // dead by construction, built FROM the map as a fallback for having no map. Together they
+        // measured `project 615.8 ms` in a 679 ms frame, re-run on every camera change, for
+        // triangles nothing would draw.
         //
-        // Removed rather than left behind a condition, on the owner's direction: *"If something did
-        // depend on it it needs ripped out too more than likely, or it needs to be massively changed
-        // so wed be better off starting from scratch anyway."*
+        // **The early return that replaced them was a real bug, caught before it shipped.** Returning
+        // here skips everything below, and everything below is the TEXTURED WORLD UPLOAD. Dropping
+        // the fill must not drop the world.
         TopDownCamera camera = MapCamera();
 
-        // **The flat fill is gone too, and it was dead by construction rather than merely unused.**
-        // `DrawFrame` drew it in the `else` of `if (_world is { HasMap: true })` — the fallback for
-        // having no textured map — and it was built from `_surfaces`, which comes FROM the map. So:
-        //
-        //   map present  -> the world is drawn and the fill is not
-        //   map absent   -> `_surfaces` is null and the fill is empty
-        //
-        // A fallback for "no map" that is built from the map cannot produce a visible triangle in
-        // either branch. It could only ever cost: the ledger measured `project 615.8 ms` in a 679 ms
-        // frame, re-run on every camera change, projecting triangles nothing would draw.
-        //
-        // It had stopped making sense as a picture too. Projected through a TOP-DOWN camera and
-        // drawn full screen in clip space, with the ortho view removed the best it could have
-        // managed was an overhead fill painted across a first-person view.
-        //
-        // **The early return this replaces was a real bug, caught before it shipped.** Returning
-        // here skips everything below, and everything below is the TEXTURED WORLD UPLOAD — rebuilt
-        // on resize because the projection is baked into its vertices. Dropping the fill must not
-        // drop the world.
+        // **What is left here is the camera, the viewport and the status bar.** Deciding whether the
+        // world needs uploading is a question about a level and about what already reached the GPU;
+        // performing the upload needs a device, which arrives through `IWorldUpload` — the same seam
+        // `IModelUpload` already uses, and the same reason: the decision becomes testable with a
+        // fake, and the code that decides stops being the code that talks to Direct3D.
+        WorldUpload result = _world.Project(
+            map,
+            _device,
+            camera,
+            ViewMatrix(camera),
+            _surfaceColours.Checked,
+            _heightCut.Fraction,
+            (_viewport.ClientSize.Width, _viewport.ClientSize.Height),
+            _loggers);
 
-        // The textured world is projected through the SAME camera, then uploaded. It is rebuilt on
-        // a resize because the projection is baked into the vertices - which is what keeps the
-        // shader a sample and a multiply.
-        if (_assets is { } assets && _surfaceList.Count > 0 && _device is not null)
+        if (result.Problem is { } problem)
         {
-            try
-            {
-                // **Textures first, and only once per map.** They do not depend on the camera, so
-                // a resize needs new vertices and nothing else - see UploadWorldGeometry.
-                if (!_texturesUploaded || !_device.HasWorldTextures)
-                {
-                    using (_renderLog.Time("uploading textures"))
-                    {
-                        _device.UploadWorldTextures(assets);
-                    }
-
-                    _texturesUploaded = true;
-                }
-
-                // **The camera is a matrix now, so a resize is not a rebuild.** The world's
-                // vertices are in map coordinates and never move; only the view does. This is what
-                // took a viewport change from 0.33 seconds to a 64-byte upload, and it is the
-                // reason a free camera or a per-player view can exist at all.
-                // **One matrix either way**, which is the whole reason this could be added without
-                // touching the renderer: the geometry is in map coordinates and only the view
-                // changes, so a free camera is a different sixty-four bytes rather than a
-                // different pipeline.
-                _device.SetCamera(
-                    ViewMatrix(camera),
-                    _surfaceColours.Checked,
-                    _heightCut);
-
-                // **Logged because this is now the whole cost of a resize**, and a rebuild is not.
-                // Counting these against "building the world" lines is what proves the geometry
-                // survived a viewport change rather than being quietly rebuilt: many camera lines
-                // and one build line is the fix working, and one of each per resize is not.
-                _renderLog.LogInformation(
-                    "{Message}",
-                    $"camera set for a {_viewport.ClientSize.Width}x{_viewport.ClientSize.Height} viewport");
-
-                if (_device.HasWorld)
-                {
-                    return;
-                }
-
-                MapWorld built;
-
-                using (_renderLog.Time("building the world"))
-                {
-                    // Recorded before the build so MapCamera can project height on the very first
-                    // frame; taking it afterwards leaves one frame drawn with a pass-through depth.
-                    _heightRange = MapWorldBuilder.HeightRange(_surfaceList, _map.MainBounds);
-
-                    // **No decal bias is set here any more, and its removal is the point (B135).**
-                    // This called SetDecalBias with the map's height range, which DISPOSED the
-                    // rasteriser state built at load and replaced it with one computed from
-                    // 2^24 / range. So every experiment that edited the constant in WorldRenderer
-                    // measured nothing: the value was overwritten before a frame was drawn, and
-                    // zero and Valve's -262144 produced identical pictures because neither was ever
-                    // in effect. The bias now lives in exactly one place, where it is created.
-
-                    built = MapWorldBuilder.Build(
-                        _terrain,
-                        _surfaceList,
-                        assets.Materials,
-                        assets.Lightmaps,
-                        assets.Props,
-                        camera,
-
-                        // **No play-area cull, and the 3D skybox stays (owner's direction).** This
-                        // passed MainBounds, which discarded every surface and every prop whose
-                        // placement sat outside a box fitted to the map's main cluster — the
-                        // miniature scenery room a TF2 map keeps far outside the level.
-                        //
-                        // That was right for a camera framed to the play area and is wrong for one
-                        // that can go anywhere: "you cannot see it from here" stopped being true
-                        // when the free camera arrived, exactly as it did for the downward-normal
-                        // cull and the decal bias before it. The owner's reason is forward-looking
-                        // rather than corrective — "we are going to need it later to make the maps
-                        // look right in free cam and pov" — so the skybox is kept now rather than
-                        // deleted and rebuilt.
-                        //
-                        // Drawing it raw puts a miniature copy of the surroundings far outside the
-                        // level, at its own scale and position. That is what the file contains; the
-                        // sky_camera transform that makes it read correctly is a separate piece of
-                        // work, and a visible wrong-looking skybox is a better starting point than
-                        // an invisible one.
-                        area: null,
-                        _surfaceColours.Checked,
-                        _overlays,
-                        _brushModels,
-                        _loggers);
-                }
-
-                _renderLog.LogInformation(
-                    "{Message}",
-                    $"world: {built.Vertices.Count} vertices in {built.Batches.Count} material " +
-                    $"batches for a {_viewport.ClientSize.Width}x{_viewport.ClientSize.Height} viewport");
-
-                _device.UploadWorldGeometry(built);
-            }
-            catch (Exception failure) when (
-                failure is InvalidOperationException or InvalidDataException or IOException)
-            {
-                _device.ClearWorld();
-                _texturesUploaded = false;
-                _status.Text = "Textures unavailable: " + failure.Message;
-                _renderLog.LogWarning(failure, "{Message}", "uploading the textured world");
-            }
+            _status.Text = problem;
         }
     }
 
-    /// <summary>
-    /// Frames the map proper, not its full extent.
-    /// </summary>
-    /// <remarks>
-    /// <c>MainBounds</c> rather than <c>Bounds</c>: a TF2 map carries its 3D skybox as ordinary
-    /// world geometry placed far outside the playable space, and fitting to that pushed
-    /// cp_process_final into a third of the viewport with an empty expanse beside it.
-    /// </remarks>
-    /// <summary>The ambient light at a world position.</summary>
-    /// <remarks>
-    /// **The leaf decides, which is how the engine does it.** A model takes the light measured
-    /// inside the leaf it stands in, so two crates either side of a doorway are lit differently
-    /// without either carrying a lightmap.
-    ///
-    /// An unlit answer is returned as a default cube, which the shader reads as "no cube supplied"
-    /// and draws at full brightness rather than black - a model lit by a measurement nobody made
-    /// is worse than one that is merely too bright.
-    /// </remarks>
-    private AmbientCube LightAt(float x, float y, float z)
-    {
-        if (_leaves is not { } tree || _ambient.Count == 0)
-        {
-            return default;
-        }
-
-        int leaf = tree.LeafAt(x, y, z);
-
-        // **Blended, as Mod_LeafAmbientColorAtPos blends it.** vrad thins a leaf's samples down to
-        // the ones an inverse-squared-distance average cannot already predict, so the stored set
-        // only reconstructs the original lighting when it is interpolated. Taking the nearest read
-        // back whichever survivor of that thinning was closest, which is why one capture point on
-        // cp_process drew at 0.10 while its mirror image on a symmetric map drew at 0.39.
-        AmbientCube bounced = leaf >= 0 && leaf < _ambient.Count
-            ? _ambient[leaf].At(x, y, z)
-            : default;
-
-        // **And the direct term, which is the other half of what the engine gives a model.**
-        // istudiorender.h describes the cube as "ambient, and lights that aren't in locallight[]",
-        // so a cube carrying a nearby lamp's light is the shape the engine itself produces for
-        // every light past the nearest four. Without this a prop out of daylight is lit by the
-        // bounce alone, which is why anything indoors read as though it were in shade (B95).
-        AmbientCube lit = LocalLights.AddTo(bounced, _worldLights, x, y, z);
-
-        // **The two terms reported apart, because one number cannot say which is missing.** Every
-        // model on z1800 sampled between 0.09 and 0.12 in a room with three ceiling lamps overhead,
-        // and the single figure is consistent with two unrelated faults: no light near enough to be
-        // chosen, or lights chosen that contribute nothing once attenuated. A log that names only
-        // the total makes those indistinguishable — see
-        // docs/memory/a-log-must-name-what-it-measured.md.
-        ReportLightTerms(bounced, lit, x, y, z);
-
-        return lit;
-    }
-
-    /// <summary>Says what the bounce gave and what the direct lights added, once per place.</summary>
-    /// <remarks>
-    /// Sampled rather than per call: this runs for every model every time one moves, and the
-    /// question it answers is about a PLACE rather than about a frame.
-    /// </remarks>
-    private void ReportLightTerms(AmbientCube bounced, AmbientCube lit, float x, float y, float z)
-    {
-        if (_worldLights.Count == 0 || !_reportedLightTerms.Add(((int)x, (int)y, (int)z)))
-        {
-            return;
-        }
-
-        if (_reportedLightTerms.Count > LightTermReportLimit)
-        {
-            return;
-        }
-
-        _renderLog.LogInformation(
-            "{Message}",
-            string.Create(
-                CultureInfo.InvariantCulture,
-                $"light terms at ({x:0},{y:0},{z:0}): bounce {AmbientCube.Luminance(bounced):0.####}, " +
-                $"with direct {AmbientCube.Luminance(lit):0.####}, " +
-                $"{_worldLights.Count} world lights on the map"));
-    }
-
-    /// <summary>Places already reported, so the line does not repeat per frame.</summary>
-    private readonly HashSet<(int X, int Y, int Z)> _reportedLightTerms = [];
-
-    /// <summary>How many places to report before falling silent.</summary>
-    private const int LightTermReportLimit = 40;
-
-    /// <summary>The sun reaching a world position, or null when it does not.</summary>
-    /// <remarks>
-    /// **The trace is the feature, not an optimisation.** Valve describes a sky light as a
-    /// "directional light with no falloff (surface must trace to SKY texture)" — applied without
-    /// that condition it lights the inside of every building, which is worse than the shade this
-    /// is meant to fix.
-    ///
-    /// Traced towards the sun, which is against the direction its light travels.
-    /// </remarks>
-    private SunLight? SunAt(float x, float y, float z)
-    {
-        if (_sun is not { } sun || _leaves is not { } tree)
-        {
-            return null;
-        }
-
-        if (!tree.SeesSky(x, y, z, -sun.Normal.X, -sun.Normal.Y, -sun.Normal.Z))
-        {
-            return null;
-        }
-
-        return new SunLight(
-            sun.Intensity.Red,
-            sun.Intensity.Green,
-            sun.Intensity.Blue,
-            sun.Normal.X,
-            sun.Normal.Y,
-            sun.Normal.Z);
-    }
-
-    /// <summary>One model's triangles, from the set preloaded with the map.</summary>
-    /// <remarks>
-    /// Answers null for anything the load did not find, which <see cref="EntityModelSet"/>
-    /// remembers rather than asking again every frame. The miss was already reported once, at
-    /// load, where a missing asset is worth reading.
-    /// </remarks>
-    private PropModels.ModelFrames? ModelGeometry(string path) =>
-        _assets is { } assets &&
-        assets.EntityModels.TryGetValue(path, out PropModels.ModelFrames? frames)
-            ? frames
-            : null;
-
-    /// <summary>The model every playable class wears.</summary>
-    /// <remarks>
-    /// **Read from the install rather than listed here.** <c>CTFPlayerClassShared::GetModelName</c>
-    /// returns <c>m_iszCustomModel</c> when a server has overridden it and otherwise
-    /// <c>GetPlayerClassData( m_iClass )-&gt;GetModelName()</c>, which is the class script - so the
-    /// class number is the only thing a demo needs to carry, and it does.
-    ///
-    /// The custom model is networked and is NOT honoured yet: nothing decodes
-    /// <c>m_iszCustomModel</c>, so a server that replaced a player's model draws the stock one.
-    /// Rare outside events and plugins, and stated rather than hidden.
-    /// </remarks>
-    private IEnumerable<string> ClassModelPaths()
-    {
-        if (_classModels is not { } models)
-        {
-            yield break;
-        }
-
-        for (int playerClass = PlayerClassModels.FirstClass;
-            playerClass <= PlayerClassModels.LastPlayingClass;
-            playerClass++)
-        {
-            if (models.Model(playerClass) is { } model)
-            {
-                yield return model;
-            }
-        }
-    }
+    // `LightAt`, `SunAt`, `ReportLightTerms` and their two report fields were here until
+    // 2026-08-25. They are `LevelLighting` in the Scene project now (B188, D90): the engine answers
+    // this query through `IVEngineClient::ComputeLighting` (`cdll_int.h:392`) rather than the window
+    // owning the map's lighting lumps, and away from a form they can finally be tested — a control
+    // pair for the leaf lookup, one for the sun's sky trace, and one asserting the per-place report
+    // is `Debug` so a release run never pays for it (B191).
+    //
+    // `ModelGeometry` went the same way and for the same reason: it knew that geometry is
+    // `MapAssets.EntityModels` keyed by path, so a second frontend would have had to know it too.
+    // The lookup is `MapAssets.Geometry` and the renderer reads it through `EntityModelSet.Geometry`
+    // — an interface pointer set at map load, which is how the client reaches `modelinfo`
+    // (`IVModelInfo.h:146`) rather than being handed a source at every call.
+    //
+    // `ClassModelPaths` is `GameContent.ModelPaths` now, beside the class scripts it reads. It is
+    // what the install says, not what the window knows.
 
     /// <summary>Reads each weapon's animation role, once both the demo and the game are open.</summary>
     /// <remarks>
@@ -2307,178 +1836,43 @@ internal class MainForm : Form
     /// It was caught by a line missing from the log, which is the only instrument that could have
     /// caught it — the defect is in the wiring, and every component was correct.
     /// </remarks>
-    private void EnsureWeaponRoles()
-    {
-        if (_weaponRoles is not null || _archives is not { } archives || _timeline is not { } timeline)
-        {
-            return;
-        }
+    private void EnsureWeaponRoles() =>
+        _moment.Appearance = DemoAppearance.Ensure(_moment.Appearance, _timeline, _game, _demoLog);
 
-        // Only the classes this recording mentions: the archive holds 78 weapon scripts, a match
-        // touches a handful, and each one costs an ICE decryption.
-        // **Weapon AND holder**, because the role is not a property of the weapon alone: a shotgun
-        // is a primary for an engineer and a secondary for a soldier, a heavy and a pyro.
-        HashSet<(string Weapon, int? Class)> held = [];
+    // **`PlayerModel` was here until 2026-08-25** (B188, D90). It was a one-line delegation to
+    // `PlayerProps.ModelFor`, and a delegating wrapper is the view knowing that a domain operation
+    // exists — which being short does not make into view code.
+    //
+    // It also built a SECOND `GameAppearance` on every call, beside the one `_moment.Appearance`
+    // already holds. Its only caller was the marker pass, which now passes that one, so there is a
+    // single appearance where there were two.
+    //
+    // The rule it carried is worth keeping written down, because it is the reason the two passes
+    // must ask ONE question: a player drawn as a model must not also get a flat marker on top of
+    // it, and a player without a model must still get one or they vanish. Asked in two places the
+    // answers drift, and they did — the markers were still being drawn over the models the moment
+    // those started working, which hid whether the models were there at all.
 
-        foreach (TimelineFrame frame in timeline.Frames)
-        {
-            foreach (ScenePlayer player in frame.Players)
-            {
-                if (player.WeaponClass is { } weapon)
-                {
-                    held.Add((weapon, player.PlayerClass));
-                }
-            }
-        }
+    // `DemoModelPaths` and `WornModelPaths` are `DemoModels.Needed` and `DemoModels.Worn` (B188,
+    // D90) — a question about a demo and an install, asked from a window that had nothing to do
+    // with either.
 
-        _weaponRoles = WeaponRoles.Read(archives.Read, held);
-
-        _demoLog.LogInformation(
-            "{Message}",
-            "weapon roles: " + string.Join(
-                ", ",
-                held.OrderBy(pair => pair.Weapon, StringComparer.Ordinal)
-                    .ThenBy(pair => pair.Class)
-                    .Select(pair =>
-                        $"{pair.Weapon}/{pair.Class?.ToString(CultureInfo.InvariantCulture) ?? "?"}=" +
-                        _weaponRoles.Suffix(pair.Weapon, pair.Class))));
-    }
-
-    /// <summary>The model a player is drawn as, or null when they are not drawn as one.</summary>
-    /// <param name="player">The player.</param>
+    /// <summary>What the command line asked for.</summary>
     /// <remarks>
-    /// **One predicate, used by both the model pass and the dot pass.** A player drawn as a model
-    /// must not also get a flat marker on top of it, and a player without a model must still get
-    /// one or they vanish. Asking the question in two places is how the two answers drift apart -
-    /// and they did: the markers were still being drawn over the models the moment those started
-    /// working, which hid whether the models were there at all.
+    /// **Six `_shot*` fields until 2026-08-25**, written one at a time by a parser in this form.
+    /// Reading a command line is not window work and could not be tested where it was, so every
+    /// option was covered only by whichever UI test happened to pass one (B188, D90).
     /// </remarks>
+    private LaunchOptions _launch;
+
+    /// <summary>Where an automatic capture goes; cleared once taken, so it happens once.</summary>
     /// <remarks>
-    /// **Delegates rather than repeating the rule** (B188). This and <c>PlayerProps.Add</c> were the
-    /// same three conditions written twice: the draw loop adds a model for a player, and the marker
-    /// pass draws a DOT for a player with no model. Two copies of one question asked from opposite
-    /// sides is how a player ends up with both a body and a dot on top of it.
+    /// **Mutable where the rest of <see cref="_launch"/> is not**, because this one is not only a
+    /// request: taking the shot consumes it. Kept beside the record rather than inside it, since a
+    /// record of what was ASKED for should not be edited to record what has been done.
     /// </remarks>
-    private string? PlayerModel(ScenePlayer player) =>
-        PlayerProps.ModelFor(player, new GameAppearance(_classModels, _weaponRoles));
-
-    /// <summary>Every distinct studio model the loaded demo shows, at any tick.</summary>
-    /// <remarks>
-    /// Brush models and sprites are excluded: a <c>*N</c> is map geometry and a sprite is a
-    /// camera-facing quad, and neither is a <c>.mdl</c> the studio loader can read.
-    /// </remarks>
-    private HashSet<string> DemoModelPaths()
-    {
-        HashSet<string> paths = new(StringComparer.OrdinalIgnoreCase);
-
-        // **Every class, not only the ones standing at tick zero.** A player can switch class at
-        // any moment in a match, so a set built from who is playing now is missing whatever they
-        // change to - and a model absent from this set is never packed, so the player would simply
-        // vanish mid-round. Nine models is the whole roster and it is loaded once.
-        foreach (string model in ClassModelPaths())
-        {
-            paths.Add(model);
-        }
-
-        if (_timeline is not { } timeline)
-        {
-            return paths;
-        }
-
-        foreach (ScenePropTrack track in timeline.Props)
-        {
-            if (track.Kind == SceneModelKind.Studio)
-            {
-                paths.Add(track.ModelPath);
-            }
-        }
-
-        // **The first-person models, which are in neither of the sets above.** A viewmodel is not a
-        // prop — it has no origin, so the timeline deliberately keeps it out of Props — and the
-        // weapon in its hands is not an entity at all. Both are loaded here or they are never
-        // loaded: this set is what MapAssets is given, and the loader is a dictionary lookup rather
-        // than an on-demand read, so a model absent from it packs to nothing for ever.
-        //
-        // It cost a whole feature. The viewer resolved c_demo_arms.mdl, packed it, reported "0
-        // instances" and drew nothing, with the model sitting in the archive the entire time.
-        foreach (string arms in timeline.ViewmodelModels)
-        {
-            paths.Add(arms);
-        }
-
-        foreach (string weapon in HeldWeaponModels(timeline))
-        {
-            paths.Add(weapon);
-        }
-
-        return paths;
-    }
-
-    /// <summary>Every weapon model any player holds at any point in the demo.</summary>
-    /// <remarks>
-    /// **Resolved up front for the same reason the class models are.** A player switches weapon
-    /// constantly and a set built from what is held right now is missing whatever they draw next —
-    /// which does not fail loudly, it just leaves an empty hand.
-    ///
-    /// Distinct pairs rather than distinct players: a whole match resolves to a few dozen models.
-    /// </remarks>
-    private IEnumerable<string> HeldWeaponModels(DemoTimeline timeline)
-    {
-        if (ItemDefinitions() is null)
-        {
-            yield break;
-        }
-
-        HashSet<(int? Item, string? Weapon, int Class)> seen = [];
-
-        foreach (TimelineFrame frame in timeline.Frames)
-        {
-            foreach (ScenePlayer player in frame.Players)
-            {
-                if (player.ActiveWeapon is null ||
-                    !seen.Add((player.WeaponItem, player.WeaponClass, player.PlayerClass ?? 0)))
-                {
-                    continue;
-                }
-
-                if (WeaponModel(player) is { Length: > 0 } model)
-                {
-                    yield return model;
-                }
-            }
-        }
-    }
-
-    /// <summary>The models the demo ever hangs off another entity's skeleton.</summary>
-    /// <remarks>
-    /// The rule itself is <see cref="WornModels.From"/>, which is where its reasoning and its tests
-    /// live. This supplies the two sources: the demo's own prop tracks, and the first-person weapons,
-    /// which are built by the viewer and appear in no timeline.
-    /// </remarks>
-    private HashSet<string> WornModelPaths() =>
-        _timeline is { } timeline
-            ? WornModels.From(timeline.Props, HeldWeaponModels(timeline))
-            : [];
-
-    /// <summary>Where to write an automatic capture, when one was asked for.</summary>
     private string? _shotPath;
 
-    /// <summary>Which tick to show before capturing.</summary>
-    private int _shotTick;
-
-    /// <summary>Whether an automatic capture should be taken from the player's own eyes.</summary>
-    private bool _shotFirstPerson;
-
-    /// <summary>Where to point the camera before capturing, in world units.</summary>
-    private (float X, float Y)? _shotLookAt;
-
-    /// <summary>How far to zoom in before capturing.</summary>
-    private float _shotZoom = 1f;
-
-    /// <summary>Whether to capture the category view rather than the textured one.</summary>
-    private bool _shotSurfaceColours;
-
-    /// <summary>Frames still to draw before the shutter, so the world is finished and settled.</summary>
     /// <summary>Frames to let the world settle before the opening state is applied.</summary>
     /// <remarks>
     /// **Counted in frames, not seconds**, so it measures settled frames rather than guessing at a
@@ -2489,139 +1883,10 @@ internal class MainForm : Form
 
     private int _shotDelay = OpeningFrames;
 
-    /// <summary>Pulls the capture options out of the paths, returning what is left.</summary>
-    private string[] ReadCaptureOptions(string[] arguments)
-    {
-        List<string> paths = [];
-        Queue<string> pending = new(arguments);
-
-        // A queue rather than an indexed loop: an option consumes the value after it, and moving a
-        // loop counter from inside the body is the shape analyzers rightly object to.
-        while (pending.Count > 0)
-        {
-            string argument = pending.Dequeue();
-
-            if (argument == "--shot" && pending.Count > 0)
-            {
-                _shotPath = pending.Dequeue();
-                continue;
-            }
-
-            if (argument == "--look" && pending.Count > 1)
-            {
-                string x = pending.Dequeue();
-                string y = pending.Dequeue();
-
-                if (float.TryParse(x, NumberStyles.Float, CultureInfo.InvariantCulture, out float worldX) &&
-                    float.TryParse(y, NumberStyles.Float, CultureInfo.InvariantCulture, out float worldY))
-                {
-                    _shotLookAt = (worldX, worldY);
-                    continue;
-                }
-
-                _log.LogWarning("{Message}", $"--look {x} {y} is not a position; ignoring it");
-                continue;
-            }
-
-            if (argument == "--colours")
-            {
-                _shotSurfaceColours = true;
-                continue;
-            }
-
-            // **`+command value`, which is how Source itself sets a cvar at startup.** The viewer
-            // already speaks Source's vocabulary in its config (D69/D70), so the command line
-            // speaks it too rather than growing a second spelling of the same settings.
-            //
-            // It overrides the config file rather than being merged into it: a value passed for one
-            // launch should not become the value for every later launch. That is also what makes it
-            // usable from the UI suite, which must redirect its captures without editing — and
-            // therefore without clobbering — the settings the owner actually uses.
-            if (argument.StartsWith('+') && argument.Length > 1 && pending.Count > 0)
-            {
-                string command = argument[1..];
-                string value = pending.Dequeue();
-
-                // **General, not a list of blessed commands.** Every setting the config file
-                // understands is settable this way for free, because it is the same parser reading
-                // the same command names — which is the property that makes Valve's launch options
-                // and Valve's cvars the same thing rather than two mechanisms that must be kept in
-                // step. An unknown command is ignored here exactly as it is in a config (D69).
-                _settings = ViewerSettings.Parse(
-                    string.Create(CultureInfo.InvariantCulture, $"{command} \"{value}\""),
-                    onto: _settings);
-
-                _log.LogInformation("{Message}", $"{command} {value} (from the command line)");
-                continue;
-            }
-
-            // **The capture that a person actually wants to look at is the first-person one**, and
-            // until this flag existed the only route to it was the UI suite pressing V — which
-            // meant it could only be taken on whichever demo that suite happens to open, at
-            // whichever tick it could reach. See docs/findings/29 for what that produced: a
-            // picture of a wall at the last tick of a solo recording.
-            if (argument == "--first-person")
-            {
-                _shotFirstPerson = true;
-                continue;
-            }
-
-            if (argument == "--zoom" && pending.Count > 0)
-            {
-                string value = pending.Dequeue();
-
-                if (float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out float zoom))
-                {
-                    _shotZoom = zoom;
-                    continue;
-                }
-
-                _log.LogWarning("{Message}", $"--zoom {value} is not a number; ignoring it");
-                continue;
-            }
-
-            // **Which player to watch, because otherwise there is no choosing.** The viewer
-            // spectates whoever `SpectatorTarget.Choose` picks — the lowest entity index on a
-            // playing team — and a match has eighteen players. Anything that happens to anybody
-            // else is on screen for nobody, which made the off hand unviewable: z1800 carries six
-            // spies with a watch drawn, and not one of them is ever the chosen target.
-            if (argument == "--spectate" && pending.Count > 0)
-            {
-                string value = pending.Dequeue();
-
-                if (int.TryParse(
-                        value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int entity))
-                {
-                    _spectating = entity;
-                    continue;
-                }
-
-                _log.LogWarning("{Message}", $"--spectate {value} is not a number; ignoring it");
-                continue;
-            }
-
-            if (argument == "--tick" && pending.Count > 0)
-            {
-                string value = pending.Dequeue();
-
-                if (int.TryParse(
-                        value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int tick))
-                {
-                    _shotTick = tick;
-                    continue;
-                }
-
-                // Not silent: a mistyped tick that quietly captures tick zero is a picture of the
-                // wrong moment, which is worse than no picture.
-                _log.LogWarning("{Message}", $"--tick {value} is not a number; capturing tick 0");
-                continue;
-            }
-
-            paths.Add(argument);
-        }
-
-        return [.. paths];
-    }
+    // `ReadCaptureOptions` is `LaunchOptionsReader.Read` in Presentation (B188, D90), and it returns
+    // a record rather than writing into six fields as it goes. Thirteen tests came with the move; it
+    // had none, because reaching it meant constructing a form — so every option was covered only by
+    // whichever UI test happened to pass one.
 
     /// <summary>Takes the automatic capture once the world has settled, then closes.</summary>
     /// <remarks>
@@ -2696,13 +1961,13 @@ internal class MainForm : Form
         // **The clock too, not just the transport.** Moving the camera marks the world stale, and
         // the reprojection that follows re-reads the moment from the clock - so a capture that only
         // told the transport photographed tick zero while every log line said otherwise.
-        _clock?.Seek(_shotTick);
-        _transport.ShowTick(_shotTick);
-        ShowMoment(_shotTick);
+        _clock?.Seek(_launch.ShotTick);
+        _transport.ShowTick(_launch.ShotTick);
+        ShowMoment(_launch.ShotTick);
 
-        _log.LogInformation("{Message}", $"opening state applied at tick {_shotTick}");
+        _log.LogInformation("{Message}", $"opening state applied at tick {_launch.ShotTick}");
 
-        if (_shotSurfaceColours)
+        if (_launch.SurfaceColours)
         {
             _surfaceColours.Checked = true;
         }
@@ -2711,14 +1976,14 @@ internal class MainForm : Form
         // is placed from the recorded view or from the followed player at the CURRENT tick, so
         // switching before the clock moves photographs the right mode at the wrong instant — and
         // the picture looks like a camera bug rather than an ordering one.
-        if (_shotFirstPerson)
+        if (_launch.FirstPerson)
         {
             _ = ToggleFirstPerson();
         }
 
-        if (_shotLookAt is { } centre)
+        if (_launch.LookAt is { } centre)
         {
-            _zoom = _shotZoom;
+            _zoom = _launch.Zoom;
             _lookingAt = centre;
             _worldIsStale = true;
         }
@@ -2754,97 +2019,65 @@ internal class MainForm : Form
     /// recorded view runs out before the first packet, and a spectated player can leave — and a
     /// black screen would read as a rendering fault rather than as the end of the material.
     /// </remarks>
-    private float[] ViewMatrix(TopDownCamera map)
-    {
-        if (_firstPerson && FirstPersonCamera() is { } eye)
-        {
-            return eye.ToMatrix();
-        }
+    private float[] ViewMatrix(TopDownCamera map) => ViewCamera.Matrix(
+        _firstPerson, FirstPersonCamera(), _freeLook, FreeLookCamera(), map);
 
-        return _freeLook ? FreeLookCamera().ToMatrix() : map.ToMatrix();
-    }
-
-    /// <summary>The twelve edges of the leaf the camera stands in, projected — <c>mat_leafvis</c>.</summary>
-    /// <param name="matrix">The view-projection the world is drawn with, row major.</param>
-    /// <returns>Clip-space segments, or nothing when the mode is off or there is no leaf.</returns>
+    /// <summary>The leaf outline to draw over the world, when that overlay is switched on.</summary>
+    /// <returns>World-space segments, or nothing when the mode is off or there is no leaf.</returns>
     /// <remarks>
-    /// **The leaf the CAMERA is in, which is what Valve draws.** A BSP leaf is the unit the engine
-    /// culls and traces against, so "which one am I in and how big is it" is the question behind
-    /// every visibility oddity — a prop that vanishes at a doorway, a sound that carries too far.
-    /// Drawing all of them would be a wireframe of the whole tree and answer nothing.
+    /// **What is left here is the TOGGLE, which is view state, and the eye, which the camera owns.**
+    /// The tree walk is <see cref="LeafVis"/>'s and the transform is the GPU's (D95) — this method
+    /// no longer takes a matrix at all, because nothing on this side of the seam projects anything.
     ///
-    /// **Projected here rather than drawn in world space** because the line channel takes clip-space
-    /// segments and ignores depth, which is what an annotation should do: the box is a statement
-    /// about where you are, and a box half-hidden by the wall it describes would be worse than
-    /// useless. That is the same reason the player markers ignore depth.
+    /// The origin is the one the free camera flies from, so the box is the leaf the VIEWER is in
+    /// rather than the one the recording happens to be looking from.
     ///
-    /// A corner behind the eye is dropped rather than projected: dividing by a w at or below zero
-    /// mirrors the point through the camera, and the edge then streaks across the screen from
-    /// somewhere it is not.
+    /// **It reads `_loaded` rather than a field of its own, and that is the fix for a regression
+    /// this method carried for a day** (B196). A separate `_level` survived the move that created
+    /// <see cref="LoadedMap"/> and its assignment did not, so it held null for ever and this drew
+    /// nothing on every map. One field, or it drifts.
     /// </remarks>
-    private List<((float X, float Y) From, (float X, float Y) To)> LeafBoxLines(
-        float[] matrix)
+    private IReadOnlyList<((float X, float Y, float Z) From, (float X, float Y, float Z) To)> LeafBoxLines()
     {
-        if (!_debug.LeafVis || _leaves is not { } tree)
+        if (!_debug.LeafVis)
         {
             return [];
         }
 
-        // The same origin the free camera flies from, so the box is the leaf the VIEWER is in
-        // rather than the one the recording happens to be looking from.
-        (float X, float Y, float Z) eye = _freeOrigin ?? FreeLookCamera().Origin;
+        IReadOnlyList<((float X, float Y, float Z) From, (float X, float Y, float Z) To)> lines =
+            LeafVis.Lines(_loaded?.Level.Leaves, _freeOrigin ?? FreeLookCamera().Origin);
 
-        if (tree.Bounds(tree.LeafAt(eye.X, eye.Y, eye.Z)) is not { } box)
+        // **Says which of the three silences this is, once** (D83). An overlay that is switched on
+        // and draws nothing is the exact shape the regression above wore for a day, and it is
+        // indistinguishable by eye from standing in a leaf whose box is off screen. Naming the
+        // measurement is the difference between a diagnostic and a shrug.
+        if (lines.Count == 0 && !_reportedNoLeafBox)
         {
-            return [];
-        }
+            _reportedNoLeafBox = true;
 
-        (float X, float Y, float Z) Corner(int which) => (
-            (which & 1) == 0 ? box.Min.X : box.Max.X,
-            (which & 2) == 0 ? box.Min.Y : box.Max.Y,
-            (which & 4) == 0 ? box.Min.Z : box.Max.Z);
-
-        (float X, float Y)? Project((float X, float Y, float Z) point)
-        {
-            // **Row-vector, which is what the shader does: `mul(world, viewProjection)` with the
-            // matrix declared `row_major`.** So a point multiplies the matrix from the LEFT, the
-            // translation lives in elements 12–14, and w comes from element 11 — `FreeCamera` sets
-            // `projection[11] = 1`, which is the giveaway.
-            //
-            // The first version indexed this as column-vector, taking w from 12–15. That does not
-            // fail, it produces a projection: the owner saw the box as "a dot that gets kinda
-            // triangular", which is a room-sized box collapsed through the wrong transform. This
-            // project already carries a memory about the two conventions it uses on purpose; this
-            // is what mixing them looks like from the outside.
-            float x = (point.X * matrix[0]) + (point.Y * matrix[4]) + (point.Z * matrix[8]) + matrix[12];
-            float y = (point.X * matrix[1]) + (point.Y * matrix[5]) + (point.Z * matrix[9]) + matrix[13];
-            float w = (point.X * matrix[3]) + (point.Y * matrix[7]) + (point.Z * matrix[11]) + matrix[15];
-
-            return w > 0.0001f ? (x / w, y / w) : null;
-        }
-
-        List<((float X, float Y) From, (float X, float Y) To)> lines = [];
-
-        // The twelve edges of a box: every pair of corners differing in exactly one axis bit.
-        for (int from = 0; from < 8; from++)
-        {
-            foreach (int axis in new[] { 1, 2, 4 })
-            {
-                int to = from | axis;
-
-                if (to == from)
-                {
-                    continue;
-                }
-
-                if (Project(Corner(from)) is { } a && Project(Corner(to)) is { } b)
-                {
-                    lines.Add((a, b));
-                }
-            }
+            _renderLog.LogWarning("{Message}", WhyNoLeafBox());
         }
 
         return lines;
+    }
+
+    /// <summary>Which of the three reasons the leaf outline came back empty.</summary>
+    /// <remarks>
+    /// **A log must name what it measured.** "no leaf box" is true of all three and useful for
+    /// none: a map that never loaded, a map with no BSP tree, and a camera standing in a leaf whose
+    /// bounds the lump does not carry are three different problems with three different fixes, and
+    /// only the first two are ours.
+    /// </remarks>
+    private string WhyNoLeafBox()
+    {
+        if (_loaded is null)
+        {
+            return "mat_leafvis is on with no map loaded";
+        }
+
+        return _loaded.Level.Leaves is null or { IsEmpty: true }
+            ? "mat_leafvis is on but the map carried no BSP tree"
+            : "mat_leafvis is on but the leaf under the camera has no bounds";
     }
 
     /// <summary>Enters or leaves the first-person view, saying why when it cannot be entered.</summary>
@@ -2865,14 +2098,12 @@ internal class MainForm : Form
             return true;
         }
 
-        if (FirstPersonCamera() is null)
-        {
-            _renderLog.LogWarning(
-                "{Message}",
-                "first person unavailable: this demo has no recorded camera and no player to " +
-                "follow at this tick");
+        FirstPersonEntry entry = _spectator.Enter(_transport.CurrentTick, Aspect);
 
-            _status.Text = "No first-person view here: nothing to follow at this tick.";
+        if (!entry.Entered)
+        {
+            _renderLog.LogWarning("{Message}", entry.Message);
+            _status.Text = entry.Status;
             return true;
         }
 
@@ -2880,241 +2111,31 @@ internal class MainForm : Form
         _worldIsStale = true;
         _viewport.Invalidate();
 
-        _renderLog.LogInformation(
-            "{Message}",
-            _timeline?.HasRecordedView == true
-                ? "first person on, following the recording's own camera"
-                : "first person on, spectating a player (this demo has no recorded camera)");
+        _renderLog.LogInformation("{Message}", entry.Message);
 
         return true;
     }
 
-    /// <summary>Puts the followed player's weapon in front of the camera.</summary>
-    /// <param name="seconds">Demo time, for advancing the weapon's own animation.</param>
-    /// <remarks>
-    /// **A viewmodel has no position of its own, so this is where it gets one.** Its table is
-    /// declared <c>BEGIN_NETWORK_TABLE_NOBASE</c> and carries no origin and no angles at all — the
-    /// demo names the model and the pose, and <c>CBaseViewModel::CalcViewModelView</c> starts it at
-    /// the eye:
-    ///
-    /// <code>
-    /// QAngle vmangles = eyeAngles;
-    /// Vector vmorigin = eyePosition;
-    /// </code>
-    ///
-    /// **The bob, the lag and the shake that follow in the engine are deliberately not copied.**
-    /// Every one of them is a function of movement and elapsed time rather than of anything the
-    /// recording holds, so reproducing them would be this viewer inventing motion — which is the
-    /// one thing it exists not to do. What is drawn is where the weapon was; how it swayed is not
-    /// in the file.
-    ///
-    /// Mirrored, because a viewmodel is drawn mirrored and the cull flips with it. Getting that
-    /// wrong does not fail, it draws the weapon inside out.
-    /// </remarks>
-    /// <summary>Poses whatever the first-person view shows at this moment.</summary>
-    /// <remarks>
-    /// **This was 319 lines and is now a guard, a call and the drawing** (B188). What it decides —
-    /// which models the view contains, under which of the engine's two exclusive schemes — moved to
-    /// <see cref="ViewmodelScene"/> in the scene layer, where it can be tested without a window.
-    /// It could not be before: reaching it meant constructing a MainForm, which needs the STA, a
-    /// Direct3D device and the desktop lock, and three open bugs against this path (B170, B186,
-    /// B187) had no regression test between them.
-    ///
-    /// What stays here is what genuinely needs the form: which entity the camera follows, where
-    /// that camera is, packing geometry onto the device, and the camera the pass draws with.
-    /// </remarks>
-    private void AddViewmodel(double seconds)
-    {
-        if (!_firstPerson ||
-            _timeline is not { } timeline ||
-            FollowedEntity() is not { } follower ||
-            FirstPersonCamera() is not { } camera)
-        {
-            // **Dropping the camera is how "draw none" is said.** The instance list is owned by the
-            // pose step and survives paused frames on purpose, so leaving it populated while first
-            // person is off would keep a weapon on screen after V was pressed.
-            _viewmodelCamera = null;
-            return;
-        }
+    // The prose about WHY a viewmodel is placed at the eye — `CBaseViewModel::CalcViewModelView`,
+    // and why the bob, lag and shake are deliberately not copied — moved with the code that acts on
+    // it, onto `MomentScene.AddViewmodel` (B188, D90). It was orphaned here the moment the placement
+    // left, and commentary that outlives its code is how a comment starts describing something that
+    // is no longer true.
 
-        string? hands = PlayerAt(_transport.CurrentTick, follower) is { PlayerClass: { } playerClass }
-            ? _classModels?.Hands(playerClass)
-            : null;
-
-        ViewmodelSceneResult scene = _viewmodelScene.Build(
-            new TimelineViewmodels(timeline),
-            _transport.CurrentTick,
-            follower,
-            new ViewmodelPlacement(
-                camera.Origin.X,
-                camera.Origin.Y,
-                camera.Origin.Z,
-                camera.Angles.Pitch,
-                camera.Angles.Yaw,
-                camera.Angles.Roll),
-            hands,
-            WeaponModelFor(follower));
-
-        bool changed = scene.Changed;
-
-        if (scene.Props.Count == 0)
-        {
-            _renderLog.LogWarning(
-                "{Message}",
-                $"no viewmodel for entity {follower} at tick {_transport.CurrentTick}");
-
-            _viewmodelCamera = null;
-            return;
-        }
-
-        // **Whether the set grew, because packing is not uploading.** `Add` fills this process's
-        // copy of the geometry; the renderer keeps its own on the GPU and only receives it when
-        // `UploadModels` is called. The viewmodel's Add was once ignoring that signal, so the arms
-        // were packed, posed, instanced, transformed correctly and submitted against geometry the
-        // renderer did not have.
-        if (_models.Add(scene.Props, ModelGeometry) && _device is { } packed)
-        {
-            packed.UploadModels(_models);
-
-            _renderLog.LogInformation(
-                "{Message}",
-                $"viewmodel models uploaded: {_models.Count} packed, " +
-                $"{_models.Vertices.Count} vertices");
-        }
-
-        // **Names each prop, because the count says two and cannot say two of WHAT.** The merged
-        // arms model already carries a weapon part — c_soldier_arms pairs as hands, sleeves and
-        // w_rocketlauncher — so a second prop naming the same geometry draws the gun twice, which
-        // is what "2 sticky launchers overlapping" looks like.
-        if (changed)
-        {
-            foreach (SceneProp shown in scene.Props)
-            {
-                _renderLog.LogInformation(
-                    "{Message}",
-                    $"  viewmodel prop '{shown.ModelPath}' seq {shown.Pose.Sequence}");
-            }
-        }
-
-        // **One call for all of them, because Instances CLEARS the list it is given.** Posing the
-        // arms and then the weapon into the same list threw the arms away and drew the gun alone.
-        _models.Instances(scene.Props, _viewmodelInstances, LightAt, SunAt, seconds);
-
-        if (changed)
-        {
-            _renderLog.LogInformation(
-                "{Message}",
-                $"viewmodel at tick {_transport.CurrentTick}: {scene.Props.Count} props, " +
-                $"{_viewmodelInstances.Count} instances");
-        }
-
-        _viewmodelCamera = new FreeCamera
-        {
-            Origin = camera.Origin,
-            Angles = camera.Angles,
-            Aspect = camera.Aspect,
-            FarZ = camera.FarZ,
-            FieldOfView = _settings.ViewmodelFieldOfView,
-            NearZ = ViewmodelPass.NearPlane,
-        };
-    }
-
-    /// <summary>Decides what the first-person view contains; the form supplies where and whose.</summary>
+    /// <summary>Decides what the first-person view contains; the scene supplies where and whose.</summary>
+    /// <remarks>Constructed here and handed to <see cref="MomentScene"/>, which drives it.</remarks>
     private readonly ViewmodelScene _viewmodelScene = new();
 
-    /// <summary>The camera the viewmodel pass uses, or null when nothing is drawn in it.</summary>
-    private FreeCamera? _viewmodelCamera;
+    // `_viewmodelCamera` went with `AddViewmodel` on 2026-08-25 (B188, D90). It is
+    // `MomentScene.ViewmodelCamera`, set by the pass that decides whether anything is drawn in it at
+    // all — which is what makes "null means draw none" one fact rather than two that can disagree.
 
-    /// <summary>The model of the weapon in a player's hands, or <c>null</c>.</summary>
-    /// <param name="player">The player being followed.</param>
-    /// <remarks>
-    /// **Two routes, and the second is needed more often than it looks.** A demo names the item the
-    /// player holds — <c>m_iItemDefinitionIndex</c> — and the schema turns that into a model. But
-    /// measured on z1800, 22 of 56 held weapons never send one, so the weapon's own class is used
-    /// to find the stock item for it instead. Together they answered for 56 of 56.
-    ///
-    /// Both are lookups into <c>items_game.txt</c>, which is read once and kept: it is eight
-    /// megabytes, and this is asked every frame.
-    /// </remarks>
-    private string? WeaponModelFor(int player) =>
-        PlayerAt(_transport.CurrentTick, player) is { } holder ? WeaponModel(holder) : null;
+    // `WeaponModelFor`, `WeaponModel`, `ItemDefinitions` and the two fields that cached the schema
+    // are `WeaponModels` in Scene (B188, D90). None of it was window work — it is two lookups into
+    // items_game.txt — and none of it had a test, because reaching it meant constructing a form.
 
-    /// <summary>The model of the weapon a player is holding, or <c>null</c>.</summary>
-    /// <param name="holder">The player, at whichever tick they were read.</param>
-    /// <remarks>
-    /// Shared by the draw path and by the load set, deliberately: the set decides which models are
-    /// packed and the draw path decides which is shown, so a disagreement between them is a weapon
-    /// that resolves and cannot be drawn — which is exactly the failure this feature already had
-    /// once, from the other direction.
-    /// </remarks>
-    private string? WeaponModel(ScenePlayer holder)
-    {
-        if (ItemDefinitions() is not { } schema)
-        {
-            return null;
-        }
-
-        int playerClass = holder.PlayerClass ?? 0;
-
-        if (holder.WeaponItem is { } item &&
-            schema.ModelFor(item, playerClass) is { Length: > 0 } named)
-        {
-            return named;
-        }
-
-        if (holder.WeaponClass is not { } weaponClass)
-        {
-            return null;
-        }
-
-        foreach (string candidate in WeaponScriptName.Candidates(weaponClass, holder.PlayerClass))
-        {
-            if (schema.ModelForClass(candidate, playerClass) is { Length: > 0 } stock)
-            {
-                return stock;
-            }
-        }
-
-        return null;
-    }
-
-    /// <summary>TF2's item schema, read from the installed game once.</summary>
-    /// <remarks>
-    /// Null when the game is not installed or the file is not where it should be, which is the
-    /// same condition every other asset lookup here already tolerates — the viewer draws what it
-    /// can find and says what it could not.
-    /// </remarks>
-    private ItemSchema? ItemDefinitions()
-    {
-        if (_itemSchema is not null || _itemSchemaMissing)
-        {
-            return _itemSchema;
-        }
-
-        if (_archives?.Read("scripts/items/items_game.txt") is not { } bytes)
-        {
-            // Recorded so the eight-megabyte read is not attempted every frame, and reported once
-            // so a viewer with no weapons in hand says why.
-            _itemSchemaMissing = true;
-            _renderLog.LogWarning("{Message}", "no items_game.txt, so no weapon models in first person");
-            return null;
-        }
-
-        _itemSchema = ItemSchema.Read(bytes);
-        _renderLog.LogInformation("{Message}", "item schema read");
-
-        return _itemSchema;
-    }
-
-    /// <summary>The item schema, once read.</summary>
-    private ItemSchema? _itemSchema;
-
-    /// <summary>Whether the schema was looked for and not found.</summary>
-    private bool _itemSchemaMissing;
-
-
-    /// <summary>Scratch list for the viewmodel's instances, reused between frames.</summary>
-    private readonly List<ModelInstance> _viewmodelInstances = [];
+    // The viewmodel's instance list moved with the pass that fills it (B188, D90). It is
+    // `MomentScene.ViewmodelInstances`, still reused between frames rather than allocated.
 
     // The three viewmodel entity indices moved to ViewmodelScene on 2026-08-24 (B188), with the
     // code that uses them. They are this project's own numbering rather than anything the engine
@@ -3128,155 +2149,24 @@ internal class MainForm : Form
     /// disagree. On a point-of-view demo it is the recorder; on a SourceTV demo it is whoever is
     /// being spectated.
     /// </remarks>
-    private int? FollowedEntity()
-    {
-        if (_timeline is not { } timeline)
-        {
-            return null;
-        }
+    private int? FollowedEntity() => _spectator.Followed(_transport.CurrentTick);
 
-        if (timeline.RecordedViewAt(_transport.CurrentTick) is not null)
-        {
-            return timeline.RecorderEntityIndex;
-        }
+    // `Spectated`, `FirstPersonCamera`, `PlayerAt`, `Ducking` and `_spectating` are `SpectatorView`
+    // in Scene (B188, D90). Valve computes a view on the PLAYER and dispatches on observer mode —
+    // `C_BasePlayer::CalcView` (`c_baseplayer.h:112`) to `CalcObserverView` (`:455`) to
+    // `CalcInEyeCamView`/`CalcChaseCamView`/`CalcRoamingView` (`:463`) — so none of it belonged in a
+    // window there either. The only thing it wanted from one was the viewport's aspect ratio.
 
-        // Whoever the camera is spectating, asked in one place so the two cannot disagree — this
-        // decides which player is hidden from their own view, and a mismatch would hide the wrong
-        // body or leave the spectated one standing in front of the lens.
-        return Spectated(_transport.CurrentTick)?.EntityIndex;
-    }
-
-    /// <summary>The player being spectated at a tick, honouring <c>--spectate</c>.</summary>
-    /// <remarks>
-    /// **One resolver, because two call sites decide different halves of the same picture** — the
-    /// camera's position and which body to hide. They read this rather than
-    /// <see cref="SpectatorTarget.Choose"/> directly, so an override cannot reach one and miss the
-    /// other and leave a player standing in front of their own lens.
-    ///
-    /// The override falls back rather than failing when the named entity is not playing at this
-    /// tick: a spy is dead, in the lobby, or another class for most of a match, and a viewer that
-    /// went black for those stretches would be worse than one that shows somebody. It says so in the
-    /// log rather than silently, because "I asked for entity 11 and got somebody else" is exactly
-    /// the kind of thing that reads as a decode bug.
-    /// </remarks>
-    private ScenePlayer? Spectated(int tick)
-    {
-        if (_timeline is not { } timeline)
-        {
-            return null;
-        }
-
-        IReadOnlyList<ScenePlayer> players = timeline.PlayersAt(tick);
-
-        if (_spectating is { } wanted)
-        {
-            foreach (ScenePlayer player in players)
-            {
-                if (player.EntityIndex == wanted)
-                {
-                    return player;
-                }
-            }
-
-            _log.LogWarning(
-                "{Message}",
-                $"--spectate {wanted} is not playing at tick {tick}; following the default");
-        }
-
-        return SpectatorTarget.Choose(players);
-    }
-
-    /// <summary>The entity <c>--spectate</c> named, or <c>null</c> to choose automatically.</summary>
-    private int? _spectating;
-
-    /// <summary>The camera for the first-person view, or <c>null</c> when there is none.</summary>
-    /// <remarks>
-    /// **Two mechanisms behind one mode, and which applies is a property of the demo.**
-    ///
-    /// A point-of-view demo carries the camera the recording client computed, in
-    /// <c>democmdinfo_t</c>. That is used as it stands: it already accounts for death, spectating
-    /// and every observer mode, and rebuilding it from the recorder's entity would be right while
-    /// they lived and wrong for the rest — measured, the two part company by 169 units on the 2009
-    /// demo the moment the recorder dies. Only the eye height is added, because the recorded origin
-    /// is the feet.
-    ///
-    /// A SourceTV demo carries no camera, so the view is built from a player's own position and
-    /// eye angles — what the engine does when you spectate in game, and what
-    /// <see cref="FreeCamera.SpectatingEye"/> exists for. The heights differ between the two paths
-    /// and that is Valve's doing rather than an approximation; see <see cref="PlayerEye"/>.
-    /// </remarks>
-    private FreeCamera? FirstPersonCamera()
-    {
-        if (_timeline is not { } timeline)
-        {
-            return null;
-        }
-
-        float aspect = _viewport.ClientSize.Height > 0
+    /// <summary>The viewport's width over its height, which is all a camera needs from a window.</summary>
+    /// <remarks>16:9 before the control has a size, so a camera built during construction is sane.</remarks>
+    private float Aspect =>
+        _viewport.ClientSize.Height > 0
             ? _viewport.ClientSize.Width / (float)_viewport.ClientSize.Height
             : 16f / 9f;
 
-        int tick = _transport.CurrentTick;
-
-        if (timeline.RecordedViewAt(tick) is { } recorded)
-        {
-            ScenePlayer? recorder = PlayerAt(tick, timeline.RecorderEntityIndex);
-
-            return FreeCamera.AtEye(
-                recorded,
-                recorder?.PlayerClass ?? 0,
-                Ducking(recorder),
-                aspect);
-        }
-
-        // No recorded camera: spectate somebody who is actually playing. Taking the first player
-        // in the list took the SourceTV camera instead — see SpectatorTarget, and
-        // docs/findings/29 for the three identical captures that found it.
-        if (Spectated(tick) is not { } target)
-        {
-            return null;
-        }
-
-        return FreeCamera.SpectatingEye(
-            (target.X, target.Y, target.Z),
-            target.EyePitch ?? 0f,
-            target.EyeYaw ?? target.Yaw,
-            Ducking(target),
-            aspect);
-    }
-
-    /// <summary>One player at a tick, by entity index.</summary>
-    /// <remarks>
-    /// <see cref="ScenePlayer"/> is a record STRUCT, so <c>FirstOrDefault</c> hands back a zeroed
-    /// player rather than null and a <c>is null</c> check never fires — which would put the camera
-    /// at the world origin with class zero rather than reporting that nobody was found.
-    /// </remarks>
-    private ScenePlayer? PlayerAt(int tick, int? entityIndex)
-    {
-        if (entityIndex is not { } index || _timeline is not { } timeline)
-        {
-            return null;
-        }
-
-        foreach (ScenePlayer player in timeline.PlayersAt(tick))
-        {
-            if (player.EntityIndex == index)
-            {
-                return player;
-            }
-        }
-
-        return null;
-    }
-
-    /// <summary>Whether a player is crouched, which lowers the eye by more than a foot.</summary>
-    /// <remarks>
-    /// <c>FL_DUCKING</c> on <c>m_fFlags</c>. A player whose flags the recording never stated is
-    /// treated as standing, which is what they usually are — the same default the animation state
-    /// machine takes.
-    /// </remarks>
-    private static bool Ducking(ScenePlayer? player) =>
-        player?.Flags is { } flags && (flags & PlayerActivityState.Ducking) != 0;
+    /// <summary>The camera for the first-person view, or <c>null</c> when there is none.</summary>
+    private FreeCamera? FirstPersonCamera() =>
+        _spectator.Eye(_transport.CurrentTick, Aspect);
 
     /// <summary>The free camera, placed by the controller if nothing has placed it yet.</summary>
     /// <remarks>
@@ -3294,8 +2184,8 @@ internal class MainForm : Form
 
         return _freeCamera.Camera(
             Math.Max(1, _viewport.ClientSize.Width) / (float)Math.Max(1, _viewport.ClientSize.Height),
-            _map,
-            _heightRange is { } range ? range.Highest : 0f);
+            _loaded?.Outline,
+            _loaded?.HeightRange is { } range ? range.Highest : 0f);
     }
 
     // **Placing the free camera and parsing a placement moved to FreeCameraController on
@@ -3312,14 +2202,10 @@ internal class MainForm : Form
     // `OverheadPlacement` replaces it, anchoring to the highest geometry within MainBounds and
     // taking whichever is greater of that and the distance needed to frame the play area.
 
-    /// <summary>World units the free camera moves per wheel notch.</summary>
-    /// <remarks>
-    /// **A distance, unlike flight, because a wheel notch IS a discrete event.** Thirty-two units is
-    /// half a player's height. Key-driven flight used to work the same way and could not — a held
-    /// key is a duration and became one in <see cref="FreeFlight"/> (B97) — but a notch has no
-    /// duration to integrate over.
-    /// </remarks>
-    private const float FlySpeed = 32f;
+    // **`FlySpeed` was here until 2026-08-26** (B204, B206). It was 32 units and every use of it
+    // read `FlySpeed * 4f`, so it is `FreeCameraController.WheelTravel` at 128 now — the number a
+    // reader had to compute is the number they read. Its note about a notch being a discrete event
+    // rather than a duration went with it, since that is the reason it is a distance at all.
 
     // PlayerEyeHeight (VEC_VIEW, 64) went with FreeFocus on 2026-08-22 (D66): the free camera no
     // longer arrives at a player's eye height above the lowest floor, it arrives above the map
@@ -3327,13 +2213,16 @@ internal class MainForm : Form
     // anything wants it again — the first-person camera takes its eye position from the demo
     // rather than from a constant, so nothing does today.
 
-    /// <summary>How wide the empty view is when no map is loaded, in world units.</summary>
-    /// <remarks>
-    /// Arbitrary and only ever seen as an empty viewport — nothing is drawn without a map. It
-    /// exists so the camera is a real camera rather than a special case every caller has to know
-    /// about.
-    /// </remarks>
-    private const float EmptyMapExtent = 1024f;
+    // `EmptyMapExtent` was here until 2026-08-26. It is `ViewCamera.EmptyMapExtent`, with the
+    // overhead placement that is its only reader (B188, D90).
+    //
+    // **The reason it exists is worth keeping: `_loaded` is genuinely null before a demo is opened,
+    // and this code used to write `_map!`.** Starting the viewer with no map crashed on the first
+    // layout with a NullReferenceException — the owner hit it running Viewer3D straight from the
+    // IDE, which is the ordinary way to start it with no arguments. That `!` asserted a fact the
+    // code could not support, and the assertion was simply false. Eleven call sites reach the
+    // overhead camera, several from layout and paint handlers that run before anything is loaded,
+    // so the answer is a camera over NOTHING rather than a null every caller has to test.
 
     private TopDownCamera MapCamera()
     {
@@ -3346,33 +2235,14 @@ internal class MainForm : Form
         // code could not support, and the assertion was simply false. Eleven call sites reach this,
         // several from layout and paint handlers that run before anything is loaded, so the answer
         // is a camera over nothing rather than a null every caller has to test.
-        (float MinX, float MinY, float MaxX, float MaxY) bounds = _map is { } loaded
-            ? (loaded.MainBounds.MinX, loaded.MainBounds.MinY,
-               loaded.MainBounds.MaxX, loaded.MainBounds.MaxY)
-            : (-EmptyMapExtent, -EmptyMapExtent, EmptyMapExtent, EmptyMapExtent);
-
-        TopDownCamera fitted = TopDownCamera.Fit(
-            [
-                (bounds.MinX, bounds.MinY),
-                (bounds.MaxX, bounds.MaxY),
-            ],
-            Math.Max(1, _viewport.ClientSize.Width),
-            Math.Max(1, _viewport.ClientSize.Height));
-
-        TopDownCamera zoomed = _zoom > 1f ? fitted.WithZoom(_zoom) : fitted;
-
-        TopDownCamera placed = _lookingAt is { } centre
-            ? zoomed.LookingAt(centre.X, centre.Y)
-            : zoomed;
-
-        // **D35: the camera projects height, so it has to know the range.** The geometry carries
-        // world Z now; without this the third row is a pass-through and every surface lands at a
-        // depth of its own world height in units, which is far outside the clip range and draws
-        // nothing at all.
-        return _heightRange is { } range
-            ? placed.WithHeights(range.Lowest, range.Highest)
-            : placed;
+        return ViewCamera.Overhead(
+            _loaded,
+            _viewport.ClientSize.Width,
+            _viewport.ClientSize.Height,
+            _zoom,
+            _lookingAt);
     }
+
 
     /// <summary>Shows a set of world positions in the viewport.</summary>
     /// <param name="positions">World XY positions, in Source units.</param>
@@ -3382,36 +2252,13 @@ internal class MainForm : Form
     /// bounds are not known until BSP reading exists - and fitting to the entities is what a
     /// viewer wants anyway when a scrub lands on a moment where everyone is in one corner.
     /// </remarks>
-    public void ShowPositions(IReadOnlyList<(float X, float Y)> positions)
-    {
-        ArgumentNullException.ThrowIfNull(positions);
-
-        if (positions.Count == 0)
-        {
-            _scene = [];
-            return;
-        }
-
-        // With a map loaded the players are projected through the MAP's camera, so they land where
-        // they actually are in the world. Fitting to the players instead would place them
-        // correctly relative to each other and wrongly relative to everything around them.
-        TopDownCamera camera = _map is not null && !_map.IsEmpty
-            ? MapCamera()
-            : TopDownCamera.Fit(
-                positions,
-                Math.Max(1, _viewport.ClientSize.Width),
-                Math.Max(1, _viewport.ClientSize.Height));
-
-        List<ScenePoint> points = new(positions.Count);
-
-        foreach ((float worldX, float worldY) in positions)
-        {
-            (float x, float y) = camera.Project(worldX, worldY);
-            points.Add(new ScenePoint(x, y, 1f, 0.85f, 0.3f));
-        }
-
-        _scene = points;
-    }
+    public void ShowPositions(IReadOnlyList<(float X, float Y)> positions) =>
+        _scene = MapOverview.Positions(
+            positions,
+            _loaded,
+            MapCamera(),
+            _viewport.ClientSize.Width,
+            _viewport.ClientSize.Height);
 
     /// <summary>Draws the whole world at a moment: players and every model-bearing entity.</summary>
     /// <param name="tick">The moment to show, which may fall between ticks.</param>
@@ -3431,350 +2278,74 @@ internal class MainForm : Form
             return;
         }
 
-        // **A ledger over ShowMoment, because the frame ledger's `advance` bucket is all of it.**
-        // `AdvancePlayback` raises `MomentChanged`, which lands here — so a 180 ms `advance` says
-        // only "somewhere in the scene rebuild", across sampling, weapon roles, model reads, the
-        // upload, posing, the weapon report and ShowPlayers. Four of those seven were never timed.
-        //
-        // Same shape as the frame ledger and for the same reason (B163): phases with a residual,
-        // rather than a threshold on one event. The residual is the column that matters.
-        long momentAt = Stopwatch.GetTimestamp();
-
+        // **The sampling stays with whoever holds the timeline; everything after it does not.** The
+        // scene rebuild is TOLD the tick, the camera and the followed entity through `MomentInfo`,
+        // which is `SetupRenderInfo_t`'s arrangement (`clientleafsystem.h:75`) rather than reaching
+        // back into a window for them (B188, D90).
+        // **Timed here, because `sampling` in the per-second line MEANS this.** For one commit that
+        // counter was fed `phases.DrawList` — the draw-list build and its visibility filters, which
+        // is a different quantity under the same name. A log that names the wrong thing misdirects
+        // with authority (`docs/memory/a-log-must-name-what-it-measured.md`).
         long sampledAt = Stopwatch.GetTimestamp();
 
         timeline.PlayersAt(tick, _players);
         timeline.PropsAt(tick, _props);
 
-        _samplingTicks += Stopwatch.GetTimestamp() - sampledAt;
+        long sampleTicks = Stopwatch.GetTimestamp() - sampledAt;
 
-        long momentSampledAt = Stopwatch.GetTimestamp();
+        _ledger.Sampled(sampleTicks);
 
-        // Packing is a no-op after the first sighting of each model, so this costs a dictionary
-        // lookup per entity per frame once the demo has been running for a moment.
-        // **Players become props, rather than getting a pipeline of their own.** A player is a
-        // model at a pose, which is exactly what the prop path already draws, lights and
-        // interpolates - and a second implementation would agree with the first only until one of
-        // them gained a feature. The pose comes from the timeline, so they move and turn.
-        _drawn.Clear();
-        _drawn.AddRange(_props);
-
-        // Cheap after the first call, and this is the first point where both the demo and the
-        // game's archives are certain to be open.
+        // **Outside the timer, which is where it was and where it belongs.** It is cheap after the
+        // first call, but the FIRST call reads the weapon scripts out of the archives and each one
+        // costs an ICE decryption — so counting it as sampling would report one enormous `sampling`
+        // spike for work that is not sampling. Putting it inside was a slip caught by diffing this
+        // method against the original.
+        //
+        // Here rather than earlier because this is the first point where both the demo and the
+        // game's archives are certain to be open. It hands the roles to the scene when it reads them.
         EnsureWeaponRoles();
 
-        // **Ninety lines that were never about a window** (B188, B184). Every reason a player is or
-        // is not drawn, and every field their pose carries, is scene logic — and none of it could
-        // be asserted while it lived here, because reaching it meant constructing a MainForm, which
-        // needs the STA, a device and the desktop lock.
-        //
-        // It now has nine tests in a plain net10.0 project, including the controls that matter: a
-        // spectator and a corpse must NOT appear, and a red and a blu player must take different
-        // skins — a single team cannot tell "computed from team" from "always zero".
-        PlayerProps.Add(_players, _drawn, new GameAppearance(_classModels, _weaponRoles));
+        MomentPhases phases = _moment.Build(
+            _players,
+            _props,
+            new MomentInfo(
+                tick,
+                _transport.CurrentTick,
+                _firstPerson,
+                FollowedEntity(),
+                _firstPerson ? FirstPersonCamera() : null,
+                timeline.IntervalPerTick,
+                _settings.ViewmodelFieldOfView));
 
-        // **The engine does not draw the player whose eyes you are using**, and cosmetics merge
-        // onto their wearer's bones, so the hat goes with them. Without this the first-person view
-        // is the inside of the recorder's own model and a hat hanging over the lens — which is
-        // exactly what the first capture showed. See FirstPersonVisibility.
-        if (_firstPerson && FollowedEntity() is { } looking)
-        {
-            // **Says what it is deciding about, because three fixes have now been aimed at this
-            // from a screenshot.** The question is never "is something wrong" — it is which prop is
-            // still drawn and what it claims about its owner, and no count can answer that.
-            if (_lastFirstPersonReport != looking)
-            {
-                _lastFirstPersonReport = looking;
+        _ledger.Posed(phases.Pose);
 
-                foreach (SceneProp prop in _drawn)
-                {
-                    if (prop.EntityIndex == looking ||
-                        prop.AttachedTo == looking ||
-                        prop.OwnedBy == looking)
-                    {
-                        continue;
-                    }
-
-                    _renderLog.LogInformation(
-                        "{Message}",
-                        $"first person keeps entity {prop.EntityIndex} '{prop.ModelPath}' " +
-                        $"attachedTo={prop.AttachedTo?.ToString(CultureInfo.InvariantCulture) ?? "-"} " +
-                        $"ownedBy={prop.OwnedBy?.ToString(CultureInfo.InvariantCulture) ?? "-"} " +
-                        $"(following {looking})");
-                }
-            }
-
-            DrawList.KeepOnly(_drawn, FirstPersonVisibility.Visible(_drawn, looking));
-        }
-
-        // **Every camera, not just first person.** `C_BaseCombatWeapon::ShouldDraw` hides a
-        // player's holstered weapons from everybody — it is a property of the weapon rather than of
-        // who is looking — so this sits outside the first-person block above. A player carries
-        // three and holds one; without it all three bone-merge into the same hand.
-        DrawList.KeepOnly(_drawn, WeaponVisibility.Visible(_drawn));
-
-        // **Timed because nothing else times it, which is how it hid.** `Add` reads and decodes an
-        // MDL the first time a model path appears, and the upload below rebuilds the whole packed
-        // vertex buffer — both on the UI thread, both in one frame, and both OUTSIDE `_posingTicks`
-        // and `_drawTicks`. So a frame that spent a second here reported no time anywhere and only
-        // ever showed as the owner's "everything freezes for a half a second to maybe a second".
-        long addedAt = Stopwatch.GetTimestamp();
-
-        long momentRolesAt = addedAt;
-
-        bool grew = _models.Add(_drawn, ModelGeometry);
-
-        double addSeconds = (Stopwatch.GetTimestamp() - addedAt) / (double)Stopwatch.Frequency;
-
-        if (addSeconds > StallSeconds)
-        {
-            _renderLog.LogWarning(
-                "{Message}",
-                string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"STALL reading models took {addSeconds * 1000d:0} ms for {_drawn.Count} props " +
-                    $"({_models.Count} packed); this frame is a freeze"));
-        }
-
-        // **Valve's own pass, under Valve's own name** (B188). `UpdateClientSideAnimations` →
-        // `SimulateEntities` → `ThreadedBoneSetup` is the engine's order
-        // (`cdll_client_int.cpp:2188-2210`), and ours is the same: this, then `Instances`, which
-        // simulates and then builds bones. It has to follow `Add` because nothing on the wire
-        // carries a player's sequence and choosing one needs the model's merged sequence table.
-        _models.UpdateClientSideAnimations(_drawn);
-
-        // **`grew` alone is wrong the moment a second demo is opened (B148).** The packed set lives
-        // for the life of the form, so after a switch it already holds what the new demo needs and
-        // does not grow — but the GPU buffer it was uploaded into is gone, because `ClearWorld`
-        // disposed the whole `WorldRenderer` and a new one was built for the new map.
-        //
-        // The result was every posed model failing `_modelVertices.Handle is null` and taking the
-        // "a model was posed before any model geometry was uploaded" branch — **440,412 times in one
-        // five-minute run**, each an open, append and close of a log file that reached 37 MB. That
-        // is the whole of B148: the viewer fell from 290 frames a second to 20, and the cost sat
-        // inside the draw where the timers could see it but no counter named it.
-        //
-        // The warning was right and doing its job — "a wiring fault … looks exactly like a model
-        // that is correctly invisible". Nothing was listening.
-        if ((grew || !_modelsUploaded) && _device is { } device)
-        {
-            _modelsUploaded = true;
-
-            long uploadedAt = Stopwatch.GetTimestamp();
-
-            device.UploadModels(_models);
-
-            double uploadSeconds =
-                (Stopwatch.GetTimestamp() - uploadedAt) / (double)Stopwatch.Frequency;
-
-            if (uploadSeconds > StallSeconds)
-            {
-                // **The whole buffer is rebuilt whenever the set GROWS**, so this is not a one-off
-                // cost at load: it is paid again every time a model nobody has seen yet comes into
-                // view, and it gets more expensive as the set gets bigger.
-                _renderLog.LogWarning(
-                    "{Message}",
-                    string.Create(
-                        CultureInfo.InvariantCulture,
-                        $"STALL uploading {_models.Vertices.Count} vertices took " +
-                        $"{uploadSeconds * 1000d:0} ms because the model set grew to {_models.Count}"));
-            }
-
-            // **Logged because a model that draws nothing looks exactly like one that was never
-            // uploaded.** The counts separate the two: no vertices means the packing failed, and
-            // vertices with no instances means the posing did.
-            _renderLog.LogInformation(
-                "{Message}",
-                $"entity models: {_models.Count} packed, {_models.Vertices.Count} vertices");
-
-            // **Named, not counted.** A count says how many arrived and nothing about which are
-            // missing, and "the health packs are not drawing" is a question about names.
-            foreach (string path in _models.Paths)
-            {
-                string indices = string.Join(
-                    ", ",
-                    _models.Batches(path).Select(batch => $"{batch.MaterialIndex}x{batch.VertexCount}"));
-
-                _renderLog.LogInformation(
-                    "{Message}",
-                    $"  packed {path}: {indices} of {_assets?.Textures.Count ?? 0} textures");
-            }
-        }
-
-        // **Demo time, from the demo's own tick interval rather than an assumed 66.67.** The
-        // cycle of an animation is advanced by elapsed time, the way the client advances it in
-        // C_BaseAnimating::FrameAdvance - the server never sends one, so a viewer replaying only
-        // what was networked leaves every health pack frozen on its first frame.
-        double seconds = tick * (_timeline.IntervalPerTick > 0f
-            ? _timeline.IntervalPerTick
-            : PlaybackClock.DefaultIntervalPerTick);
-
-        long posedAt = Stopwatch.GetTimestamp();
-
-        long momentUploadedAt = posedAt;
-
-        // **Read across the call rather than per second, because a total cannot see a spike.** The
-        // per-second line already reports lighting, and it says lighting is about a third of posing
-        // — but posing spiking to 168 ms on one moment and 3 ms on the next is invisible in a
-        // per-second sum. This splits the one moment that was slow.
-        EntityModelSet.PoseCounters before = _models.Counters;
-
-        _models.Instances(_drawn, _instances, LightAt, SunAt, seconds);
-
-        EntityModelSet.PoseCounters moment = _models.Counters.Since(before);
-
-        // **Timed apart from the counters above, because `pose` spans this too.** They are read
-        // across `Instances` alone, so every millisecond spent building the viewmodel scene was
-        // landing in the "bones" column — which is arrived at by subtraction, and a derived column
-        // inherits every error of the ones it is derived from (B191).
-        long viewmodelAt = Stopwatch.GetTimestamp();
-
-        AddViewmodel(seconds);
-
-        long momentViewmodelTicks = Stopwatch.GetTimestamp() - viewmodelAt;
-
-        _posingTicks += Stopwatch.GetTimestamp() - posedAt;
-
-        long momentPosedAt = Stopwatch.GetTimestamp();
-
-        ReportWeapons();
-
-        long momentReportedAt = Stopwatch.GetTimestamp();
-
-        if (_instances.Count != _lastInstanceCount)
-        {
-            _lastInstanceCount = _instances.Count;
-
-            // **Named and counted.** "Some models are missing" is a question about which, and a
-            // total cannot answer it - a demo only carries what the recorder could see, so an
-            // absent pickup may be correct rather than broken.
-            string names = string.Join(
-                ", ",
-                _instances
-                    .GroupBy(instance => instance.ModelPath, StringComparer.Ordinal)
-                    .Select(group => $"{group.Count()}x{Path.GetFileNameWithoutExtension(group.Key)}"));
-
-            // **How many were actually lit, not just how many were drawn.** A model with no cube
-            // draws at full brightness and looks like a rendering fault; the count is what says
-            // whether the leaf lookup found anything, without anyone having to judge by eye.
-            int unlit = _instances.Count(instance => instance.Light == default(AmbientCube));
-
-            // Debug, because "the instance count changed" happens whenever a prop enters or leaves
-            // the visible set — measured at 13 lines in 10 seconds of ordinary play, which is
-            // per-frame detail wearing a change guard (B191).
-            _renderLog.LogDebug(
-                "{Message}",
-                $"drawing {_instances.Count} posed models ({unlit} unlit): {names}");
-
-            // The first medkit's actual transform. A model posed with a zero scale collapses to a
-            // point and draws nothing, while every count above still reads correctly.
-
-        }
+        // **Timed because it was, and the column went missing when the rebuild moved out.** Three
+        // untimed steps once hid 129 ms of a 133 ms pose (B191), and this is the one still here.
+        long playersAt = Stopwatch.GetTimestamp();
 
         ShowPlayers(_players);
 
-        ReportSlowMoment(
-            momentAt, momentSampledAt, momentRolesAt, momentUploadedAt, momentPosedAt,
-            momentReportedAt, Stopwatch.GetTimestamp(), moment, _drawn.Count, momentViewmodelTicks);
+        StallReport.Moment(phases, sampleTicks, Stopwatch.GetTimestamp() - playersAt, _renderLog);
     }
 
-    /// <summary>Names where a slow scene rebuild went, when one is slow.</summary>
-    /// <param name="momentAt">Entry.</param>
-    /// <param name="sampledAt">After the timeline was sampled for players and props.</param>
-    /// <param name="rolesAt">After weapon roles, first-person filtering and visibility.</param>
-    /// <param name="uploadedAt">After models were read and the vertex buffer uploaded.</param>
-    /// <param name="posedAt">After posing and the viewmodel.</param>
-    /// <param name="reportedAt">After the weapon report.</param>
-    /// <param name="finishedAt">After ShowPlayers.</param>
-    /// <param name="pose">
-    /// Every pose-phase counter for THIS moment, already differenced. Read across the call rather
-    /// than per second, because a per-second total cannot tell one 168 ms moment from fifty even
-    /// ones — it says how much was spent, never whether it was spent all at once.
-    /// </param>
-    /// <param name="drawn">
-    /// How many props were posed, which is the control for <c>pose.Built</c> — without it, "more
-    /// entities arrived" and "the same entities cost more" are indistinguishable.
-    /// </param>
-    /// <param name="viewmodelTicks">
-    /// What <c>AddViewmodel</c> cost. Inside the pose phase but outside every counter in
-    /// <paramref name="pose"/>, so until it was split out it was reported as bone work by
-    /// subtraction.
-    /// </param>
-    /// <remarks>
-    /// **The frame ledger says `advance`, and this says which part of it** — the two compose, so a
-    /// slow frame names a phase and then a sub-phase rather than a range of 350 lines.
-    ///
-    /// Three of these had no timer at all before: the weapon-role and visibility stretch, the weapon
-    /// report, and ShowPlayers. That mattered: `reports` turned out to hold 129 ms of a 133 ms pose,
-    /// and its `sink` half held all of it (B191).
-    ///
-    /// **The bone column is a residual and the rest are measured**, which is worth knowing when
-    /// reading a line: every direct column being small while `bones` is large means the cost is in
-    /// something still unmeasured, not in bone work. That pattern is what found B191.
-    /// </remarks>
-    private void ReportSlowMoment(
-        long momentAt,
-        long sampledAt,
-        long rolesAt,
-        long uploadedAt,
-        long posedAt,
-        long reportedAt,
-        long finishedAt,
-        EntityModelSet.PoseCounters pose,
-        int drawn,
-        long viewmodelTicks)
-    {
-        double total = (finishedAt - momentAt) / (double)Stopwatch.Frequency;
+    // `HandsForFollowed` lived here for exactly one commit, and its own comment admitted what it
+    // was: a shim kept because the weapon-model resolver had not moved yet. Both are gone — the
+    // scene holds the roster this moment sampled, so it finds the followed player and asks
+    // `IPlayerAppearance.Hands` and `WeaponModels` itself (B188, D90).
 
-        if (total <= StallSeconds)
-        {
-            return;
-        }
-
-        static double Ms(long from, long to) =>
-            (to - from) / (double)Stopwatch.Frequency * 1000d;
-
-        double named =
-            Ms(momentAt, sampledAt) + Ms(sampledAt, rolesAt) + Ms(rolesAt, uploadedAt) +
-            Ms(uploadedAt, posedAt) + Ms(posedAt, reportedAt) + Ms(reportedAt, finishedAt);
-
-        static double Of(long ticks) => ticks / (double)Stopwatch.Frequency * 1000d;
-
-        double lighting = Of(pose.Lighting);
-        double viewmodel = Of(viewmodelTicks);
-        double simulate = Of(pose.Simulate);
-        double wornLight = Of(pose.WornLight);
-        double reports = Of(pose.Report);
-        double setup = Of(pose.Setup);
-        double skin = Of(pose.Skin);
-
-        double rest =
-            Ms(uploadedAt, posedAt) - lighting - viewmodel - simulate - wornLight - reports
-            - setup - skin;
-
-        _renderLog.LogWarning(
-            "{Message}",
-            string.Create(
-                CultureInfo.InvariantCulture,
-                $"SLOW MOMENT {total * 1000d:0} ms: sample {Ms(momentAt, sampledAt):0.#}" +
-                $", roles {Ms(sampledAt, rolesAt):0.#}" +
-                $", models {Ms(rolesAt, uploadedAt):0.#}" +
-                $", pose {Ms(uploadedAt, posedAt):0.#}" +
-                $" (lighting {lighting:0.#}, viewmodel {viewmodel:0.#}" +
-                $", simulate {simulate:0.#}" +
-                $", wornlight {wornLight:0.#}" +
-                $", reports {reports:0.#}" +
-                $" (sink {Of(pose.ReportLog):0.#})" +
-                $", setup {setup:0.#}" +
-                $", skin {skin:0.#}" +
-                $", rest {rest:0.#}" +
-                $", built {pose.Built.ToString(CultureInfo.InvariantCulture)}" +
-                $" of {drawn.ToString(CultureInfo.InvariantCulture)}" +
-                $", anim {Of(pose.Animation):0.#}" +
-                $" over {pose.AnimationCalls.ToString(CultureInfo.InvariantCulture)})" +
-                $", weapons {Ms(posedAt, reportedAt):0.#}" +
-                $", players {Ms(reportedAt, finishedAt):0.#}" +
-                $"; unaccounted {(total * 1000d) - named:0.#} ms"));
-    }
+    // **`ReportSlowMoment` was here until 2026-08-25** (B188, D90). It is `StallReport.Moment` in
+    // Presentation, with `ReportSlowFrame` and `ReportSlowSounds` beside it — around 190 lines of
+    // arithmetic and formatting, none of which needed a window and none of which had a test,
+    // because reaching them meant constructing a form.
+    //
+    // **They earned the tests they now have: B191 was found by reading these lines.** A report whose
+    // own arithmetic was wrong would have sent that hunt somewhere else entirely.
+    //
+    // **One real defect went with the move.** This compared a WHOLE moment against
+    // `MomentScene.StallSeconds` — a constant whose own documentation says it is "applied to one
+    // step of a scene rebuild". A constant carries no scope, and borrowing one whose meaning is
+    // stated to be narrower is how two independent judgements get tied together. `StallReport` has
+    // its own, for the whole-step measurements it makes.
 
     /// <summary>Draws the players recorded at one moment, coloured by team.</summary>
     /// <param name="players">The players, from the timeline.</param>
@@ -3785,60 +2356,14 @@ internal class MainForm : Form
     /// rather than guessed at — a wrong team colour is worse than no colour, because it is read as
     /// information.
     /// </remarks>
-    public void ShowPlayers(IReadOnlyList<ScenePlayer> players)
-    {
-        ArgumentNullException.ThrowIfNull(players);
-
-        if (players.Count == 0)
-        {
-            _scene = [];
-            return;
-        }
-
-        TopDownCamera camera = _map is not null && !_map.IsEmpty
-            ? MapCamera()
-            : TopDownCamera.Fit(
-                [.. players.Select(player => (player.X, player.Y))],
-                Math.Max(1, _viewport.ClientSize.Width),
-                Math.Max(1, _viewport.ClientSize.Height));
-
-        List<ScenePoint> points = new(players.Count + _props.Count);
-
-        foreach (ScenePlayer player in players)
-        {
-            // **Spectators and the SourceTV camera are CTFPlayer entities too**, with real
-            // positions that follow the action - so drawing everything puts convincing dots on the
-            // map where nobody is standing.
-            //
-            // **The dead are skipped here for the same reason, and the marker pass is where that
-            // is easiest to get wrong.** A player the engine would not draw has no model, and the
-            // rule below is "no model means a dot" - so removing dead players from the model pass
-            // alone would have turned every corpse into a marker gliding around the map behind
-            // whoever it was spectating, which is the same defect in a cheaper primitive.
-            if (!player.IsPlaying || !player.Drawn)
-            {
-                continue;
-            }
-
-            // **A marker only for a player with no model.** Once the class models draw, a dot on
-            // top of one hides the very thing it was standing in for - which is exactly what
-            // happened, and made a working render look like a failed one.
-            if (PlayerModel(player) is not null)
-            {
-                continue;
-            }
-
-            (float x, float y) = camera.Project(player.X, player.Y);
-
-            (float red, float green, float blue) = player.Team == SceneTeams.Red
-                ? (0.90f, 0.31f, 0.27f)
-                : (0.34f, 0.60f, 0.78f);
-
-            points.Add(new ScenePoint(x, y, red, green, blue));
-        }
-
-        _scene = points;
-    }
+    public void ShowPlayers(IReadOnlyList<ScenePlayer> players) =>
+        _scene = MapOverview.Players(
+            players,
+            _loaded,
+            MapCamera(),
+            _viewport.ClientSize.Width,
+            _viewport.ClientSize.Height,
+            _moment.Appearance);
 
     /// <summary>Writes the next drawn frame to a PNG.</summary>
     /// <param name="path">Where to write it.</param>
@@ -3999,7 +2524,7 @@ internal class MainForm : Form
 
         try
         {
-            return Apply(Decode(_demoLog, path));
+            return Apply(DecodedDemo.Read(path, _demoLog));
         }
         catch (Exception failure) when (failure is IOException or InvalidDataException)
         {
@@ -4018,8 +2543,8 @@ internal class MainForm : Form
     /// crosses — the owner watched it happen.
     ///
     /// **The split is decode-then-show, and the line between them is "does this touch the form".**
-    /// <see cref="Decode"/> reads and decodes and is a static method with no access to any field, so
-    /// it cannot accidentally reach the UI; <see cref="Apply"/> assigns the fields, the transport, the
+    /// <see cref="DecodedDemo.Read"/> reads and decodes and lives in another project entirely, so it
+    /// cannot reach the UI at all; <see cref="Apply"/> assigns the fields, the transport, the
     /// clock and the map, and must be on the UI thread because it ends in Direct3D. The `await`
     /// returns to the UI thread on its own — WinForms installs a synchronisation context, so there
     /// is no marshalling to write and none to get wrong.
@@ -4041,7 +2566,8 @@ internal class MainForm : Form
         try
         {
             ILogger demoLog = _demoLog;
-            Decoded decoded = await Task.Run(() => Decode(demoLog, path)).ConfigureAwait(false);
+            DecodedDemo decoded =
+                await Task.Run(() => DecodedDemo.Read(path, demoLog)).ConfigureAwait(false);
 
             if (ticket != _loadsRequested)
             {
@@ -4140,99 +2666,10 @@ internal class MainForm : Form
     /// <summary>How many loads have been asked for, so a stale one can tell.</summary>
     private int _loadsRequested;
 
-    /// <summary>A demo read off disk and decoded, with nothing of the form touched.</summary>
-    /// <param name="Demo">The header and what it claims.</param>
-    /// <param name="Timeline">Player positions over time, or null when they could not be built.</param>
-    private sealed record Decoded(LoadedDemo Demo, DemoTimeline? Timeline);
-
-    /// <summary>Reads and decodes a demo. Safe to call off the UI thread; touches no field.</summary>
-    /// <remarks>
-    /// **Static deliberately.** The whole point of the split is that this half cannot reach the
-    /// form, and a static method makes that a compile error rather than a rule to remember — the
-    /// same argument as the project boundaries in D54.
-    ///
-    /// Logging is fine from here: <c>ViewerLog</c> takes a lock and never throws at its caller.
-    /// </remarks>
-    // The logger is a parameter because this is static (D83): Decode runs on a worker thread via
-    // Task.Run and must not reach for form state.
-    private static Decoded Decode(ILogger demoLog, string path)
-    {
-        demoLog.LogInformation("{Message}", $"opening {Path.GetFileName(path)}");
-
-        LoadedDemo demo = LoadedDemo.Load(path);
-
-        demoLog.LogInformation(
-            "{Message}",
-            $"{demo.MapName}, {demo.LastTick} ticks, protocol {demo.NetworkProtocol}" +
-            (demo.LengthWasMeasured ? ", length measured (truncated)" : string.Empty));
-
-        DemoTimeline? timeline = null;
-
-        // **Its own guard, because a timeline is not worth the demo.** A file with no schema,
-        // or one truncated mid-packet, still has a header, a map name and a length worth
-        // showing - so a failure here costs the player positions and nothing else.
-        try
-        {
-            using (demoLog.Time("building the position timeline"))
-            {
-                timeline = DemoTimeline.Build(File.ReadAllBytes(path));
-            }
-
-            demoLog.LogInformation(
-                "{Message}",
-                $"{timeline.Frames.Count} recorded moments, ticks {timeline.FirstTick} to " +
-                $"{timeline.LastTick}");
-
-            float interval = timeline.IntervalPerTick > 0f
-                ? timeline.IntervalPerTick
-                : PlaybackClock.DefaultIntervalPerTick;
-
-            string source = timeline.IntervalPerTick > 0f
-                ? "from svc_ServerInfo"
-                : "the engine default - the demo never said";
-
-            demoLog.LogInformation(
-                "{Message}",
-                string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"{interval:F6}s per tick ({1f / interval:F1} per second), {source}"));
-
-            // **What is actually going to be drawn, said once per demo.** Counts here are what
-            // a defect looks like from the outside: a team colour that never arrives shows up
-            // as "0 red, 0 blu" the moment the file opens, rather than as grey dots that have
-            // to be noticed and then chased through a seven-minute suite.
-            ScenePlayer[] roster =
-            [
-                .. timeline.Frames
-                    .SelectMany(frame => frame.Players)
-                    .GroupBy(player => player.EntityIndex)
-                    .Select(group => group.First()),
-            ];
-
-            demoLog.LogInformation(
-                "{Message}",
-                $"roster: {roster.Count(p => p.Team == SceneTeams.Red)} red, " +
-                $"{roster.Count(p => p.Team == SceneTeams.Blu)} blu, " +
-                $"{roster.Count(p => p.Team is SceneTeams.Spectator or SceneTeams.Unassigned)} watching, " +
-                $"{roster.Count(p => p.Team is null)} unknown, " +
-                $"{roster.Count(p => p.PlayerClass is >= 1 and <= 9)} of {roster.Length} with a class");
-
-            int drawn = timeline.Frames.Count == 0
-                ? 0
-                : timeline.PlayersAt(timeline.Frames[timeline.Frames.Count / 2].Tick)
-                    .Count(player => player.IsPlaying);
-
-            demoLog.LogInformation("{Message}", $"{drawn} players drawn at the midpoint of the demo");
-        }
-        catch (Exception failure) when (
-            failure is ArgumentException or InvalidDataException or IOException)
-        {
-            timeline = null;
-            demoLog.LogWarning(failure, "{Message}", "building the position timeline");
-        }
-
-        return new Decoded(demo, timeline);
-    }
+    // `Decoded` and `Decode` were here until 2026-08-25. They are `DecodedDemo` in the Scene project
+    // now (B188, D90). Nothing about them was ever window work: the static was made static when the
+    // load went off-thread, precisely so it could not reach the form — so the only thing keeping it
+    // here, and untested, was the file it sat in. That is the drift D89 names.
 
     /// <summary>Puts a decoded demo on screen. UI thread only.</summary>
     /// <param name="decoded">The demo and its timeline.</param>
@@ -4243,71 +2680,28 @@ internal class MainForm : Form
     /// the split is where it is rather than a few lines either side. `LoadMap` reads a BSP and
     /// uploads textures to the device, and a device is owned by the thread that made it.
     /// </remarks>
-    private DemoLoadResult Apply(Decoded decoded, bool? read = null)
+    private DemoLoadResult Apply(DecodedDemo decoded, bool? read = null)
     {
         _demo = decoded.Demo;
         _timeline = decoded.Timeline;
 
-        // **The sounds this recording plays, ready before the first frame asks.** Rebuilt per demo
-        // rather than kept: a schedule holds a cursor into one timeline's list, and carrying it
-        // across a load would index the previous demo's sounds.
-        _sound.Schedule = _timeline is { } withSound ? new SoundSchedule(withSound.Sounds) : null;
-        _audio?.StopAll();
-        _loops.Clear();
-
-        _audioLog.LogInformation(
-            "{Message}",
-            $"{_timeline?.Sounds.Count ?? 0} sounds on the timeline; " +
-            (_audio is null ? "no audio device, so none will play" : "output is open"));
+        // **One call where there were six assignments, and that is the whole point** (B193). The
+        // eyes, the viewmodels, the sound schedule and the appearance were each written inline
+        // here, and three of them separately became a property nobody set — two of those shipped,
+        // with the viewer suite green throughout. `DemoSystems` is the demo mirror of
+        // `LevelSystems`: one place to read, and one place a test can reach.
+        //
+        // **The environment is read HERE and its VALUE passed in.** A process-wide variable is the
+        // window's business — it owns the process — and a system that read one could not be tested
+        // without setting it for the whole run.
+        _clock = _demoSystems.Open(
+            _timeline,
+            _demo.LastTick,
+            _audio,
+            Environment.GetEnvironmentVariable(AutoPlayVariable),
+            AutoPlayVariable);
 
         _transport.SetDemoLength(_demo.LastTick);
-
-        // The weapon roles are NOT built here, and the first attempt was. See EnsureWeaponRoles:
-        // the archives are opened later than this, so building here silently produced nothing.
-        _weaponRoles = null;
-
-        if (_timeline is { } timeline)
-        {
-            // **The rate the recording server ran, not a constant.** It is a server setting, so
-            // a box left at its default runs 33 where a configured one runs 66, and replaying
-            // at the wrong rate reads as a slow or fast server rather than as a defect.
-            _clock = new PlaybackClock(timeline.IntervalPerTick, _demo.LastTick);
-
-            // The presenter owns playback over this clock from here (D62).
-            _playback.Load(_clock);
-
-            // **Playback can be started by the environment, for measurement — and it has to
-            // happen HERE, after the clock exists.** A demo's first tick is before the match
-            // begins: no capture points, no holograms, nobody carrying anything. A
-            // launch-and-log run, which is the only way to ask the renderer a question with
-            // nobody driving it, therefore measures an almost empty scene and reports "never
-            // drawn" for models that simply had not appeared yet.
-            //
-            // Set before this line it does nothing but look right, which is exactly what it
-            // did: PlayingChanged starts the stopwatch only `if (playing && _clock is not
-            // null)`, so the button showed playing while no time was fed to a clock that did
-            // not exist, and the demo sat still until the user paused and played again.
-            if (Environment.GetEnvironmentVariable(AutoPlayVariable) is { Length: > 0 })
-            {
-                // **Through the presenter, not by assigning the flag** — which is what this line
-                // used to do, and it did not start anything. `TransportBar.Playing`'s setter
-                // deliberately does not raise `PlayPauseToggled` (it would make the presenter
-                // re-enter its own handler), so assigning it relabelled the button and left the
-                // elapsed clock stopped. The owner: "the ui says its playing but the demo is not
-                // actually playing, no ticks go by, i have to 'pause' which does nothing then hit
-                // play again to get it started".
-                //
-                // The remark below this was already about that fault being found once. It came back
-                // because nothing tested it — "we dont actually check playback in the ui tests".
-                _playback.Play();
-
-                _demoLog.LogInformation("{Message}", $"{AutoPlayVariable} is set; playback started at load");
-            }
-        }
-        else
-        {
-            _clock = null;
-        }
 
         // **The map may already have been read, off the UI thread (B146).** `LoadDemoAsync` does
         // that and passes what it found; the synchronous path passes null and reads it here, which
@@ -4668,6 +3062,13 @@ internal class MainForm : Form
                 _loggers);
             _device.VerticalSync = _settings.VerticalSync;
 
+            // **Where packed geometry goes, and forgetting it draws NOTHING** (B193). Without this
+            // the scene packs every model, poses it, transforms it correctly and submits it against
+            // a vertex buffer the renderer never received — B148's symptom exactly, and silent.
+            // Assigned here rather than at construction because the device does not exist until the
+            // viewport has a handle.
+            _moment.Upload = _device;
+
             _renderLog.LogInformation(
                 "{Message}",
                 $"frame rate limit {(_settings.FrameRateLimit > 0 ? _settings.FrameRateLimit + " a second" : "none")}, " +
@@ -4715,17 +3116,25 @@ internal class MainForm : Form
     private void KeepOverlayOnTheViewport(object? sender, LayoutEventArgs e) =>
         _overlay?.PositionOver(_viewport);
 
-    /// <summary>Longest frame playback will believe in, in seconds.</summary>
-    private const double MaximumFrameSeconds = 0.1;
+    // `MaximumFrameSeconds` was here until 2026-08-25. It is `FreeCameraController` s, because
+    // flight was its only reader — which an analyzer said the moment `FlyCamera` handed the
+    // movement over (CA1823, S1144).
+    //
+    // **Its old summary called it "the longest frame playback will believe in", and that was a
+    // claim about a reader it did not have.** The playback clock does its own clamping; this one
+    // only ever governed how far the camera may travel across a stall. A constant that names a
+    // scope wider than its callers is how it gets borrowed for a use nobody checked — see D94, and
+    // the whole-moment threshold that was borrowed from a per-step one three commits ago.
 
-    /// <summary>How long a single step must take before it counts as a visible freeze.</summary>
-    /// <remarks>
-    /// **Thirty milliseconds is two frames at the rate this viewer actually runs**, which is the
-    /// point at which a person sees a hitch rather than a slightly late frame. Deliberately far
-    /// below the half-second the owner reports, so the log catches the smaller ones too and can show
-    /// whether they share a cause with the big ones.
-    /// </remarks>
-    private const double StallSeconds = 0.03;
+    // `StallSeconds` was here until 2026-08-25. It is `StallReport.StallSeconds`, and it went with
+    // the three reporters that were its only readers — which an analyzer confirmed the moment they
+    // left, by declaring the field unused (CA1823, S1144).
+    //
+    // **The reasoning went with it, and the other two copies in this solution are NOT duplicates of
+    // it.** `SoundCache.StallSeconds` and `MomentScene.StallSeconds` hold the same number for
+    // deliberately different scopes, each saying so where it is declared: one decode blocking the
+    // draw thread, and one step of a scene rebuild. A constant carries no scope, so three symbols
+    // that happen to agree on 0.03 are three judgements, not one fact repeated.
 
     /// <summary>The colour behind everything: a dark blue, and deliberately not black.</summary>
     /// <remarks>
@@ -4750,13 +3159,11 @@ internal class MainForm : Form
     /// <inheritdoc cref="BackgroundRed"/>
     private const float BackgroundBlue = 0.20f;
 
-    /// <summary>Moves playback on by however long the last frame took.</summary>
-    /// <remarks>
-    /// **Nothing is invalidated here.** The idle loop this runs inside already draws every frame,
-    /// and asking for a repaint as well is what made the mouse sluggish over the transport
-    /// buttons - paint messages queued faster than the pump could drain them.
-    /// </remarks>
-    private void AdvancePlayback() => _playback.Advance();
+    // **`AdvancePlayback` was here until 2026-08-26** (B188, B203, D90). It is now `Simulate`, the
+    // first stage of `FrameSequence`, and its note is worth keeping: **nothing is invalidated
+    // there.** The idle loop it runs inside already draws every frame, and asking for a repaint as
+    // well is what made the mouse sluggish over the transport buttons — paint messages queued
+    // faster than the pump could drain them.
 
     /// <summary>Renders continuously for as long as Windows has nothing else for this thread.</summary>
     /// <remarks>
@@ -4801,7 +3208,7 @@ internal class MainForm : Form
         while (waiting == 0);
 
         _idleEndedBy = waiting;
-        _idleBursts++;
+        _ledger.Yielded();
     }
 
     /// <summary>Names the Windows messages worth recognising in a render report.</summary>
@@ -4830,8 +3237,10 @@ internal class MainForm : Form
     /// <summary>The message that last ended a render burst.</summary>
     private uint _idleEndedBy;
 
-    /// <summary>How many times the render loop yielded since the last report.</summary>
-    private long _idleBursts;
+    // `_idleBursts` was here until 2026-08-25. It is `FrameLedger.Yielded()` — one of six
+    // per-second counters this window kept and reset by hand (B188, D90). What stays is
+    // `_idleEndedBy` above, because naming a Windows message is the only part of that report a
+    // second frontend could not produce.
 
     /// <summary>The user's controls, running as the engine would run them.</summary>
     /// <remarks>
@@ -4855,8 +3264,12 @@ internal class MainForm : Form
     /// <summary>The key-release filter, kept so it can be removed on shutdown.</summary>
     private KeyReleaseFilter? _keyReleases;
 
-    /// <summary>The longest frame since the rate was last reported, in seconds.</summary>
-    private double _longestFrameSeconds;
+    // `_longestFrameSeconds` was here until 2026-08-25. It is the maximum `FrameLedger.Drew` keeps.
+    //
+    // **The rule that lived with it is worth repeating where the clamp is, and it is:** this reading
+    // must never pass through the free camera's stall clamp. It did once, so the worst frame could
+    // not be reported as worse than 100 ms, and the owner's "half a second to maybe a second" met a
+    // log saying `longest 100 ms` every time. A saturating instrument is worse than a missing one.
 
     /// <summary>How long the last frame took, in seconds.</summary>
     /// <remarks>
@@ -4866,10 +3279,11 @@ internal class MainForm : Form
     /// </remarks>
     private double _lastFrameSeconds;
 
-    /// <summary>TF2's frame rate meter, off unless <c>cl_showfps</c> says otherwise.</summary>
-    private readonly FpsMeter _fpsMeter = new();
+    // `_fpsMeter` was here until 2026-08-25. The meter belongs to `FpsOverlay` now, which composes
+    // the whole readout — the mode, the sampling, the map name and Valve's placement — and needs no
+    // window to do it (B188, D90).
 
-    /// <summary>The HUD font's glyphs, packed; null until the first HUD element is wanted.</summary>
+    /// <summary>The overlay font's glyphs, packed; null until the overlay is first wanted.</summary>
     /// <remarks>
     /// **Built lazily, because most sessions never turn a HUD element on.** Rasterising a hundred
     /// glyphs is cheap but not free, and it needs a device to upload to — which does not exist until
@@ -4916,20 +3330,15 @@ internal class MainForm : Form
         Outline = true,
     };
 
-    /// <summary>Stopwatch ticks spent sampling the timeline since the last report.</summary>
-    /// <remarks>
-    /// **Split from posing because twenty milliseconds is a budget, not an answer** (B99). Paused,
-    /// the viewer draws the whole uncalled map at 300 frames a second with a longest frame of
-    /// 3.4 ms; playing, it manages 48. That difference is all CPU and all in this rebuild, and
-    /// which half of the rebuild owns it decides what to fix.
-    /// </remarks>
-    private long _samplingTicks;
-
-    /// <summary>Stopwatch ticks spent posing and lighting models since the last report.</summary>
-    private long _posingTicks;
-
-    /// <summary>Time spent in the device draw since the last report (B148).</summary>
-    private long _drawTicks;
+    // **The three phase totals were here until 2026-08-25.** They are `FrameLedger.Sampled`,
+    // `.Posed` and `.Drawing` (B188, D90) — accumulators and a format string, with no window in any
+    // of it.
+    //
+    // The reason they are three columns rather than one is worth keeping: **twenty milliseconds is
+    // a budget, not an answer** (B99). Paused, the viewer draws the whole uncalled map at 300 frames
+    // a second with a longest frame of 3.4 ms; playing, it manages 48. That difference is all CPU
+    // and all in the moment rebuild, and which half of the rebuild owns it decides what to fix —
+    // which a single total cannot say. B148 added the draw column for the same reason.
 
     // `IsShiftHeld` lived here, reading `Control.ModifierKeys` directly, on the grounds that a
     // modifier's state is something WinForms already knows. The console owns `+speed` now (D69), so
@@ -5079,8 +3488,10 @@ internal class MainForm : Form
         Thread.Yield();
     }
 
-    /// <summary>How many frames were drawn since the rate was last reported.</summary>
-    private int _framesDrawn;
+    // `_framesDrawn` was here until 2026-08-25. It is the count `FrameLedger.Drew` keeps — the last
+    // of the six per-second counters this window reset by hand. What remains is `_rateReportedAt`,
+    // which is the CLOCK: the ledger is told how long a second took rather than timing itself, so
+    // it can be tested without waiting one.
 
     /// <summary>When the frame rate was last reported.</summary>
     private long _rateReportedAt;
@@ -5142,7 +3553,7 @@ internal class MainForm : Form
 
     private void CountFrame()
     {
-        _framesDrawn++;
+        _ledger.Drew(_lastFrameSeconds);
 
         long now = Stopwatch.GetTimestamp();
 
@@ -5163,29 +3574,23 @@ internal class MainForm : Form
         // it.** Flying the camera used to re-project the whole map every frame (B98); the average
         // barely moved while the longest frame in each second grew enormously, which is exactly
         // what stutter is. A rate on its own could not have shown that, and did not.
-        _renderLog.LogInformation(
-            "{Message}",
-            $"{_framesDrawn / elapsed:0.#} frames a second, " +
-            $"longest {_longestFrameSeconds * 1000d:0.##} ms" +
-            (_transport.Playing ? ", playing" : ", paused") +
-            (_freeLook && _console.AnyHeld ? ", flying" : string.Empty) +
-            $"; drawing {_drawTicks / (double)Stopwatch.Frequency * 1000d:0.#} ms" +
-            $"; yielded {_idleBursts} times to {MessageName(_idleEndedBy)}" +
-            $"; sampling {_samplingTicks / (double)Stopwatch.Frequency * 1000d:0.#} ms" +
-            $", posing {_posingTicks / (double)Stopwatch.Frequency * 1000d:0.#} ms" +
-            $" (lighting {_models.LightingTicks / (double)Stopwatch.Frequency * 1000d:0.#} ms)" +
-            " of the second" +
-            GarbageThisSecond());
+        if (_ledger.Report(
+                new FrameContext(
+                    _transport.Playing,
+                    _freeLook && _console.AnyHeld,
+
+                    // The one part of this line a second frontend could not produce: a Windows
+                    // message id, named by the window that received it.
+                    MessageName(_idleEndedBy),
+                    _models.LightingTicks,
+                    GarbageThisSecond()),
+                elapsed) is { } line)
+        {
+            _renderLog.LogDebug("{Message}", line);
+        }
 
         _models.LightingTicks = 0;
-
-        _framesDrawn = 0;
         _rateReportedAt = now;
-        _longestFrameSeconds = 0d;
-        _samplingTicks = 0;
-        _posingTicks = 0;
-        _idleBursts = 0;
-        _drawTicks = 0;
     }
 
     /// <summary>Sends the current view to the device, without rebuilding anything.</summary>
@@ -5216,213 +3621,27 @@ internal class MainForm : Form
         _device.SetCamera(
             ViewMatrix(MapCamera()),
             _surfaceColours.Checked,
-            _heightCut);
+            _heightCut.Fraction);
     }
 
-    /// <summary>When the weapon report last printed.</summary>
-    private long _weaponReportedAt;
-
-    /// <summary>Says how many carried weapons reached the scene, and how many reached the GPU.</summary>
-    /// <remarks>
-    /// **Written because the owner's answer was "i think nothing … but measurement beats all".**
-    /// Weapons in other players' hands are not drawn, and everything upstream says they should be:
-    /// `HeldWeaponProbe` reports 16 held weapons with 16 resolved world models on a six-class demo,
-    /// and the viewer's own log shows `c_sniperrifle`, `c_directhit`, `c_quadball` and the rest
-    /// being packed. So the loss is between the timeline and the screen, and this says which side.
-    ///
-    /// **Three numbers, because they separate three different faults.** In the scene but not
-    /// instanced is a posing or visibility fault; instanced but invisible is a transform fault, and
-    /// the position says which — a weapon at its owner's feet is a bone merge falling back to the
-    /// entity origin, and one at (0,0,0) never got a transform at all.
-    ///
-    /// Matched on the path rather than on a kind, because a weapon has no kind of its own: it is
-    /// `Studio` exactly like a player or a health pack.
-    /// </remarks>
-    private void ReportWeapons()
-    {
-        // **Nothing at all unless someone is listening** (B191). Everything below walks every
-        // instance, formats nine numbers per weapon and joins them — work CA1873 exists to keep out
-        // of a disabled log — and then writes a line, which is a disk flush.
-        //
-        // Measured 2026-08-25 on the moment ledger: `weapons 193.6` of a 198 ms scene rebuild, with
-        // every other column at a millisecond or less. The rate limit below already held it to once
-        // a second; once a second is still enough to be the worst frame in that second.
-        //
-        // Debug rather than Information, because this is per-frame detail and `developer 0` admits
-        // Information. Same reasoning as the brush, viewmodel-pass and instance-count lines.
-        if (!_renderLog.IsEnabled(LogLevel.Debug))
-        {
-            return;
-        }
-
-        long now = Stopwatch.GetTimestamp();
-
-        if (now - _weaponReportedAt < Stopwatch.Frequency)
-        {
-            return;
-        }
-
-        _weaponReportedAt = now;
-
-        static bool IsWeapon(string path) =>
-            path.Contains("/weapons/", StringComparison.OrdinalIgnoreCase) ||
-            path.Contains("\\weapons\\", StringComparison.OrdinalIgnoreCase);
-
-        int inScene = 0;
-        int atOrigin = 0;
-        int owned = 0;
-        int attached = 0;
-        string first = "none";
-
-        foreach (SceneProp prop in _drawn)
-        {
-            if (!IsWeapon(prop.ModelPath))
-            {
-                continue;
-            }
-
-            inScene++;
-
-            if (prop.OwnedBy is not null)
-            {
-                owned++;
-            }
-
-            if (prop.AttachedTo is not null)
-            {
-                attached++;
-            }
-
-            // The signature of a carried weapon that never got a transform: an owner, no
-            // attachment, and the world origin.
-            if (prop.Pose is { X: 0f, Y: 0f, Z: 0f })
-            {
-                atOrigin++;
-
-                if (first == "none")
-                {
-                    first = string.Create(
-                        CultureInfo.InvariantCulture,
-                        $"{System.IO.Path.GetFileNameWithoutExtension(prop.ModelPath)}" +
-                        $" entity {prop.EntityIndex}" +
-                        $" owner {prop.OwnedBy?.ToString(CultureInfo.InvariantCulture) ?? "-"}" +
-                        $" attached {prop.AttachedTo?.ToString(CultureInfo.InvariantCulture) ?? "-"}");
-                }
-            }
-        }
-
-        int instanced = 0;
-        int drawnAtOrigin = 0;
-        string drawn = "none";
-
-        foreach (ModelInstance instance in _instances)
-        {
-            if (!IsWeapon(instance.ModelPath))
-            {
-                continue;
-            }
-
-            instanced++;
-
-            // **Where it actually DRAWS, which is its bones and not its matrix** (D88). A skinned
-            // model's bones are in world space and its model matrix is deliberately identity, so
-            // reading the matrix reports (0,0,0) for every correctly placed weapon in the game.
-            //
-            // This line said "9 AT THE ORIGIN" on a demo where all nine had merged onto their
-            // owners correctly — 2 of 5 bones on weapon_bone, confirmed in the same log. An
-            // instrument that reports a defect which is not there costs exactly what a missing one
-            // does, and this one nearly bought a second night of chasing.
-            (float x, float y, float z) = instance.Bones is { Count: > 0 } bones
-                ? (bones[0][3], bones[0][7], bones[0][11])
-                : (instance.Matrix[12], instance.Matrix[13], instance.Matrix[14]);
-
-            if (x == 0f && y == 0f && z == 0f)
-            {
-                drawnAtOrigin++;
-            }
-
-            if (drawn == "none")
-            {
-                drawn = string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"{System.IO.Path.GetFileNameWithoutExtension(instance.ModelPath)}" +
-                    $" at ({x:0}, {y:0}, {z:0})" +
-                    $" [{(instance.Bones is { Count: > 0 } ? "bone" : "matrix")}]");
-            }
-        }
-
-        _renderLog.LogDebug(
-            "{Message}",
-            string.Create(
-                CultureInfo.InvariantCulture,
-                $"weapons: {inScene} in the scene, {instanced} instanced, " +
-                $"{owned} owned, {attached} attached; " +
-                $"{atOrigin} sent no origin of their own, which is what a bone merge looks like; " +
-                $"{drawnAtOrigin} DRAWN AT THE ORIGIN; " +
-                $"first without an origin {first}; first instanced {drawn}"));
-    }
-
-    /// <summary>Names where a slow frame's time went, phase by phase.</summary>
-    /// <param name="frameAt">When the frame began.</param>
-    /// <param name="soundedAt">After <c>PlaySounds</c>.</param>
-    /// <param name="flownAt">After the camera flew and uploaded.</param>
-    /// <param name="projectedAt">After any map or scene reprojection.</param>
-    /// <param name="advancedAt">After playback advanced.</param>
-    /// <param name="shotAt">After any automatic capture.</param>
-    /// <param name="hudAt">After the HUD was built.</param>
-    /// <param name="finishedAt">After the draw returned.</param>
-    /// <remarks>
-    /// **Built after four rounds of one-suspect-at-a-time, three of which were right and one of
-    /// which was not.** The model upload, the model packing and the per-frame logging were each
-    /// found by instrumenting a hypothesis; the sound decode was instrumented on the same reasoning
-    /// and recorded nothing. Proposing suspects does not converge — a ledger over the whole frame
-    /// does, because the residual column is the part nobody has thought to measure.
-    ///
-    /// **The residual is the point.** Every named phase subtracted from the frame leaves whatever
-    /// happens between them, so a frame that is slow with every column small says the cost is
-    /// somewhere this list does not mention — which is exactly the state the whole hunt began in,
-    /// with `posing`, `sampling` and `drawing` all looking reasonable.
-    ///
-    /// Only slow frames print, so this is silent in ordinary running.
-    /// </remarks>
-    private void ReportSlowFrame(
-        long frameAt,
-        long soundedAt,
-        long flownAt,
-        long projectedAt,
-        long advancedAt,
-        long shotAt,
-        long hudAt,
-        long finishedAt)
-    {
-        double total = (finishedAt - frameAt) / (double)Stopwatch.Frequency;
-
-        if (total <= StallSeconds)
-        {
-            return;
-        }
-
-        static double Ms(long from, long to) =>
-            (to - from) / (double)Stopwatch.Frequency * 1000d;
-
-        double named =
-            Ms(frameAt, soundedAt) + Ms(soundedAt, flownAt) + Ms(flownAt, projectedAt) +
-            Ms(projectedAt, advancedAt) + Ms(advancedAt, shotAt) + Ms(shotAt, hudAt) +
-            Ms(hudAt, finishedAt);
-
-        _renderLog.LogWarning(
-            "{Message}",
-            string.Create(
-                CultureInfo.InvariantCulture,
-                $"SLOW FRAME {total * 1000d:0} ms: sound {Ms(frameAt, soundedAt):0.#}" +
-                $", camera {Ms(soundedAt, flownAt):0.#}" +
-                $", project {Ms(flownAt, projectedAt):0.#}" +
-                $", advance {Ms(projectedAt, advancedAt):0.#}" +
-                $", capture {Ms(advancedAt, shotAt):0.#}" +
-                $", hud {Ms(shotAt, hudAt):0.#}" +
-                $", draw {Ms(hudAt, finishedAt):0.#}" +
-                $"; unaccounted {(total * 1000d) - named:0.#} ms"));
-    }
+    // **`ReportSlowFrame` was here until 2026-08-25** (B188, D90). It is `StallReport.Frame`, and
+    // its eight timestamp parameters became a `FramePhases` record — the same correction
+    // `MomentPhases` already carried. Eight `long`s in the right order is a signature that can be
+    // called in the wrong one, and the failure is silent: seven plausible numbers against the wrong
+    // labels.
+    //
+    // **That correction was half of one, and the other half arrived on 2026-08-26** (B203). Wrapping
+    // the timestamps in a record stopped the CALL being mis-ordered, but `FramePhases.Between` still
+    // named the frame's stages in its parameter list, so the order was written down twice. It is now
+    // written once, executably, in `FrameSequence.Run`.
+    //
+    // The reasoning is worth keeping, because it is why the ledger exists at all. It was built
+    // after four rounds of one-suspect-at-a-time, three right and one wrong: the model upload, the
+    // model packing and the per-frame logging were each found by instrumenting a hypothesis, and
+    // the sound decode was instrumented on the same reasoning and recorded nothing. Proposing
+    // suspects does not converge. A ledger over the whole frame does, because the RESIDUAL column
+    // is the part nobody has thought to measure — and a frame that is slow with every named column
+    // small says exactly that. `unaccounted` is Valve's own name for it.
 
     /// <summary>Packs every model the demo will ever show, before playback starts.</summary>
     /// <param name="timeline">The decoded timeline, or null when the demo carried none.</param>
@@ -5447,7 +3666,7 @@ internal class MainForm : Form
     /// </remarks>
     private void PrecacheModels(DemoTimeline? timeline)
     {
-        if (timeline is null)
+        if (timeline is null || _game is null)
         {
             return;
         }
@@ -5456,33 +3675,7 @@ internal class MainForm : Form
         {
             long packedAt = Stopwatch.GetTimestamp();
 
-            HashSet<string> paths = new(StringComparer.OrdinalIgnoreCase);
-
-            // Props, players and — the one a caller would miss — the viewmodels, which change on
-            // every weapon switch and are private to the timeline.
-            foreach (string path in timeline.ModelPaths())
-            {
-                paths.Add(path);
-            }
-
-            // **The class models too, because a player's model is chosen at runtime.** Nothing on
-            // the wire carries it — `CTFPlayerClassShared::GetModelName` resolves it from the class
-            // script — so a player track's own path may not name every model that player will wear.
-            foreach (string model in ClassModelPaths())
-            {
-                paths.Add(model);
-            }
-
-            List<SceneProp> synthetic = [];
-
-            foreach (string path in paths)
-            {
-                // Only the path and the kind are read by the packer; the rest of a SceneProp
-                // describes where an entity stands, which is not a question about geometry.
-                synthetic.Add(new SceneProp(0, path, ScenePropTrack.Classify(path), default));
-            }
-
-            _models.Add(synthetic, ModelGeometry);
+            _models.Precache(DemoModels.ToPack(timeline, _game));
 
             double packedSeconds =
                 (Stopwatch.GetTimestamp() - packedAt) / (double)Stopwatch.Frequency;
@@ -5491,7 +3684,7 @@ internal class MainForm : Form
                 "{Message}",
                 string.Create(
                     CultureInfo.InvariantCulture,
-                    $"precached {paths.Count} models in {packedSeconds * 1000d:0} ms " +
+                    $"precached models in {packedSeconds * 1000d:0} ms " +
                     $"({_models.Count} packed, {_models.Vertices.Count} vertices)"));
         }
         catch (Exception failure) when (
@@ -5510,158 +3703,63 @@ internal class MainForm : Form
     /// a sound during play is something Source treats as a programming error, and it passes
     /// `bPreload: true` to `enginesound->PrecacheSound` at `:1507`.
     ///
-    /// **This is B163's model stall, in the audio path, and it was found the same way.** Of eleven
-    /// slow frames on cp_process, six were dominated by the sound step at 27-91 ms while posing and
-    /// drawing sat at 1.7-2.6 ms. Only one decode logged a stall of its own, because the per-decode
-    /// threshold is 30 ms and a frame that starts three sounds pays three decodes that each fall
-    /// under it — an instrument watching single decodes therefore reported almost nothing while the
-    /// frames were visibly freezing. `Sample` already carried a comment naming the cost exactly:
-    /// "a 'once per sound' cost wearing the clothes of a cache".
+    /// **What this method is, now that <see cref="SoundCache.Precache"/> does the decoding: the
+    /// LIST.** Which sounds are worth having ready is the only part that needs a demo and a map —
+    /// the measurement that made a precache necessary lives with the code that acts on it.
     ///
     /// **Runs on the map-read worker on the async path**, where `_readingMap` holds the render loop
-    /// off (B146) — so nothing else touches `_soundCache` while this fills it.
+    /// off (B146) — so nothing else touches the cache while this fills it.
     ///
     /// A failure costs the precache and nothing else: anything missed is decoded on first play
     /// exactly as before, which is slower rather than broken.
     /// </remarks>
-    private void PrecacheSounds(DemoTimeline? timeline)
+    private void PrecacheSounds(DemoTimeline? timeline) =>
+        DemoSounds.Precache(_sounds, timeline, _game, _soundscape, _audioLog);
+
+    /// <summary>This frame's screen-space overlay, which is the frame-rate meter and nothing else.</summary>
+    /// <returns>Quads in screen pixels, empty when there is nothing to draw.</returns>
+    /// <remarks>
+    /// **All that is left here is the atlas and the viewport width** (D90). Composing the readout —
+    /// the mode, the sampling, the map name, Valve's placement — is <see cref="FpsOverlay"/>;
+    /// rasterising a font is the one genuinely platform-bound part, because ours is GDI and a Linux
+    /// port swaps it for FreeType (D84).
+    ///
+    /// **This was called <c>BuildHud</c> and the name was wrong.** Source's meter is
+    /// <c>CFPSPanel : vgui::Panel</c> on <c>PANEL_TOOLS</c> (<c>vgui_int.cpp:209</c>), not a
+    /// <c>CHudElement</c> — so a method named for the HUD that returns the fps readout would have
+    /// had to split the moment a real HUD element existed. The <c>HudQuad</c> and
+    /// <c>HudRenderer</c> names in <c>Render</c> name the screen-space LAYER and are correct.
+    /// </remarks>
+    public IReadOnlyList<HudQuad> BuildOverlay()
     {
-        if (timeline is null || _archives is null)
+        _overlayQuads.Mode = _settings.ShowFrameRate;
+
+        if (_overlayQuads.NeedsAtlas)
         {
-            return;
+            EnsureOverlayAtlas();
         }
 
-        try
-        {
-            long decodedAt = Stopwatch.GetTimestamp();
-            int named = 0;
-            int decoded = 0;
-
-            // **Suppresses the per-decode stall warning, which would otherwise assert something
-            // false.** Its text is "this frame is a freeze", and during a precache there is no
-            // frame — every decode here is deliberately outside one.
-            _precaching = true;
-
-            try
-            {
-                foreach (string name in timeline.SoundsToPrecache())
-                {
-                    named++;
-
-                    if (Sample(name) is not null)
-                    {
-                        decoded++;
-                    }
-                }
-
-                // **The map's ambience, which no demo message names.** A soundscape's loops come
-                // from the map's `env_soundscape` entities via `scripts/soundscapes.txt`, so the
-                // timeline cannot list them and the first pass here missed them entirely: measured
-                // 2026-08-25, `ambient/indoors.wav` still cost 103 ms in one frame after the
-                // timeline's 395 sounds were already precached.
-                //
-                // Every soundscape in the catalog rather than the ones this recording enters —
-                // which soundscape is active changes as a player walks and a seek can land
-                // anywhere, so being selective would only move the hitch to the next doorway.
-                if (_soundscape.Catalog is { } soundscapes)
-                {
-                    foreach (string wave in soundscapes.WaveNames())
-                    {
-                        named++;
-
-                        if (Sample(wave) is not null)
-                        {
-                            decoded++;
-                        }
-                    }
-                }
-            }
-            finally
-            {
-                _precaching = false;
-            }
-
-            double seconds = (Stopwatch.GetTimestamp() - decodedAt) / (double)Stopwatch.Frequency;
-
-            // **Both numbers, because they answer different questions.** The gap between them is
-            // how many sounds the install could not supply, which is the difference between "the
-            // precache worked" and "the precache found nothing to do".
-            _audioLog.LogInformation(
-                "{Message}",
-                string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"precached {decoded} of {named} sounds in {seconds * 1000d:0} ms"));
-        }
-        catch (Exception failure) when (
-            failure is InvalidDataException or ArgumentException or KeyNotFoundException)
-        {
-            _audioLog.LogWarning(failure, "precaching sounds");
-        }
+        return _overlayQuads.Quads(
+            _hudAtlas, _viewport.ClientSize.Width, _demo?.MapName, _lastFrameSeconds);
     }
 
-    /// <summary>Whether a precache is filling the sound cache, so no decode is inside a frame.</summary>
-    private bool _precaching;
+    /// <summary>The frame-rate readout, which owns everything about it except the glyphs.</summary>
+    private readonly FpsOverlay _overlayQuads = new();
 
-    /// <summary>Builds this frame's HUD: the frame rate meter, when it is switched on.</summary>
-    /// <returns>Quads in screen pixels, empty when there is no HUD to draw.</returns>
+    /// <summary>Rasterises the overlay font and gives it to the device, once.</summary>
     /// <remarks>
-    /// **The meter is sampled every frame whatever its mode**, because <see cref="FpsMeter"/> owns
-    /// the "first frame after being shown draws nothing" rule and the watermarks that go with it.
-    /// Sampling only while visible would hand it a frame duration covering however long it was off.
+    /// **Called when the overlay is first wanted rather than at startup**, so a session that never
+    /// switches it on never pays for it and never compiles the overlay shaders.
     ///
-    /// **Top right, as `CFPSPanel::ComputeSize` places it**: `x = wide - FPS_PANEL_WIDTH` with the
-    /// text at panel-local (2, 2), so two pixels in from a panel 300 wide. Reproduced as a right
-    /// edge rather than a fixed 300-pixel panel, because ours has no panel to size — the effect is
-    /// the same for any line shorter than 300 and better for a longer one, which would otherwise
-    /// run off Valve's panel.
-    /// </remarks>
-    private IReadOnlyList<HudQuad> BuildHud()
-    {
-        // Assigned every frame rather than on a change event, because the setter is what notices a
-        // transition into being shown and resets the watermarks — and assigning the same value is a
-        // no-op for that check. One place, so `cl_showfps` from a config, from a launch option and
-        // from the menu all arrive the same way.
-        _fpsMeter.Mode = _settings.ShowFrameRate;
-
-        if (_fpsMeter.Mode != FpsMeter.Hidden)
-        {
-            EnsureHudAtlas();
-        }
-
-        FpsReading? reading = _fpsMeter.Sample(_lastFrameSeconds);
-
-        if (reading is not { } meter || _hudAtlas is not { } atlas)
-        {
-            return [];
-        }
-
-        // `V_GetFileName( engine->GetLevelName() )` keeps the extension, so TF2 shows
-        // `cp_process_f12.bsp`. Ours is stored without one, so it is put back rather than the line
-        // quietly differing from the game's.
-        string map = _demo?.MapName is { Length: > 0 } named ? named + ".bsp" : "no map";
-
-        string line = meter.Text(map);
-
-        (byte Red, byte Green, byte Blue) colour = meter.Colour;
-
-        const int Margin = 2;
-        const int PanelWidth = 300;
-
-        int right = Math.Max(0, _viewport.ClientSize.Width - PanelWidth) + Margin;
-
-        return HudText.Quads(atlas, line, right, Margin, colour.Red, colour.Green, colour.Blue);
-    }
-
-    /// <summary>Rasterises the HUD font and gives it to the device, once.</summary>
-    /// <remarks>
-    /// **Called when a HUD element is first wanted rather than at startup**, so a session that never
-    /// switches one on never pays for it and never compiles the HUD shaders.
+    /// **Stays in the view, and it is the one piece here that genuinely must.** <c>GdiGlyphRasteriser</c>
+    /// is Windows — a Linux frontend supplies FreeType instead, which is exactly the seam D84 put
+    /// behind <c>IGlyphRasteriser</c> in the portable project.
     ///
-    /// A failure costs the HUD and nothing else. A viewer that refuses to play a demo because a font
-    /// would not rasterise has its priorities backwards — the same argument the file logger is built
-    /// around.
+    /// A failure costs the overlay and nothing else. A viewer that refuses to play a demo because a
+    /// font would not rasterise has its priorities backwards — the same argument the file logger is
+    /// built around.
     /// </remarks>
-    private void EnsureHudAtlas()
+    private void EnsureOverlayAtlas()
     {
         if (_hudAtlas is not null || _device is null)
         {
@@ -5677,7 +3775,7 @@ internal class MainForm : Form
             _device.SetHudAtlas(atlas.Pixels, atlas.Width, atlas.Height);
             _hudAtlas = atlas;
 
-            _renderLog.LogInformation(
+            _renderLog.LogDebug(
                 "{Message}",
                 string.Create(
                     CultureInfo.InvariantCulture,
@@ -5707,27 +3805,24 @@ internal class MainForm : Form
         // Every frame's duration passes through here, so this is where the worst one is noticed —
         // and where the meter takes its reading, rather than starting a second clock (B174).
         //
-        // **Recorded UNCLAMPED, and the clamp being here was hiding the defect it was meant to help
-        // find.** This read `Math.Min(seconds, MaximumFrameSeconds)`, so the worst frame could never
-        // be reported as worse than 100 ms — the ceiling. The owner's report was "everything freezes
-        // for a half a second to maybe a second", and the log for those exact seconds said
-        // `longest 100 ms`: not a coincidence, not a measurement, just the clamp showing through.
+        // **Recorded UNCLAMPED, and the clamp used to be applied here, which hid the very defect it
+        // was meant to help find.** The reading was `Math.Min(seconds, MaximumFrameSeconds)`, so the
+        // worst frame could never be reported as worse than 100 ms — the ceiling. The owner's report
+        // was "everything freezes for a half a second to maybe a second", and the log for those
+        // exact seconds said `longest 100 ms`: not a coincidence, not a measurement, just the clamp
+        // showing through. A saturating instrument is worse than a missing one.
         //
-        // A saturating instrument is worse than a missing one, because 100 looks like a number
-        // somebody measured. The clamp still applies to FLIGHT below — a stall must not fling the
-        // camera across the map — which is what it was always for; applying it to the record of what
-        // happened was the mistake.
-        _longestFrameSeconds = Math.Max(_longestFrameSeconds, seconds);
+        // The clamp lives with FLIGHT now, in `FreeCameraController`, which is what it was always
+        // for; applying it to the record of what happened was the mistake.
+        // The longest frame is the LEDGER's business now — it takes this duration from `CountFrame`
+        // and keeps the maximum itself, so there is one place that knows what "worst frame this
+        // second" means rather than a field here and a reset there.
         _lastFrameSeconds = seconds;
 
         if (!_freeLook)
         {
             return;
         }
-
-        // A stall is not flight time, for the same reason it is not playback time: a map load or a
-        // window drag would otherwise fling the camera across the map when the loop resumes.
-        seconds = Math.Min(seconds, MaximumFrameSeconds);
 
         // **`Intent` is read exactly once per frame, and that is a requirement rather than a
         // convenience.** Reading a button consumes its impulse bits — Valve's `CInput::KeyState`
@@ -5736,22 +3831,13 @@ internal class MainForm : Form
         //
         // **The old "nothing is held, so skip" guard is gone with it.** A key pressed and released
         // between two frames is up by the time anyone looks, so that guard would have thrown the
-        // tap away; the zero check below still costs nothing when genuinely idle.
-        (float X, float Y, float Z) moved =
-            FreeFlightPath.Movement(_console.Intent(), seconds, _freeAngles.Pitch, _freeAngles.Yaw);
-
-        if (moved == (0f, 0f, 0f))
+        // tap away; `Fly` returning false still costs nothing when genuinely idle.
+        if (_freeCamera.Fly(_console.Intent(), seconds, FreeLookCamera().Origin))
         {
-            return;
+            // The view, and nothing else. Flight only happens in the free camera, where the map's
+            // screen-space projection is not what is being drawn (B98).
+            UploadCamera();
         }
-
-        (float X, float Y, float Z) where = _freeOrigin ?? FreeLookCamera().Origin;
-
-        _freeOrigin = (where.X + moved.X, where.Y + moved.Y, where.Z + moved.Z);
-
-        // The view, and nothing else. Flight only happens in the free camera, where the map's
-        // screen-space projection is not what is being drawn (B98).
-        UploadCamera();
     }
 
     /// <summary>The audio device, or null when the machine has none.</summary>
@@ -5768,6 +3854,22 @@ internal class MainForm : Form
     /// <summary>Decides what should be audible at a tick.</summary>
     private readonly SoundPresenter _sound;
 
+    /// <summary>The registered game systems, told about every level load and teardown.</summary>
+    /// <remarks>
+    /// **Valve's arrangement: a LIST walked at the level boundary** —
+    /// `LevelInitPreEntityAllSystems( pMapName )` (`igamesystem.h:77`) — rather than one method
+    /// reaching into six collaborators. That reaching is what let B193 and B196 drop assignments
+    /// with every test still green, and what left teardown split across three places with one
+    /// system torn down nowhere at all.
+    ///
+    /// **Three systems, and the two absences were checked rather than assumed.** Valve models the
+    /// renderables builder as a game system (`IClientLeafSystem : … IGameSystemPerFrame`), and the
+    /// soundscape and sound emitter likewise; it does NOT model model-geometry or the sample cache
+    /// that way — `IVModelInfo` and `IEngineSound` are plain interfaces set up once. So those two
+    /// are configured rather than walked.
+    /// </remarks>
+    private readonly LevelSystems _levels;
+
     /// <summary>The map's ambience, chosen and faded as the listener moves through it.</summary>
     /// <remarks>
     /// **A system rather than five fields and a method** (B188). The mixer, the voices the sink is
@@ -5781,14 +3883,13 @@ internal class MainForm : Form
 
     /// <summary>Decoded sounds, kept because a demo plays the same footstep hundreds of times.</summary>
     /// <remarks>
-    /// **A null value is a remembered failure, not an absent one.** A sound the install cannot open
-    /// would otherwise be looked up, searched for across every container and logged on every one of
-    /// the hundreds of times it is played.
+    /// **The engine's sample cache, behind the engine's own interface shape.** <c>IEngineSound</c>
+    /// carries <c>PrecacheSound</c>, <c>IsSoundPrecached</c> and <c>PrefetchSound</c> together
+    /// (<c>IEngineSound.h:89-91</c>); game code asks rather than holding samples. The dictionary,
+    /// the unopened count, the precache flag and <c>Sample</c> were all fields and methods here
+    /// (B188, D90).
     /// </remarks>
-    private readonly Dictionary<string, SoundSample?> _soundCache = new(StringComparer.OrdinalIgnoreCase);
-
-    /// <summary>How many sounds could not be opened, reported once rather than per play.</summary>
-    private int _soundsUnopened;
+    private readonly SoundCache _sounds;
 
     /// <summary>Starts whatever the recording plays at this tick.</summary>
     /// <remarks>
@@ -5808,27 +3909,22 @@ internal class MainForm : Form
         // **What is left here is the LISTENER and nothing else** (B188). Deciding what should be
         // audible moved to SoundPresenter; a window's remaining business is that the ears are
         // wherever the camera is, which is view state and cannot come from anywhere else.
-        FreeCamera? camera = _firstPerson ? FirstPersonCamera() : FreeLookCamera();
-
-        if (camera is not { } ears)
+        if (SoundListener.From(_firstPerson ? FirstPersonCamera() : FreeLookCamera())
+            is not { } ears)
         {
             return;
         }
-
-        float yaw = ears.Angles.Yaw * (MathF.PI / 180f);
-        (float X, float Y, float Z) right = (MathF.Sin(yaw), -MathF.Cos(yaw), 0f);
-        (float X, float Y, float Z) listener = (ears.Origin.X, ears.Origin.Y, ears.Origin.Z);
 
         long soundAt = Stopwatch.GetTimestamp();
 
         SoundPhases phases = _sound.Update(
             output,
             _transport.CurrentTick,
-            listener,
-            right,
+            ears.Origin,
+            ears.Right,
             _audioClock.Elapsed.TotalSeconds);
 
-        ReportSlowSounds(soundAt, phases, Stopwatch.GetTimestamp());
+        StallReport.Sounds(phases, Stopwatch.GetTimestamp() - soundAt, _audioLog);
     }
 
     // **Two hundred and thirty lines moved to SoundPresenter on 2026-08-25** (B188). Deciding what
@@ -5839,40 +3935,16 @@ internal class MainForm : Form
     // Valve's split is the same — `CSoundEmitterSystem : CBaseGameSystem`
     // (`SoundEmitterSystem.cpp:134`) decides what to emit and calls through `enginesound`.
 
-    /// <summary>Names where a slow sound step went, when one is slow.</summary>
-    /// <param name="soundAt">Entry.</param>
-    /// <param name="phases">What each phase cost, from the presenter.</param>
-    /// <param name="finishedAt">After the presenter returned.</param>
-    /// <remarks>
-    /// **Written because precaching the decodes did not empty this bucket.** 394 sounds moved to
-    /// load time and the `sound` phase still read 27-105 ms on the frames that froze, so the
-    /// remaining cost is one of these five and a single number could not say which.
-    ///
-    /// **The phases are measured by the presenter and formatted here**, which is the split that
-    /// keeps both honest: it can see its own boundaries, and what a slow line looks like is the
-    /// view's business (B188).
-    /// </remarks>
-    private void ReportSlowSounds(long soundAt, SoundPhases phases, long finishedAt)
-    {
-        double total = (finishedAt - soundAt) / (double)Stopwatch.Frequency;
-
-        if (total <= StallSeconds)
-        {
-            return;
-        }
-
-        static double Of(long ticks) => ticks / (double)Stopwatch.Frequency * 1000d;
-
-        _audioLog.LogWarning(
-            "{Message}",
-            string.Create(
-                CultureInfo.InvariantCulture,
-                $"SLOW SOUND {total * 1000d:0} ms: advance {Of(phases.Advance):0.#}" +
-                $", reclaim {Of(phases.Reclaim):0.#}" +
-                $", loops {Of(phases.Loops):0.#}" +
-                $", soundscape {Of(phases.Soundscape):0.#}" +
-                $", starting {Of(phases.Starting):0.#}"));
-    }
+    // **`ReportSlowSounds` was here until 2026-08-25.** It is `StallReport.Sounds` (B188, D90).
+    //
+    // It was written because precaching the decodes did not empty this bucket: 394 sounds moved to
+    // load time and the `sound` phase still read 27-105 ms on the frames that froze, so the
+    // remaining cost was one of five and a single number could not say which.
+    //
+    // **Its old note claimed "what a slow line looks like is the view's business", and that was
+    // wrong** — it is what a form happened to be doing, which is not the same thing. Formatting a
+    // measurement needs no window, could not be tested inside one, and a second frontend would have
+    // to write it again. The presenter measures the phases and Presentation formats them.
 
     // **The soundscape system moved to Tf2DemoSalvage.Scene on 2026-08-25** (B188). What stood here
     // was 165 lines with no window in any of it — Valve makes this a per-frame GAME system,
@@ -5895,74 +3967,11 @@ internal class MainForm : Form
     /// </remarks>
     private readonly System.Diagnostics.Stopwatch _audioClock = System.Diagnostics.Stopwatch.StartNew();
 
-    /// <summary>Decodes a named sound, once.</summary>
-    private SoundSample? Sample(string name)
-    {
-        if (_soundCache.TryGetValue(name, out SoundSample? cached))
-        {
-            return cached;
-        }
-
-        SoundSample? sample = null;
-
-        // **Timed because this is a file read and a decode INSIDE the frame.** A sound reaches here
-        // once, the first time it plays — so every new sound in a match pays a VPK read plus a full
-        // decode on the UI thread, and a voice line is an MP3. That is a "once per sound" cost
-        // wearing the clothes of a cache, and it lands wherever in playback the sound happens to
-        // first occur.
-        long readAt = Stopwatch.GetTimestamp();
-
-        if (_archives is { } archives)
-        {
-            // **The soundchars come off first.** A precached name carries Valve's prefixes — ')'
-            // for spatialised, '#' for a stream, '*' and the rest — and they are instructions to
-            // the engine rather than part of the path. Left on, every one of them is a file that
-            // does not exist.
-            Tf2DemoSalvage.Core.Net.SoundName parsed =
-                Tf2DemoSalvage.Core.Net.SoundName.Parse(name);
-
-            if (SoundFile.Open("sound/" + parsed.Path, archives.Read) is { } opened)
-            {
-                SoundSampleResult result = SoundSampleReader.Read(opened.Bytes);
-
-                sample = result.Sample;
-
-                if (!result.Succeeded)
-                {
-                    _audioLog.LogWarning("{Message}", $"{opened.Path}: {result.Refusal}");
-                }
-            }
-            else
-            {
-                // **Counted and named, once per sound rather than once per play.** The cache means
-                // a name reaches here exactly once, so this is a list of what the install could not
-                // supply rather than a stream of the same failure. Silence with no explanation is
-                // the outcome this exists to prevent.
-                _soundsUnopened++;
-
-                _audioLog.LogWarning(
-                    "{Message}",
-                    $"could not open '{parsed.Path}' (from '{name}'); " +
-                    $"{_soundsUnopened.ToString(CultureInfo.InvariantCulture)} unopened so far");
-            }
-        }
-
-        _soundCache[name] = sample;
-
-        double readSeconds = (Stopwatch.GetTimestamp() - readAt) / (double)Stopwatch.Frequency;
-
-        if (readSeconds > StallSeconds && !_precaching)
-        {
-            _audioLog.LogWarning(
-                "{Message}",
-                string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"STALL decoding '{name}' took {readSeconds * 1000d:0} ms " +
-                    $"({sample?.FrameCount ?? 0} frames); this frame is a freeze"));
-        }
-
-        return sample;
-    }
+    // `Sample` was here until 2026-08-25, with `_soundCache`, `_soundsUnopened` and `_precaching`.
+    // It is `SoundCache` in the Audio project now (B188, D90) — the engine keeps its sample cache
+    // behind `IEngineSound` (`IEngineSound.h:89-91`) and game code asks it, so a window owning one
+    // was ours alone. Ten tests came with the move; it had none, because reaching it needed an STA
+    // thread, a device and a TF2 install.
 
     /// <returns>Whether a frame was actually drawn.</returns>
     /// <remarks>
@@ -6002,101 +4011,15 @@ internal class MainForm : Form
         // The residual is the important column: it is everything between these timers, so a large
         // one says the cost is somewhere nobody has thought to measure yet, which is precisely the
         // state this whole hunt started in.
-        long frameAt = Stopwatch.GetTimestamp();
-
-        PlaySounds();
-
-        long soundedAt = Stopwatch.GetTimestamp();
-
-        FlyCamera();
-
-        // **Every frame, because the view can change without anything here being told.** This used
-        // to be sent only from FlyCamera, and only when the free camera had actually moved — so in
-        // the first-person view the recorded camera advanced every tick, produced a correct matrix,
-        // and never reached the GPU. The owner: "pov isnt actually updating cam position at the
-        // tick rate either, the only way to get the cam in pov to move is by clicking and moving
-        // the mouse", which is mouse-look going through the flight path that does upload.
         //
-        // Same shape as the debug views not appearing until the camera moved, and the same lesson:
-        // a value computed correctly and not sent is indistinguishable from one computed wrongly.
-        // Uploading unconditionally costs one 112-byte constant write per frame and removes the
-        // whole class — a spectator switch, a scrub, a demo change and playback itself all move the
-        // view without touching FlyCamera.
-        UploadCamera();
+        // **The ORDER of those phases moved to `FrameSequence`** (B188, B203, D90). It is the
+        // engine's frame order, it was wrong here for months, and it was wrong because a window
+        // cannot be asked what order it does things in.
+        FramePhases phases = FrameSequence.Run(this);
 
-        long flownAt = Stopwatch.GetTimestamp();
+        _ledger.Drawing(phases.Draw);
 
-        // **Reprojected here rather than in the resize handler**, which is what coalesces a burst
-        // of resizes into one rebuild. Idle runs when the message queue empties, so every layout
-        // step of a full-screen transition - or every pixel of a window drag - is collapsed into
-        // the single size that was current when the pump went quiet.
-        if (_worldIsStale)
-        {
-            _worldIsStale = false;
-            ProjectMap();
-
-            // **The scene is projected too, so a camera change invalidates it as well.** Points
-            // are stored in screen space while the world's vertices are not, so rebuilding one and
-            // not the other left every dot at the pixel it had before the zoom while the map moved
-            // underneath it. Playback hid this by rebuilding the scene every frame regardless; it
-            // only showed while paused.
-            //
-            // Done here rather than beside each camera change: five places already set this flag,
-            // and the next one added would have had the same bug again.
-            ReprojectScene();
-        }
-
-        long projectedAt = Stopwatch.GetTimestamp();
-
-        AdvancePlayback();
-
-        long advancedAt = Stopwatch.GetTimestamp();
-
-        TakeAutomaticShot();
-
-        long shotAt = Stopwatch.GetTimestamp();
-
-        // **Timed because everything else in a frame already was, and none of it accounted for
-        // B148.** After a demo switch the viewer reports 20 frames a second with sampling, posing
-        // and lighting all at zero — so the hundred milliseconds are somewhere none of those three
-        // counters could see, and this is the only step left.
-        IReadOnlyList<HudQuad> hud = BuildHud();
-
-        long hudAt = Stopwatch.GetTimestamp();
-
-        long drewAt = Stopwatch.GetTimestamp();
-
-        _device?.DrawFrame(
-            BackgroundRed,
-            BackgroundGreen,
-            BackgroundBlue,
-            // Empty, always. The flat fill was drawn only when there was no textured map and was
-            // built from the map, so it was dead in both branches (see ProjectMap). The parameter
-            // stays until Device3D's signature is revised, which is a change to the render seam and
-            // not to this frame.
-            [],
-            // **The line channel now carries mat_leafvis instead of the brush outline.** Those were
-            // the BSP's own edge segments projected for the overhead view, and `mat_wireframe`
-            // replaced them; the channel itself is exactly what a leaf box wants — clip-space
-            // segments drawn over the world without depth, which is what an annotation should be.
-            //
-            // The projected outline is gone entirely now (B151 closed by deletion rather than by
-            // the split it proposed): nothing read it, and 615 ms of a 679 ms frame was spent
-            // building it. `MapOutline` still supplies the play-area bounds, which is the half that
-            // was actually wanted.
-            LeafBoxLines(ViewMatrix(MapCamera())),
-            _scene,
-            _instances,
-            _viewmodelInstances,
-            _viewmodelCamera?.ToMatrix(),
-            hud);
-
-        long finishedAt = Stopwatch.GetTimestamp();
-
-        _drawTicks += finishedAt - drewAt;
-
-        ReportSlowFrame(
-            frameAt, soundedAt, flownAt, projectedAt, advancedAt, shotAt, hudAt, finishedAt);
+        StallReport.Frame(phases, _renderLog);
 
         // **NOT cleared here, and that was a real bug.** `Instances` clears the list it fills, so
         // it is emptied and refilled by the pose step exactly like the world's own list — and the
@@ -6110,7 +4033,7 @@ internal class MainForm : Form
         {
             _fullScreenClock = null;
 
-            _renderLog.LogInformation(
+            _renderLog.LogDebug(
                 "{Message}",
                 string.Create(
                     CultureInfo.InvariantCulture,
@@ -6121,6 +4044,106 @@ internal class MainForm : Form
 
         return true;
     }
+
+    /// <summary>Advance the world to the moment this frame shows.</summary>
+    /// <remarks>
+    /// **This ran AFTER the camera until 2026-08-26** (B203), so every frame drew tick T+1's
+    /// entities through tick T's eye. Valve simulates in `CHLClient::HudUpdate`, before the view is
+    /// built at all (`cdll_client_int.cpp:1308`).
+    /// </remarks>
+    public void Simulate() => _playback.Advance();
+
+    /// <summary>Work out where the eye is and hand the camera to the GPU.</summary>
+    /// <remarks>
+    /// **Uploaded every frame, because the view can change without anything here being told.** This
+    /// used to be sent only from FlyCamera, and only when the free camera had actually moved — so in
+    /// the first-person view the recorded camera advanced every tick, produced a correct matrix, and
+    /// never reached the GPU. The owner: "pov isnt actually updating cam position at the tick rate
+    /// either, the only way to get the cam in pov to move is by clicking and moving the mouse",
+    /// which is mouse-look going through the flight path that does upload.
+    ///
+    /// Same shape as the debug views not appearing until the camera moved, and the same lesson: a
+    /// value computed correctly and not sent is indistinguishable from one computed wrongly.
+    /// Uploading unconditionally costs one 112-byte constant write per frame and removes the whole
+    /// class — a spectator switch, a scrub, a demo change and playback itself all move the view
+    /// without touching FlyCamera.
+    /// </remarks>
+    public void PlaceCamera()
+    {
+        FlyCamera();
+        UploadCamera();
+    }
+
+    /// <summary>Put the ears where the eye is, and play what is due.</summary>
+    /// <remarks>
+    /// **This ran FIRST until 2026-08-26** (B203), so the listener sat at the previous frame's eye.
+    /// Valve sets the audio state from the same `viewEye` it just built the camera from, four
+    /// statements later (`view.cpp:779-796`).
+    /// </remarks>
+    public void UpdateListener() => PlaySounds();
+
+    /// <summary>Rebuild the projected world, if anything invalidated it.</summary>
+    /// <remarks>
+    /// **Reprojected here rather than in the resize handler**, which is what coalesces a burst of
+    /// resizes into one rebuild. Idle runs when the message queue empties, so every layout step of a
+    /// full-screen transition — or every pixel of a window drag — is collapsed into the single size
+    /// that was current when the pump went quiet.
+    ///
+    /// **The scene is projected too, so a camera change invalidates it as well.** Points are stored
+    /// in screen space while the world's vertices are not, so rebuilding one and not the other left
+    /// every dot at the pixel it had before the zoom while the map moved underneath it. Playback hid
+    /// this by rebuilding the scene every frame regardless; it only showed while paused.
+    ///
+    /// Done here rather than beside each camera change: five places already set this flag, and the
+    /// next one added would have had the same bug again.
+    /// </remarks>
+    public void ProjectWorld()
+    {
+        if (!_worldIsStale)
+        {
+            return;
+        }
+
+        _worldIsStale = false;
+        ProjectMap();
+        ReprojectScene();
+    }
+
+    /// <summary>Take a screenshot if one was asked for.</summary>
+    /// <remarks>
+    /// **Not named `Capture`**, which is `Control.Capture` — WinForms' mouse capture. See
+    /// <see cref="IFrameSteps.TakeShot"/>.
+    /// </remarks>
+    public void TakeShot() => TakeAutomaticShot();
+
+    /// <summary>Draw the frame.</summary>
+    /// <param name="overlay">The quads built for this frame.</param>
+    public void Draw(IReadOnlyList<HudQuad> overlay) =>
+        _device?.DrawFrame(
+            BackgroundRed,
+            BackgroundGreen,
+            BackgroundBlue,
+            // Empty, always. The flat fill was drawn only when there was no textured map and was
+            // built from the map, so it was dead in both branches (see ProjectMap). The parameter
+            // stays until Device3D's signature is revised, which is a change to the render seam and
+            // not to this frame.
+            [],
+            // **The line channel carries mat_leafvis, in WORLD units, drawn depth-tested** (D95).
+            // It used to be the BSP's own edge segments projected for the overhead view; that view
+            // is gone (D49) and `mat_wireframe` replaced the outline, so the channel now does what
+            // the engine's debug lines do — absolute coordinates, transformed on the GPU, occluded
+            // by the geometry the box describes.
+            //
+            // The projected outline is gone entirely (B151 closed by deletion rather than by the
+            // split it proposed): nothing read it, and 615 ms of a 679 ms frame was spent building
+            // it. `MapOutline` still supplies the play-area bounds, which is the half that was
+            // actually wanted.
+            LeafBoxLines(),
+            _scene,
+            _moment.Instances,
+            _moment.ViewmodelInstances,
+            _moment.ViewmodelCamera?.ToMatrix(),
+            overlay);
 
     /// <summary>
     /// Notes that the viewport changed size, without doing the work yet.
@@ -6142,7 +4165,7 @@ internal class MainForm : Form
     /// </remarks>
     private void OnViewportWheel(object? sender, MouseEventArgs e)
     {
-        if (_map is null || _map.IsEmpty)
+        if (_loaded is not { } shown || shown.Outline.IsEmpty)
         {
             return;
         }
@@ -6156,16 +4179,11 @@ internal class MainForm : Form
         // editor and is far quicker than tapping W across a map.
         if (_freeLook)
         {
-            (float sinPitch, float cosPitch) = MathF.SinCos(_freeAngles.Pitch * (MathF.PI / 180f));
-            (float sinYaw, float cosYaw) = MathF.SinCos(_freeAngles.Yaw * (MathF.PI / 180f));
-
-            float travel = e.Delta > 0 ? FlySpeed * 4f : -FlySpeed * 4f;
-            (float X, float Y, float Z) where = _freeOrigin ?? FreeLookCamera().Origin;
-
-            _freeOrigin = (
-                where.X + (cosPitch * cosYaw * travel),
-                where.Y + (cosPitch * sinYaw * travel),
-                where.Z + (-sinPitch * travel));
+            // **The whole branch is one call now** (B204, B206). It was a hand-inlined copy of
+            // `AngleVectors`' forward vector — the fourth in this repository — multiplied by a
+            // travel distance spelled `FlySpeed * 4f`. How far a notch flies and along which vector
+            // are both camera rules; that the WHEEL is what asks is the part this window owns.
+            _freeCamera.Dolly(e.Delta > 0, FreeLookCamera().Origin);
 
             _worldIsStale = true;
             _viewport.Invalidate();
@@ -6253,7 +4271,7 @@ internal class MainForm : Form
 
     private void OnViewportMouseMove(object? sender, MouseEventArgs e)
     {
-        if (_dragFrom is not { } from || _map is null || _map.IsEmpty)
+        if (_dragFrom is not { } from || _loaded is not { } shown || shown.Outline.IsEmpty)
         {
             return;
         }
@@ -6263,9 +4281,7 @@ internal class MainForm : Form
         // because the basis is degenerate looking exactly along the world's up axis.
         if (_freeLook)
         {
-            _freeAngles = (
-                Math.Clamp(_freeAngles.Pitch + ((e.Location.Y - from.Y) * DegreesPerPixel), -89f, 89f),
-                _freeAngles.Yaw - ((e.Location.X - from.X) * DegreesPerPixel));
+            _freeCamera.Drag(e.Location.X - from.X, e.Location.Y - from.Y);
 
             _dragFrom = e.Location;
             _worldIsStale = true;
@@ -6331,27 +4347,25 @@ internal class MainForm : Form
     /// </remarks>
     private void CycleTarget(bool reverse)
     {
-        if (!_firstPerson || _timeline is not { } timeline)
+        // **First person is the window's condition, not the spectator's.** Which player comes next
+        // is a fact about the roster whether or not anyone is looking through their eyes; that this
+        // key does nothing in the overhead view is a decision about this UI.
+        if (!_firstPerson)
         {
             return;
         }
 
-        IReadOnlyList<ScenePlayer> players = timeline.PlayersAt(_transport.CurrentTick);
+        SpectatorSwitch switched = _spectator.Cycle(_transport.CurrentTick, reverse);
 
-        if (SpectatorTarget.Next(players, _spectating ?? FollowedEntity(), reverse) is not { } next)
+        _spectateLog.LogDebug("{Message}", switched.Message);
+
+        if (!switched.Switched)
         {
-            _spectateLog.LogInformation("{Message}", "nobody else to follow at this tick");
             return;
         }
 
-        _spectating = next.EntityIndex;
         _worldIsStale = true;
         _viewport.Invalidate();
-
-        _spectateLog.LogInformation(
-            "{Message}",
-            $"following entity {next.EntityIndex} (team {next.Team}) " +
-            $"of {players.Count} at tick {_transport.CurrentTick}");
     }
 
     /// <summary>The world position under a point in the viewport.</summary>
@@ -6394,20 +4408,22 @@ internal class MainForm : Form
         // them back. The obvious reading of the key is the one to follow: the first version had it
         // inverted, and pressing page down 166 times did nothing because the cut was already at
         // zero and the log said so.
-        if (keyData is Keys.PageUp or Keys.PageDown or Keys.Home && _map is not null)
+        if (keyData is Keys.PageUp or Keys.PageDown or Keys.Home && _loaded is not null)
         {
-            float step = keyData == Keys.PageDown ? 0.02f : -0.02f;
+            _heightCut = keyData switch
+            {
+                Keys.Home => HeightCut.None,
+                Keys.PageDown => _heightCut.Deeper(),
+                _ => _heightCut.Shallower(),
+            };
 
-            _heightCut = keyData == Keys.Home ? 0f : Math.Clamp(_heightCut + step, 0f, 0.95f);
-
-            _renderLog.LogInformation(
+            _renderLog.LogDebug(
                 "{Message}",
                 string.Create(
-                    CultureInfo.InvariantCulture, $"height cut {_heightCut:P0} of the map"));
+                    CultureInfo.InvariantCulture,
+                    $"height cut {_heightCut.Fraction:P0} of the map"));
 
-            _status.Text = _heightCut > 0f
-                ? string.Create(CultureInfo.InvariantCulture, $"Showing the lower {1f - _heightCut:P0} of the map. Page Down cuts deeper, Page Up or Home restores it.")
-                : "Showing the whole map.";
+            _status.Text = _heightCut.Describe();
 
             _worldIsStale = true;
 
@@ -6460,7 +4476,7 @@ internal class MainForm : Form
             // or "free camera off, back to the map view", and both are now false: there is one
             // camera and this key does not switch anything. A log that names the wrong quantity
             // misdirects with authority (`docs/memory/a-log-must-name-what-it-measured.md`).
-            _renderLog.LogInformation("{Message}", "camera reset to the overhead placement");
+            _renderLog.LogDebug("{Message}", "camera reset to the overhead placement");
 
             return true;
         }
@@ -6676,6 +4692,9 @@ internal class MainForm : Form
 
             TimeSpan idleStopped = closing.Elapsed;
 
+            // Dropped before the device is disposed, so nothing can hand geometry to a dead one.
+            _moment.Upload = null;
+
             _device?.Dispose();
             _device = null;
 
@@ -6706,7 +4725,7 @@ internal class MainForm : Form
                 item.Dispose();
             }
             _search.Dispose();
-            _downloader?.Dispose();
+            _maps.Dispose();
             _overlay?.Dispose();
             _wireframe.Dispose();
             _frameRate.Dispose();

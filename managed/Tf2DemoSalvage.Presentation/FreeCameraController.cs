@@ -31,11 +31,93 @@ public sealed class FreeCameraController(ILogger log)
     /// </remarks>
     public const string CameraVariable = "TF2VIEW_CAMERA";
 
+    /// <summary>Degrees the camera turns per pixel dragged.</summary>
+    /// <remarks>
+    /// A quarter of a degree, so a full turn is about a screen and a half of dragging.
+    ///
+    /// **Source's own `sensitivity` is a different quantity and is deliberately not used here** — it
+    /// scales a raw device count rather than a pixel, so a number taken from a config would not mean
+    /// the same thing. This is chosen for the drag. Recorded because it looks like a D69 gap and is
+    /// not one.
+    /// </remarks>
+    public const float DegreesPerPixel = 0.25f;
+
+    /// <summary>How far the camera may pitch, in degrees.</summary>
+    /// <remarks>
+    /// The engine's own clamp for a player, and it is not a matter of taste: the camera basis is
+    /// degenerate looking exactly along the world's up axis.
+    /// </remarks>
+    public const float PitchLimit = 89f;
+
     /// <summary>Where the camera is, or null until something places it.</summary>
     public (float X, float Y, float Z)? Origin { get; set; }
 
-    /// <summary>Where it is looking.</summary>
+    /// <summary>Where it is looking, in degrees.</summary>
+    /// <remarks>
+    /// **Starts at a shallow angle rather than at zero**, and the reason travelled here from
+    /// `MainForm._freeAngles` when that accessor died (B206): a camera on the horizon looking across
+    /// a map shows mostly wall, and the first thing anyone wants from this view is to see whether the
+    /// players are standing up.
+    /// </remarks>
     public (float Pitch, float Yaw) Angles { get; set; } = (35f, 0f);
+
+    /// <summary>Turn the camera by a mouse drag.</summary>
+    /// <param name="deltaX">Pixels dragged rightward.</param>
+    /// <param name="deltaY">Pixels dragged downward.</param>
+    /// <remarks>
+    /// **This was inline in `MainForm.OnViewportMouseMove`, and identically in `FreeLookState`,
+    /// which nothing ran** (B206). Two copies of one formula and the tested copy was the dead one:
+    /// the mouse look the viewer actually performed had no tests at all.
+    ///
+    /// **Yaw is subtracted and pitch added**, which is not symmetry for its own sake — dragging
+    /// right turns the view left because the world moves under a fixed camera, and dragging down
+    /// pitches down because screen Y grows downward.
+    /// </remarks>
+    public void Drag(float deltaX, float deltaY) =>
+        Angles = (
+            Math.Clamp(Angles.Pitch + (deltaY * DegreesPerPixel), -PitchLimit, PitchLimit),
+            Angles.Yaw - (deltaX * DegreesPerPixel));
+
+    /// <summary>How far one wheel notch travels, in world units.</summary>
+    /// <remarks>
+    /// **A distance, unlike flight, because a wheel notch IS a discrete event.** Key-driven flight
+    /// used to work this way and could not — a held key is a duration and became one in
+    /// <c>FreeFlight</c> (B97) — but a notch has no duration to integrate over.
+    ///
+    /// **128 units.** It was written `FlySpeed * 4f` at the call site, where `FlySpeed` was 32 and
+    /// used for nothing else (B204, B206) — so the number a reader had to compute is now the number
+    /// they read.
+    /// </remarks>
+    public const float WheelTravel = 128f;
+
+    /// <summary>Move the camera along its own view direction.</summary>
+    /// <param name="forward">Whether to travel forwards.</param>
+    /// <param name="ifUnplaced">Where to start from when the camera has not been placed yet.</param>
+    /// <remarks>
+    /// **This was the free-look branch of `MainForm.OnViewportWheel`** (B204, B206), including a
+    /// hand-inlined copy of `AngleVectors`' forward vector. In every editor the wheel flies, and it
+    /// is far quicker than tapping W across a map.
+    ///
+    /// **Travels along the full forward vector, pitch included**, so looking down and scrolling
+    /// descends. Flattening it to the XY plane would make the wheel refuse to go down through a map,
+    /// which reads as the camera being blocked rather than as the travel being wrong.
+    ///
+    /// **The unplaced fallback matches <c>Fly</c>'s**, deliberately: the camera is placed on first
+    /// use, and travelling from an unset origin would silently define it as (0,0,0), the corner of
+    /// the map.
+    /// </remarks>
+    public void Dolly(bool forward, (float X, float Y, float Z) ifUnplaced)
+    {
+        (float X, float Y, float Z) heading = AngleVectors.Forward(Angles.Pitch, Angles.Yaw);
+        (float X, float Y, float Z) from = Origin ?? ifUnplaced;
+
+        float travel = forward ? WheelTravel : -WheelTravel;
+
+        Origin = (
+            from.X + (heading.X * travel),
+            from.Y + (heading.Y * travel),
+            from.Z + (heading.Z * travel));
+    }
 
     /// <summary>The world field of view, in degrees.</summary>
     /// <remarks>
@@ -55,6 +137,55 @@ public sealed class FreeCameraController(ILogger log)
     }
 
     private float _fieldOfView = ViewerSettings.DefaultFieldOfView;
+
+    /// <summary>The longest a single frame may count as flight time, in seconds.</summary>
+    /// <remarks>
+    /// **A stall is not flight time, for the same reason it is not playback time**: a map load or a
+    /// window drag would otherwise fling the camera across the map the moment the loop resumes.
+    ///
+    /// **This clamp is for FLIGHT and for nothing else, which is a distinction that was got wrong
+    /// once.** The frame meter used to read its duration through the same `Math.Min`, so the worst
+    /// frame could never be reported as worse than 100 ms — the ceiling. The owner's report was
+    /// "everything freezes for a half a second to maybe a second" and the log for those exact
+    /// seconds said `longest 100 ms`: not a measurement, just the clamp showing through. A
+    /// saturating instrument is worse than a missing one, because 100 looks like a number somebody
+    /// measured.
+    /// </remarks>
+    public const double MaximumFrameSeconds = 0.1;
+
+    /// <summary>Flies the camera by however long the last frame took.</summary>
+    /// <param name="intent">What is held this frame.</param>
+    /// <param name="seconds">How long the last frame took; clamped, see <see cref="MaximumFrameSeconds"/>.</param>
+    /// <param name="ifUnplaced">Where to fly from when nothing has placed the camera yet.</param>
+    /// <returns>Whether the camera actually moved.</returns>
+    /// <remarks>
+    /// **Frame-driven rather than message-driven, which is the whole of B97.** A camera moved by
+    /// key-repeat messages travels at whatever rate Windows repeats a held key; one moved by
+    /// elapsed time travels at a speed.
+    ///
+    /// **The return value exists so the caller knows whether to re-upload**, rather than uploading
+    /// every frame or guessing from the input. A frame where nothing is held must cost nothing.
+    ///
+    /// **`ifUnplaced` rather than a placement call, because placing needs the viewport.** Flight can
+    /// happen on the same frame that first frames the map, and starting from the world origin
+    /// instead would put the viewer at the centre of the world, under the floor.
+    /// </remarks>
+    public bool Fly(FlightInput intent, double seconds, (float X, float Y, float Z) ifUnplaced)
+    {
+        (float X, float Y, float Z) moved = FreeFlightPath.Movement(
+            intent, Math.Min(seconds, MaximumFrameSeconds), Angles.Pitch, Angles.Yaw);
+
+        if (moved == (0f, 0f, 0f))
+        {
+            return false;
+        }
+
+        (float X, float Y, float Z) where = Origin ?? ifUnplaced;
+
+        Origin = (where.X + moved.X, where.Y + moved.Y, where.Z + moved.Z);
+
+        return true;
+    }
 
     /// <summary>The camera to draw with, placing it first if nothing has.</summary>
     /// <param name="aspect">The viewport's width over its height.</param>
@@ -185,7 +316,7 @@ public sealed class FreeCameraController(ILogger log)
         // stops producing an angle the rest of the viewer treats as impossible.
         return (
             (values[0], values[1], values[2]),
-            Math.Clamp(values[3], -89f, 89f),
+            Math.Clamp(values[3], -PitchLimit, PitchLimit),
             values[4]);
     }
 }

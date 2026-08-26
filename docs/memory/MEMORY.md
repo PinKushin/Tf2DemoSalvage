@@ -63,6 +63,7 @@
 - [Read the map before the renderer](read-the-map-before-the-renderer.md) — ask the BSP what the broken thing actually is.
 - [Measure every hop before blaming one](measure-every-hop-before-blaming-one.md) — three correct measurements locate the fourth hop.
 - [Read the spec before measuring our data](read-the-spec-before-measuring-our-data.md) — measurement cannot find a feature never implemented.
+- [The denominator is already written down](the-denominator-is-already-written-down.md) — `docs/SDK-COVERAGE.md` names every unhandled thing; read it before a decompiler.
 - [Conformance test before implementation](conformance-test-before-implementation.md) — parity test with its citation first.
 - [Surf and jump are an audience](surf-and-jump-are-an-audience.md) — old runs need exact ticks, angles and inputs.
 - [An uncoverable gap is usually your reader](an-uncoverable-gap-is-usually-your-reader.md) — exclusions are usually facts about your parser.
@@ -127,6 +128,8 @@
 - [Check backwards compatibility on old demos](check-backwards-compat-on-old-demos.md) — an era demo is the first place to look.
 - [A budget rule must not gate a correctness rule](a-budget-rule-must-not-gate-a-correctness-rule.md) — `&& bones.Count > 1` vetoed mustSkin, so a one-bone worn model never merged.
 - [Do not rerun a green gate](do-not-rerun-a-green-gate.md) — floors and docs cannot change a test result; take the counts from the run in hand.
+- [Build servers outlive the build](build-servers-outlive-the-build.md) — 1.4 GB still resident after one gate run; reap with `dotnet build-server shutdown`, never `pkill -f`.
+- [A move's regressions are wiring](a-moves-regressions-are-wiring.md) — three shipped silently at 620/620 green; count the assignments, diff the strings, diff the body.
 - [Sound the demo does not carry](sound-the-demo-does-not-carry.md) — footsteps and landings are client-predicted and in no demo; reproducing them is authoring, not replay.
 - [A client dates a protocol, a demo does not](a-client-dates-a-protocol-a-demo-does-not.md) — a demo's protocol bounds its date not at all; this corpus is the counterexample, and protocol windows are estimates from changelogs.
 - [A fallback that makes sound hides itself](a-fallback-that-makes-sound-hides-itself.md) — twice in one feature; when the engine refuses a case, refuse it too.
@@ -140,3 +143,8 @@
 - [Decide home and parity before writing](decide-home-and-parity-before-writing.md) — three days of rework; answer both questions before the code exists.
 - [custom/ and choosable huds](custom-folder-and-choosable-huds.md) — several huds at once is a deliberate step BEYOND TF2; do not "fix" it toward parity.
 - [A partial thin view is worse than none](a-partial-thin-view-is-worse-than-none.md) — it reads as permission; enforcement is the TFM, not the file.
+- [A wrong invocation exits zero](a-wrong-invocation-exits-zero.md) — a usage banner is not an error; assert on output shape, not status.
+- [A divergence is asked, not documented](a-divergence-is-asked-not-documented.md) — writing the reason in a comment does not discharge it.
+- [Ask which input differs before bisecting](ask-which-input-differs-before-bisecting.md) — a check that never existed is absent from both versions.
+- [The f12 demo is the parity reference](the-f12-demo-is-the-parity-reference.md) — hold the subject constant; announce every demo change by name.
+- [A superseded type keeps its tests](a-superseded-type-keeps-its-tests.md) — eleven green tests on a camera the viewer never ran.

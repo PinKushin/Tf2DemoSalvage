@@ -45,6 +45,19 @@
          Added 2026-08-25 with FreeCameraController (D90). The camera needs MapOutline from Scene
          and OverheadPlacement from here, which is itself the answer to where it belongs. -->
     <ProjectReference Include="..\Tf2DemoSalvage.Scene\Tf2DemoSalvage.Scene.csproj" />
+
+    <!-- For IGameSystem, which `SoundPresenter` implements (`CSoundEmitterSystem : CBaseGameSystem`,
+         SoundEmitterSystem.cpp:134) and which `LevelSystems` walks. -->
+    <ProjectReference Include="..\Tf2DemoSalvage.GameSystems\Tf2DemoSalvage.GameSystems.csproj" />
+
+    <!-- **A presenter produces what a renderer draws**, so the draw-data types are downstream of
+         it the same way Scene and Audio are. Render references Core, Content and Scene and knows
+         nothing about presenters, so this adds no cycle.
+
+         Added 2026-08-25 with FpsOverlay, out of MainForm.BuildHud (B188, D90). Render is
+         `net10.0` — Direct3D arrives through Silk.NET at RUNTIME, not at compile time — so this
+         does not pin the presenter layer to Windows and the port test in D90 still holds. -->
+    <ProjectReference Include="..\Tf2DemoSalvage.Render\Tf2DemoSalvage.Render.csproj" />
   </ItemGroup>
 
 </Project>

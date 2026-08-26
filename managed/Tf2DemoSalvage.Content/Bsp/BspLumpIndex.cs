@@ -72,6 +72,23 @@ internal static class BspLumpIndex
     /// <summary>Displacement vertex offsets.</summary>
     public const int DispVerts = 33;
 
+    /// <summary>Per-vertex normals, for smoothed lighting and a tangent basis.</summary>
+    /// <remarks>
+    /// **Not the same as the face's plane normal, despite what the compiler first writes.** `vbsp`
+    /// fills this with `dplanes[f->planenum].normal` and says why in a comment —
+    /// *"this doesn't do an exhaustive vertex normal match because the vrad does it"*
+    /// (`src/utils/vbsp/normals.cpp:38`). By the time a map ships, **vrad has replaced them** with
+    /// true smoothed normals wherever a smoothing group applies.
+    ///
+    /// So the two agree on flat unsmoothed brushwork and nowhere else, which is why "derive it from
+    /// the plane" is not a substitute (D93, B194).
+    /// </remarks>
+    public const int VertNormals = 30;
+
+    /// <summary>Which normal each face vertex uses; <c>dfaces</c> reference these.</summary>
+    /// <remarks><c>unsigned short</c> each, indexing <see cref="VertNormals"/>.</remarks>
+    public const int VertNormalIndices = 31;
+
     /// <summary>Game lumps: static props (<c>sprp</c>) and detail props (<c>dprp</c>) live here.</summary>
     public const int GameLump = 35;
 
