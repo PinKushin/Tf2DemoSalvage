@@ -67,6 +67,12 @@ public sealed class TimelineEyes(DemoTimeline timeline) : IEyeSource
 /// SourceTV demo carries no camera, so the view is built from a player's own position and eye
 /// angles, which is what the engine does when you spectate in game.
 /// </remarks>
+/// <summary>Whether first person was entered, and what to tell the log and the user.</summary>
+/// <param name="Entered">Whether there were any eyes to borrow.</param>
+/// <param name="Message">What the log records, naming which of the cases applied.</param>
+/// <param name="Status">What the user is told, or null when nothing was refused.</param>
+public readonly record struct FirstPersonEntry(bool Entered, string Message, string? Status);
+
 public sealed class SpectatorView
 {
     private readonly ILogger _spectate;
@@ -149,6 +155,52 @@ public sealed class SpectatorView
         }
 
         return SpectatorTarget.Choose(players);
+    }
+
+    /// <summary>Whether the first-person view can be entered at a tick, and what to say.</summary>
+    /// <param name="tick">The tick being drawn.</param>
+    /// <param name="aspect">The viewport's width over its height.</param>
+    /// <returns>The decision, with the sentences that go with it.</returns>
+    /// <remarks>
+    /// **This was the decision half of <c>MainForm.ToggleFirstPerson</c>** (B188, D90). Whether
+    /// there are eyes to borrow, and whose they are, is a question about the demo; what remains in
+    /// the window is a mode flag, an invalidate and a status bar.
+    ///
+    /// **It returns sentences rather than a bool because refusing has to be VISIBLE.** A key that
+    /// silently does nothing reads as a broken key, and the reason it can refuse is a real property
+    /// of the demo rather than a failure: a recording can lose its subject mid-playback, and one
+    /// with nobody in it has no eyes at all. A caller mapping a bool back to a sentence would be
+    /// re-deriving the case this already established.
+    ///
+    /// **The two allowed cases are named separately and that is not decoration.** A POV demo carries
+    /// the recorder's own view; a SourceTV recording carries none and a player is spectated instead.
+    /// Which one is in play decides whether an angle that looks wrong is our defect or the
+    /// recording's, and the log is where that gets settled after the fact.
+    ///
+    /// **Which case applies is asked PER TICK, and the form asked it per DEMO.** `MainForm` read
+    /// `DemoTimeline.HasRecordedView`, which is true when the demo carries any recorded view at all
+    /// — so on a demo whose recorded views stop partway it announced "following the recording's own
+    /// camera" while <see cref="Eye"/> was in fact spectating a player, because `Eye` has always
+    /// decided per tick. A deliberate correction rather than a move, and small: it changes a
+    /// sentence in the log, not what is drawn.
+    /// </remarks>
+    public FirstPersonEntry Enter(int tick, float aspect)
+    {
+        if (Eye(tick, aspect) is null)
+        {
+            return new FirstPersonEntry(
+                Entered: false,
+                "first person unavailable: this demo has no recorded camera and no player to " +
+                "follow at this tick",
+                "No first-person view here: nothing to follow at this tick.");
+        }
+
+        return new FirstPersonEntry(
+            Entered: true,
+            Eyes?.RecordedViewAt(tick) is not null
+                ? "first person on, following the recording's own camera"
+                : "first person on, spectating a player (this demo has no recorded camera)",
+            Status: null);
     }
 
     /// <summary>The camera for the first-person view, or null when there is none.</summary>

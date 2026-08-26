@@ -121,6 +121,9 @@ convention already broken and matches its neighbours. Enforcement is the TFM, no
 | `SoundCache.Precache` | Audio | |
 | `EntityModelSet.Precache` | Scene | |
 | `LeafBoxLines` → `LeafVis` | Scene | `mat_leafvis` is engine-side and not in the SDK; the published analogue is `cl_drawleaf` (`clientleafsystem.cpp:32`), and `dleaf_t`'s mins/maxs are "for frustum culling", so the loose box is the right thing to draw. What stayed in the view is the TOGGLE and the eye. |
+| the three slow-frame reporters → `StallReport` + `FramePhases` | Presentation | `unaccounted` is Valve's own name for the residual: `VPROF_BUDGETGROUP_OTHER_UNACCOUNTED` is `_T("Unaccounted")` (`public/tier0/vprof.h`). Our frame ledger is a hand-rolled vprof. |
+| `FlyCamera`'s flight → `FreeCameraController.Fly` | Presentation | The controller already owned `Origin` and `Angles`, so the form was reading state out of it, doing arithmetic and writing it back. The frame CLOCK stayed — it is a meter, not a camera. |
+| `ToggleFirstPerson`'s decision → `SpectatorView.Enter` | Scene | Returns sentences, not a bool, because refusing has to be visible and the two allowed cases are different mechanisms. Fixed a real bug on the way: the form asked `HasRecordedView` per DEMO where `Eye` decides per TICK. |
 | `ShowPlayers` + `ShowPositions` + `PlayerModel` → `MapOverview` | Presentation | **Valve's own name and its own rules.** `CMapOverview` (`game_controls/MapOverview.cpp`) is the spectator map panel; `MapPlayer_t` carries `Color color; // players team color`, and `CanPlayerBeSeen` says "we never track unassigned or real spectators" — which is our `IsPlaying` filter, stated by the engine. Presentation rather than Scene because it turns domain state into drawable primitives, like `FpsOverlay`, and it is the only project that can see both `ScenePoint` (Render) and `LoadedMap` (Scene). |
 
 ### Field collapses that made those moves possible
@@ -184,11 +187,15 @@ how self-contained they are:
 
 1. ~~`LeafBoxLines`~~ — **done**, and it is what turned up B196
 2. ~~`ShowPlayers`, `ShowPositions`, `PlayerModel`~~ — **done** as `MapOverview`
-3. the three slow-frame reporters (~190 together) — diagnostics over `_drawn`/`_instances`
-4. `ToggleFirstPerson` (92) and `FlyCamera` (97) — camera mode, wants `SpectatorView`
+3. ~~the three slow-frame reporters~~ — **done** as `StallReport`; turned up D94
+4. ~~`ToggleFirstPerson` and `FlyCamera`~~ — **done**: flight into `FreeCameraController`, the
+   entry decision into `SpectatorView.Enter`
 5. `EnsureWeaponRoles` (103) — domain, and it is the member that already caused one regression
 6. `ProjectMap` (107) — splits: the projection is Scene, the control invalidation is view
 7. `ReadMap` (116) — mostly `LoadedMap.Read` already; what is left is error presentation
+8. `CountFrame` and the frame clock — `_flyWatch`, `_longestFrameSeconds`, `_lastFrameSeconds`.
+   `FlyCamera` still holds these because they are a METER, not a camera; they belong with
+   `CountFrame`, which is the only other reader.
 
 **`MapCamera` moves LAST, after everything that calls it.** Nine call sites, most of them inside
 members still on this list (`ViewMatrix`, `LeafBoxLines`, `ProjectMap`, the pan and zoom handlers).

@@ -157,14 +157,14 @@ jobs:
           # 673 -> 686: 13 more (StudioIkChainTests 7, StudioBoneControllerTests 5, one capacity
           # guard). All but one IK test build their own bytes and run anywhere.
           ./build/assert-test-count.sh '**/content.trx' 713 Content
-          ./build/assert-test-count.sh '**/presentation.trx' 187 Presentation
+          ./build/assert-test-count.sh '**/presentation.trx' 193 Presentation
           ./build/assert-test-count.sh '**/logging.trx' 17 Logging
           # 10 is MEASURED locally and safe on a runner without the SDK, because a .trx total counts
           # skipped tests: the two conformance cases Assert.Ignore where source-sdk-2013 is absent
           # and still appear in the total. That is the same reason Content's 645 holds while it
           # executes a fraction of its cases here.
           ./build/assert-test-count.sh '**/animation.trx' 41 Animation
-          ./build/assert-test-count.sh '**/scene.trx' 158 Scene
+          ./build/assert-test-count.sh '**/scene.trx' 163 Scene
 
       # **Coverage, gated PER ASSEMBLY rather than per report.** A Cobertura file's root line-rate
       # averages every assembly the run loaded, including ones the suite never touches — measured
