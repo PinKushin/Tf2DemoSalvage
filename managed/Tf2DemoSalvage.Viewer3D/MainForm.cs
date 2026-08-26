@@ -333,6 +333,20 @@ internal class MainForm : Form
     /// </remarks>
     private readonly PlaybackPresenter _playback;
 
+    /// <summary>Where a second of frames went, accumulated here and reported once a second.</summary>
+    /// <remarks>
+    /// **Was six fields and a format string in this window** (B188, D90): the frame count, the
+    /// longest frame, three phase totals and the idle-burst count, each reset by hand at the end of
+    /// `CountFrame`. Six counters that must all be cleared together is five chances to forget one,
+    /// and a counter that survives its report makes the NEXT second read as worse than it was.
+    ///
+    /// **Not <see cref="FpsMeter"/>, which is `cl_showfps`** — a smoothed average drawn on screen
+    /// for a person watching. This is a diagnostic ledger written to the log, and its value is the
+    /// breakdown rather than the number: B191 was found by reading which column stayed fat as the
+    /// others were measured away.
+    /// </remarks>
+    private readonly FrameLedger _ledger = new();
+
     /// <summary>Whether the resident textures belong to the map currently loaded.</summary>
     private bool _texturesUploaded;
 
@@ -2443,7 +2457,7 @@ internal class MainForm : Form
 
         long sampleTicks = Stopwatch.GetTimestamp() - sampledAt;
 
-        _samplingTicks += sampleTicks;
+        _ledger.Sampled(sampleTicks);
 
         // **Outside the timer, which is where it was and where it belongs.** It is cheap after the
         // first call, but the FIRST call reads the weapon scripts out of the archives and each one
@@ -2467,7 +2481,7 @@ internal class MainForm : Form
                 timeline.IntervalPerTick,
                 _settings.ViewmodelFieldOfView));
 
-        _posingTicks += phases.Pose;
+        _ledger.Posed(phases.Pose);
 
         // **Timed because it was, and the column went missing when the rebuild moved out.** Three
         // untimed steps once hid 129 ms of a 133 ms pose (B191), and this is the one still here.
@@ -3414,7 +3428,7 @@ internal class MainForm : Form
         while (waiting == 0);
 
         _idleEndedBy = waiting;
-        _idleBursts++;
+        _ledger.Yielded();
     }
 
     /// <summary>Names the Windows messages worth recognising in a render report.</summary>
@@ -3443,8 +3457,10 @@ internal class MainForm : Form
     /// <summary>The message that last ended a render burst.</summary>
     private uint _idleEndedBy;
 
-    /// <summary>How many times the render loop yielded since the last report.</summary>
-    private long _idleBursts;
+    // `_idleBursts` was here until 2026-08-25. It is `FrameLedger.Yielded()` — one of six
+    // per-second counters this window kept and reset by hand (B188, D90). What stays is
+    // `_idleEndedBy` above, because naming a Windows message is the only part of that report a
+    // second frontend could not produce.
 
     /// <summary>The user's controls, running as the engine would run them.</summary>
     /// <remarks>
@@ -3468,8 +3484,12 @@ internal class MainForm : Form
     /// <summary>The key-release filter, kept so it can be removed on shutdown.</summary>
     private KeyReleaseFilter? _keyReleases;
 
-    /// <summary>The longest frame since the rate was last reported, in seconds.</summary>
-    private double _longestFrameSeconds;
+    // `_longestFrameSeconds` was here until 2026-08-25. It is the maximum `FrameLedger.Drew` keeps.
+    //
+    // **The rule that lived with it is worth repeating where the clamp is, and it is:** this reading
+    // must never pass through the free camera's stall clamp. It did once, so the worst frame could
+    // not be reported as worse than 100 ms, and the owner's "half a second to maybe a second" met a
+    // log saying `longest 100 ms` every time. A saturating instrument is worse than a missing one.
 
     /// <summary>How long the last frame took, in seconds.</summary>
     /// <remarks>
@@ -3530,20 +3550,15 @@ internal class MainForm : Form
         Outline = true,
     };
 
-    /// <summary>Stopwatch ticks spent sampling the timeline since the last report.</summary>
-    /// <remarks>
-    /// **Split from posing because twenty milliseconds is a budget, not an answer** (B99). Paused,
-    /// the viewer draws the whole uncalled map at 300 frames a second with a longest frame of
-    /// 3.4 ms; playing, it manages 48. That difference is all CPU and all in this rebuild, and
-    /// which half of the rebuild owns it decides what to fix.
-    /// </remarks>
-    private long _samplingTicks;
-
-    /// <summary>Stopwatch ticks spent posing and lighting models since the last report.</summary>
-    private long _posingTicks;
-
-    /// <summary>Time spent in the device draw since the last report (B148).</summary>
-    private long _drawTicks;
+    // **The three phase totals were here until 2026-08-25.** They are `FrameLedger.Sampled`,
+    // `.Posed` and `.Drawing` (B188, D90) — accumulators and a format string, with no window in any
+    // of it.
+    //
+    // The reason they are three columns rather than one is worth keeping: **twenty milliseconds is
+    // a budget, not an answer** (B99). Paused, the viewer draws the whole uncalled map at 300 frames
+    // a second with a longest frame of 3.4 ms; playing, it manages 48. That difference is all CPU
+    // and all in the moment rebuild, and which half of the rebuild owns it decides what to fix —
+    // which a single total cannot say. B148 added the draw column for the same reason.
 
     // `IsShiftHeld` lived here, reading `Control.ModifierKeys` directly, on the grounds that a
     // modifier's state is something WinForms already knows. The console owns `+speed` now (D69), so
@@ -3693,8 +3708,10 @@ internal class MainForm : Form
         Thread.Yield();
     }
 
-    /// <summary>How many frames were drawn since the rate was last reported.</summary>
-    private int _framesDrawn;
+    // `_framesDrawn` was here until 2026-08-25. It is the count `FrameLedger.Drew` keeps — the last
+    // of the six per-second counters this window reset by hand. What remains is `_rateReportedAt`,
+    // which is the CLOCK: the ledger is told how long a second took rather than timing itself, so
+    // it can be tested without waiting one.
 
     /// <summary>When the frame rate was last reported.</summary>
     private long _rateReportedAt;
@@ -3756,7 +3773,7 @@ internal class MainForm : Form
 
     private void CountFrame()
     {
-        _framesDrawn++;
+        _ledger.Drew(_lastFrameSeconds);
 
         long now = Stopwatch.GetTimestamp();
 
@@ -3777,29 +3794,23 @@ internal class MainForm : Form
         // it.** Flying the camera used to re-project the whole map every frame (B98); the average
         // barely moved while the longest frame in each second grew enormously, which is exactly
         // what stutter is. A rate on its own could not have shown that, and did not.
-        _renderLog.LogDebug(
-            "{Message}",
-            $"{_framesDrawn / elapsed:0.#} frames a second, " +
-            $"longest {_longestFrameSeconds * 1000d:0.##} ms" +
-            (_transport.Playing ? ", playing" : ", paused") +
-            (_freeLook && _console.AnyHeld ? ", flying" : string.Empty) +
-            $"; drawing {_drawTicks / (double)Stopwatch.Frequency * 1000d:0.#} ms" +
-            $"; yielded {_idleBursts} times to {MessageName(_idleEndedBy)}" +
-            $"; sampling {_samplingTicks / (double)Stopwatch.Frequency * 1000d:0.#} ms" +
-            $", posing {_posingTicks / (double)Stopwatch.Frequency * 1000d:0.#} ms" +
-            $" (lighting {_models.LightingTicks / (double)Stopwatch.Frequency * 1000d:0.#} ms)" +
-            " of the second" +
-            GarbageThisSecond());
+        if (_ledger.Report(
+                new FrameContext(
+                    _transport.Playing,
+                    _freeLook && _console.AnyHeld,
+
+                    // The one part of this line a second frontend could not produce: a Windows
+                    // message id, named by the window that received it.
+                    MessageName(_idleEndedBy),
+                    _models.LightingTicks,
+                    GarbageThisSecond()),
+                elapsed) is { } line)
+        {
+            _renderLog.LogDebug("{Message}", line);
+        }
 
         _models.LightingTicks = 0;
-
-        _framesDrawn = 0;
         _rateReportedAt = now;
-        _longestFrameSeconds = 0d;
-        _samplingTicks = 0;
-        _posingTicks = 0;
-        _idleBursts = 0;
-        _drawTicks = 0;
     }
 
     /// <summary>Sends the current view to the device, without rebuilding anything.</summary>
@@ -4052,7 +4063,9 @@ internal class MainForm : Form
         //
         // The clamp lives with FLIGHT now, in `FreeCameraController`, which is what it was always
         // for; applying it to the record of what happened was the mistake.
-        _longestFrameSeconds = Math.Max(_longestFrameSeconds, seconds);
+        // The longest frame is the LEDGER's business now — it takes this duration from `CountFrame`
+        // and keeps the maximum itself, so there is one place that knows what "worst frame this
+        // second" means rather than a field here and a reset there.
         _lastFrameSeconds = seconds;
 
         if (!_freeLook)
@@ -4328,7 +4341,7 @@ internal class MainForm : Form
 
         long finishedAt = Stopwatch.GetTimestamp();
 
-        _drawTicks += finishedAt - drewAt;
+        _ledger.Drawing(finishedAt - drewAt);
 
         StallReport.Frame(
             FramePhases.Between(
