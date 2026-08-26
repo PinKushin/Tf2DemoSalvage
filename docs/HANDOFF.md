@@ -218,15 +218,19 @@ Moving it first would mean rewriting each of those twice.
 
 ### Where it stands after 2026-08-26
 
-**MainForm 3,039 → 2,032 code lines**, over ten extractions. Done since the list above was written:
-`StallReport`, `FreeCameraController.Fly`, `SpectatorView.Enter`, `DemoAppearance`, `FrameLedger`,
-`LevelSystems` + the `GameSystems` project, `WorldPresenter` + `IWorldUpload`, `DemoSounds`.
+**MainForm 3,039 → 1,996 code lines**, over thirteen extractions. Done since the list above was
+written: `StallReport`, `FreeCameraController.Fly`, `SpectatorView.Enter`, `DemoAppearance`,
+`FrameLedger`, `LevelSystems` + the `GameSystems` project, `WorldPresenter` + `IWorldUpload`,
+`DemoSounds`, `DemoSystems`, `ViewCamera`.
 
-**What is left is one cluster and its camera.** `Apply`, `LoadDemoAsync`, `ShowMoment`,
-`ApplyOpeningState` and `RenderFrame`'s phase order all wire the same collaborators for a newly
-opened DEMO — the mirror of what `LevelSystems` now does for a level, and the same shape B193 broke
-three times. Then `MapCamera` and the camera helpers (`ViewMatrix`, `FirstPersonCamera`,
-`FreeLookCamera`, `PlayerAt`, `Spectated`, `Ducking`, `FollowedEntity`).
+**What is left.** `ShowMoment`, `LoadDemoAsync`, `ApplyOpeningState` and `RenderFrame`'s phase order
+— the per-frame orchestration, which is the last cluster. Plus the one-line delegations
+(`FirstPersonCamera`, `FreeLookCamera`, `FollowedEntity`, `PlayerModel`-style shims) that the bar
+says should not exist at all.
+
+**`Apply` is done** — its wiring is `DemoSystems`, 123 lines → 70. **`MapCamera` and `ViewMatrix`
+are done** — `ViewCamera.Overhead` and `ViewCamera.Matrix`, which is Valve's `CalcView` dispatch
+(`c_baseplayer.h:112`, `:455`, `:463`) in the one place the SDK has it.
 
 **A parity note for whoever does that cluster.** In the engine, **playing a demo IS loading a
 level** — `playdemo` runs the ordinary level-load path, so systems get `LevelInit*` and there is no
