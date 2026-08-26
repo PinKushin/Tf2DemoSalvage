@@ -157,7 +157,7 @@ jobs:
           # 673 -> 686: 13 more (StudioIkChainTests 7, StudioBoneControllerTests 5, one capacity
           # guard). All but one IK test build their own bytes and run anywhere.
           ./build/assert-test-count.sh '**/content.trx' 711 Content
-          ./build/assert-test-count.sh '**/presentation.trx' 301 Presentation
+          ./build/assert-test-count.sh '**/presentation.trx' 304 Presentation
           ./build/assert-test-count.sh '**/logging.trx' 17 Logging
           # 10 is MEASURED locally and safe on a runner without the SDK, because a .trx total counts
           # skipped tests: the two conformance cases Assert.Ignore where source-sdk-2013 is absent

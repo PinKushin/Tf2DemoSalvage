@@ -1336,28 +1336,14 @@ internal class MainForm : Form, IFrameSteps
                 "{Message}",
                 $"loading {Path.GetFileName(path)} ({bytes.Length / 1024 / 1024} MB)");
 
-            if (_game is null)
-            {
-                // **Opened once, on the first map read rather than at startup — and the reason
-                // written here until 2026-08-26 was the wrong one.** It said the archives are slow
-                // to open and a viewer with no demo needs none of it, which is true and is not what
-                // decides it. The owner's constraint is: *"the user has to point us to their tf2
-                // folder before we can do anything, and the program cant crash because its missing
-                // it must just error and mention it"*.
-                //
-                // So this is not lazy-because-slow, which would be a candidate for making eager. It
-                // is deferred because THE LOCATION IS NOT KNOWN YET, and that cannot be hurried.
-                // The distinction matters: a rule recorded with the wrong reason gets relaxed for
-                // the wrong reasons, and lazy initialisation is otherwise a shape this codebase is
-                // right to distrust (D86 — the engine precaches at level load precisely so nothing
-                // is decoded mid-game, and ours cost 385 ms in one frame when it packed on sight).
-                //
-                // `GameContent.Open(null, …)` is a normal answer, not a failure: it yields empty
-                // archives and logs `game folder: not found`. B211 is what the USER sees.
-                _game = GameContent.Open(_maps.GameFolder(), _loggers);
-
-                _levels.OpenGame(_game);
-            }
+            // **Opening the install is a lifecycle question, not a window's** (B188, D90). The
+            // branch, the field and the `OpenGame` call beside it were all here; `LevelSystems.Install`
+            // owns them and answers the same content every time after the first.
+            //
+            // It is deferred because the folder is not knowable until the user points at it, NOT
+            // because it is slow — which is what the comment here used to say, and is the difference
+            // between "this could be made eager" and "there is nothing to hurry".
+            _game = _levels.Install(_maps.GameFolder);
 
             _world.TexturesAreCurrent = false;
 
@@ -3796,11 +3782,14 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private void ReprojectScene()
     {
-        if (_timeline is null)
-        {
-            return;
-        }
-
+        // **The `_timeline is null` guard here was redundant and is gone** (2026-08-26).
+        // `ShowMoment` opens with the same test, so this one could not change what happened — and a
+        // condition nothing can distinguish from its absence is dead code that also survives every
+        // mutation of itself. The same argument retired a `ticket != 0` guard in `LoadTickets` an
+        // hour earlier.
+        //
+        // The guard at `MomentChanged` is NOT redundant and stays: it also skips a
+        // `_viewport.Invalidate()`, so removing it would repaint for a demo that is not there.
         ShowMoment(_playback.Position ?? _transport.CurrentTick);
     }
 

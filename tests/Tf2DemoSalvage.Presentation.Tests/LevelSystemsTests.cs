@@ -128,6 +128,57 @@ public sealed class LevelSystemsTests
         soundscape.Catalog.ShouldBeNull();
     }
 
+    [Test]
+    public void Install_AskedTwice_OpensTheGameOnceAndAnswersTheSameContent()
+    {
+        // **The lazy open was `if (_game is null) { … }` inside `MainForm.ReadMap`** (B188, D90),
+        // and it is deferred for a reason that is not slowness: the TF2 folder is not known until
+        // the user points at it. Deferred-because-not-yet-knowable is not laziness and cannot be
+        // made eager — but it does not need a window either.
+        //
+        // **Opening twice is not merely wasteful, it is wrong**: `OpenGame` destructures the content
+        // into the sound cache, the weapon table and the soundscape catalog, so a second open would
+        // rebuild all three mid-session and reload every catalog.
+        int opened = 0;
+
+        LevelSystems systems = Systems();
+
+        GameContent first = systems.Install(() => { opened++; return null; });
+        GameContent again = systems.Install(() => { opened++; return null; });
+
+        opened.ShouldBe(1, "the install is located once, however many maps are read");
+        again.ShouldBeSameAs(first);
+    }
+
+    [Test]
+    public void Install_WithNoInstallFound_AnswersEmptyContentRatherThanThrowing()
+    {
+        // **The owner's requirement**: *"the program cant crash because its missing it must just
+        // error and mention it"*. Empty content is a normal answer — the demo still plays, it just
+        // loses the stock assets.
+        GameContent content = Systems().Install(() => null);
+
+        content.Archives.IsEmpty.ShouldBeTrue();
+    }
+
+    [Test]
+    public void Install_OnceOpened_HasHandedTheArchivesToTheSoundCache()
+    {
+        // **The positive half, and the one an "opens once" test cannot make.** `Install` is only
+        // useful if it also does what `OpenGame` did — a version that cached the content and told
+        // nobody would pass the case above perfectly and leave the viewer silent.
+        SoundCache sounds = new(NullLogger.Instance);
+        SoundscapeSystem soundscape = Soundscape();
+
+        new LevelSystems(
+            Scene(), new EntityModelSet(), sounds, soundscape,
+            new SoundPresenter(soundscape, new ActiveLoops(), _ => null, NullLogger.Instance),
+            NullLoggerFactory.Instance)
+            .Install(() => null);
+
+        sounds.Read.ShouldNotBeNull("Install must do OpenGame's work, not merely remember the content");
+    }
+
     private static LevelSystems Systems(EntityModelSet? models = null)
     {
         SoundscapeSystem soundscape = Soundscape();
