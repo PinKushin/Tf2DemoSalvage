@@ -64,6 +64,31 @@ public sealed class MapOverviewTests
     }
 
     [Test]
+    public void Players_AtExactlyTheWorldOrigin_GetNoMarker()
+    {
+        // **Valve's rule, and it was missing here until the owner asked for it back.**
+        // `CMapOverview::CanPlayerBeSeen` has `if( player->position == Vector(0,0,0) ) return false;`
+        // commented "Invalid guy" — an entity that exists but has never been given a position.
+        //
+        // I had left it out, reasoning that a demo's entities are read rather than networked and
+        // that `Drawn` already covers it. That reasoning was mine and was never checked against
+        // anything; the standing rule is that Valve knew more than we do, every time.
+        //
+        // Exact equality on all three axes, as Valve writes it. A tolerance would swallow a player
+        // legitimately standing near the map's origin, which plenty of maps put geometry at.
+        Overview([Player(1, NoModelClass, RedTeam, 0f, 0f)]).ShouldBeEmpty();
+    }
+
+    [Test]
+    public void Players_OneUnitFromTheOrigin_StillGetAMarker()
+    {
+        // The bystander, and the reason the check is exact rather than a radius: a player standing
+        // one unit from the world origin is a real player at a real position. A tolerance here
+        // would silently delete them from the overview on any map built around (0,0,0).
+        Overview([Player(1, NoModelClass, RedTeam, 1f, 0f)]).Count.ShouldBe(1);
+    }
+
+    [Test]
     public void Players_ThatAreNotDrawn_GetNoMarker()
     {
         // **The dead, and this is the pass where it is easiest to get wrong.** A player the engine
@@ -93,15 +118,23 @@ public sealed class MapOverviewTests
         // Clip space is -1..1 with the origin in the middle, so a subject at the centre of what the
         // camera was fitted to must arrive at (0,0). This is the assertion that would fail if the
         // camera were built from the wrong bounds — the half of this method with no other check.
+        // **The bracket is deliberately NOT centred on the world origin**, because a player standing
+        // there is filtered as invalid (see above). Centred on (1000,1000) instead, so the middle
+        // subject is a real position that must still project to the middle of the view.
         IReadOnlyList<ScenePoint> points = Overview(
             [
-                Player(1, NoModelClass, RedTeam, -1000f, -1000f),
-                Player(2, NoModelClass, RedTeam, 1000f, 1000f),
-                Player(3, NoModelClass, RedTeam, 0f, 0f),
+                Player(1, NoModelClass, RedTeam, 0f, 0f),
+                Player(2, NoModelClass, RedTeam, 2000f, 2000f),
+                Player(3, NoModelClass, RedTeam, 1000f, 1000f),
             ]);
 
-        points[2].X.ShouldBe(0f, 0.001f);
-        points[2].Y.ShouldBe(0f, 0.001f);
+        // The corner subject at the origin is dropped, so two markers come back and the CENTRED one
+        // is the last of them. The camera still framed all three, which is what makes this a test
+        // of the projection rather than of the filter.
+        points.Count.ShouldBe(2);
+
+        points[1].X.ShouldBe(0f, 0.001f);
+        points[1].Y.ShouldBe(0f, 0.001f);
     }
 
     [Test]
@@ -199,8 +232,15 @@ public sealed class MapOverviewTests
     private static TopDownCamera MapCamera() =>
         TopDownCamera.Fit([(-16384f, -16384f), (16384f, 16384f)], 800, 600);
 
+    /// <summary>A player standing somewhere, defaulting to somewhere that is NOT the origin.</summary>
+    /// <remarks>
+    /// **The default used to be (0,0), and that was the fixture sitting on Valve's sentinel.** The
+    /// engine treats a player at exactly the world origin as invalid, so every test that did not
+    /// care where its player stood was, unknowingly, testing the one position with a special
+    /// meaning. Harmless while the check was missing and misleading the moment it arrived.
+    /// </remarks>
     private static ScenePlayer Player(
-        int entity, int playerClass, int team, float x = 0f, float y = 0f) =>
+        int entity, int playerClass, int team, float x = 64f, float y = 64f) =>
         new(entity, x, y, 0f, team, Health: 100, PlayerClass: playerClass);
 
     /// <summary>An appearance that knows one class and nothing else.</summary>

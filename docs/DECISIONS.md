@@ -5359,3 +5359,49 @@ how the two judgements get tied together, which is the thing the separation exis
 **The general rule, and it is cheap to apply:** before merging two constants that happen to be
 equal, read what each is applied TO. Before borrowing one, read whether its documentation describes
 your use. Both questions are answered by the declaration site, and neither was asked.
+
+
+## D95 — The viewer is another instance of TF2: always 3D, always the engine's camera
+
+Stated by the owner on 2026-08-25, while a stale comment in `PointRenderer` was being used to
+justify a clip-space drawing path:
+
+> "the whole idea is we never have to change the renderer from 3d or do anything special with the
+> cameras other then set that default wide overhead view to free cam, so we are always in engine and
+> the user is able to act as if the viewer is always just another instance of tf2 for the most part"
+
+**This extends D49 from a camera decision into a renderer one.** D49 removed `CameraMode.Map`
+because a top-down view is a *placement* of a perspective camera rather than a mode of its own.
+D95 says the same thing about everything downstream: there is no second projection, no second
+drawing path, and no primitive that exists only for a flat view.
+
+### What it settles
+
+- **Nothing is drawn in clip space because "the overhead view has no depth".** That reasoning is
+  D49's world, and D49 deleted it. `PointRenderer` still carried it in a comment — "a flat overhead
+  view has one axis that does not participate, so the caller sorts by height and the later triangle
+  wins" — which was true when written and had quietly become a justification for markers floating
+  over a 3D scene.
+- **Debug primitives take WORLD coordinates and choose depth per call**, which is what the engine
+  does: `DebugDrawLine( vecAbsStart, vecAbsEnd, r, g, b, bool test, duration )` and the
+  `bool noDepthTest` field on the overlay record (`game/server/ndebugoverlay.h:24`, `:28`). A leaf
+  box describes geometry and should be occluded by it; a player marker is an annotation about
+  somewhere you cannot see and should not be.
+- **The CPU does not project.** Transforming on the CPU to feed a clip-space shader is a second
+  implementation of the camera, and this project has already had it wrong once — the leaf box was
+  indexed as a column-vector transform and collapsed a room-sized box into, in the owner's words,
+  "a dot that gets kinda triangular".
+
+### What it defers, deliberately
+
+> "the seperate povs displaying at once and the rest of the security cam like stuff i want to add
+> comes after we get the 3d right and full parity"
+
+**Several points of view on screen at once, and the security-camera features around them, are wanted
+— and they are AFTER parity.** They are recorded here so nobody builds toward them early: a second
+simultaneous view is exactly the kind of feature that tempts a second render path, which is the
+thing this entry forbids until the first one matches the engine.
+
+**It is also the reason parity is worth the effort rather than an end in itself.** A viewer that is
+"another instance of TF2" can add a second camera by adding a second camera. One that has drifted
+has to reconcile two renderers first.

@@ -10443,6 +10443,135 @@ any `$bumpmap` on brushwork — because the tangent basis those need is built fr
 lumps. Anyone adding that must read them first rather than deriving a normal from the plane, which
 is flat by construction and wrong on every displacement.
 
+### B198 — Brush entities draw wrong after the thin-view refactor — OPEN, main is clean
+
+**Reported by the owner 2026-08-25, looking at the running viewer.** Five symptoms, at least the
+first two certainly related:
+
+| symptom | note |
+|---|---|
+| door grates piled several-in-one-place, or absent | "a massive regression" |
+| trigger volumes visible as translucent yellow boxes | `tools/toolstrigger` is never drawn by the engine |
+| a missing model | not yet characterised |
+| spy's watch/draw animation loops for ever | see below — probably a separate, KNOWN gap |
+| spy's firing animation never ends | same |
+
+**`main` is clean of this** — the owner's own statement, and it makes the refactor the bisect range.
+Their reading of the cause is worth recording verbatim, because it names a pattern rather than a
+bug:
+
+> "its just small random parity problems from where you think somethings to small to look at the sdk
+> or decomp and try to reason through"
+
+**What the DATA says, so nobody re-checks it.** The demo is fine. A `CBaseDoor` snapshot carries
+`m_vecOrigin (4234, 1732, 640)` with `m_vecMinsPreScaled (-5, -109, -65)` — bounds centred on zero,
+so the geometry is origin-relative exactly as `vbsp` writes it. Valve's own comment
+(`utils/vbsp/map.cpp:3064`): origin brushes "set the rotation origin for the rest of the brushes in
+the entity … the planenums and texinfos will be adjusted for the origin brush", and the entity gets
+an `origin` key. So `world = brushVertex + entityOrigin` is the invariant, and `dmodel_t.origin` is
+NOT the placement — `bspfile.h:445` comments it "for sounds or lights".
+
+**FIVE HYPOTHESES FALSIFIED, recorded so they are not re-run:**
+
+1. *`Precache`'s synthetic props place brush models at the origin.* No — `Add` is keyed by model
+   path and never reads a transform.
+2. *Precache runs before the map is read, caching every path empty.* No — `ReadMapNamed` precedes
+   it on the async path, and the sync path documents the ordering.
+3. *Packed models are stale across maps.* **A REAL DEFECT** (see B199) but not this: only one map
+   was loaded in the process that produced the screenshots.
+4. *`MapAssets.Geometry` lost the brush-model lookup.* No — behaviourally identical to the old
+   `MainForm.ModelGeometry`, both `assets.EntityModels.TryGetValue`.
+5. *`BuildWorld` stopped excluding brush faces from world geometry.* No — `Level.BrushModels` is
+   passed to `MapWorldBuilder.Build` in the same argument position as before.
+
+**Stop proposing suspects.** That is B191's lesson and this is the fifth one to die; the next step is
+a bisect, not a sixth.
+
+**It can be bisected AUTOMATICALLY, with nobody looking.** The world build logs
+`world: N vertices in M material batches`, and leaked brush or tool faces change it for a fixed map.
+HEAD, measured 2026-08-25:
+
+| map | vertices | batches |
+|---|---|---|
+| `cp_process_final` | 4,363,083 | 137 |
+| `cp_granary` | 3,459,024 | 82 |
+| `cp_badlands` | 3,057,228 | 93 |
+
+Take the same numbers on `main`; if they differ, that number is the bisect predicate. **Note `--shot`
+does not work on `main`** (that is B196, fixed only on the branch), so a run there has to be killed
+rather than exiting by itself.
+
+**The two animation symptoms are probably NOT this.** `docs/findings/25-gesture-layer.md` has a
+section headed "Open" saying slice 3b — feeding `m_iEvent` into the gesture layer — "remains to be
+built". Nothing ends a gesture because nothing starts one through that path. **But the owner's
+objection stands and is unanswered:** if gestures were simply absent, every class would look the
+same, and only the spy does. Spy is the one class whose active weapon changes on its own — cloak,
+disguise, and the watch as a second viewmodel — so a draw animation selected from "which weapon is
+active" would retrigger for ever. Unmeasured.
+
+### B199 — Packed entity models are never cleared between maps — OPEN
+
+**Found while investigating B198, and real regardless of it.** `EntityModelSet` has no reset method
+and nothing clears `_byModel`, `_frames` or `_raw`. `ClearMap` resets the LOADER
+(`_models.Geometry = NoGeometry`) and leaves everything already packed.
+
+**Brush submodels are named `*1`, `*2`, … PER MAP.** So loading a second map reuses the first map's
+geometry for entirely different doors, lifts and triggers. Studio models are path-unique globally,
+which is why this shows on brushwork alone.
+
+**Worse, the cache is poisoned on a miss.** `Add` writes `_byModel[path] = frames` BEFORE attempting
+the load and `continue`s when it fails, so a path packed while its geometry was unavailable is
+remembered as empty for ever — `_byModel.ContainsKey` short-circuits every later attempt. That is
+the failure B195 predicted in writing: "a path in the precache set and not the load set decodes to
+nothing, so `Add` records it empty and the model silently never draws".
+
+### B197 — Three divergences from Valve, decided by the assistant and written into comments — FIXED 2026-08-25
+
+**Not a code defect but a process one, and it produced code defects.** Three departures from what
+the engine does were chosen while refactoring, each explained in a doc comment, none asked about.
+The owner:
+
+> "if you diverge i need to be asked"
+
+> "i assume and want you to assume valve knew more than us and has the better idea, every time"
+
+| divergence | outcome |
+|---|---|
+| `MapOverview` omitted `CanPlayerBeSeen`'s origin check | **implemented** |
+| `LeafVis` projected on the CPU into clip space, undrawable behind geometry | **rewritten**, world space on the GPU |
+| `LevelSystems` wired systems explicitly instead of `IGameSystem` | **asked**; shared leaf project chosen |
+
+**The tell was in the wording, twice: "stated rather than dropped", "a divergence stated rather than
+hidden".** Writing a reason down feels like discharging it and is not — a well-explained wrong turn
+survives longer than an unexplained one, because it reads as settled.
+
+**The third is the argument for the rule, because the reason was simply FALSE.** The claim was that a
+shared `ILevelSystem` could not exist: it would need `LoadedMap` (Scene) visible to `SoundscapeSystem`
+(Audio), and Audio does not reference Scene. One grep killed it —
+`virtual void LevelInitPreEntity() = 0;` **takes no parameters** (`igamesystem.h:39`). Valve's systems
+pull what they need from globals, so the interface carries no payload and the boundary was never in
+the way. The divergence was invented to serve a reconstruction of Valve's design rather than Valve's
+design.
+
+**What the origin check is actually for**, in the owner's reading — better than the one the code
+originally carried:
+
+> "valve does the no draw at orgin thing because it doesnt want dead players or spectators drawn in
+> the map or sky somewhere if the origin is not under the map"
+
+An entity that exists without a position sits at (0,0,0), and (0,0,0) is a REAL place — mid-air,
+inside a wall, under the floor, depending on where the mapper put the world. The dot is not
+meaningless, it is convincing, which is the same failure the spectator filter beside it prevents.
+
+**A fixture was sitting on the sentinel.** `MapOverviewTests` defaulted every player to (0,0), so
+every test that did not care where its subject stood was unknowingly using the one position with a
+special meaning — harmless while the check was missing, and misleading the moment it arrived.
+
+**Still needing eyes, because no assertion can answer it:** the leaf box is now depth-tested and can
+be occluded by the geometry it describes. That is what the engine does and it is the point of the
+change, but whether it READS well — whether a box you are standing inside is still legible when the
+near walls hide most of it — is a question for someone looking at it (D95).
+
 ### B196 — Two features shipped dead because a field outlived its assignment — FIXED 2026-08-25
 
 **Both were found by the wiring audit B193 asks for, one by grep and one by a new test. Neither was

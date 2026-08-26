@@ -46,6 +46,16 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload
     private ComPtr<ID3D11DeviceContext> _context;
     private ComPtr<IDXGISwapChain> _swapChain;
     private PointRenderer? _points;
+
+    /// <summary>Draws world-space debug lines, created on first use.</summary>
+    /// <remarks>
+    /// **Separate from <see cref="PointRenderer"/> rather than a method on it** (D95). That one is
+    /// clip-space by design — its shader writes the incoming pair straight to `SV_POSITION` — and
+    /// this one transforms on the GPU through the camera constant buffer, which is a different
+    /// shader, a different input layout and a different vertex stride. Folding them together would
+    /// mean one type holding two of each and choosing between them per call.
+    /// </remarks>
+    private WorldLineRenderer? _worldLines;
     private WorldRenderer? _world;
 
     /// <summary>Each model's own vertices and rebased runs, built once per model (D86).</summary>
@@ -667,7 +677,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload
     /// <param name="green">Clear colour, green channel.</param>
     /// <param name="blue">Clear colour, blue channel.</param>
     /// <param name="mapFill">Filled map surfaces in clip space, three corners per triangle.</param>
-    /// <param name="mapLines">Map outline in clip space.</param>
+    /// <param name="mapLines">Debug line segments in WORLD units, drawn through the world camera.</param>
     /// <param name="points">Player positions in clip space.</param>
     /// <exception cref="ObjectDisposedException">The device has been disposed.</exception>
     /// <param name="models">Posed entity models, or null to draw none.</param>
@@ -700,7 +710,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload
         float green,
         float blue,
         IReadOnlyList<(float X, float Y, float Shade)> mapFill,
-        IReadOnlyList<((float X, float Y) From, (float X, float Y) To)> mapLines,
+        IReadOnlyList<((float X, float Y, float Z) From, (float X, float Y, float Z) To)> mapLines,
         IReadOnlyList<ScenePoint> points,
         IReadOnlyList<ModelInstance>? models = null,
         IReadOnlyList<ModelInstance>? viewmodels = null,
@@ -825,10 +835,27 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload
                 _points.DrawTriangles(_device, _context, mapFill, (0.30f, 0.34f, 0.42f));
             }
 
-            // Outlines and players are annotations on the world, so they ignore its depth.
+            // **The leaf box is depth TESTED, and the player markers are not.** That split is
+            // Valve's, not ours: every debug overlay in the SDK carries its own `noDepthTest` flag
+            // (`ndebugoverlay.h:24`) rather than the drawing code deciding for all of them.
+            //
+            // A leaf box describes GEOMETRY — it is the volume the engine culls and traces against —
+            // so it has to be occluded by that geometry or it says nothing about where the wall is.
+            // A player marker is the opposite: it stands in for somebody you cannot see, and hiding
+            // it behind the wall they are behind would defeat the whole point of drawing it.
+            if (mapLines.Count > 0 && _worldCamera is { } lineCamera)
+            {
+                _worldLines ??= WorldLineRenderer.Create(_device);
+
+                _context.OMSetDepthStencilState(_depthReadOnly, 0);
+
+                _worldLines.Draw(
+                    _device, _context, mapLines, lineCamera.Matrix, 0.55f, 0.62f, 0.74f);
+            }
+
+            // Players are annotations on the world, so they ignore its depth.
             _context.OMSetDepthStencilState(_depthOff, 0);
 
-            _points.DrawLines(_device, _context, mapLines, 0.55f, 0.62f, 0.74f);
             _points.Draw(_device, _context, points);
         }
 
@@ -1313,6 +1340,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload
         _world?.Dispose();
         _hud?.Dispose();
         _points?.Dispose();
+        _worldLines?.Dispose();
         ReleaseDepth();
         _depthOn.Dispose();
         _depthOff.Dispose();
