@@ -106,6 +106,27 @@ public sealed class PlaybackPresenter
     /// Silent when nothing is loaded, because the startup path calls it before it knows whether a
     /// timeline was decoded.
     /// </remarks>
+    /// <summary>Where playback currently is, in ticks, or null when no demo is open.</summary>
+    /// <remarks>
+    /// **Exposed so nobody else has to hold the clock** (D98 follow-up). `MainForm` kept its own
+    /// `PlaybackClock?` field — the same object this already had, handed to both by
+    /// `DemoSystems.Open` — which is two references to one piece of state and the usual way two
+    /// answers to one question appear.
+    ///
+    /// **The fraction is kept**, as everywhere else: truncating to a whole tick snaps every pose to
+    /// the last packet and makes the interpolation layer a no-op that still passes its own tests.
+    /// </remarks>
+    public double? Position => _clock?.Position;
+
+    /// <summary>Move playback to a tick.</summary>
+    /// <param name="tick">Where to go; the clock clamps it to the demo's length.</param>
+    /// <remarks>
+    /// **Does nothing when no demo is open**, rather than refusing. A seek arriving before a demo
+    /// is loaded is ordinary — a launch option asks for one — and the clock is what knows the
+    /// bounds, so clamping stays there rather than being duplicated by every caller.
+    /// </remarks>
+    public void Seek(int tick) => _clock?.Seek(tick);
+
     public void Play()
     {
         if (_clock is null)

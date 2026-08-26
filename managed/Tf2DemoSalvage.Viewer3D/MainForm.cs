@@ -324,8 +324,13 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private readonly MomentScene _moment;
 
-    /// <summary>Turns real time into demo ticks at the rate the recording server ran.</summary>
-    private PlaybackClock? _clock;
+    // **`_clock` was here until 2026-08-26.** It held the `PlaybackClock` that turns real time into
+    // demo ticks — the SAME object `PlaybackPresenter` already had, because `DemoSystems.Open`
+    // handed it to the presenter and returned it to this window as well.
+    //
+    // Two references to one piece of state is how two answers to one question appear. The presenter
+    // owns the clock (D62), so it now answers `Position` and takes `Seek`, and this window asks it
+    // rather than keeping a copy.
 
     /// <summary>Owns playback: what the transport controls mean, and where the demo has got to.</summary>
     /// <remarks>
@@ -1979,7 +1984,7 @@ internal class MainForm : Form, IFrameSteps
         // **The clock too, not just the transport.** Moving the camera marks the world stale, and
         // the reprojection that follows re-reads the moment from the clock - so a capture that only
         // told the transport photographed tick zero while every log line said otherwise.
-        _clock?.Seek(_launch.ShotTick);
+        _playback.Seek(_launch.ShotTick);
         _transport.ShowTick(_launch.ShotTick);
         ShowMoment(_launch.ShotTick);
 
@@ -2634,7 +2639,7 @@ internal class MainForm : Form, IFrameSteps
         // **The environment is read HERE and its VALUE passed in.** A process-wide variable is the
         // window's business — it owns the process — and a system that read one could not be tested
         // without setting it for the whole run.
-        _clock = _demoSystems.Open(
+        _demoSystems.Open(
             _timeline,
             _demo.LastTick,
             _audio,
@@ -2703,7 +2708,14 @@ internal class MainForm : Form, IFrameSteps
     {
         _demo = null;
         _timeline = null;
-        _clock = null;
+
+        // **This replaced `_clock = null`, and it is not the same line spelled differently.** The
+        // window's copy of the clock is gone, so the presenter's has to be cleared where the copy
+        // used to be — and this is a MANUAL reset path: `CouldNotOpen` never calls
+        // `DemoSystems.Open`, so nothing else unloads it. Dropping the line instead would have left
+        // the presenter holding the PREVIOUS demo's clock after a failed load.
+        _playback.Load(null);
+
         _transport.SetDemoLength(0);
         _status.Text = "Could not open " + System.IO.Path.GetFileName(path) + ": " + failure.Message;
 
@@ -4118,7 +4130,7 @@ internal class MainForm : Form, IFrameSteps
             return;
         }
 
-        ShowMoment(_clock?.Position ?? _transport.CurrentTick);
+        ShowMoment(_playback.Position ?? _transport.CurrentTick);
     }
 
     /// <summary>Routes a wheel turn anywhere over the viewport to the zoom.</summary>

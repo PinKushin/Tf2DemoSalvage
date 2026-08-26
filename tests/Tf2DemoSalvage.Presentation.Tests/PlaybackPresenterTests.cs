@@ -29,6 +29,49 @@ public sealed class PlaybackPresenterTests
         new(PlaybackClock.DefaultIntervalPerTick, lastTick);
 
     [Test]
+    public void Position_WithNoDemoOpen_IsNull()
+    {
+        // **Null rather than zero.** Zero is a real tick — the start of a demo — so a presenter with
+        // nothing loaded must not claim playback is sitting at the beginning of something.
+        new PlaybackPresenter(new FakePlaybackView(), new FakeElapsedTime()).Position.ShouldBeNull();
+    }
+
+    [Test]
+    public void Seek_ThenPosition_ReportsWhereItWent()
+    {
+        // **These exist so nobody else holds the clock.** `MainForm` kept its own `PlaybackClock?`
+        // — the same object this already had — and asked it directly. Two references to one piece
+        // of state is how two answers to one question appear.
+        (PlaybackPresenter presenter, _, _) = Wired(lastTick: 1000);
+
+        presenter.Seek(400);
+
+        presenter.Position.ShouldBe(400d);
+    }
+
+    [Test]
+    public void Seek_PastTheEnd_IsClampedByTheClockRatherThanTheCaller()
+    {
+        // The clock knows the demo's length; a caller does not. Clamping here rather than at every
+        // call site is the difference between one rule and a rule per caller.
+        (PlaybackPresenter presenter, _, _) = Wired(lastTick: 1000);
+
+        presenter.Seek(999_999);
+
+        presenter.Position.ShouldBe(1000d);
+    }
+
+    [Test]
+    public void Seek_WithNoDemoOpen_DoesNothingRatherThanThrowing()
+    {
+        // A seek before a demo is loaded is ordinary — a launch option asks for one.
+        PlaybackPresenter presenter = new(new FakePlaybackView(), new FakeElapsedTime());
+
+        Should.NotThrow(() => presenter.Seek(400));
+        presenter.Position.ShouldBeNull();
+    }
+
+    [Test]
     public void Advance_WhilePaused_DoesNothing()
     {
         // The host calls Advance every frame without asking whether anything is playing, so this is
