@@ -2900,7 +2900,7 @@ internal class MainForm : Form, IFrameSteps
 
         do
         {
-            if (FrameIsDue())
+            if (_clock.IsDue(_settings.FrameRateLimit))
             {
                 // **Counted only when something was drawn.** RenderFrame declines during a map
                 // read, and counting those turned the per-second report into a measurement of how
@@ -2908,7 +2908,7 @@ internal class MainForm : Form, IFrameSteps
                 if (RenderFrame())
                 {
                     _frames.Drew(
-                        _lastFrameSeconds,
+                        _clock.LastFrameSeconds,
                         new FrameView(
                             _transport.Playing,
                             _freeLook && _console.AnyHeld,
@@ -2982,8 +2982,15 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private readonly ConfigConsole _console = ConfigConsole.WithDefaults();
 
-    /// <summary>Times the camera's frames, which run whether or not the demo is playing.</summary>
-    private readonly Stopwatch _flyWatch = Stopwatch.StartNew();
+    /// <summary>The frame clocks: when a frame may begin, and how long the last one took.</summary>
+    /// <remarks>
+    /// **Was `_flyWatch` and `_lastFrameAt`, two fields whose docs never mentioned each other**
+    /// (B188, D90). They are still two clocks — Valve keeps at least four and names each by what it
+    /// obeys, and the demo free camera flies by `absoluteframetime` while a limiter cannot pace
+    /// itself by the duration of the frame it is deciding to allow. `FrameClock` states the
+    /// relationship; `FrameTimingConformanceTests` carries the citations.
+    /// </remarks>
+    private readonly FrameClock _clock = new(new StopwatchTime(), new StopwatchTime());
 
     /// <summary>The key-release filter, kept so it can be removed on shutdown.</summary>
     private KeyReleaseFilter? _keyReleases;
@@ -2995,13 +3002,13 @@ internal class MainForm : Form, IFrameSteps
     // not be reported as worse than 100 ms, and the owner's "half a second to maybe a second" met a
     // log saying `longest 100 ms` every time. A saturating instrument is worse than a missing one.
 
-    /// <summary>How long the last frame took, in seconds.</summary>
-    /// <remarks>
-    /// **The meter reads this rather than keeping its own clock** (B174). Two clocks measuring the
-    /// frame rate is two answers to the question the meter exists to settle, and the camera's is
-    /// already the authoritative one — it is what the flight speed is scaled by.
-    /// </remarks>
-    private double _lastFrameSeconds;
+    // `_lastFrameSeconds` was here until 2026-08-26. It is `FrameClock.LastFrameSeconds`.
+    //
+    // **The rule it carried holds and is now citable** (B174): the meter reads the camera's clock
+    // rather than keeping its own, because two clocks measuring the frame rate is two answers to the
+    // question the meter exists to settle. Valve agrees — `cl_showfps` reads
+    // `gpGlobals->absoluteframetime` (`vgui_fpspanel.cpp:166`), the same quantity
+    // `CalcDemoViewOverride` flies its demo camera by (`view.cpp:153`).
 
     // `_fpsMeter` was here until 2026-08-25. The meter belongs to `FpsOverlay` now, which composes
     // the whole readout — the mode, the sampling, the map name and Valve's placement — and needs no
@@ -3130,59 +3137,23 @@ internal class MainForm : Form, IFrameSteps
         }
     }
 
-    /// <summary>When the last frame was presented.</summary>
-    private long _lastFrameAt;
-
-    /// <summary>Whether enough time has passed to draw another frame.</summary>
-    /// <remarks>
-    /// **The cap has to be applied here, because asking for vertical sync does not work.** The
-    /// swap chain presents with a sync interval of one and the viewer was still measured at about
-    /// 600 frames a second: a driver forcing vsync off globally outranks the present call. So the
-    /// only ceiling that holds is one this program keeps itself.
-    ///
-    /// **This does not affect what is drawn, only how often.** The animation cycle is advanced
-    /// from DEMO time - the tick and the demo's own interval - never from frame time, so a demo
-    /// looks identical at 24 frames a second and at 300. That separation is the thing GoldSrc got
-    /// wrong: tying movement to frame time made a player's speed depend on their frame rate, and
-    /// advancing a cycle per rendered frame here would have made every animation slow down the
-    /// moment a cap was applied.
-    /// </remarks>
-    private bool FrameIsDue()
-    {
-        if (_settings.FrameRateLimit <= 0)
-        {
-            return true;
-        }
-
-        long now = Stopwatch.GetTimestamp();
-
-        if (_lastFrameAt == 0)
-        {
-            _lastFrameAt = now;
-            return true;
-        }
-
-        // **The budget arithmetic moved to `FramePacer`** (B208), which is where its other copy in
-        // `WaitForTheNextFrame` went too — the same quantity was derived independently in both, and
-        // they had to agree with nothing making them.
-        if (!FramePacer.IsDue(SinceLastFrame(now), _settings.FrameRateLimit))
-        {
-            return false;
-        }
-
-        _lastFrameAt = now;
-        return true;
-    }
-
-    /// <summary>Seconds since the last frame was drawn.</summary>
-    /// <remarks>
-    /// **The window owns the clock**, which is the half of pacing that is genuinely its own: it
-    /// knows when it last drew. What that duration MEANS — whether a frame is due, whether to sleep
-    /// or spin — is `FramePacer`'s.
-    /// </remarks>
-    private double SinceLastFrame(long now) =>
-        (now - _lastFrameAt) / (double)Stopwatch.Frequency;
-
+    // **`_lastFrameAt`, `FrameIsDue` and `SinceLastFrame` were here until 2026-08-26** (B188, D90).
+    // They are `FrameClock`, beside the flight clock they had never been compared against — two
+    // fields measuring "time since the previous frame" whose documentation never mentioned each
+    // other, which is what made "were the clocks consolidated?" a fair question with no answer in
+    // the code.
+    //
+    // **They are still two, and Valve is why.** The engine keeps at least four time quantities and
+    // names each by what it obeys; its own demo free camera flies by `absoluteframetime`
+    // (`view.cpp:153`) while a limiter cannot pace itself by the duration of the frame it is
+    // deciding whether to allow. See `FrameTimingConformanceTests`.
+    //
+    // The reasoning the old members carried moved with them: the cap has to be applied in this
+    // program because asking for vertical sync does not work — the swap chain presents with a sync
+    // interval of one and the viewer was still measured at about 600 frames a second, since a driver
+    // forcing vsync off globally outranks the present call. And it changes only how OFTEN a frame is
+    // drawn, never what is in it: the animation cycle advances from demo time, so a demo looks
+    // identical at 24 frames a second and at 300. That separation is what GoldSrc got wrong.
     // **`SleepGranularitySeconds` was here until 2026-08-26** (B208). It is
     // `FramePacer.SleepGranularitySeconds`, and its measurement went with it: a limiter built on
     // sleep alone capped at about 64 frames a second whatever it was asked for, with a limit of 300
@@ -3204,8 +3175,7 @@ internal class MainForm : Form, IFrameSteps
         // **`FramePacer` decides, this acts** (B208). The threading primitive stays beside the
         // message pump; the policy — including the granularity threshold — is testable without any
         // test ever sleeping.
-        switch (FramePacer.WaitFor(
-            SinceLastFrame(Stopwatch.GetTimestamp()), _settings.FrameRateLimit))
+        switch (_clock.WaitFor(_settings.FrameRateLimit))
         {
             case FrameWait.Sleep:
                 Thread.Sleep(1);
@@ -3322,7 +3292,7 @@ internal class MainForm : Form, IFrameSteps
         }
 
         return _overlayQuads.Quads(
-            _hudAtlas, _viewport.ClientSize.Width, _demo?.MapName, _lastFrameSeconds);
+            _hudAtlas, _viewport.ClientSize.Width, _demo?.MapName, _clock.LastFrameSeconds);
     }
 
     /// <summary>The frame-rate readout, which owns everything about it except the glyphs.</summary>
@@ -3381,8 +3351,9 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private void FlyCamera()
     {
-        double seconds = _flyWatch.IsRunning ? _flyWatch.Elapsed.TotalSeconds : 0d;
-        _flyWatch.Restart();
+        // **`absoluteframetime`, which is what Valve's own demo camera flies by** — see
+        // `CalcDemoViewOverride` (`view.cpp:153`) and `FrameTimingConformanceTests`.
+        double seconds = _clock.Drew();
 
         // Every frame's duration passes through here, so this is where the worst one is noticed —
         // and where the meter takes its reading, rather than starting a second clock (B174).
@@ -3399,7 +3370,9 @@ internal class MainForm : Form, IFrameSteps
         // The longest frame is the LEDGER's business now — `FrameReporter.Drew` is handed this
         // duration from the idle loop and the ledger keeps the maximum itself, so there is one place
         // that knows what "worst frame this second" means rather than a field here and a reset there.
-        _lastFrameSeconds = seconds;
+        //
+        // `FrameClock.Drew` recorded it as `LastFrameSeconds` above; the assignment that used to be
+        // here is gone with the field (B188, D90).
 
         if (!_freeLook)
         {
