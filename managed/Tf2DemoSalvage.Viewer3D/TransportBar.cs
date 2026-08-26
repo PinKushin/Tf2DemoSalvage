@@ -42,17 +42,13 @@ internal sealed class TransportBar : UserControl, IPlaybackView
     /// <summary>Automation id of the speed readout.</summary>
     public const string SpeedLabelId = "SpeedLabel";
 
-    /// <summary>The speeds the shuttle buttons step through.</summary>
-    /// <remarks>
-    /// **Negative speeds are real here and impossible in TF2.** The engine streams a demo forward
-    /// and each snapshot is a delta on the last, so it has nothing to step back into. This viewer
-    /// decodes the whole demo to absolute positions first, so reverse costs what forward costs.
-    ///
-    /// The ladder is the one a video editor uses — halves and doubles either side of one — and it
-    /// omits zero, because stopping is what the play button is for.
-    /// </remarks>
-    private static readonly double[] Speeds =
-        [-4, -2, -1, -0.5, -0.25, 0.25, 0.5, 1, 2, 4, 8];
+    // **The speed ladder was here until 2026-08-26** (D97, D90). It is `TimeScale.ShuttleStops` in
+    // Presentation, with the clamping and the spoken description that were beside it.
+    //
+    // The owner caught this going the wrong way — *"this fix touched the 3d viewer doesnt it?"* —
+    // when a continuous slider was about to be built here, which would have ADDED a range, a clamp
+    // and a position mapping to a view. The widget keeps the widget; the quantity does not live in a
+    // WinForms control.
 
     private readonly Button _start;
     private readonly Button _slower;
@@ -63,7 +59,7 @@ internal sealed class TransportBar : UserControl, IPlaybackView
     private readonly Label _speed;
     private readonly Label _tick;
 
-    private int _speedIndex = Array.IndexOf(Speeds, 1.0);
+    private int _speedIndex = Array.IndexOf(TimeScale.ShuttleStops, 1.0);
 
     private bool _playing;
     private bool _suppressScrubEvent;
@@ -343,10 +339,11 @@ internal sealed class TransportBar : UserControl, IPlaybackView
 
     private void StepSpeed(int direction)
     {
-        _speedIndex = Math.Clamp(_speedIndex + direction, 0, Speeds.Length - 1);
+        _speedIndex = Math.Clamp(_speedIndex + direction, 0, TimeScale.ShuttleStops.Length - 1);
 
         UpdateSpeedLabel();
-        SpeedChanged?.Invoke(this, new SpeedEventArgs(Speeds[_speedIndex]));
+
+        SpeedChanged?.Invoke(this, new SpeedEventArgs(PlaybackSpeed.Speed));
     }
 
     private void Seek(int tick)
@@ -356,27 +353,38 @@ internal sealed class TransportBar : UserControl, IPlaybackView
         _scrub.Value = Math.Clamp(tick, _scrub.Minimum, _scrub.Maximum);
     }
 
+    /// <summary>The speed the transport is set to.</summary>
+    /// <remarks>
+    /// **A `TimeScale` rather than a `double`**, so the range, the clamp and the wording travel with
+    /// the number instead of being restated by whoever holds it (D97).
+    /// </remarks>
+    // Not `Scale`: `Control.Scale(SizeF)` already owns that name, and hiding a base member to save
+    // five characters is how a resize silently stops resizing.
+    public TimeScale PlaybackSpeed => TimeScale.From(TimeScale.ShuttleStops[_speedIndex]);
+
     private void UpdateSpeedLabel()
     {
-        double speed = Speeds[_speedIndex];
+        TimeScale scale = PlaybackSpeed;
 
-        _speed.Text = string.Create(CultureInfo.InvariantCulture, $"{speed:0.##}x");
-        _speed.AccessibleName = SpeedDescription(speed);
+        _speed.Text = scale.Label();
+        _speed.AccessibleName = scale.Description();
 
         LayoutChildren();
     }
 
     /// <summary>What a screen reader says for a playback speed.</summary>
-    /// <param name="speed">The speed, negative for reverse, as <see cref="Speeds"/> holds it.</param>
+    /// <param name="speed">The speed, negative for reverse.</param>
     /// <returns>The spoken description.</returns>
     /// <remarks>
-    /// **Public so a test can ask rather than assume.** A UI test that types the expected wording
-    /// out by hand is asserting on a string constant it also owns, which passes until someone
-    /// rewords the label and then fails without anything being wrong. Worse here: the wording it
-    /// was written against came from a hand-written literal in the constructor that no update ever
-    /// reproduced, so the test failed against a bar that was working.
+    /// **The wording moved to <see cref="TimeScale.Description"/> on 2026-08-26** (D97, D90) — it is
+    /// a rule about a quantity, and a second frontend should get it without reinventing it. This
+    /// forwards, and remains only because the UI suite addresses it by name.
+    ///
+    /// **Public so a test can ask rather than assume**, which is the part worth keeping. A UI test
+    /// that types the expected wording out by hand is asserting on a string constant it also owns,
+    /// which passes until someone rewords the label and then fails without anything being wrong.
+    /// Worse here: the wording it was written against came from a hand-written literal in the
+    /// constructor that no update ever reproduced, so the test failed against a bar that was working.
     /// </remarks>
-    public static string SpeedDescription(double speed) => speed < 0
-        ? string.Create(CultureInfo.InvariantCulture, $"speed {-speed:0.##} times, reversed")
-        : string.Create(CultureInfo.InvariantCulture, $"speed {speed:0.##} times");
+    public static string SpeedDescription(double speed) => TimeScale.From(speed).Description();
 }
