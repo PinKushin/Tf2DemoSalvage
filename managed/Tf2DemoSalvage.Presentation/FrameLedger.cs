@@ -70,6 +70,20 @@ public sealed class FrameLedger
     /// <param name="ticks">Stopwatch ticks.</param>
     public void Sampled(long ticks) => _sampling += ticks;
 
+    /// <summary>What has been charged to sampling since the last report.</summary>
+    /// <remarks>
+    /// **Exposed for one wiring test, and the reason it needs an accessor is resolution.** The
+    /// obvious way to observe this is <see cref="Report"/>, which prints the column — but it prints
+    /// `sampling {value:0.#} ms`, and a stub source samples in microseconds, so a charged ledger and
+    /// an uncharged one both format as `0`. That is the effect-size-below-resolution failure: an
+    /// instrument insensitive to the manipulation it exists to detect.
+    ///
+    /// **The manipulation worth detecting is a dropped call**, not a wrong number. If
+    /// <see cref="MomentPresenter"/> ever stops charging, the column reads zero for ever and looks
+    /// like fast sampling — the B191 shape, where a clean-reading instrument was the defect.
+    /// </remarks>
+    public long SampledTicks => _sampling;
+
     /// <summary>Adds time spent posing models.</summary>
     /// <param name="ticks">Stopwatch ticks.</param>
     public void Posed(long ticks) => _posing += ticks;

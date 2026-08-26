@@ -10993,7 +10993,7 @@ shared buffer would draw a WRONG pose, never one fewer instance.
 Next step is `TimelineViewmodels` and the `m_hViewModel` / `m_iViewModelIndex` decode across a
 charge, not the renderer.
 
-### B188 — MainForm is 87% of the viewer, and the viewmodel bugs all live in it — OPEN
+### B188 — MainForm is 87% of the viewer, and the viewmodel bugs all live in it — FIXED 2026-08-26
 
 **The owner, 2026-08-24**, on being told B186, B187 and B170 all point at the viewmodel pass:
 
@@ -11075,6 +11075,61 @@ Not a general tidy-up. The point is to extract what the pending work touches and
 **The test that becomes possible is the point of the exercise**, not the line count: a viewmodel pass
 that is a type takes a fake and can be asserted without a window, which is what B186 and B187 need
 and what nothing in this repository can do today.
+
+#### Both items are done, 2026-08-26
+
+`MainForm.cs` is **4,625 lines, 1,713 of them code** — down from 3,444, so half the code is gone and
+the file is now **31% of a 5,612-line project** rather than 87% of an 8,303-line one. `ShowMoment` is
+**19 lines**, of which 8 are a comment explaining an ordering constraint.
+
+**The list above said "stop there", and the work went further than that, deliberately and on the
+owner's instruction.** Twice, in these words:
+
+> *"yes the mainform needs to be a true and complete thin view before we move on"*
+
+> *"everything that is not view gets pulled out, thin view means literally no non view code in the
+> view"*
+
+So the stopping rule this entry wrote down was overruled by the person it was written for, and the
+reason it existed — avoid double work on code the pending bugs will rewrite anyway — was answered by
+doing the whole thing once instead. That is worth recording as a reversal rather than quietly
+dropping, because the argument for stopping was sound and the decision to keep going was not a
+correction of it.
+
+**The last piece was the sampling**, and it went because of a question rather than an audit:
+
+> *"does the view need to hold them to pass them on?"*
+
+It did not. `ShowMoment` sampled the timeline into two `List<>` fields and passed them to
+`MomentScene.Build`, so the window held a `DemoTimeline`, a `List<ScenePlayer>` and a
+`List<SceneProp>` purely as a side effect of where the sampling happened. `MomentPresenter` owns all
+three now, and `MainForm` gathers the five values that are genuinely the window's — camera mode,
+transport tick, followed entity, the eye that needs this viewport's aspect, and a setting — into a
+`MomentView` and hands them on.
+
+**`_timeline` did NOT leave, and saying so explicitly matters more than the win.** Four callers in
+the file still need the decoded demo: `EnsureWeaponRoles`, the model precache, the sound precache and
+`DemoSystems.Open`. Every one of them hands it to something in Presentation or Scene rather than
+asking it anything, so the field is a reference the window carries, not logic it performs — but a
+reader who was told "the timeline left" and then found it would rightly distrust the rest.
+
+**Why this needed an interface and not just a move.** `DemoTimeline`'s constructor is private and
+`Build` takes the bytes of a real file, so anything sampling one directly can only be reached by
+shipping a demo into the test project. That is precisely why this code sat untested for as long as it
+did, and `IMomentSource` — the third source of its shape, after `IEyeSource` and `IViewmodelSource` —
+is what made five tests possible.
+
+**One instrument fault found on the way, in a test written the same hour.** A test asserting the
+buffers do not accumulate across two `Show` calls held identically against *every possible
+presenter*, because clearing is the SOURCE's job and the stub did it. Its subject was the stub. It
+was replaced with the claim the fields actually encode: the same buffer instance reaches the source
+each time.
+
+**And a real one in `DemoSystemsTests`, older.** `Open_WithNoTimeline_ClearsEverySourceRatherThanLeavingThem`
+set each source to `null` before calling `Open` and then asserted it was `null` — so it passed
+against an `Open` with an empty body. The very failure it names in its own comment. Every source is
+now set to a stub first, and the fixed test was confirmed by writing the `if (timeline is …)` shape
+the comment warns about and watching it go red.
 
 ### B187 — the debug views do not apply to viewmodels — OPEN
 

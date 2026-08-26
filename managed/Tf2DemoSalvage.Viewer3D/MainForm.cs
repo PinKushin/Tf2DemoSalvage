@@ -291,12 +291,20 @@ internal class MainForm : Form, IFrameSteps
     // — a camera projects height on the very first frame, and taking it afterwards leaves one frame
     // drawn with a pass-through depth.
 
+    /// <summary>The decoded demo, for the things a window still asks it.</summary>
+    /// <remarks>
+    /// **Still here, and worth saying why rather than leaving it implied.** The sampling left on
+    /// 2026-08-26 (B188, D90) and took the two buffers with it, but four callers in this file still
+    /// need the timeline itself — <c>EnsureWeaponRoles</c>, the model precache, the sound precache
+    /// and <c>DemoSystems.Open</c>. Each of those hands it to something in Presentation or Scene; the
+    /// window holds the reference and asks it nothing.
+    /// </remarks>
     private DemoTimeline? _timeline;
 
-    /// <summary>Reused between frames; PlayersAt and PropsAt fill them rather than allocating.</summary>
-    private readonly List<ScenePlayer> _players = [];
-
-    private readonly List<SceneProp> _props = [];
+    // **`_players` and `_props` were here until 2026-08-26** (B188, D90). They existed only because
+    // `ShowMoment` sampled the timeline in the window; `MomentPresenter` owns them now, and reuses
+    // them for the same reason — a moment is rebuilt every frame while playing, so fresh lists would
+    // be two allocations a frame.
 
     /// <summary>Entity models, packed once in model space and posed by the GPU.</summary>
     // Constructed in the constructor rather than inline, so it gets the form's loggers (D83).
@@ -323,6 +331,14 @@ internal class MainForm : Form, IFrameSteps
     /// one thing it needed a window for is <see cref="IModelUpload"/>.
     /// </remarks>
     private readonly MomentScene _moment;
+
+    /// <summary>Samples the demo for a moment and hands it to <see cref="_moment"/>.</summary>
+    /// <remarks>
+    /// **The last non-view work in <c>ShowMoment</c>** (B188, D90). The owner's question is what
+    /// found it — *"does the view need to hold them to pass them on?"* — and it did not: the two
+    /// scene buffers were fields of this form purely because the sampling happened here.
+    /// </remarks>
+    private readonly MomentPresenter _moments;
 
     // **`_clock` was here until 2026-08-26.** It held the `PlaybackClock` that turns real time into
     // demo ticks — the SAME object `PlaybackPresenter` already had, because `DemoSystems.Open`
@@ -705,6 +721,8 @@ internal class MainForm : Form, IFrameSteps
             Weapons = WeaponModels.None(_renderLog),
         };
 
+        _moments = new MomentPresenter(_moment, _ledger, _renderLog);
+
         // **Registered here, after every system exists, and this is the only place the list is
         // written.** A system added later is added to this call rather than to whichever method
         // happens to load a map — which is the arrangement that let three assignments go missing
@@ -892,7 +910,8 @@ internal class MainForm : Form, IFrameSteps
 
         // Registered after the presenter it drives, for the same reason `_levels` waits for the
         // scene: a system list is only as good as every member existing when it is built.
-        _demoSystems = new DemoSystems(_spectator, _moment, _sound, _playback, _loops, _loggers);
+        _demoSystems = new DemoSystems(
+            _spectator, _moment, _moments, _sound, _playback, _loops, _loggers);
 
         _playback.MomentChanged += (_, moment) =>
         {
@@ -2257,9 +2276,10 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>Draws the whole world at a moment: players and every model-bearing entity.</summary>
     /// <param name="tick">The moment to show, which may fall between ticks.</param>
     /// <remarks>
-    /// **One path from "which moment" to "what is drawn".** Scrubbing and playing both come
-    /// through here, so the two cannot disagree about what a tick looks like — which they did once
-    /// before, when playback and the scrub bar each built the scene their own way.
+    /// **All that is left here is what the window knows**, gathered into a <see cref="MomentView"/>
+    /// and handed on: the camera mode, the transport's tick, the followed entity, the eye that needs
+    /// this viewport's aspect ratio, and a setting. The sampling, the timing, the scene build and the
+    /// stall report all left on 2026-08-26 (B188, D90).
     ///
     /// Takes a fractional tick rather than a whole one so the interpolation actually reaches the
     /// picture. Truncating here would leave every pose snapped to the last packet and make the
@@ -2267,57 +2287,29 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     public void ShowMoment(double tick)
     {
-        if (_timeline is not { } timeline)
+        if (_timeline is null)
         {
             return;
         }
 
-        // **The sampling stays with whoever holds the timeline; everything after it does not.** The
-        // scene rebuild is TOLD the tick, the camera and the followed entity through `MomentInfo`,
-        // which is `SetupRenderInfo_t`'s arrangement (`clientleafsystem.h:75`) rather than reaching
-        // back into a window for them (B188, D90).
-        // **Timed here, because `sampling` in the per-second line MEANS this.** For one commit that
-        // counter was fed `phases.DrawList` — the draw-list build and its visibility filters, which
-        // is a different quantity under the same name. A log that names the wrong thing misdirects
-        // with authority (`docs/memory/a-log-must-name-what-it-measured.md`).
-        long sampledAt = Stopwatch.GetTimestamp();
-
-        timeline.PlayersAt(tick, _players);
-        timeline.PropsAt(tick, _props);
-
-        long sampleTicks = Stopwatch.GetTimestamp() - sampledAt;
-
-        _ledger.Sampled(sampleTicks);
-
-        // **Outside the timer, which is where it was and where it belongs.** It is cheap after the
-        // first call, but the FIRST call reads the weapon scripts out of the archives and each one
-        // costs an ICE decryption — so counting it as sampling would report one enormous `sampling`
-        // spike for work that is not sampling. Putting it inside was a slip caught by diffing this
-        // method against the original.
+        // **Before the presenter, and outside its timer, which is where it was and where it belongs.**
+        // It is cheap after the first call, but the FIRST call reads the weapon scripts out of the
+        // archives and each one costs an ICE decryption — so counting it as sampling would report one
+        // enormous `sampling` spike for work that is not sampling. Putting it inside was a slip
+        // caught by diffing this method against the original.
         //
         // Here rather than earlier because this is the first point where both the demo and the
         // game's archives are certain to be open. It hands the roles to the scene when it reads them.
         EnsureWeaponRoles();
 
-        MomentPhases phases = _moment.Build(
-            _players,
-            _props,
-            new MomentInfo(
-                tick,
+        _moments.Show(
+            tick,
+            new MomentView(
                 _transport.CurrentTick,
                 _firstPerson,
                 FollowedEntity(),
                 _firstPerson ? FirstPersonCamera() : null,
-                timeline.IntervalPerTick,
                 _settings.ViewmodelFieldOfView));
-
-        _ledger.Posed(phases.Pose);
-
-        // **The marker pass was timed here and is gone with the markers** (D98). Its column measured
-        // projecting every player through the overhead camera; there is nothing left to project.
-        // The note is kept because the reason for timing it still applies to whatever replaces it:
-        // three untimed steps once hid 129 ms of a 133 ms pose (B191).
-        StallReport.Moment(phases, sampleTicks, playerTicks: 0, _renderLog);
     }
 
     // `HandsForFollowed` lived here for exactly one commit, and its own comment admitted what it

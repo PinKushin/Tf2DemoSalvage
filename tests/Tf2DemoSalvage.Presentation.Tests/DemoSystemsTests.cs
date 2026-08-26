@@ -1,8 +1,10 @@
 using System;
+using System.Collections.Generic;
 
 using Microsoft.Extensions.Logging.Abstractions;
 
 using Tf2DemoSalvage.Audio;
+using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Scene;
 
@@ -30,22 +32,28 @@ public sealed class DemoSystemsTests
         // goes on being spectated.
         SpectatorView spectator = new(NullLogger.Instance);
         MomentScene moment = Scene();
+        MomentPresenter moments = Moments(moment);
         SoundPresenter sound = Sound();
 
-        spectator.Eyes = null;
-        moment.Viewmodels = null;
+        // **Each one set to something first, or the assertions below cannot fail.** A source that was
+        // never assigned is already null, so a test that only checks for null afterwards passes
+        // against an `Open` that touches nothing at all — the control this whole class needs.
+        spectator.Eyes = new StubEyes();
+        moment.Viewmodels = new StubViewmodels();
+        moments.Source = new StubMoments();
 
         // **Asserted through the presenter rather than a returned clock** (2026-08-26). `Open`
         // used to hand one back, and once `MainForm` stopped keeping a copy the return value's
         // only reader was this line — so it asks the thing that owns the clock instead.
         PlaybackPresenter playback = new(new FakePlaybackView(), new StopwatchTime());
 
-        Systems(spectator, moment, sound, playback)
+        Systems(spectator, moment, moments, sound, playback)
             .Open(timeline: null, lastTick: 100, audio: null, autoPlay: null, autoPlayName: "X");
 
         playback.HasDemo.ShouldBeFalse("there is no timeline to run a clock over");
         spectator.Eyes.ShouldBeNull();
         moment.Viewmodels.ShouldBeNull();
+        moments.Source.ShouldBeNull("a closed demo goes on being SAMPLED, which draws its players");
         sound.Schedule.ShouldBeNull();
     }
 
@@ -72,8 +80,10 @@ public sealed class DemoSystemsTests
         // causes.
         RecordingLogger log = new();
 
+        MomentScene scene = Scene();
+
         new DemoSystems(
-            new SpectatorView(NullLogger.Instance), Scene(), Sound(),
+            new SpectatorView(NullLogger.Instance), scene, Moments(scene), Sound(),
             new PlaybackPresenter(new FakePlaybackView(), new StopwatchTime()), new ActiveLoops(),
             new StubLoggerFactory(log))
             .Open(timeline: null, lastTick: 0, audio: null, autoPlay: null, autoPlayName: "X");
@@ -87,12 +97,17 @@ public sealed class DemoSystemsTests
         // A null collaborator is a system that silently stops being told — the exact failure this
         // type exists to prevent, refused where the caller still has a stack that names it.
         Should.Throw<ArgumentNullException>(() => new DemoSystems(
-            null!, Scene(), Sound(),
+            null!, Scene(), Moments(Scene()), Sound(),
             new PlaybackPresenter(new FakePlaybackView(), new StopwatchTime()), new ActiveLoops(),
             NullLoggerFactory.Instance));
 
         Should.Throw<ArgumentNullException>(() => new DemoSystems(
-            new SpectatorView(NullLogger.Instance), Scene(), Sound(),
+            new SpectatorView(NullLogger.Instance), Scene(), moments: null!, Sound(),
+            new PlaybackPresenter(new FakePlaybackView(), new StopwatchTime()), new ActiveLoops(),
+            NullLoggerFactory.Instance));
+
+        Should.Throw<ArgumentNullException>(() => new DemoSystems(
+            new SpectatorView(NullLogger.Instance), Scene(), Moments(Scene()), Sound(),
             new PlaybackPresenter(new FakePlaybackView(), new StopwatchTime()), loops: null!,
             NullLoggerFactory.Instance));
     }
@@ -100,17 +115,58 @@ public sealed class DemoSystemsTests
     private static DemoSystems Systems(
         SpectatorView? spectator = null,
         MomentScene? moment = null,
+        MomentPresenter? moments = null,
         SoundPresenter? sound = null,
-        PlaybackPresenter? playback = null) =>
-        new(spectator ?? new SpectatorView(NullLogger.Instance),
-            moment ?? Scene(),
+        PlaybackPresenter? playback = null)
+    {
+        MomentScene scene = moment ?? Scene();
+
+        return new DemoSystems(
+            spectator ?? new SpectatorView(NullLogger.Instance),
+            scene,
+            moments ?? Moments(scene),
             sound ?? Sound(),
             playback ?? new PlaybackPresenter(new FakePlaybackView(), new StopwatchTime()),
             new ActiveLoops(),
             NullLoggerFactory.Instance);
+    }
 
     private static MomentScene Scene() =>
         new(new EntityModelSet(), new ViewmodelScene(), NullLogger.Instance);
+
+    private static MomentPresenter Moments(MomentScene scene) =>
+        new(scene, new FrameLedger(), NullLogger.Instance);
+
+    // **Three do-nothing sources, and their whole job is to be NOT NULL.** `Open` clearing a source
+    // is only observable if something was there to clear; the previous version of the null-path test
+    // set each one to null first, so it held identically against an `Open` with an empty body.
+    //
+    // They answer nothing because nothing calls them — `Open` assigns and does not sample.
+
+    private sealed class StubEyes : IEyeSource
+    {
+        public int? RecorderEntityIndex => null;
+
+        public RecordedView? RecordedViewAt(int tick) => null;
+
+        public IReadOnlyList<ScenePlayer> PlayersAt(int tick) => [];
+    }
+
+    private sealed class StubViewmodels : IViewmodelSource
+    {
+        public SceneViewmodel? MainHandAt(int tick, int player) => null;
+
+        public SceneViewmodel? OffHandAt(int tick, int player) => null;
+    }
+
+    private sealed class StubMoments : IMomentSource
+    {
+        public float IntervalPerTick => 0.015f;
+
+        public void PlayersAt(double tick, ICollection<ScenePlayer> into) => into.Clear();
+
+        public void PropsAt(double tick, ICollection<SceneProp> into) => into.Clear();
+    }
 
     private static SoundPresenter Sound() =>
         new(new SoundscapeSystem(new ActiveLoops(), _ => null, NullLogger.Instance),
