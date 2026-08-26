@@ -1060,23 +1060,7 @@ internal class MainForm : Form, IFrameSteps
             ShortcutKeys = Keys.F9,
         };
 
-        _surfaceColours.CheckedChanged += (_, _) =>
-        {
-            // **The legend goes in the log, because a colour nobody can name is not an answer.**
-            // Violet was read as "the sign" and white as "an uncoloured surface" during the B154
-            // hunt, both wrong, and there was nowhere to look it up.
-            _renderLog.LogInformation(
-                "{Message}",
-                _surfaceColours.Checked
-                    ? "surface colours on — grey-blue brushwork, green terrain, orange props, " +
-                      "violet overlays, Valve's magenta chequer where a material resolved to " +
-                      "nothing; brush entities take their own FGD colour, magenta where the class " +
-                      "states none, as Hammer draws them"
-                    : "surface colours off");
-
-            _device?.ClearWorld();
-            _worldIsStale = true;
-        };
+        _surfaceColours.CheckedChanged += (_, _) => SetSurfaceColours(_surfaceColours.Checked);
 
         // **A menu item as well as the cvar, because a cvar nobody can find is a cvar nobody uses.**
         // The owner's words are the requirement: "we need a fps overlay too, we dont have one so i
@@ -1105,16 +1089,7 @@ internal class MainForm : Form, IFrameSteps
                 "single frame in brackets, and how long this frame took.",
         };
 
-        _frameRate.CheckedChanged += (_, _) =>
-        {
-            // Written back into the settings rather than held beside them, so the config file, a
-            // launch option and this menu are one value rather than three that can disagree.
-            _settings = _settings with { ShowFrameRate = _frameRate.Checked ? 2 : 0 };
-
-            _renderLog.LogInformation(
-                "{Message}",
-                string.Create(CultureInfo.InvariantCulture, $"cl_showfps {_settings.ShowFrameRate}"));
-        };
+        _frameRate.CheckedChanged += (_, _) => SetFrameRateMeter(_frameRate.Checked);
 
         // **Valve's `mat_wireframe`, replacing the brush outline that used to sit on F10.** The
         // outline drew precomputed BSP edge segments as an overlay — 60,764 of them, built for the
@@ -1137,17 +1112,7 @@ internal class MainForm : Form, IFrameSteps
                 "be told apart from geometry that is drawn but invisible.",
         };
 
-        _wireframe.CheckedChanged += (_, _) =>
-        {
-            _renderLog.LogInformation("{Message}", $"mat_wireframe {(_wireframe.Checked ? 1 : 0)}");
-
-            if (_device is { } device)
-            {
-                device.Wireframe = _wireframe.Checked;
-            }
-
-            _viewport.Invalidate();
-        };
+        _wireframe.CheckedChanged += (_, _) => SetWireframe(_wireframe.Checked);
 
         // **`mat_specular`, and it is a diagnostic before it is a preference.** A cubemap
         // reflection is ADDED to an opaque surface, so a prop whose envmap term dominates draws in
@@ -1220,17 +1185,7 @@ internal class MainForm : Form, IFrameSteps
             AccessibleDescription = "Draws map brushwork and its overlays. Turn off to see only entities.",
         };
 
-        _drawWorld.CheckedChanged += (_, _) =>
-        {
-            _renderLog.LogInformation("{Message}", $"r_drawworld {(_drawWorld.Checked ? 1 : 0)}");
-
-            if (_device is { } world)
-            {
-                world.DrawWorld = _drawWorld.Checked;
-            }
-
-            _viewport.Invalidate();
-        };
+        _drawWorld.CheckedChanged += (_, _) => SetDrawWorld(_drawWorld.Checked);
 
         _drawEntities = new ToolStripMenuItem("Draw &entities")
         {
@@ -1241,17 +1196,7 @@ internal class MainForm : Form, IFrameSteps
             AccessibleDescription = "Draws static props and models. Turn off to see only the map.",
         };
 
-        _drawEntities.CheckedChanged += (_, _) =>
-        {
-            _renderLog.LogInformation("{Message}", $"r_drawentities {(_drawEntities.Checked ? 1 : 0)}");
-
-            if (_device is { } entities)
-            {
-                entities.DrawEntities = _drawEntities.Checked;
-            }
-
-            _viewport.Invalidate();
-        };
+        _drawEntities.CheckedChanged += (_, _) => SetDrawEntities(_drawEntities.Checked);
 
         // **A submenu of independent switches, because Valve's are independent cvars.** Grouping
         // them as radio items would be tidier and would misrepresent the engine: mat_drawflat and
@@ -1330,44 +1275,16 @@ internal class MainForm : Form, IFrameSteps
 
             item.CheckedChanged += (sender, _) =>
             {
-                if (sender is not ToolStripMenuItem toggled)
+                if (sender is ToolStripMenuItem toggled)
                 {
-                    return;
+                    SetDebugMode(apply, toggled.Checked);
                 }
-
-                _debug = apply(_debug, toggled.Checked);
-
-                _renderLog.LogInformation("{Message}", $"debug views: {_debug}");
-
-                if (_device is { } device)
-                {
-                    device.Debug = _debug;
-                }
-
-                // **Ask for a repaint.** The viewport draws on demand rather than continuously,
-                // so updating a shader constant is not enough on its own — the change reaches the
-                // GPU and then waits for an unrelated event to show it. That is what made these
-                // appear only when the camera moved.
-                _viewport.Invalidate();
             };
 
             _debugMenu.DropDownItems.Add(item);
         }
 
-        _specular.CheckedChanged += (_, _) =>
-        {
-            _renderLog.LogInformation("{Message}", $"mat_specular {(_specular.Checked ? 1 : 0)}");
-
-            if (_device is { } device)
-            {
-                device.Specular = _specular.Checked;
-            }
-
-            // A repaint, not a world rebuild: this is a shader constant and the geometry is
-            // untouched. The rebuild was why reflections appeared instantly while every other
-            // debug view waited — it was doing far more work to get the same repaint.
-            _viewport.Invalidate();
-        };
+        _specular.CheckedChanged += (_, _) => SetSpecular(_specular.Checked);
 
         // **F12 is bound ONCE, in ProcessCmdKey, and this item only DISPLAYS it.** It carried
         // ShortcutKeys = Keys.F12 as well, so the key was registered twice — by the menu and by the
@@ -2815,6 +2732,124 @@ internal class MainForm : Form, IFrameSteps
         _status.Text = failure is null
             ? "Texture quality: " + quality + ". Applies to the next map opened."
             : "Setting saved for this session only: " + failure;
+    }
+
+    /// <summary>Turns the surface-category view on or off.</summary>
+    /// <param name="on">Whether to colour surfaces by category.</param>
+    /// <remarks>
+    /// **A world rebuild rather than a repaint, unlike its neighbours below.** The category colour
+    /// is baked into the vertex data, so the geometry has to be built again; the others are shader
+    /// constants and a repaint is enough.
+    /// </remarks>
+    internal void SetSurfaceColours(bool on)
+    {
+        // **The legend goes in the log, because a colour nobody can name is not an answer.**
+        // Violet was read as "the sign" and white as "an uncoloured surface" during the B154
+        // hunt, both wrong, and there was nowhere to look it up.
+        _renderLog.LogInformation(
+            "{Message}",
+            on
+                ? "surface colours on — grey-blue brushwork, green terrain, orange props, " +
+                  "violet overlays, Valve's magenta chequer where a material resolved to " +
+                  "nothing; brush entities take their own FGD colour, magenta where the class " +
+                  "states none, as Hammer draws them"
+                : "surface colours off");
+
+        _device?.ClearWorld();
+        _worldIsStale = true;
+    }
+
+    /// <summary>Shows or hides Valve's frame rate meter.</summary>
+    /// <param name="on">Whether to draw it.</param>
+    /// <remarks>
+    /// **Two, not one**, because `cl_showfps 2` is the form that names the worst and best frame as
+    /// well as the average, and the smoothed single number is the one this project has repeatedly
+    /// found hides a stall.
+    /// </remarks>
+    internal void SetFrameRateMeter(bool on)
+    {
+        _settings = _settings with { ShowFrameRate = on ? 2 : 0 };
+
+        _renderLog.LogInformation(
+            "{Message}",
+            string.Create(CultureInfo.InvariantCulture, $"cl_showfps {_settings.ShowFrameRate}"));
+    }
+
+    /// <summary>Valve's <c>mat_wireframe</c>.</summary>
+    /// <param name="on">Whether to draw edges only.</param>
+    internal void SetWireframe(bool on) =>
+        SetRenderToggle("mat_wireframe", on, static (device, value) => device.Wireframe = value);
+
+    /// <summary>Valve's <c>r_drawworld</c>.</summary>
+    /// <param name="on">Whether to draw the level's brushwork.</param>
+    internal void SetDrawWorld(bool on) =>
+        SetRenderToggle("r_drawworld", on, static (device, value) => device.DrawWorld = value);
+
+    /// <summary>Valve's <c>r_drawentities</c>.</summary>
+    /// <param name="on">Whether to draw props and models.</param>
+    internal void SetDrawEntities(bool on) =>
+        SetRenderToggle("r_drawentities", on, static (device, value) => device.DrawEntities = value);
+
+    /// <summary>Valve's <c>mat_specular</c>.</summary>
+    /// <param name="on">Whether to draw specular reflections.</param>
+    /// <remarks>
+    /// **A repaint, not a world rebuild: this is a shader constant and the geometry is untouched.**
+    /// The rebuild was why reflections appeared instantly while every other debug view waited — it
+    /// was doing far more work to get the same repaint.
+    /// </remarks>
+    internal void SetSpecular(bool on) =>
+        SetRenderToggle("mat_specular", on, static (device, value) => device.Specular = value);
+
+    /// <summary>Turns one of Valve's per-surface debug views on or off.</summary>
+    /// <param name="apply">Which flag the menu item sets, supplied by the item itself.</param>
+    /// <param name="on">Whether to turn it on.</param>
+    /// <remarks>
+    /// **The flag arrives as a function rather than a name** (B210). It used to be a name matched by
+    /// a `switch` with fewer arms than there were menu items, so one view was unreachable and its
+    /// shortcut toggled a different one.
+    /// </remarks>
+    internal void SetDebugMode(Func<DebugModes, bool, DebugModes> apply, bool on)
+    {
+        ArgumentNullException.ThrowIfNull(apply);
+
+        _debug = apply(_debug, on);
+
+        _renderLog.LogInformation("{Message}", $"debug views: {_debug}");
+
+        if (_device is { } device)
+        {
+            device.Debug = _debug;
+        }
+
+        // **Ask for a repaint.** The viewport draws on demand rather than continuously, so updating
+        // a shader constant is not enough on its own — the change reaches the GPU and then waits for
+        // an unrelated event to show it. That is what made these appear only when the camera moved.
+        _viewport.Invalidate();
+    }
+
+    /// <summary>Logs a render switch, tells the device, and asks for a repaint.</summary>
+    /// <param name="cvar">Valve's name for the switch, for the log.</param>
+    /// <param name="on">The new state.</param>
+    /// <param name="apply">How the device is told.</param>
+    /// <remarks>
+    /// **Four handlers were this same three-line body** — wireframe, draw-world, draw-entities and
+    /// specular — each written out separately with its own `if (_device is { } …)`. They are one
+    /// method because the fourth copy is where a difference starts hiding: B210 was exactly that,
+    /// a list of near-identical cases where one did something else.
+    ///
+    /// **A repaint rather than a rebuild.** Every switch here is a shader constant, so the geometry
+    /// on the device is still correct and only the picture is stale.
+    /// </remarks>
+    private void SetRenderToggle(string cvar, bool on, Action<Device3D, bool> apply)
+    {
+        _renderLog.LogInformation("{Message}", $"{cvar} {(on ? 1 : 0)}");
+
+        if (_device is { } device)
+        {
+            apply(device, on);
+        }
+
+        _viewport.Invalidate();
     }
 
     /// <summary>The controls hidden while full screen, for tests to check what they are.</summary>
