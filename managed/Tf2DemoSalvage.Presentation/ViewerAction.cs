@@ -319,13 +319,20 @@ public sealed class KeyBindings
     /// <param name="key">The key's name, compared without case.</param>
     /// <returns>The actions, empty when the key is bound to nothing.</returns>
     /// <remarks>
-    /// **Several actions may share a key, and that is not a mistake to reject.** `Space` is both
-    /// "switch camera mode" and "fly up" by default, exactly as TF2's jump is both jump and the
-    /// spectator's mode switch — which of them applies depends on what the viewer is doing, and
-    /// that is the caller's decision rather than the table's.
+    /// **Several actions may share a key, and that is not a mistake to reject.** Which of them
+    /// applies depends on what the viewer is doing, and that is the caller's decision rather than
+    /// the table's. Returning every match rather than the first means the caller can make it; a
+    /// table that silently picked one would make the collision look like a lost binding.
     ///
-    /// Returning every match rather than the first means the caller can make that decision. A table
-    /// that silently picked one would make the collision look like a lost binding.
+    /// **The example this used to give was out of date, and it misled a test into existence**
+    /// (2026-08-26). It said `Space` is both "switch camera mode" and "fly up" by default, *"exactly
+    /// as TF2's jump is both jump and the spectator's mode switch"* — a good analogy for a binding
+    /// that no longer exists. `FlyUp` moved to `'` when these were made to follow TF2's `+moveup`
+    /// (D69), and **no key in <see cref="Defaults"/> now carries two actions at all.**
+    ///
+    /// The capability is still real and still needed, because a user's own config may bind whatever
+    /// it likes to one key — which is the whole premise of D69. It is simply not exercised by the
+    /// shipped defaults, so a test wanting a shared key has to build one.
     /// </remarks>
     public IReadOnlyList<ViewerAction> ActionsFor(string key)
     {

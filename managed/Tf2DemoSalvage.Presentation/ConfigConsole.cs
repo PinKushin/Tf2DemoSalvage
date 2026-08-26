@@ -148,6 +148,46 @@ public sealed class ConfigConsole
         ViewerAction.FlyFast,
     };
 
+    /// <summary>Whether a key drives anything this console holds down.</summary>
+    /// <param name="keyName">The key's Source name, such as <c>w</c> or <c>SPACE</c>.</param>
+    /// <param name="bindings">What the keys are bound to.</param>
+    /// <returns>Whether the key should be treated as held.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="bindings"/> is null.</exception>
+    /// <remarks>
+    /// **This was a loop inside `FreeFlight`, a WinForms helper in the viewer project** (B188, D90).
+    /// It walked <see cref="HeldActions"/> comparing each against `KeyBindings.KeyFor` — two tables
+    /// that live here, joined in a view. Turning a toolkit's key value into a NAME is genuinely the
+    /// view's; deciding what the name means is not.
+    ///
+    /// **ANY held action is enough, not all of them.** `SPACE` is bound to both "fly up" and "switch
+    /// camera mode" by default, exactly as TF2's jump is both jump and the spectator's mode switch.
+    /// Requiring every action to be held would stop the free camera rising.
+    ///
+    /// **Why the window asks at all**: it must know whether to swallow the key before a control sees
+    /// it. A key swallowed but never pressed into the console, or pressed but never swallowed, gives
+    /// a camera that moves once and stops — which is why this answer and the console's own must come
+    /// from one list rather than from two that agree by inspection.
+    /// </remarks>
+    public static bool IsHeldKey(string keyName, KeyBindings bindings)
+    {
+        ArgumentNullException.ThrowIfNull(bindings);
+
+        if (string.IsNullOrEmpty(keyName))
+        {
+            return false;
+        }
+
+        foreach (ViewerAction action in bindings.ActionsFor(keyName))
+        {
+            if (HeldActions.Contains(action))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>A console bound the way the viewer ships, before any config is loaded.</summary>
     /// <returns>A console carrying <see cref="KeyBindings.Defaults"/>.</returns>
     /// <remarks>

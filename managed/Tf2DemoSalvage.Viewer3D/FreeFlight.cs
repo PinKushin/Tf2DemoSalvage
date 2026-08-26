@@ -27,24 +27,21 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// </remarks>
 internal static class FreeFlight
 {
-    /// <summary>World units per second the camera flies.</summary>
-    /// <remarks>
-    /// **A speed now, where it used to be a distance per keypress.** The old 32 units per press at
-    /// Windows' default repeat rate of about 31 a second is a little over 900 units a second, and a
-    /// player runs at 300 — so matching the old feel exactly would be three times a scout's sprint.
-    /// 600 is fast enough to cross cp_process without waiting and slow enough to line up a shot,
-    /// and Shift still quadruples it.
-    ///
-    /// **Forwarded rather than declared**, since the geometry moved to the presentation layer (D65)
-    /// and the number belongs with the code that applies it. Two copies of a speed is two speeds
-    /// waiting to disagree, and the disagreement would show as a camera that flies at one rate and
-    /// reports another.
-    /// </remarks>
-    public const float SpeedPerSecond = FreeFlightPath.SpeedPerSecond;
-
-    /// <summary>How much faster Shift flies.</summary>
-    /// <inheritdoc cref="SpeedPerSecond" path="/remarks/para[last()]"/>
-    public const float ShiftMultiplier = FreeFlightPath.FastMultiplier;
+    // **Two forwarded constants were here until 2026-08-26** (B188, D90):
+    // `SpeedPerSecond` and `ShiftMultiplier`, both `= FreeFlightPath.<the same thing>`.
+    //
+    // **`SpeedPerSecond` was read by NOTHING** — not production, not a test. A public constant in a
+    // view, forwarding a number nobody ever asked this type for. `ShiftMultiplier` had one reader,
+    // a test, which asks `FreeFlightPath` directly now.
+    //
+    // Their own documentation argued the case against them: *"Two copies of a speed is two speeds
+    // waiting to disagree"*. That is exactly right, and forwarding is a second copy — the name is
+    // duplicated even where the value is not, so a reader has two places to look and a rename has
+    // two places to reach.
+    //
+    // The reasoning about the SPEED itself belongs with the speed and is in `FreeFlightPath`: 600
+    // units a second, against a player's 300, because the old 32-units-per-keypress at Windows'
+    // ~31/second repeat rate worked out to over 900 — three times a scout's sprint.
 
     /// <summary>Whether a key contributes to flight, so the caller knows to track it.</summary>
     /// <param name="key">The key, without modifiers.</param>
@@ -60,25 +57,12 @@ internal static class FreeFlight
     /// know about.
     /// </remarks>
     public static bool IsFlightKey(Keys key, KeyBindings? bindings = null)
-    {
-        KeyBindings bound = bindings ?? Default;
-        string name = KeyNames.NameOf(key);
-
-        if (name.Length == 0)
-        {
-            return false;
-        }
-
-        foreach (ViewerAction action in ConfigConsole.HeldActions)
-        {
-            if (string.Equals(name, bound.KeyFor(action), StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
+        =>
+        // **What is left is the only part that is genuinely this toolkit's**: turning a WinForms
+        // `Keys` value into a Source key name. Deciding what that name MEANS was a loop over
+        // `ConfigConsole.HeldActions` compared against `KeyBindings.KeyFor` — two Presentation
+        // tables joined in a view — and is `ConfigConsole.IsHeldKey` now (B188, D90).
+        ConfigConsole.IsHeldKey(KeyNames.NameOf(key), bindings ?? Default);
 
     // **`FlightActions` was here until 2026-08-26** (B208), and its own comment was the finding: it
     // claimed the actions were "listed once so `IsFlightKey` and the console cannot disagree about

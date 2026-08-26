@@ -115,7 +115,10 @@ public sealed class FreeFlightTests
         float normal = Fly([Keys.W], 0.1).X;
         float fast = Fly([Keys.W, Keys.ShiftKey], 0.1).X;
 
-        fast.ShouldBe(normal * FreeFlight.ShiftMultiplier, 0.01f);
+        // **Asked of `FreeFlightPath`, which owns the number** (2026-08-26). `FreeFlight` re-exported
+        // it as a constant of its own, and this was the only reader — a second name for one value,
+        // which is one more place a change has to reach.
+        fast.ShouldBe(normal * FreeFlightPath.FastMultiplier, 0.01f);
     }
 
     [Test]
