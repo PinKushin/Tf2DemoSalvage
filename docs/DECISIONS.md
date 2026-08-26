@@ -5458,3 +5458,73 @@ It is a diagnostic verb, skipped when the install is absent, exactly as the SDK-
 
 **And it takes the machine-wide lock.** Launching the game is a UI workload: it steals the
 foreground, so it belongs behind `run-exclusive.ps1` like every other desktop-taking run.
+
+---
+
+## D97 — Playback speed is continuous from 0.01 to 8, mirrored for reverse
+
+**Three ways our transport differs from Valve's, and the owner sorted them on 2026-08-26.** The
+assistant had raised the comparison as one open question; the answer was that it is three, with
+different standing:
+
+> "yea our frame scruber going backwards and us parsing the whole demo first instead of streaming it
+> are known changes, the difference in scrubber resolution was not though."
+
+and, clarifying which quantity "resolution" meant:
+
+> "yes the 'resolution' was referring to the time scale."
+
+**So two departures were already deliberate and one was an accident.** That distinction is the whole
+value of this entry: a divergence nobody chose looks exactly like one somebody did, and only the
+owner can tell them apart.
+
+### The deliberate two, restated so they are not re-litigated
+
+- **Reverse playback.** The engine streams a demo forward and each snapshot is a delta on the last,
+  so it has nothing to step back into. This viewer decodes the whole demo to absolute positions
+  first, so reverse costs what forward costs. This meets the owner's standing test for an acceptable
+  departure — *know exactly why Valve does it, and exactly why we do not have to* — and is the same
+  shape as `custom/` HUDs under D91: a deliberate step beyond the game, not a failure to match it.
+- **Whole-demo decode instead of streaming.** The premise of the project (`ROADMAP.md` §1) and the
+  thing that makes reverse, instant seeking and cross-era decoding possible at all.
+
+### The accident, and what it was
+
+**Valve's timescale is continuous; ours was eleven fixed steps.** Measured from
+`game/client/replay/vgui/replayperformanceeditor.cpp`:
+
+| | Valve | ours (before) |
+|---|---|---|
+| slowest | `TIMESCALE_MIN 0.01f` (`:78`) | 0.25 |
+| fastest | `TIMESCALE_MAX 3.0f` (`:79`) | 8 |
+| shape | slider, `SLIDER_RANGE_MAX 10000.0f` (`:83`) | 11 steps `[-4 … 8]` |
+
+The slider is integer-valued over `[0, 10000]` and mapped linearly onto the range (`:567`, `:669`,
+`:724`) — **10,001 reachable speeds**, a step of about 0.0003.
+
+**A second divergence fell out of checking the first, and nobody had named it either: our slow floor
+was 0.25 against Valve's 0.01.** An entire band 25× finer than anything we offered was unreachable,
+and that band is precisely what frame-exact review needs — which
+`docs/memory/surf-and-jump-are-an-audience.md` records as a real audience for this tool.
+
+### The decision
+
+**Continuous, from 0.01 to 8, mirrored into the negatives for reverse.** Valve's floor is taken
+because it costs nothing and serves a real use; Valve's range becomes a strict subset of ours, with
+every extension being one of the departures above.
+
+**Where it lives is part of the decision.** The speed ladder, the clamping and the spoken
+description were all inside `TransportBar`, a WinForms control in `Tf2DemoSalvage.Viewer3D` — so
+building a slider there naively would have *added* a range, a clamp and a position mapping to a
+view, which is the opposite of D90. The owner caught this immediately:
+
+> "this fix touched the 3d viewer doesnt it?"
+
+So the quantity is a `TimeScale` value in `Presentation` and `TransportBar` keeps only the widget.
+**`PlaybackClock.TimeScale` was already a `double`** — the model was continuous all along and the
+view was quantising it, which is why this needed no change below the presentation layer.
+
+**The parity comparison was written before the code**, per `docs/CONFORMANCE.md` and the plan in
+`docs/HANDOFF.md`: `TimeScaleConformanceTests` cites Valve's three constants and asserts our range
+contains Valve's and our resolution is at least as fine, over Valve's own span rather than ours — a
+coarser slider must not be able to pass by being wider.
