@@ -12194,3 +12194,43 @@ written next to it.
 **One thing the analyzer contributed and it is worth noting:** after the change, `_freeAngles`'s
 setter became unused and Sonar said so immediately. That is a small independent confirmation that
 the drag really was the last writer of the camera's angles from the window.
+
+### B207 — D49 removed the top-down mode and left its renderer behind — FIXED 2026-08-26
+
+**Found by generalising B206 into a sweep** rather than by noticing another one by hand. For every
+public type in `Presentation` and `Scene`, count production references outside its own file; anything
+at zero is either dead or reached by a name the grep did not use. Three came back, one a false
+positive (`WorldGeometry.cs` declares `WorldVertex`/`WorldBatch`/`SunLight`, which are live).
+
+**`MapSurfaces` — 188 lines, 10 tests, no production caller.** Its own documentation says what it
+was for:
+
+> *"What this layer has to decide is only what a top-down projection cannot get from the file …
+> There is no depth buffer and none is wanted for a flat view, so draw order is the depth test and
+> the list is sorted by height."*
+
+That is the **orthographic top-down view D49 removed**. The mode went; its renderer input stayed,
+along with `MapTriangle` and ten tests about fan winding, height shading and area clipping. Nothing
+replaced the tests because nothing replaced the feature — under D95 the viewer is always 3D.
+
+**`MapScene` and `MapSceneReader` — no caller and no tests either, and this one is worse than dead.**
+Read what it says it is for:
+
+> *"The point is that there is one of these. A renderer defect is only visible in a picture, and a
+> picture is only evidence if it was produced by the same code path the window uses. Before this,
+> the two agreed by hand and stopped agreeing the moment either gained an argument."*
+
+It was built to guarantee that the viewer and the tests read a map the same way — and **neither the
+viewer nor any test calls it.** The viewer reads through `LoadedMap.Read`. So the guarantee that
+comment asserts has not held for as long as the type has been orphaned, and a reader would conclude
+the opposite of the truth. **A comment describing a property of the system is a claim, and an
+orphaned type makes it a false one.**
+
+**The deletion is proved rather than assumed.** Every type in both files was checked for references
+(`MapTriangle` included), the solution builds, and the gate is green with the viewer floor lowered
+from 629 to 619 — exactly the ten tests, with the reasoning recorded beside the number.
+
+**The pattern across B206 and B207 is one thing worth naming:** when a feature or a type is
+superseded, the call sites move and the *tests and comments do not*. What is left is not inert —
+green tests answer "is this covered?" with yes, and orphaned comments answer "does the viewer share
+this path?" with yes. Both are wrong, and neither can fail.

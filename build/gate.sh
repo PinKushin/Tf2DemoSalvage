@@ -566,7 +566,12 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     112
 # 625 -> 621 on 2026-08-25: CameraPlacementTests (4) moved to Presentation.Tests with
 # FreeCameraController (B188, B184). Nothing was deleted — presentation went 135 -> 139, which is
 # exactly the four, and that arithmetic is the check that a move did not lose anything.
-run Tf2DemoSalvage.Viewer3D.Tests viewer    629
+# 629 -> 619 on 2026-08-26 (B207): MapSurfacesTests (10) deleted with MapSurfaces itself. It built
+# flat shaded triangles for the ORTHOGRAPHIC top-down view that D49 removed — sorted by height,
+# shaded by height, "no depth buffer and none is wanted for a flat view" — and had no production
+# caller. Nothing replaced the tests because nothing replaced the feature: under D95 the viewer is
+# always 3D. MapScene/MapSceneReader went in the same commit, with no test count to move at all.
+run Tf2DemoSalvage.Viewer3D.Tests viewer    619
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."
