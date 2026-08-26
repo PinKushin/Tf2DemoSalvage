@@ -461,3 +461,65 @@ peer presenters calling one another.
   wanted.
 - **Do not rerun a green gate.** Floors and docs cannot change a test result; take the counts from
   the run in hand.
+
+---
+
+## 9. The Viewer3D refactor, planned 2026-08-26
+
+**Survey first, because the shape of it is not what the name suggests.** `Viewer3D` is **2,504 code
+lines**, and `MainForm` is **2,032 of them — 81%**. So "refactor Viewer3D" is mostly "finish
+MainForm", then two files.
+
+| file | code | verdict |
+|---|---|---|
+| `MainForm.cs` | 2,032 | the work; see §2 |
+| `TransportBar.cs` | 226 | **has domain knowledge** — see below |
+| `KeyNames.cs` | 50 | **stays.** Windows `Keys` ↔ Source names is exactly the Windows-specific half of D69 |
+| `ForegroundProbe.cs` | 44 | stays; Win32 foreground queries |
+| `OverlayWindow.cs` | 43 | stays; a form |
+| `FreeFlight.cs` | 37 | check: `IsFlightKey` may belong with `FlightInput` in Presentation |
+| `MessageQueue.cs` | 30 | stays; the Win32 pump |
+| `Program.cs` | 26 | stays; entry point |
+| `DemoLoadResult.cs` | 11 | `internal` record; moves with `LoadDemoAsync` |
+
+### TransportBar has never been compared against Valve's own equivalent
+
+**`CReplayPerformanceEditorPanel` (`game/client/replay/vgui/replayperformanceeditor.cpp`) IS Valve's
+demo scrubbing UI.** It drives playback with `demo_pause`, `demo_gototick` and a timescale slider.
+Nothing in this project has ever been checked against it, and the first look finds three differences:
+
+| | Valve | ours |
+|---|---|---|
+| range | `TIMESCALE_MIN 0.01f` .. `TIMESCALE_MAX 3.0f` (`:78-79`) | `-4 … 8` |
+| shape | continuous slider | eleven discrete steps |
+| reverse | **none** | `-4, -2, -1, -0.5, -0.25` |
+
+**These are QUESTIONS for the owner, not defects.** Reverse playback is plausibly a deliberate step
+beyond the game, like `custom/` huds under D91 — a demo viewer legitimately wants scrubbing the
+game does not offer. But that has to be decided rather than assumed, and the test for an acceptable
+departure is the owner's: *know exactly why Valve does it, and exactly why we do not have to.*
+
+**Do this comparison BEFORE moving any transport code.** A conformance test with its citation comes
+first; moving the code first makes the parity test a description of what was built, which is the one
+thing it must never be.
+
+### The order, and why
+
+1. **Finish `MainForm`** — §2's remaining cluster. Everything else is small by comparison.
+2. **Then `TransportBar`'s parity question**, answered before its code is touched.
+3. **Then the leftovers**, which are genuinely small: `FreeFlight.IsFlightKey`, `DemoLoadResult`.
+
+**What must NOT be done:** treating `KeyNames`, `MessageQueue`, `ForegroundProbe` or `Program` as
+targets. They are the Windows-specific half the TFM boundary exists to isolate — a second frontend
+REPLACES them rather than reusing them, which is the definition of view code under D90.
+
+### The three rules this refactor has paid for, applied per move
+
+- **Check Valve first, and read the declaration rather than reconstructing it.** Three times in one
+  session the SDK contradicted something I was confident about — `LevelInitPreEntity()` taking no
+  parameters, `IVModelInfo`/`IEngineSound` not being game systems, `dmodel_t.origin` being "for
+  sounds or lights". Every one changed the design.
+- **Audit logging on every move.** Diff the levels before and after; a delta must be explained by
+  lines that moved. This caught two dropped log lines in `WorldPresenter` before they shipped.
+- **Audit the wiring on every move**, four passes: collaborator assignments, the moved body diffed,
+  log strings diffed, and a counter that kept its name keeping its meaning.
