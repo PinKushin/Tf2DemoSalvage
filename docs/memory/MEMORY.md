@@ -159,3 +159,4 @@
 - [An impossibility claim expires](an-impossibility-claim-expires.md) — "X cannot be known" is never re-read once X is established.
 - [Ask which engine mechanism you are copying](ask-which-engine-mechanism-you-are-copying.md) — a citation makes a wrong reference look settled.
 - [TF2 binds every letter but o](tf2-binds-every-letter-but-o.md) — a pasted config TAKES keys; CTRL combos are the only safe space.
+- [Portable half and adapter half](portable-half-and-adapter-half.md) — view rules in net10.0; only a tiny adapter names the toolkit.

@@ -212,6 +212,45 @@ public sealed class TransportUiTests
             + $"{TimeScale.From(TimeScale.Fastest).Label()}");
     }
 
+    [Test]
+    public void Transport_HomeWithTheViewportFocused_ReturnsToNormalSpeed()
+    {
+        // **The binding the owner asked for weeks ago and that could not be built until B214:**
+        // *"'Home means minimum' is literally 1x when it comes to video playback, its the default
+        // too"*. It waited for the mechanism rather than being added as a fifteenth literal — *"do
+        // not hard code home, no new hard codes"*.
+        //
+        // **Driven away from 1x FIRST**, because a precondition equal to the assertion cannot fail:
+        // starting at normal speed and asserting normal speed passes against a key that does
+        // nothing at all (`docs/memory/set-the-opposite-state-first.md`). 4x is a shuttle stop, so
+        // `StepTo` can reach it without touching the slider.
+        StepTo(4d);
+
+        _viewer.Find(TransportBar.SpeedLabelId).Name.ShouldBe(
+            TimeScale.From(4d).Description(), "the precondition must differ from the assertion");
+
+        // **Focus somewhere that is NOT the speed slider**, which keeps `HOME` for itself and is
+        // exercised by `SpeedSlider_AtEachEnd_ReachesSpeedsTheButtonsCannot` above. That test
+        // is this one's control: together they say the key reaches the shortcut when no widget wants
+        // it, and the widget when one does.
+        _viewer.Find("Viewport").Focus();
+        _viewer.PressKey(VirtualKeyShort.HOME);
+
+        Retry.WhileFalse(
+            () => _viewer.Find(TransportBar.SpeedLabelId).Name == TimeScale.From(1d).Description(),
+            TimeSpan.FromSeconds(5),
+            throwOnTimeout: true,
+            timeoutMessage:
+                "Home did not return playback to normal speed; the readout says "
+                + $"'{_viewer.Find(TransportBar.SpeedLabelId).Name}'.");
+
+        _viewer.Find(TransportBar.SpeedLabelId).Name.ShouldBe(
+            TimeScale.From(1d).Description(),
+            "normal is 1x, not the slider's minimum, which is 8x in reverse");
+
+        TestContext.Out.WriteLine("TRANSPORT Home returned 4x to " + TimeScale.From(1d).Label());
+    }
+
     /// <summary>Drives the shuttle to a known speed, wherever it started.</summary>
     /// <param name="speed">One of <see cref="TimeScale.ShuttleStops"/>.</param>
     /// <remarks>

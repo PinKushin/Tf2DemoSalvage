@@ -12502,6 +12502,68 @@ a test cannot put a non-null value there, and asserting null after `Open` when i
 the precondition-equals-assertion shape that made the rest of that test worthless until it was fixed
 this morning. The third level covers it instead.
 
+### B216 — A shortcut could take a key the focused widget needed — FIXED 2026-08-26
+
+**B212's guard was right about its case and wrong in general.** It excused `TextBoxBase` and nothing
+else, which fixed the search box and left every other widget exposed. The question it asked was *what
+type has focus*; the question that matters is **does the focused thing already use this key**.
+
+**Nobody had to introduce the defect — it was waiting for one line of config.** D101 lets a person
+bind anything, so `bind "UPARROW" "+forward"` in someone's `autoexec.cfg` takes the arrow keys away
+from the playlist, and binding `HOME` to a speed reset takes it from both transport sliders.
+`ProcessCmdKey` runs before any widget sees a key and returning true consumes it.
+
+**The decision lives in `Presentation` as `WidgetKeys.Keeps(FocusedWidget, keyName)`**, and the owner
+asked for that shape rather than the obvious one:
+
+> *"try to use cross platform stuff so we wont have to change it if we change the front end"*
+>
+> *"it can go in the mainform, since it is view logic not domain, i just want what you use to
+> hopefully be able to be copy pasted instead of needing to redo it from nothing"*
+
+So the rules — which keys a slider, a list or a text field drives itself — are in a project targeting
+plain `net10.0`, where the compiler **refuses** a reference to `System.Windows.Forms`. The
+toolkit-specific half is `MainForm.FocusKind()`, ten lines mapping WinForms controls onto five kinds
+that exist in every toolkit. Porting the front end rewrites those ten lines; the key rules copy
+across unchanged, which is exactly what was asked for.
+
+**Type-ahead is deliberately excluded and recorded as a question.** Real list controls select by
+typed letters, so a strict reading would have `List` keep every letter — which would stop `w`/`a`/
+`s`/`d` flying whenever the playlist had focus. That is a larger behaviour change than this guard is
+for, and it belongs to the owner rather than to a detail decided in passing.
+
+**Two UI tests are the pair that proves it**, and one already existed:
+`SpeedSlider_AtEachEnd_ReachesSpeedsTheButtonsCannot` presses `HOME` on the focused slider and
+expects the far reverse end, while `Transport_HomeWithTheViewportFocused_ReturnsToNormalSpeed`
+presses the same key with the viewport focused and expects 1×. Same key, two focus states, opposite
+correct outcomes — the first goes red the moment the guard stops working.
+
+#### `HOME` → 1×, the first binding added through B214's mechanism
+
+Agreed weeks ago and deliberately not built, because it would have been a fifteenth literal to
+migrate: *"do not hard code home, no new hard codes"*. The reason for the key is the owner's:
+
+> *"'Home means minimum' is literally 1x when it comes to video playback, its the default too"*
+
+**`HOME` is free in TF2**, which was checked rather than assumed — `END`, `INS`, `PGUP` and `PGDN`
+are all bound in `config_default.cfg` and `HOME` is not. So it costs no `CTRL` combination.
+
+**And a correction to B214's own arithmetic while checking it.** That entry says "six free single
+keys in the whole game", which was an undercount: only letters and function keys had been
+enumerated. `HOME`, `DEL`, all four arrows, `BACKSPACE`, `CAPSLOCK`, the brackets and the semicolon
+are free as well. The `CTRL`-heavy default map still stands — most of those are widget navigation
+keys and so are spoken for by `WidgetKeys` instead — but the number was wrong.
+
+**The command is `resetspeed`, ours, and `demo_timescale` was considered and rejected.** Valve's is a
+ConCommand taking an argument, so `demo_timescale 1` would be the faithful spelling — except this
+action also clears REVERSE, which the engine cannot express at all (D97). There is no command of
+Valve's that means what this one means.
+
+**A gap closed on the way:** Source spells the navigation cluster `UPARROW`, `PGDN`, `INS`, `DEL`,
+and `KeyNames` resolved none of them — its fallback is `Enum.TryParse` over *WinForms* spellings, so
+`bind "UPARROW" "+forward"` out of a real config silently became `Keys.None`. Both directions are
+mapped now, which also makes the shared vocabulary Source's rather than one toolkit's.
+
 ### B215 — The free camera flew at a speed nobody read off the engine — FIXED 2026-08-26
 
 **Fixed against the ROAMING SPECTATOR, not the demo camera, and the owner made that call:**
