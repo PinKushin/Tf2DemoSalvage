@@ -12071,3 +12071,50 @@ written once, executably, and each phase is named at the call that produces it.
 the citations, but *what it looks like* is a question for the owner, per the standing rule that a UI
 claim which cannot be checked by looking is a question rather than a statement. It is plausible that
 this is behind some of B198's visual reports; it is not established, and it should not be assumed.
+
+### B204 — Valve has one `AngleVectors` and we had four copies of it — FIXED 2026-08-26
+
+**Found by following B203's method one step further.** Auditing `MainForm` for domain knowledge
+turned up a hand-inlined forward vector inside a *mouse-wheel handler*:
+
+```csharp
+(float sinPitch, float cosPitch) = MathF.SinCos(_freeAngles.Pitch * (MathF.PI / 180f));
+(float sinYaw, float cosYaw) = MathF.SinCos(_freeAngles.Yaw * (MathF.PI / 180f));
+...
+where.X + (cosPitch * cosYaw * travel),
+where.Y + (cosPitch * sinYaw * travel),
+where.Z + (-sinPitch * travel));
+```
+
+That is `forward->x = cp*cy; forward->y = cp*sy; forward->z = -sp;` — `mathlib_base.cpp:911`.
+Grepping the arithmetic rather than the name found three more:
+
+| site | inlined |
+|---|---|
+| `FlightInput.Direction` | forward **and** right |
+| `FreeCamera.Orbiting` | forward |
+| `MainForm.OnViewportWheel` | forward |
+| `SoundListener.From` | right |
+
+**`FreeCamera` had a comment reading "AngleVectors' forward" directly above its copy.** The knowledge
+was present; only the reuse was missing. That is the useful detail — this was not ignorance of
+Valve's function, it was the same judgement made four times that two lines are too small to share.
+
+**Why it is a risk and not housekeeping:** four copies of one formula are four chances to fix a sign
+in one of them, and a disagreement between them does not crash. It shows as a camera that flies
+slightly wrong in one mode, or sound panning that disagrees with the picture — exactly the class of
+"small random parity problems" the owner named as the likely cause of the visual defects.
+
+**One `AngleVectors` in `Scene` now**, reproduced exactly rather than reformulated, since a nicer
+formulation is a place for a divergence to hide (D89).
+
+**The convergence was verified by manipulation, not by the suite passing.** Flipping the sign of
+`forward.Z` reddens tests in **Scene, Presentation and Viewer3D** — which is the evidence that all
+four sites genuinely route through the shared function rather than sitting beside dead code. A green
+suite alone cannot distinguish those two.
+
+**Not exhaustive, and this is the open part.** The grep covered `SinCos` and `MathF.Cos`; the
+remaining hits are quaternion half-angle builders (`* 0.5f`) in `StudioAnimation`, `PropPlacement`
+and `ScenePropTrack`, which are a different Valve function (`AngleQuaternion`) and were **not**
+audited for duplication here. **`up` is not provided at all**, because nothing needed it — adding it
+later means adding the `roll` parameter the full formula requires, not amending these two.

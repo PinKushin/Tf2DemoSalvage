@@ -1,5 +1,7 @@
 using System;
 
+using Tf2DemoSalvage.Scene;
+
 namespace Tf2DemoSalvage.Presentation;
 
 /// <summary>What the user is asking the free camera to do, independent of which keys say so.</summary>
@@ -69,11 +71,8 @@ public static class FreeFlightPath
             return (0f, 0f, 0f);
         }
 
-        (float sinPitch, float cosPitch) = MathF.SinCos(pitch * (MathF.PI / 180f));
-        (float sinYaw, float cosYaw) = MathF.SinCos(yaw * (MathF.PI / 180f));
-
-        (float X, float Y, float Z) forward = (cosPitch * cosYaw, cosPitch * sinYaw, -sinPitch);
-        (float X, float Y, float Z) right = (sinYaw, -cosYaw, 0f);
+        (float X, float Y, float Z) forward = AngleVectors.Forward(pitch, yaw);
+        (float X, float Y, float Z) right = AngleVectors.Right(yaw);
 
         float x = (forward.X * input.Forward) + (right.X * input.Right);
         float y = (forward.Y * input.Forward) + (right.Y * input.Right);

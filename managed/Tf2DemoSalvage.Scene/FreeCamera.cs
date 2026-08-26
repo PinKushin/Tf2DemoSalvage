@@ -104,13 +104,10 @@ public sealed class FreeCamera
     {
         float limited = Math.Clamp(pitch, -89f, 89f);
 
-        (float sinPitch, float cosPitch) = MathF.SinCos(limited * (MathF.PI / 180f));
-        (float sinYaw, float cosYaw) = MathF.SinCos(yaw * (MathF.PI / 180f));
-
-        // AngleVectors' forward, which is where the camera looks; stepping back along it puts the
-        // focus in the middle of the picture.
-        (float X, float Y, float Z) forward =
-            (cosPitch * cosYaw, cosPitch * sinYaw, -sinPitch);
+        // Where the camera looks; stepping back along it puts the focus in the middle of the
+        // picture. **This comment used to say "AngleVectors' forward" beside a hand-inlined copy of
+        // it** (B204) — the knowledge was here, only the reuse was not.
+        (float X, float Y, float Z) forward = AngleVectors.Forward(limited, yaw);
 
         return new FreeCamera
         {

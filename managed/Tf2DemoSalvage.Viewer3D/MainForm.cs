@@ -4195,16 +4195,19 @@ internal class MainForm : Form, IFrameSteps
         // editor and is far quicker than tapping W across a map.
         if (_freeLook)
         {
-            (float sinPitch, float cosPitch) = MathF.SinCos(_freeAngles.Pitch * (MathF.PI / 180f));
-            (float sinYaw, float cosYaw) = MathF.SinCos(_freeAngles.Yaw * (MathF.PI / 180f));
+            // **`AngleVectors.Forward` rather than the formula, since 2026-08-26** (B204). This was
+            // a hand-inlined `(cp*cy, cp*sy, -sp)` inside a mouse-wheel handler, and it was the
+            // fourth copy of Valve's one function in this repository.
+            (float X, float Y, float Z) forward =
+                AngleVectors.Forward(_freeAngles.Pitch, _freeAngles.Yaw);
 
             float travel = e.Delta > 0 ? FlySpeed * 4f : -FlySpeed * 4f;
             (float X, float Y, float Z) where = _freeOrigin ?? FreeLookCamera().Origin;
 
             _freeOrigin = (
-                where.X + (cosPitch * cosYaw * travel),
-                where.Y + (cosPitch * sinYaw * travel),
-                where.Z + (-sinPitch * travel));
+                where.X + (forward.X * travel),
+                where.Y + (forward.Y * travel),
+                where.Z + (forward.Z * travel));
 
             _worldIsStale = true;
             _viewport.Invalidate();

@@ -35,9 +35,6 @@ public readonly record struct Ears(
 /// </remarks>
 public static class SoundListener
 {
-    /// <summary>Degrees to radians, since Valve's angles are degrees on the wire and in configs.</summary>
-    private const float Radians = MathF.PI / 180f;
-
     /// <summary>The listener for a camera, or null when there is no camera to listen from.</summary>
     /// <param name="camera">The active camera, or null.</param>
     /// <returns>Where to hear from, or null.</returns>
@@ -53,10 +50,8 @@ public static class SoundListener
             return null;
         }
 
-        float yaw = ears.Angles.Yaw * Radians;
-
         return new Ears(
             (ears.Origin.X, ears.Origin.Y, ears.Origin.Z),
-            (MathF.Sin(yaw), -MathF.Cos(yaw), 0f));
+            AngleVectors.Right(ears.Angles.Yaw));
     }
 }
