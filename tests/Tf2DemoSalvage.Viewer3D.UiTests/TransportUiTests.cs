@@ -245,19 +245,15 @@ public sealed class TransportUiTests
     }
 
     /// <summary>Whether a tick readout says playback has reached the last tick.</summary>
-    /// <param name="readout">The label's text, formatted <c>tick {current} / {last}</c>.</param>
+    /// <param name="readout">The label's text, formatted by <see cref="DemoPosition.Label"/>.</param>
     /// <remarks>
-    /// Parsed rather than compared against a remembered string, because the question is "are the
-    /// two halves equal" and that cannot be asked of the text as a whole. The format is the bar's
-    /// own: <c>$"tick {_scrub.Value} / {_scrub.Maximum}"</c>.
+    /// **Asks `DemoPosition` rather than parsing** (D90). This used to split on `/` and compare the
+    /// halves, under a comment naming the arrangement: *"the format is the bar's own"*. That is two
+    /// places knowing one format, so a rewording would have reddened this with nothing wrong. The
+    /// parser now lives beside the writer and a round-trip test pins them together.
+    ///
+    /// A readout of an unexpected shape reads as `null` and is not a claim either way — that is a
+    /// different failure and the caller's retry message shows it verbatim.
     /// </remarks>
-    private static bool AtEnd(string readout)
-    {
-        string[] halves = readout.Replace("tick", string.Empty, StringComparison.Ordinal)
-            .Split('/', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-
-        // Not the shape expected, so no claim either way — a malformed readout is a different
-        // failure and the caller's retry message will show it verbatim.
-        return halves.Length == 2 && string.Equals(halves[0], halves[1], StringComparison.Ordinal);
-    }
+    private static bool AtEnd(string readout) => DemoPosition.Read(readout)?.AtEnd ?? false;
 }

@@ -428,17 +428,22 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>The world upload, and whether this level's textures are the resident ones.</summary>
     private readonly WorldPresenter _world;
 
-    /// <summary>Whether the empty leaf outline has already been explained for this map.</summary>
+    /// <summary>The leaf outline for <c>mat_leafvis</c>, and the warning it may write.</summary>
     /// <remarks>
-    /// **Once per map, not once per frame.** `LeafBoxLines` runs on every frame the overlay is on,
-    /// and a warning written from there unguarded is B191 exactly: one log line per frame taking a
-    /// machine-wide lock and a disk flush, which cost 120 ms of a 133 ms frame the last time.
-    /// Cleared by `ClearMap`, so the next map gets its own answer.
+    /// **Was `_reportedNoLeafBox`, a bool in this window** (B188, D90), whose only job was to stop a
+    /// per-frame warning becoming a per-frame warning. The latch, the log and the three reasons it
+    /// chooses between now sit with the outline they describe — the same arrangement `MomentScene`
+    /// already uses for "no player appearance".
     /// </remarks>
-    private bool _reportedNoLeafBox;
+    private readonly LeafBoxes _leafBoxes;
 
-    /// <summary>Whether the viewport has changed size since the world was last projected.</summary>
-    private bool _worldIsStale;
+    // **`_worldIsStale` was here until 2026-08-26** (B188, D90). It is
+    // `WorldPresenter.NeedsProjecting`, beside `TexturesAreCurrent`, which it resembled in every
+    // respect except where it lived — both answer "is what the projector produced still good".
+    //
+    // The window still reports the nine events that invalidate it, which is right: a resize, a
+    // camera mode change, a dolly, a drag, a spectator switch and a map load are all things a window
+    // knows and a presenter does not.
 
     // **`_zoom` and `_lookingAt` were here until 2026-08-26** (D98) — how far into the orthographic
     // map the view was magnified, and where it was centred. Both are meaningless without that
@@ -765,6 +770,7 @@ internal class MainForm : Form, IFrameSteps
 
         _moments.Appearances = appearances;
         _world = new WorldPresenter(_renderLog);
+        _leafBoxes = new LeafBoxes(_renderLog);
 
         // **A capture flag, because the alternative was asking a person to press F12.** Several
         // rendering defects this session were found by the owner photographing their own screen and
@@ -790,7 +796,7 @@ internal class MainForm : Form, IFrameSteps
         // up. `TakeAutomaticShot` then read a permanently-null field and returned every frame.
         //
         // Nothing failed. No test passes `--shot`, so the whole option was covered by nobody.
-        _shotPath = _launch.ShotPath;
+        _opening = new OpeningSequence(_launch.ShotPath, OpeningFrames, SettleFrames);
 
         initialPaths = [.. _launch.Paths];
 
@@ -1221,7 +1227,7 @@ internal class MainForm : Form, IFrameSteps
         // `_level` was cleared here too until 2026-08-25. It was a SECOND map field left behind by
         // the move that created `LoadedMap`, never assigned anything but null, and `mat_leafvis`
         // read it (B196).
-        _reportedNoLeafBox = false;
+        _leafBoxes.Forget();
         _world.TexturesAreCurrent = false;
 
         // **The models go with the world, because the world owned their buffer.** `ClearWorld`
@@ -1397,7 +1403,7 @@ internal class MainForm : Form, IFrameSteps
         }
         catch (Exception failure) when (failure is IOException or InvalidDataException)
         {
-            _status.Text = "Map " + mapName + " could not be read: " + failure.Message;
+            _status.Text = MapProvider.CouldNotRead(mapName, failure);
             return false;
         }
     }
@@ -1542,13 +1548,17 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private LaunchOptions _launch;
 
-    /// <summary>Where an automatic capture goes; cleared once taken, so it happens once.</summary>
+    /// <summary>The countdown from opening to the capture, and what it wants each frame.</summary>
     /// <remarks>
-    /// **Mutable where the rest of <see cref="_launch"/> is not**, because this one is not only a
-    /// request: taking the shot consumes it. Kept beside the record rather than inside it, since a
+    /// **Was `_shotPath`, `_shotDelay` and `_openingDone`** (B188, D90) — a small state machine in a
+    /// window, reachable only by launching with `--shot` and looking for a file afterwards.
+    ///
+    /// The reason the path is consumed rather than read survives the move: it is not only a request,
+    /// and taking the shot closes the window, so a second one is a race rather than a duplicate
+    /// file. It stayed out of <see cref="LaunchOptions"/> for the same reason it still does — a
     /// record of what was ASKED for should not be edited to record what has been done.
     /// </remarks>
-    private string? _shotPath;
+    private readonly OpeningSequence _opening;
 
     /// <summary>Frames to let the world settle before the opening state is applied.</summary>
     /// <remarks>
@@ -1570,7 +1580,7 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private const int SettleFrames = 5;
 
-    private int _shotDelay = OpeningFrames;
+    // `_shotDelay` was here until 2026-08-26. It is `OpeningSequence`'s countdown (B188, D90).
 
     // `ReadCaptureOptions` is `LaunchOptionsReader.Read` in Presentation (B188, D90), and it returns
     // a record rather than writing into six fields as it goes. Thirteen tests came with the move; it
@@ -1590,33 +1600,27 @@ internal class MainForm : Form, IFrameSteps
         // START; `--shot` says to photograph it and quit. Gating the first on the second meant the
         // only way to be put at a tick was to be handed a PNG, which is no way to LOOK at
         // something — and looking is the only instrument for anything about a picture.
-        if (_shotPath is null && _openingDone)
+        // **The countdown is `OpeningSequence`'s; the acting is this window's** (B188, D90) — which
+        // is `FramePacer`'s split. Seeking, capturing and closing are things a window does; when to
+        // do them is arithmetic that needed no window and could not be tested inside one.
+        //
+        // The coupling B208 found lives there now too: the settle point is `openingFrames -
+        // settleFrames` rather than a literal, so lowering the wait cannot silently make it
+        // unreachable and drop every launch option.
+        switch (_opening.Advance())
         {
-            return;
-        }
-
-        if (_shotDelay-- > 0)
-        {
-            // **`OpeningFrames - SettleFrames`, not a literal 40** (B208). The two were coupled by
-            // arithmetic nobody had written down, so lowering `OpeningFrames` below 40 would have
-            // made this comparison unreachable and dropped every launch option in silence.
-            if (_shotDelay == OpeningFrames - SettleFrames)
-            {
+            case OpeningStep.ApplyOpeningState:
                 ApplyOpeningState();
-            }
+                break;
 
-            return;
+            case OpeningStep.Capture when _opening.TakeShotPath() is { } path:
+                CaptureViewport(path);
+                BeginInvoke(Close);
+                break;
+
+            default:
+                break;
         }
-
-        if (_shotPath is not { } path)
-        {
-            return;
-        }
-
-        _shotPath = null;
-
-        CaptureViewport(path);
-        BeginInvoke(Close);
     }
 
     /// <summary>Puts the viewer where the command line said to start, once there is a demo.</summary>
@@ -1638,17 +1642,20 @@ internal class MainForm : Form, IFrameSteps
     /// earlier test happened to move the transport first.
     ///
     /// So it is called from both ends now: from the countdown, as before, and from
-    /// <see cref="Apply"/> when a demo finishes loading. <see cref="_openingDone"/> makes the second
-    /// of those a no-op.
+    /// <see cref="Apply"/> when a demo finishes loading. <c>OpeningSequence.Applied</c> makes the
+    /// second of those a no-op.
     /// </remarks>
     private void ApplyOpeningState()
     {
-        if (_openingDone || _timeline is null)
+        if (_opening.Applied || _timeline is null)
         {
             return;
         }
 
-        _openingDone = true;
+        // **This window says so, because applying can fail.** With no demo open there is nothing to
+        // seek to, and a sequence that marked itself applied would count the refusal above as a
+        // success and never offer again.
+        _opening.MarkApplied();
 
         // **The clock too, not just the transport.** Moving the camera marks the world stale, and
         // the reprojection that follows re-reads the moment from the clock - so a capture that only
@@ -1681,13 +1688,13 @@ internal class MainForm : Form, IFrameSteps
         // keeps paying for.
     }
 
-    /// <summary>Whether the opening tick, view and target have been applied.</summary>
-    /// <remarks>
-    /// Latched rather than inferred from the countdown, because the countdown keeps running after
-    /// it reaches zero and re-applying the seek every frame would pin the transport to one tick —
-    /// a viewer that cannot be scrubbed, which is the opposite of the point.
-    /// </remarks>
-    private bool _openingDone;
+    // **`_openingDone` was here until 2026-08-26.** It is `OpeningSequence.Applied` (B188, D90),
+    // set by this window because applying can fail — with no demo open there is nothing to seek to.
+    //
+    // The reason it is latched rather than inferred from the countdown moved with it, and is worth
+    // keeping: the countdown keeps running after it reaches zero, and re-applying the seek every
+    // frame would pin the transport to one tick — a viewer that cannot be scrubbed, which is the
+    // opposite of the point.
 
     /// <summary>The free camera, orbiting whatever the top-down view is centred on.</summary>
     /// <remarks>
@@ -1735,35 +1742,19 @@ internal class MainForm : Form, IFrameSteps
             return [];
         }
 
-        IReadOnlyList<((float X, float Y, float Z) From, (float X, float Y, float Z) To)> lines =
-            LeafVis.Lines(_loaded?.Level.Leaves, _freeOrigin ?? FreeLookCamera().Origin);
-
-        // **Says which of the three silences this is, once** (D83). An overlay that is switched on
-        // and draws nothing is the exact shape the regression above wore for a day, and it is
-        // indistinguishable by eye from standing in a leaf whose box is off screen. Naming the
-        // measurement is the difference between a diagnostic and a shrug.
-        if (lines.Count == 0 && !_reportedNoLeafBox)
-        {
-            _reportedNoLeafBox = true;
-
-            _renderLog.LogWarning("{Message}", WhyNoLeafBox());
-        }
-
-        return lines;
+        // **The warning and its once-per-map latch went with the outline** (B188, D90). Saying which
+        // of the three silences this is, and saying it once, are both `LeafBoxes`' business — the
+        // window's part is which camera to measure from.
+        return _leafBoxes.Lines(_loaded, _freeOrigin ?? FreeLookCamera().Origin);
     }
 
-    /// <summary>Which of the three reasons the leaf outline came back empty.</summary>
-    /// <remarks>
-    /// **A log must name what it measured.** "no leaf box" is true of all three and useful for
-    /// none: a map that never loaded, a map with no BSP tree, and a camera standing in a leaf whose
-    /// bounds the lump does not carry are three different problems with three different fixes, and
-    /// only the first two are ours.
-    /// </remarks>
-    // **`WhyNoLeafBox` was here until 2026-08-26** (B208). It is `LeafVis.WhyNothing`, because
-    // telling an absent map from a map with no BSP tree from a leaf with no bounds is knowledge
-    // about the format rather than about a window.
-    private string WhyNoLeafBox() =>
-        LeafVis.WhyNothing(_loaded is not null, _loaded?.Level.Leaves);
+    // **`WhyNoLeafBox` was a wrapper here until 2026-08-26** (B208 moved its body, B188 removed the
+    // wrapper). It is `LeafVis.WhyNothing`, called by `LeafBoxes` where the warning is written.
+    //
+    // The rule it carried is kept where the code went: **a log must name what it measured.** "no
+    // leaf box" is true of all three causes and useful for none — a map that never loaded, a map
+    // with no BSP tree, and a camera standing in a leaf whose bounds the lump does not carry are
+    // three different problems with three different fixes, and only the first two are ours.
 
     /// <summary>Enters or leaves the first-person view, saying why when it cannot be entered.</summary>
     /// <returns>Whether the key was handled.</returns>
@@ -1777,7 +1768,7 @@ internal class MainForm : Form, IFrameSteps
         if (_firstPerson)
         {
             _cameraMode = CameraMode.Free;
-            _worldIsStale = true;
+            _world.Invalidate();
             _viewport.Invalidate();
             _renderLog.LogInformation("{Message}", "first person off, back to the free camera");
             return true;
@@ -1793,7 +1784,7 @@ internal class MainForm : Form, IFrameSteps
         }
 
         _cameraMode = CameraMode.FirstPerson;
-        _worldIsStale = true;
+        _world.Invalidate();
         _viewport.Invalidate();
 
         _renderLog.LogInformation("{Message}", entry.Message);
@@ -2142,7 +2133,7 @@ internal class MainForm : Form, IFrameSteps
     {
         int ticket = _loads.Take();
 
-        _status.Text = "Opening " + Path.GetFileName(path) + "...";
+        _status.Text = DemoLoadResult.Opening(path);
 
         try
         {
@@ -2225,11 +2216,16 @@ internal class MainForm : Form, IFrameSteps
     // The logger is a parameter because this is static (D83).
     private static DemoLoadResult Superseded(ILogger demoLog, string path)
     {
-        string message = $"discarding {Path.GetFileName(path)}: a newer demo was asked for";
+        // **The wording is `DemoLoadResult`'s** (B188, D90). This method was already static so it
+        // could not reach the form — the same shape `DecodedDemo` was in before it moved, and the
+        // same note applies: the only thing keeping the sentence here was the file it sat in.
+        //
+        // What is left is the logging, which is a side effect the result cannot perform for itself.
+        DemoLoadResult result = DemoLoadResult.Superseded(path);
 
-        demoLog.LogInformation("{Message}", message);
+        demoLog.LogInformation("{Message}", result.Message);
 
-        return new DemoLoadResult(DemoLoadOutcome.Superseded, message);
+        return result;
     }
 
     /// <summary>Runs something on the UI thread and waits for its answer.</summary>
@@ -2340,9 +2336,9 @@ internal class MainForm : Form, IFrameSteps
         // Restarting keeps the original reasoning intact — the countdown exists so the map, its
         // textures and the entity models are all in place first — and simply measures it from the
         // demo rather than from the window.
-        if (!_openingDone)
+        if (!_opening.Applied)
         {
-            _shotDelay = OpeningFrames;
+            _opening.Restart();
         }
 
         return new DemoLoadResult(DemoLoadOutcome.Loaded, _status.Text);
@@ -2362,11 +2358,17 @@ internal class MainForm : Form, IFrameSteps
         _playback.Load(null);
 
         _transport.SetDemoLength(0);
-        _status.Text = "Could not open " + System.IO.Path.GetFileName(path) + ": " + failure.Message;
+
+        // **The wording is `DemoLoadResult`'s** (B188, D90), which also keeps the status line and
+        // the returned message identically worded by construction rather than by `_status.Text`
+        // being read back — two wordings for one event is how a log and a window come to disagree.
+        DemoLoadResult result = DemoLoadResult.CouldNotOpen(path, failure);
+
+        _status.Text = result.Message;
 
         _demoLog.LogWarning(failure, "{Message}", $"opening {System.IO.Path.GetFileName(path)}");
 
-        return new DemoLoadResult(DemoLoadOutcome.Failed, _status.Text);
+        return result;
     }
 
     /// <summary>The playback controls, exposed for the tests that address them.</summary>
@@ -2395,7 +2397,7 @@ internal class MainForm : Form, IFrameSteps
 
             if (!_device.SetExclusiveFullScreen(wanted) && wanted)
             {
-                _status.Text = "Exclusive full screen was refused; using borderless.";
+                _status.Text = ViewerSettings.ExclusiveFullScreenRefused;
             }
         }
 
@@ -2405,7 +2407,7 @@ internal class MainForm : Form, IFrameSteps
         {
             // Reported rather than swallowed: a preference that silently does not stick is worse
             // than one that says so.
-            _status.Text = "Setting saved for this session only: " + failure;
+            _status.Text = ViewerSettings.SavedForThisSessionOnly(failure);
         }
     }
 
@@ -2432,7 +2434,7 @@ internal class MainForm : Form, IFrameSteps
 
         _status.Text = failure is null
             ? "Texture quality: " + quality + ". Applies to the next map opened."
-            : "Setting saved for this session only: " + failure;
+            : ViewerSettings.SavedForThisSessionOnly(failure);
     }
 
     /// <summary>Turns the surface-category view on or off.</summary>
@@ -2457,7 +2459,7 @@ internal class MainForm : Form, IFrameSteps
                 : "surface colours off");
 
         _device?.ClearWorld();
-        _worldIsStale = true;
+        _world.Invalidate();
     }
 
     /// <summary>Shows or hides Valve's frame rate meter.</summary>
@@ -2661,7 +2663,7 @@ internal class MainForm : Form, IFrameSteps
             {
                 // Refused - another application holds the output, or this is a WARP device.
                 // Borderless is already in effect, so this is a note rather than a failure.
-                _status.Text = "Exclusive full screen was refused; using borderless.";
+                _status.Text = ViewerSettings.ExclusiveFullScreenRefused;
             }
 
             _overlay = new OverlayWindow(_transport);
@@ -3657,12 +3659,12 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     public void ProjectWorld()
     {
-        if (!_worldIsStale)
+        if (!_world.NeedsProjecting)
         {
             return;
         }
 
-        _worldIsStale = false;
+        _world.Projected();
         ProjectMap();
         ReprojectScene();
     }
@@ -3750,7 +3752,7 @@ internal class MainForm : Form, IFrameSteps
             // are both camera rules; that the WHEEL is what asks is the part this window owns.
             _freeCamera.Dolly(e.Delta > 0, FreeLookCamera().Origin);
 
-            _worldIsStale = true;
+            _world.Invalidate();
             _viewport.Invalidate();
             return;
         }
@@ -3841,7 +3843,7 @@ internal class MainForm : Form, IFrameSteps
         _freeCamera.Drag(e.Location.X - from.X, e.Location.Y - from.Y);
 
         _dragFrom = e.Location;
-        _worldIsStale = true;
+        _world.Invalidate();
     }
 
     private void OnViewportMouseUp(object? sender, MouseEventArgs e)
@@ -3908,7 +3910,7 @@ internal class MainForm : Form, IFrameSteps
             return;
         }
 
-        _worldIsStale = true;
+        _world.Invalidate();
         _viewport.Invalidate();
     }
 
@@ -3920,7 +3922,7 @@ internal class MainForm : Form, IFrameSteps
     private void OnViewportResize(object? sender, EventArgs e)
     {
         _overlay?.PositionOver(_viewport);
-        _worldIsStale = true;
+        _world.Invalidate();
 
         if (_device is null || _viewport.ClientSize.Width <= 0 || _viewport.ClientSize.Height <= 0)
         {
@@ -4050,7 +4052,7 @@ internal class MainForm : Form, IFrameSteps
             // A key still recorded as held would move the camera the instant it is re-placed.
             ReleaseHeldKeys();
 
-            _worldIsStale = true;
+            _world.Invalidate();
             _viewport.Invalidate();
 
             // **Says what it did, not which mode it is in.** The old line reported "free camera on"

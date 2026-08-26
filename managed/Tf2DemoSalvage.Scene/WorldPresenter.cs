@@ -44,6 +44,29 @@ public sealed class WorldPresenter(ILogger render)
     /// </remarks>
     public bool TexturesAreCurrent { get; set; }
 
+    /// <summary>Whether the projection is out of date and the world must be re-aimed.</summary>
+    /// <remarks>
+    /// **Was `MainForm._worldIsStale`** (B188, D90), set from nine places — a resize, a camera mode
+    /// change, a mouse dolly, a drag, a spectator switch, a map load. The window is right to report
+    /// those; whether the projection they invalidate is out of date is the projector's own state,
+    /// and it sat next to `TexturesAreCurrent` in every respect except where it lived.
+    ///
+    /// **True on a fresh presenter**, because nothing has been drawn yet. Starting false leaves the
+    /// first frame unprojected until something happens to invalidate it — a window that opens blank
+    /// and fixes itself when the mouse moves.
+    ///
+    /// **Read-then-clear is the CALLER's, deliberately.** The stale flag governs two actions — the
+    /// map's projection and the moment's rebuild — and only one of them is here. Folding the clear
+    /// into <see cref="Project"/> would silently skip the other.
+    /// </remarks>
+    public bool NeedsProjecting { get; private set; } = true;
+
+    /// <summary>Marks the projection out of date.</summary>
+    public void Invalidate() => NeedsProjecting = true;
+
+    /// <summary>Marks the projection current.</summary>
+    public void Projected() => NeedsProjecting = false;
+
     /// <summary>Ensures the level is on the device and aimed at a camera.</summary>
     /// <param name="map">The loaded level, or null when none is open.</param>
     /// <param name="upload">The device, or null before one exists.</param>
