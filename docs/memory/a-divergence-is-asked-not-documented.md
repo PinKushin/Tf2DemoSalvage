@@ -5,13 +5,24 @@ metadata:
   node_type: memory
   type: feedback
   originSessionId: 4774a88b-811c-40bb-9c79-9b22dc0a4474
-  modified: 2026-08-26T02:11:47.290Z
+  modified: 2026-08-26T03:54:19.430Z
 ---
 
 **Any departure from what Valve's code does is a QUESTION for the owner, not a decision to record.**
 The owner, 2026-08-25, after catching the third one in a session:
 
 > "if you diverge i need to be asked"
+
+**The owner's framing, which says WHY the rule has no exceptions:**
+
+> "Valve can be thought of as god in this project, and this project has to follows gods rules because
+> it exists in gods universe lol"
+
+That is not reverence, it is scope. A demo is a recording made BY the engine, of a world defined by
+the engine, in a format the engine wrote — so every question about what a value means has an answer
+that already exists, and any answer of ours that differs is simply wrong about the universe it is
+in. There is no design space to have an opinion in. Reasoning toward what a thing "should" do is
+therefore not analysis, it is guessing at something already written down.
 
 **Why:** parity is the project's first principle (D89), and every measured win on the viewer has been
 a move TOWARD the engine. A divergence chosen unilaterally and explained in a comment reads as

@@ -430,7 +430,11 @@ run Tf2DemoSalvage.Presentation.Tests presentation 202
 # 713: BspVertexNormalsTests (4) and two lump indices pinned against bspfile.h. Read but not drawn
 # (D93): the plane normal is NOT a substitute, because vrad replaces the compiler's plane normals
 # with true smoothed ones wherever a smoothing group applies (B194).
-run Tf2DemoSalvage.Content.Tests  content   713
+# **Lowered 713 -> 711 on 2026-08-26, and it is a correction rather than a loss.** The 713 was
+# never measured: BspVertexNormalsTests added FOUR tests to 707, and the commit that raised it
+# (bb8af0d) verified Viewer and Scene and not Content. A floor is the CURRENT count, so inventing
+# one makes the gate permanently red - which the ratchet then reports as missing tests.
+run Tf2DemoSalvage.Content.Tests  content   711
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
