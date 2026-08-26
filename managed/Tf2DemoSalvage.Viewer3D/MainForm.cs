@@ -377,19 +377,25 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private readonly DemoSystems _demoSystems;
 
-    /// <summary>Where a second of frames went, accumulated here and reported once a second.</summary>
+    /// <summary>Where a second of frames went, counted and reported once a second.</summary>
     /// <remarks>
-    /// **Was six fields and a format string in this window** (B188, D90): the frame count, the
-    /// longest frame, three phase totals and the idle-burst count, each reset by hand at the end of
-    /// `CountFrame`. Six counters that must all be cleared together is five chances to forget one,
+    /// **Was nine fields and two methods in this window** (B188, D90): the frame count, the longest
+    /// frame, three phase totals and the idle-burst count went to <see cref="FrameLedger"/> on
+    /// 2026-08-25; the one-second clock, the collection tuple, `CountFrame` and `GarbageThisSecond`
+    /// followed on 2026-08-26. Counters that must all be cleared together are chances to forget one,
     /// and a counter that survives its report makes the NEXT second read as worse than it was.
     ///
+    /// **The window holds the reporter and not the ledger**, which is deliberate. `Yielded` and
+    /// `Drawing` are reported from two other places in the frame, so a window holding the ledger
+    /// directly would be a second holder of the same accumulator — the arrangement that let two
+    /// assignments sit unnoticed for a day (B196). The ledger is a constructor local now.
+    ///
     /// **Not <see cref="FpsMeter"/>, which is `cl_showfps`** — a smoothed average drawn on screen
-    /// for a person watching. This is a diagnostic ledger written to the log, and its value is the
+    /// for a person watching. This is a diagnostic account written to the log, and its value is the
     /// breakdown rather than the number: B191 was found by reading which column stayed fat as the
     /// others were measured away.
     /// </remarks>
-    private readonly FrameLedger _ledger = new();
+    private readonly FrameReporter _frames;
 
     // `_texturesUploaded` was here until 2026-08-26. It is `WorldPresenter.TexturesAreCurrent`,
     // beside the code that reads it (B188, D90).
@@ -725,7 +731,13 @@ internal class MainForm : Form, IFrameSteps
             Weapons = WeaponModels.None(_renderLog),
         };
 
-        _moments = new MomentPresenter(_moment, _ledger, _renderLog);
+        // **A local, not a field.** Both readers are constructed here and neither hands it back, so
+        // the window has no reason to keep a reference — and keeping one is what would let a later
+        // edit report a phase to a ledger nobody prints.
+        FrameLedger ledger = new();
+
+        _moments = new MomentPresenter(_moment, ledger, _renderLog);
+        _frames = new FrameReporter(ledger, _models, new StopwatchTime(), _renderLog);
 
         // **Registered here, after every system exists, and this is the only place the list is
         // written.** A system added later is added to this call rather than to whichever method
@@ -3146,7 +3158,15 @@ internal class MainForm : Form, IFrameSteps
                 // fast an empty loop spins — 186 "frames a second" with every duration at zero.
                 if (RenderFrame())
                 {
-                    CountFrame();
+                    _frames.Drew(
+                        _lastFrameSeconds,
+                        new FrameView(
+                            _transport.Playing,
+                            _freeLook && _console.AnyHeld,
+
+                            // The one part of the line a second frontend could not produce: a
+                            // Windows message id, named by the window that received it.
+                            MessageName(_idleEndedBy)));
                 }
             }
             else
@@ -3163,7 +3183,7 @@ internal class MainForm : Form, IFrameSteps
         while (waiting == 0);
 
         _idleEndedBy = waiting;
-        _ledger.Yielded();
+        _frames.Yielded();
     }
 
     /// <summary>Names the Windows messages worth recognising in a render report.</summary>
@@ -3452,114 +3472,13 @@ internal class MainForm : Form, IFrameSteps
     }
 
     // `_framesDrawn` was here until 2026-08-25. It is the count `FrameLedger.Drew` keeps — the last
-    // of the six per-second counters this window reset by hand. What remains is `_rateReportedAt`,
-    // which is the CLOCK: the ledger is told how long a second took rather than timing itself, so
-    // it can be tested without waiting one.
-
-    /// <summary>When the frame rate was last reported.</summary>
-    private long _rateReportedAt;
-
-    /// <summary>Collections and pause time since the last report, or empty when there were none.</summary>
-    /// <remarks>
-    /// **The instrument for a stall that is not a frame rate drop**, which is the owner's exact
-    /// description of B163: *"the stutter isnt in engine fps, its stutter across the whole app, the
-    /// fps doesnt drop, everything freezes for a half a second to maybe a second sometimes"*.
-    ///
-    /// A blocking gen2 collection does precisely that. It suspends every managed thread, so the
-    /// window stops pumping and nothing is drawn — and because the frames on either side are as fast
-    /// as ever, the AVERAGE rate barely moves. That is why an fps counter alone cannot see it and
-    /// why the pair of numbers matters more than either alone.
-    ///
-    /// <c>GC.GetTotalPauseDuration()</c> is the runtime's own accounting of time spent with threads
-    /// suspended, so this is not an inference from a gap in the log — it is the pause, reported by
-    /// the thing that caused it.
-    ///
-    /// Printed only when something happened, so a quiet second stays one line.
-    /// </remarks>
-    private string GarbageThisSecond()
-    {
-        int gen0 = GC.CollectionCount(0);
-        int gen1 = GC.CollectionCount(1);
-        int gen2 = GC.CollectionCount(2);
-        TimeSpan paused = GC.GetTotalPauseDuration();
-
-        (int Gen0, int Gen1, int Gen2, TimeSpan Paused) since = (
-            gen0 - _collections.Gen0,
-            gen1 - _collections.Gen1,
-            gen2 - _collections.Gen2,
-            paused - _collections.Paused);
-
-        _collections = (gen0, gen1, gen2, paused);
-
-        if (since is { Gen0: 0, Gen1: 0, Gen2: 0 } && since.Paused < TimeSpan.FromMilliseconds(1))
-        {
-            return string.Empty;
-        }
-
-        return string.Create(
-            CultureInfo.InvariantCulture,
-            $"; gc {since.Gen0}/{since.Gen1}/{since.Gen2} paused {since.Paused.TotalMilliseconds:0.#} ms");
-    }
-
-    /// <summary>Collection counts and pause time as of the last report.</summary>
-    private (int Gen0, int Gen1, int Gen2, TimeSpan Paused) _collections;
-
-    /// <summary>Reports the frame rate once a second.</summary>
-    /// <remarks>
-    /// **Measured rather than assumed, because the answer is a claim about this machine.** The
-    /// swap chain presents with a sync interval of one, so the rate should sit at the display's
-    /// refresh - and "should" is exactly the kind of statement this project keeps finding wrong.
-    /// A rate well under refresh means a frame is costing more than its slice, which is worth
-    /// knowing before anyone starts optimising by guesswork.
-    ///
-    /// Once a second, so a log covering a whole session stays readable.
-    ///
-    /// **This documentation was attached to `GarbageThisSecond` until 2026-08-26** — two
-    /// <c>&lt;summary&gt;</c> blocks stacked on one member, thirty lines above the method they
-    /// describe, while `CountFrame` itself had none. The compiler does not object, so it survived
-    /// however long it had been there; a field audit found it.
-    /// </remarks>
-    private void CountFrame()
-    {
-        _ledger.Drew(_lastFrameSeconds);
-
-        long now = Stopwatch.GetTimestamp();
-
-        if (_rateReportedAt == 0)
-        {
-            _rateReportedAt = now;
-            return;
-        }
-
-        double elapsed = (now - _rateReportedAt) / (double)Stopwatch.Frequency;
-
-        if (elapsed < 1d)
-        {
-            return;
-        }
-
-        // **The worst frame, not just the average, because jitter is a spread and a mean hides
-        // it.** Flying the camera used to re-project the whole map every frame (B98); the average
-        // barely moved while the longest frame in each second grew enormously, which is exactly
-        // what stutter is. A rate on its own could not have shown that, and did not.
-        if (_ledger.Report(
-                new FrameContext(
-                    _transport.Playing,
-                    _freeLook && _console.AnyHeld,
-
-                    // The one part of this line a second frontend could not produce: a Windows
-                    // message id, named by the window that received it.
-                    MessageName(_idleEndedBy),
-                    _models.LightingTicks,
-                    GarbageThisSecond()),
-                elapsed) is { } line)
-        {
-            _renderLog.LogDebug("{Message}", line);
-        }
-
-        _models.LightingTicks = 0;
-        _rateReportedAt = now;
-    }
+    // of the six per-second counters this window reset by hand.
+    //
+    // **`_rateReportedAt`, `_collections`, `GarbageThisSecond` and `CountFrame` followed on
+    // 2026-08-26** (B188, D90). The clock is `FrameReporter`'s `IElapsedTime`, which is what lets a
+    // second pass in a test without one passing; the collection deltas, the quiet-second threshold
+    // and the format string are `GarbageCounter`. Neither had a test, because reaching either meant
+    // constructing a form.
 
     /// <summary>Sends the current view to the device, without rebuilding anything.</summary>
     /// <remarks>
@@ -3728,9 +3647,9 @@ internal class MainForm : Form, IFrameSteps
         //
         // The clamp lives with FLIGHT now, in `FreeCameraController`, which is what it was always
         // for; applying it to the record of what happened was the mistake.
-        // The longest frame is the LEDGER's business now — it takes this duration from `CountFrame`
-        // and keeps the maximum itself, so there is one place that knows what "worst frame this
-        // second" means rather than a field here and a reset there.
+        // The longest frame is the LEDGER's business now — `FrameReporter.Drew` is handed this
+        // duration from the idle loop and the ledger keeps the maximum itself, so there is one place
+        // that knows what "worst frame this second" means rather than a field here and a reset there.
         _lastFrameSeconds = seconds;
 
         if (!_freeLook)
@@ -3889,7 +3808,7 @@ internal class MainForm : Form, IFrameSteps
 
     /// <returns>Whether a frame was actually drawn.</returns>
     /// <remarks>
-    /// **The return value exists because <see cref="CountFrame"/> was counting frames this method
+    /// **The return value exists because the frame count was counting frames this method
     /// declined to draw.** The idle loop ran `RenderFrame(); CountFrame();` unconditionally, so
     /// during a map read — when this returns immediately — the loop still counted a frame per
     /// iteration. The per-second report then read
@@ -3931,7 +3850,7 @@ internal class MainForm : Form, IFrameSteps
         // cannot be asked what order it does things in.
         FramePhases phases = FrameSequence.Run(this);
 
-        _ledger.Drawing(phases.Draw);
+        _frames.Drawing(phases.Draw);
 
         StallReport.Frame(phases, _renderLog);
 

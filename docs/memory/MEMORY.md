@@ -151,3 +151,4 @@
 - [A ConVar registration is three pushes](a-convar-registration-is-three-pushes.md) — default, flags and help-or-not from ~20 bytes of x86.
 - [Ask if the view must hold it](ask-if-the-view-must-hold-it.md) — a field only ever passed along belongs on the other side.
 - [Set the opposite state first](set-the-opposite-state-first.md) — a precondition equal to the assertion cannot fail.
+- [A log level regression is invisible to unit tests](a-log-level-regression-is-invisible-to-unit-tests.md) — the double records every level; the app discards below its own.

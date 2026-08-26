@@ -11078,9 +11078,9 @@ and what nothing in this repository can do today.
 
 #### Both items are done, 2026-08-26
 
-`MainForm.cs` is **4,625 lines, 1,713 of them code** — down from 3,444, so half the code is gone and
-the file is now **31% of a 5,612-line project** rather than 87% of an 8,303-line one. `ShowMoment` is
-**19 lines**, of which 8 are a comment explaining an ordering constraint.
+`MainForm.cs` is **4,554 lines, 1,670 of them code** — down from 3,444, so more than half the code is
+gone and the file is now **30% of a 5,541-line project** rather than 87% of an 8,303-line one.
+`ShowMoment` is **19 lines**, of which 8 are a comment explaining an ordering constraint.
 
 **The list above said "stop there", and the work went further than that, deliberately and on the
 owner's instruction.** Twice, in these words:
@@ -11130,6 +11130,37 @@ set each source to `null` before calling `Open` and then asserted it was `null` 
 against an `Open` with an empty body. The very failure it names in its own comment. Every source is
 now set to a stub first, and the fixed test was confirmed by writing the `if (timeline is …)` shape
 the comment warns about and watching it go red.
+
+#### The frame reporting followed the same day
+
+The field audit above turned up one more cluster: `_rateReportedAt`, `_collections`,
+`GarbageThisSecond` and `CountFrame` — a one-second clock, GC delta arithmetic, a threshold and a
+format string. Twenty-four lines of `GarbageThisSecond` contained no view content whatsoever, and
+`CountFrame`'s own comment already identified the only part that did: *"the one part of this line a
+second frontend could not produce: a Windows message id, named by the window that received it."*
+
+They are `FrameReporter` and `GarbageCounter` now, with thirteen tests where there were none. The
+window passes three values in a `FrameView` — playing, flying, and that message name — the same
+arrangement `MomentView` uses.
+
+**The window no longer holds the ledger either.** `FrameLedger` became a constructor local: both
+readers are built there and neither hands it back, so a field would only be an opportunity for a
+later edit to report a phase to an accumulator nothing prints. `Yielded` and `Drawing` go through the
+reporter.
+
+**Two things were learned by trying to break it, and both are worth more than the extraction.**
+
+- **Deleting the `Drew` call does not compile.** `MessageName` and `_idleEndedBy` exist only to feed
+  it, so SonarLint reports both as orphaned (S1144, S4487). This entry's own table records
+  `EnsureWeaponRoles` being caught that way and calls it luck; here it is structural, because the
+  arguments a call site builds die with the call.
+- **A log LEVEL regression is invisible to unit tests.** `LogDebug` changed to `LogTrace` leaves
+  `FrameReporterTests` 8/8 green — `RecordingLogger` records every level and the assertions count
+  messages, not levels — while the viewer, which runs at `+developer 1`, silently stops writing the
+  per-second line altogether. That line is the instrument B191 and B163 were both found with.
+
+So `WiringUiTests` gained `TheFrameReporter_AfterASecondOfFrames_WroteItsAccount`, and it was proved
+by manipulation: the only failure of twenty under exactly that sabotage.
 
 ### B187 — the debug views do not apply to viewmodels — OPEN
 
