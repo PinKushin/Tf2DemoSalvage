@@ -278,7 +278,7 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 # Tf2ConfigFiles.DefaultGameFolder looks under Program Files while this machine keeps TF2 on another
 # drive. The code was right and the test was measuring the ENVIRONMENT — pointing it at a better
 # path would have hidden that rather than fixed it.
-run Tf2DemoSalvage.Scene.Tests    scene     147
+run Tf2DemoSalvage.Scene.Tests    scene     158
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -352,7 +352,7 @@ run Tf2DemoSalvage.Audio.Tests    audio     161
 # 159: LaunchOptionsTests (13), out of MainForm.ReadCaptureOptions. Every malformed case is a PAIR
 # with its well-formed twin, because a parser that ignored an option entirely passes any test that
 # only checks the bad input is refused.
-run Tf2DemoSalvage.Presentation.Tests presentation 159
+run Tf2DemoSalvage.Presentation.Tests presentation 174
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.
@@ -556,7 +556,7 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     112
 # 625 -> 621 on 2026-08-25: CameraPlacementTests (4) moved to Presentation.Tests with
 # FreeCameraController (B188, B184). Nothing was deleted — presentation went 135 -> 139, which is
 # exactly the four, and that arithmetic is the check that a move did not lose anything.
-run Tf2DemoSalvage.Viewer3D.Tests viewer    621
+run Tf2DemoSalvage.Viewer3D.Tests viewer    625
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."
