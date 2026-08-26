@@ -67,6 +67,17 @@ public sealed class WiringUiTests
     [Test]
     public void TheScene_AfterLoadingADemo_WasGivenThePlayersAppearance()
     {
+        // **Needs the game, unlike its siblings above, and CI proved it the hard way.** The
+        // appearance is built from the installed archives, so with no TF2 present the viewer logs
+        // "no player appearance" for a perfectly good reason — and this assertion then reports a
+        // missing environment as broken wiring. Run 32966637966 failed exactly there while passing
+        // on a machine with the game.
+        //
+        // The other absence checks in this file need no assets: a viewmodel SOURCE and a model
+        // upload are wiring, present or absent regardless of what is installed. Gating those too
+        // would hide real breakage, which is why this call is here and not at the top of the class.
+        ViewerSession.RequireTheGame();
+
         // Caught before shipping, but only because an analyzer noticed `EnsureWeaponRoles` had
         // become unreachable. Without the call every weapon suffix answers null and the animation
         // falls back to the generic primary form — the right weapon, the wrong pose, on every

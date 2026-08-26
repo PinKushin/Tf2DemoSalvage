@@ -88,7 +88,7 @@ public sealed class DemoSystems
     /// **A schedule holds a cursor into ONE timeline's sound list**, so it is replaced rather than
     /// updated; carrying one across a load indexes the previous demo's sounds.
     /// </remarks>
-    public PlaybackClock? Open(
+    public void Open(
         DemoTimeline? timeline, int lastTick, AudioOutput? audio, string? autoPlay, string autoPlayName)
     {
         // **Silenced BEFORE the schedule changes.** Loops in flight belong to the demo being closed;
@@ -113,7 +113,7 @@ public sealed class DemoSystems
 
         if (timeline is not { } demo)
         {
-            return null;
+            return;
         }
 
         // **The rate the recording server ran, not a constant.** It is a server setting, so a box
@@ -152,6 +152,10 @@ public sealed class DemoSystems
             _demoLog.LogInformation("{Message}", $"{autoPlayName} is set; playback started at load");
         }
 
-        return clock;
+        // **Returned the clock until 2026-08-26, and nothing in production used it.** `MainForm`
+        // stored it in a field that duplicated the one `_playback.Load` had just been given, and
+        // once that copy was removed the return value's only readers were tests — which is the
+        // shape B206 and B207 were both about. Ask `PlaybackPresenter` instead: it owns the clock,
+        // and `HasDemo` and `Position` are the questions a caller actually has.
     }
 }

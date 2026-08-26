@@ -35,10 +35,15 @@ public sealed class DemoSystemsTests
         spectator.Eyes = null;
         moment.Viewmodels = null;
 
-        PlaybackClock? clock = Systems(spectator, moment, sound)
+        // **Asserted through the presenter rather than a returned clock** (2026-08-26). `Open`
+        // used to hand one back, and once `MainForm` stopped keeping a copy the return value's
+        // only reader was this line — so it asks the thing that owns the clock instead.
+        PlaybackPresenter playback = new(new FakePlaybackView(), new StopwatchTime());
+
+        Systems(spectator, moment, sound, playback)
             .Open(timeline: null, lastTick: 100, audio: null, autoPlay: null, autoPlayName: "X");
 
-        clock.ShouldBeNull("there is no timeline to run a clock over");
+        playback.HasDemo.ShouldBeFalse("there is no timeline to run a clock over");
         spectator.Eyes.ShouldBeNull();
         moment.Viewmodels.ShouldBeNull();
         sound.Schedule.ShouldBeNull();
@@ -93,11 +98,14 @@ public sealed class DemoSystemsTests
     }
 
     private static DemoSystems Systems(
-        SpectatorView? spectator = null, MomentScene? moment = null, SoundPresenter? sound = null) =>
+        SpectatorView? spectator = null,
+        MomentScene? moment = null,
+        SoundPresenter? sound = null,
+        PlaybackPresenter? playback = null) =>
         new(spectator ?? new SpectatorView(NullLogger.Instance),
             moment ?? Scene(),
             sound ?? Sound(),
-            new PlaybackPresenter(new FakePlaybackView(), new StopwatchTime()),
+            playback ?? new PlaybackPresenter(new FakePlaybackView(), new StopwatchTime()),
             new ActiveLoops(),
             NullLoggerFactory.Instance);
 
