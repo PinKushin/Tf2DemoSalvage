@@ -315,12 +315,22 @@ tidiness.
 > "should maps maybe become their own project… i know models dont [talk to each other]. are
 > presenters suppose to talk to each other? or no?"
 
-Answered as: **maps do not need their own project yet** — `Scene` is where a map's *meaning* lives
-and `Content` already owns its *bytes*, so a third project would split one concept across three.
-Revisit if `Scene` grows a second unrelated cluster. **Presenters may talk to each other**, unlike
-models: a presenter's whole job is orchestration, and Valve's own game systems call each other
-freely (`C_SoundscapeSystem` reads the player's audio params). What must NOT happen is a presenter
-reaching *up* into the view. Recorded in `docs/DECISIONS.md`.
+**Answered, checked against the code first, and recorded as D92.** Read it there — the short form:
+
+- **Presenters compose DOWNWARD.** A presenter MAY own sub-presenters and presentation state types.
+  **Peer presenters MUST NOT reach into each other**; if two need the same thing it goes DOWN into
+  the model layer where both can reach it. Sideways coupling means neither can be tested or replaced
+  alone, which is the whole point of the layer. Measured: every reference inside
+  `Tf2DemoSalvage.Presentation` is already ownership, not peering.
+- **Maps do not get their own project**, and the test is not "this cluster is big" — it is **is
+  there a dependency direction I want the compiler to reject?** Here the arrow already points the
+  way a split would allow: `MomentScene` → `LevelLighting`, `EntityModels` → `BrushModels`,
+  `PropModels` → `MaterialTable`. Models are lit by the level, brush entities ARE map geometry, and
+  props resolve map materials. A project boundary there would forbid nothing.
+
+**This matters for §2's big move**: the demo presenter owning `_moment`, `_spectator`, `_sound` and
+the rest is composition downward and is exactly the allowed shape. What it must not become is two
+peer presenters calling one another.
 
 ---
 
