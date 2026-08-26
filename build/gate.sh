@@ -271,7 +271,14 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 # they now report actually shipped (B193).
 # 138: the three model-upload cases, added after an audit found `MomentScene.Upload` was assigned
 # NOWHERE — so no entity geometry ever reached the GPU (B193, third occurrence).
-run Tf2DemoSalvage.Scene.Tests    scene     138
+# 142: GameInstallTests (4), out of ReadMap first-map-only branch. Every case runs WITHOUT TF2,
+# which is the path a fresh clone takes and the one that had no test at all.
+# 147: DemoModelsTests (5), out of MainForm.DemoModelPaths/WornModelPaths. A sixth was written and
+# removed: it asserted the class roster using the real locator and FAILED, because
+# Tf2ConfigFiles.DefaultGameFolder looks under Program Files while this machine keeps TF2 on another
+# drive. The code was right and the test was measuring the ENVIRONMENT — pointing it at a better
+# path would have hidden that rather than fixed it.
+run Tf2DemoSalvage.Scene.Tests    scene     147
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -417,7 +424,10 @@ run Tf2DemoSalvage.Presentation.Tests presentation 146
 # int unused[8] tail every neighbouring struct has and this one does not. It reddens 2 of 17, and
 # WHICH two is the useful part: the SDK stride assertion, and the multi-chain test. A single-chain
 # fixture sits at offset 0 under either stride and cannot see it.
-run Tf2DemoSalvage.Content.Tests  content   707
+# 713: BspVertexNormalsTests (4) and two lump indices pinned against bspfile.h. Read but not drawn
+# (D93): the plane normal is NOT a substitute, because vrad replaces the compiler's plane normals
+# with true smoothed ones wherever a smoothing group applies (B194).
+run Tf2DemoSalvage.Content.Tests  content   713
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2

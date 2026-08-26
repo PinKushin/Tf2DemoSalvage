@@ -5162,3 +5162,141 @@ the feature is built: the config reader must keep ignoring what it does not impl
 using Valve's own cvar names, and never assume one config file — a `custom/` tree is several, and a
 hud carries its own.
 
+
+## D92 — Presenters compose DOWNWARD, and a new project must forbid something
+
+Two questions the owner asked while the `MainForm` refactor was in progress, 2026-08-25:
+
+> "should maps maybe become their own project… i know this solution is already super project heavy,
+> but the different projects is what give compile time protection for cross talk, likt are presenters
+> suppose to talk to each other? or no? i know models dont."
+
+Both answers were checked against the code before being given, and one of them changed as a result.
+
+### Presenters: downward yes, sideways no
+
+- **A presenter MAY own sub-presenters and presentation state types.** That is how a composite view
+  gets a composite presenter, and it is the direction that stays testable: the owner can be
+  constructed with fakes for what it owns.
+- **Peer presenters MUST NOT reach into each other.** If two need the same thing it goes DOWN into
+  the model layer, where both can reach it. Sideways coupling means neither presenter can be tested
+  or replaced alone, which is the whole point of the layer.
+- **Models never talk up**, which was already true and is not in question.
+
+**Measured before writing it down, and the repo is clean:** every reference between types in
+`Tf2DemoSalvage.Presentation` is a presenter owning something smaller — `FpsOverlay` owns `FpsMeter`,
+`SoundPresenter` owns `SoundSchedule`, `FreeCameraController` owns `OverheadPlacement`,
+`ConfigConsole` owns `FlightInput` and `SourceConfig`. Not one is peer-to-peer.
+
+### A new project must FORBID something
+
+**The test is not "this cluster is big". It is: is there a dependency direction I want the compiler
+to reject?**
+
+Maps were the case in point, and the answer is no — because the arrow already points the way a split
+would allow. Measured inside `Scene`:
+
+| entity-side type | depends on map-side type |
+|---|---|
+| `MomentScene` | `LevelLighting` |
+| `EntityModels` | `BrushModels` |
+| `PropModels` | `MaterialTable` |
+
+Models are lit by the level, brush entities ARE map geometry, and props resolve map materials. A
+`Maps` project would be referenced by the rest of `Scene` on its first day, so the ceremony and build
+time would buy an edge that already exists and is correct.
+
+**Contrast with the splits that did pay**, which is what makes this a rule rather than a preference:
+
+| split | what it forbids | real? |
+|---|---|---|
+| `net10.0` vs `net10.0-windows` | a presenter touching WinForms | **yes** — the compiler refuses (D54, D90) |
+| `Scene` cannot see `Presentation` | a model reaching up to a presenter | **yes** |
+| `Maps` vs entities | nothing — entities already depend on maps | no |
+
+**What WOULD trigger a maps project later:** a second consumer that needs map reading without the
+entity layer — a standalone BSP tool, say. That is a real trigger. "This cluster is large" is not,
+and the answer to a large cluster is usually one type instead of ten fields. Which is exactly what
+the map state turned out to be: six of `MainForm`'s ten map fields were `MapLevel` unpacked into the
+form, so the fix was to keep the record rather than to build a project around it.
+
+## D93 — Decode everything Valve writes; consume it when there is a reason
+
+The owner, 2026-08-25, on finding that six BSP lumps went unread:
+
+> "the reason i dont like dropping anything valve does is because i dont want to need it later and
+> require a uge change"
+
+**This corrects a conclusion I had just filed.** I had checked whether anything CONSUMES the vertex
+normal lumps today, found nothing did, and closed B194 as "nothing to fix". That answered the wrong
+question. The right one is what it costs to add when something does.
+
+### Two costs, and conflating them is the mistake
+
+| | cost | when |
+|---|---|---|
+| **Reading** a lump | one reader, one field on `MapLevel` — local and self-contained | **now** |
+| **Consuming** it | a new vertex-layout element, a changed shader signature, a world-buffer re-upload | when there is a reason |
+
+Only the second ripples. Deferring the first buys nothing and is exactly the "huge change later" the
+owner is describing — the archaeology of working out which lump held what, months after the context
+is gone.
+
+**So: decode is total, rendering is not.** `docs/memory/decode-must-be-total.md` already said the
+first half — "anything that does not decode to 100%, with no errors, is wrong" — and I had been
+reading it as though a lump with no consumer were exempt. It is not. What we DRAW is a separate
+question from what we READ, and only the drawing waits for a reason.
+
+### The evidence that settled the specific case
+
+Our world faces take their PLANE's normal. That looked equivalent to the lump, and `vbsp` even
+writes it that way:
+
+```cpp
+// Add this face plane's normal.
+// Note: this doesn't do an exhaustive vertex normal match because the vrad does it.
+g_vertnormals[g_numvertnormals] = dplanes[f->planenum].normal;
+```
+
+— `src/utils/vbsp/normals.cpp:38`. But the comment is the point: **vrad replaces them.** In a
+compiled map the lump holds true smoothed normals wherever a smoothing group applies, and the plane
+normal only where none does. The two are equal on flat unsmoothed brushwork and nowhere else, so
+"we can always derive it from the plane" was wrong.
+
+### What this does NOT license
+
+Reading a lump is not implementing a feature, and a reader with no consumer must not pretend
+otherwise: no vertex-layout change, no shader work, no "while I am here" rendering. The consumer
+arrives with the feature that needs it, and B194 records what that feature would be.
+
+Collision and water lumps (`BrushSides`, `LeafWaterData`, `AreaPortals`) are the honest edge of
+this rule: a demo viewer neither collides nor swims. They are still worth reading when something
+plausibly wants them — showing trigger volumes in a demo-analysis tool is not far-fetched — but they
+are the ones to defer if any are deferred, and deferring them is a decision to state rather than a
+default.
+
+### The conformance instrument already knew, which is the owner's point about ordering
+
+> "yep thats why i say conformance tests first too"
+
+`SdkCoverageTests` extracts every `LUMP_` the engine declares and diffs it against what this project
+reads, then writes `docs/SDK-COVERAGE.md`. That file said, in the repository, committed:
+
+```
+## BSP lumps
+**27 of 66** declared by the engine are handled here.
+Not handled: ... LUMP_VERTNORMALINDICES, LUMP_VERTNORMALS, ...
+```
+
+**I found the same gap by grepping `Mod_Load*` out of `engine.dll`.** The binary scan was a fine
+technique and it was the second time the answer had been derived — the conformance test wrote the
+denominator from the SDK first, exactly as the rule intends, and nobody read the output.
+
+**So the rule earns its keep at the point of ASKING, not only at the point of writing.** A
+conformance test's whole value is that it holds the denominator before our data can bias it; consult
+it before reaching for a decompiler, a binary, or a fresh count.
+
+**And it exposes the instrument's one weak joint.** The denominator is extracted and cannot go
+stale; the numerator — `ImplementedLumps()` — is a hand-maintained list. Adding a reader without
+adding its name there fails nothing and quietly understates coverage. So a new lump reader is two
+edits, and the second is not optional.
