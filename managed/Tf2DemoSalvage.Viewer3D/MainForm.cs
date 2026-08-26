@@ -3883,8 +3883,7 @@ internal class MainForm : Form
             // soundscape is active changes as a player walks and a seek can land anywhere, so being
             // selective would only move the hitch to the next doorway.
             PrecacheResult result = _sounds.Precache(
-                timeline.SoundsToPrecache()
-                    .Concat(_soundscape.Catalog?.WaveNames() ?? []));
+                DemoSounds.ToPrecache(timeline.SoundsToPrecache(), _soundscape));
 
             _audioLog.LogInformation(
                 "{Message}",
