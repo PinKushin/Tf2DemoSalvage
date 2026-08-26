@@ -189,8 +189,14 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private LoadedMap? _loaded;
 
-    /// <summary>Fetches maps that are not installed; created on first need.</summary>
-    private MapDownloader? _downloader;
+    /// <summary>Where maps come from: the disk first, then the network.</summary>
+    /// <remarks>
+    /// **Replaced a `MapDownloader?` created on first need** (B188, D90). The lazy construction is
+    /// still there and is still right — a viewer that never meets a missing map should never open an
+    /// `HttpClient` — but it belongs to the thing that owns the download, not to the window that
+    /// happens to notice a map is absent.
+    /// </remarks>
+    private readonly MapProvider _maps = MapProvider.Installed();
 
     /// <summary>What the installed game provides, opened once and reused for every map.</summary>
     /// <remarks>
@@ -1605,7 +1611,7 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private bool ReadMapNamed(string mapName)
     {
-        string? path = FindMap(mapName);
+        string? path = _maps.Locate(mapName);
 
         if (path is null)
         {
@@ -1652,32 +1658,29 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private async Task DownloadMapAsync(string mapName)
     {
-        _status.Text = "Downloading map " + mapName + "...";
+        _status.Text = MapProvider.Fetching(mapName);
 
-        try
+        // **`ConfigureAwait(true)` here, `false` inside the provider, and the asymmetry is the
+        // point.** Everything after this line touches `_status.Text` and `ReadMap`, so the
+        // continuation has to come back to the UI thread. The provider is a library and must not
+        // capture a context it knows nothing about.
+        //
+        // The `ArgumentException` that used to be caught here — a demo header naming something that
+        // is not a map name — is handled inside the provider now and arrives as a status line, since
+        // whether a name is fetchable is the downloader's question rather than the window's.
+        MapFetch fetch = await _maps
+            .FetchAsync(mapName, CancellationToken.None)
+            .ConfigureAwait(true);
+
+        if (fetch.Path is null)
         {
-            _downloader ??= MapDownloader.Create(MapDownloader.DefaultFolder);
-
-            string? downloaded = await _downloader
-                .TryDownloadAsync(mapName, CancellationToken.None)
-                .ConfigureAwait(true);
-
-            if (downloaded is null)
-            {
-                _status.Text = _downloader.DescribeFailure(mapName);
-                return;
-            }
-
-            if (ReadMap(mapName, downloaded))
-            {
-                _status.Text = (_demo?.Describe() ?? mapName) + "  (map downloaded)";
-            }
+            _status.Text = fetch.Status;
+            return;
         }
-        catch (ArgumentException failure)
+
+        if (ReadMap(mapName, fetch.Path))
         {
-            // A demo header naming something that is not a map name. The downloader refuses it,
-            // and it is not worth failing the load over.
-            _status.Text = "Map " + mapName + " could not be fetched: " + failure.Message;
+            _status.Text = (_demo?.Describe() ?? mapName) + "  (map downloaded)";
         }
     }
 
@@ -1696,7 +1699,7 @@ internal class MainForm : Form, IFrameSteps
             {
                 // **Opened once, on the first map read rather than at startup**, because finding and
                 // opening the archives is slow and a viewer with no demo open needs none of it.
-                _game = GameContent.Open(FindGameFolder(), _loggers);
+                _game = GameContent.Open(_maps.GameFolder(), _loggers);
 
                 _levels.OpenGame(_game);
             }
@@ -1757,7 +1760,7 @@ internal class MainForm : Form, IFrameSteps
     {
         try
         {
-            string? game = FindGameFolder() ?? Tf2ConfigFiles.DefaultGameFolder;
+            string? game = _maps.GameFolder() ?? Tf2ConfigFiles.DefaultGameFolder;
 
             if (game is null)
             {
@@ -1804,50 +1807,13 @@ internal class MainForm : Form, IFrameSteps
         }
     }
 
-    /// <summary>Finds the game's <c>tf</c> folder, for its materials and textures.</summary>
-    /// <remarks>
-    /// The same Steam library search the map locator uses, stopping one level higher: the locator
-    /// wants <c>tf/maps</c> and this wants <c>tf</c> itself, where the archives and the custom
-    /// folder live. Null when the game is not installed, which costs the stock textures and
-    /// nothing else.
-    /// </remarks>
-    private static string? FindGameFolder()
-    {
-        try
-        {
-            string steam = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
-                "Steam", "steamapps", "libraryfolders.vdf");
-
-            return new MapLocator(steam, MapDownloader.DefaultFolder).FindGameFolder();
-        }
-        catch (Exception failure) when (failure is IOException or ArgumentException)
-        {
-            return null;
-        }
-    }
-
-    private static string? FindMap(string mapName)
-    {
-        try
-        {
-            string steam = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
-                "Steam", "steamapps", "libraryfolders.vdf");
-
-            string ours = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "Tf2DemoSalvage", "maps");
-
-            return new MapLocator(steam, ours).Find(mapName);
-        }
-        catch (ArgumentException)
-        {
-            // A demo header naming something that is not a map name. The locator refuses it, and
-            // it is not worth failing the whole load over.
-            return null;
-        }
-    }
+    // **`FindGameFolder` and `FindMap` were here until 2026-08-26** (B188, D90). They are
+    // `MapProvider.GameFolder` and `MapProvider.Locate` now, and between them they held two of the
+    // THREE hand-typed copies of `ProgramFilesX86/Steam/steamapps/libraryfolders.vdf` this file
+    // carried — the third being the downloader's default folder, which had to agree with `FindMap`'s
+    // search path and did so only because the same components were typed in both.
+    //
+    // Where Steam puts things is not a fact about a window.
 
     /// <summary>Projects the map through a camera fitted to its own bounds.</summary>
     /// <remarks>
@@ -4865,7 +4831,7 @@ internal class MainForm : Form, IFrameSteps
                 item.Dispose();
             }
             _search.Dispose();
-            _downloader?.Dispose();
+            _maps.Dispose();
             _overlay?.Dispose();
             _wireframe.Dispose();
             _frameRate.Dispose();

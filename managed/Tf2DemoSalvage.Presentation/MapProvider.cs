@@ -1,0 +1,165 @@
+using System;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
+
+using Tf2DemoSalvage.Scene;
+
+namespace Tf2DemoSalvage.Presentation;
+
+/// <summary>What came of trying to fetch a map.</summary>
+/// <param name="Path">Where it landed, or null if it did not arrive.</param>
+/// <param name="Status">A line to show the user, whichever way it went.</param>
+public readonly record struct MapFetch(string? Path, string Status);
+
+/// <summary>Where maps come from: the disk first, then the network.</summary>
+/// <remarks>
+/// **This was `FindMap`, `DownloadMapAsync` and the `_downloader` field on <c>MainForm</c>**
+/// (B188, D90). None of it is view work — a window should not know Steam's directory layout, own an
+/// `HttpClient`, or decide that a missing map is worth fetching.
+///
+/// **The two search roots are policy, and they are why this is not just a call to `MapLocator`.**
+/// Steam's `libraryfolders.vdf` is the installed game; `%LOCALAPPDATA%/Tf2DemoSalvage/maps` is where
+/// our own downloads land. Which of those to consult, and in what order, is a decision about this
+/// application rather than about locating a file.
+///
+/// **The failure text comes from `MapDownloader.DescribeFailure`, deliberately.** It names the map
+/// and where it was sought; writing a second sentence here is how two messages drift until one is
+/// wrong.
+/// </remarks>
+public sealed class MapProvider : IDisposable
+{
+    private readonly string _steamLibraryFile;
+    private readonly string _ownMapsFolder;
+    private readonly Func<MapDownloader> _downloader;
+
+    private MapDownloader? _open;
+
+    /// <summary>A provider over explicit search roots.</summary>
+    /// <param name="steamLibraryFile">Steam's `libraryfolders.vdf`.</param>
+    /// <param name="ownMapsFolder">Where our own downloads land.</param>
+    /// <param name="downloader">Builds the downloader, once, on first use.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="downloader"/> is null.</exception>
+    public MapProvider(
+        string steamLibraryFile, string ownMapsFolder, Func<MapDownloader> downloader)
+    {
+        ArgumentNullException.ThrowIfNull(downloader);
+
+        _steamLibraryFile = steamLibraryFile;
+        _ownMapsFolder = ownMapsFolder;
+        _downloader = downloader;
+    }
+
+    /// <summary>Steam's library index, where an installed TF2's maps are listed.</summary>
+    public static string SteamLibraryFile => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+        "Steam",
+        "steamapps",
+        "libraryfolders.vdf");
+
+    /// <summary>Where maps this viewer downloaded are kept.</summary>
+    /// <remarks>
+    /// **Deliberately the downloader's own folder, not a second path that happens to match.**
+    /// `MainForm` spelled this out twice — `FindMap` searched
+    /// `%LOCALAPPDATA%/Tf2DemoSalvage/maps` while `DownloadMapAsync` wrote to
+    /// `MapDownloader.DefaultFolder` — and the two agreed only because the same three components
+    /// were typed in both places. **The folder we fetch into and the folder we search are the same
+    /// fact**, and if they ever drifted the symptom would be a map re-downloading on every open
+    /// with no error anywhere.
+    /// </remarks>
+    public static string OwnMapsFolder => MapDownloader.DefaultFolder;
+
+    /// <summary>A provider over this machine's usual places.</summary>
+    /// <returns>The provider.</returns>
+    public static MapProvider Installed() =>
+        new(SteamLibraryFile, OwnMapsFolder, () => MapDownloader.Create(OwnMapsFolder));
+
+    /// <summary>What to say while a map is being fetched.</summary>
+    /// <param name="mapName">The map.</param>
+    /// <returns>The line.</returns>
+    public static string Fetching(string mapName) => "Downloading map " + mapName + "...";
+
+    /// <summary>Where a map already is, if it is anywhere.</summary>
+    /// <param name="mapName">The map, without extension.</param>
+    /// <returns>Its path, or null if no search root holds it.</returns>
+    /// <remarks>
+    /// **Null rather than an exception when a search root is unusable.** `MapLocator` validates its
+    /// paths, and a viewer whose Steam install is missing or oddly placed must still open a demo —
+    /// it simply cannot find the map that way.
+    /// </remarks>
+    public string? Locate(string mapName)
+    {
+        try
+        {
+            return new MapLocator(_steamLibraryFile, _ownMapsFolder).Find(mapName);
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Where TF2 itself is installed, if it is.</summary>
+    /// <returns>The <c>tf</c> folder, or null when the game is not installed.</returns>
+    /// <remarks>
+    /// **The same Steam search as <see cref="Locate"/>, stopping one level higher**: the locator
+    /// wants <c>tf/maps</c> and this wants <c>tf</c> itself, where the archives and the custom
+    /// folder live. Null costs the stock textures and nothing else.
+    ///
+    /// **It is here because it was the THIRD copy of the Steam path in `MainForm`** — `FindMap`,
+    /// `FindGameFolder` and the downloader's default folder each spelled out
+    /// `ProgramFilesX86/Steam/steamapps/libraryfolders.vdf`. Three hand-typed copies of one path is
+    /// three chances to fix a bug in one of them.
+    ///
+    /// **Catches `IOException` as well as `ArgumentException`, unlike `Locate`**, and that is not an
+    /// oversight in either: this one enumerates library folders and reads what it finds, so the disk
+    /// can fail underneath it. `Find` resolves a path and does not.
+    /// </remarks>
+    public string? GameFolder()
+    {
+        try
+        {
+            return new MapLocator(_steamLibraryFile, _ownMapsFolder).FindGameFolder();
+        }
+        catch (Exception failure) when (failure is IOException or ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Fetch a map that is not installed.</summary>
+    /// <param name="mapName">The map, without extension.</param>
+    /// <param name="cancellationToken">Cancels the download.</param>
+    /// <returns>Where it landed and what to tell the user.</returns>
+    public async Task<MapFetch> FetchAsync(string mapName, CancellationToken cancellationToken)
+    {
+        try
+        {
+            // **Built inside the try, because it was inside the old one.** `MainForm` had
+            // `_downloader ??= MapDownloader.Create(...)` within the `catch (ArgumentException)`,
+            // and the downloader's constructor validates its folder. Hoisting it out would be a
+            // faithful-looking move that quietly narrows what is handled.
+            MapDownloader downloader = _open ??= _downloader();
+
+            string? landed = await downloader
+                .TryDownloadAsync(mapName, cancellationToken)
+                .ConfigureAwait(false);
+
+            return landed is null
+                ? new MapFetch(Path: null, downloader.DescribeFailure(mapName))
+                : new MapFetch(landed, Status: string.Empty);
+        }
+        catch (ArgumentException failure)
+        {
+            return new MapFetch(
+                Path: null, "Map " + mapName + " could not be fetched: " + failure.Message);
+        }
+    }
+
+    /// <summary>Closes the downloader, if one was ever built.</summary>
+    public void Dispose()
+    {
+        _open?.Dispose();
+        _open = null;
+    }
+}
