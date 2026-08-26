@@ -125,6 +125,53 @@ public sealed class TimeScaleTests
     }
 
     [Test]
+    public void Step_FromNormalSpeed_MovesOneRungUpTheLadder()
+    {
+        // **Which rung is next was `TransportBar._speedIndex` and a clamp** (D90). The stops live
+        // here, so stepping between them does too — a view holding an index into someone else's
+        // table is the shape that lets the two disagree.
+        TimeScale.Step(1d, direction: 1).Speed.ShouldBe(2d);
+        TimeScale.Step(1d, direction: -1).Speed.ShouldBe(0.5d);
+    }
+
+    [Test]
+    public void Step_AtEitherEndOfTheLadder_Stays()
+    {
+        TimeScale.Step(8d, direction: 1).Speed.ShouldBe(8d);
+        TimeScale.Step(-4d, direction: -1).Speed.ShouldBe(-4d);
+    }
+
+    [Test]
+    public void Step_DownPastTheSlowestForward_CrossesIntoReverse()
+    {
+        // **The ladder has no zero**, so the rung below the slowest forward speed is the slowest
+        // reverse one. That crossing is the whole reason reverse is reachable by button at all.
+        TimeScale.Step(0.25d, direction: -1).Speed.ShouldBe(-0.25d);
+    }
+
+    [Test]
+    public void Step_FromASpeedBetweenStops_ResumesFromTheNearestRung()
+    {
+        // **The case the slider created.** Dragging to 0.05 leaves the speed between rungs, and a
+        // button press then has to mean something. Nearest-then-step is what the transport did by
+        // re-homing an index after every drag; doing it here means the view keeps no index at all.
+        //
+        // 0.05 is nearest to 0.25, so up is 0.5 rather than a jump back to wherever the buttons
+        // were last left.
+        TimeScale.Step(0.05d, direction: 1).Speed.ShouldBe(0.5d);
+    }
+
+    [Test]
+    public void Step_FromASpeedTheSliderCanReach_DoesNotSnapSilently()
+    {
+        // **The control for the case above**, and the distinction that matters: stepping resumes
+        // from the nearest rung, but merely HOLDING a between-stops speed must not round it. A view
+        // that snapped on every read would make the fine band unusable while passing every test
+        // above.
+        TimeScale.From(0.05d).Speed.ShouldBe(0.05d);
+    }
+
+    [Test]
     public void Label_AtTheSlowest_ShowsTwoDecimalsRatherThanRoundingToNothing()
     {
         // **One decimal would render the whole band this change exists to reach as `0.0x`** — the

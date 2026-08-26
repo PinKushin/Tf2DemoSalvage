@@ -149,6 +149,54 @@ public readonly record struct TimeScale(double Speed)
     public static readonly double[] ShuttleStops =
         [-4, -2, -1, -0.5, -0.25, 0.25, 0.5, 1, 2, 4, 8];
 
+    /// <summary>The next rung of the shuttle ladder, up or down from a speed.</summary>
+    /// <param name="from">The speed now, which need not be a rung.</param>
+    /// <param name="direction">Plus one for faster, minus one for slower.</param>
+    /// <returns>The speed the shuttle lands on.</returns>
+    /// <remarks>
+    /// **This was `_speedIndex` and a clamp inside `TransportBar`** (B188, D90). A view holding an
+    /// index into a table that lives somewhere else is the shape that lets the two disagree; with
+    /// the stepping here the transport keeps no ladder state at all and reads its speed off the
+    /// slider.
+    ///
+    /// **Resumes from the NEAREST rung, which is what the slider made necessary.** Dragging to 0.05
+    /// leaves the speed between rungs, and a button press then has to mean something. The transport
+    /// used to re-home its index after every drag to get this; doing it here removes the index.
+    ///
+    /// **Stepping snaps, holding does not.** <see cref="From"/> keeps 0.05 exactly — a type that
+    /// rounded on every read would make the fine band unusable while looking correct from the
+    /// buttons.
+    /// </remarks>
+    public static TimeScale Step(double from, int direction)
+    {
+        int rung = Math.Clamp(NearestStop(from) + direction, 0, ShuttleStops.Length - 1);
+
+        return From(ShuttleStops[rung]);
+    }
+
+    /// <summary>The rung closest to a speed.</summary>
+    /// <param name="speed">Any speed in range.</param>
+    /// <returns>An index into <see cref="ShuttleStops"/>.</returns>
+    /// <remarks>
+    /// **Signed distance, not magnitude**, so −0.25 is nearest the reverse rung rather than the
+    /// forward one of the same size. A magnitude comparison would make every reverse speed step
+    /// forwards.
+    /// </remarks>
+    public static int NearestStop(double speed)
+    {
+        int nearest = 0;
+
+        for (int rung = 1; rung < ShuttleStops.Length; rung++)
+        {
+            if (Math.Abs(ShuttleStops[rung] - speed) < Math.Abs(ShuttleStops[nearest] - speed))
+            {
+                nearest = rung;
+            }
+        }
+
+        return nearest;
+    }
+
     /// <summary>The speed as it is written on screen.</summary>
     /// <returns>A short label, such as <c>0.25x</c>.</returns>
     /// <remarks>

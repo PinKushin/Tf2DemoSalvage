@@ -77,7 +77,10 @@ internal sealed class TransportBar : UserControl, IPlaybackView
     private readonly Label _speed;
     private readonly Label _tick;
 
-    private int _speedIndex = Array.IndexOf(TimeScale.ShuttleStops, 1.0);
+    // **`_speedIndex` was here until 2026-08-26** (D90). It was an index into `TimeScale.ShuttleStops`
+    // — a view holding a position in a table owned somewhere else, which had to be re-homed after
+    // every slider drag to stay honest. The slider is the state now and the ladder is a function of
+    // the speed on it, so there is nothing to keep in step.
 
     /// <summary>Guards the slider's own event while a button moves the thumb.</summary>
     /// <remarks>
@@ -351,10 +354,19 @@ internal sealed class TransportBar : UserControl, IPlaybackView
         }
     }
 
+    /// <summary>Where playback is, for the readout and for anyone asking.</summary>
+    /// <remarks>
+    /// **Read off the scrub bar**, which is the control that holds it, for the same reason
+    /// <see cref="PlaybackSpeed"/> reads off the speed slider: one source of truth per quantity.
+    /// </remarks>
+    public DemoPosition Position => new(_scrub.Value, _scrub.Maximum);
+
     private void UpdateTickLabel()
     {
-        _tick.Text = string.Create(
-            CultureInfo.InvariantCulture, $"tick {_scrub.Value} / {_scrub.Maximum}");
+        // **The format is `DemoPosition`'s** (D90). It was a literal here, and a UI test kept a
+        // second copy of it in a private parser — two places knowing one format is two places to
+        // change, and a rewording would have reddened the test with nothing wrong.
+        _tick.Text = Position.Label();
         _tick.AccessibleName = _tick.Text;
     }
 
@@ -426,13 +438,15 @@ internal sealed class TransportBar : UserControl, IPlaybackView
 
     private void StepSpeed(int direction)
     {
-        _speedIndex = Math.Clamp(_speedIndex + direction, 0, TimeScale.ShuttleStops.Length - 1);
-
         // **Moves the slider rather than holding a speed of its own**, so the thumb, the readout and
         // what is playing cannot disagree. Suppressed because the slider's own handler would
         // otherwise announce the change a second time.
+        //
+        // **Which rung is next is `TimeScale`'s** (D90). This kept an index into the stops table and
+        // re-homed it after every drag; the slider is the state now and the ladder is a function of
+        // the speed on it.
         _suppressSpeedEvent = true;
-        _speedBar.Value = TimeScale.From(TimeScale.ShuttleStops[_speedIndex]).Position();
+        _speedBar.Value = TimeScale.Step(PlaybackSpeed.Speed, direction).Position();
         _suppressSpeedEvent = false;
 
         UpdateSpeedLabel();
@@ -442,9 +456,9 @@ internal sealed class TransportBar : UserControl, IPlaybackView
 
     /// <summary>The slider was dragged, so the speed changed continuously.</summary>
     /// <remarks>
-    /// **Re-homes the button ladder to where the thumb now is**, so the next press of slower or
-    /// faster steps from the speed on screen rather than from wherever the buttons were left. Without
-    /// it, dragging to 0.05 and pressing faster would jump back to a stop chosen before the drag.
+    /// **Nothing to re-home any more.** This used to move a ladder index to the nearest stop so the
+    /// next button press stepped from the speed on screen; the slider is the only state now and
+    /// `TimeScale.Step` reads the ladder off it, so the same behaviour costs no field here (D90).
     /// </remarks>
     private void OnSpeedBarChanged(object? sender, EventArgs e)
     {
@@ -453,32 +467,9 @@ internal sealed class TransportBar : UserControl, IPlaybackView
             return;
         }
 
-        double speed = PlaybackSpeed.Speed;
-
-        _speedIndex = NearestStop(speed);
-
         UpdateSpeedLabel();
 
-        SpeedChanged?.Invoke(this, new SpeedEventArgs(speed));
-    }
-
-    /// <summary>The shuttle stop closest to a speed, for re-homing the buttons.</summary>
-    /// <param name="speed">The speed the slider is showing.</param>
-    /// <returns>An index into <see cref="TimeScale.ShuttleStops"/>.</returns>
-    private static int NearestStop(double speed)
-    {
-        int nearest = 0;
-
-        for (int stop = 1; stop < TimeScale.ShuttleStops.Length; stop++)
-        {
-            if (Math.Abs(TimeScale.ShuttleStops[stop] - speed)
-                < Math.Abs(TimeScale.ShuttleStops[nearest] - speed))
-            {
-                nearest = stop;
-            }
-        }
-
-        return nearest;
+        SpeedChanged?.Invoke(this, new SpeedEventArgs(PlaybackSpeed.Speed));
     }
 
     private void Seek(int tick)
