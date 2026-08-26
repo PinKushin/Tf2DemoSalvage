@@ -47,5 +47,26 @@ actually wanted.
 supersedes an in-flight run for the same ref, so rapid pushes do not stack — but each one restarts
 the LFS pull, which is the budget that actually binds.
 
+**A push to `main` is not finished until its run is read.** Measured 2026-08-26: two consecutive
+merges to `main` left the Test job RED and it went unnoticed for over an hour, because pushing felt
+like the end of the task. A green local gate says nothing about CI — that is the entire point of
+having CI — and this project's standing rule already goes further than a status tick (*"CI
+annotations count as build output"*). Not looking at all is worse than trusting the tick.
+
+**Both failures were things only CI could see, which is why the local gate stayed green:**
+
+- **Floor drift.** `build/gate.sh` and `.github/workflows/test.yml` carry the same numbers in two
+  places, and lowering one without the other fails only in CI. It happened twice in one session
+  (presentation and viewer). `CLAUDE.md` warns about this in those words, so the fix is mechanical:
+  after changing any floor, diff the two lists and confirm they agree.
+- **An environment-dependent test.** `WiringUiTests` asserted the viewer's log never says "no player
+  appearance" — true on a machine with TF2 installed, false on a runner without it, where the
+  appearance legitimately cannot build. **A test that passes locally and fails in CI is usually a
+  test asserting on the developer's machine**, and the fix is the assembly's existing
+  `ViewerSession.RequireTheGame()` gate rather than weakening the assertion.
+
+**How to apply:** after `git push origin main`, run `gh run list --branch main --limit 3`. If a run
+is still in flight, come back to it — do not report the work as landed until the run is read.
+
 Related: [[a-floor-must-track-the-number-it-guards]] and [[read-the-trx-total-not-the-console]] for
 reading the gate's output correctly.
