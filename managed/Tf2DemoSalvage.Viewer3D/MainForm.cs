@@ -1265,12 +1265,20 @@ internal class MainForm : Form, IFrameSteps
         // machine with no TF2 at all was told about the MAP and watched a download start, which is
         // the wrong cause and useless work. The owner's requirement is that a missing install "must
         // just error and mention it", and mentioning the wrong thing is worse than silence.
+        // **Says so and CARRIES ON, which the first version of this did not** (B211). Returning here
+        // was a regression and CI caught it: with no TF2 the viewer stopped downloading the map, so
+        // the world was never built. Every UI test failed with `worlds 0, textures 0`.
+        //
+        // **"No TF2 install" is not "nothing can be done about the map."** The downloader writes into
+        // the viewer's OWN maps folder, which `Locate` searches, and a map there draws without the
+        // game — models and stock textures are what go missing. Watching a demo on a machine with no
+        // TF2 is the salvage case, not an error case.
+        //
+        // The owner's requirement was to *mention* it, and mentioning it is all this does.
         if (found.Outcome == MapOutcome.NoGame)
         {
             _status.Text = NoGameInstalled;
             _mapLog.LogWarning("{Message}", NoGameInstalled);
-
-            return (false, _game);
         }
 
         if (found.Path is not { } path)

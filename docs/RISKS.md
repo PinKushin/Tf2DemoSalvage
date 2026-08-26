@@ -12526,6 +12526,24 @@ the unusual one.
 **The message names the fix, not just the fault**, and says the demo still plays — otherwise it reads
 as a refusal, and the viewer's whole point is that a demo is watchable without the map.
 
+#### The first fix was a worse bug, and only CI could see it
+
+The version that shipped in `aab91ab` **returned** after reporting the missing install. So with no
+TF2 the map was never downloaded and no world was ever built: all twenty UI tests failed on CI with
+`worlds 0, textures 0`, while the same suite passed 20/20 locally three times.
+
+**The mistake in one line: "no TF2 install" is not "nothing can be done about the map."** The
+downloader writes into the viewer's own maps folder, which the locator searches, and a map there
+draws without the game — models and stock textures are what go missing, not the world. Watching a
+demo on a machine with no TF2 is the salvage case this program exists for, not an error case. The
+requirement was to *mention* the missing install; mentioning it is all it may do.
+
+**The local suite is structurally blind to this**, because this machine has TF2 and never enters the
+branch. That inverts the usual reading of a local-green/CI-red split: normally it means a test is
+asserting on the developer's machine, and the fix is to gate the test. Here the **production code**
+assumed the developer's machine, and gating anything would have deleted the only instrument for the
+case that matters. Recorded as `docs/memory/ci-is-the-machine-without-tf2.md`.
+
 #### The comment beside it stated the wrong reason for the laziness
 
 `_game` is opened on the first map read, and the comment said why: *"finding and opening the archives
