@@ -11162,6 +11162,49 @@ reporter.
 So `WiringUiTests` gained `TheFrameReporter_AfterASecondOfFrames_WroteItsAccount`, and it was proved
 by manipulation: the only failure of twenty under exactly that sabotage.
 
+#### The map-loading fields, and the three that stay
+
+The last cluster the field audit named. Two came out and three did not, and the three are worth
+recording because "I looked and left it" is not distinguishable from "I did not look".
+
+**`_mapProblem` was a second copy of `_loaded.Problem`, and is gone.** Four assignments in two
+perfectly matched pairs — `ClearMap` nulled both, `LoadMap` set both from the same `map` — with
+nothing making them agree except that they were written next to each other. Its own doc argued it had
+to be a field because the map read runs off the UI thread, which is equally true of `_loaded` and is
+therefore an argument for one field rather than two. The status bar asks `_loaded?.Problem` now: the
+same value by construction instead of by care. This is B196's shape — *"two pieces of state
+describing one fact"* — which `WorldPresenter.TexturesAreCurrent` already documents from the other
+side.
+
+**`_loadsRequested` and four bare comparisons became `LoadTickets`**, six tests. The policy is "a
+newer request wins" and it needed no window to state; it was reachable only by racing two real
+`LoadDemoAsync` calls against a real 24-minute demo, which is a test that can exercise the orderings
+the machine happens to produce and cannot reach a boundary at all. That integration test stays.
+
+**Writing its tests first turned up a design question rather than a bug**, which is the argument for
+the order. The first draft asserted `IsCurrent(0)` is false — zero being what an uninitialised `int`
+holds. It is not false: the counter starts at zero, so zero compares equal to it. Making it false
+means adding `ticket != 0 &&`, a branch no caller can reach because every holder got its ticket from
+`Take` — dead code, and dead code under a condition is a permanent mutation survivor, since nothing
+can distinguish the guard from its absence. The invariant moved to where it can hold: `Take` counts
+from one, which is falsifiable (a post-increment hands out zero first) and is the whole reason no
+guard is needed downstream.
+
+**Three stay, and each for a stated reason:**
+
+- **`_worldIsStale`** is view-invalidation state. The consistency argument for moving it is real —
+  `WorldPresenter` already holds `TexturesAreCurrent`, so two flags about one object would sit in two
+  places — but its consumer, `ProjectWorld`, calls `ProjectMap` and `ReprojectScene`, both of which
+  are already thin view methods gathering view state (`_device`, `ViewMatrix()`, the viewport size)
+  for the presenter. Moving the flag alone gives `WorldPresenter` a flag it does not act on: **a flag
+  with a remote owner is worse than a local one**, not better. It moves when its consumer does.
+- **`_readingMap`** is the barrier that holds the render loop off while the map read replaces a dozen
+  fields (B146). Both ends are window activities. It goes with the loader, if the loader goes.
+- **`_openingDone`** latches `ApplyOpeningState`, whose body is a seek, a transport update, a moment
+  and a menu check — window work driven by `LaunchOptions`, which is already a Presentation type.
+
+`_reportedNoLeafBox` is a log-once latch for one diagnostic line and is not worth a type.
+
 ### B187 — the debug views do not apply to viewmodels — OPEN
 
 **Reported by the owner 2026-08-24**, alongside B186 and B170 as things that survived the D88 bone
