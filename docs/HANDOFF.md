@@ -190,12 +190,27 @@ how self-contained they are:
 3. ~~the three slow-frame reporters~~ — **done** as `StallReport`; turned up D94
 4. ~~`ToggleFirstPerson` and `FlyCamera`~~ — **done**: flight into `FreeCameraController`, the
    entry decision into `SpectatorView.Enter`
-5. `EnsureWeaponRoles` (103) — domain, and it is the member that already caused one regression
-6. `ProjectMap` (107) — splits: the projection is Scene, the control invalidation is view
-7. `ReadMap` (116) — mostly `LoadedMap.Read` already; what is left is error presentation
-8. `CountFrame` and the frame clock — `_flyWatch`, `_longestFrameSeconds`, `_lastFrameSeconds`.
+5. ~~`EnsureWeaponRoles`~~ — **done** as `DemoAppearance.Ensure`, and the wiring is now the RETURN
+   VALUE rather than a side effect, because a side effect is what went missing last time
+6. `CountFrame` and the frame clock — `_flyWatch`, `_longestFrameSeconds`, `_lastFrameSeconds`.
    `FlyCamera` still holds these because they are a METER, not a camera; they belong with
    `CountFrame`, which is the only other reader.
+
+**Then `ReadMap` (116), and it is bigger than its line count.** Almost none of it is reading a map —
+`LoadedMap.Read` already does that. It is **wiring**: telling `_sounds`, `_moment`, `_models`,
+`_soundscape`, `_loaded` and `_mapProblem` about a newly-read level, plus opening the install on
+first use. That is `IGameSystem::LevelInitPreEntity` (`igamesystem.h:39`) — Valve walks a list of
+systems and lets each initialise itself — and it is exactly the class of code B193 and B196 keep
+breaking, so it is the highest-value move left and wants its own tests.
+
+It belongs in **Presentation**, since that is the only project that can see all the systems it
+wires. Shape: a `LevelSystems` constructed once with its collaborators, `Load` per map — composition
+downward (D92), testable with fakes.
+
+**`ProjectMap` (107) goes with the FINAL cluster, not before it.** It reads as a map member and is
+really a presenter driving the device: `UploadWorldTextures`, `SetCamera`, `HasWorld`,
+`UploadWorldGeometry`, `ClearWorld`. It wants an interface the way `MomentScene.Upload` took
+`IModelUpload`, and it interlocks with `RenderFrame`'s phase order.
 
 **`MapCamera` moves LAST, after everything that calls it.** Nine call sites, most of them inside
 members still on this list (`ViewMatrix`, `LeafBoxLines`, `ProjectMap`, the pan and zoom handlers).
