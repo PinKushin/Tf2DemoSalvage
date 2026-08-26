@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: feedback
   originSessionId: 4774a88b-811c-40bb-9c79-9b22dc0a4474
-  modified: 2026-08-26T03:39:35.785Z
+  modified: 2026-08-26T03:43:52.579Z
 ---
 
 ## The rule is HOLD THE SUBJECT, not "always f12"
@@ -29,6 +29,16 @@ destroys the comparison whether or not the replacement is a good demo. Two conse
 **Familiarity is earned, not fixed.** Any demo watched enough becomes usable as a reference. f12 is
 today's answer because it is the one with the hours in it — so a second reference is added by using
 one repeatedly and deliberately, never by picking a fresh file per check.
+
+**The MAP counts as the subject too, and changing it is the expensive half.** The owner:
+
+> "not changing the map would have saved up 30 mins of unneeded right now debug work though, which
+> is another reason not to change the comparison map, for parity"
+
+Every map has its own normal — which props are where, which doors exist, what the lighting looks
+like. Swapping maps discards all of it and every oddity becomes a candidate defect, because there is
+no remembered baseline to measure against. Keep the map fixed for the same reason as the demo, and
+more strongly: a demo change with the map held is survivable, a map change is not.
 
 ## Why f12 is the one today
 

@@ -11993,3 +11993,29 @@ more — and that is the same constraint `docs/DECISIONS.md` D5 describes. **A r
 stating with it:** the period clients have no internet connection, so a modern item cannot be loaded
 into an era client to compare against. Where an era question cannot be answered by playing one, it
 has to be answered from the shipped data and the SDK.
+
+
+### B202 — Players missing in the 2013 granary POV, never checked against main — OPEN, unjudged
+
+**Reported 2026-08-25 and deliberately left unresolved**, because the instrument was wrong rather
+than the observation. Playing `20130518_0313_cp_process_granary_blu_blu.dem`-era POV footage
+(`tools/corpus/local/20130518_0313_cp_granary_blu_blu.dem`), enemies did not draw.
+
+**It was never run on `main`, so nobody knows which it is.** The owner:
+
+> "i didnt check that pov demo on main though, so idk is the missing players in that demo were a
+> parity issue or a new bug, but its fine right now"
+
+**Two readings, both live:**
+
+- **Expected.** A POV demo is PVS-limited — only entities in the recorder's potentially-visible set
+  are networked, so a player behind a wall is absent from the DATA, not from the render. That is
+  `docs/memory/pov-demos-are-pvs-limited.md`, and it is the reading the log supports: the cycle
+  followed team-2 entities, so enemies existed and passed `Drawn` at the ticks it sampled.
+- **A defect.** Enemies passing `CanObserve` but never reaching the screen would be a real fault, and
+  the two are indistinguishable without the comparison.
+
+**How to settle it, and it is one run:** play that same file on `main`, on the same map, and look. If
+enemies are absent there too it is PVS and expected; if they draw, it is ours. **Do not substitute a
+different demo or map to check** — that is what turned a half-hour question into an evening once
+already.
