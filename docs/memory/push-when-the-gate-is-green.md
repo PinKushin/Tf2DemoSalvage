@@ -65,8 +65,34 @@ annotations count as build output"*). Not looking at all is worse than trusting 
   test asserting on the developer's machine**, and the fix is the assembly's existing
   `ViewerSession.RequireTheGame()` gate rather than weakening the assertion.
 
-**How to apply:** after `git push origin main`, run `gh run list --branch main --limit 3`. If a run
-is still in flight, come back to it — do not report the work as landed until the run is read.
+**A run can be ABSENT, and absent looks exactly like "not looked at yet".** Measured 2026-08-26: a
+merge pushed to `main` at 15:14 UTC produced **no workflow run at all**. Fifteen minutes later
+`gh run list --branch main` still showed the previous commit's run at the top — green, and about a
+different commit. Reading that list casually says "main is green".
+
+Everything checked out: `origin/main` and `gh api repos/{repo}/commits/main` both held the merge,
+all four workflows reported `state=active`, Actions permissions were `enabled`. The repository's
+own event list had no `PushEvent` for `refs/heads/main` at that time either, though it did list a
+sub-branch push twenty minutes earlier. A `workflow_dispatch` on the same ref queued immediately, so
+nothing was broken — the push just did not dispatch.
+
+**So verify by SHA, never by reading the top of the list:**
+
+```bash
+gh api "repos/{owner}/{repo}/actions/runs?head_sha=$(git rev-parse main)" --jq .total_count
+```
+
+`0` means no run exists; re-trigger with `gh workflow run <name> --ref main` rather than waiting.
+Every workflow that gates a merge should therefore carry `workflow_dispatch`, or there is no way to
+ask for the run that did not happen.
+
+**And use the FULL sha.** The first attempt at that query padded a short sha out to forty characters
+by hand; it returned `0` for a commit that does not exist, which is the same answer as the real
+problem and would have been believed. `$(git rev-parse main)` rather than anything typed.
+
+**How to apply:** after `git push origin main`, run the count query above, then
+`gh run list --branch main --limit 3`. If a run is still in flight, come back to it — do not report
+the work as landed until the run is read.
 
 Related: [[a-floor-must-track-the-number-it-guards]] and [[read-the-trx-total-not-the-console]] for
 reading the gate's output correctly.
