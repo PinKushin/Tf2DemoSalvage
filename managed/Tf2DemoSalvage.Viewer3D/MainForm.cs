@@ -1758,52 +1758,12 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private void LoadUserConfig()
     {
-        try
+        // **Assigned only when something was actually read**, which is what the old body did by
+        // returning early. `LoadFrom` answers null rather than handing back its own defaults, so an
+        // unreadable config cannot quietly replace the bindings this form already has.
+        if (_console.LoadFrom(_maps.GameFolder(), _loggers, _configLog) is { } loaded)
         {
-            string? game = _maps.GameFolder() ?? Tf2ConfigFiles.DefaultGameFolder;
-
-            if (game is null)
-            {
-                _configLog.LogInformation("{Message}", "no TF2 install found; using the built-in bindings");
-                return;
-            }
-
-            IReadOnlyList<string> configs = Tf2ConfigFiles.Read(game, _loggers.LogTo());
-
-            if (configs.Count == 0)
-            {
-                _configLog.LogInformation("{Message}", $"no configs under {game}; using the built-in bindings");
-                return;
-            }
-
-            _console.Load(configs);
-            _bindings = _console.Bindings();
-
-            _configLog.LogInformation(
-                "{Message}",
-                $"{configs.Count} files, {_console.Applied} of {_console.Bound} binds applied");
-
-            foreach ((ViewerAction action, string key) in _bindings.All())
-            {
-                _configLog.LogInformation("{Message}", $"  {action,-20} {key}");
-            }
-
-            // **The controls their config left unreachable, named rather than left to be noticed.**
-            // A key bound to a TF2 command this viewer does not implement — `bind "SHIFT" "+duck"`
-            // is the real example — takes that key away from whatever used to answer to it, and the
-            // symptom is a control that silently does nothing.
-            if (_console.Unbound() is { Count: > 0 } unbound)
-            {
-                _configLog.LogInformation(
-                    "{Message}",
-                    $"no key reaches: {string.Join(", ", unbound)} " +
-                    "(their config bound those keys to commands this viewer has no equivalent for)");
-            }
-        }
-        catch (Exception failure) when (failure is IOException or ArgumentException
-                                            or UnauthorizedAccessException or NotSupportedException)
-        {
-            _configLog.LogInformation(failure, "could not read the TF2 configs");
+            _bindings = loaded;
         }
     }
 
@@ -3769,41 +3729,8 @@ internal class MainForm : Form, IFrameSteps
     /// A failure costs the precache and nothing else: anything missed is decoded on first play
     /// exactly as before, which is slower rather than broken.
     /// </remarks>
-    private void PrecacheSounds(DemoTimeline? timeline)
-    {
-        if (timeline is null || _game is null)
-        {
-            return;
-        }
-
-        try
-        {
-            // **The map's ambience is listed alongside the demo's own sounds, because no demo
-            // message names it.** A soundscape's loops come from the map's `env_soundscape`
-            // entities via `scripts/soundscapes.txt`, so the timeline cannot list them and the
-            // first pass here missed them entirely: measured 2026-08-25, `ambient/indoors.wav`
-            // still cost 103 ms in one frame after the timeline's 395 sounds were already
-            // precached.
-            //
-            // Every soundscape in the catalog rather than the ones this recording enters — which
-            // soundscape is active changes as a player walks and a seek can land anywhere, so being
-            // selective would only move the hitch to the next doorway.
-            PrecacheResult result = _sounds.Precache(
-                DemoSounds.ToPrecache(timeline.SoundsToPrecache(), _soundscape));
-
-            _audioLog.LogInformation(
-                "{Message}",
-                string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"precached {result.Decoded} of {result.Named} sounds " +
-                    $"in {result.Seconds * 1000d:0} ms"));
-        }
-        catch (Exception failure) when (
-            failure is InvalidDataException or ArgumentException or KeyNotFoundException)
-        {
-            _audioLog.LogWarning(failure, "precaching sounds");
-        }
-    }
+    private void PrecacheSounds(DemoTimeline? timeline) =>
+        DemoSounds.Precache(_sounds, timeline, _game, _soundscape, _audioLog);
 
     /// <summary>This frame's screen-space overlay, which is the frame-rate meter and nothing else.</summary>
     /// <returns>Quads in screen pixels, empty when there is nothing to draw.</returns>
@@ -4443,37 +4370,25 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private void CycleTarget(bool reverse)
     {
-        if (!_firstPerson || _timeline is not { } timeline)
+        // **First person is the window's condition, not the spectator's.** Which player comes next
+        // is a fact about the roster whether or not anyone is looking through their eyes; that this
+        // key does nothing in the overhead view is a decision about this UI.
+        if (!_firstPerson)
         {
             return;
         }
 
-        IReadOnlyList<ScenePlayer> players = timeline.PlayersAt(_transport.CurrentTick);
+        SpectatorSwitch switched = _spectator.Cycle(_transport.CurrentTick, reverse);
 
-        if (SpectatorTarget.Next(
-                players, _spectator.Spectating ?? FollowedEntity(), reverse) is not { } next)
+        _spectateLog.LogDebug("{Message}", switched.Message);
+
+        if (!switched.Switched)
         {
-            _spectateLog.LogDebug("{Message}", "nobody else to follow at this tick");
             return;
         }
 
-        _spectator.Spectating = next.EntityIndex;
         _worldIsStale = true;
         _viewport.Invalidate();
-
-        // **Both counts, because printing only the roster misled a real investigation.** This said
-        // "of 12" from `players.Count` while the cycle was choosing from the OBSERVABLE set — which
-        // on a POV demo is often one, since everyone outside the recorder's PVS is not `Drawn`.
-        // Clicking then returns the same player every time, `(at + 1) % 1` being 0, and the line
-        // claimed twelve candidates. Reporting both says which kind of nothing is happening: a
-        // cycle with one reachable player out of twelve is a POV demo behaving correctly.
-        int reachable = SpectatorTarget.Observable(players).Count;
-
-        _spectateLog.LogDebug(
-            "{Message}",
-            $"following entity {next.EntityIndex} (team {next.Team}) " +
-            $"of {reachable} observable ({players.Count} on the roster) " +
-            $"at tick {_transport.CurrentTick}");
     }
 
     /// <summary>The world position under a point in the viewport.</summary>

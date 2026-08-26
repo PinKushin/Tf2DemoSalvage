@@ -73,6 +73,11 @@ public sealed class TimelineEyes(DemoTimeline timeline) : IEyeSource
 /// <param name="Status">What the user is told, or null when nothing was refused.</param>
 public readonly record struct FirstPersonEntry(bool Entered, string Message, string? Status);
 
+/// <summary>What came of trying to follow somebody else.</summary>
+/// <param name="Switched">Whether the target actually moved.</param>
+/// <param name="Message">What happened, for the spectate log.</param>
+public readonly record struct SpectatorSwitch(bool Switched, string Message);
+
 public sealed class SpectatorView
 {
     private readonly ILogger _spectate;
@@ -201,6 +206,51 @@ public sealed class SpectatorView
                 ? "first person on, following the recording's own camera"
                 : "first person on, spectating a player (this demo has no recorded camera)",
             Status: null);
+    }
+
+    /// <summary>Follow the next player along, or the previous one.</summary>
+    /// <param name="tick">The tick whose roster to walk.</param>
+    /// <param name="reverse">Whether to go backwards.</param>
+    /// <returns>Whether the target moved, and what to log.</returns>
+    /// <remarks>
+    /// **This was `MainForm.CycleTarget`** (B188, D90). Which player comes next is a question about
+    /// a roster and about who can be observed at all; the window's only stake is that something
+    /// changed and the view needs rebuilding.
+    ///
+    /// **`Spectating` is left ALONE when there is nobody else**, rather than being cleared or
+    /// reassigned to the same value. A refusal that still wrote to the property would read
+    /// identically in the log and differ only on screen.
+    ///
+    /// **Both counts are reported, because printing only the roster misled a real investigation.**
+    /// The line said "of 12" from the roster while the cycle was choosing from the OBSERVABLE set —
+    /// which on a POV demo is often one, since everyone outside the recorder's PVS is not `Drawn`.
+    /// Clicking then returns the same player every time, `(at + 1) % 1` being 0, while the line
+    /// claimed twelve candidates. Reporting both says which kind of nothing is happening: one
+    /// reachable player out of twelve is a POV demo behaving correctly.
+    /// </remarks>
+    public SpectatorSwitch Cycle(int tick, bool reverse)
+    {
+        if (Eyes is not { } eyes)
+        {
+            return new SpectatorSwitch(Switched: false, "no demo open");
+        }
+
+        IReadOnlyList<ScenePlayer> players = eyes.PlayersAt(tick);
+
+        if (SpectatorTarget.Next(players, Spectating ?? Followed(tick), reverse) is not { } next)
+        {
+            return new SpectatorSwitch(Switched: false, "nobody else to follow at this tick");
+        }
+
+        Spectating = next.EntityIndex;
+
+        int reachable = SpectatorTarget.Observable(players).Count;
+
+        return new SpectatorSwitch(
+            Switched: true,
+            $"following entity {next.EntityIndex} (team {next.Team}) " +
+            $"of {reachable} observable ({players.Count} on the roster) " +
+            $"at tick {tick}");
     }
 
     /// <summary>The camera for the first-person view, or null when there is none.</summary>

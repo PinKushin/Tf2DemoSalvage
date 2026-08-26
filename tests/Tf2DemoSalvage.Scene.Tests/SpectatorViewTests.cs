@@ -143,6 +143,93 @@ public sealed class SpectatorViewTests
         Should.Throw<ArgumentNullException>(() => new SpectatorView(spectate: null!));
     }
 
+    [Test]
+    public void Cycle_WithSeveralToFollow_MovesToTheNextAndSaysWhere()
+    {
+        // **This was `MainForm.CycleTarget`** (B188, D90). Which player comes next is a question
+        // about a roster, and the window's only stake in the answer is that something changed.
+        SpectatorView view = View(Eyes(recorder: 1, recorded: false, [Player(1), Player(2)]));
+        view.Spectating = 1;
+
+        SpectatorSwitch switched = view.Cycle(tick: 100, reverse: false);
+
+        switched.Switched.ShouldBeTrue();
+        view.Spectating.ShouldBe(2, "the point of cycling is that the target actually moves");
+        switched.Message.ShouldContain("entity 2");
+    }
+
+    [Test]
+    public void Cycle_WithAnEmptyRoster_LeavesTheTargetAloneAndSaysSo()
+    {
+        // **The target must NOT move on a refusal.** A cycle that reported failure while still
+        // reassigning `Spectating` would look identical in the log and differ only on screen.
+        SpectatorView view = View(Eyes(recorder: 1, recorded: false, []));
+        view.Spectating = 7;
+
+        SpectatorSwitch switched = view.Cycle(tick: 100, reverse: false);
+
+        switched.Switched.ShouldBeFalse();
+        view.Spectating.ShouldBe(7);
+        switched.Message.ShouldBe("nobody else to follow at this tick");
+    }
+
+    [Test]
+    public void Cycle_WithOnlyOnePlayer_WrapsBackToThatSamePlayer()
+    {
+        // **Pins existing behaviour rather than proposing better behaviour.** `SpectatorTarget.Next`
+        // steps modulo the observable count, so one player cycles to itself and this reports a
+        // switch that changes nothing — the log then says "following entity 1" when nothing moved.
+        //
+        // That is mildly odd and it is NOT this refactor's to change: `MainForm.CycleTarget` did
+        // exactly the same, and a move that quietly improves behaviour is the hardest kind of
+        // regression to find later. Written down here so the next reader knows it was seen and left.
+        SpectatorView view = View(Eyes(recorder: 1, recorded: false, [Player(1)]));
+        view.Spectating = 1;
+
+        SpectatorSwitch switched = view.Cycle(tick: 100, reverse: false);
+
+        switched.Switched.ShouldBeTrue();
+        view.Spectating.ShouldBe(1);
+    }
+
+    [Test]
+    public void Cycle_WithNoDemoOpen_RefusesRatherThanThrowing()
+    {
+        SpectatorView view = new(new RecordingLogger());
+
+        view.Cycle(tick: 0, reverse: false).Switched.ShouldBeFalse();
+    }
+
+    [Test]
+    public void Cycle_InReverse_MovesTheOtherWay()
+    {
+        // **A control on the direction flag.** Without it, `reverse` could be ignored entirely and
+        // every forward test would still pass — the classic condition where correct and broken
+        // predict the same observation.
+        SpectatorView forward = View(Eyes(1, false, [Player(1), Player(2), Player(3)]));
+        SpectatorView backward = View(Eyes(1, false, [Player(1), Player(2), Player(3)]));
+
+        forward.Spectating = 2;
+        backward.Spectating = 2;
+
+        forward.Cycle(tick: 100, reverse: false);
+        backward.Cycle(tick: 100, reverse: true);
+
+        forward.Spectating.ShouldBe(3);
+        backward.Spectating.ShouldBe(1);
+    }
+
+    [Test]
+    public void Cycle_OverARoster_CountsTheObservableRatherThanEveryone()
+    {
+        // The line reports both numbers on purpose: "of N observable (M on the roster)" is what
+        // tells a reader whether a small N is a filter working or a demo with nobody in it.
+        SpectatorView view = View(Eyes(1, false, [Player(1), Player(2)]));
+        view.Spectating = 1;
+
+        view.Cycle(tick: 100, reverse: false).Message.ShouldContain("2 on the roster");
+    }
+
     private static SpectatorView View(IEyeSource eyes) =>
         new(new RecordingLogger()) { Eyes = eyes };
 
