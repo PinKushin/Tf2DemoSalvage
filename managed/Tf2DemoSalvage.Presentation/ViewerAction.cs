@@ -59,8 +59,14 @@ public enum ViewerAction
     /// <summary>Fly the free camera down.</summary>
     FlyDown,
 
-    /// <summary>Fly faster while held.</summary>
-    FlyFast,
+    /// <summary>Fly SLOWER while held — Source's <c>+speed</c> is the walk key.</summary>
+    /// <remarks>
+    /// **Named `FlyFast` until 2026-08-26, and it made the camera four times faster** (B215). The
+    /// name was the bug's other half: `IN_SPEED` divides the move factor by two in both
+    /// `FullObserverMove` and `FullNoClipMove`, so a person pasting their own config (D69) bound the
+    /// key they use for careful positioning and got a sprint.
+    /// </remarks>
+    FlyWalk,
 }
 
 /// <summary>
@@ -153,7 +159,7 @@ public sealed class KeyBindings
             // OUT on a key that did nothing — with Windows dinging on each unhandled press.
             [ViewerAction.FlyUp] = "'",
             [ViewerAction.FlyDown] = "/",
-            [ViewerAction.FlyFast] = "SHIFT",
+            [ViewerAction.FlyWalk] = "SHIFT",
         };
 
     /// <summary>The Source command each action answers to.</summary>
@@ -183,7 +189,7 @@ public sealed class KeyBindings
             [ViewerAction.FlyRight] = "+moveright",
             [ViewerAction.FlyUp] = "+moveup",
             [ViewerAction.FlyDown] = "+movedown",
-            [ViewerAction.FlyFast] = "+speed",
+            [ViewerAction.FlyWalk] = "+speed",
 
             // Ours, because TF2 has nothing that means these.
             [ViewerAction.ResetCamera] = "resetcamera",

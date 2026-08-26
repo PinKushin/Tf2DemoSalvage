@@ -131,11 +131,11 @@ public sealed class ConfigConsole
     /// pressed into the console, or pressed but never swallowed, produces a camera that moves once
     /// and stops.**
     ///
-    /// **`FlyFast` is in the set, and it did not used to be** (D69). Shift was read straight off
+    /// **`FlyWalk` is in the set, and it did not used to be** (D69). Shift was read straight off
     /// `Control.ModifierKeys`, on the grounds that a modifier's state is something the toolkit
     /// already knows. That stopped being true when the console took over the controls: `+speed` is
-    /// a bound command like any other, so Shift has to be pressed INTO the console or the speed
-    /// multiplier never fires — and it fails silently, as a camera that simply never goes fast.
+    /// a bound command like any other, so Shift has to be pressed INTO the console or the modifier
+    /// never fires — and it fails silently, as a camera whose speed simply never changes.
     /// </remarks>
     public static IReadOnlySet<ViewerAction> HeldActions { get; } = new HashSet<ViewerAction>
     {
@@ -145,7 +145,7 @@ public sealed class ConfigConsole
         ViewerAction.FlyRight,
         ViewerAction.FlyUp,
         ViewerAction.FlyDown,
-        ViewerAction.FlyFast,
+        ViewerAction.FlyWalk,
     };
 
     /// <summary>Whether a key drives anything this console holds down.</summary>
@@ -225,6 +225,9 @@ public sealed class ConfigConsole
     /// <code>
     /// no key reaches: ResetCamera, PlayPause, FlyFast
     /// </code>
+    ///
+    /// (Quoted as it was observed. That third action is <see cref="ViewerAction.FlyWalk"/> since
+    /// B215, so a run today prints the new name.)
     ///
     /// **`resetcamera` and `playpause` are this project's own command names.** TF2 has no concept of
     /// either, so no TF2 config can ever bind them — it simply uses `f` and `k` for its own purposes
@@ -485,7 +488,7 @@ public sealed class ConfigConsole
         Forward: Axis(ViewerAction.FlyForward, ViewerAction.FlyBack),
         Right: Axis(ViewerAction.FlyRight, ViewerAction.FlyLeft),
         Up: Axis(ViewerAction.FlyUp, ViewerAction.FlyDown),
-        Fast: IsHeld(ViewerAction.FlyFast));
+        Walk: IsHeld(ViewerAction.FlyWalk));
 
     /// <summary>One axis: the positive button's state less the negative one's.</summary>
     /// <remarks>
@@ -522,7 +525,7 @@ public sealed class ConfigConsole
     /// </code>
     ///
     /// and this viewer has no crouch, so Shift now runs a command that does nothing — and
-    /// <see cref="ViewerAction.FlyFast"/>, whose default key was Shift, is left with nothing to
+    /// <see cref="ViewerAction.FlyWalk"/>, whose default key was Shift, is left with nothing to
     /// press. **That is the config being honoured correctly**, not a bug: the player said Shift is
     /// duck, and quietly overriding them to mean "fly fast" would be this viewer deciding it knows
     /// better than the file it was asked to obey.

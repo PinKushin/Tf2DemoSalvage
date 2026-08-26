@@ -157,3 +157,4 @@
 - [No hardcoded controls ever](no-hardcoded-controls-ever.md) — D101; every key through the config, and never add a new literal.
 - [A ConVar registration is three pushes](a-convar-registration-is-three-pushes.md) — default, flags and help from ~20 bytes of x86.
 - [An impossibility claim expires](an-impossibility-claim-expires.md) — "X cannot be known" is never re-read once X is established.
+- [Ask which engine mechanism you are copying](ask-which-engine-mechanism-you-are-copying.md) — a citation makes a wrong reference look settled.

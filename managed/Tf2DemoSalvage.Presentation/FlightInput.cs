@@ -8,7 +8,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="Forward">−1 back through +1 forward.</param>
 /// <param name="Right">−1 left through +1 right.</param>
 /// <param name="Up">−1 down through +1 up.</param>
-/// <param name="Fast">Whether the speed multiplier applies.</param>
+/// <param name="Walk">Whether <c>+speed</c> is held, which makes the camera SLOWER (B215).</param>
 /// <remarks>
 /// **This is the seam that got `Keys` out of the geometry.** `FreeFlight.Movement` used to take a
 /// <c>IReadOnlySet&lt;Keys&gt;</c> and do two unrelated jobs in one function: decide that W means
@@ -20,7 +20,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// geometry could only be exercised by constructing WinForms key sets, which is why a function of
 /// pure trigonometry had no direct tests.
 /// </remarks>
-public readonly record struct FlightInput(float Forward, float Right, float Up, bool Fast)
+public readonly record struct FlightInput(float Forward, float Right, float Up, bool Walk)
 {
     /// <summary>Nothing held.</summary>
     public static FlightInput None => default;
@@ -45,11 +45,52 @@ public readonly record struct FlightInput(float Forward, float Right, float Up, 
 /// </remarks>
 public static class FreeFlightPath
 {
-    /// <summary>Units travelled per second at normal speed.</summary>
-    public const float SpeedPerSecond = 600f;
+    /// <summary><c>sv_maxspeed</c>, shipped <c>320</c>.</summary>
+    public const float MaxSpeed = 320f;
 
-    /// <summary>How much faster the modifier makes it.</summary>
-    public const float FastMultiplier = 4f;
+    /// <summary><c>sv_specspeed</c>, shipped <c>3</c> — <c>movevars_shared.cpp:48</c>.</summary>
+    public const float SpectatorScale = 3f;
+
+    /// <summary><c>cl_forwardspeed</c> and <c>cl_sidespeed</c>, shipped <c>450</c>.</summary>
+    /// <remarks><c>in_main.cpp:78</c>. Only reachable through the clamp, never on its own.</remarks>
+    public const float ForwardSpeed = 450f;
+
+    /// <summary>Units travelled per second with nothing else held.</summary>
+    /// <remarks>
+    /// **960, and it is `sv_maxspeed * sv_specspeed` rather than a number anyone picked** (B215).
+    ///
+    /// TF2's roaming spectator runs `FullObserverMove` (`gamemovement.cpp:2144`), which delegates
+    /// straight to `FullNoClipMove( sv_specspeed, sv_specaccelerate )` because `sv_specnoclip` ships
+    /// `1` — so the clipped body below that branch is dead at shipped settings. `FullNoClipMove`
+    /// opens with `float maxspeed = sv_maxspeed.GetFloat() * factor;` (`:2260`).
+    ///
+    /// The keys ask for more than this and never get it: forward is `cl_forwardspeed * factor` =
+    /// 1350, clamped to 960. Vertical asks for `cl_upspeed(320) * 3` = 960 exactly, which is why one
+    /// constant can serve every axis here.
+    ///
+    /// **This viewer flew at 600 until 2026-08-26**, which was nobody's reading of the engine — it
+    /// was reasoned from the keyboard-repeat defect it replaced (B97). The free camera was slower
+    /// than the game's, while carrying a ×4 modifier that suggested the opposite.
+    /// </remarks>
+    public const float SpeedPerSecond = MaxSpeed * SpectatorScale;
+
+    /// <summary>Units travelled per second with <c>+speed</c> held.</summary>
+    /// <remarks>
+    /// **675, which is 70.3% of normal and NOT half of it.** `FullNoClipMove` halves `factor`
+    /// (`:2265`) *after* computing `maxspeed` from the unhalved value, so the normal case is clamped
+    /// to 960 and this one — `cl_forwardspeed * 1.5` = 675 — stays under the ceiling untouched.
+    /// Reading `factor /= 2.0f` as "halves the camera" gives 480 and is wrong by 20 points.
+    /// </remarks>
+    public const float WalkSpeed = ForwardSpeed * (SpectatorScale / 2f);
+
+    /// <summary>What <c>+speed</c> multiplies the speed by: 0.703125.</summary>
+    /// <remarks>
+    /// **Source's <c>+speed</c> is the WALK key — it slows you down.** `IN_SPEED` divides the move
+    /// factor by two in both `FullObserverMove` and `FullNoClipMove`. This viewer bound Shift to
+    /// `+speed` and then made it a ×4 accelerator, so a pasted config (D69) did the opposite of what
+    /// its author meant: a key held for precise positioning quadrupled the speed instead.
+    /// </remarks>
+    public const float WalkMultiplier = WalkSpeed / SpeedPerSecond;
 
     /// <summary>Where one frame of flight moves the camera.</summary>
     /// <param name="input">What is being asked for.</param>
@@ -100,7 +141,7 @@ public static class FreeFlightPath
             return (0f, 0f, 0f);
         }
 
-        float travel = (float)(SpeedPerSecond * (input.Fast ? FastMultiplier : 1f) * seconds);
+        float travel = (float)(SpeedPerSecond * (input.Walk ? WalkMultiplier : 1f) * seconds);
         float scale = travel / length;
 
         return (x * scale, y * scale, z * scale);

@@ -1,3 +1,5 @@
+using Tf2DemoSalvage.Scene;
+
 namespace Tf2DemoSalvage.Presentation.Tests;
 
 /// <summary>
@@ -99,5 +101,35 @@ public sealed class FrameTimingConformanceTests
         const double FadeSeconds = 3d;
 
         (FadeSeconds / 0.5d).ShouldBe(6d, "a half-speed demo still fades in three real seconds");
+    }
+
+    [Test]
+    public void NoFocusSleep_WithoutFocus_IsValvesFiftyMilliseconds()
+    {
+        // **`engine_no_focus_sleep`, shipped `50` with `FCVAR_ARCHIVE`** (B209). Read from the
+        // registration in `docs/findings/37-the-engines-demo-vocabulary.md` and confirmed in
+        // `tf/cvarlist.log`. Fifty milliseconds a frame is roughly 20 fps while alt-tabbed; this
+        // viewer rendered at its full rate, which is battery spent on a window nobody is watching.
+        FramePacer.NoFocusSleep(hasFocus: false, ViewerSettings.DefaultNoFocusSleep)
+            .ShouldBe(50);
+    }
+
+    [Test]
+    public void NoFocusSleep_WithFocus_IsNoSleepAtAll()
+    {
+        // The control. Without it "sleeps when unfocused" and "sleeps always" are the same
+        // observation, and the second is a viewer that runs at 20 fps while you are using it.
+        FramePacer.NoFocusSleep(hasFocus: true, ViewerSettings.DefaultNoFocusSleep)
+            .ShouldBe(0);
+    }
+
+    [Test]
+    public void NoFocusSleep_ConfiguredToZero_RestoresFullRate()
+    {
+        // Zero is a meaningful setting rather than a rejected one: someone watching this on a second
+        // monitor while working in another window wants the frames. Negative is nonsense and is
+        // treated as none rather than obeyed.
+        FramePacer.NoFocusSleep(hasFocus: false, 0).ShouldBe(0);
+        FramePacer.NoFocusSleep(hasFocus: false, -1).ShouldBe(0);
     }
 }

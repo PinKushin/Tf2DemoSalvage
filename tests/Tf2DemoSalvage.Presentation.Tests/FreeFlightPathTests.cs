@@ -31,7 +31,7 @@ public sealed class FreeFlightPathTests
         // **Valve's convention: X forward, Y left, Z up.** A camera at yaw 0 and pitch 0 faces +X,
         // so forward must move along it and nowhere else.
         (float x, float y, float z) = FreeFlightPath.Movement(
-            new FlightInput(Forward: 1f, Right: 0f, Up: 0f, Fast: false), Half, pitch: 0f, yaw: 0f);
+            new FlightInput(Forward: 1f, Right: 0f, Up: 0f, Walk: false), Half, pitch: 0f, yaw: 0f);
 
         x.ShouldBe(Travel, 0.01);
         y.ShouldBe(0f, 0.01);
@@ -80,12 +80,16 @@ public sealed class FreeFlightPathTests
     }
 
     [Test]
-    public void Movement_Fast_MultipliesTheDistanceAndNothingElse()
+    public void Movement_Walking_ScalesTheDistanceAndNothingElse()
     {
+        // **`+speed` SLOWS the camera** — see `FreeCameraConformanceTests` for the engine reading.
+        // This test only pins that the modifier scales distance and leaves the direction alone; the
+        // magnitude is the conformance suite's to predict.
         (float x, float y, float z) = FreeFlightPath.Movement(
-            new FlightInput(1f, 0f, 0f, Fast: true), Half, pitch: 0f, yaw: 0f);
+            new FlightInput(1f, 0f, 0f, Walk: true), Half, pitch: 0f, yaw: 0f);
 
-        x.ShouldBe(Travel * FreeFlightPath.FastMultiplier, 0.1);
+        x.ShouldBe(Travel * FreeFlightPath.WalkMultiplier, 0.1);
+        x.ShouldBeLessThan(Travel, "walking is slower than not walking");
         y.ShouldBe(0f, 0.01, "and the direction is unchanged");
         z.ShouldBe(0f, 0.01);
     }
@@ -107,7 +111,7 @@ public sealed class FreeFlightPathTests
         // axis exactly after projection — and a naive divide by the resulting zero length yields
         // NaN, which moves the camera to nowhere and never comes back.
         (float x, float y, float z) = FreeFlightPath.Movement(
-            new FlightInput(Forward: 1f, Right: 0f, Up: 1f, Fast: false), Half, pitch: 90f, yaw: 0f);
+            new FlightInput(Forward: 1f, Right: 0f, Up: 1f, Walk: false), Half, pitch: 90f, yaw: 0f);
 
         float.IsNaN(x).ShouldBeFalse();
         (x, y, z).ShouldBe((0f, 0f, 0f));

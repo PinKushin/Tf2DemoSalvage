@@ -366,7 +366,16 @@ run Tf2DemoSalvage.Audio.Tests    audio     161
 # Nothing was lost that mattered: Valve's CanPlayerBeSeen rules, which MapOverviewTests asserted,
 # are written up in docs/findings/38-which-players-can-be-shown.md because the markers return as a
 # free-camera option and will need every one of them again.
-run Tf2DemoSalvage.Presentation.Tests presentation 374
+# 374 -> 379 on 2026-08-26: FreeCameraConformanceTests, five, written before the fix for B215.
+# They pin the ROAMING SPECTATOR as the parity reference rather than cl_demoviewoverride, on the
+# owner's reading that a demo viewer imitates spectating; then sv_maxspeed*sv_specspeed = 960 as the
+# ceiling, and +speed as Source's WALK key at 675 (70.3%, not 50% — the ceiling is computed before
+# the halving, so the normal case is clamped and the walking case is not).
+# 379 -> 382 same day: three more in FrameTimingConformanceTests for engine_no_focus_sleep (B209),
+# which ships at 50ms and FCVAR_ARCHIVE. One asserts the value, one is the control that separates
+# "sleeps when unfocused" from "sleeps always", and one pins zero as a real setting rather than a
+# rejected one. Sabotage-verified: dropping the focus term reddens the control and nothing else.
+run Tf2DemoSalvage.Presentation.Tests presentation 382
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.

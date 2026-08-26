@@ -418,14 +418,14 @@ public sealed class ConfigConsoleConformanceTests
         // config's command for that key does nothing here, so the key was inert either way.
         ConfigConsole console = ConfigConsole.WithDefaults();
 
-        console.Bindings().KeyFor(ViewerAction.FlyFast).ShouldBe("SHIFT", "before the config runs");
+        console.Bindings().KeyFor(ViewerAction.FlyWalk).ShouldBe("SHIFT", "before the config runs");
 
         console.Load("bind \"SHIFT\" \"+duck\"");
 
-        console.Unbound().ShouldNotContain(ViewerAction.FlyFast);
+        console.Unbound().ShouldNotContain(ViewerAction.FlyWalk);
 
         console.KeyDown("SHIFT");
-        console.IsHeld(ViewerAction.FlyFast).ShouldBeTrue("+duck does nothing here, so ours stands");
+        console.IsHeld(ViewerAction.FlyWalk).ShouldBeTrue("+duck does nothing here, so ours stands");
     }
 
     [Test]
@@ -444,8 +444,8 @@ public sealed class ConfigConsoleConformanceTests
         console.KeyDown("SHIFT");
 
         console.IsHeld(ViewerAction.FlyForward).ShouldBeTrue();
-        console.IsHeld(ViewerAction.FlyFast).ShouldBeFalse("the config spoke, and it wins");
-        console.Unbound().ShouldContain(ViewerAction.FlyFast, "and the loss is reported");
+        console.IsHeld(ViewerAction.FlyWalk).ShouldBeFalse("the config spoke, and it wins");
+        console.Unbound().ShouldContain(ViewerAction.FlyWalk, "and the loss is reported");
     }
 
     [Test]
@@ -465,8 +465,8 @@ public sealed class ConfigConsoleConformanceTests
 
         console.Load("bind \"SHIFT\" \"+duck\"\nbind \"CTRL\" \"+speed\"");
 
-        console.Unbound().ShouldNotContain(ViewerAction.FlyFast);
-        console.Bindings().KeyFor(ViewerAction.FlyFast).ShouldBe("CTRL");
+        console.Unbound().ShouldNotContain(ViewerAction.FlyWalk);
+        console.Bindings().KeyFor(ViewerAction.FlyWalk).ShouldBe("CTRL");
     }
 
     [Test]
@@ -536,6 +536,6 @@ public sealed class ConfigConsoleConformanceTests
         intent.Forward.ShouldBe(0.5f);
         intent.Right.ShouldBe(0f);
         intent.Up.ShouldBe(0f);
-        intent.Fast.ShouldBeFalse();
+        intent.Walk.ShouldBeFalse();
     }
 }

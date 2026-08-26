@@ -74,4 +74,26 @@ public static class FramePacer
             ? FrameWait.Sleep
             : FrameWait.Yield;
     }
+
+    /// <summary>How long to give the CPU back because nobody is looking, in milliseconds.</summary>
+    /// <param name="hasFocus">Whether the viewer's window has focus.</param>
+    /// <param name="milliseconds">The configured sleep; below zero is treated as none.</param>
+    /// <returns>Milliseconds to sleep before the next frame, or zero.</returns>
+    /// <remarks>
+    /// **The engine's own <c>engine_no_focus_sleep</c>, which ships at 50 and is `FCVAR_ARCHIVE`**
+    /// (B209). It is a DURATION in milliseconds rather than a flag, so the shipped game runs at
+    /// roughly 20 frames a second while alt-tabbed. This viewer rendered at its full rate.
+    ///
+    /// **Independent of the frame limiter, deliberately, because it is a different question.**
+    /// <see cref="WaitFor"/> asks "is the next frame due yet" and its answer is a spin above about
+    /// 62 fps; this asks "is anyone watching", and the answer is a real sleep whatever the limit is.
+    /// Folding the two together would make an unfocused window spin at 300 fps to stay under its
+    /// cap, which is precisely the battery this is meant to stop burning.
+    ///
+    /// **A sleep here does not break the no-sleep rule** for the same reason
+    /// <see cref="SleepGranularitySeconds"/> does not: it is not waiting for anything to become
+    /// true, it is handing the CPU back for a known duration. The engine does the same.
+    /// </remarks>
+    public static int NoFocusSleep(bool hasFocus, int milliseconds) =>
+        hasFocus || milliseconds <= 0 ? 0 : milliseconds;
 }
