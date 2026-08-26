@@ -57,19 +57,30 @@ bash build/gate.sh
 pwsh run-exclusive.ps1 dotnet test tests/Tf2DemoSalvage.Viewer3D.UiTests
 ```
 
-The UI phase goes inside `run-exclusive.ps1`, since it takes the desktop. Green as of 2026-08-24:
-**3,162 across seven assemblies**, plus 14 UI.
+The UI phase goes inside `run-exclusive.ps1`, since it takes the desktop. Green as of 2026-08-26:
+**3,679 across eleven assemblies**, plus 19 UI.
 
 | assembly | count | | assembly | count |
 |---|---|---|---|---|
-| core | 1,497 | | content | 640 |
-| cli | 74 | | corpus | 106 |
-| audio | 109 | | viewer | 628 |
-| presentation | 108 | | | |
+| core | 1,503 | | content | 711 |
+| cli | 74 | | corpus | 112 |
+| audio | 161 | | viewer | 619 |
+| presentation | 250 | | logging | 17 |
+| scene | 184 | | fonts | 7 |
+| animation | 41 | | | |
 
-The seventh is `Tf2DemoSalvage.Audio.Tests`, which became part of the gate when the audio project
-stopped being unreachable (B168). The UI suite went from 8 to 14 and is worth running: it caught the
-F11 collision that silently broke full screen for days (B165).
+**Do not copy these numbers into a floor.** `build/gate.sh` holds the authoritative ones and prints
+them beside what it measured; this table is a snapshot for orientation and will drift.
+
+`Tf2DemoSalvage.Audio.Tests` became part of the gate when the audio project stopped being
+unreachable (B168), and `Scene.Tests` exists because Scene had grown its own layer (B184). The UI
+suite went from 8 to 19 and is worth running: it caught the F11 collision that silently broke full
+screen for days (B165).
+
+**Two of those counts went DOWN on 2026-08-26, and a falling count is normally a defect.** Viewer
+lost 10 to B207 and presentation lost 11 to B206 — both were tests on types with no production
+caller at all, and each drop is recorded next to its floor in `build/gate.sh` with what went and why
+nothing was lost. The gate refuses a drop until that is written, which is the point.
 
 **`build/gate.sh` replaced a solution-wide `dotnet test --filter`, and the reasons are worth knowing
 because both bit.**
