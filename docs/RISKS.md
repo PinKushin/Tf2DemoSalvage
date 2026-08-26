@@ -12466,6 +12466,42 @@ describing a constant that no longer existed. **An orphaned doc comment does not
 reattaches to the next member**, so `Lines` had been documented as being about clip-space W for
 however long the constant had been gone.
 
+### B188 addendum — the last non-view work in the frame path, 2026-08-26
+
+**`EnsureWeaponRoles` was one line, called from `ShowMoment` on every frame**, reaching for
+`_timeline` and `_game` to keep `MomentScene.Appearance` current. It was what kept both fields alive
+in the frame path, and it is `PlayerAppearances` now, asked once per moment by `MomentPresenter`.
+
+**Why it had resisted moving: two lifetimes, and nothing but the form saw both.** The appearance needs
+a demo — which arrives when one is opened and changes with each — and an install, located on the
+first map read and never again. There is no moment at which a finished appearance could be handed
+over, which is exactly why it ended up as a per-frame reach into a window that happened to hold both.
+
+So the holder has two setters with two owners: `DemoSystems.Open` supplies the demo half,
+`LevelSystems.Install` the install half. That reads like a smell and is the honest shape for the
+fact; a constructor argument would have to pick one lifetime and lose the other.
+
+**Still before the sampling and outside both timers.** The first call reads weapon scripts out of the
+archives at an ICE decryption each, so charging it to `sampling` reports an enormous spike for work
+that is not sampling — and charging it to `posing` moves the same lie one column along.
+
+**The return value is the wiring, and that is not a style choice.** The version that wrote into
+`MomentScene.Appearance` as a side effect is the one that shipped B193: every weapon suffix answering
+null, every player animating in the generic primary pose, the suite green throughout.
+
+#### Proved by manipulation, and the analyzer got there first again
+
+Deleting `_appearances.Game = game` **does not compile** — the field becomes unread and SonarLint
+says so (S4487), the same structural guard that caught the frame reporter. That covers only the
+crudest regression. Assigning `null` instead compiles, passes every unit test, and fails exactly one
+thing: `WiringUiTests.TheScene_AfterLoadingADemo_WasGivenThePlayersAppearance`, one of twenty.
+
+**One gap is recorded rather than papered over.** `DemoSystemsTests` does not assert that
+`PlayerAppearances.Timeline` is cleared on the null path. `DemoTimeline`'s constructor is private, so
+a test cannot put a non-null value there, and asserting null after `Open` when it was null before is
+the precondition-equals-assertion shape that made the rest of that test worthless until it was fixed
+this morning. The third level covers it instead.
+
 ### B211 — With no TF2 installed, the viewer blamed the map and downloaded one — FIXED 2026-08-26
 
 **The owner's requirement, which is what found this:**

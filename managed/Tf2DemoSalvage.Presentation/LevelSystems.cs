@@ -48,6 +48,9 @@ public sealed class LevelSystems
     private readonly ILogger _audio;
     private readonly IReadOnlyList<IGameSystem> _systems;
 
+    /// <summary>The appearance holder, told the install as soon as one is opened.</summary>
+    private readonly PlayerAppearances _appearances;
+
     /// <summary>The install, once located. Null until the first map read.</summary>
     /// <remarks>
     /// **It is a field here and was a field in the window** (B188, D90). B208 made the content an
@@ -63,6 +66,7 @@ public sealed class LevelSystems
     /// <param name="sounds">The sample cache; Valve's <c>enginesound</c>, not a system.</param>
     /// <param name="soundscape">The ambience system.</param>
     /// <param name="sound">The sound emitter.</param>
+    /// <param name="appearances">The player appearance, whose install half is set here.</param>
     /// <param name="loggers">Where each system's own log goes.</param>
     /// <exception cref="ArgumentNullException">A collaborator is null.</exception>
     /// <remarks>
@@ -76,6 +80,7 @@ public sealed class LevelSystems
         SoundCache sounds,
         SoundscapeSystem soundscape,
         SoundPresenter sound,
+        PlayerAppearances appearances,
         ILoggerFactory loggers)
     {
         ArgumentNullException.ThrowIfNull(moment);
@@ -83,8 +88,10 @@ public sealed class LevelSystems
         ArgumentNullException.ThrowIfNull(sounds);
         ArgumentNullException.ThrowIfNull(soundscape);
         ArgumentNullException.ThrowIfNull(sound);
+        ArgumentNullException.ThrowIfNull(appearances);
         ArgumentNullException.ThrowIfNull(loggers);
 
+        _appearances = appearances;
         _moment = moment;
         _models = models;
         _sounds = sounds;
@@ -135,6 +142,12 @@ public sealed class LevelSystems
         _soundscape.Catalog = game.Archives.IsEmpty
             ? null
             : SoundscapeCatalog.Load(game.Archives.Read);
+
+        // **The install is half of the player appearance and this is when it arrives.** The other
+        // half is the demo, which `DemoSystems.Open` supplies — two lifetimes, so two setters, and
+        // neither can wait for the other. Set here rather than left for a per-frame reach into a
+        // window field, which is what it was (B188, D90).
+        _appearances.Game = game;
     }
 
     /// <summary>The game install, opened on first use and reused after.</summary>

@@ -35,6 +35,7 @@ public sealed class DemoSystems
     private readonly SpectatorView _spectator;
     private readonly MomentScene _moment;
     private readonly MomentPresenter _moments;
+    private readonly PlayerAppearances _appearances;
     private readonly SoundPresenter _sound;
     private readonly PlaybackPresenter _playback;
     private readonly ActiveLoops _loops;
@@ -45,6 +46,7 @@ public sealed class DemoSystems
     /// <param name="spectator">Whose eyes can be borrowed.</param>
     /// <param name="moment">The scene rebuilt for each tick.</param>
     /// <param name="moments">What samples that scene's contents out of the demo.</param>
+    /// <param name="appearances">The player appearance, whose demo half is set here.</param>
     /// <param name="sound">The sound emitter.</param>
     /// <param name="playback">The transport, which owns the clock.</param>
     /// <param name="loops">The looping sounds in flight.</param>
@@ -54,6 +56,7 @@ public sealed class DemoSystems
         SpectatorView spectator,
         MomentScene moment,
         MomentPresenter moments,
+        PlayerAppearances appearances,
         SoundPresenter sound,
         PlaybackPresenter playback,
         ActiveLoops loops,
@@ -62,6 +65,7 @@ public sealed class DemoSystems
         ArgumentNullException.ThrowIfNull(spectator);
         ArgumentNullException.ThrowIfNull(moment);
         ArgumentNullException.ThrowIfNull(moments);
+        ArgumentNullException.ThrowIfNull(appearances);
         ArgumentNullException.ThrowIfNull(sound);
         ArgumentNullException.ThrowIfNull(playback);
         ArgumentNullException.ThrowIfNull(loops);
@@ -70,6 +74,7 @@ public sealed class DemoSystems
         _spectator = spectator;
         _moment = moment;
         _moments = moments;
+        _appearances = appearances;
         _sound = sound;
         _playback = playback;
         _loops = loops;
@@ -108,9 +113,15 @@ public sealed class DemoSystems
 
         // **Forgotten rather than rebuilt.** The archives open later than this, so building the
         // appearance now reads nothing and caches that nothing for the life of the demo — the first
-        // attempt did exactly that. `DemoAppearance.Ensure` fills it on the first moment that can
+        // attempt did exactly that. `PlayerAppearances` fills it on the first moment that can
         // answer.
         _moment.Appearance = DemoAppearance.None;
+
+        // **The demo half of the appearance.** The install half is set by `LevelSystems.Install`,
+        // which happens on the first map read and never again — two lifetimes, so two setters. This
+        // one is nulled on the failure path with everything else, or a closed demo would go on
+        // supplying the weapon-role table for the next one.
+        _appearances.Timeline = timeline;
 
         _audioLog.LogInformation(
             "{Message}",

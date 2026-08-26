@@ -224,6 +224,16 @@ internal class MainForm : Form, IFrameSteps
     ///
     /// Null until a map is read, because locating the install is the one thing that waits for a
     /// reason to happen.
+    ///
+    /// **Opening it stopped being this window's job on 2026-08-26** (B188, D90) —
+    /// `LevelSystems.Install` owns the branch, the caching and the `OpenGame` call. What is left
+    /// here is B208's arrangement and nothing else: the content is carried from the map read to the
+    /// two precaches **as a value**, so a wrong order has nothing to pass. Every remaining use is
+    /// either that assignment or one of those hand-offs; nothing asks it a question.
+    ///
+    /// **So this field is not a leftover, and the distinction matters** — the reason to keep it is
+    /// the same reason B208 introduced it, and deleting it would restore the silent-ordering bug it
+    /// was created to prevent.
     /// </remarks>
     private GameContent? _game;
 
@@ -745,7 +755,16 @@ internal class MainForm : Form, IFrameSteps
         // written.** A system added later is added to this call rather than to whichever method
         // happens to load a map — which is the arrangement that let three assignments go missing
         // separately (B193) and two more sit unnoticed for a day (B196).
-        _levels = new LevelSystems(_moment, _models, _sounds, _soundscape, _sound, _loggers);
+        // **One holder, two setters, and the window is neither.** The appearance needs a demo and an
+        // install, which arrive at different moments — `DemoSystems.Open` supplies the first and
+        // `LevelSystems.Install` the second. Held as a local here because both take it and neither
+        // hands it back, the same reason `FrameLedger` is a local (B188, D90).
+        PlayerAppearances appearances = new(_demoLog);
+
+        _levels = new LevelSystems(
+            _moment, _models, _sounds, _soundscape, _sound, appearances, _loggers);
+
+        _moments.Appearances = appearances;
         _world = new WorldPresenter(_renderLog);
 
         // **A capture flag, because the alternative was asking a person to press F12.** Several
@@ -929,7 +948,7 @@ internal class MainForm : Form, IFrameSteps
         // Registered after the presenter it drives, for the same reason `_levels` waits for the
         // scene: a system list is only as good as every member existing when it is built.
         _demoSystems = new DemoSystems(
-            _spectator, _moment, _moments, _sound, _playback, _loops, _loggers);
+            _spectator, _moment, _moments, appearances, _sound, _playback, _loops, _loggers);
 
         _playback.MomentChanged += (_, moment) =>
         {
@@ -1478,20 +1497,18 @@ internal class MainForm : Form, IFrameSteps
     // `ClassModelPaths` is `GameContent.ModelPaths` now, beside the class scripts it reads. It is
     // what the install says, not what the window knows.
 
-    /// <summary>Reads each weapon's animation role, once both the demo and the game are open.</summary>
-    /// <remarks>
-    /// **Lazy because the two things it needs arrive in the opposite order to the obvious one.**
-    /// The first version built this beside the timeline, which is where the weapon classes become
-    /// known — and the archives are opened AFTER that, so <c>_archives</c> was null every time and
-    /// the roles were never read. Nothing failed: every suffix came back null, the lookup fell back
-    /// to the primary forms, and the viewer drew exactly what it had drawn before. The unit tests
-    /// passed throughout, because they call <c>WeaponRoles</c> directly.
-    ///
-    /// It was caught by a line missing from the log, which is the only instrument that could have
-    /// caught it — the defect is in the wiring, and every component was correct.
-    /// </remarks>
-    private void EnsureWeaponRoles() =>
-        _moment.Appearance = DemoAppearance.Ensure(_moment.Appearance, _timeline, _game, _demoLog);
+    // **`EnsureWeaponRoles` was here until 2026-08-26** (B188, D90). It is `PlayerAppearances`,
+    // asked by `MomentPresenter` once per moment, with the two halves set by whoever learns them:
+    // `DemoSystems.Open` supplies the demo and `LevelSystems.Install` the install.
+    //
+    // Its own documentation explains why it has to be lazy, and the reason is worth keeping where
+    // the code went: the first version built this beside the timeline, which is where the weapon
+    // classes become known — and the archives open AFTER that, so the roles were never read.
+    // Nothing failed. Every suffix came back null, the lookup fell back to the primary forms, and
+    // the viewer drew exactly what it had drawn before. The unit tests passed throughout, because
+    // they call `WeaponRoles` directly. It was caught by a line missing from the log, which is the
+    // only instrument that could have caught it — the defect was in the wiring and every component
+    // was correct.
 
     // **`PlayerModel` was here until 2026-08-25** (B188, D90). It was a one-line delegation to
     // `PlayerProps.ModelFor`, and a delegating wrapper is the view knowing that a domain operation
@@ -1919,16 +1936,12 @@ internal class MainForm : Form, IFrameSteps
             return;
         }
 
-        // **Before the presenter, and outside its timer, which is where it was and where it belongs.**
-        // It is cheap after the first call, but the FIRST call reads the weapon scripts out of the
-        // archives and each one costs an ICE decryption — so counting it as sampling would report one
-        // enormous `sampling` spike for work that is not sampling. Putting it inside was a slip
-        // caught by diffing this method against the original.
-        //
-        // Here rather than earlier because this is the first point where both the demo and the
-        // game's archives are certain to be open. It hands the roles to the scene when it reads them.
-        EnsureWeaponRoles();
-
+        // **`EnsureWeaponRoles()` was called here until 2026-08-26** (B188, D90). It was the last
+        // non-view work in the frame path: one line reaching for `_timeline` and `_game` on every
+        // frame, to keep `MomentScene.Appearance` current. `MomentPresenter` asks
+        // `PlayerAppearances` now, still before the sampling and still outside both timers — the
+        // first call reads weapon scripts out of the archives at an ICE decryption each, and
+        // charging that to `sampling` or to `posing` would misname the same spike either way.
         _moments.Show(
             tick,
             new MomentView(

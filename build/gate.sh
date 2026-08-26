@@ -366,7 +366,7 @@ run Tf2DemoSalvage.Audio.Tests    audio     161
 # Nothing was lost that mattered: Valve's CanPlayerBeSeen rules, which MapOverviewTests asserted,
 # are written up in docs/findings/38-which-players-can-be-shown.md because the markers return as a
 # free-camera option and will need every one of them again.
-run Tf2DemoSalvage.Presentation.Tests presentation 304
+run Tf2DemoSalvage.Presentation.Tests presentation 307
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.

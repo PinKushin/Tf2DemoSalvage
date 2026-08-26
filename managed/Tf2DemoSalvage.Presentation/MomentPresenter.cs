@@ -79,6 +79,16 @@ public sealed class MomentPresenter
     /// </remarks>
     public IMomentSource? Source { get; set; }
 
+    /// <summary>Where the players' appearance comes from, or null when nothing can build one.</summary>
+    /// <remarks>
+    /// **This was `MainForm.EnsureWeaponRoles`** (B188, D90): one line in the window, called every
+    /// frame, reaching for the timeline and the game install. It is a property rather than a
+    /// constructor argument because the appearance depends on two things with different lifetimes —
+    /// a demo, and an install located later — so there is no moment at which a finished one could be
+    /// handed over.
+    /// </remarks>
+    public IAppearanceSource? Appearances { get; set; }
+
     /// <summary>The tick interval used by the last <see cref="Show"/>, for tests.</summary>
     /// <remarks>
     /// **Exposed because the alternative was worse.** The interval reaches `MomentScene` inside a
@@ -99,6 +109,21 @@ public sealed class MomentPresenter
         if (Source is not { } source)
         {
             return;
+        }
+
+        // **Before the sampling and outside both timers, which is where it was and where it
+        // belongs.** It is free after the first call, but the FIRST reads the weapon scripts out of
+        // the archives and each one costs an ICE decryption — so counting it as sampling reports one
+        // enormous `sampling` spike for work that is not sampling, and counting it as posing moves
+        // the same lie one column along.
+        //
+        // **The return value IS the wiring.** The version of this that wrote into
+        // `MomentScene.Appearance` as a side effect is the one that shipped B193 — every weapon
+        // suffix answering null and every player animating in the generic primary pose, with the
+        // suite green.
+        if (Appearances is { } appearances)
+        {
+            _moment.Appearance = appearances.Ensure(_moment.Appearance);
         }
 
         // **Timed because three untimed steps once hid 129 ms of a 133 ms pose** (B191). The column

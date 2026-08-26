@@ -94,14 +94,85 @@ public sealed class MomentPresenterTests
         ledger.SampledTicks.ShouldBeGreaterThan(0);
     }
 
-    private static MomentPresenter Presenter(out FrameLedger ledger)
+    [Test]
+    public void Show_WithAnAppearanceSource_AsksItBeforeBuildingTheScene()
+    {
+        // **This was `MainForm.EnsureWeaponRoles`, called from `ShowMoment` every frame** (B188,
+        // D90). It has to run before the scene is built — the scene poses players with it — and
+        // OUTSIDE both timers, because the first call reads the weapon scripts out of the archives
+        // and each one costs an ICE decryption. Counting that as sampling reported one enormous
+        // spike for work that is not sampling.
+        StubSource source = new();
+        StubAppearances appearances = new();
+        MomentPresenter presenter = Presenter(out FrameLedger _);
+
+        presenter.Source = source;
+        presenter.Appearances = appearances;
+
+        presenter.Show(tick: 10, View());
+
+        appearances.Asked.ShouldBe(1);
+    }
+
+    [Test]
+    public void Show_WithNoAppearanceSource_StillDrawsTheMoment()
+    {
+        // **A viewer with no demo open legitimately has no appearance source**, and the frame loop
+        // calls `Show` before anything is loaded. Refusing to draw would be the wrong failure.
+        StubSource source = new();
+        MomentPresenter presenter = Presenter(out FrameLedger _);
+
+        presenter.Source = source;
+
+        presenter.Show(tick: 10, View());
+
+        source.PlayerCalls.ShouldBe(1);
+    }
+
+    [Test]
+    public void Show_WithAnAppearanceSource_KeepsWhatItAnswered()
+    {
+        // **The return value IS the wiring** — the old version wrote into `MomentScene.Appearance`
+        // as a side effect, and a side effect is exactly what goes missing when code moves. That is
+        // B193: every weapon suffix answered null and every player animated in the generic primary
+        // pose, with the suite green.
+        StubSource source = new();
+        StubAppearances appearances = new();
+        MomentPresenter presenter = Presenter(out FrameLedger _, out MomentScene scene);
+
+        presenter.Source = source;
+        presenter.Appearances = appearances;
+
+        presenter.Show(tick: 10, View());
+
+        scene.Appearance.ShouldBeSameAs(appearances.Answer);
+    }
+
+    private static MomentPresenter Presenter(out FrameLedger ledger) =>
+        Presenter(out ledger, out MomentScene _);
+
+    private static MomentPresenter Presenter(out FrameLedger ledger, out MomentScene scene)
     {
         ledger = new FrameLedger();
+        scene = new MomentScene(new EntityModelSet(), new ViewmodelScene(), NullLogger.Instance);
 
-        return new MomentPresenter(
-            new MomentScene(new EntityModelSet(), new ViewmodelScene(), NullLogger.Instance),
-            ledger,
-            NullLogger.Instance);
+        return new MomentPresenter(scene, ledger, NullLogger.Instance);
+    }
+
+    /// <summary>An appearance source that counts, and answers something identifiable.</summary>
+    private sealed class StubAppearances : IAppearanceSource
+    {
+        /// <summary>An answer distinguishable from the sentinel, so an assignment is observable.</summary>
+        public IPlayerAppearance Answer { get; } = new GameAppearance(Classes: null, Roles: null);
+
+        public int Asked { get; private set; }
+
+        public IPlayerAppearance Ensure(IPlayerAppearance current)
+        {
+            Asked++;
+
+            return Answer;
+        }
     }
 
     private static MomentView View() =>

@@ -71,7 +71,7 @@ public sealed class LevelSystemsTests
 
         new LevelSystems(
             moment, new EntityModelSet(), new SoundCache(NullLogger.Instance),
-            soundscape, sound, NullLoggerFactory.Instance)
+            soundscape, sound, Appearances(), NullLoggerFactory.Instance)
             .Shutdown();
 
         moment.Uploaded.ShouldBeFalse("the scene must forget that THIS level's geometry was uploaded");
@@ -100,11 +100,15 @@ public sealed class LevelSystemsTests
         // names the mistake.
         Should.Throw<ArgumentNullException>(() => new LevelSystems(
             null!, new EntityModelSet(), new SoundCache(NullLogger.Instance),
-            Soundscape(), Sound(), NullLoggerFactory.Instance));
+            Soundscape(), Sound(), Appearances(), NullLoggerFactory.Instance));
 
         Should.Throw<ArgumentNullException>(() => new LevelSystems(
             Scene(), new EntityModelSet(), new SoundCache(NullLogger.Instance),
-            Soundscape(), Sound(), loggers: null!));
+            Soundscape(), Sound(), Appearances(), loggers: null!));
+
+        Should.Throw<ArgumentNullException>(() => new LevelSystems(
+            Scene(), new EntityModelSet(), new SoundCache(NullLogger.Instance),
+            Soundscape(), Sound(), appearances: null!, NullLoggerFactory.Instance));
     }
 
     [Test]
@@ -122,7 +126,7 @@ public sealed class LevelSystemsTests
 
         new LevelSystems(
             Scene(), new EntityModelSet(), new SoundCache(NullLogger.Instance),
-            soundscape, Sound(), NullLoggerFactory.Instance)
+            soundscape, Sound(), Appearances(), NullLoggerFactory.Instance)
             .OpenGame(GameContent.Open(folder: null, NullLoggerFactory.Instance));
 
         soundscape.Catalog.ShouldBeNull();
@@ -173,11 +177,14 @@ public sealed class LevelSystemsTests
         new LevelSystems(
             Scene(), new EntityModelSet(), sounds, soundscape,
             new SoundPresenter(soundscape, new ActiveLoops(), _ => null, NullLogger.Instance),
-            NullLoggerFactory.Instance)
+            Appearances(), NullLoggerFactory.Instance)
             .Install(() => null);
 
         sounds.Read.ShouldNotBeNull("Install must do OpenGame's work, not merely remember the content");
     }
+
+    /// <summary>A fresh appearance holder, which these tests never read.</summary>
+    private static PlayerAppearances Appearances() => new(NullLogger.Instance);
 
     private static LevelSystems Systems(EntityModelSet? models = null)
     {
@@ -189,6 +196,7 @@ public sealed class LevelSystemsTests
             new SoundCache(NullLogger.Instance),
             soundscape,
             new SoundPresenter(soundscape, new ActiveLoops(), _ => null, NullLogger.Instance),
+            Appearances(),
             NullLoggerFactory.Instance);
     }
 
