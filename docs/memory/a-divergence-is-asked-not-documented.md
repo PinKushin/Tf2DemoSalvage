@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: feedback
   originSessionId: 4774a88b-811c-40bb-9c79-9b22dc0a4474
-  modified: 2026-08-26T03:54:19.430Z
+  modified: 2026-08-26T04:03:39.357Z
 ---
 
 **Any departure from what Valve's code does is a QUESTION for the owner, not a decision to record.**
@@ -50,9 +50,33 @@ from globals, so the interface carries no payload and the boundary was never in 
 
 > "there we go, i knew there was no reason to drift away from valves decisions"
 
+## The test for an ACCEPTABLE departure, in the owner's words
+
+> "that departure is completely fine, if we know exactly why valve is doing somethign and exactly
+> why we dont have to, then its fine"
+
+**Both halves, and EXACTLY rather than approximately.** A departure is legitimate when the reason
+the engine does it is known and the reason it does not apply here is known. Neither alone is enough:
+"Valve does X for reasons we have not read" is the mistake this whole entry is about, and "we do not
+need X because it seems unnecessary" is the same mistake wearing a conclusion.
+
+**The worked example, accepted 2026-08-26.** `IGameSystem::IsPerFrame()` was dropped from our
+interface. Why Valve has it: that codebase avoids RTTI, so a system must RETURN whether it runs per
+frame. Why we do not need it: the question is a type test — `system is IGameSystemPerFrame` — which
+cannot disagree with itself, where Valve's flag can (a class may derive from
+`CBaseGameSystemPerFrame` and still answer false). The SPLIT it guards was kept as two interfaces,
+because the header is explicit that the two tiers must not be interchangeable. Both halves known,
+so the departure stands.
+
+**The counter-example from the same day**: claiming a shared `ILevelSystem` was impossible because
+it would need `LoadedMap` visible to Audio. Half one was never checked —
+`LevelInitPreEntity()` takes no parameters — so the departure was invented to serve a reconstruction
+rather than the engine.
+
 **How to apply:** when a departure looks necessary, stop and ask before writing the code — and
 before asking, go and read the actual declaration rather than reconstructing it from what the
-divergence would need. Most "we cannot do what Valve does" claims are claims about a reconstruction.
+divergence would need. Bring both halves to the question: what the engine does and why, and why it
+does not bind here. Most "we cannot do what Valve does" claims are claims about a reconstruction.
 Present the cost of both sides; the owner has said they can be influenced, so a recommendation is
 wanted, but the choice is not mine.
 

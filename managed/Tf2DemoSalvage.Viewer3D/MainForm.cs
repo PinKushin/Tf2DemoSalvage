@@ -347,8 +347,15 @@ internal class MainForm : Form
     /// </remarks>
     private readonly FrameLedger _ledger = new();
 
-    /// <summary>Whether the resident textures belong to the map currently loaded.</summary>
-    private bool _texturesUploaded;
+    // `_texturesUploaded` was here until 2026-08-26. It is `WorldPresenter.TexturesAreCurrent`,
+    // beside the code that reads it (B188, D90).
+    //
+    // **It has to exist at all because `HasWorldTextures` answers a different question.** The device
+    // knows whether textures are RESIDENT, which stays true across a map change — they are simply
+    // the wrong ones. Only something that knows about levels can say "resident AND for this one".
+
+    /// <summary>The world upload, and whether this level's textures are the resident ones.</summary>
+    private readonly WorldPresenter _world;
 
     /// <summary>Whether the empty leaf outline has already been explained for this map.</summary>
     /// <remarks>
@@ -690,6 +697,13 @@ internal class MainForm : Form
             Lighting = LevelLighting.Unlit(_renderLog),
             Weapons = WeaponModels.None(_renderLog),
         };
+
+        // **Registered here, after every system exists, and this is the only place the list is
+        // written.** A system added later is added to this call rather than to whichever method
+        // happens to load a map — which is the arrangement that let three assignments go missing
+        // separately (B193) and two more sit unnoticed for a day (B196).
+        _levels = new LevelSystems(_moment, _models, _sounds, _soundscape, _sound, _loggers);
+        _world = new WorldPresenter(_renderLog);
 
         // **A capture flag, because the alternative was asking a person to press F12.** Several
         // rendering defects this session were found by the owner photographing their own screen and
@@ -1537,7 +1551,14 @@ internal class MainForm : Form
     private void ClearMap()
     {
         _loaded = null;
-        _models.Geometry = EntityModelSet.NoGeometry;
+
+        // **Every system is told the level is going, in reverse registration order** — Valve's
+        // `LevelShutdownPreEntity`/`PostEntity`, which this window did not have.
+        //
+        // Teardown used to be split three ways and was asymmetric: two systems were reset here, the
+        // soundscape was cleared inside the map READ, and the sound schedule was never torn down at
+        // all. Adding a fifth system meant guessing which of the three places it belonged in.
+        _levels.Shutdown();
 
         // **One field where four were cleared, and the fourth was never cleared at all.** `_terrain`
         // and `_overlays` were dropped here while `_brushModels` and `_leaves` were left pointing at
@@ -1549,14 +1570,15 @@ internal class MainForm : Form
         // the move that created `LoadedMap`, never assigned anything but null, and `mat_leafvis`
         // read it (B196).
         _reportedNoLeafBox = false;
-        _texturesUploaded = false;
+        _world.TexturesAreCurrent = false;
         _mapProblem = null;
 
         // **The models go with the world, because the world owned their buffer.** `ClearWorld`
         // disposes the `WorldRenderer`, and `_modelVertices` is one of its fields — so the packed
         // set that is still in memory has nowhere on the device to live until it is uploaded again
         // (B148).
-        _moment.Uploaded = false;
+        // `_moment.Uploaded = false` was here. It is `MomentScene.LevelShutdownPreEntity`, told by
+        // the walk above — the scene knows what it uploaded, so the scene is what forgets it.
 
         _device?.ClearWorld();
     }
@@ -1658,80 +1680,34 @@ internal class MainForm : Form
 
             if (_game is null)
             {
-                // **Opened once, and everything it provides is set together.** The archives, the
-                // editor palette, the class scripts and the item schema all come off disk here and
-                // are asked on every frame afterwards — none of it is per-map, and none of it was
-                // ever window work (B188, D90).
-                //
-                // **Every source it feeds is assigned in this one block**, because assignments
-                // scattered across a method are how three of them were missed separately (B193). If
-                // a collaborator needs something from the install, it is wired here.
+                // **Opened once, on the first map read rather than at startup**, because finding and
+                // opening the archives is slow and a viewer with no demo open needs none of it.
                 _game = GameContent.Open(FindGameFolder(), _loggers);
 
-                _sounds.Read = _game.Archives.Read;
-                _moment.Weapons = _game.Weapons;
-
-                // The soundscape catalog reads from the same archives but belongs to the audio
-                // layer, so `GameContent` deliberately does not hold it — Scene would have to
-                // reference Audio for an edge that forbids nothing (D92).
-                _soundscape.Catalog = _game.Archives.IsEmpty
-                    ? null
-                    : SoundscapeCatalog.Load(_game.Archives.Read);
+                _levels.OpenGame(_game);
             }
 
-            _texturesUploaded = false;
+            _world.TexturesAreCurrent = false;
 
-            // **Reading a map is not window work, and now none of it happens here** (B188, D90).
-            // What is left is handing the result to the systems that asked for it — which is the
-            // `LevelInitPreEntity` shape the engine uses (`igamesystem.h:39`): the window says "here
-            // is the map", and each system takes what it needs.
-            LoadedMap map = LoadedMap.Read(
+            // **Reading a map is not window work and telling the systems about it is not either**
+            // (B188, D90). `LevelSystems` is the engine's own shape: a registered LIST walked at the
+            // level boundary — `LevelInitPreEntityAllSystems( pMapName )` (`igamesystem.h:77`) —
+            // rather than one method reaching into six collaborators, which is the arrangement that
+            // let B193 and B196 drop assignments unnoticed.
+            LoadedMap map = _levels.Load(
                 bytes,
                 _game,
                 _timeline,
                 (int)_settings.TextureQuality,
-                _surfaceColours.Checked,
-                _loggers);
+                _surfaceColours.Checked);
 
-            // **The LEVEL survives a content failure now, and it did not before.** The old catch set
+            // **The LEVEL survives a content failure, and it did not before.** The old catch set
             // `_level = null` alongside `_assets = null`, throwing away lumps that had read
             // perfectly because the TEXTURES did not — so `mat_leafvis` went blank on a map whose
             // BSP tree was fine. `LoadedMap` separates the two: the lumps are read or they throw,
             // and the content is a nullable beside them.
             _loaded = map;
             _mapProblem = map.Problem;
-
-            _moment.Lighting = map.Lighting;
-            _models.Geometry = map.Assets is { } content
-                ? content.Geometry
-                : EntityModelSet.NoGeometry;
-
-            _soundscape.Placements = _soundscape.Catalog is { } loaded
-                ? SoundscapePlacements.From(map.Level.Entities, loaded, map.Level.Leaves)
-                : null;
-
-            _soundscape.Leaves = map.Level.Leaves;
-            _soundscape.Visibility = map.Level.Visibility;
-
-            _soundscape.Clear();
-
-            _audioLog.LogInformation(
-                "{Message}",
-                map.Level.Visibility is { HasData: true } pvs
-                    ? $"visibility: {pvs.ClusterCount.ToString(CultureInfo.InvariantCulture)} " +
-                      "clusters, so soundscape selection is restricted to what the listener can see"
-                    : "no visibility data, so every soundscape on the map contends");
-
-            _audioLog.LogInformation(
-                "{Message}",
-                _soundscape.Placements is { } placed
-                    ? $"{placed.Placements.Count} soundscape placements, " +
-                      string.Join(
-                          ", ",
-                          placed.Placements
-                              .GroupBy(placement => placement.Name)
-                              .Select(group => $"{group.Count()}x {group.Key}"))
-                    : "no archives, so no soundscapes");
 
             ProjectMap();
             return !map.Outline.IsEmpty;
@@ -1883,65 +1859,24 @@ internal class MainForm : Form
         // the fill must not drop the world.
         TopDownCamera camera = MapCamera();
 
-        if (map.Assets is not { } assets || map.Level.Surfaces.Count == 0 || _device is null)
+        // **What is left here is the camera, the viewport and the status bar.** Deciding whether the
+        // world needs uploading is a question about a level and about what already reached the GPU;
+        // performing the upload needs a device, which arrives through `IWorldUpload` — the same seam
+        // `IModelUpload` already uses, and the same reason: the decision becomes testable with a
+        // fake, and the code that decides stops being the code that talks to Direct3D.
+        WorldUpload result = _world.Project(
+            map,
+            _device,
+            camera,
+            ViewMatrix(camera),
+            _surfaceColours.Checked,
+            _heightCut,
+            (_viewport.ClientSize.Width, _viewport.ClientSize.Height),
+            _loggers);
+
+        if (result.Problem is { } problem)
         {
-            return;
-        }
-
-        try
-        {
-            // **Textures first, and only once per map.** They do not depend on the camera, so a
-            // resize needs new vertices and nothing else.
-            if (!_texturesUploaded || !_device.HasWorldTextures)
-            {
-                using (_renderLog.Time("uploading textures"))
-                {
-                    _device.UploadWorldTextures(assets);
-                }
-
-                _texturesUploaded = true;
-            }
-
-            // **The camera is a matrix, so a resize is not a rebuild.** The world's vertices are in
-            // map coordinates and never move; only the view does. That is what took a viewport
-            // change from 0.33 seconds to a 64-byte upload, and it is the reason a free camera or a
-            // per-player view can exist at all.
-            _device.SetCamera(ViewMatrix(camera), _surfaceColours.Checked, _heightCut);
-
-            // **Logged because this is the whole cost of a resize**, and a rebuild is not. Counting
-            // these against "building the world" lines is what proves the geometry survived a
-            // viewport change rather than being quietly rebuilt: many camera lines and one build
-            // line is the fix working, one of each per resize is not.
-            _renderLog.LogInformation(
-                "{Message}",
-                $"camera set for a {_viewport.ClientSize.Width}x{_viewport.ClientSize.Height} viewport");
-
-            if (_device.HasWorld)
-            {
-                return;
-            }
-
-            MapWorld built;
-
-            using (_renderLog.Time("building the world"))
-            {
-                built = map.BuildWorld(camera, _loggers);
-            }
-
-            _renderLog.LogInformation(
-                "{Message}",
-                $"world: {built.Vertices.Count} vertices in {built.Batches.Count} material " +
-                $"batches for a {_viewport.ClientSize.Width}x{_viewport.ClientSize.Height} viewport");
-
-            _device.UploadWorldGeometry(built);
-        }
-        catch (Exception failure) when (
-            failure is InvalidOperationException or InvalidDataException or IOException)
-        {
-            _device.ClearWorld();
-            _texturesUploaded = false;
-            _status.Text = "Textures unavailable: " + failure.Message;
-            _renderLog.LogWarning(failure, "{Message}", "uploading the textured world");
+            _status.Text = problem;
         }
     }
 
@@ -3948,8 +3883,7 @@ internal class MainForm : Form
             // soundscape is active changes as a player walks and a seek can land anywhere, so being
             // selective would only move the hitch to the next doorway.
             PrecacheResult result = _sounds.Precache(
-                timeline.SoundsToPrecache()
-                    .Concat(_soundscape.Catalog?.WaveNames() ?? []));
+                DemoSounds.ToPrecache(timeline.SoundsToPrecache(), _soundscape));
 
             _audioLog.LogInformation(
                 "{Message}",
@@ -4102,6 +4036,22 @@ internal class MainForm : Form
 
     /// <summary>Decides what should be audible at a tick.</summary>
     private readonly SoundPresenter _sound;
+
+    /// <summary>The registered game systems, told about every level load and teardown.</summary>
+    /// <remarks>
+    /// **Valve's arrangement: a LIST walked at the level boundary** —
+    /// `LevelInitPreEntityAllSystems( pMapName )` (`igamesystem.h:77`) — rather than one method
+    /// reaching into six collaborators. That reaching is what let B193 and B196 drop assignments
+    /// with every test still green, and what left teardown split across three places with one
+    /// system torn down nowhere at all.
+    ///
+    /// **Three systems, and the two absences were checked rather than assumed.** Valve models the
+    /// renderables builder as a game system (`IClientLeafSystem : … IGameSystemPerFrame`), and the
+    /// soundscape and sound emitter likewise; it does NOT model model-geometry or the sample cache
+    /// that way — `IVModelInfo` and `IEngineSound` are plain interfaces set up once. So those two
+    /// are configured rather than walked.
+    /// </remarks>
+    private readonly LevelSystems _levels;
 
     /// <summary>The map's ambience, chosen and faded as the listener moves through it.</summary>
     /// <remarks>

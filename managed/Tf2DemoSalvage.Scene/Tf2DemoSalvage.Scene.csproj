@@ -73,6 +73,10 @@
          reimplemented: this is where ILogger comes from once the conversion off the static
          ViewerLog reaches this project. -->
     <ProjectReference Include="..\Tf2DemoSalvage.Logging\Tf2DemoSalvage.Logging.csproj" />
+
+    <!-- For IGameSystem, the level lifecycle Valve's own systems implement. A true leaf with no
+         ProjectReference of its own, so this can carry no cycle and drags nothing in behind it. -->
+    <ProjectReference Include="..\Tf2DemoSalvage.GameSystems\Tf2DemoSalvage.GameSystems.csproj" />
   </ItemGroup>
 
 </Project>

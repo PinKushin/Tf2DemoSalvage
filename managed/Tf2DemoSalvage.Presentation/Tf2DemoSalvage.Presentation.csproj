@@ -46,6 +46,10 @@
          and OverheadPlacement from here, which is itself the answer to where it belongs. -->
     <ProjectReference Include="..\Tf2DemoSalvage.Scene\Tf2DemoSalvage.Scene.csproj" />
 
+    <!-- For IGameSystem, which `SoundPresenter` implements (`CSoundEmitterSystem : CBaseGameSystem`,
+         SoundEmitterSystem.cpp:134) and which `LevelSystems` walks. -->
+    <ProjectReference Include="..\Tf2DemoSalvage.GameSystems\Tf2DemoSalvage.GameSystems.csproj" />
+
     <!-- **A presenter produces what a renderer draws**, so the draw-data types are downstream of
          it the same way Scene and Audio are. Render references Core, Content and Scene and knows
          nothing about presenters, so this adds no cycle.
