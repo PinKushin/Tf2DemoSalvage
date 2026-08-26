@@ -333,6 +333,16 @@ internal class MainForm : Form
     /// </remarks>
     private readonly PlaybackPresenter _playback;
 
+    /// <summary>The systems told about a newly-opened demo, as `_levels` are told about a level.</summary>
+    /// <remarks>
+    /// **The demo mirror of <c>LevelSystems</c>, and ours rather than Valve's — checked, not
+    /// assumed.** In the engine, playing a demo IS loading a level, so systems get `LevelInit*` and
+    /// there is no separate event. It does not bind here because this viewer opens a demo BEFORE it
+    /// knows whether the map exists, which the engine never faces: a client cannot play a demo whose
+    /// map it lacks, and ours must (B201).
+    /// </remarks>
+    private readonly DemoSystems _demoSystems;
+
     /// <summary>Where a second of frames went, accumulated here and reported once a second.</summary>
     /// <remarks>
     /// **Was six fields and a format string in this window** (B188, D90): the frame count, the
@@ -882,6 +892,10 @@ internal class MainForm : Form
         //
         // The form keeps exactly one job in this area: the moment changed, so redraw.
         _playback = new PlaybackPresenter(_transport, new StopwatchTime());
+
+        // Registered after the presenter it drives, for the same reason `_levels` waits for the
+        // scene: a system list is only as good as every member existing when it is built.
+        _demoSystems = new DemoSystems(_spectator, _moment, _sound, _playback, _loops, _loggers);
 
         _playback.MomentChanged += (_, moment) =>
         {
@@ -2784,77 +2798,23 @@ internal class MainForm : Form
         _demo = decoded.Demo;
         _timeline = decoded.Timeline;
 
-        // **Every per-demo source, set in ONE place, because two of them were missed separately.**
-        // `MomentScene.Viewmodels` was never assigned at all when the scene rebuild moved out — so
-        // `AddViewmodel` returned on its first guard and the first-person weapon simply never drew,
-        // with the viewer suite green throughout. That is B193's shape for the second time in three
-        // commits, and the answer is that a demo's sources are assigned together where the demo
-        // arrives rather than wherever each one happened to be constructed.
-        _spectator.Eyes = _timeline is { } eyes ? new TimelineEyes(eyes) : null;
-        _moment.Viewmodels = _timeline is { } weapons ? new TimelineViewmodels(weapons) : null;
-
-        // **The sounds this recording plays, ready before the first frame asks.** Rebuilt per demo
-        // rather than kept: a schedule holds a cursor into one timeline's list, and carrying it
-        // across a load would index the previous demo's sounds.
-        _sound.Schedule = _timeline is { } withSound ? new SoundSchedule(withSound.Sounds) : null;
-        _audio?.StopAll();
-        _loops.Clear();
-
-        _audioLog.LogInformation(
-            "{Message}",
-            $"{_timeline?.Sounds.Count ?? 0} sounds on the timeline; " +
-            (_audio is null ? "no audio device, so none will play" : "output is open"));
+        // **One call where there were six assignments, and that is the whole point** (B193). The
+        // eyes, the viewmodels, the sound schedule and the appearance were each written inline
+        // here, and three of them separately became a property nobody set — two of those shipped,
+        // with the viewer suite green throughout. `DemoSystems` is the demo mirror of
+        // `LevelSystems`: one place to read, and one place a test can reach.
+        //
+        // **The environment is read HERE and its VALUE passed in.** A process-wide variable is the
+        // window's business — it owns the process — and a system that read one could not be tested
+        // without setting it for the whole run.
+        _clock = _demoSystems.Open(
+            _timeline,
+            _demo.LastTick,
+            _audio,
+            Environment.GetEnvironmentVariable(AutoPlayVariable),
+            AutoPlayVariable);
 
         _transport.SetDemoLength(_demo.LastTick);
-
-        // **The appearance is FORGOTTEN here, not rebuilt, and the first attempt rebuilt it.** The
-        // archives are opened later than this, so building now reads nothing — and caches that
-        // nothing for the life of the demo. `DemoAppearance.Ensure` fills it in on the first moment
-        // that can actually answer, which is why this is a reset rather than a build.
-        _moment.Appearance = DemoAppearance.None;
-
-        if (_timeline is { } timeline)
-        {
-            // **The rate the recording server ran, not a constant.** It is a server setting, so
-            // a box left at its default runs 33 where a configured one runs 66, and replaying
-            // at the wrong rate reads as a slow or fast server rather than as a defect.
-            _clock = new PlaybackClock(timeline.IntervalPerTick, _demo.LastTick);
-
-            // The presenter owns playback over this clock from here (D62).
-            _playback.Load(_clock);
-
-            // **Playback can be started by the environment, for measurement — and it has to
-            // happen HERE, after the clock exists.** A demo's first tick is before the match
-            // begins: no capture points, no holograms, nobody carrying anything. A
-            // launch-and-log run, which is the only way to ask the renderer a question with
-            // nobody driving it, therefore measures an almost empty scene and reports "never
-            // drawn" for models that simply had not appeared yet.
-            //
-            // Set before this line it does nothing but look right, which is exactly what it
-            // did: PlayingChanged starts the stopwatch only `if (playing && _clock is not
-            // null)`, so the button showed playing while no time was fed to a clock that did
-            // not exist, and the demo sat still until the user paused and played again.
-            if (Environment.GetEnvironmentVariable(AutoPlayVariable) is { Length: > 0 })
-            {
-                // **Through the presenter, not by assigning the flag** — which is what this line
-                // used to do, and it did not start anything. `TransportBar.Playing`'s setter
-                // deliberately does not raise `PlayPauseToggled` (it would make the presenter
-                // re-enter its own handler), so assigning it relabelled the button and left the
-                // elapsed clock stopped. The owner: "the ui says its playing but the demo is not
-                // actually playing, no ticks go by, i have to 'pause' which does nothing then hit
-                // play again to get it started".
-                //
-                // The remark below this was already about that fault being found once. It came back
-                // because nothing tested it — "we dont actually check playback in the ui tests".
-                _playback.Play();
-
-                _demoLog.LogInformation("{Message}", $"{AutoPlayVariable} is set; playback started at load");
-            }
-        }
-        else
-        {
-            _clock = null;
-        }
 
         // **The map may already have been read, off the UI thread (B146).** `LoadDemoAsync` does
         // that and passes what it found; the synchronous path passes null and reads it here, which
