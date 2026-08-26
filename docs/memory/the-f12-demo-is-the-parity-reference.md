@@ -1,12 +1,36 @@
 ---
 name: the-f12-demo-is-the-parity-reference
-description: "Use the cp_process_f12 demos for parity and before/after checks — the owner knows them best, so their eye is a working instrument on those and not on an arbitrary demo."
+description: "Hold the demo constant across a comparison and announce any change; f12 is today's reference because the owner knows it, and familiarity is earned rather than fixed."
 metadata: 
   node_type: memory
   type: feedback
   originSessionId: 4774a88b-811c-40bb-9c79-9b22dc0a4474
-  modified: 2026-08-26T03:38:10.416Z
+  modified: 2026-08-26T03:39:35.785Z
 ---
+
+## The rule is HOLD THE SUBJECT, not "always f12"
+
+The owner, clarifying:
+
+> "its not a hard rule forever, if you play another demo enough then i can use it for checks too, but
+> the problem comes when you change demos in the middle, expecially when its basically the same map
+> so i dont realize immedietly that im watching a different demo"
+
+**The defect is the SWAP, not the choice.** A comparison has a subject, and changing it mid-way
+destroys the comparison whether or not the replacement is a good demo. Two consequences:
+
+- **Announce the demo by name every time it changes**, in the message — not buried in a tool call
+  nobody reads.
+- **A similar-looking map is the DANGEROUS case, not the safe one.** `cp_process_final` and
+  `cp_process_f12` look near-identical, and nothing on screen says which is loaded, so a silent
+  substitution is invisible exactly when it matters most. An obvious swap gets noticed; this one
+  does not.
+
+**Familiarity is earned, not fixed.** Any demo watched enough becomes usable as a reference. f12 is
+today's answer because it is the one with the hours in it — so a second reference is added by using
+one repeatedly and deliberately, never by picking a fresh file per check.
+
+## Why f12 is the one today
 
 **For any check that compares against previous behaviour, use a `cp_process_f12` demo.** The owner,
 2026-08-25:

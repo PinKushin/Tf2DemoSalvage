@@ -146,4 +146,4 @@
 - [A wrong invocation exits zero](a-wrong-invocation-exits-zero.md) — a usage banner is not an error; assert on output shape, not status.
 - [A divergence is asked, not documented](a-divergence-is-asked-not-documented.md) — writing the reason in a comment does not discharge it.
 - [Ask which input differs before bisecting](ask-which-input-differs-before-bisecting.md) — a check that never existed is absent from both versions.
-- [The f12 demo is the parity reference](the-f12-demo-is-the-parity-reference.md) — the owner's eye only works on a demo they know.
+- [The f12 demo is the parity reference](the-f12-demo-is-the-parity-reference.md) — hold the subject constant; announce every demo change by name.
