@@ -278,7 +278,7 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 # Tf2ConfigFiles.DefaultGameFolder looks under Program Files while this machine keeps TF2 on another
 # drive. The code was right and the test was measuring the ENVIRONMENT — pointing it at a better
 # path would have hidden that rather than fixed it.
-run Tf2DemoSalvage.Scene.Tests    scene     190
+run Tf2DemoSalvage.Scene.Tests    scene     197
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -366,7 +366,7 @@ run Tf2DemoSalvage.Audio.Tests    audio     161
 # Nothing was lost that mattered: Valve's CanPlayerBeSeen rules, which MapOverviewTests asserted,
 # are written up in docs/findings/38-which-players-can-be-shown.md because the markers return as a
 # free-camera option and will need every one of them again.
-run Tf2DemoSalvage.Presentation.Tests presentation 356
+run Tf2DemoSalvage.Presentation.Tests presentation 362
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.

@@ -87,6 +87,39 @@ public sealed class WorldPresenterTests
         public void ClearWorld() => Calls.Add("clear");
     }
 
+    [Test]
+    public void NeedsProjecting_OnAFreshPresenter_IsTrue()
+    {
+        // **Nothing has been drawn, so everything is stale.** Starting false would leave the first
+        // frame unprojected until something happened to invalidate it — a window that opens blank
+        // and fixes itself when you nudge the mouse.
+        new WorldPresenter(NullLogger.Instance).NeedsProjecting.ShouldBeTrue();
+    }
+
+    [Test]
+    public void Projected_ThenNothing_LeavesItClean()
+    {
+        WorldPresenter world = new(NullLogger.Instance);
+
+        world.Projected();
+
+        world.NeedsProjecting.ShouldBeFalse();
+    }
+
+    [Test]
+    public void Invalidate_AfterProjecting_MakesItStaleAgain()
+    {
+        // **The state that was `MainForm._worldIsStale`, set from nine places** (B188, D90): a
+        // resize, a camera mode change, a dolly, a drag, a spectator switch, a map load. The window
+        // reports the event; whether the projection is out of date is the projector's to know.
+        WorldPresenter world = new(NullLogger.Instance);
+
+        world.Projected();
+        world.Invalidate();
+
+        world.NeedsProjecting.ShouldBeTrue();
+    }
+
     // A `Camera()` helper sat here until 2026-08-26 (D98), supplying the `TopDownCamera` that
     // `Project` took and never used.
 
