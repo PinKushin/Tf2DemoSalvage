@@ -530,21 +530,18 @@ internal class MainForm : Form, IFrameSteps
     // re-projected on resize. The fill is gone, so the only thing that ever read this is gone with
     // it — the cascade the owner predicted when the projection came out.
 
-    private readonly ToolStripMenuItem _fullScreen;
-
-    /// <summary>Draws flat colours by surface kind instead of the map's own textures.</summary>
-    private readonly ToolStripMenuItem _surfaceColours;
-
-    /// <summary>Draws the brush outline over the map.</summary>
+    /// <summary>The main menu, and the items whose checked state is read from here.</summary>
     /// <remarks>
-    /// **Off by default now that the map has textures.** The outline was the entire picture when
-    /// nothing else drew, and it stayed switched on out of habit - over a textured map it is
-    /// clutter that hides the thing it was standing in for.
+    /// **Eleven fields and a dictionary were here until 2026-08-26** (B188, D90), each holding one
+    /// menu item, alongside the 363 lines of constructor that built them. They are properties of
+    /// <see cref="ViewerMenu"/> now, so a reader of `_menu.Wireframe.Checked` can see where the
+    /// value comes from — which `_wireframe.Checked` could not say.
+    ///
+    /// **Still view code, and still WinForms.** Unlike the rest of the thin-view work this is not a
+    /// layer fix: menus belong on this side. What was wrong was that one constructor built the
+    /// window, composed twenty collaborators, laid out the controls AND built the menu.
     /// </remarks>
-    private readonly ToolStripMenuItem _wireframe;
-
-    /// <summary>TF2's <c>cl_showfps</c>, on F8 (B174).</summary>
-    private readonly ToolStripMenuItem _frameRate;
+    private readonly ViewerMenu _menu;
 
     /// <summary>Raises or lowers what the log accepts, wired by the composition root.</summary>
     /// <remarks>
@@ -590,11 +587,8 @@ internal class MainForm : Form, IFrameSteps
     // playing what", which is a question about a WEAPON and changes when the player switches — and
     // holding that flag on the form is what let it drift out of step with the thing it described.
 
-    private readonly ToolStripMenuItem _specular;
-    private readonly ToolStripMenuItem _fullbrightMenu;
-    private readonly ToolStripMenuItem _drawWorld;
-    private readonly ToolStripMenuItem _drawEntities;
-    private readonly ToolStripMenuItem _debugMenu;
+    // `_specular`, `_fullbrightMenu`, `_drawWorld`, `_drawEntities` and `_debugMenu` were here
+    // until 2026-08-26. They are properties of `ViewerMenu` (B188, D90).
 
     /// <summary>Which <c>mat_fullbright</c> substitution is showing.</summary>
     public Fullbright Fullbright { get; private set; } = Fullbright.Off;
@@ -624,7 +618,7 @@ internal class MainForm : Form, IFrameSteps
     {
         Fullbright = mode;
 
-        foreach (ToolStripItem entry in _fullbrightMenu.DropDownItems)
+        foreach (ToolStripItem entry in _menu.FullbrightMenu.DropDownItems)
         {
             if (entry is ToolStripMenuItem item)
             {
@@ -641,11 +635,8 @@ internal class MainForm : Form, IFrameSteps
 
         _viewport.Invalidate();
     }
-    private readonly ToolStripMenuItem _borderlessMode;
-    private readonly ToolStripMenuItem _exclusiveMode;
-
-    /// <summary>The texture quality items, so the tick can be moved between them.</summary>
-    private readonly Dictionary<TextureQuality, ToolStripMenuItem> _textureQualityItems = [];
+    // `_borderlessMode`, `_exclusiveMode` and `_textureQualityItems` were here until 2026-08-26.
+    // They are `ViewerMenu.Borderless`, `.Exclusive` and `.TextureQualityItems` (B188, D90).
 
     /// <summary>Preferences remembered between runs.</summary>
     private ViewerSettings _settings = ViewerSettings.Load();
@@ -959,452 +950,36 @@ internal class MainForm : Form, IFrameSteps
         StatusStrip statusStrip = new() { Name = "StatusStrip", AccessibleName = "Status bar" };
         statusStrip.Items.Add(_status);
 
-        MenuStrip menu = new() { Name = "MainMenu", AccessibleName = "Main menu" };
-        ToolStripMenuItem file = new("&File")
-        {
-            Name = FileMenuId,
-            AccessibleName = "File menu",
-        };
-
-        ToolStripMenuItem open = new("&Open demo...")
-        {
-            Name = OpenDemoItemId,
-            AccessibleName = "Open demo",
-            ShortcutKeys = Keys.Control | Keys.O,
-        };
-        open.Click += (_, _) => OpenDemo();
-
-        ToolStripMenuItem exit = new("E&xit")
-        {
-            Name = ExitItemId,
-            AccessibleName = "Exit",
-        };
-        exit.Click += (_, _) => Close();
-
-        _fullScreen = new ToolStripMenuItem("&Full screen")
-        {
-            Name = FullScreenItemId,
-            AccessibleName = FullScreenItemName,
-            ShortcutKeys = Keys.F11,
-            CheckOnClick = true,
-        };
-        _fullScreen.CheckedChanged += (_, _) => SetFullScreen(_fullScreen.Checked);
-
-        // **Both modes offered, because neither is right for everyone.** Borderless always works
-        // and alt-tabs instantly; exclusive is the lower-latency path and can be refused by DXGI.
-        _borderlessMode = new ToolStripMenuItem("&Borderless")
-        {
-            Name = BorderlessItemId,
-            AccessibleName = "Borderless full screen",
-            Checked = _settings.FullScreenMode == FullScreenMode.Borderless,
-        };
-        _borderlessMode.Click += (_, _) => SetFullScreenMode(FullScreenMode.Borderless);
-
-        _exclusiveMode = new ToolStripMenuItem("&Exclusive")
-        {
-            Name = ExclusiveItemId,
-            AccessibleName = "Exclusive full screen",
-            Checked = _settings.FullScreenMode == FullScreenMode.Exclusive,
-        };
-        _exclusiveMode.Click += (_, _) => SetFullScreenMode(FullScreenMode.Exclusive);
-
-        ToolStripMenuItem fullScreenMode = new("Full screen &mode")
-        {
-            Name = "FullScreenModeMenu",
-            AccessibleName = "Full screen mode",
-        };
-        fullScreenMode.DropDownItems.Add(_borderlessMode);
-        fullScreenMode.DropDownItems.Add(_exclusiveMode);
-
-        // **Texture detail, chosen from the game's own mip chain.** Not a quality slider over
-        // something resampled here: each level is an image Valve generated when the texture was
-        // made, so a lower setting is a smaller read and a smaller upload rather than extra work.
-        ToolStripMenuItem textureQuality = new("&Texture quality")
-        {
-            Name = TextureQualityMenuId,
-            AccessibleName = "Texture quality",
-        };
-
-        foreach (TextureQuality quality in new[]
-        {
-            TextureQuality.Full, TextureQuality.High, TextureQuality.Medium, TextureQuality.Low,
-        })
-        {
-            TextureQuality chosen = quality;
-            int pixels = (int)quality;
-
-            ToolStripMenuItem item = new(
-                pixels == 0
-                    ? "&Full"
-                    : string.Create(CultureInfo.InvariantCulture, $"{quality} ({pixels} px)"))
-            {
-                Name = "TextureQuality" + quality,
-                AccessibleName = "Texture quality " + quality,
-                Checked = _settings.TextureQuality == quality,
-            };
-
-            item.Click += (_, _) => SetTextureQuality(chosen);
-            _textureQualityItems.Add(quality, item);
-            textureQuality.DropDownItems.Add(item);
-        }
-
-        ToolStripMenuItem view = new("&View") { Name = ViewMenuId, AccessibleName = ViewMenuName };
-        // **A diagnostic view, kept in the product deliberately.** It answers "is anything here,
-        // and what kind of thing is it", which a textured picture cannot - and which cost hours
-        // this session when terrain, a material and a prop each went missing while the map still
-        // looked like a map.
-        _surfaceColours = new ToolStripMenuItem("Surface &colours")
-        {
-            Name = SurfaceColoursItemId,
-            CheckOnClick = true,
-            ShortcutKeys = Keys.F9,
-        };
-
-        _surfaceColours.CheckedChanged += (_, _) =>
-        {
-            // **The legend goes in the log, because a colour nobody can name is not an answer.**
-            // Violet was read as "the sign" and white as "an uncoloured surface" during the B154
-            // hunt, both wrong, and there was nowhere to look it up.
-            _renderLog.LogInformation(
-                "{Message}",
-                _surfaceColours.Checked
-                    ? "surface colours on — grey-blue brushwork, green terrain, orange props, " +
-                      "violet overlays, Valve's magenta chequer where a material resolved to " +
-                      "nothing; brush entities take their own FGD colour, magenta where the class " +
-                      "states none, as Hammer draws them"
-                    : "surface colours off");
-
-            _device?.ClearWorld();
-            _worldIsStale = true;
-        };
-
-        // **A menu item as well as the cvar, because a cvar nobody can find is a cvar nobody uses.**
-        // The owner's words are the requirement: "we need a fps overlay too, we dont have one so i
-        // have no idea what fps we are rendering at and cant tell stutter in the demo from stutter
-        // in the decode, from stutter in fps" — and later, "we might have a fps overlay i just dont
-        // normally turn on, which you launching for me to check the sounds would have allowed me to
-        // check". Something reached for mid-investigation has to be one keypress away.
+        // **The menu was 363 lines here** (B188, D90) — about half this constructor, and the largest
+        // single thing left in the file. It is view code and it stays view code; what was wrong was
+        // that one constructor built the window, composed twenty collaborators, laid out the
+        // controls AND built the menu.
         //
-        // **It sets `cl_showfps 2`, not 1**, because the smoothed meter is the one that answers his
-        // question. Mode 1 is an instantaneous rate that jumps every frame; mode 2 carries the worst
-        // and best single frame beside the average, and an occasional long frame against a healthy
-        // average is exactly what stutter looks like.
-        //
-        // **F8, which is free.** F9 is surface colours, F10 wireframe, F11 full screen and F12 the
-        // screenshot — and F11 colliding with full screen silently broke it for days (B165), so a
-        // new shortcut gets checked against the four already here rather than assumed spare.
-        _frameRate = new ToolStripMenuItem("&Frame rate")
-        {
-            Name = FrameRateItemId,
-            CheckOnClick = true,
-            Checked = _settings.ShowFrameRate != 0,
-            ShortcutKeys = Keys.F8,
-            AccessibleName = "Frame rate",
-            AccessibleDescription =
-                "Draws TF2's own frame rate meter in the top right: the average, the worst and best " +
-                "single frame in brackets, and how long this frame took.",
-        };
+        // **Fourteen delegates rather than a `this`.** `ViewerMenu` holding a `MainForm` would be a
+        // menu for this one window; holding the actions describes what a viewer frontend has to be
+        // able to do, which is the list any replacement must satisfy. The owner's reason for wanting
+        // the seam: *"that makes the swap to ImGUI or QT or any other cross platform UI frontend
+        // much easier"*.
+        _menu = new ViewerMenu(
+            new ViewerMenuActions(
+                OpenDemo: OpenDemo,
+                Exit: Close,
+                SetFullScreen: SetFullScreen,
+                SetFullScreenMode: SetFullScreenMode,
+                SetTextureQuality: SetTextureQuality,
+                SetSurfaceColours: SetSurfaceColours,
+                SetFrameRateMeter: SetFrameRateMeter,
+                SetWireframe: SetWireframe,
+                SetFullbright: SetFullbright,
+                SetDrawWorld: SetDrawWorld,
+                SetDrawEntities: SetDrawEntities,
+                SetDebugMode: SetDebugMode,
+                SetSpecular: SetSpecular,
+                Screenshot: CaptureViewportToFile),
+            _settings);
 
-        _frameRate.CheckedChanged += (_, _) =>
-        {
-            // Written back into the settings rather than held beside them, so the config file, a
-            // launch option and this menu are one value rather than three that can disagree.
-            _settings = _settings with { ShowFrameRate = _frameRate.Checked ? 2 : 0 };
+        MenuStrip menu = _menu.Strip;
 
-            _renderLog.LogInformation(
-                "{Message}",
-                string.Create(CultureInfo.InvariantCulture, $"cl_showfps {_settings.ShowFrameRate}"));
-        };
-
-        // **Valve's `mat_wireframe`, replacing the brush outline that used to sit on F10.** The
-        // outline drew precomputed BSP edge segments as an overlay — 60,764 of them, built for the
-        // overhead view and, as the owner put it, "like an ortho overlay". It could not answer the
-        // question a wireframe is for, because it drew edges from the map file rather than the
-        // triangles actually submitted: no props, no models, nothing about what reached the GPU.
-        //
-        // This one is a rasteriser fill mode over every pass, so an edge on screen means that
-        // triangle was drawn. That is the difference between "not submitted" and "submitted and
-        // invisible", which nothing else in this viewer can distinguish.
-        _wireframe = new ToolStripMenuItem("&Wireframe")
-        {
-            Name = WireframeItemId,
-            CheckOnClick = true,
-            Checked = false,
-            ShortcutKeys = Keys.F10,
-            AccessibleName = "Wireframe",
-            AccessibleDescription =
-                "Draws every surface as edges only, so geometry that never reached the screen can " +
-                "be told apart from geometry that is drawn but invisible.",
-        };
-
-        _wireframe.CheckedChanged += (_, _) =>
-        {
-            _renderLog.LogInformation("{Message}", $"mat_wireframe {(_wireframe.Checked ? 1 : 0)}");
-
-            if (_device is { } device)
-            {
-                device.Wireframe = _wireframe.Checked;
-            }
-
-            _viewport.Invalidate();
-        };
-
-        // **`mat_specular`, and it is a diagnostic before it is a preference.** A cubemap
-        // reflection is ADDED to an opaque surface, so a prop whose envmap term dominates draws in
-        // the colour of whatever its cubemap holds — against a sky, that is the sky, and the prop
-        // reads as geometry that was never drawn. Surface colours returns from the shader before
-        // the reflection is added, which is why a surface can be invisible in the textured view
-        // and present in the category view: the same triangles, coloured differently.
-        // **No shortcut, because F8 was already the frame rate's and every function key is taken.**
-        // This carried ShortcutKeys = Keys.F8 alongside the frame-rate item, so two menu items
-        // claimed one key and one of them silently did nothing — the same defect as F12, found in
-        // the same audit, and the third instance of it in this file after B165's F11.
-        //
-        // The frame rate keeps F8 because it has a stated reason: it mirrors TF2's own cl_showfps
-        // (B174). Reflections is a debug toggle with no such claim, and inventing Ctrl+F8 for it
-        // would be an arbitrary answer to a question nobody asked. The menu still reaches it.
-        _specular = new ToolStripMenuItem("&Reflections")
-        {
-            Name = SpecularItemId,
-            CheckOnClick = true,
-            Checked = true,
-            AccessibleName = "Reflections",
-            AccessibleDescription =
-                "Adds cubemap reflections to surfaces that ask for them. Turn off to see whether " +
-                "a reflection is hiding a surface.",
-        };
-
-        // **A submenu of three, because `mat_fullbright` has three states.** Offering it as a
-        // checkbox would be the same mistake as reading the cvar's name and assuming a boolean —
-        // and it is the more useful state, lighting-only, that a checkbox would drop.
-        _fullbrightMenu = new ToolStripMenuItem("&Lighting")
-        {
-            Name = FullbrightItemId,
-            AccessibleName = "Lighting",
-            AccessibleDescription =
-                "Substitutes the lighting or the texture, to tell a shadow apart from a dark " +
-                "texture and a painted shape apart from a lit one.",
-        };
-
-        foreach ((Fullbright mode, string label, Keys key) in new[]
-        {
-            (Fullbright.Off, "&Normal", Keys.F5),
-            (Fullbright.NoLighting, "&No lighting (mat_fullbright 1)", Keys.F6),
-            (Fullbright.LightingOnly, "Lighting &only (mat_fullbright 2)", Keys.F7),
-        })
-        {
-            Fullbright chosen = mode;
-
-            ToolStripMenuItem item = new(label)
-            {
-                Name = FullbrightItemId + chosen,
-                ShortcutKeys = key,
-                Checked = chosen == Fullbright.Off,
-            };
-
-            item.Click += (_, _) => SetFullbright(chosen);
-
-            _fullbrightMenu.DropDownItems.Add(item);
-        }
-
-        // **`r_drawworld` and `r_drawentities`, which answer "which pass owns this".** The question
-        // comes up the moment something is drawn twice, in the wrong order, or by code nobody
-        // expected — and it took a day to answer by hand when static props turned out to be
-        // inheriting the overlay pass's blend state (B154).
-        _drawWorld = new ToolStripMenuItem("Draw &world")
-        {
-            Name = DrawWorldItemId,
-            CheckOnClick = true,
-            Checked = true,
-            AccessibleName = "Draw world",
-            AccessibleDescription = "Draws map brushwork and its overlays. Turn off to see only entities.",
-        };
-
-        _drawWorld.CheckedChanged += (_, _) =>
-        {
-            _renderLog.LogInformation("{Message}", $"r_drawworld {(_drawWorld.Checked ? 1 : 0)}");
-
-            if (_device is { } world)
-            {
-                world.DrawWorld = _drawWorld.Checked;
-            }
-
-            _viewport.Invalidate();
-        };
-
-        _drawEntities = new ToolStripMenuItem("Draw &entities")
-        {
-            Name = DrawEntitiesItemId,
-            CheckOnClick = true,
-            Checked = true,
-            AccessibleName = "Draw entities",
-            AccessibleDescription = "Draws static props and models. Turn off to see only the map.",
-        };
-
-        _drawEntities.CheckedChanged += (_, _) =>
-        {
-            _renderLog.LogInformation("{Message}", $"r_drawentities {(_drawEntities.Checked ? 1 : 0)}");
-
-            if (_device is { } entities)
-            {
-                entities.DrawEntities = _drawEntities.Checked;
-            }
-
-            _viewport.Invalidate();
-        };
-
-        // **A submenu of independent switches, because Valve's are independent cvars.** Grouping
-        // them as radio items would be tidier and would misrepresent the engine: mat_drawflat and
-        // mat_luxels compose, and seeing a luxel grid on flat-shaded geometry is a legitimate thing
-        // to want when a shadow looks wrong and you cannot tell whether the texture is confusing
-        // you.
-        _debugMenu = new ToolStripMenuItem("&Debug views")
-        {
-            Name = DebugMenuItemId,
-            AccessibleName = "Debug views",
-            AccessibleDescription =
-                "Valve's per-surface debug visualisations: flat shading, the luxel grid, and " +
-                "normal maps shown as colour.",
-        };
-
-        // **Each entry carries the flag it sets, and that is a bug fix rather than a tidy-up**
-        // (B210). This was a name and a `switch` on that name — five arms with a default that set
-        // `LeafVis`, against a list of SIX entries. So `mat_showlowresimage` could not be reached
-        // from the UI at all, and Ctrl+T silently toggled the leaf box, which Ctrl+L then fought
-        // over. Everything around it was tested: the flag, the renderer that reads it, a render
-        // test, and a shortcut-collision test proving Ctrl+T claims a key nothing else has.
-        //
-        // The mapping sits beside the label now, so a seventh mode cannot be added without saying
-        // what it sets — rather than being a second list, elsewhere, that has to agree with this one.
-        foreach ((string label, string cvar, Keys key, Func<DebugModes, bool, DebugModes> set)
-            in new (string, string, Keys, Func<DebugModes, bool, DebugModes>)[]
-        {
-            ("Flat &shading (mat_drawflat)", nameof(DebugModes.DrawFlat), Keys.F1,
-                static (modes, on) => modes with { DrawFlat = on }),
-
-            ("&Luxel grid (mat_luxels)", nameof(DebugModes.Luxels), Keys.F2,
-                static (modes, on) => modes with { Luxels = on }),
-
-            ("&Normal maps (mat_normalmaps)", nameof(DebugModes.NormalMaps), Keys.F3,
-                static (modes, on) => modes with { NormalMaps = on }),
-
-            ("Bump &basis (mat_bumpbasis)", nameof(DebugModes.BumpBasis), Keys.F4,
-                static (modes, on) => modes with { BumpBasis = on }),
-
-            // **Not F11, which is full screen — this collided and full screen lost.** The debug
-            // group runs F1..F4 and every remaining function key was already taken (F5..F7
-            // lighting, F8 reflections, F9 surface colours, F10 wireframe, F11 full screen, F12
-            // capture), so this one reached for F11 without checking. WinForms dispatches a
-            // duplicate shortcut to one item, and the later registration won: pressing F11 toggled
-            // the leaf box and the window never went full screen.
-            //
-            // **Three UI tests went red the moment it landed and stayed red**, which is the part
-            // worth keeping. The owner spotted it by eye — "the app never went full screen, it did
-            // seem to try to start the leaf debug though" — and that sentence names both halves of
-            // a collision that no single test could describe.
-            //
-            // Off the function-key run rather than onto Shift+F11, deliberately: a modified twin of
-            // the full-screen key is a mis-press away from the bug this fixes. Ctrl+L is mnemonic
-            // for leaf, and the menu shows the binding.
-            ("Leaf &box (mat_leafvis)", nameof(DebugModes.LeafVis), Keys.Control | Keys.L,
-                static (modes, on) => modes with { LeafVis = on }),
-
-            // **Ctrl+T, and for the same reason as Ctrl+L above: the function keys are full.** The
-            // last of B153's set, and the only one that needed the asset rather than a shader
-            // branch — every VTF's thumbnail had been skipped on the way past until now.
-            ("Low-res &image (mat_showlowresimage)",
-                nameof(DebugModes.ShowLowResImage),
-                Keys.Control | Keys.T,
-                static (modes, on) => modes with { ShowLowResImage = on }),
-        })
-        {
-            string which = cvar;
-            Func<DebugModes, bool, DebugModes> apply = set;
-
-            ToolStripMenuItem item = new(label)
-            {
-                Name = DebugMenuItemId + which,
-                CheckOnClick = true,
-                ShortcutKeys = key,
-            };
-
-            item.CheckedChanged += (sender, _) =>
-            {
-                if (sender is not ToolStripMenuItem toggled)
-                {
-                    return;
-                }
-
-                _debug = apply(_debug, toggled.Checked);
-
-                _renderLog.LogInformation("{Message}", $"debug views: {_debug}");
-
-                if (_device is { } device)
-                {
-                    device.Debug = _debug;
-                }
-
-                // **Ask for a repaint.** The viewport draws on demand rather than continuously,
-                // so updating a shader constant is not enough on its own — the change reaches the
-                // GPU and then waits for an unrelated event to show it. That is what made these
-                // appear only when the camera moved.
-                _viewport.Invalidate();
-            };
-
-            _debugMenu.DropDownItems.Add(item);
-        }
-
-        _specular.CheckedChanged += (_, _) =>
-        {
-            _renderLog.LogInformation("{Message}", $"mat_specular {(_specular.Checked ? 1 : 0)}");
-
-            if (_device is { } device)
-            {
-                device.Specular = _specular.Checked;
-            }
-
-            // A repaint, not a world rebuild: this is a shader constant and the geometry is
-            // untouched. The rebuild was why reflections appeared instantly while every other
-            // debug view waited — it was doing far more work to get the same repaint.
-            _viewport.Invalidate();
-        };
-
-        // **F12 is bound ONCE, in ProcessCmdKey, and this item only DISPLAYS it.** It carried
-        // ShortcutKeys = Keys.F12 as well, so the key was registered twice — by the menu and by the
-        // form — and pressing it did nothing at all: no file, no log line, no error. The owner spotted
-        // the shape immediately: "if f12 is double bound it wont work".
-        //
-        // This is the second time in this file. B165 was the same mistake on F11, which silently
-        // broke full screen for days. A shortcut belongs to one owner; the other one says so in
-        // text.
-        ToolStripMenuItem screenshot = new("Save a &screenshot")
-        {
-            Name = ScreenshotItemId,
-            ShortcutKeyDisplayString = "F12",
-            AccessibleName = ScreenshotItemName,
-            AccessibleDescription = "Writes a picture of the viewport beside the viewer's log.",
-        };
-
-        screenshot.Click += (_, _) => CaptureViewportToFile();
-
-        view.DropDownItems.Add(screenshot);
-        view.DropDownItems.Add(_wireframe);
-        view.DropDownItems.Add(_specular);
-        view.DropDownItems.Add(_fullbrightMenu);
-        view.DropDownItems.Add(_drawWorld);
-        view.DropDownItems.Add(_drawEntities);
-        view.DropDownItems.Add(_debugMenu);
-        view.DropDownItems.Add(_surfaceColours);
-        view.DropDownItems.Add(_frameRate);
-        view.DropDownItems.Add(_fullScreen);
-        view.DropDownItems.Add(fullScreenMode);
-        view.DropDownItems.Add(textureQuality);
-
-        file.DropDownItems.Add(open);
-        file.DropDownItems.Add(new ToolStripSeparator());
-        file.DropDownItems.Add(exit);
-        menu.Items.Add(file);
-        menu.Items.Add(view);
 
         // Added in reverse z-order: WinForms docks the LAST control added first, so Fill must go
         // in before every docked edge or the viewport ends up underneath them.
@@ -1758,7 +1333,7 @@ internal class MainForm : Form, IFrameSteps
                 _game,
                 _timeline,
                 (int)_settings.TextureQuality,
-                _surfaceColours.Checked);
+                _menu.SurfaceColours.Checked);
 
             // **The LEVEL survives a content failure, and it did not before.** The old catch set
             // `_level = null` alongside `_assets = null`, throwing away lumps that had read
@@ -1852,7 +1427,7 @@ internal class MainForm : Form, IFrameSteps
             map,
             _device,
             ViewMatrix(),
-            _surfaceColours.Checked,
+            _menu.SurfaceColours.Checked,
             _heightCut.Fraction,
             (_viewport.ClientSize.Width, _viewport.ClientSize.Height),
             _loggers);
@@ -2039,7 +1614,7 @@ internal class MainForm : Form, IFrameSteps
 
         if (_launch.SurfaceColours)
         {
-            _surfaceColours.Checked = true;
+            _menu.SurfaceColours.Checked = true;
         }
 
         // **After the seek, because entering the first-person view reads the moment.** The camera
@@ -2768,8 +2343,8 @@ internal class MainForm : Form, IFrameSteps
     public void SetFullScreenMode(FullScreenMode mode)
     {
         _settings = _settings with { FullScreenMode = mode };
-        _borderlessMode.Checked = mode == FullScreenMode.Borderless;
-        _exclusiveMode.Checked = mode == FullScreenMode.Exclusive;
+        _menu.Borderless.Checked = mode == FullScreenMode.Borderless;
+        _menu.Exclusive.Checked = mode == FullScreenMode.Exclusive;
 
         if (IsFullScreen && _device is not null)
         {
@@ -2805,7 +2380,7 @@ internal class MainForm : Form, IFrameSteps
     {
         _settings = _settings with { TextureQuality = quality };
 
-        foreach (KeyValuePair<TextureQuality, ToolStripMenuItem> item in _textureQualityItems)
+        foreach (KeyValuePair<TextureQuality, ToolStripMenuItem> item in _menu.TextureQualityItems)
         {
             item.Value.Checked = item.Key == quality;
         }
@@ -2815,6 +2390,124 @@ internal class MainForm : Form, IFrameSteps
         _status.Text = failure is null
             ? "Texture quality: " + quality + ". Applies to the next map opened."
             : "Setting saved for this session only: " + failure;
+    }
+
+    /// <summary>Turns the surface-category view on or off.</summary>
+    /// <param name="on">Whether to colour surfaces by category.</param>
+    /// <remarks>
+    /// **A world rebuild rather than a repaint, unlike its neighbours below.** The category colour
+    /// is baked into the vertex data, so the geometry has to be built again; the others are shader
+    /// constants and a repaint is enough.
+    /// </remarks>
+    internal void SetSurfaceColours(bool on)
+    {
+        // **The legend goes in the log, because a colour nobody can name is not an answer.**
+        // Violet was read as "the sign" and white as "an uncoloured surface" during the B154
+        // hunt, both wrong, and there was nowhere to look it up.
+        _renderLog.LogInformation(
+            "{Message}",
+            on
+                ? "surface colours on — grey-blue brushwork, green terrain, orange props, " +
+                  "violet overlays, Valve's magenta chequer where a material resolved to " +
+                  "nothing; brush entities take their own FGD colour, magenta where the class " +
+                  "states none, as Hammer draws them"
+                : "surface colours off");
+
+        _device?.ClearWorld();
+        _worldIsStale = true;
+    }
+
+    /// <summary>Shows or hides Valve's frame rate meter.</summary>
+    /// <param name="on">Whether to draw it.</param>
+    /// <remarks>
+    /// **Two, not one**, because `cl_showfps 2` is the form that names the worst and best frame as
+    /// well as the average, and the smoothed single number is the one this project has repeatedly
+    /// found hides a stall.
+    /// </remarks>
+    internal void SetFrameRateMeter(bool on)
+    {
+        _settings = _settings with { ShowFrameRate = on ? 2 : 0 };
+
+        _renderLog.LogInformation(
+            "{Message}",
+            string.Create(CultureInfo.InvariantCulture, $"cl_showfps {_settings.ShowFrameRate}"));
+    }
+
+    /// <summary>Valve's <c>mat_wireframe</c>.</summary>
+    /// <param name="on">Whether to draw edges only.</param>
+    internal void SetWireframe(bool on) =>
+        SetRenderToggle("mat_wireframe", on, static (device, value) => device.Wireframe = value);
+
+    /// <summary>Valve's <c>r_drawworld</c>.</summary>
+    /// <param name="on">Whether to draw the level's brushwork.</param>
+    internal void SetDrawWorld(bool on) =>
+        SetRenderToggle("r_drawworld", on, static (device, value) => device.DrawWorld = value);
+
+    /// <summary>Valve's <c>r_drawentities</c>.</summary>
+    /// <param name="on">Whether to draw props and models.</param>
+    internal void SetDrawEntities(bool on) =>
+        SetRenderToggle("r_drawentities", on, static (device, value) => device.DrawEntities = value);
+
+    /// <summary>Valve's <c>mat_specular</c>.</summary>
+    /// <param name="on">Whether to draw specular reflections.</param>
+    /// <remarks>
+    /// **A repaint, not a world rebuild: this is a shader constant and the geometry is untouched.**
+    /// The rebuild was why reflections appeared instantly while every other debug view waited — it
+    /// was doing far more work to get the same repaint.
+    /// </remarks>
+    internal void SetSpecular(bool on) =>
+        SetRenderToggle("mat_specular", on, static (device, value) => device.Specular = value);
+
+    /// <summary>Turns one of Valve's per-surface debug views on or off.</summary>
+    /// <param name="apply">Which flag the menu item sets, supplied by the item itself.</param>
+    /// <param name="on">Whether to turn it on.</param>
+    /// <remarks>
+    /// **The flag arrives as a function rather than a name** (B210). It used to be a name matched by
+    /// a `switch` with fewer arms than there were menu items, so one view was unreachable and its
+    /// shortcut toggled a different one.
+    /// </remarks>
+    internal void SetDebugMode(Func<DebugModes, bool, DebugModes> apply, bool on)
+    {
+        ArgumentNullException.ThrowIfNull(apply);
+
+        _debug = apply(_debug, on);
+
+        _renderLog.LogInformation("{Message}", $"debug views: {_debug}");
+
+        if (_device is { } device)
+        {
+            device.Debug = _debug;
+        }
+
+        // **Ask for a repaint.** The viewport draws on demand rather than continuously, so updating
+        // a shader constant is not enough on its own — the change reaches the GPU and then waits for
+        // an unrelated event to show it. That is what made these appear only when the camera moved.
+        _viewport.Invalidate();
+    }
+
+    /// <summary>Logs a render switch, tells the device, and asks for a repaint.</summary>
+    /// <param name="cvar">Valve's name for the switch, for the log.</param>
+    /// <param name="on">The new state.</param>
+    /// <param name="apply">How the device is told.</param>
+    /// <remarks>
+    /// **Four handlers were this same three-line body** — wireframe, draw-world, draw-entities and
+    /// specular — each written out separately with its own `if (_device is { } …)`. They are one
+    /// method because the fourth copy is where a difference starts hiding: B210 was exactly that,
+    /// a list of near-identical cases where one did something else.
+    ///
+    /// **A repaint rather than a rebuild.** Every switch here is a shader constant, so the geometry
+    /// on the device is still correct and only the picture is stale.
+    /// </remarks>
+    private void SetRenderToggle(string cvar, bool on, Action<Device3D, bool> apply)
+    {
+        _renderLog.LogInformation("{Message}", $"{cvar} {(on ? 1 : 0)}");
+
+        if (_device is { } device)
+        {
+            apply(device, on);
+        }
+
+        _viewport.Invalidate();
     }
 
     /// <summary>The controls hidden while full screen, for tests to check what they are.</summary>
@@ -2844,7 +2537,7 @@ internal class MainForm : Form, IFrameSteps
         }
 
         IsFullScreen = fullScreen;
-        _fullScreen.Checked = fullScreen;
+        _menu.FullScreen.Checked = fullScreen;
         _fullScreenClock = Stopwatch.StartNew();
 
         if (fullScreen)
@@ -3526,7 +3219,7 @@ internal class MainForm : Form, IFrameSteps
 
         _device.SetCamera(
             ViewMatrix(),
-            _surfaceColours.Checked,
+            _menu.SurfaceColours.Checked,
             _heightCut.Fraction);
     }
 
@@ -4545,27 +4238,13 @@ internal class MainForm : Form, IFrameSteps
             _actions.Dispose();
             _transport.Dispose();
             _playlist.Dispose();
-            _borderlessMode.Dispose();
-            _exclusiveMode.Dispose();
-
-            foreach (ToolStripMenuItem item in _textureQualityItems.Values)
-            {
-                item.Dispose();
-            }
             _search.Dispose();
             _maps.Dispose();
             _overlay?.Dispose();
-            _wireframe.Dispose();
-            _frameRate.Dispose();
-            _specular.Dispose();
 
-            // Disposing the submenu disposes the three items it owns.
-            _fullbrightMenu.Dispose();
-            _drawWorld.Dispose();
-            _drawEntities.Dispose();
-            _debugMenu.Dispose();
-            _surfaceColours.Dispose();
-            _fullScreen.Dispose();
+            // Thirteen menu items were named here one at a time until 2026-08-26. `ViewerMenu` owns
+            // them and disposes them beside the code that built them (B188, D90).
+            _menu.Dispose();
         }
 
         base.Dispose(disposing);

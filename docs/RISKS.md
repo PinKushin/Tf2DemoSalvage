@@ -11205,6 +11205,52 @@ guard is needed downstream.
 
 `_reportedNoLeafBox` is a log-once latch for one diagnostic line and is not worth a type.
 
+#### The menu, and the point at which "thin view" stopped being the question
+
+Measuring what was left after the frame accounting moved gave a clear answer and a surprising one:
+every remaining method was already thin — `PlaySounds`, `FlyCamera`, `ToggleFirstPerson`,
+`SetFullbright`, `ProjectMap` each gather view state and delegate. **The bulk was one 442-line
+constructor, 26% of all remaining code, and half of that was 432 lines of menu construction.**
+
+**Menus are view code.** So by the standing bar — *"literally no non view code in the view"* — the
+file was already close to done, and what remained was Single Responsibility: one constructor built
+the window, composed twenty collaborators, laid out the controls AND built the menu.
+
+It moved anyway, on the owner's instruction, and it serves the other stated goal: *"id prefer the
+actual winforms project be seperate from the d3d project… that makes the swap to ImGUI or QT or any
+other cross platform UI frontend much easier"*.
+
+**Two steps, because the second was unsafe alone.** Seven of the fifteen handlers carried inline
+bodies reaching back into the form; the other eight already delegated. Making all fifteen delegate
+first meant the block could move without dragging form state with it. Four of the seven turned out to
+be the *same* three-line body — log a cvar, set a device property, invalidate — which is now one
+`SetRenderToggle`. The fourth copy is exactly where a difference starts hiding, which is what B210
+had been an hour earlier.
+
+**`ViewerMenu` takes fourteen delegates, not a `MainForm`.** A menu holding the form is a menu for
+that one window; a menu holding the actions *is* the list any replacement frontend has to satisfy. It
+also keeps `MainForm`'s methods private — an extraction that widens a dozen members to `internal` so
+a neighbour can call them has moved the code and kept the coupling.
+
+`MainForm.cs`: **1,659 → 1,424 code lines**, constructor **442 → 173**.
+
+#### The test that had to be written, and the one that proved it necessary
+
+**Nothing in the suite could have seen a menu item fail to arrive.** Every existing menu test walks
+whatever items exist: `ShortcutCollisionTests` checks no two claim one key — one fewer item is one
+fewer to check — and `DebugMenuWiringTests` addresses six items by name and says nothing about a
+seventh. The UI suite covers two of twenty.
+
+`ViewerMenuTests` generates its denominator instead: every `*ItemId`/`*MenuId` constant on `MainForm`
+must name an item reachable in the strip, read by reflection, plus an exact count for the View menu
+and one debug item per `bool` on `DebugModes`. A constant added without an item fails it; an item
+deleted fails it; nobody has to remember a number.
+
+**Proved by manipulation, and the control is the interesting half.** Dropping `Wireframe` from the
+View menu reddened two of the four new tests — **and `ShortcutCollisionTests` passed**, which is the
+measured demonstration of the blind spot rather than an argument about it. Removing one entry from
+the debug list reddened the reflection-denominator test alone.
+
 ### B187 — the debug views do not apply to viewmodels — OPEN
 
 **Reported by the owner 2026-08-24**, alongside B186 and B170 as things that survived the D88 bone
