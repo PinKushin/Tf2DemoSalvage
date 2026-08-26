@@ -417,14 +417,18 @@ internal class MainForm : Form, IFrameSteps
     // map the view was magnified, and where it was centred. Both are meaningless without that
     // projection: the free camera has a position, not a zoom and a centre.
 
-    /// <summary>Whether the view is the free camera rather than the map's top-down one.</summary>
-    /// <remarks>
-    /// **Off by default, because the top-down view is what this viewer is for.** A demo is watched
-    /// from above; the free camera is for looking AT something — which until now was impossible,
-    /// and is why a player model lying on its back survived a day of screenshots taken from
-    /// directly overhead.
-    /// </remarks>
     /// <summary>Which camera the viewport is drawn through.</summary>
+    /// <remarks>
+    /// **Free by default, because after D98 there is no other kind.** The orthographic top-down
+    /// camera is gone; what remains is the free camera and the first-person one, and a demo opens
+    /// into the free camera.
+    ///
+    /// **A stale doc block sat above this one until 2026-08-26**, describing a deleted `_freeLook`
+    /// bool — *"Off by default, because the top-down view is what this viewer is for"*. Two
+    /// <c>&lt;summary&gt;</c> tags on one field, of which the compiler says nothing, and the first
+    /// asserted the exact opposite of what the code now does. Residue of the ortho removal itself:
+    /// the field went, its documentation did not.
+    /// </remarks>
     private CameraMode _cameraMode = CameraMode.Free;
 
     /// <summary>
@@ -2719,8 +2723,9 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>The playback controls, exposed for the tests that address them.</summary>
     public TransportBar Transport => _transport;
 
-    /// <summary>Whether the viewport is filling the screen.</summary>
     /// <summary>How full screen is entered.</summary>
+    // The stray second summary removed here on 2026-08-26 — "Whether the viewport is filling the
+    // screen" — belongs to `IsFullScreen`, sixty lines below, which has its own.
     public FullScreenMode FullScreenMode => _settings.FullScreenMode;
 
     /// <summary>Chooses how full screen is entered, and remembers it.</summary>
@@ -3454,16 +3459,6 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>When the frame rate was last reported.</summary>
     private long _rateReportedAt;
 
-    /// <summary>Reports the frame rate once a second.</summary>
-    /// <remarks>
-    /// **Measured rather than assumed, because the answer is a claim about this machine.** The
-    /// swap chain presents with a sync interval of one, so the rate should sit at the display's
-    /// refresh - and "should" is exactly the kind of statement this project keeps finding wrong.
-    /// A rate well under refresh means a frame is costing more than its slice, which is worth
-    /// knowing before anyone starts optimising by guesswork.
-    ///
-    /// Once a second, so a log covering a whole session stays readable.
-    /// </remarks>
     /// <summary>Collections and pause time since the last report, or empty when there were none.</summary>
     /// <remarks>
     /// **The instrument for a stall that is not a frame rate drop**, which is the owner's exact
@@ -3509,6 +3504,21 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>Collection counts and pause time as of the last report.</summary>
     private (int Gen0, int Gen1, int Gen2, TimeSpan Paused) _collections;
 
+    /// <summary>Reports the frame rate once a second.</summary>
+    /// <remarks>
+    /// **Measured rather than assumed, because the answer is a claim about this machine.** The
+    /// swap chain presents with a sync interval of one, so the rate should sit at the display's
+    /// refresh - and "should" is exactly the kind of statement this project keeps finding wrong.
+    /// A rate well under refresh means a frame is costing more than its slice, which is worth
+    /// knowing before anyone starts optimising by guesswork.
+    ///
+    /// Once a second, so a log covering a whole session stays readable.
+    ///
+    /// **This documentation was attached to `GarbageThisSecond` until 2026-08-26** — two
+    /// <c>&lt;summary&gt;</c> blocks stacked on one member, thirty lines above the method they
+    /// describe, while `CountFrame` itself had none. The compiler does not object, so it survived
+    /// however long it had been there; a field audit found it.
+    /// </remarks>
     private void CountFrame()
     {
         _ledger.Drew(_lastFrameSeconds);
