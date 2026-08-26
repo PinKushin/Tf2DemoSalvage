@@ -1267,12 +1267,30 @@ internal class MainForm : Form, IFrameSteps
                 "normal maps shown as colour.",
         };
 
-        foreach ((string label, string cvar, Keys key) in new[]
+        // **Each entry carries the flag it sets, and that is a bug fix rather than a tidy-up**
+        // (B210). This was a name and a `switch` on that name — five arms with a default that set
+        // `LeafVis`, against a list of SIX entries. So `mat_showlowresimage` could not be reached
+        // from the UI at all, and Ctrl+T silently toggled the leaf box, which Ctrl+L then fought
+        // over. Everything around it was tested: the flag, the renderer that reads it, a render
+        // test, and a shortcut-collision test proving Ctrl+T claims a key nothing else has.
+        //
+        // The mapping sits beside the label now, so a seventh mode cannot be added without saying
+        // what it sets — rather than being a second list, elsewhere, that has to agree with this one.
+        foreach ((string label, string cvar, Keys key, Func<DebugModes, bool, DebugModes> set)
+            in new (string, string, Keys, Func<DebugModes, bool, DebugModes>)[]
         {
-            ("Flat &shading (mat_drawflat)", nameof(DebugModes.DrawFlat), Keys.F1),
-            ("&Luxel grid (mat_luxels)", nameof(DebugModes.Luxels), Keys.F2),
-            ("&Normal maps (mat_normalmaps)", nameof(DebugModes.NormalMaps), Keys.F3),
-            ("Bump &basis (mat_bumpbasis)", nameof(DebugModes.BumpBasis), Keys.F4),
+            ("Flat &shading (mat_drawflat)", nameof(DebugModes.DrawFlat), Keys.F1,
+                static (modes, on) => modes with { DrawFlat = on }),
+
+            ("&Luxel grid (mat_luxels)", nameof(DebugModes.Luxels), Keys.F2,
+                static (modes, on) => modes with { Luxels = on }),
+
+            ("&Normal maps (mat_normalmaps)", nameof(DebugModes.NormalMaps), Keys.F3,
+                static (modes, on) => modes with { NormalMaps = on }),
+
+            ("Bump &basis (mat_bumpbasis)", nameof(DebugModes.BumpBasis), Keys.F4,
+                static (modes, on) => modes with { BumpBasis = on }),
+
             // **Not F11, which is full screen — this collided and full screen lost.** The debug
             // group runs F1..F4 and every remaining function key was already taken (F5..F7
             // lighting, F8 reflections, F9 surface colours, F10 wireframe, F11 full screen, F12
@@ -1288,17 +1306,20 @@ internal class MainForm : Form, IFrameSteps
             // Off the function-key run rather than onto Shift+F11, deliberately: a modified twin of
             // the full-screen key is a mis-press away from the bug this fixes. Ctrl+L is mnemonic
             // for leaf, and the menu shows the binding.
-            ("Leaf &box (mat_leafvis)", nameof(DebugModes.LeafVis), Keys.Control | Keys.L),
+            ("Leaf &box (mat_leafvis)", nameof(DebugModes.LeafVis), Keys.Control | Keys.L,
+                static (modes, on) => modes with { LeafVis = on }),
 
             // **Ctrl+T, and for the same reason as Ctrl+L above: the function keys are full.** The
             // last of B153's set, and the only one that needed the asset rather than a shader
             // branch — every VTF's thumbnail had been skipped on the way past until now.
             ("Low-res &image (mat_showlowresimage)",
                 nameof(DebugModes.ShowLowResImage),
-                Keys.Control | Keys.T),
+                Keys.Control | Keys.T,
+                static (modes, on) => modes with { ShowLowResImage = on }),
         })
         {
             string which = cvar;
+            Func<DebugModes, bool, DebugModes> apply = set;
 
             ToolStripMenuItem item = new(label)
             {
@@ -1314,14 +1335,7 @@ internal class MainForm : Form, IFrameSteps
                     return;
                 }
 
-                _debug = which switch
-                {
-                    nameof(DebugModes.DrawFlat) => _debug with { DrawFlat = toggled.Checked },
-                    nameof(DebugModes.Luxels) => _debug with { Luxels = toggled.Checked },
-                    nameof(DebugModes.NormalMaps) => _debug with { NormalMaps = toggled.Checked },
-                    nameof(DebugModes.BumpBasis) => _debug with { BumpBasis = toggled.Checked },
-                    _ => _debug with { LeafVis = toggled.Checked },
-                };
+                _debug = apply(_debug, toggled.Checked);
 
                 _renderLog.LogInformation("{Message}", $"debug views: {_debug}");
 

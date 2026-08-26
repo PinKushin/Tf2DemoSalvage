@@ -589,7 +589,7 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     113
 # CameraMatrixTests is the one worth naming: every case asserted TopDownCamera.ToMatrix, the
 # orthographic projection itself. There is no replacement because there is no projection; the free
 # camera's matrix is FreeCamera.ToMatrix and has its own tests.
-run Tf2DemoSalvage.Viewer3D.Tests viewer    602
+run Tf2DemoSalvage.Viewer3D.Tests viewer    609
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."

@@ -12410,6 +12410,57 @@ describing a constant that no longer existed. **An orphaned doc comment does not
 reattaches to the next member**, so `Lines` had been documented as being about clip-space W for
 however long the constant had been gone.
 
+### B210 — A debug view was unreachable, and its shortcut toggled a different one — FIXED 2026-08-26
+
+**`mat_showlowresimage` could not be turned on from the user interface at all**, and Ctrl+T — the
+key bound to it — silently toggled the leaf-box view instead. Ctrl+L then fought over the same flag,
+so checking one unchecked the other.
+
+**The mechanism, in one line.** The six debug items are built in a loop and share one handler, which
+decided which mode to set by switching on the item's name:
+
+```csharp
+_debug = which switch
+{
+    nameof(DebugModes.DrawFlat)   => _debug with { DrawFlat   = toggled.Checked },
+    nameof(DebugModes.Luxels)     => _debug with { Luxels     = toggled.Checked },
+    nameof(DebugModes.NormalMaps) => _debug with { NormalMaps = toggled.Checked },
+    nameof(DebugModes.BumpBasis)  => _debug with { BumpBasis  = toggled.Checked },
+    _                             => _debug with { LeafVis    = toggled.Checked },
+};
+```
+
+**Five arms for six entries.** `LeafVis` worked by being the default; `ShowLowResImage` fell into it.
+Measured directly — checking the low-res item logged
+`DebugModes { … LeafVis = True, ShowLowResImage = False … }`.
+
+#### Everything around it was tested, which is the point
+
+`DebugModes` carries the flag. `WorldRenderer` reads it (`WorldRenderer.cs:2761`).
+`LowResImageRenderTests` renders with it. `ShortcutCollisionTests` proves Ctrl+T claims a key nothing
+else has — and passes, because the *shortcut* was never the problem.
+
+**Only the wiring between the menu item and the mode was wrong, and nothing looked there.** That is
+the third instance this session of a tested component reached by broken production wiring, after the
+frame reporter's log level and B193's three assignments. The pattern is now well enough evidenced to
+state plainly: **the tests cluster where the code is interesting, and the defects cluster where it is
+boring.**
+
+#### The fix removes the class, not the instance
+
+Each entry carries the flag it sets — `Func<DebugModes, bool, DebugModes>` beside the label — so the
+name-to-flag mapping is declared once instead of being a second list elsewhere that has to agree.
+A seventh mode cannot be added without saying what it sets.
+
+**A `default` arm that does real work is the shape to distrust.** Falling through to "set `LeafVis`"
+reads as a sensible catch-all and is indistinguishable, at the call site, from a case somebody
+forgot. An arm per case with no default would have been a compiler error the day the sixth entry
+landed.
+
+`DebugMenuWiringTests` covers all six as cases plus a control that the low-res item leaves the leaf
+box alone — the half a per-item test cannot see, since an item that set its own flag *and* stamped on
+a neighbour's would pass every per-item case.
+
 ### B209 — Two frame-pacing parity questions, found but not answered — OPEN, needs the owner
 
 **Found while moving the frame limiter for B208, and deliberately not acted on**, because both change
