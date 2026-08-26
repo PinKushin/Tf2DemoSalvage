@@ -358,7 +358,7 @@ run Tf2DemoSalvage.Audio.Tests    audio     161
 # performed was written out longhand in MainForm with none. The Fly cases were not ported because
 # CameraFlightTests (6) and FreeFlightPathTests (10) already cover the live path including D65's
 # cancel guard; the Drag cases and the pitch clamp were, since nothing else asserted them.
-run Tf2DemoSalvage.Presentation.Tests presentation 283
+run Tf2DemoSalvage.Presentation.Tests presentation 291
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.

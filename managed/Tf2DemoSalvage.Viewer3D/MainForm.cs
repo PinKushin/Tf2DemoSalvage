@@ -401,7 +401,7 @@ internal class MainForm : Form, IFrameSteps
     /// vertex, so zooming meant rebuilding 2.6 million of them; the camera is a matrix, so this is
     /// a 64-byte upload and can be driven by a mouse wheel.
     /// </remarks>
-    private float _zoom = 1f;
+    private MapZoom _zoom = MapZoom.None;
 
     /// <summary>Where the view is centred, or null to keep it on the whole map.</summary>
     private (float X, float Y)? _lookingAt;
@@ -2009,7 +2009,9 @@ internal class MainForm : Form, IFrameSteps
 
         if (_launch.LookAt is { } centre)
         {
-            _zoom = _launch.Zoom;
+            // **`Of` clamps and the constructor is private**, so a `--zoom 1000` from the command
+            // line cannot put the camera inside a wall (B208). It used to be assigned raw.
+            _zoom = MapZoom.Of(_launch.Zoom);
             _lookingAt = centre;
             _worldIsStale = true;
         }
@@ -2259,7 +2261,7 @@ internal class MainForm : Form, IFrameSteps
             _loaded,
             _viewport.ClientSize.Width,
             _viewport.ClientSize.Height,
-            _zoom,
+            _zoom.Factor,
             _lookingAt);
     }
 
@@ -4114,7 +4116,9 @@ internal class MainForm : Form, IFrameSteps
             return;
         }
 
-        float step = e.Delta > 0 ? 1.25f : 1f / 1.25f;
+        // `step` was `e.Delta > 0 ? 1.25f : 1f / 1.25f` here until 2026-08-26 (B208). The ratio is
+        // `MapZoom.Step` and the direction is `In()` or `Out()`, so the window reads the wheel and
+        // names neither.
 
         // In the free view the wheel moves the camera in and out instead of magnifying a flat map.
         // The near limit is a little over a player's height, so a model can be filled the frame
@@ -4134,24 +4138,24 @@ internal class MainForm : Form, IFrameSteps
             return;
         }
 
-        float zoomed = Math.Clamp(_zoom * step, 1f, 64f);
+        // **The step, the range and the recentring formula are `MapZoom`'s** (B208). What is left is
+        // the sequence a window has to perform, which needs a camera and a cursor and so is genuinely
+        // its own: sample the world under the pointer, change the zoom, sample the same pixel through
+        // the new camera, and cancel the drift between them.
+        MapZoom zoomed = e.Delta > 0 ? _zoom.In() : _zoom.Out();
 
-        if (Math.Abs(zoomed - _zoom) < float.Epsilon)
+        if (zoomed == _zoom)
         {
             return;
         }
 
-        // The world point under the cursor before the zoom has to stay under it afterwards, which
-        // fixes where the new centre must be.
-        (float worldX, float worldY) = WorldAt(e.Location);
+        (float X, float Y) before = WorldAt(e.Location);
 
         _zoom = zoomed;
 
-        (float afterX, float afterY) = WorldAt(e.Location);
+        (float X, float Y) after = WorldAt(e.Location);
 
-        (float centreX, float centreY) = MapCamera().Centre;
-
-        _lookingAt = (centreX + (worldX - afterX), centreY + (worldY - afterY));
+        _lookingAt = MapZoom.Recentre(MapCamera().Centre, before, after);
 
         _worldIsStale = true;
     }

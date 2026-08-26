@@ -3,6 +3,7 @@ using System.IO;
 using System.Threading.Tasks;
 
 using Tf2DemoSalvage.Core.Container;
+using Tf2DemoSalvage.Presentation;
 using Tf2DemoSalvage.Viewer3D;
 
 namespace Tf2DemoSalvage.Viewer3D.Tests;
