@@ -278,7 +278,7 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 # Tf2ConfigFiles.DefaultGameFolder looks under Program Files while this machine keeps TF2 on another
 # drive. The code was right and the test was measuring the ENVIRONMENT — pointing it at a better
 # path would have hidden that rather than fixed it.
-run Tf2DemoSalvage.Scene.Tests    scene     184
+run Tf2DemoSalvage.Scene.Tests    scene     190
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -358,7 +358,7 @@ run Tf2DemoSalvage.Audio.Tests    audio     161
 # performed was written out longhand in MainForm with none. The Fly cases were not ported because
 # CameraFlightTests (6) and FreeFlightPathTests (10) already cover the live path including D65's
 # cancel guard; the Drag cases and the pitch clamp were, since nothing else asserted them.
-run Tf2DemoSalvage.Presentation.Tests presentation 250
+run Tf2DemoSalvage.Presentation.Tests presentation 291
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.
@@ -571,7 +571,10 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     112
 # shaded by height, "no depth buffer and none is wanted for a flat view" — and had no production
 # caller. Nothing replaced the tests because nothing replaced the feature: under D95 the viewer is
 # always 3D. MapScene/MapSceneReader went in the same commit, with no test count to move at all.
-run Tf2DemoSalvage.Viewer3D.Tests viewer    619
+# 623 -> 619 on 2026-08-26 (B208): CaptureNameTests (4) MOVED to Presentation.Tests with
+# MainForm.CaptureName, which became Captures.Name. Nothing was deleted — presentation went 257 ->
+# 283, which is 17 WindowGeometry + 5 Captures + those 4, and that arithmetic is the check.
+run Tf2DemoSalvage.Viewer3D.Tests viewer    623
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."

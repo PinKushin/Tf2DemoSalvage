@@ -340,4 +340,27 @@ public sealed class ViewerSettingsTests
         overridden.ViewmodelFieldOfView.ShouldBe(54f, 0.01f);
         overridden.TextureQuality.ShouldBe(configured.TextureQuality);
     }
+
+    [TestCase(0, Microsoft.Extensions.Logging.LogLevel.Information)]
+    [TestCase(1, Microsoft.Extensions.Logging.LogLevel.Debug)]
+    [TestCase(2, Microsoft.Extensions.Logging.LogLevel.Trace)]
+    public void Verbosity_ForEachDeveloperLevel_IsTheLevelTheDocumentationPromises(
+        int developer, Microsoft.Extensions.Logging.LogLevel expected)
+    {
+        // **`Developer`'s own doc states this mapping in prose**, and `MainForm` implemented it in a
+        // switch (B208) — the same rule in two projects with only one of them running. Now the doc
+        // describes a property that is tested, so the two cannot drift apart.
+        new ViewerSettings { Developer = developer }.Verbosity.ShouldBe(expected);
+    }
+
+    [Test]
+    public void Verbosity_AboveTwo_IsStillTraceRatherThanFallingToTheDefault()
+    {
+        // **`developer` is a Source ConVar and a user may type any number.** `ViewerSettings` clamps
+        // to 0..2 when reading a config, but a value set another way must still mean "as much as
+        // possible" — an `== 2` would silently drop `developer 3` back to Information, which is the
+        // opposite of what was asked for.
+        new ViewerSettings { Developer = 9 }.Verbosity
+            .ShouldBe(Microsoft.Extensions.Logging.LogLevel.Trace);
+    }
 }

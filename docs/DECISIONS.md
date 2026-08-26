@@ -5528,3 +5528,101 @@ view was quantising it, which is why this needed no change below the presentatio
 `docs/HANDOFF.md`: `TimeScaleConformanceTests` cites Valve's three constants and asserts our range
 contains Valve's and our resolution is at least as fine, over Valve's own span rather than ours — a
 coarser slider must not be able to pass by being wider.
+
+---
+
+## D98 — The orthographic camera goes entirely (closes B205)
+
+**B205 asked whether the overhead camera should survive now that it is reachable only as a
+first-person fallback. The owner, 2026-08-26:**
+
+> "i dont think the ortho cam should survive at all"
+
+**This finishes what D49 started.** D49 deleted `CameraMode.Map` on the reading that an overhead
+*view* is a **placement** of the ordinary camera rather than a projection of its own. The projection
+survived anyway, reachable through exactly one path — first person with no eye available — which is
+a mode nobody chose and nobody could name.
+
+**It also settles what "overhead" still means here**, restating the owner's earlier position: *"the
+overhead view is gone unless it is specifically talking about the free cams default poistion"*. So
+`OverheadPlacement` **stays** — it computes an origin and angles for the free camera — and
+`TopDownCamera`, the orthographic projection, goes.
+
+**A correction to the assistant's account of the mouse wheel, in the owner's words:**
+
+> "the mouse wheel was working in free cam before, i used it all the time"
+
+That is right and the earlier summary read as saying otherwise. In the free camera the wheel calls
+`FreeCameraController.Dolly` and always has; only the *ortho zoom* branch was first-person-only. The
+distinction matters for this deletion: **the wheel keeps working, it simply stops having a second
+meaning.**
+
+**Most of the entanglement turned out to be vestigial, which is why this is smaller than it looks.**
+`TopDownCamera` is threaded through `LoadedMap.BuildWorld` into `MapWorld.Build`, which **never reads
+it** — a leftover of the top-down culling that
+`docs/memory/build-time-shortcuts-assume-the-camera.md` records as having broken the free camera.
+The build path needs no camera at all.
+
+**What the first-person fallback becomes is part of this decision**: when there is no eye to look
+through, the viewer falls back to the **free camera**, not to an overhead placement of it. A demo
+that loses its subject drops the viewer into the view it can always offer.
+
+---
+
+## D99 — `fps_max`'s "cannot be set while connected" is not adopted
+
+**Valve's frame limiter carries a restriction we are not taking.** `fps_max`'s help string in
+`bin/engine.dll` reads *"Frame rate limiter, cannot be set while connected to a server"*; ours is
+settable at any time. B209 raised it; the owner ruled on it, 2026-08-26:
+
+> "the ' cannot be set while connected' is kinda irrelecent for us, because while we are emulating
+> server side stuff to render right, we are not a server"
+
+**The exemption is structural, not a preference.** The restriction is about a client's relationship
+with a server, and a demo viewer has none — which is the owner's standing test for an acceptable
+departure: know exactly why Valve does it, and exactly why we do not have to.
+
+**A caveat he raised himself, recorded because it is a prediction rather than a finding:**
+
+> "although that means we might run into some bugs if we switch frame rate while the demo is
+> playing"
+
+Nothing has been measured against that. If a mid-playback frame-rate change ever misbehaves, this
+entry is where the suspicion was first written down.
+
+**And his reading of why the restriction exists at all, kept as HYPOTHESIS and not as fact:**
+
+> "i think that was valves way of stopping fps bugs like those in HL1 that allow speedrunners to do
+> some crazy stuff, idk why it would have been transfered from gldsrc to src because source doesnt
+> have the same framerate bugs as hl1 and gldsrc did, but i can understand why they would keep you
+> from chaning fps in say cs 1.6"
+
+That is unverified — no Valve source or changelog has been read for it — and it is worth keeping
+precisely because it is a plausible story: a plausible story recorded as a conclusion is the kind
+that gets repeated. Flagged so the next reader knows which it is.
+
+---
+
+## D100 — `engine_no_focus_sleep`, under Valve's own name
+
+**The viewer renders at full frame rate while alt-tabbed; the engine does not.** The other half of
+B209. The owner, 2026-08-26:
+
+> "oh and the no focus we should probably implement, but i think the background fps is a cvar, in
+> real tf2, if its not then we should make it one so it can be users choice."
+
+**It is a cvar, and it is called `engine_no_focus_sleep`** — confirmed present in TF2's
+`bin/engine.dll`. So the question of whether to invent one does not arise: D69 already says our
+vocabulary *is* Source's, and a real config setting it must work.
+
+**One precision on the mechanism, because it changes what gets built.** It is a **sleep duration per
+frame while unfocused**, not a background frame-rate cap. The name says sleep, and the engine's
+neighbouring convar is `mat_powersavingsmode` rather than a second `fps_max`. A "background fps"
+number would be a different control with a different feel, so this implements the one Valve has.
+
+**Its default was NOT read.** The string table gives the name and no readable default, and reading
+one out would need a disassembler. It will be chosen deliberately and said so, rather than a number
+being asserted as Valve's when it was guessed.
+
+**Where it goes: `FramePacer`**, which already owns the budget and the sleep-or-spin decision. The
+window contributes the one thing it knows — whether it currently has focus.

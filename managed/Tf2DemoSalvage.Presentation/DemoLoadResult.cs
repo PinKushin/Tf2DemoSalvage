@@ -1,4 +1,4 @@
-namespace Tf2DemoSalvage.Viewer3D;
+namespace Tf2DemoSalvage.Presentation;
 
 /// <summary>How an attempt to open a demo ended.</summary>
 /// <remarks>
@@ -6,8 +6,13 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// abandoned because the user picked a different one did not fail — nothing is wrong and there is
 /// nothing to report to them — but it did not load either, and a caller waiting to act on the new
 /// demo needs to know which it got.
+///
+/// **Moved out of `Viewer3D` on 2026-08-26** (B208), which `docs/HANDOFF.md` had listed as a
+/// leftover for as long as the plan existed. Whether a load succeeded, was abandoned, or failed is
+/// not a fact about a window — and `Superseded` in particular is a *policy* about racing loads, not
+/// a WinForms concern.
 /// </remarks>
-internal enum DemoLoadOutcome
+public enum DemoLoadOutcome
 {
     /// <summary>The demo is on screen.</summary>
     Loaded,
@@ -31,7 +36,7 @@ internal enum DemoLoadOutcome
 /// **The message is the same text the status line gets**, deliberately: two wordings for one event
 /// is how a log and a window come to disagree about what happened.
 /// </remarks>
-internal readonly record struct DemoLoadResult(DemoLoadOutcome Outcome, string Message)
+public readonly record struct DemoLoadResult(DemoLoadOutcome Outcome, string Message)
 {
     /// <summary>Whether the demo is now on screen.</summary>
     public bool Loaded => Outcome == DemoLoadOutcome.Loaded;

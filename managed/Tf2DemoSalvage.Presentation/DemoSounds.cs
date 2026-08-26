@@ -56,7 +56,18 @@ public static class DemoSounds
     /// **The exceptions are caught rather than returned**, so the logger sees the exception object
     /// and keeps its stack trace. A sound that will not decode is a defect in that file or in our
     /// reading of it, and it must not take the whole demo down with it — the same reason the caught
-    /// set is narrow and named rather than `Exception`.
+    /// set is narrow and named rather than `Exception`. A failure costs the precache and nothing
+    /// else: anything missed is decoded on first play exactly as before, slower rather than broken.
+    ///
+    /// **Up front is the engine's own timing, and for sound it is a REFUSAL rather than a
+    /// preference** (D86, D87). `CBaseEntity::PrecacheSound` opens with
+    /// `if ( !CBaseEntity::IsPrecacheAllowed() )` and then
+    /// `Assert( !"CBaseEntity::PrecacheSound:  too late" )` — `SoundEmitterSystem.cpp:1497`. Loading
+    /// a sound during play is something Source treats as a programming error, and it passes
+    /// `bPreload: true` to `enginesound->PrecacheSound` at `:1507`.
+    ///
+    /// **What this decides is the LIST**, now that `SoundCache.Precache` does the decoding — which
+    /// sounds are worth having ready is the only part that needs a demo and a map.
     /// </remarks>
     public static void Precache(
         SoundCache cache,

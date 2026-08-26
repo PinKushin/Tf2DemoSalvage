@@ -23,6 +23,38 @@ namespace Tf2DemoSalvage.Scene.Tests;
 public sealed class LeafVisTests
 {
     [Test]
+    public void WhyNothing_WithNoMapLoaded_SaysSoRatherThanBlamingTheTree()
+    {
+        // **This was `MainForm.WhyNoLeafBox`** (B208). Three cases and not two, deliberately: "no
+        // map" and "a map with no tree" are different problems with different fixes — one is a demo
+        // whose map could not be found, the other is a map whose tree we failed to read. Collapsing
+        // them sends the reader to the wrong half.
+        LeafVis.WhyNothing(mapLoaded: false, tree: null)
+            .ShouldContain("no map loaded");
+    }
+
+    [Test]
+    public void WhyNothing_WithAMapButNoTree_BlamesTheTree()
+    {
+        LeafVis.WhyNothing(mapLoaded: true, tree: null)
+            .ShouldContain("no BSP tree");
+    }
+
+    [Test]
+    public void WhyNothing_WithATreeThatHasNoBounds_BlamesTheLeaf()
+    {
+        // **The case the other two cannot reach, and the reason `mapLoaded` is a separate argument.**
+        // A tree built without the leaf lump still answers WHICH leaf a point is in — the walk needs
+        // only nodes and planes — so this is a real state, not a hypothetical.
+        // No `box` argument, so the tree has nodes and planes but no leaf bounds — which is exactly
+        // the state `Lines` returns empty for.
+        BspLeafTree tree = OneSplit(above: 1, below: 2);
+
+        LeafVis.WhyNothing(mapLoaded: true, tree)
+            .ShouldContain("no bounds");
+    }
+
+    [Test]
     public void Edges_ABox_AreItsTwelve()
     {
         // A box has twelve edges: every pair of corners differing in exactly one axis. A builder

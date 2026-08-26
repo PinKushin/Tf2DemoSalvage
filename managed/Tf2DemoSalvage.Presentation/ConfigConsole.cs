@@ -121,6 +121,22 @@ public sealed class ConfigConsole
     public int Bound { get; private set; }
 
     /// <summary>The actions that are held down rather than triggered once.</summary>
+    /// <remarks>
+    /// **This is also the set a host must SWALLOW**, and since 2026-08-26 it is the only copy of it
+    /// (B208). `FreeFlight.FlightActions` listed the same seven independently, under a comment
+    /// claiming they were "listed once so `IsFlightKey` and the console cannot disagree about what
+    /// counts as flight" — they could, and nothing would have said so.
+    ///
+    /// The failure that comment describes is the reason it matters: **a key swallowed but never
+    /// pressed into the console, or pressed but never swallowed, produces a camera that moves once
+    /// and stops.**
+    ///
+    /// **`FlyFast` is in the set, and it did not used to be** (D69). Shift was read straight off
+    /// `Control.ModifierKeys`, on the grounds that a modifier's state is something the toolkit
+    /// already knows. That stopped being true when the console took over the controls: `+speed` is
+    /// a bound command like any other, so Shift has to be pressed INTO the console or the speed
+    /// multiplier never fires — and it fails silently, as a camera that simply never goes fast.
+    /// </remarks>
     public static IReadOnlySet<ViewerAction> HeldActions { get; } = new HashSet<ViewerAction>
     {
         ViewerAction.FlyForward,

@@ -69,7 +69,7 @@ internal static class FreeFlight
             return false;
         }
 
-        foreach (ViewerAction action in FlightActions)
+        foreach (ViewerAction action in ConfigConsole.HeldActions)
         {
             if (string.Equals(name, bound.KeyFor(action), StringComparison.OrdinalIgnoreCase))
             {
@@ -80,32 +80,17 @@ internal static class FreeFlight
         return false;
     }
 
-    /// <summary>The actions that move the free camera.</summary>
-    /// <remarks>
-    /// Listed once so <see cref="IsFlightKey"/> and the console cannot disagree about what counts as
-    /// flight — a key swallowed but never pressed into the console, or pressed but never swallowed,
-    /// produces a camera that moves once and stops.
-    /// </remarks>
-    private static readonly ViewerAction[] FlightActions =
-    [
-        ViewerAction.FlyForward,
-        ViewerAction.FlyBack,
-        ViewerAction.FlyLeft,
-        ViewerAction.FlyRight,
-        ViewerAction.FlyUp,
-        ViewerAction.FlyDown,
-
-        // **Shift belongs here now, and did not before (D69).** It used to be read straight off
-        // `Control.ModifierKeys` on the grounds that a modifier's state is something WinForms
-        // already knows. That stopped being true when the console took over the controls: `+speed`
-        // is a bound command like any other, so Shift has to be pressed INTO the console or the
-        // speed multiplier never fires — and it would fail silently, as a camera that simply never
-        // goes fast.
-        //
-        // The consequence is that a bare Shift press is swallowed while the free camera is active,
-        // which is the same treatment every other bound key gets.
-        ViewerAction.FlyFast,
-    ];
+    // **`FlightActions` was here until 2026-08-26** (B208), and its own comment was the finding: it
+    // claimed the actions were "listed once so `IsFlightKey` and the console cannot disagree about
+    // what counts as flight" — while listing all seven a second time, in a second project, beside
+    // `ConfigConsole.HeldActions`. They could disagree, and nothing would have said so.
+    //
+    // The failure that comment describes is why it mattered: a key swallowed but never pressed into
+    // the console, or pressed but never swallowed, produces a camera that moves once and stops.
+    //
+    // `IsFlightKey` reads `ConfigConsole.HeldActions` now, so the two questions — "does the console
+    // hold this action down" and "must this window swallow the key" — are answered from one list.
+    // The Shift/`+speed` reasoning (D69) went with it.
 
     // `Movement`, `Intent`, `Axis` and `IsDown` were removed here (D69). They turned a
     // `HashSet<Keys>` plus a binding table into an axis request, and `ConfigConsole` does that job

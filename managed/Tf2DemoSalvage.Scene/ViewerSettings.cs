@@ -4,6 +4,8 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 
+using Microsoft.Extensions.Logging;
+
 namespace Tf2DemoSalvage.Scene;
 
 /// <summary>How the viewer fills the screen.</summary>
@@ -322,6 +324,24 @@ public sealed record ViewerSettings
     /// before.
     /// </remarks>
     public int Developer { get; init; }
+
+    /// <summary>The minimum level the log sink should accept, for this <see cref="Developer"/>.</summary>
+    /// <remarks>
+    /// **The mapping above, made executable** (B208). It was stated in `Developer`'s own
+    /// documentation here and implemented as a `switch` inside `MainForm.ApplyLogVerbosity` — the
+    /// same rule written twice, in two projects, with only one of them running. A prose copy of a
+    /// rule is a copy that can go quietly wrong.
+    ///
+    /// **`>= 2` rather than `== 2`**, because `developer` is a Source ConVar and a user may type any
+    /// number into it. `ViewerSettings` clamps to 0..2 when reading a config, but a value set
+    /// another way should still mean "as much as possible" rather than falling to the default.
+    /// </remarks>
+    public LogLevel Verbosity => Developer switch
+    {
+        >= 2 => LogLevel.Trace,
+        1 => LogLevel.Debug,
+        _ => LogLevel.Information,
+    };
 
     /// <summary>Which frame rate meter to draw: 0 none, 1 instantaneous, 2 smoothed.</summary>
     /// <remarks>

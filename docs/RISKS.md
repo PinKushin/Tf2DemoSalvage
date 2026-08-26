@@ -12234,3 +12234,68 @@ from 629 to 619 — exactly the ten tests, with the reasoning recorded beside th
 superseded, the call sites move and the *tests and comments do not*. What is left is not inert —
 green tests answer "is this covered?" with yes, and orphaned comments answer "does the viewer share
 this path?" with yes. Both are wrong, and neither can fail.
+
+### B208 — Six things a grep audit could not see — FIXED 2026-08-26
+
+**The first audit of `MainForm` came back clean and was wrong.** It grepped for float literals
+(`\* [0-9]+\.[0-9]+f`), `MathF.` and `Math.Clamp`, plus a domain-vocabulary census. The owner asked
+for a second one; done by *reading every member*, it found six items. **Four were invisible to the
+first pass because they contain no float literal at all** — `1d / FrameRateLimit`, `/ 2f`, `== 40`,
+and a method with no arithmetic whatsoever. One was visible in the vocabulary census and not
+followed up. One is only findable by reading.
+
+**That is the finding, more than the six items:** a clean grep result is a statement about the
+regex, and the audit that produced it should not have been reported as "clean".
+
+| # | what | where it went |
+|---|---|---|
+| 1 | `PrecacheModels` — the twin of a method moved hours earlier | `DemoModels.Precache` |
+| 2 | a load-bearing call order nothing enforced | carried by a returned `GameContent?` |
+| 3 | `WhyNoLeafBox` — reasoning about BSP structure | `LeafVis.WhyNothing` |
+| 4 | `WorldAt` — inverse projection, including the Y flip | `TopDownCamera.Unproject` |
+| 5 | `FrameIsDue` / `WaitForTheNextFrame` — a frame limiter | `FramePacer` |
+| 6 | `_shotDelay == 40`, a coupled constant as a bare literal | `OpeningFrames - SettleFrames` |
+
+**#1 is the one worth dwelling on.** `PrecacheSounds` moved out to `DemoSounds.Precache` and its
+identical twin was left behind — same guards, same narrow catch, same timing line. An asymmetry
+introduced that way reads as *deliberate* afterwards, which makes it harder to find than the
+original duplication was.
+
+**#2 is B203's shape at a smaller scale.** `LoadDemoAsync` called `ReadMapNamed`, then both
+precaches. `ReadMapNamed` is what opens the install, and both precaches begin
+`if (timeline is null || game is null) return;` — **silently**. Reversing those three lines makes
+precaching do nothing, with no error and a green suite. The ordering hazard *was already documented*
+— but in a comment, at the **other** call site (`Apply`), and a comment enforces nothing. It is now
+carried by the value: `ReadMapNamed` returns the `GameContent?` it opened, so the wrong order has
+nothing to pass. Not airtight — `_game` is still a reachable field — but the natural form now
+carries the order, which is the difference between a comment and a shape.
+
+**#6 was a latent silent failure**, not just a style point. `OpeningFrames` is 45 and the countdown
+was compared against a literal `40`. Lower `OpeningFrames` below 40 and the comparison is never
+reached, so `ApplyOpeningState` never runs and every `--camera`, `--first-person` and `--look-at`
+is dropped without a word.
+
+**One pre-existing defect fell out of #3**: `LeafVis` carried an orphaned
+`/// <summary>How large w must be before a corner is considered to be in front of the eye.</summary>`
+describing a constant that no longer existed. **An orphaned doc comment does not warn — it silently
+reattaches to the next member**, so `Lines` had been documented as being about clip-space W for
+however long the constant had been gone.
+
+### B209 — Two frame-pacing parity questions, found but not answered — OPEN, needs the owner
+
+**Found while moving the frame limiter for B208, and deliberately not acted on**, because both change
+behaviour rather than placement.
+
+**1. `fps_max` semantics.** The engine's limiter is `fps_max`, whose help string reads *"Frame rate
+limiter, cannot be set while connected to a server"* (measured from `bin/engine.dll`). Ours is
+`ViewerSettings.FrameRateLimit`, settable at any time. Whether the engine's restriction has any
+analogue for a demo viewer — which is never connected to anything — has not been thought about.
+
+**2. `engine_no_focus_sleep`, and this one looks like a real gap.** The engine has a convar
+dedicated to sleeping when it does not have focus. Our `OnDeactivate` releases held keys and does
+nothing else, so **the viewer renders at its full frame rate while alt-tabbed**. On a laptop that is
+battery burnt for a window nobody is looking at.
+
+**Both need a decision rather than a fix.** The second is a behaviour change a user would notice, and
+the standing rule is that a divergence is asked, not assumed. `FramePacer` is where either would go:
+it already owns the budget and the sleep-or-spin threshold, so neither needs the window reopened.
