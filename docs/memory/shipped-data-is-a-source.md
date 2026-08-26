@@ -42,6 +42,23 @@ explaining their own format, written for the people who author them.
 **The rule: when the question is about a format the GAME reads, read what the game ships.** When it
 is about engine behaviour, the code sources still apply.
 
+**A third instance, 2026-08-26: `tf/cvarlist.log`.** The game ships a plain-text dump of **3,668
+convars and concommands with their defaults, flags and help strings**, in fixed columns:
+
+```
+fps_max                                  : 400      :                  : Frame rate limiter, cannot be set while connected to a server.
+engine_no_focus_sleep                    : 50       : , "a"            :
+```
+
+Look one up with `grep -E "^<name> +:"` — anchored and with the colon, or `fps_max` matches inside
+other convars' help text and `volume` matches eleven others. It covers everything registered in
+`engine.dll`, `materialsystem.dll` and `vguimatsurface.dll`, none of which are in `source-sdk-2013`.
+
+**It is a dump, not a declaration**, so an `FCVAR_ARCHIVE` convar the user has changed could be
+captured as if it were the default. Cross-check against a registration where one exists; where none
+does, this beats scanning PE strings by a wide margin. Detail in
+`docs/findings/40-the-game-ships-its-own-cvar-list.md`.
+
 Practical notes for doing it:
 
 - VMTs live inside VPKs. `grep -a` works directly on the `.vpk`, and `dd` around the byte offset from

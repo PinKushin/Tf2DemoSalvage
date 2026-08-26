@@ -5703,12 +5703,27 @@ frame while unfocused**, not a background frame-rate cap. The name says sleep, a
 neighbouring convar is `mat_powersavingsmode` rather than a second `fps_max`. A "background fps"
 number would be a different control with a different feel, so this implements the one Valve has.
 
-**Its default was NOT read.** The string table gives the name and no readable default, and reading
-one out would need a disassembler. It will be chosen deliberately and said so, rather than a number
-being asserted as Valve's when it was guessed.
+**A stale paragraph stood here until 2026-08-26 and said the opposite of the entry above it:**
+*"Its default was NOT read. The string table gives the name and no readable default, and reading one
+out would need a disassembler."* True when written, and superseded four paragraphs earlier by the
+disassembly that reads `push 0x102eb2f8 ; default -> the string "50"`. Left in place, it had this
+entry simultaneously measuring the default and declaring it unmeasurable.
+
+**Kept rather than deleted, because it is the third instance of one shape found in a single day** —
+see `docs/memory/an-impossibility-claim-expires.md`. `ViewerSettings` said `fps_max`'s default could
+not be recovered while finding 37 had recovered it; B209 stood "OPEN, needs the owner" while this
+entry had already answered it; and this paragraph outlived its own evidence. In every case the
+positive claim advanced and the negative one was never re-read, because nothing depends on a
+negative claim and so nothing drags it back into view.
 
 **Where it goes: `FramePacer`**, which already owns the budget and the sleep-or-spin decision. The
 window contributes the one thing it knows — whether it currently has focus.
+
+**Built 2026-08-26** as `FramePacer.NoFocusSleep(hasFocus, milliseconds)` with
+`ViewerSettings.NoFocusSleep` defaulting to 50, exactly as specified above. One detail this entry did
+not anticipate: the sleep goes in `OnIdle` **before** the frame-due check rather than inside the
+existing wait, because that wait only runs when a frame is *not* due — an unfocused window would
+otherwise have rendered at full rate whenever one was, which is every frame at any reachable limit.
 
 ## D101 — No hardcoded controls, ever; every key goes through the config
 
@@ -5762,3 +5777,46 @@ platform behaviour instead, which is not ours to un-hardcode.
 
 **Removals count as progress and were taken immediately.** The height cut's three keys are gone with
 the feature (B213), and the guard added in their place names no key at all.
+
+## D102 — The free camera imitates the roaming SPECTATOR, not the demo camera
+
+**Source has two free cameras and they share nothing but a purpose.** Which one this viewer copies
+had never been decided, so its speed was neither — 600 units a second, reasoned from a keyboard-repeat
+defect (B97) rather than from the engine.
+
+The parity audit of 2026-08-26 offered `CalcDemoViewOverride` as the reference, on the grounds that it
+is literally the engine's demo-playback camera. The owner picked the other one:
+
+> *"the correct speeds to use are spectator speeds, im pretty sure, idk what the demo cam speed is
+> even actually for becasue ive never seen a tf2 server which has spectators off really"*
+
+**This reverses an answer they gave twenty minutes earlier** — "Valve exactly, 320 u/s", which is
+`cl_demoviewoverride` at scale 1. Recorded as a reversal because the second answer is better for a
+reason the first question never surfaced: **`cl_demoviewoverride` ships `"0"`**, so it is a feature
+almost nobody has switched on, while spectating is the thing every demo viewer is imitating. The
+assistant had presented one of two candidates as though it were the only one.
+
+### What follows from it
+
+`FullObserverMove` (`gamemovement.cpp:2144`) delegates to `FullNoClipMove( sv_specspeed,
+sv_specaccelerate )` because `sv_specnoclip` ships `1`, so the clipped body below that branch is dead
+at shipped settings and `FullNoClipMove( 3, 5 )` is the reference.
+
+| | value | from |
+|---|---:|---|
+| normal flight | **960 u/s** | `sv_maxspeed 320 × sv_specspeed 3` — the clamp at `:2260` |
+| `+speed` held | **675 u/s** | `cl_forwardspeed 450 × 1.5`, which never reaches the clamp |
+
+**`+speed` is Source's WALK key**, and this viewer had it quadrupling the speed. Under D69 that means
+a pasted config did the opposite of what its author meant. `ViewerAction.FlyFast` is `FlyWalk` now.
+
+**And it is not a halving.** `maxspeed` is computed from the unhalved factor on the line above
+`factor /= 2.0f`, so the normal case is clamped and the walking case is not: 70.3%, not 50%.
+
+### The rule this sets, beyond the numbers
+
+**When the engine has two mechanisms for a job, which one we copy is a decision to record, not an
+implementation detail to pick.** The audit found the divergence correctly and then nearly closed it
+against the wrong reference — with a citation, which would have made it look settled. Ask which
+mechanism, then cite it. Same family as
+`docs/memory/name-the-reading-you-picked.md`.

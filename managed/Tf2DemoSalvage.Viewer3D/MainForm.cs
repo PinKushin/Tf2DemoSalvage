@@ -2908,6 +2908,18 @@ internal class MainForm : Form, IFrameSteps
 
         do
         {
+            // **`engine_no_focus_sleep`, before the frame decision rather than inside the wait**
+            // (B209). The engine sleeps because nobody is looking, which is a different question
+            // from whether the next frame is due — putting it in `WaitForTheNextFrame` would mean an
+            // unfocused window still rendered at full rate whenever a frame WAS due, which is every
+            // frame at any reachable limit.
+            int idle = FramePacer.NoFocusSleep(ContainsFocus, _settings.NoFocusSleep);
+
+            if (idle > 0)
+            {
+                Thread.Sleep(idle);
+            }
+
             if (_clock.IsDue(_settings.FrameRateLimit))
             {
                 // **Counted only when something was drawn.** RenderFrame declines during a map

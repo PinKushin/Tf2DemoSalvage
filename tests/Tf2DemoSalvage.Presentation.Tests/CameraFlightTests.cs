@@ -125,7 +125,7 @@ public sealed class CameraFlightTests
     }
 
     /// <summary>Holding forward and nothing else.</summary>
-    private static FlightInput Forward => new(Forward: 1f, Right: 0f, Up: 0f, Fast: false);
+    private static FlightInput Forward => new(Forward: 1f, Right: 0f, Up: 0f, Walk: false);
 
     /// <summary>A controller already placed at the world origin, facing down +X and level.</summary>
     private static FreeCameraController Placed() =>

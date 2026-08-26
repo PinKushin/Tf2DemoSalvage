@@ -137,6 +137,25 @@ public sealed record ViewerSettings
     /// </remarks>
     public const string FrameRateLimitCommand = "fps_max";
 
+    /// <summary>Command name for the sleep taken while the window has no focus.</summary>
+    /// <remarks>
+    /// **Valve's own name, and Valve's own default** (B209). `engine_no_focus_sleep` ships at `50`
+    /// with `FCVAR_ARCHIVE` — read from `engine.dll`'s registration in
+    /// `docs/findings/37-the-engines-demo-vocabulary.md` and confirmed in `tf/cvarlist.log`.
+    ///
+    /// **It is a duration in milliseconds, not a flag.** Reading it as a boolean is the easy mistake
+    /// and it loses the number that matters: 50 ms a frame is about 20 frames a second.
+    /// </remarks>
+    public const string NoFocusSleepCommand = "engine_no_focus_sleep";
+
+    /// <summary>Milliseconds to sleep per frame while the window has no focus.</summary>
+    /// <remarks>
+    /// **Valve's shipped 50**, adopted rather than invented. The viewer previously rendered at its
+    /// full frame rate while alt-tabbed, which on a laptop is battery spent on a window nobody is
+    /// looking at. Zero disables the sleep and restores that behaviour.
+    /// </remarks>
+    public const int DefaultNoFocusSleep = 50;
+
     /// <summary>Command name for vertical sync.</summary>
     /// <remarks>Valve's name; ships in `engine.dll` and `materialsystem.dll`.</remarks>
     public const string VerticalSyncCommand = "mat_vsync";
@@ -259,10 +278,24 @@ public sealed record ViewerSettings
     ///
     /// The engine has a floor and no ceiling. `engine.dll` carries *"sv_cheats is 0 and fps_max is
     /// being limited to a minimum of 30 (or set to 0)"*, and nothing about a maximum; Valve's
-    /// shipped configs never set `fps_max`, and its default could not be recovered from the binary,
-    /// because the string pool pairs a cvar's name with its help text and not with its default.
+    /// shipped configs never set `fps_max`.
     ///
-    /// **300 is OURS**, and it stands on its own measurement rather than on Valve: the swap chain
+    /// **Its default is 400, and this entry contradicted our own finding for weeks** (corrected
+    /// 2026-08-26). It used to end *"its default could not be recovered from the binary, because the
+    /// string pool pairs a cvar's name with its help text and not with its default"*. The reasoning
+    /// about the pool is correct and the conclusion is not:
+    /// `docs/findings/37-the-engines-demo-vocabulary.md` had already recovered
+    /// `ConVar fps_max( "fps_max", "400", 0, ... )` — flags and all — by reconstructing the pooled
+    /// NUMERIC block rather than reading adjacency.
+    ///
+    /// **So this was not a missing source, it was an unrevisited impossibility claim.** Nothing about
+    /// finding 37 forced a re-read of a sentence saying the thing it established could not be known,
+    /// which is how the two sat here disagreeing. See
+    /// `docs/memory/an-impossibility-claim-expires.md`, and
+    /// `docs/findings/40-the-game-ships-its-own-cvar-list.md` for the cheaper instrument that
+    /// surfaced the contradiction.
+    ///
+    /// **300 is still OURS**, and it stands on its own measurement rather than on Valve: the swap chain
     /// presents asking for vertical sync and the viewer was still measured at about 600 frames a
     /// second, which is ten times any display and allocates every one of them.
     ///
@@ -340,6 +373,13 @@ public sealed record ViewerSettings
     /// a real question — it is how the 600 was found.
     /// </remarks>
     public int FrameRateLimit { get; init; } = DefaultFrameRateLimit;
+
+    /// <summary>Milliseconds to sleep per frame while the window has no focus.</summary>
+    /// <remarks>
+    /// Valve's <see cref="NoFocusSleepCommand"/>, adopted at its shipped 50 (B209). Zero renders at
+    /// full rate while alt-tabbed, which is what this viewer did before.
+    /// </remarks>
+    public int NoFocusSleep { get; init; } = DefaultNoFocusSleep;
 
     /// <summary>How much the viewer says: 0 ordinary, 1 per-frame detail, 2 everything.</summary>
     /// <remarks>
@@ -520,6 +560,13 @@ public sealed record ViewerSettings
         if (Read(values, FrameRateLimitCommand) is { } limit && limit >= 0)
         {
             settings = settings with { FrameRateLimit = limit };
+        }
+
+        // Negative is ignored for the same reason as above: it is not "no sleep", it is nonsense.
+        // Zero IS meaningful here and means render at full rate unfocused, as this used to.
+        if (Read(values, NoFocusSleepCommand) is { } noFocus && noFocus >= 0)
+        {
+            settings = settings with { NoFocusSleep = noFocus };
         }
 
         // **Clamped rather than refused, which is what a ConVar with bounds does.** TF2 declares
@@ -708,6 +755,16 @@ public sealed record ViewerSettings
             FrameRateLimitCommand,
             FrameRateLimit.ToString(CultureInfo.InvariantCulture),
             FrameRateLimit == Defaults.FrameRateLimit);
+        text.AppendLine();
+        text.AppendLine("// Milliseconds to sleep each frame while this window has no focus, as in");
+        text.AppendLine("// TF2, which ships this at 50 -- about 20 frames a second alt-tabbed. Set");
+        text.AppendLine("// 0 to keep drawing at the full rate when you are working in another");
+        text.AppendLine("// window and watching this one on a second monitor.");
+        Setting(
+            text,
+            NoFocusSleepCommand,
+            NoFocusSleep.ToString(CultureInfo.InvariantCulture),
+            NoFocusSleep == Defaults.NoFocusSleep);
         text.AppendLine();
         text.AppendLine("// Field of view for the weapon in your hands, in degrees. TF2 allows 54");
         text.AppendLine("// to 70 and defaults to 54; anything outside that is clamped, as in game.");

@@ -88,10 +88,11 @@ public sealed class FreeFlightTests
     public void Movement_Forward_TravelsSpeedTimesDuration()
     {
         // The whole point of the change: distance is speed times time, so it no longer depends on
-        // the keyboard's repeat rate or the frame rate. Half a second at 600 units a second is 300.
+        // the keyboard's repeat rate or the frame rate. Half a second at 960 units a second is 480 —
+        // 960 being `sv_maxspeed * sv_specspeed`, the spectator ceiling (B215).
         (float X, float Y, float Z) moved = Fly([Keys.W], 0.5);
 
-        moved.X.ShouldBe(300f, 0.01f);
+        moved.X.ShouldBe(FreeFlightPath.SpeedPerSecond * 0.5f, 0.01f);
         moved.Y.ShouldBe(0f, 0.01f);
         moved.Z.ShouldBe(0f, 0.01f);
     }
@@ -107,18 +108,21 @@ public sealed class FreeFlightTests
     }
 
     [Test]
-    public void Movement_Shift_QuadruplesTheSpeed()
+    public void Movement_Shift_SlowsTheCameraDown()
     {
         // **Shift goes through the console now**, rather than being read off `Control.ModifierKeys`
         // and handed in as a `fast:` argument. That was the change most likely to break silently: a
-        // speed multiplier that never fires looks like a camera that is merely slow.
+        // modifier that never fires looks like a camera whose speed simply does not respond.
+        //
+        // **And it SLOWS the camera** (B215). Shift is bound to `+speed`, which is Source's walk key
+        // — `IN_SPEED` divides the move factor by two in `FullNoClipMove`. This test asserted
+        // quadrupling until 2026-08-26, and it passed the whole time, because it was written from
+        // what the code did rather than from what the engine does.
         float normal = Fly([Keys.W], 0.1).X;
-        float fast = Fly([Keys.W, Keys.ShiftKey], 0.1).X;
+        float walking = Fly([Keys.W, Keys.ShiftKey], 0.1).X;
 
-        // **Asked of `FreeFlightPath`, which owns the number** (2026-08-26). `FreeFlight` re-exported
-        // it as a constant of its own, and this was the only reader — a second name for one value,
-        // which is one more place a change has to reach.
-        fast.ShouldBe(normal * FreeFlightPath.FastMultiplier, 0.01f);
+        walking.ShouldBeLessThan(normal, "+speed is the walk key");
+        walking.ShouldBe(normal * FreeFlightPath.WalkMultiplier, 0.01f);
     }
 
     [Test]
@@ -131,7 +135,7 @@ public sealed class FreeFlightTests
         float right = Fly([Keys.W, Keys.RShiftKey], 0.1).X;
 
         right.ShouldBe(left, 0.01f);
-        left.ShouldBeGreaterThan(Fly([Keys.W], 0.1).X, "and both are faster than no Shift at all");
+        left.ShouldBeLessThan(Fly([Keys.W], 0.1).X, "and both walk, rather than doing nothing");
     }
 
     [Test]

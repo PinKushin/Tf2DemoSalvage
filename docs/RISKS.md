@@ -12502,6 +12502,108 @@ a test cannot put a non-null value there, and asserting null after `Open` when i
 the precondition-equals-assertion shape that made the rest of that test worthless until it was fixed
 this morning. The third level covers it instead.
 
+### B215 — The free camera flew at a speed nobody read off the engine — FIXED 2026-08-26
+
+**Fixed against the ROAMING SPECTATOR, not the demo camera, and the owner made that call:**
+
+> *"the correct speeds to use are spectator speeds, im pretty sure, idk what the demo cam speed is
+> even actually for becasue ive never seen a tf2 server which has spectators off really"*
+
+**This reverses their own answer from twenty minutes earlier**, which was `cl_demoviewoverride` at
+Valve's scale of 1 — 320 u/s. Recorded as a reversal because both positions were reasonable and the
+second is better: `CalcDemoViewOverride` ships **off** (`cl_demoviewoverride "0"`), so it is a
+feature almost nobody has ever switched on, while spectating is what every demo viewer is imitating.
+The assistant had offered the demo camera as *the* reference without asking which of the engine's
+two free cameras was meant.
+
+**`FullObserverMove` delegates immediately, and that is the step that decides the numbers:**
+
+```cpp
+if ( sv_specnoclip.GetBool() )   // ships "1"
+{
+    FullNoClipMove( sv_specspeed.GetFloat(), sv_specaccelerate.GetFloat() );
+    return;
+}
+```
+
+So the clipped free-roam body below that `return` is **dead at shipped settings**, and the reference
+is `FullNoClipMove( 3, 5 )` (`gamemovement.cpp:2254`).
+
+| | before | after | source |
+|---|---:|---:|---|
+| normal | 600 | **960** | `sv_maxspeed 320 × sv_specspeed 3`, the clamp at `:2260` |
+| `+speed` held | 2400 (×4) | **675** | `cl_forwardspeed 450 × 1.5`, under the ceiling |
+
+**Three separate faults, and only the first was the one being looked for.**
+
+1. **600 was nobody's reading of the engine.** It was reasoned from the keyboard-repeat defect it
+   replaced (B97) — 32 units a press at Windows' ~31/second came to over 900, so 600 was picked as
+   calmer. An argument about the bug, not about Valve. The camera was *slower* than the game's.
+2. **`+speed` was inverted.** `IN_SPEED` does `factor /= 2.0f` — it is Source's **walk** key. This
+   viewer bound Shift to `+speed` and quadrupled the speed, so under D69 a person pasting their own
+   config got a sprint from the key they hold to position carefully. `ViewerAction.FlyFast` is
+   `FlyWalk` now, and `FlightInput.Fast` is `Walk`, because a control whose name says the opposite of
+   what it does is the next bug's first cause.
+3. **`+speed` is not a halving, and the naive reading is wrong by 20 points.** `maxspeed` is computed
+   from the *unhalved* factor on the line above the halving, so the normal case is clamped to 960 and
+   the walking case — 675 — never reaches the clamp. 70.3%, not 50%. Anyone reading `factor /= 2.0f`
+   alone writes 480.
+
+**Two claims from the first draft of this entry are retired.** Valve's spectator *does* have a
+vertical axis (`wishvel[2] += mv->m_flUpMove * factor`), so ours is not an extension; and
+`cl_upspeed` at 320 × 3 = 960 lands exactly on the ceiling, which is why one constant serves every
+axis here.
+
+**How it was missed for so long.** `docs/findings/39-the-engines-frame-clocks.md`, written the
+previous day, quotes `CalcDemoViewOverride` **verbatim including the `* 320`** — read for the clock
+question, and the speed on the same line went unexamined. A citation consulted for one question does
+not answer the next one in it.
+
+**Five conformance tests were written before the fix** (`FreeCameraConformanceTests`), and the
+diagonal one passed immediately: Valve gets diagonal parity from the clamp and we get it from
+normalising before scaling — different mechanisms, same observable, which is what parity means here.
+
+### B214 — Every menu shortcut is a hardcoded key — OPEN, scheduled after the view work
+
+**Found by the parity audit of 2026-08-26, and the evidence was already in this repository.**
+`FreeFlightPath.SpeedPerSecond = 600f` and `FastMultiplier = 4f` cite nothing. The file around them
+cites Valve carefully — the axis convention, the pitch sign, the degenerate-basis epsilon — so the
+absence is specific to the speed.
+
+Valve has a number for exactly this job. `CalcDemoViewOverride`, `game/client/view.cpp:153`:
+
+```cpp
+float speed = gpGlobals->absoluteframetime * cl_demoviewoverride.GetFloat() * 320;
+```
+
+**That line is quoted verbatim in `docs/findings/39-the-engines-frame-clocks.md`**, written the same
+day, where it settled which clock the camera flies by. The `* 320` was on screen and nobody asked
+what it multiplied. A citation read for one question does not answer the next one in the same line.
+
+**Four differences, and they do not have the same standing.**
+
+| | Valve | ours |
+|---|---|---|
+| speed | `cl_demoviewoverride * 320` — **320 u/s** at 1 | **600 u/s**, flat |
+| modifier | none | **×4** on Shift |
+| vertical | **none** — `in_forward`/`in_back`/`in_moveright`/`in_moveleft` only | `'` up, `/` down |
+| default state | **off** — `cl_demoviewoverride` defaults `0`, and the same convar is the enable flag *and* the scale | always on |
+
+**The last two look like departures this project would take anyway**, and for stated reasons: a
+viewer whose whole purpose is a free camera cannot ship it off, and inspecting a map needs vertical
+travel that a demo-review camera in-game does not. Both are the `custom/` HUD shape under D91 —
+deliberately beyond the game.
+
+**The first two are the question**, because nothing chose them against Valve. 600 was reasoned from
+*our own* prior defect — 32 units a press at Windows' ~31/second repeat rate came to over 900, so 600
+was picked as calmer — which is an argument about the bug it replaced, not about the engine. And the
+×4 has no counterpart at all: Valve's single convar scales the whole thing, so a user who wants fast
+flight sets `cl_demoviewoverride 2` rather than holding a key.
+
+**Worth noting what is NOT wrong here.** `input->KeyState` is ported faithfully — all five outcomes
+including the destructive `key->state &= 1` — so the *shape* of the movement matches; only the
+constants do not.
+
 ### B214 — Every menu shortcut is a hardcoded key — OPEN, scheduled after the view work
 
 **D101 forbids hardcoded controls outright**, and fourteen of them remain: every `ShortcutKeys` on a
@@ -12681,7 +12783,32 @@ landed.
 box alone — the half a per-item test cannot see, since an item that set its own flag *and* stamped on
 a neighbour's would pass every per-item case.
 
-### B209 — Two frame-pacing parity questions, found but not answered — OPEN, needs the owner
+### B209 — Two frame-pacing parity questions — ANSWERED 2026-08-26
+
+**One was already answered and this entry did not say so.** D100 settled `engine_no_focus_sleep`
+completely — the owner asked for it, directed the decompile that measured the default, and named
+`FramePacer` as its home — while this entry went on reading "OPEN, needs the owner". The assistant
+put it to the owner again during the parity audit as though it were undecided. Same shape as the
+other two found the same day; see `docs/memory/an-impossibility-claim-expires.md`.
+
+**`engine_no_focus_sleep` — built to D100, at Valve's measured 50, configurable.** It is a
+**duration in milliseconds**, not a flag, so the shipped
+game runs about 20 frames a second while alt-tabbed; this viewer rendered every frame it could for a
+window nobody was looking at. Now `ViewerSettings.NoFocusSleep`, defaulting to 50, written into the
+generated config with a comment saying to set 0 if you watch this on a second monitor while working
+in another window.
+
+It sleeps in `OnIdle` **before** the frame decision rather than inside `WaitForTheNextFrame`, and
+that placement is the whole of the fix: the wait only runs when a frame is *not* due, so an unfocused
+window would have gone on rendering at full rate whenever one was — which is every frame at any
+reachable limit.
+
+**`fps_max` semantics — nothing to do.** The engine's *"cannot be set while connected to a server"*
+restriction has no analogue for a viewer that is never connected to anything. Our 300 stays,
+and it stays ours: it rests on a measurement of this viewer, not on Valve, which is recorded next to
+the constant.
+
+The original entry follows, since the reasoning that found them is worth keeping.
 
 **Found while moving the frame limiter for B208, and deliberately not acted on**, because both change
 behaviour rather than placement.
