@@ -5529,6 +5529,20 @@ view was quantising it, which is why this needed no change below the presentatio
 contains Valve's and our resolution is at least as fine, over Valve's own span rather than ours — a
 coarser slider must not be able to pass by being wider.
 
+**Corrected 2026-08-26, after decompiling: `demo_timescale` is a ConCommand, not a ConVar.** This
+entry's commit message and the conformance test both described it as "a float convar whose help
+string reads *Sets demo replay speed*". The help string is right; the kind was read off the help
+string alone and never checked. Its registration is five pushes with a `.text` pointer in the
+callback slot — see `docs/findings/37-the-engines-demo-vocabulary.md` — so it has no default and no
+flags, because a command has neither.
+
+**The decision above is unaffected, and saying why matters more than the correction.** The parity
+reference for the numbers is the *slider* in `replayperformanceeditor.cpp`, read from published
+source; the console command was context. What the error cost was a false claim sitting in a
+decisions document — which is exactly the failure the owner named when he asked that no research be
+left unused: the convar/command distinction was available in the same twenty bytes as the help
+string, and taking only the string is what let the wrong claim through.
+
 ---
 
 ## D98 — The orthographic camera goes entirely (closes B205)
@@ -5566,6 +5580,29 @@ The build path needs no camera at all.
 **What the first-person fallback becomes is part of this decision**: when there is no eye to look
 through, the viewer falls back to the **free camera**, not to an overhead placement of it. A demo
 that loses its subject drops the viewer into the view it can always offer.
+
+**The flat player markers go with it, and that is the owner's call rather than a consequence**
+(2026-08-26):
+
+> "get rid of the flat markers for now, we will reimplement them into the flycam and make it on
+> option later"
+
+**They were the orthographic camera's last real consumer.** `MapOverview.Players` and
+`MapOverview.Positions` turn `ScenePlayer`s into `ScenePoint(X, Y, R, G, B)` — flat, two-dimensional,
+positioned by projecting through `MapCamera()`. With the world drawn in perspective through the eye
+or the free camera and the markers placed by a top-down orthographic projection, **the two do not
+agree about where anything is**; the markers were correct only for a view that no longer exists.
+
+**"For now" is load-bearing and this is not a deletion on the merits.** The feature returns as a free
+camera option — billboards or a 3D overlay that shares the actual view matrix — which is a different
+implementation of the same idea rather than a revival of this one. Recorded so nobody later reads the
+empty space as "markers were tried and rejected".
+
+**One older note is worth carrying forward**, because it states the rule any reimplementation has to
+obey and it was learned the hard way: **a player drawn as a model must not also get a flat marker on
+top of it, and a player without a model must still get one or they vanish.** Asked in two places the
+answers drifted, and they did — the markers went on being drawn over the models the moment those
+started working, which hid whether the models were there at all.
 
 ---
 
@@ -5611,9 +5648,55 @@ B209. The owner, 2026-08-26:
 > "oh and the no focus we should probably implement, but i think the background fps is a cvar, in
 > real tf2, if its not then we should make it one so it can be users choice."
 
-**It is a cvar, and it is called `engine_no_focus_sleep`** — confirmed present in TF2's
-`bin/engine.dll`. So the question of whether to invent one does not arise: D69 already says our
-vocabulary *is* Source's, and a real config setting it must work.
+**It is a real ConVar, and the decompile settles it exactly.** The owner searched first and found
+nothing:
+
+> "yea it doesnt look like theres a cvar for it in tf2, at least not that i could find on
+> google/bing, the sleep per frame isnt even mentioned, so i think most people and the searc, diesnt
+> know tf2 has a sleep time when in the background because it all talks about lowing graphics setting
+> to get better fps int he background"
+
+then: *"check the decomp, see what it really is"*. The registration decodes from twenty bytes of x86
+in `bin/engine.dll` at `0x100436AA`:
+
+```asm
+push 0x80              ; flags
+push 0x102eb2f8        ; default -> the string "50"
+push 0x1032e4b8        ; name    -> "engine_no_focus_sleep"
+mov  ecx, 0x1066f840   ; the ConVar object
+call ConVar::ConVar
+```
+
+which is
+
+```cpp
+ConVar engine_no_focus_sleep( "engine_no_focus_sleep", "50", FCVAR_ARCHIVE );
+```
+
+`FCVAR_ARCHIVE` is `(1<<7)` — *"set to cause it to be saved to vars.rc"*
+(`public/tier1/iconvar.h:48`).
+
+**So it is not hidden and not development-only: it is archived, which means Valve treats it as a
+user setting and persists it to the config.** Three arguments were pushed, not four, so it has **no
+help string** — and that is the entire reason it is undocumented and the searching turned up
+graphics advice instead. An undocumented convar and an internal one look identical from outside; the
+flag distinguishes them and only the binary carries the flag.
+
+**Default: 50 milliseconds of sleep per frame while the engine lacks focus.**
+
+**Evidence class: measured**, all of it — the name, the default, the flag, and the argument count.
+Nothing here is interpolated. An earlier draft of this entry hedged it as "present in the binary,
+exposure inferred"; that hedge was correct at the time and is now superseded by the measurement.
+
+**A note on why adjacency could not have answered this**, since it is a reusable trap: the default
+`"50"` lives in a pool of short numeric strings beside `dsp_speaker` and `"40"`, nowhere near the
+name. Short literals are string-pooled and shared across every convar that wants them, so reading
+the bytes around a cvar's NAME finds its neighbours' help text and never its own default.
+
+**What we build:** the same convar, same name, same units, defaulting to 50. D69 makes our
+vocabulary Source's, so a real config that sets it works — which is the outcome the owner asked for
+either way (*"if its not then we should make it one so it can be users choice"*), reached here
+without having to invent anything.
 
 **One precision on the mechanism, because it changes what gets built.** It is a **sleep duration per
 frame while unfocused**, not a background frame-rate cap. The name says sleep, and the engine's

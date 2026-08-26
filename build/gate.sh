@@ -358,7 +358,15 @@ run Tf2DemoSalvage.Audio.Tests    audio     161
 # performed was written out longhand in MainForm with none. The Fly cases were not ported because
 # CameraFlightTests (6) and FreeFlightPathTests (10) already cover the live path including D65's
 # cancel guard; the Drag cases and the pitch clamp were, since nothing else asserted them.
-run Tf2DemoSalvage.Presentation.Tests presentation 291
+# 291 -> 270 on 2026-08-26 (D98): the orthographic camera and the flat player markers are gone, so
+# MapOverviewTests (17) and MapZoomTests (8) went with MapOverview and MapZoom — 25 removed — and
+# ViewCameraTests (4) is new, covering the first-person fallback that now lands on the free camera
+# rather than on an overhead projection. 291 - 25 + 4 = 270.
+#
+# Nothing was lost that mattered: Valve's CanPlayerBeSeen rules, which MapOverviewTests asserted,
+# are written up in docs/findings/38-which-players-can-be-shown.md because the markers return as a
+# free-camera option and will need every one of them again.
+run Tf2DemoSalvage.Presentation.Tests presentation 270
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.
@@ -466,7 +474,7 @@ run Tf2DemoSalvage.Content.Tests  content   711
 # 112: CorpusDecodedDemoTests (3), the end-to-end half of the DecodedDemo move. The synthetic
 # fixtures in Scene.Tests carry the load — a corpus test skips without the corpus and so kills no
 # mutants — but only a real demo can catch a roster that decodes to nothing.
-run Tf2DemoSalvage.Corpus.Tests   corpus     112
+run Tf2DemoSalvage.Corpus.Tests   corpus     113
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that
@@ -574,7 +582,14 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     112
 # 623 -> 619 on 2026-08-26 (B208): CaptureNameTests (4) MOVED to Presentation.Tests with
 # MainForm.CaptureName, which became Captures.Name. Nothing was deleted — presentation went 257 ->
 # 283, which is 17 WindowGeometry + 5 Captures + those 4, and that arithmetic is the check.
-run Tf2DemoSalvage.Viewer3D.Tests viewer    623
+# 623 -> 602 on 2026-08-26 (D98): the orthographic camera is gone, so TopDownCameraTests (11),
+# CameraMatrixTests (6) and ShowPositionsTests (4) went with TopDownCamera and the flat markers.
+# 11 + 6 + 4 = 21, which is exactly the drop — nothing else moved.
+#
+# CameraMatrixTests is the one worth naming: every case asserted TopDownCamera.ToMatrix, the
+# orthographic projection itself. There is no replacement because there is no projection; the free
+# camera's matrix is FreeCamera.ToMatrix and has its own tests.
+run Tf2DemoSalvage.Viewer3D.Tests viewer    602
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."

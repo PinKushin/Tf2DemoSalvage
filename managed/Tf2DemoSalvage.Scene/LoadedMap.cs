@@ -178,8 +178,7 @@ public sealed class LoadedMap
         }
     }
 
-    /// <summary>Builds the drawable world, projected through a camera.</summary>
-    /// <param name="camera">The camera the vertices are projected through.</param>
+    /// <summary>Builds the drawable world, in world space.</summary>
     /// <param name="loggers">Where the build reports itself.</param>
     /// <returns>The world, ready to upload.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="loggers"/> is null.</exception>
@@ -204,7 +203,7 @@ public sealed class LoadedMap
     /// constant measured nothing, and zero and Valve's -262144 produced identical pictures because
     /// neither was ever in effect.
     /// </remarks>
-    public MapWorld BuildWorld(TopDownCamera camera, ILoggerFactory loggers)
+    public MapWorld BuildWorld(ILoggerFactory loggers)
     {
         ArgumentNullException.ThrowIfNull(loggers);
 
@@ -218,13 +217,15 @@ public sealed class LoadedMap
         // it afterwards leaves one frame drawn with a pass-through depth.
         HeightRange = MapWorldBuilder.HeightRange(Level.Surfaces, Outline.MainBounds);
 
+        // **A `TopDownCamera` was threaded through here into `Build` until 2026-08-26** (D98), and
+        // `Build` never read it. The world is built in world space; what points it is the view
+        // matrix, set separately and per frame.
         return MapWorldBuilder.Build(
             Level.Terrain,
             Level.Surfaces,
             assets.Materials,
             assets.Lightmaps,
             assets.Props,
-            camera,
             area: null,
             _colourByClass,
             Level.Overlays,

@@ -115,7 +115,6 @@ public sealed class DecalOrientationTests
             materials,
             LightmapAtlas.Pack([]),
             [],
-            TopDownCamera.Fit([(-256f, -256f), (256f, 256f)], 800, 600),
             null,
             false,
             [CaptureZone()]);

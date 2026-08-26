@@ -34,9 +34,9 @@ namespace Tf2DemoSalvage.Render;
 /// materials, so vertices are sorted into runs sharing a texture. The lightmap atlas is bound once
 /// for all of them, which is the reason it is an atlas.
 ///
-/// **Positions arrive already in clip space**, as they do for the point renderer, because the
-/// projection is <see cref="TopDownCamera"/>'s job and is tested as ordinary arithmetic rather than
-/// through a GPU.
+/// **Positions arrive already in clip space**, as they do for the point renderer, because projecting
+/// them is the caller's job and is tested as ordinary arithmetic rather than through a GPU. That
+/// caller was `TopDownCamera` until D98 removed it; the view matrix now comes from `ViewCamera`.
 /// </remarks>
 internal sealed unsafe class WorldRenderer : IDisposable
 {
@@ -2674,7 +2674,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <summary>Sets the view for the frames that follow.</summary>
     /// <param name="device">Device to create the buffer on, the first time.</param>
     /// <param name="context">Context to upload through.</param>
-    /// <param name="matrix">Sixteen floats, row major, from <see cref="TopDownCamera.ToMatrix"/>.</param>
+    /// <param name="matrix">Sixteen floats, row major, from <c>ViewCamera.Matrix</c>.</param>
     /// <param name="surfaceColours">Whether to draw flat category colours instead of textures.</param>
     /// <param name="heightCut">Discard anything above this height, from 0 (all) to 1 (nothing).</param>
     /// <param name="specular">

@@ -34,8 +34,8 @@ public sealed class BrushEntityFaceTests
         [.. Enumerable.Range(0, 4).Select(index =>
             new BspMaterial($"concrete/wall{index}", (0.5f, 0.5f, 0.5f), 512, 512))];
 
-    private static readonly TopDownCamera Camera =
-        TopDownCamera.Fit([(0f, 0f), (1000f, 1000f)], 800, 600);
+    // A `TopDownCamera Camera` fixture sat here until 2026-08-26 (D98), passed to `Build` and never
+    // read by it.
 
     /// <summary>
     /// One world model owning face 0 alone, so face 1 belongs to a brush entity.
@@ -65,7 +65,6 @@ public sealed class BrushEntityFaceTests
             Materials,
             LightmapAtlas.Pack([]),
             [],
-            Camera,
             null,
             models: TwoModels);
 
@@ -91,7 +90,6 @@ public sealed class BrushEntityFaceTests
             Materials,
             LightmapAtlas.Pack([]),
             [],
-            Camera,
             null);
 
         IReadOnlyList<int> built = [.. world.Batches.Select(batch => batch.MaterialIndex)];

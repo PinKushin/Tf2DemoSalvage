@@ -26,7 +26,7 @@ public sealed class WorldPresenterTests
         Upload device = new();
 
         WorldUpload result = new WorldPresenter(NullLogger.Instance).Project(
-            map: null, device, Camera(), Matrix(), false, 0f, (800, 600), NullLoggerFactory.Instance);
+            map: null, device, Matrix(), false, 0f, (800, 600), NullLoggerFactory.Instance);
 
         result.Uploaded.ShouldBeFalse();
         result.Problem.ShouldBeNull();
@@ -39,7 +39,7 @@ public sealed class WorldPresenterTests
         // The window has a map before it has a swap chain — the device arrives on a handle-created
         // event. Reaching the uploads then would be a null dereference on the first map.
         new WorldPresenter(NullLogger.Instance)
-            .Project(map: null, upload: null, Camera(), Matrix(), false, 0f, (800, 600), NullLoggerFactory.Instance)
+            .Project(map: null, upload: null, Matrix(), false, 0f, (800, 600), NullLoggerFactory.Instance)
             .Uploaded.ShouldBeFalse();
     }
 
@@ -87,8 +87,8 @@ public sealed class WorldPresenterTests
         public void ClearWorld() => Calls.Add("clear");
     }
 
-    private static TopDownCamera Camera() =>
-        TopDownCamera.Fit([(-1000f, -1000f), (1000f, 1000f)], 800, 600);
+    // A `Camera()` helper sat here until 2026-08-26 (D98), supplying the `TopDownCamera` that
+    // `Project` took and never used.
 
     private static float[] Matrix()
     {

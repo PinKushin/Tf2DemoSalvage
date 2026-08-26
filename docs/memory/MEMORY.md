@@ -148,3 +148,4 @@
 - [Ask which input differs before bisecting](ask-which-input-differs-before-bisecting.md) — a check that never existed is absent from both versions.
 - [The f12 demo is the parity reference](the-f12-demo-is-the-parity-reference.md) — hold the subject constant; announce every demo change by name.
 - [A superseded type keeps its tests](a-superseded-type-keeps-its-tests.md) — eleven green tests on a camera the viewer never ran.
+- [A ConVar registration is three pushes](a-convar-registration-is-three-pushes.md) — default, flags and help-or-not from ~20 bytes of x86.
