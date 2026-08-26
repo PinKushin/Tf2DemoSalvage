@@ -490,7 +490,7 @@ internal class MainForm : Form, IFrameSteps
     /// editor solves this, and it costs nothing here because the shader discards on the depth the
     /// vertices already carry.
     /// </remarks>
-    private float _heightCut;
+    private HeightCut _heightCut = HeightCut.None;
 
     /// <summary>Times a full screen transition from the keystroke to the first frame drawn.</summary>
     /// <remarks>
@@ -1809,7 +1809,7 @@ internal class MainForm : Form, IFrameSteps
             camera,
             ViewMatrix(camera),
             _surfaceColours.Checked,
-            _heightCut,
+            _heightCut.Fraction,
             (_viewport.ClientSize.Width, _viewport.ClientSize.Height),
             _loggers);
 
@@ -3636,7 +3636,7 @@ internal class MainForm : Form, IFrameSteps
         _device.SetCamera(
             ViewMatrix(MapCamera()),
             _surfaceColours.Checked,
-            _heightCut);
+            _heightCut.Fraction);
     }
 
     // **`ReportSlowFrame` was here until 2026-08-25** (B188, D90). It is `StallReport.Frame`, and
@@ -4433,18 +4433,20 @@ internal class MainForm : Form, IFrameSteps
         // zero and the log said so.
         if (keyData is Keys.PageUp or Keys.PageDown or Keys.Home && _loaded is not null)
         {
-            float step = keyData == Keys.PageDown ? 0.02f : -0.02f;
-
-            _heightCut = keyData == Keys.Home ? 0f : Math.Clamp(_heightCut + step, 0f, 0.95f);
+            _heightCut = keyData switch
+            {
+                Keys.Home => HeightCut.None,
+                Keys.PageDown => _heightCut.Deeper(),
+                _ => _heightCut.Shallower(),
+            };
 
             _renderLog.LogDebug(
                 "{Message}",
                 string.Create(
-                    CultureInfo.InvariantCulture, $"height cut {_heightCut:P0} of the map"));
+                    CultureInfo.InvariantCulture,
+                    $"height cut {_heightCut.Fraction:P0} of the map"));
 
-            _status.Text = _heightCut > 0f
-                ? string.Create(CultureInfo.InvariantCulture, $"Showing the lower {1f - _heightCut:P0} of the map. Page Down cuts deeper, Page Up or Home restores it.")
-                : "Showing the whole map.";
+            _status.Text = _heightCut.Describe();
 
             _worldIsStale = true;
 
