@@ -5359,3 +5359,102 @@ how the two judgements get tied together, which is the thing the separation exis
 **The general rule, and it is cheap to apply:** before merging two constants that happen to be
 equal, read what each is applied TO. Before borrowing one, read whether its documentation describes
 your use. Both questions are answered by the declaration site, and neither was asked.
+
+
+## D95 — The viewer is another instance of TF2: always 3D, always the engine's camera
+
+Stated by the owner on 2026-08-25, while a stale comment in `PointRenderer` was being used to
+justify a clip-space drawing path:
+
+> "the whole idea is we never have to change the renderer from 3d or do anything special with the
+> cameras other then set that default wide overhead view to free cam, so we are always in engine and
+> the user is able to act as if the viewer is always just another instance of tf2 for the most part"
+
+**This extends D49 from a camera decision into a renderer one.** D49 removed `CameraMode.Map`
+because a top-down view is a *placement* of a perspective camera rather than a mode of its own.
+D95 says the same thing about everything downstream: there is no second projection, no second
+drawing path, and no primitive that exists only for a flat view.
+
+### What it settles
+
+- **Nothing is drawn in clip space because "the overhead view has no depth".** That reasoning is
+  D49's world, and D49 deleted it. `PointRenderer` still carried it in a comment — "a flat overhead
+  view has one axis that does not participate, so the caller sorts by height and the later triangle
+  wins" — which was true when written and had quietly become a justification for markers floating
+  over a 3D scene.
+- **Debug primitives take WORLD coordinates and choose depth per call**, which is what the engine
+  does: `DebugDrawLine( vecAbsStart, vecAbsEnd, r, g, b, bool test, duration )` and the
+  `bool noDepthTest` field on the overlay record (`game/server/ndebugoverlay.h:24`, `:28`). A leaf
+  box describes geometry and should be occluded by it; a player marker is an annotation about
+  somewhere you cannot see and should not be.
+- **The CPU does not project.** Transforming on the CPU to feed a clip-space shader is a second
+  implementation of the camera, and this project has already had it wrong once — the leaf box was
+  indexed as a column-vector transform and collapsed a room-sized box into, in the owner's words,
+  "a dot that gets kinda triangular".
+
+### What it defers, deliberately
+
+> "the seperate povs displaying at once and the rest of the security cam like stuff i want to add
+> comes after we get the 3d right and full parity"
+
+**Several points of view on screen at once, and the security-camera features around them, are wanted
+— and they are AFTER parity.** They are recorded here so nobody builds toward them early: a second
+simultaneous view is exactly the kind of feature that tempts a second render path, which is the
+thing this entry forbids until the first one matches the engine.
+
+**It is also the reason parity is worth the effort rather than an end in itself.** A viewer that is
+"another instance of TF2" can add a second camera by adding a second camera. One that has drifted
+has to reconcile two renderers first.
+
+
+## D96 — `playdemo` becomes one of OUR commands — ROADMAP, not now
+
+Proposed by the owner on 2026-08-25:
+
+> "can our cli tool be made to turn playdemo into a shell command so you can actually start viewing a
+> demo from command line without any other shell?"
+
+**This is about THIS tool's own command surface**, and the assistant first misread it as launching
+TF2 from PowerShell — recorded because a decisions entry that misattributes an idea is worse than no
+entry. The owner's clarification:
+
+> "i meant turning playdemo into our own shell command not starting tf2 from powershell but it
+> doesnt matter its a roadmap item not something for now"
+
+**It fits what already exists rather than adding a vocabulary.** The viewer speaks Source's console
+language (D69, D70): a real `.cfg` works wholesale, `+command value` is honoured on the command line,
+and unknown commands are ignored on purpose. `playdemo` is the missing verb in that set — the one
+command a person watching demos actually types in TF2 — and adding it to `ConfigConsole` would mean a
+real config, alias or `exec` could drive this viewer the way it drives the game. That is the D69
+requirement carried one step further: not just "a paste works", but "the thing you would type works".
+
+**Roadmap, explicitly. Not to be started as part of the thin-view refactor.**
+
+### The assistant's misreading, kept because the capability is separately worth having
+
+Source also takes console commands as LAUNCH options, so `tf_win64.exe -game tf +playdemo <name>`
+starts the real game on a demo, and **`-condebug` writes the console to `tf/console.log`** — which
+turns the shipping engine into an instrument this project can read.
+
+### Why that matters here specifically
+
+This repository's hardest questions are all of the form "what does the engine actually do", and the
+answers have come from reading `source-sdk-2013`, shipped data files, and occasionally a decompiler.
+None of those can answer a question about the CLOSED renderer's behaviour at runtime. A scripted
+`playdemo` plus a parsed `console.log` can:
+
+- **Does the engine object to this map?** The question that cost an evening (B198, B200). The SDK
+  snapshot predates TF2's map hash, so there is no citation for it — but the running game will say.
+- **Differential rendering.** Launch both, capture both, compare. The project already prefers
+  differential evidence to fixtures, because a fixture cannot falsify our own reading of a spec.
+- **Era clients.** `docs/TIMELINE.md`'s protocol windows are estimated from changelogs; the period
+  clients on `F:` can be driven the same way to turn estimates into measurements.
+
+### What it must not become
+
+**Not a dependency of the viewer, and not part of the gate.** It needs a TF2 install, a real desktop
+and Steam running — the three things the measurement boxes do not have and the gate must not require.
+It is a diagnostic verb, skipped when the install is absent, exactly as the SDK-backed suites skip.
+
+**And it takes the machine-wide lock.** Launching the game is a UI workload: it steals the
+foreground, so it belongs behind `run-exclusive.ps1` like every other desktop-taking run.

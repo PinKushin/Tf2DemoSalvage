@@ -10443,6 +10443,294 @@ any `$bumpmap` on brushwork — because the tangent basis those need is built fr
 lumps. Anyone adding that must read them first rather than deriving a normal from the plane, which
 is flat by construction and wrong on every displacement.
 
+### B201 — The live client REFUSES this demo, and it is schema drift, not the map — CONFIRMED 2026-08-25
+
+**The owner played `etf2l-12030-stv-2020-07-23.dem` in the current TF2. It aborts:**
+
+```
+Missing RecvProp for DT_BasePlayer - DT_Local/m_audio.ent
+Missing RecvProp for DT_BonusRoundLogic - _ST_m_aBonusPlayerRoll_33/lengthproxy
+Missing RecvProp for DT_BonusRoundLogic - _ST_m_aBonusPlayerRoll_33/000 .. /032
+RecvProp type doesn't match server type for DT_ObjectDispenser/"healing_array"
+Host_EndGame: CL_ParseClassInfo_EndClasses: CreateDecoders failed.
+```
+
+**This is the project's founding premise, caught in the act.** `CLAUDE.md` opens by saying this tool
+exists for "demos the live game client can no longer play due to Valve's own schema changes" — and
+here is a 2020 demo, six years old, that the 2026 client cannot build decoders for. The specimen is
+now in the corpus and the exact failure is written down.
+
+**It also CORRECTS B200, which is why that entry is now marked unproven.** The client never reached
+the map: `CreateDecoders` fails during `CL_ParseClassInfo_EndClasses`, before any world is loaded. So
+this run says nothing about whether `cp_process_final` matches, and my map-version explanation for
+the door grates has no support from it. Everything after the abort — `Could not find table
+"modelprecache"`, `"soundprecache"`, the wall of "Cannot figure out which search path" lines — is
+TEARDOWN noise, not evidence. Reading it as causes would be the same mistake twice.
+
+**Three drifts are named precisely, which is the valuable part:**
+
+| symbol | drift |
+|---|---|
+| `DT_Local/m_audio.ent` | a property the 2026 client no longer receives |
+| `_ST_m_aBonusPlayerRoll_33` | an ARRAY LENGTH baked into the table name — 33 slots then, something else now |
+| `DT_ObjectDispenser/"healing_array"` | same name, **different type** — the drift that cannot be detected by name alone |
+
+The third is the interesting one. A missing property is obvious; a property whose TYPE changed under
+a stable name is the failure that decodes to plausible garbage in any parser that trusts names. This
+project decodes generically off each demo's own embedded schema precisely so that cannot happen, and
+this is the evidence that the danger is real rather than theoretical.
+
+**The owner's standing requirement, which this entry exists to serve:**
+
+> "we have to allow the demo to be viewed no matter what, and get it rendering right, no matter what"
+
+So the answer to a demo the game refuses is never to refuse it too. Where the game gives up, this
+tool carries on — and where a map version is missing, the answer is to FIND the old map, and warn
+only when it cannot be found.
+
+### Why this specimen matters more than the bug it was found chasing
+
+**It is the first demo in the corpus PROVED unplayable by the live client, with the engine's own
+reasons attached.** Everything before it was inference: protocol windows estimated from changelogs,
+a premise stated in `CLAUDE.md` and never demonstrated. This is the demonstration, and it is only six
+years old — which is the part worth sitting with. The tool was justified by TF2's *full history*;
+the evidence says a demo from 2020 already needs it.
+
+**Rendering it correctly is therefore a milestone, not a bug fix.** The measure is not "no
+exceptions" — this project's own rule is that decoding must be TOTAL and anything below 100% with no
+errors is our defect (D-decode-total). The measure is that a demo the shipping engine cannot open
+plays here, correctly, with its entities decoded off its own embedded schema. That is the whole
+thesis in one file.
+
+**Keep it as a regression fixture in both directions.** It must keep decoding as the decoder changes,
+and its three named drifts — a removed property, an array whose LENGTH is part of the table name, and
+a retyped property under a stable name — are the three shapes any schema-drift handling has to
+survive. A synthetic fixture cannot supply the third convincingly; this one does, with a date.
+
+### B200 — The demo carries a map hash and nothing checks it — OPEN, cause UNPROVEN
+
+**This is the answer to B198, and it cost an evening to reach.** The five "regressions" reported on
+2026-08-25 — door grates piled or absent, trigger volumes visible, a missing model — were one cause,
+and it was not the refactor. The owner, after comparing against `main`:
+
+> "ok its pre existing, its the demo you picked versus the one we have been using, lots of problems
+> in this demo and i dont understand why when the f_12 demo runs fine"
+
+**A competitive map is recompiled repeatedly** — `cp_process_f9`, `f10`, `f11`, `f12` — and this
+viewer loads the map **by NAME** out of the local install. A 2020 ETF2L demo drawn against a
+different compile of the same name is a demo whose entity model indices point into somebody else's
+BSP: every `*N` submodel resolves to the WRONG brush entity. Doors take another door's geometry, an
+entity lands on a trigger's submodel and becomes visible, a model is absent because that index is
+something else now.
+
+**THE ENGINE ENFORCES THIS, and the proof is the owner's own workflow rather than anything measured
+here.** They had `cp_process_f12.bsp` copied into `tf/maps` *specifically so the real TF2 client
+would play an f12 demo*. The game would not do it without the matching map. That is the behaviour
+this viewer lacks: TF2 treats the map version as part of whether a demo is playable at all, and we
+treat the map NAME as sufficient.
+
+**We already decode the field that would detect it.** `svc_ServerInfo` carries both a CRC and, at
+protocol 24, a 16-byte hash. Both are read in `NetMessageReader`, kept on `ServerInfoMessage`
+(`MapCrc`, `MapHash`), written back by `NetMessageWriter` and printed by `MessageAssembly`.
+**Nothing compares either to the map that was loaded** — outside the round-trip and the trace, the
+only references in the repository are test fixtures.
+
+**Use the HASH, not the CRC.** Measured on `etf2l-12030-stv-2020-07-23.dem`: `MapCrc` is
+`4294967295` — `0xFFFFFFFF`, a sentinel — while `MapHash` is `7D81BAE6AEB7ED908E35FC7EF2A1D7CE`. The
+CRC is dead at this protocol; an implementation that checked it would compare a constant against a
+constant and always pass.
+
+**What is NOT established, so nobody treats it as settled:** whether that hash is a plain MD5 of the
+`.bsp`. It matches neither installed map — `cp_process_final` is
+`CE3C5D3C4580CB3CCF1C90CA5962634B` and `cp_process_f12` is `B18E4159616ACA5D3A6C6D37C219111A` — which
+is CONSISTENT with a version mismatch and does not prove one, because the field postdates the
+`source-sdk-2013` snapshot (which carries only `m_nMapCRC`) and there is therefore no citation for
+how it is computed. Settling it needs a positive control: take the hash from a demo whose matching
+map is known present, and see whether it equals that file's MD5. If it does, the algorithm is
+confirmed and every mismatch after it is real.
+
+**The fix is a comparison, not a feature**: on map load, check the BSP against the demo's `MapCrc`
+and say so when they differ. Refusing outright is the engine's behaviour; for a salvage tool a loud
+warning is probably better, since drawing the wrong map is still more useful than drawing nothing —
+but it must not be SILENT, which is what it is today.
+
+**Why it cost so much to find, which is the lesson worth keeping.** Every instrument said the code
+was fine, and every one was right: the world build, the brush-entity counts and the faces held back
+are identical between `main` and the branch; `EntityModelSet.Add` and `Instances` are byte-identical;
+`MomentScene.Build` matches the old `ShowMoment` step for step; Core is untouched. Six hypotheses
+died. **The defect was not in any code that changed — it was in a check that has never existed**, and
+no amount of diffing two versions can find something absent from both. The tell, in hindsight: the
+symptoms were *specific to one demo*, and nobody asked which demo differed until the end.
+
+### B198 — Brush entities draw wrong after the thin-view refactor — NOT A REGRESSION, see B200
+
+**Reported by the owner 2026-08-25, looking at the running viewer.** Five symptoms, at least the
+first two certainly related:
+
+| symptom | note |
+|---|---|
+| door grates piled several-in-one-place, or absent | "a massive regression" |
+| trigger volumes visible as translucent yellow boxes | `tools/toolstrigger` is never drawn by the engine |
+| a missing model | not yet characterised |
+| spy's watch/draw animation loops for ever | see below — probably a separate, KNOWN gap |
+| spy's firing animation never ends | same |
+
+**`main` is clean of this** — the owner's own statement, and it makes the refactor the bisect range.
+Their reading of the cause is worth recording verbatim, because it names a pattern rather than a
+bug:
+
+> "its just small random parity problems from where you think somethings to small to look at the sdk
+> or decomp and try to reason through"
+
+**What the DATA says, so nobody re-checks it.** The demo is fine. A `CBaseDoor` snapshot carries
+`m_vecOrigin (4234, 1732, 640)` with `m_vecMinsPreScaled (-5, -109, -65)` — bounds centred on zero,
+so the geometry is origin-relative exactly as `vbsp` writes it. Valve's own comment
+(`utils/vbsp/map.cpp:3064`): origin brushes "set the rotation origin for the rest of the brushes in
+the entity … the planenums and texinfos will be adjusted for the origin brush", and the entity gets
+an `origin` key. So `world = brushVertex + entityOrigin` is the invariant, and `dmodel_t.origin` is
+NOT the placement — `bspfile.h:445` comments it "for sounds or lights".
+
+**FIVE HYPOTHESES FALSIFIED, recorded so they are not re-run:**
+
+1. *`Precache`'s synthetic props place brush models at the origin.* No — `Add` is keyed by model
+   path and never reads a transform.
+2. *Precache runs before the map is read, caching every path empty.* No — `ReadMapNamed` precedes
+   it on the async path, and the sync path documents the ordering.
+3. *Packed models are stale across maps.* **A REAL DEFECT** (see B199) but not this: only one map
+   was loaded in the process that produced the screenshots.
+4. *`MapAssets.Geometry` lost the brush-model lookup.* No — behaviourally identical to the old
+   `MainForm.ModelGeometry`, both `assets.EntityModels.TryGetValue`.
+5. *`BuildWorld` stopped excluding brush faces from world geometry.* No — `Level.BrushModels` is
+   passed to `MapWorldBuilder.Build` in the same argument position as before.
+
+**Stop proposing suspects.** That is B191's lesson and this is the fifth one to die; the next step is
+a bisect, not a sixth.
+
+### What the bisect ELIMINATED, measured 2026-08-25
+
+A probe was built that launches the viewer on a fixed demo, waits for the load lines and kills it —
+`scratchpad/probe.sh` in the session, worth rebuilding if it is wanted again. Validated against a
+number from the owner's own session before being trusted. **Every load-side figure is IDENTICAL
+between `main` and the refactor tip, on `cp_process_final`:**
+
+| measurement | `main` | tip |
+|---|---|---|
+| world vertices / material batches | 4,363,083 / 137 | **same** |
+| brush entities named a class | 159 | **same** |
+| brush entities built from the models lump | 159 | **same** |
+| brush faces | 12,306 | **same** |
+| faces held back for entity models | 250 | **same** |
+
+**So hypothesis 5 is dead twice over and the whole map pipeline is exonerated.** Brush and tool faces
+are NOT leaking into world geometry; the geometry is byte-identical; the same 250 faces are withheld
+for entity models on both sides. It also means the world-vertex count is useless as a bisect
+predicate, which is why the run stopped rather than continuing on a number that cannot separate the
+two ends.
+
+**The moment pipeline is exonerated too, by diffing the moved body** — the audit pass that had never
+been run on `MomentScene`, which is the largest move in the refactor at 768 lines. `Build`'s call
+sequence matches the old `ShowMoment` step for step: clear, add props, player props, first-person
+filter, weapon-visibility filter, pack, instances. **`UpdateClientSideAnimations` is still called
+every frame** — it moved inside `Pack()` but sits ABOVE its `if (!grew && Uploaded) return`, so it
+runs whether or not the model set grew. And `Build` receives the same `_players`/`_props`, sampled by
+the same `timeline.PlayersAt`/`PropsAt` calls.
+
+**What is therefore left, and where to look next:** the transform itself. A brush entity's geometry
+and the map's answer about it are identical on both sides, so the difference has to be in what
+`EntityModelSet.Instances` does with a `SceneProp`, or in the arguments it is now given — the
+lighting sources moved to `LevelLighting` in this refactor, and `Instances` gained parameters. That
+is the one seam between "the map is right" and "it draws in the wrong place" that has not been
+diffed.
+
+**A predicate for that seam has to be measured during PLAYBACK, not at load**, which is why the
+load-line probe cannot do it. `--shot --tick N` would give a reproducible frame — but it works only
+on the branch, since `--shot` on `main` is B196.
+
+**It can be bisected AUTOMATICALLY, with nobody looking.** The world build logs
+`world: N vertices in M material batches`, and leaked brush or tool faces change it for a fixed map.
+HEAD, measured 2026-08-25:
+
+| map | vertices | batches |
+|---|---|---|
+| `cp_process_final` | 4,363,083 | 137 |
+| `cp_granary` | 3,459,024 | 82 |
+| `cp_badlands` | 3,057,228 | 93 |
+
+Take the same numbers on `main`; if they differ, that number is the bisect predicate. **Note `--shot`
+does not work on `main`** (that is B196, fixed only on the branch), so a run there has to be killed
+rather than exiting by itself.
+
+**The two animation symptoms are probably NOT this.** `docs/findings/25-gesture-layer.md` has a
+section headed "Open" saying slice 3b — feeding `m_iEvent` into the gesture layer — "remains to be
+built". Nothing ends a gesture because nothing starts one through that path. **But the owner's
+objection stands and is unanswered:** if gestures were simply absent, every class would look the
+same, and only the spy does. Spy is the one class whose active weapon changes on its own — cloak,
+disguise, and the watch as a second viewmodel — so a draw animation selected from "which weapon is
+active" would retrigger for ever. Unmeasured.
+
+### B199 — Packed entity models are never cleared between maps — OPEN
+
+**Found while investigating B198, and real regardless of it.** `EntityModelSet` has no reset method
+and nothing clears `_byModel`, `_frames` or `_raw`. `ClearMap` resets the LOADER
+(`_models.Geometry = NoGeometry`) and leaves everything already packed.
+
+**Brush submodels are named `*1`, `*2`, … PER MAP.** So loading a second map reuses the first map's
+geometry for entirely different doors, lifts and triggers. Studio models are path-unique globally,
+which is why this shows on brushwork alone.
+
+**Worse, the cache is poisoned on a miss.** `Add` writes `_byModel[path] = frames` BEFORE attempting
+the load and `continue`s when it fails, so a path packed while its geometry was unavailable is
+remembered as empty for ever — `_byModel.ContainsKey` short-circuits every later attempt. That is
+the failure B195 predicted in writing: "a path in the precache set and not the load set decodes to
+nothing, so `Add` records it empty and the model silently never draws".
+
+### B197 — Three divergences from Valve, decided by the assistant and written into comments — FIXED 2026-08-25
+
+**Not a code defect but a process one, and it produced code defects.** Three departures from what
+the engine does were chosen while refactoring, each explained in a doc comment, none asked about.
+The owner:
+
+> "if you diverge i need to be asked"
+
+> "i assume and want you to assume valve knew more than us and has the better idea, every time"
+
+| divergence | outcome |
+|---|---|
+| `MapOverview` omitted `CanPlayerBeSeen`'s origin check | **implemented** |
+| `LeafVis` projected on the CPU into clip space, undrawable behind geometry | **rewritten**, world space on the GPU |
+| `LevelSystems` wired systems explicitly instead of `IGameSystem` | **asked**; shared leaf project chosen |
+
+**The tell was in the wording, twice: "stated rather than dropped", "a divergence stated rather than
+hidden".** Writing a reason down feels like discharging it and is not — a well-explained wrong turn
+survives longer than an unexplained one, because it reads as settled.
+
+**The third is the argument for the rule, because the reason was simply FALSE.** The claim was that a
+shared `ILevelSystem` could not exist: it would need `LoadedMap` (Scene) visible to `SoundscapeSystem`
+(Audio), and Audio does not reference Scene. One grep killed it —
+`virtual void LevelInitPreEntity() = 0;` **takes no parameters** (`igamesystem.h:39`). Valve's systems
+pull what they need from globals, so the interface carries no payload and the boundary was never in
+the way. The divergence was invented to serve a reconstruction of Valve's design rather than Valve's
+design.
+
+**What the origin check is actually for**, in the owner's reading — better than the one the code
+originally carried:
+
+> "valve does the no draw at orgin thing because it doesnt want dead players or spectators drawn in
+> the map or sky somewhere if the origin is not under the map"
+
+An entity that exists without a position sits at (0,0,0), and (0,0,0) is a REAL place — mid-air,
+inside a wall, under the floor, depending on where the mapper put the world. The dot is not
+meaningless, it is convincing, which is the same failure the spectator filter beside it prevents.
+
+**A fixture was sitting on the sentinel.** `MapOverviewTests` defaulted every player to (0,0), so
+every test that did not care where its subject stood was unknowingly using the one position with a
+special meaning — harmless while the check was missing, and misleading the moment it arrived.
+
+**Still needing eyes, because no assertion can answer it:** the leaf box is now depth-tested and can
+be occluded by the geometry it describes. That is what the engine does and it is the point of the
+change, but whether it READS well — whether a box you are standing inside is still legible when the
+near walls hide most of it — is a question for someone looking at it (D95).
+
 ### B196 — Two features shipped dead because a field outlived its assignment — FIXED 2026-08-25
 
 **Both were found by the wiring audit B193 asks for, one by grep and one by a new test. Neither was

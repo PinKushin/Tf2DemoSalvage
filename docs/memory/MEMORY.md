@@ -144,3 +144,6 @@
 - [custom/ and choosable huds](custom-folder-and-choosable-huds.md) — several huds at once is a deliberate step BEYOND TF2; do not "fix" it toward parity.
 - [A partial thin view is worse than none](a-partial-thin-view-is-worse-than-none.md) — it reads as permission; enforcement is the TFM, not the file.
 - [A wrong invocation exits zero](a-wrong-invocation-exits-zero.md) — a usage banner is not an error; assert on output shape, not status.
+- [A divergence is asked, not documented](a-divergence-is-asked-not-documented.md) — writing the reason in a comment does not discharge it.
+- [Ask which input differs before bisecting](ask-which-input-differs-before-bisecting.md) — a check that never existed is absent from both versions.
+- [The f12 demo is the parity reference](the-f12-demo-is-the-parity-reference.md) — hold the subject constant; announce every demo change by name.

@@ -2153,12 +2153,11 @@ internal class MainForm : Form
     }
 
     /// <summary>The leaf outline to draw over the world, when that overlay is switched on.</summary>
-    /// <param name="matrix">The view-projection the world is drawn with, row major.</param>
-    /// <returns>Clip-space segments, or nothing when the mode is off or there is no leaf.</returns>
+    /// <returns>World-space segments, or nothing when the mode is off or there is no leaf.</returns>
     /// <remarks>
     /// **What is left here is the TOGGLE, which is view state, and the eye, which the camera owns.**
-    /// The tree walk and the projection are <see cref="LeafVis"/>'s — see there for what the box is
-    /// and why it is drawn in clip space.
+    /// The tree walk is <see cref="LeafVis"/>'s and the transform is the GPU's (D95) — this method
+    /// no longer takes a matrix at all, because nothing on this side of the seam projects anything.
     ///
     /// The origin is the one the free camera flies from, so the box is the leaf the VIEWER is in
     /// rather than the one the recording happens to be looking from.
@@ -2168,16 +2167,15 @@ internal class MainForm : Form
     /// <see cref="LoadedMap"/> and its assignment did not, so it held null for ever and this drew
     /// nothing on every map. One field, or it drifts.
     /// </remarks>
-    private IReadOnlyList<((float X, float Y) From, (float X, float Y) To)> LeafBoxLines(
-        float[] matrix)
+    private IReadOnlyList<((float X, float Y, float Z) From, (float X, float Y, float Z) To)> LeafBoxLines()
     {
         if (!_debug.LeafVis)
         {
             return [];
         }
 
-        IReadOnlyList<((float X, float Y) From, (float X, float Y) To)> lines =
-            LeafVis.Lines(_loaded?.Level.Leaves, _freeOrigin ?? FreeLookCamera().Origin, matrix);
+        IReadOnlyList<((float X, float Y, float Z) From, (float X, float Y, float Z) To)> lines =
+            LeafVis.Lines(_loaded?.Level.Leaves, _freeOrigin ?? FreeLookCamera().Origin);
 
         // **Says which of the three silences this is, once** (D83). An overlay that is switched on
         // and draws nothing is the exact shape the regression above wore for a day, and it is
@@ -4311,16 +4309,17 @@ internal class MainForm : Form
             // stays until Device3D's signature is revised, which is a change to the render seam and
             // not to this frame.
             [],
-            // **The line channel now carries mat_leafvis instead of the brush outline.** Those were
-            // the BSP's own edge segments projected for the overhead view, and `mat_wireframe`
-            // replaced them; the channel itself is exactly what a leaf box wants — clip-space
-            // segments drawn over the world without depth, which is what an annotation should be.
+            // **The line channel carries mat_leafvis, in WORLD units, drawn depth-tested** (D95).
+            // It used to be the BSP's own edge segments projected for the overhead view; that view
+            // is gone (D49) and `mat_wireframe` replaced the outline, so the channel now does what
+            // the engine's debug lines do — absolute coordinates, transformed on the GPU, occluded
+            // by the geometry the box describes.
             //
-            // The projected outline is gone entirely now (B151 closed by deletion rather than by
-            // the split it proposed): nothing read it, and 615 ms of a 679 ms frame was spent
-            // building it. `MapOutline` still supplies the play-area bounds, which is the half that
-            // was actually wanted.
-            LeafBoxLines(ViewMatrix(MapCamera())),
+            // The projected outline is gone entirely (B151 closed by deletion rather than by the
+            // split it proposed): nothing read it, and 615 ms of a 679 ms frame was spent building
+            // it. `MapOutline` still supplies the play-area bounds, which is the half that was
+            // actually wanted.
+            LeafBoxLines(),
             _scene,
             _moment.Instances,
             _moment.ViewmodelInstances,
@@ -4587,10 +4586,19 @@ internal class MainForm : Form
         _worldIsStale = true;
         _viewport.Invalidate();
 
+        // **Both counts, because printing only the roster misled a real investigation.** This said
+        // "of 12" from `players.Count` while the cycle was choosing from the OBSERVABLE set — which
+        // on a POV demo is often one, since everyone outside the recorder's PVS is not `Drawn`.
+        // Clicking then returns the same player every time, `(at + 1) % 1` being 0, and the line
+        // claimed twelve candidates. Reporting both says which kind of nothing is happening: a
+        // cycle with one reachable player out of twelve is a POV demo behaving correctly.
+        int reachable = SpectatorTarget.Observable(players).Count;
+
         _spectateLog.LogDebug(
             "{Message}",
             $"following entity {next.EntityIndex} (team {next.Team}) " +
-            $"of {players.Count} at tick {_transport.CurrentTick}");
+            $"of {reachable} observable ({players.Count} on the roster) " +
+            $"at tick {_transport.CurrentTick}");
     }
 
     /// <summary>The world position under a point in the viewport.</summary>

@@ -85,17 +85,38 @@ public static class SpectatorTarget
     /// </remarks>
     public static ScenePlayer? Choose(IReadOnlyList<ScenePlayer> players)
     {
-        ScenePlayer[] playing =
+        IReadOnlyList<ScenePlayer> playing = Observable(players);
+
+        return playing.Count == 0 ? null : playing[0];
+    }
+
+    /// <summary>Everyone a spectator can actually reach, in cycling order.</summary>
+    /// <param name="players">The roster at a tick, as the timeline holds it.</param>
+    /// <returns>The observable players, ordered by entity index.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="players"/> is null.</exception>
+    /// <remarks>
+    /// **Public because a caller needs to be able to say HOW MANY, and one lied about it.** The
+    /// viewer logged "following entity 7 of 12" from the raw roster while the cycle was choosing
+    /// from this set — which on a POV demo was a single player, since everyone outside the
+    /// recorder's PVS fails <see cref="CanObserve"/>. Clicking then returned the same player every
+    /// time, because `(at + 1) % 1` is 0, and the line claimed twelve candidates. A log must name
+    /// what it measured.
+    ///
+    /// **One definition of "reachable", used by every caller.** `Choose`, <see cref="Next"/> and the
+    /// viewer's report each filtered separately before this existed; three copies of a predicate are
+    /// three places for it to drift, and the drift would show as a cycle that skips somebody the
+    /// chooser was happy to pick.
+    /// </remarks>
+    public static IReadOnlyList<ScenePlayer> Observable(IReadOnlyList<ScenePlayer> players)
+    {
+        ArgumentNullException.ThrowIfNull(players);
+
+        return
         [
-            .. players.Where(CanObserve),
+            .. players
+                .Where(CanObserve)
+                .OrderBy(player => player.EntityIndex),
         ];
-
-        if (playing.Length == 0)
-        {
-            return null;
-        }
-
-        return playing.MinBy(player => player.EntityIndex);
     }
 
     /// <summary>The next player to spectate, cycling forward or back from the current one.</summary>
@@ -132,22 +153,15 @@ public static class SpectatorTarget
     public static ScenePlayer? Next(
         IReadOnlyList<ScenePlayer> players, int? current, bool reverse)
     {
-        ArgumentNullException.ThrowIfNull(players);
+        IReadOnlyList<ScenePlayer> playing = Observable(players);
 
-        ScenePlayer[] playing =
-        [
-            .. players
-                .Where(CanObserve)
-                .OrderBy(player => player.EntityIndex),
-        ];
-
-        if (playing.Length == 0)
+        if (playing.Count == 0)
         {
             return null;
         }
 
         int at = current is { } entity
-            ? Array.FindIndex(playing, player => player.EntityIndex == entity)
+            ? IndexOfEntity(playing, entity)
             : -1;
 
         if (at < 0)
@@ -160,6 +174,20 @@ public static class SpectatorTarget
 
         int step = reverse ? -1 : 1;
 
-        return playing[((at + step) % playing.Length + playing.Length) % playing.Length];
+        return playing[((at + step) % playing.Count + playing.Count) % playing.Count];
+    }
+
+    /// <summary>Where an entity sits in the observable list, or −1.</summary>
+    private static int IndexOfEntity(IReadOnlyList<ScenePlayer> playing, int entity)
+    {
+        for (int at = 0; at < playing.Count; at++)
+        {
+            if (playing[at].EntityIndex == entity)
+            {
+                return at;
+            }
+        }
+
+        return -1;
     }
 }

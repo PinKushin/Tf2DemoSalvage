@@ -24,11 +24,15 @@ namespace Tf2DemoSalvage.Presentation;
 /// `Color color; // players team color` per player, and `CanPlayerBeSeen` asks the same questions
 /// this does — including, in its own words, "we never track unassigned or real spectators".
 ///
-/// **One rule of Valve's is NOT implemented here, stated rather than dropped.** `CanPlayerBeSeen`
-/// also rejects a player whose position is exactly the origin — `if( player->position ==
-/// Vector(0,0,0) ) return false;`, commented "Invalid guy". Ours does not, because a demo's
-/// entities are read rather than networked to a live client and an un-spawned player is already
-/// excluded by <c>Drawn</c>. Left out of a refactor deliberately: adding it changes what is drawn.
+/// **Every rule of `CanPlayerBeSeen` is implemented, including the origin check — and that last one
+/// was missing until the owner asked for it back.** The first version of this type left out
+/// `if( player->position == Vector(0,0,0) ) return false;` ("Invalid guy") on my reasoning that a
+/// demo's entities are read rather than networked and that <c>Drawn</c> already covered it. That
+/// reasoning was mine, was never checked against anything, and was recorded in a comment instead of
+/// being asked about.
+///
+/// **The standing rule, in the owner's words: "i assume and want you to assume valve knew more than
+/// us and has the better idea, every time".** A departure is a question, not a note.
 /// </remarks>
 public static class MapOverview
 {
@@ -98,6 +102,25 @@ public static class MapOverview
             // below is "no model means a dot" — so removing dead players from the model pass alone
             // would have turned every corpse into a marker gliding around the map behind whoever it
             // was spectating, which is the same defect in a cheaper primitive.
+            // **"Invalid guy" — Valve's own comment, and its own rule.** `CanPlayerBeSeen` refuses a
+            // player whose position is exactly the world origin. Checked BEFORE the team test, as
+            // Valve checks it.
+            //
+            // **Why, in the owner's reading:** "valve does the no draw at orgin thing because it
+            // doesnt want dead players or spectators drawn in the map or sky somewhere if the origin
+            // is not under the map". An entity that exists without a position sits at (0,0,0), and
+            // (0,0,0) is a REAL place — it can be mid-air, inside a wall, or under the floor
+            // depending on where the mapper put the world. So the dot is not merely meaningless, it
+            // is convincing: it is exactly the same failure the spectator test below prevents, which
+            // is why the two sit together.
+            //
+            // Exact equality on all three axes, as Valve writes it. A tolerance would swallow a
+            // player legitimately standing near (0,0,0), which plenty of maps put geometry at.
+            if (player is { X: 0f, Y: 0f, Z: 0f })
+            {
+                continue;
+            }
+
             if (!player.IsPlaying || !player.Drawn)
             {
                 continue;

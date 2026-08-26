@@ -20,68 +20,58 @@ namespace Tf2DemoSalvage.Scene;
 /// framing: `dleaf_t`'s mins/maxs are "for frustum culling". A picture of a tighter shape would
 /// answer a question nobody asks, because the loose box is what the engine actually tests.
 ///
-/// **Parity note, and it is a divergence stated rather than hidden.** `mat_leafvis` itself lives in
-/// the closed engine renderer and is not in `source-sdk-2013`; the published analogue is
-/// `cl_drawleaf` (`clientleafsystem.cpp:32`), a `FCVAR_CHEAT` debug convar which filters the
-/// renderables list down to one leaf rather than outlining it. So the intent — "show me what this
-/// leaf contains or covers" — is Valve's; the outline is ours, and it is drawn in clip space
-/// because our line channel is a screen-space overlay pass that ignores depth. A box half-hidden by
-/// the wall it describes would be worse than useless, which is the same reason the player markers
-/// ignore depth.
+/// **World space, because that is what the engine's debug lines take** (D95). Every overlay in the
+/// SDK is given absolute coordinates and a depth flag —
+/// <c>DebugDrawLine( const Vector&amp; vecAbsStart, const Vector&amp; vecAbsEnd, int r, int g, int b,
+/// bool test, float duration )</c>, and <c>bool noDepthTest</c> on the overlay record itself
+/// (`game/server/ndebugoverlay.h:24`, <c>:28</c>). The transform happens on the GPU like every other
+/// primitive.
+///
+/// **This projected on the CPU until 2026-08-25, and that was our invention rather than Valve's.**
+/// It multiplied eight corners through the view matrix here and handed the renderer flat clip-space
+/// pairs, which could not be occluded by anything. Two things were wrong with it: the leaf box
+/// describes GEOMETRY and so should be hidden by geometry, and a hand-written transform is a second
+/// implementation of the camera — one this project had already got wrong once, indexing the matrix
+/// as a column-vector transform and collapsing a room-sized box into "a dot that gets kinda
+/// triangular".
+///
+/// **`mat_leafvis` itself is engine-side and not in `source-sdk-2013`**; the published analogue is
+/// `cl_drawleaf` (`clientleafsystem.cpp:32`), a `FCVAR_CHEAT` convar that filters the renderables
+/// list to one leaf rather than outlining it. So the intent is Valve's and the outline is ours —
+/// but the way it reaches the screen is now the engine's.
 /// </remarks>
 public static class LeafVis
 {
     /// <summary>How large w must be before a corner is considered to be in front of the eye.</summary>
-    /// <remarks>
-    /// **Not zero, because dividing by a w at or below zero MIRRORS the point through the camera**
-    /// and the edge then streaks across the screen from somewhere it is not. A small positive
-    /// epsilon also keeps a corner exactly on the near plane from projecting to infinity.
-    /// </remarks>
-    private const float InFront = 0.0001f;
-
-    /// <summary>How many floats a view-projection has.</summary>
-    private const int MatrixElements = 16;
-
-    /// <summary>The twelve edges of the leaf containing a point, projected.</summary>
+    /// <summary>The twelve edges of the leaf containing a point, in world units.</summary>
     /// <param name="tree">The map's BSP tree, or null when no map is loaded.</param>
     /// <param name="eye">Where the viewer is standing, in world units.</param>
-    /// <param name="viewProjection">The view-projection the world is drawn with, row major.</param>
-    /// <returns>Clip-space segments, or nothing when there is no tree or the leaf has no box.</returns>
-    /// <exception cref="ArgumentNullException"><paramref name="viewProjection"/> is null.</exception>
-    /// <exception cref="ArgumentException"><paramref name="viewProjection"/> is too short.</exception>
+    /// <returns>World-space segments, or nothing when there is no tree or the leaf has no box.</returns>
     /// <remarks>
     /// **Nothing rather than a box at the origin when the leaf has no bounds.** A tree built without
     /// the leaf lump can still say WHICH leaf a point is in — the walk needs only nodes and planes —
     /// but it cannot say how big that leaf is, and drawing a guess would be drawing a lie.
     /// </remarks>
-    public static IReadOnlyList<((float X, float Y) From, (float X, float Y) To)> Lines(
+    public static IReadOnlyList<((float X, float Y, float Z) From, (float X, float Y, float Z) To)> Lines(
         BspLeafTree? tree,
-        (float X, float Y, float Z) eye,
-        float[] viewProjection)
-    {
-        CheckMatrix(viewProjection);
+        (float X, float Y, float Z) eye) =>
+        tree is not null && tree.Bounds(tree.LeafAt(eye.X, eye.Y, eye.Z)) is { } box
+            ? Edges(box)
+            : [];
 
-        if (tree is null || tree.Bounds(tree.LeafAt(eye.X, eye.Y, eye.Z)) is not { } box)
-        {
-            return [];
-        }
-
-        return Edges(box, viewProjection);
-    }
-
-    /// <summary>The twelve edges of a box, projected.</summary>
+    /// <summary>The twelve edges of a box, in world units.</summary>
     /// <param name="box">Its minimum and maximum corner, in world units.</param>
-    /// <param name="viewProjection">The view-projection the world is drawn with, row major.</param>
-    /// <returns>Clip-space segments; an edge with either end behind the eye is dropped.</returns>
-    /// <exception cref="ArgumentNullException"><paramref name="viewProjection"/> is null.</exception>
-    /// <exception cref="ArgumentException"><paramref name="viewProjection"/> is too short.</exception>
-    public static IReadOnlyList<((float X, float Y) From, (float X, float Y) To)> Edges(
-        ((float X, float Y, float Z) Min, (float X, float Y, float Z) Max) box,
-        float[] viewProjection)
+    /// <returns>World-space segments, one per edge.</returns>
+    /// <remarks>
+    /// **All twelve, always.** The old version dropped an edge whose end was behind the eye, because
+    /// it divided by w on the CPU and a w at or below zero mirrors the point through the camera. The
+    /// GPU clips properly, so there is nothing to guard against and nothing to lose: an edge that
+    /// crosses the near plane is now drawn up to it rather than discarded whole.
+    /// </remarks>
+    public static IReadOnlyList<((float X, float Y, float Z) From, (float X, float Y, float Z) To)> Edges(
+        ((float X, float Y, float Z) Min, (float X, float Y, float Z) Max) box)
     {
-        CheckMatrix(viewProjection);
-
-        List<((float X, float Y) From, (float X, float Y) To)> lines = [];
+        List<((float X, float Y, float Z) From, (float X, float Y, float Z) To)> lines = [];
 
         // The twelve edges of a box: every pair of corners differing in exactly one axis bit, taken
         // from the end where that bit is clear so each edge is emitted once rather than twice.
@@ -91,15 +81,9 @@ public static class LeafVis
             {
                 int to = from | axis;
 
-                if (to == from)
+                if (to != from)
                 {
-                    continue;
-                }
-
-                if (Project(Corner(box, from), viewProjection) is { } a &&
-                    Project(Corner(box, to), viewProjection) is { } b)
-                {
-                    lines.Add((a, b));
+                    lines.Add((Corner(box, from), Corner(box, to)));
                 }
             }
         }
@@ -118,38 +102,15 @@ public static class LeafVis
             (which & 2) == 0 ? box.Min.Y : box.Max.Y,
             (which & 4) == 0 ? box.Min.Z : box.Max.Z);
 
-    /// <summary>A world point in clip space, or null when it is behind the eye.</summary>
-    /// <remarks>
-    /// **Row-vector, which is what the shader does: `mul(world, viewProjection)` with the matrix
-    /// declared `row_major`.** So a point multiplies the matrix from the LEFT, the translation lives
-    /// in elements 12-14, and w comes from element 11 — <see cref="FreeCamera.ToMatrix"/> sets
-    /// `projection[11] = 1`, which is the giveaway.
-    ///
-    /// The first version of this indexed the matrix as a column-vector transform, taking w from
-    /// 12-15. That does not fail; it produces A projection. The owner saw the box as "a dot that
-    /// gets kinda triangular", which is a room-sized box collapsed through the wrong transform.
-    /// This project already carries a memory about the two matrix conventions it uses on purpose;
-    /// that is what mixing them looks like from the outside.
-    /// </remarks>
-    private static (float X, float Y)? Project((float X, float Y, float Z) point, float[] matrix)
-    {
-        float x = (point.X * matrix[0]) + (point.Y * matrix[4]) + (point.Z * matrix[8]) + matrix[12];
-        float y = (point.X * matrix[1]) + (point.Y * matrix[5]) + (point.Z * matrix[9]) + matrix[13];
-        float w = (point.X * matrix[3]) + (point.Y * matrix[7]) + (point.Z * matrix[11]) + matrix[15];
-
-        return w > InFront ? (x / w, y / w) : null;
-    }
-
-    /// <summary>Refuses a matrix that cannot be indexed, rather than failing inside the projection.</summary>
-    private static void CheckMatrix(float[] viewProjection)
-    {
-        ArgumentNullException.ThrowIfNull(viewProjection);
-
-        if (viewProjection.Length < MatrixElements)
-        {
-            throw new ArgumentException(
-                $"a view-projection has {MatrixElements} elements, not {viewProjection.Length}",
-                nameof(viewProjection));
-        }
-    }
+    // **`Project` and `CheckMatrix` were here until 2026-08-25** (D95). They multiplied a world
+    // point through the view matrix by hand and dropped anything behind the eye, so this type had
+    // to be handed a camera in order to describe a box.
+    //
+    // That was a second implementation of the camera, and it had already been wrong once: the first
+    // version indexed the matrix as a column-vector transform, taking w from elements 12-15 instead
+    // of 11. It did not fail — it produced A projection, and the owner saw a room-sized box as "a
+    // dot that gets kinda triangular".
+    //
+    // The transform is the GPU's now, which is where the engine has always done it. What is left
+    // here is arithmetic about a box, and there is no matrix in it.
 }
