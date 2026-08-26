@@ -5405,3 +5405,40 @@ thing this entry forbids until the first one matches the engine.
 **It is also the reason parity is worth the effort rather than an end in itself.** A viewer that is
 "another instance of TF2" can add a second camera by adding a second camera. One that has drifted
 has to reconcile two renderers first.
+
+
+## D96 — The CLI can drive the real game, which makes TF2 a scriptable reference
+
+Proposed by the owner on 2026-08-25, while trying to establish whether a rendering fault was ours or
+a map-version mismatch:
+
+> "can our cli tool be made to turn playdemo into a shell command so you can actually start viewing a
+> demo from command line without any other shell?"
+
+**Yes, and it is worth more than the convenience.** Source takes console commands as launch options,
+so `tf_win64.exe -game tf +playdemo <name>` starts playback with no console typing. What makes it a
+DECISION rather than a shortcut is the second flag: **`-condebug` writes the console to
+`tf/console.log`**, which turns the shipping engine into an instrument this project can read.
+
+### Why that matters here specifically
+
+This repository's hardest questions are all of the form "what does the engine actually do", and the
+answers have come from reading `source-sdk-2013`, shipped data files, and occasionally a decompiler.
+None of those can answer a question about the CLOSED renderer's behaviour at runtime. A scripted
+`playdemo` plus a parsed `console.log` can:
+
+- **Does the engine object to this map?** The question that cost an evening (B198, B200). The SDK
+  snapshot predates TF2's map hash, so there is no citation for it — but the running game will say.
+- **Differential rendering.** Launch both, capture both, compare. The project already prefers
+  differential evidence to fixtures, because a fixture cannot falsify our own reading of a spec.
+- **Era clients.** `docs/TIMELINE.md`'s protocol windows are estimated from changelogs; the period
+  clients on `F:` can be driven the same way to turn estimates into measurements.
+
+### What it must not become
+
+**Not a dependency of the viewer, and not part of the gate.** It needs a TF2 install, a real desktop
+and Steam running — the three things the measurement boxes do not have and the gate must not require.
+It is a diagnostic verb, skipped when the install is absent, exactly as the SDK-backed suites skip.
+
+**And it takes the machine-wide lock.** Launching the game is a UI workload: it steals the
+foreground, so it belongs behind `run-exclusive.ps1` like every other desktop-taking run.

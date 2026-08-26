@@ -10459,11 +10459,31 @@ BSP: every `*N` submodel resolves to the WRONG brush entity. Doors take another 
 entity lands on a trigger's submodel and becomes visible, a model is absent because that index is
 something else now.
 
-**The engine does not allow this, and we already decode the field that prevents it.**
-`svc_ServerInfo` carries a map CRC; it is read in `NetMessageReader` (`mapCrc = reader.ReadUInt32(32)`),
-kept on `ServerInfoMessage.MapCrc`, written back by `NetMessageWriter`, and printed by
-`MessageAssembly`. **Nothing compares it to the map that was loaded** — outside the round-trip and
-the trace, the only references in the repository are test fixtures.
+**THE ENGINE ENFORCES THIS, and the proof is the owner's own workflow rather than anything measured
+here.** They had `cp_process_f12.bsp` copied into `tf/maps` *specifically so the real TF2 client
+would play an f12 demo*. The game would not do it without the matching map. That is the behaviour
+this viewer lacks: TF2 treats the map version as part of whether a demo is playable at all, and we
+treat the map NAME as sufficient.
+
+**We already decode the field that would detect it.** `svc_ServerInfo` carries both a CRC and, at
+protocol 24, a 16-byte hash. Both are read in `NetMessageReader`, kept on `ServerInfoMessage`
+(`MapCrc`, `MapHash`), written back by `NetMessageWriter` and printed by `MessageAssembly`.
+**Nothing compares either to the map that was loaded** — outside the round-trip and the trace, the
+only references in the repository are test fixtures.
+
+**Use the HASH, not the CRC.** Measured on `etf2l-12030-stv-2020-07-23.dem`: `MapCrc` is
+`4294967295` — `0xFFFFFFFF`, a sentinel — while `MapHash` is `7D81BAE6AEB7ED908E35FC7EF2A1D7CE`. The
+CRC is dead at this protocol; an implementation that checked it would compare a constant against a
+constant and always pass.
+
+**What is NOT established, so nobody treats it as settled:** whether that hash is a plain MD5 of the
+`.bsp`. It matches neither installed map — `cp_process_final` is
+`CE3C5D3C4580CB3CCF1C90CA5962634B` and `cp_process_f12` is `B18E4159616ACA5D3A6C6D37C219111A` — which
+is CONSISTENT with a version mismatch and does not prove one, because the field postdates the
+`source-sdk-2013` snapshot (which carries only `m_nMapCRC`) and there is therefore no citation for
+how it is computed. Settling it needs a positive control: take the hash from a demo whose matching
+map is known present, and see whether it equals that file's MD5. If it does, the algorithm is
+confirmed and every mismatch after it is real.
 
 **The fix is a comparison, not a feature**: on map load, check the BSP against the demo's `MapCrc`
 and say so when they differ. Refusing outright is the engine's behaviour; for a salvage tool a loud
