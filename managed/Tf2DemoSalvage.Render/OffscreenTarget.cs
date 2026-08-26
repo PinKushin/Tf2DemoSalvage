@@ -142,7 +142,6 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <param name="matrix">Camera matrix, sixteen floats row major.</param>
     /// <param name="assets">Textures to bind; the shader clips on their alpha.</param>
     /// <param name="surfaceColours">Draw flat category colours instead of textures.</param>
-    /// <param name="heightCut">Discard anything above this height, 0 to 1.</param>
     /// <param name="detail">Combine each material's detail texture; false renders without.</param>
     /// <param name="bumped">Light bumped surfaces directionally; false uses the flat lightmap.</param>
     /// <param name="decals">Overlay runs, drawn with the world and after its surfaces.</param>
@@ -171,7 +170,6 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         float[] matrix,
         MapAssets assets,
         bool surfaceColours = false,
-        float heightCut = 0f,
         bool detail = true,
         bool bumped = true,
         IReadOnlyList<WorldBatch>? decals = null,
@@ -198,7 +196,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _world.UploadTextures(_device, _context, assets);
         _world.UploadGeometry(_device, vertices, batches, decals, props);
         _world.SetCamera(
-            _device, _context, matrix, surfaceColours, heightCut, specular: true, fullbright,
+            _device, _context, matrix, surfaceColours, specular: true, fullbright,
             debug);
 
         Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);

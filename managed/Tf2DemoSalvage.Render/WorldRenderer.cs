@@ -128,10 +128,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // x: a debug view that replaces the texture with a flat category colour. Turning the
             //    map into "this is world, this is terrain, this is a prop, this is missing" answers
             //    in one glance what a textured picture hides.
-            // y: a cutting plane in DEPTH, which is world height inverted. Everything nearer than
-            //    this is discarded, so a roof can be taken off to show the room under it - the
-            //    hallways into last on cp_process being the case that asked for it. Zero draws
-            //    everything.
+            // y: reserved, always zero. Was a cutting plane in DEPTH, described as "world height
+            //    inverted" — which it is only under an orthographic top-down projection, and that
+            //    went with D98. Removed 2026-08-26 (B213); the slot remains so the register layout
+            //    does not shift.
             float4 surfaceColours;
 
             // **Where the camera is, in world units.** Needed for the reflection vector and for
@@ -599,10 +599,17 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // Sampled with its OWN coordinate, which is the point of carrying two: the beam's
             // stripes scroll across a colour that stays put.
             float4 second = blendMap.Sample(wrapSampler, input.uv2);
-            // **The cut is on depth, which is height.** Discarding here rather than dropping the
-            // geometry means the slice moves without rebuilding anything - the camera matrix work
-            // is what makes that free.
-            clip(input.pos.z - surfaceColours.y);
+            // **The height cut was clipped here until 2026-08-26** (B213). Its own comment said
+            // "the cut is on depth, which is height" — an equivalence that holds ONLY under the
+            // orthographic top-down projection D98 deleted. Under a perspective camera `pos.z` is
+            // distance from the eye, so the control cut away whatever was nearest rather than
+            // whatever was highest, which is why the owner's verdict was that it "never worked in
+            // the first place".
+            //
+            // `surfaceColours.y` is written zero and read by nothing. The slot stays so the constant
+            // buffer's register layout does not shift, and it is still WRITTEN rather than skipped:
+            // the tail of a mapped buffer holds whatever the last frame put there
+            // (`docs/memory/padding-is-not-zero.md`).
 
             // **Multiplied for UnLitTwoTexture, mixed by vertex alpha for everything else.** Valve's
             // shader is `baseColor * baseColor2 * g_DiffuseModulation`, and a capture point's beam
@@ -2676,7 +2683,6 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <param name="context">Context to upload through.</param>
     /// <param name="matrix">Sixteen floats, row major, from <c>ViewCamera.Matrix</c>.</param>
     /// <param name="surfaceColours">Whether to draw flat category colours instead of textures.</param>
-    /// <param name="heightCut">Discard anything above this height, from 0 (all) to 1 (nothing).</param>
     /// <param name="specular">
     /// Whether cubemap reflections are added — Valve's <c>mat_specular</c>, whose own comment for
     /// the same switch is "If mat_specular 0, then get rid of envmap".
@@ -2701,7 +2707,6 @@ internal sealed unsafe class WorldRenderer : IDisposable
         ComPtr<ID3D11DeviceContext> context,
         float[] matrix,
         bool surfaceColours = false,
-        float heightCut = 0f,
         bool specular = true,
         Fullbright fullbright = Fullbright.Off,
         DebugModes debug = default)
@@ -2745,7 +2750,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
         [
             .. matrix,
             surfaceColours ? 1f : 0f,
-            Math.Clamp(heightCut, 0f, 1f),
+
+            // Reserved, written zero. Was the height cut (B213).
+            0f,
             specular ? 1f : 0f,
             (float)fullbright,
             eye.X, eye.Y, eye.Z, hasEye,

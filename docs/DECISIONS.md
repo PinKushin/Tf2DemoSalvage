@@ -5709,3 +5709,56 @@ being asserted as Valve's when it was guessed.
 
 **Where it goes: `FramePacer`**, which already owns the budget and the sleep-or-spin decision. The
 window contributes the one thing it knows — whether it currently has focus.
+
+## D101 — No hardcoded controls, ever; every key goes through the config
+
+**The owner, 2026-08-26, in three messages while a speed slider was being wired up:**
+
+> *"no hard coded controls ever"*
+
+> *"and everything gets to be customized so runs through the config"*
+
+> *"do not hard code home, no new hard codes"*
+
+**This is a standing rule rather than a fix for one key.** It was said while looking at the height
+cut's `Keys.Home`, but it is stated generally and applies to everything a person can press.
+
+### What prompted it
+
+A UI test pressed `Home` on a focused speed slider and nothing happened. `MainForm.ProcessCmdKey`
+compared `keyData` against three literals — `Keys.Home`, `Keys.PageUp`, `Keys.PageDown` — and
+returned true, and `ProcessCmdKey` runs **before any control sees a key**. So the height cut was
+reaching over every control on the form: `Home` in the search box moved the map instead of the caret,
+and the playlist, the scrub bar and the new slider all lost their standard navigation (B212).
+
+Chasing that turned up a worse one with no unusual configuration at all: **`Space` is the default
+bind for switch-camera-mode**, so typing `cp process` into the search box toggled first person
+instead of inserting a space. In the free camera the flight keys took `w`, `a`, `s` and `d` as well.
+
+### The rule
+
+**Every key a user can press is resolved through the config**, the same way `ConfigConsole` already
+resolves a real TF2 `.cfg` (D69). A literal `Keys.X` comparison in a handler, or a `ShortcutKeys` set
+on a menu item, is a control nobody can rebind — and D69's whole premise is that a person's own
+config works wholesale.
+
+**It follows from D69 rather than adding to it**, which is why it was stated so briefly: if a pasted
+config must work, the actions it can bind cannot be a subset chosen by whoever wrote each handler.
+
+### What is NOT yet done, and the ordering is the owner's
+
+> *"yea the migration and refactor for the config, will come after we refactor the views to actually
+> be pure views"*
+
+So the debt is filed and not paid yet. Today two actions route through `KeyBindings`
+(`SwitchCameraMode`, `ResetCamera`) and the flight keys go through `ConfigConsole`; **every menu
+shortcut is still a hardcoded `ShortcutKeys`** — F1 to F12, Ctrl+L, Ctrl+T. That is B214.
+
+**What the rule forbids in the meantime is ADDING to the pile.** A speed slider was about to get
+`Home` mapped to 1× — the owner's own suggestion, and a good one, since *"'Home means minimum' is
+literally 1x when it comes to video playback, its the default too"* — and it was not built, because
+building it would have meant one more literal to migrate. The slider uses the `TrackBar`'s own
+platform behaviour instead, which is not ours to un-hardcode.
+
+**Removals count as progress and were taken immediately.** The height cut's three keys are gone with
+the feature (B213), and the guard added in their place names no key at all.

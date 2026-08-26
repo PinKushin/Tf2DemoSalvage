@@ -36,8 +36,9 @@ public interface IWorldUpload
     /// <summary>Points the world at a camera.</summary>
     /// <param name="matrix">The view-projection, row major, sixteen floats.</param>
     /// <param name="surfaceColours">Whether to draw the surface-category view.</param>
-    /// <param name="heightCut">Where to cut the world away above, or zero for none.</param>
-    public void SetCamera(float[] matrix, bool surfaceColours = false, float heightCut = 0f);
+    // `heightCut` was a third parameter here until 2026-08-26 (B213). It cut on DEPTH, which is
+    // height only under the orthographic projection D98 deleted.
+    public void SetCamera(float[] matrix, bool surfaceColours = false);
 
     /// <summary>Releases the resident world.</summary>
     public void ClearWorld();

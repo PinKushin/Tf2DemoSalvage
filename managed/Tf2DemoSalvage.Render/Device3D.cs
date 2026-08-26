@@ -611,7 +611,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     }
 
     /// <summary>The last world camera set, so the viewmodel pass can put it back.</summary>
-    private (float[] Matrix, bool Colours, float HeightCut)? _worldCamera;
+    /// <remarks>Carried a `HeightCut` until 2026-08-26 (B213).</remarks>
+    private (float[] Matrix, bool Colours)? _worldCamera;
 
     /// <summary>Re-sends the remembered world camera with the CURRENT debug modes.</summary>
     /// <remarks>
@@ -644,7 +645,6 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             _context,
             restore.Matrix,
             restore.Colours,
-            restore.HeightCut,
             _specular,
             _fullbright,
             _debug);
@@ -989,13 +989,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// <summary>Sets the view the world is drawn through.</summary>
     /// <param name="matrix">Sixteen floats, row major.</param>
     /// <param name="surfaceColours">Whether to draw flat category colours instead of textures.</param>
-    /// <param name="heightCut">Discard anything above this height, from 0 (all) to 1 (nothing).</param>
     /// <exception cref="ObjectDisposedException">The device has been disposed.</exception>
     /// <remarks>
     /// **The resize path, now.** Geometry is uploaded in world coordinates and stays; a viewport
     /// change rewrites one 64-byte buffer instead of rebuilding every vertex.
     /// </remarks>
-    public void SetCamera(float[] matrix, bool surfaceColours = false, float heightCut = 0f)
+    public void SetCamera(float[] matrix, bool surfaceColours = false)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
@@ -1008,12 +1007,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         _world.DrawEntities = _drawEntities;
 
         _world.SetCamera(
-            _device, _context, matrix, surfaceColours, heightCut, _specular, _fullbright, _debug);
+            _device, _context, matrix, surfaceColours, _specular, _fullbright, _debug);
 
         // Remembered so the viewmodel pass can put it back. The world's camera is set on a view
         // CHANGE rather than per frame, so anything that overwrites it has to restore it or the
         // map keeps the wrong projection until the user next moves.
-        _worldCamera = (matrix, surfaceColours, heightCut);
+        _worldCamera = (matrix, surfaceColours);
     }
 
     /// <summary>Whether the world draws in wireframe — Valve's <c>mat_wireframe</c>.</summary>

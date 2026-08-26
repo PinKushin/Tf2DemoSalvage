@@ -12502,6 +12502,74 @@ a test cannot put a non-null value there, and asserting null after `Open` when i
 the precondition-equals-assertion shape that made the rest of that test worthless until it was fixed
 this morning. The third level covers it instead.
 
+### B214 — Every menu shortcut is a hardcoded key — OPEN, scheduled after the view work
+
+**D101 forbids hardcoded controls outright**, and fourteen of them remain: every `ShortcutKeys` on a
+menu item — F1 to F12, Ctrl+L, Ctrl+T. Two actions route through `KeyBindings` today
+(`SwitchCameraMode`, `ResetCamera`) and the flight keys go through `ConfigConsole`; the menu does
+not.
+
+**Not being fixed now, and the ordering is the owner's:** *"yea the migration and refactor for the
+config, will come after we refactor the views to actually be pure views"*.
+
+**What the rule forbids meanwhile is adding to the pile**, which is why a `Home` → 1× speed reset was
+proposed, agreed to be right, and deliberately not built: *"do not hard code home, no new hard
+codes"*. It is a good binding and it waits for the mechanism.
+
+### B213 — The height cut clipped on depth and never worked — FIXED 2026-08-26
+
+**The owner:** *"we dont need the height cut, that was a ortho thing that should be ripped out and
+never worked in the first place"*.
+
+**Its own shader comment is the proof**, and it had been sitting there the whole time:
+
+```
+// **The cut is on depth, which is height.** Discarding here rather than dropping the
+// geometry means the slice moves without rebuilding anything...
+clip(input.pos.z - surfaceColours.y);
+```
+
+Depth **is** height — under an orthographic top-down projection, and only there. D98 deleted that
+projection. Under the free camera `pos.z` is distance from the eye, so the control cut away whatever
+was nearest rather than whatever was highest.
+
+**It survived the ortho removal by looking like a rendering feature**, which is exactly what D98
+warned about in the owner's words: *"half measures are why we have old ortho code unused, still
+around"*. The field's own documentation named the projection it belonged to — *"what lets an OVERHEAD
+VIEW see inside a building"* — and that was not enough to catch it, because the sentence reads as a
+use case rather than a dependency.
+
+**Removed whole**: the `HeightCut` type, its two test files, the parameter through `WorldPresenter`,
+`IWorldUpload`, `Device3D`, `OffscreenTarget` and `WorldRenderer`, the `clip` in the shader, and the
+three hardcoded keys that drove it.
+
+**The constant-buffer slot stays, written zero.** Removing a component shifts every register after
+it, and `surfaceColours.y` costs four bytes; it is still WRITTEN rather than skipped, because the
+tail of a mapped buffer holds whatever the last frame put there
+(`docs/memory/padding-is-not-zero.md`).
+
+**The gate caught the test-count drop**, which is what it is for: viewer 616 → 613.
+
+### B212 — Form shortcuts reached over every control, including the search box — FIXED 2026-08-26
+
+**Typing `cp process` into the demo search box toggled first person instead of inserting a space.**
+`Space` is the default bind for switch-camera-mode, and `ProcessCmdKey` runs *before* any control
+sees a key — returning true consumes it. In the free camera the flight keys took `w`, `a`, `s` and
+`d` as well. No unusual configuration was needed; the shipped defaults are enough.
+
+The height cut's three literals did the same to `Home`, `PageUp` and `PageDown`, so the search box
+lost caret movement and the playlist and scrub bar lost paging.
+
+**Found sideways.** A UI test pressed `Home` on a focused speed slider and nothing happened. The
+first fix guarded on `ActiveControl` and **changed nothing**, because `Form.ActiveControl` answers
+with the active child of the *form* — and `TransportBar` is a `UserControl`, so it returned the
+transport bar rather than the slider inside it. The test went on failing identically, which is the
+worst outcome a fix can have: it looks like the diagnosis was wrong. Each container on the chain
+holds its own `ActiveControl`, so the answer is the bottom of that chain.
+
+**The fix names no key**, which matters under D101: while a `TextBoxBase` has focus, nothing is a
+shortcut. It adds nothing to un-hardcode later.
+
 ### B211 — With no TF2 installed, the viewer blamed the map and downloaded one — FIXED 2026-08-26
 
 **The owner's requirement, which is what found this:**
