@@ -1,47 +1,46 @@
 - [Stryker needs TargetFramework in the csproj](stryker-targetframework-must-be-in-csproj.md) — a props-file TFM kills mutation testing.
-- [Build gates reject stubs and global using System](tf2demosalvage-build-gates.md) — analyzer strictness changes the TDD red step.
-- [Fuzzing belongs here](fuzzing-belongs-here.md) — proposed, not implemented; `docs/FUZZING.md` has the detail.
+- [Build gates reject stubs and global using System](tf2demosalvage-build-gates.md) — analyzers change the TDD red step.
+- [Fuzzing belongs here](fuzzing-belongs-here.md) — proposed, not implemented; see `docs/FUZZING.md`.
 - [z1800.dem is modern, not 2015](z1800-is-modern-not-2015.md) — date by seasonal assets, never protocol numbers.
 - [Split branches, keep Rust off WSL](branch-scope-and-toolchain-prefs.md) — branch names must stay accurate.
-- [Write tests before codecs](tests-before-codecs.md) — the same lapse twice; corpus tests miss branches demos never take.
+- [Write tests before codecs](tests-before-codecs.md) — corpus tests miss branches demos never take.
 - [Layer 2 is a dependency chain](layer2-is-a-dependency-chain.md) — no length prefixes; implement whatever blocks the stream.
 - [Fixtures are the weak point](fixtures-are-the-weak-point.md) — prefer round-trip properties where an encoder exists.
-- [Numeric decoding traps](numeric-decoding-traps.md) — NaN, sign extension, range-encoded floats; all fail as plausible numbers.
+- [Numeric decoding traps](numeric-decoding-traps.md) — NaN, sign extension, range-encoded floats fail as plausible numbers.
 - [Span guards testable without allocation](span-guards-testable-without-allocation.md) — MemoryMarshal fabricates the Length.
 - [Differential beats fixtures](differential-beats-fixtures.md) — a fixture cannot falsify your own reading of a spec.
 - [Mutation score is not the goal](mutation-score-is-not-the-goal.md) — no tests for tests' sake; skip dead ends.
-- [Research before code](research-before-code.md) — guess, verify against a source, then code; skipping the verify is what costs.
+- [Research before code](research-before-code.md) — guess, verify against a source, then code.
 - [Ask whether the data arrived](ask-whether-the-data-arrived.md) — a dropped message imitates a desync perfectly.
 - [Fallbacks do not make guesses safe](fallbacks-do-not-make-guesses-safe.md) — handling unknowns cannot catch a wrong premise.
 - [Arithmetic settles disputes](arithmetic-settles-disputes.md) — a bit width can exclude a candidate outright.
 - [Stryker globs are project-relative](stryker-globs-are-project-relative.md) — a non-matching glob reports a clean run.
 - [proto_version.h enumerates the boundaries](proto-version-h-enumerates-the-boundaries.md) — each constant names the last build WITHOUT the change.
-- [NUnit over xUnit, never deprecated packages](nunit-over-xunit-never-deprecated-packages.md) — a deprecated package breaks Zero Warnings.
+- [NUnit over xUnit, never deprecated packages](nunit-over-xunit-never-deprecated-packages.md) — deprecation breaks Zero Warnings.
 - [International names are required](international-names-are-required.md) — ASCII corrupts a name into a plausible one.
-- [The era axis is measured](era-axis-is-measured.md) — protocols 11/14/15/16/24 dated exactly; gaps at 12–13 and 17–23.
-- [hl2sdk branches are per-era headers](hl2sdk-branches-are-per-era-headers.md) — prove header stability across eras without decompiling.
+- [The era axis is measured](era-axis-is-measured.md) — 11/14/15/16/24 dated exactly; gaps at 12–13, 17–23.
+- [hl2sdk branches are per-era headers](hl2sdk-branches-are-per-era-headers.md) — prove header stability without decompiling.
 - [Record both points of view](record-both-points-of-view.md) — a POV/STV pair of one session is the control.
 - [Read the encoder, not the decoder](read-the-encoder-not-the-decoder.md) — an encoder states intent a decoder only implies.
-- [Round trips need the encoding shape](round-trip-needs-the-encoding-shape.md) — which optional fields were sent is not recoverable from values.
+- [Round trips need the encoding shape](round-trip-needs-the-encoding-shape.md) — which optional fields were sent is not recoverable.
 - [Measure the output, not the capability](measure-the-output-not-the-capability.md) — a predicate-built report reads clean while everything falls back.
 - [Valve publishes bitbuf](valve-publishes-bitbuf.md) — bf_write/bf_read are in source-sdk-2013 src/tier1.
 - [Length arithmetic identifies a layout](length-arithmetic-identifies-a-layout.md) — check the length with `==`, never `<=`.
-- [The engine accepts authored demos](engine-accepts-authored-demos.md) — the 2007 client plays files this project generated.
+- [The engine accepts authored demos](engine-accepts-authored-demos.md) — the 2007 client plays files we generated.
 - [Binaries answer what the SDK cannot](binaries-answer-what-the-sdk-cannot.md) — scan PE bytes; don't trust Ghidra's analysis.
 - [A changelog dates the complaint](a-changelog-dates-the-complaint.md) — only a note describing a REPAIR lags its subject.
 - [Padding is not zero](padding-is-not-zero.md) — padding carries stale bits; read it, never recompute it.
-- [Two recordings of one value](two-recordings-of-one-value.md) — tests the decode against the engine, not your own reading.
+- [Two recordings of one value](two-recordings-of-one-value.md) — tests the decode against the engine, not your reading.
 - [Fixture lifetime is per test-kind](nunit-shared-fixture-is-the-standard.md) — isolation for unit, shared fixture for UI.
 - [Branch granularity is fine here](branch-granularity-is-fine-here.md) — the name drifting means it grew too big.
 - [A header written last is absent](a-header-written-last-is-absent.md) — 43 % of real demos declare zero ticks.
-- [BSP lumps are compressed](bsp-lumps-are-compressed.md) — the directory never says so, and raw reads give plausible numbers.
+- [BSP lumps are compressed](bsp-lumps-are-compressed.md) — the directory never says so; raw reads give plausible numbers.
 - [Real data hides bugs, small inputs expose them](real-data-hides-bugs-small-inputs-expose.md) — test at the smallest distinguishing size.
 - [A hole is not always a drawing fault](a-hole-is-not-always-a-drawing-fault.md) — a face-based instrument cannot report a missing non-face.
-- [Per-item APIs hide quadratic reads](per-item-apis-hide-quadratic-reads.md) — 830 ms per resize from re-decompressing lumps.
-- [UI tests run every time](ui-tests-run-every-time.md) — new UI ships with its UI test.
-- [UI suite optional until UI grows](ui-suite-optional-until-ui-grows.md) — phase-scoped exception; flips back on when the UI grows.
+- [Per-item APIs hide quadratic reads](per-item-apis-hide-quadratic-reads.md) — 830 ms per resize re-decompressing lumps.
+- [UI tests run every time](ui-tests-run-every-time.md) — new UI ships with its UI test; the old phase-scoped exception has expired.
 - [Decoding must be total](decode-must-be-total.md) — anything below 100% with no errors is our defect.
-- [A test can outlive its design](a-test-can-outlive-its-design.md) — its failure blamed the app for a demand the design deleted.
+- [A test can outlive its design](a-test-can-outlive-its-design.md) — it blamed the app for a demand the design deleted.
 - [The focus check asks the wrong window](focus-check-asks-the-wrong-window.md) — HasKeyboardFocus on a top-level window is always false.
 - [Instrument bugs outnumber decoder bugs](instrument-bugs-outnumber-decoder-bugs.md) — check sensitivity before suspecting the code.
 - [Closed source: check the public API](closed-source-check-the-public-api.md) — "closed" is not "unknowable".
@@ -55,60 +54,60 @@
 - [Edit files with the file tools](edit-files-with-the-file-tools.md) — scripted edits no-op silently and mangle escaping.
 - [Bone merge sends no position](bone-merge-sends-no-position.md) — EF_BONEMERGE takes the owner's bones by name.
 - [Demo ticks do not start at zero](demo-ticks-do-not-start-at-zero.md) — a hardcoded probe tick reports a plausible count.
-- [Negative model indices are dynamic](negative-model-indices-are-dynamic.md) — the DynamicModels table is where cosmetics live.
+- [Negative model indices are dynamic](negative-model-indices-are-dynamic.md) — the DynamicModels table holds cosmetics.
 - [Viewer screenshots are F12](viewer-screenshots-are-f12.md) — captures land beside viewer.log in %LOCALAPPDATA%.
 - [Read the SDK for the whole mechanism](read-the-sdk-for-the-whole-mechanism.md) — finding the flag is the easy half.
 - [Lookups must match exactly](lookups-must-match-exactly.md) — a Contains lookup laid every player down.
 - [Build-time shortcuts assume the camera](build-time-shortcuts-assume-the-camera.md) — top-down culls broke the free camera.
-- [Read the map before the renderer](read-the-map-before-the-renderer.md) — ask the BSP what the broken thing actually is.
-- [Measure every hop before blaming one](measure-every-hop-before-blaming-one.md) — three correct measurements locate the fourth hop.
+- [Read the map before the renderer](read-the-map-before-the-renderer.md) — ask the BSP what the broken thing is.
+- [Measure every hop before blaming one](measure-every-hop-before-blaming-one.md) — three correct measurements locate the fourth.
 - [Read the spec before measuring our data](read-the-spec-before-measuring-our-data.md) — measurement cannot find a feature never implemented.
-- [The denominator is already written down](the-denominator-is-already-written-down.md) — `docs/SDK-COVERAGE.md` names every unhandled thing; read it before a decompiler.
+- [The denominator is already written down](the-denominator-is-already-written-down.md) — `docs/SDK-COVERAGE.md` before a decompiler.
 - [Conformance test before implementation](conformance-test-before-implementation.md) — parity test with its citation first.
 - [Surf and jump are an audience](surf-and-jump-are-an-audience.md) — old runs need exact ticks, angles and inputs.
-- [An uncoverable gap is usually your reader](an-uncoverable-gap-is-usually-your-reader.md) — exclusions are usually facts about your parser.
+- [An uncoverable gap is usually your reader](an-uncoverable-gap-is-usually-your-reader.md) — exclusions are facts about your parser.
 - [Output-level assertion or it is not done](output-level-assertion-or-it-is-not-done.md) — only it catches wiring.
 - [An empty search needs a control](an-empty-search-needs-a-control.md) — absence claims are often facts about the grep.
 - [Wire names are strings](wire-names-are-strings.md) — SENDINFO_NAME sends under its second argument.
 - [Shipped data is a source](shipped-data-is-a-source.md) — VMTs and .res files answered two decompiler questions.
 - [TF2's game code is in the SDK](tf2-game-code-is-in-the-sdk.md) — 1,318 files; "TF2 is closed" was never checked.
 - [A running client caches its config](a-running-client-caches-its-config.md) — a stale .cfg read makes a correct fix look failed.
-- [POV demos are PVS-limited](pov-demos-are-pvs-limited.md) — missing props imitate a regression; verify rendering on STV.
+- [POV demos are PVS-limited](pov-demos-are-pvs-limited.md) — missing props imitate a regression; verify on STV.
 - [Nothing is closed](nothing-is-closed.md) — SDK, shipped data, then a decompiler; grep for CALLERS.
-- [A ConVar default sits beside its name](a-convar-default-sits-beside-its-name.md) — engine constants are readable with ripgrep and od.
+- [A ConVar default sits beside its name](a-convar-default-sits-beside-its-name.md) — readable with ripgrep and od.
 - [Death is EF_NODRAW, not an animation](death-is-ef-nodraw-not-an-animation.md) — the corpse is a separate CTFRagdoll.
 - [Pose parameters live in the included model](pose-parameters-live-in-the-included-model.md) — paramindex is local to its group.
 - [A property name needs its declaring table](a-property-name-needs-its-declaring-table.md) — check the pair, not the name.
 - [A floor must track the number it guards](a-floor-must-track-the-number-it-guards.md) — --filter also drops every [Explicit] test.
-- [Material variables split three ways](material-variables-split-three-ways.md) — params, MATERIAL_VAR flags and standard vars.
+- [Material variables split three ways](material-variables-split-three-ways.md) — params, MATERIAL_VAR flags, standard vars.
 - [Struct padding is on disk](struct-padding-is-on-disk.md) — lump stride is sizeof(), not the field sum.
 - [Source the fixture from the right reference](put-the-real-file-in-the-fixture.md) — authoring it from OUR code hides bugs.
 - [Author the specimen the corpus lacks](author-the-specimen-the-corpus-lacks.md) — the writer is a test instrument.
 - [Test naming convention](test-naming-convention.md) — {Subject}_{Scenario}_{Expected}; prose names cost a file-open.
 - [A nullable pattern on a struct is dead code](nullable-pattern-on-a-struct-is-dead-code.md) — compiles and never fires.
-- [A layout driven by its own length cannot fail](a-layout-driven-by-its-own-length-cannot-fail.md) — its consumption guard was decorative.
+- [A layout driven by its own length cannot fail](a-layout-driven-by-its-own-length-cannot-fail.md) — its guard was decorative.
 - [Unreachable can be proved, not just observed](unreachable-can-be-proved-not-just-observed.md) — prove it dead, or write the input.
-- [A player has two viewmodels](a-player-has-two-viewmodels.md) — slot 1 is the off hand and is drawn alongside the weapon.
-- [The demo dates its own fields](the-demo-dates-its-own-fields.md) — an era question is answered by that demo's embedded schema.
+- [A player has two viewmodels](a-player-has-two-viewmodels.md) — slot 1 is the off hand, drawn alongside the weapon.
+- [The demo dates its own fields](the-demo-dates-its-own-fields.md) — an era question is answered by its embedded schema.
 - [Foreground is not focus](foreground-is-not-focus.md) — a window can own the foreground with nothing focused.
 - [A count cannot see past a pruner](a-count-cannot-see-past-a-pruner.md) — compare the set, not the count.
 - [A neutral default must be neutral](a-neutral-default-must-be-neutral.md) — `_white` is the magenta chequer.
-- [The client builds what the demo omits](the-client-builds-what-the-demo-omits.md) — the item index plus items_game.txt rebuilds it.
-- [Two matrix conventions, on purpose](two-matrix-conventions-on-purpose.md) — bones stay Valve column-vector; cross over in one place.
+- [The client builds what the demo omits](the-client-builds-what-the-demo-omits.md) — item index plus items_game.txt rebuilds it.
+- [Two matrix conventions, on purpose](two-matrix-conventions-on-purpose.md) — bones stay Valve column-vector; cross over once.
 - [A default is not a constant](a-default-is-not-a-constant.md) — grep for `ConVar` before writing an SDK number in.
 - [A launch notification is not an exit](a-launch-notification-is-not-an-exit.md) — ask Get-Process; a growing log is not a crash.
-- [Where the game and clients live](where-the-game-and-clients-live.md) — TF2, the period clients and the SDK are all on `F:`.
+- [Where the game and clients live](where-the-game-and-clients-live.md) — TF2, the period clients and the SDK are on `F:`.
 - [The viewer suite wants the GPU](the-viewer-suite-wants-the-gpu.md) — real D3D devices; exclusive fullscreen may abort it.
 - [Write can destroy what you did not read](write-can-destroy-what-you-did-not-read.md) — grep before building a feature.
 - [Close what you launched](close-what-you-launched.md) — an exit nobody asked for may be a silent crash.
 - [Cancelling sabotages mean coupled tests](cancelling-sabotages-mean-coupled-tests.md) — the fix is the input, not a third test.
-- [Wire-faithful is not state-faithful](wire-faithful-is-not-state-faithful.md) — read the baseline-merged list, not the snapshot's own.
+- [Wire-faithful is not state-faithful](wire-faithful-is-not-state-faithful.md) — read the baseline-merged list, not the snapshot's.
 - [A filed design choice may not be one](a-filed-design-choice-may-not-be-one.md) — a dilemma in a risk entry means the source is unread.
 - [Clip the surface to the projection](clip-the-surface-to-the-projection.md) — an overlay is a volume; needs a slack fudge.
 - [Name the reading you picked](name-the-reading-you-picked.md) — a decision recorded as a requirement cannot be revisited.
 - [Never revert without asking](never-revert-without-asking.md) — a change that was asked for and works is not yours to discard.
 - [Name the trade before fixing Valve](name-the-trade-before-fixing-valve.md) — arbitrary AND precise means a trick, not a mistake.
-- [A skip is not a pass or a failure](a-skip-is-not-a-pass-or-a-failure.md) — invisible in a summary line, and it passes the count floor.
+- [A skip is not a pass or a failure](a-skip-is-not-a-pass-or-a-failure.md) — invisible in a summary, and it passes the count floor.
 - [Read the trx total, not the console](read-the-trx-total-not-the-console.md) — the console prints a smaller number.
 - [A faithful fixture can be blind](a-faithful-fixture-can-be-blind.md) — the distinguishing input is one no real file contains.
 - [Boundaries find what tests cannot](boundaries-find-what-tests-cannot.md) — a boundary questions the structure a test assumes.
@@ -116,40 +115,40 @@
 - [Silence about a missing feature is not a preference](silence-about-a-missing-feature-is-not-a-preference.md) — falling back is not overriding.
 - [Three test levels, and the third is missing](three-test-levels-and-the-third-is-missing.md) — only the real UI fails when wiring is absent.
 - [Slow UI tests measure the app](slow-ui-tests-measure-the-app.md) — durations are an application measurement.
-- [Push when the gate is green](push-when-the-gate-is-green.md) — overrides push-sparingly; don't gate a docs-only change.
-- [Script only for batch edits](script-only-for-batch-edits.md) — no Python or perl; single-file C# via `dotnet run` if warranted.
+- [Push when the gate is green](push-when-the-gate-is-green.md) — overrides push-sparingly; verify a run EXISTS by sha.
+- [Script only for batch edits](script-only-for-batch-edits.md) — no Python or perl; single-file C# via `dotnet run`.
 - [A constant carries no scope](a-constant-carries-no-scope.md) — ask what a value is applied TO.
 - [A pass must establish its own state](a-pass-must-establish-its-own-state.md) — the symptom appears in the code that moved.
 - [A ledger must cover every exit](a-ledger-must-cover-every-exit.md) — count on the way out, never the way in.
 - [A picture is assertable](a-picture-is-assertable.md) — a specific visual property needs no reference image.
 - [A carried weapon has two model indices](a-carried-weapon-has-two-model-indices.md) — the world model is m_iWorldModelIndex.
 - [No scripted edits means docs too](no-scripted-edits-means-docs-too.md) — Edit/Write for every file change, docs included.
-- [A viewmodel is one model or two](a-viewmodel-is-one-model-or-two.md) — decide from what the demo networked, not today's schema.
+- [A viewmodel is one model or two](a-viewmodel-is-one-model-or-two.md) — decide from what the demo networked.
 - [Check backwards compatibility on old demos](check-backwards-compat-on-old-demos.md) — an era demo is the first place to look.
-- [A budget rule must not gate a correctness rule](a-budget-rule-must-not-gate-a-correctness-rule.md) — `&& bones.Count > 1` vetoed mustSkin, so a one-bone worn model never merged.
-- [Do not rerun a green gate](do-not-rerun-a-green-gate.md) — floors and docs cannot change a test result; take the counts from the run in hand.
-- [Build servers outlive the build](build-servers-outlive-the-build.md) — 1.4 GB still resident after one gate run; reap with `dotnet build-server shutdown`, never `pkill -f`.
-- [A move's regressions are wiring](a-moves-regressions-are-wiring.md) — three shipped silently at 620/620 green; count the assignments, diff the strings, diff the body.
-- [Sound the demo does not carry](sound-the-demo-does-not-carry.md) — footsteps and landings are client-predicted and in no demo; reproducing them is authoring, not replay.
-- [A client dates a protocol, a demo does not](a-client-dates-a-protocol-a-demo-does-not.md) — a demo's protocol bounds its date not at all; this corpus is the counterexample, and protocol windows are estimates from changelogs.
-- [A fallback that makes sound hides itself](a-fallback-that-makes-sound-hides-itself.md) — twice in one feature; when the engine refuses a case, refuse it too.
-- [A loop is state, not an event](a-loop-is-state-not-an-event.md) — ask what should be PLAYING now, not what happened at this tick.
-- [A null-object default hides a missed wiring](a-null-object-default-hides-a-missed-wiring.md) — 193 sites converted, suite green, and the log lost 202 lines.
-- [An optimisation is not a skippable departure](an-optimisation-is-not-a-skippable-departure.md) — Valve's optimisations earn their place; the deciding number was already in the risk register.
-- [A threshold instrument cannot see a sum](a-threshold-instrument-cannot-see-a-sum.md) — six frozen frames, one stall logged; time the phase, not the event.
-- [Valve parity is the first principle](valve-parity-is-the-first-principle.md) — D89; performance never buys a departure, and parity is where the speed came from.
-- [The fat column is the subtracted one](the-fat-column-is-the-subtracted-one.md) — six timers at 3 ms, remainder at 126; it was one log line taking a machine-wide mutex.
-- [Refactors are when to check parity](refactors-are-when-to-check-parity.md) — a divergence written into a new type is harder to see than one left in an old method.
-- [Decide home and parity before writing](decide-home-and-parity-before-writing.md) — three days of rework; answer both questions before the code exists.
-- [custom/ and choosable huds](custom-folder-and-choosable-huds.md) — several huds at once is a deliberate step BEYOND TF2; do not "fix" it toward parity.
-- [A partial thin view is worse than none](a-partial-thin-view-is-worse-than-none.md) — it reads as permission; enforcement is the TFM, not the file.
-- [A wrong invocation exits zero](a-wrong-invocation-exits-zero.md) — a usage banner is not an error; assert on output shape, not status.
-- [A divergence is asked, not documented](a-divergence-is-asked-not-documented.md) — writing the reason in a comment does not discharge it.
-- [Ask which input differs before bisecting](ask-which-input-differs-before-bisecting.md) — a check that never existed is absent from both versions.
-- [The f12 demo is the parity reference](the-f12-demo-is-the-parity-reference.md) — hold the subject constant; announce every demo change by name.
-- [A superseded type keeps its tests](a-superseded-type-keeps-its-tests.md) — eleven green tests on a camera the viewer never ran.
-- [A ConVar registration is three pushes](a-convar-registration-is-three-pushes.md) — default, flags and help-or-not from ~20 bytes of x86.
+- [A budget rule must not gate a correctness rule](a-budget-rule-must-not-gate-a-correctness-rule.md) — a bone-count guard vetoed mustSkin.
+- [Do not rerun a green gate](do-not-rerun-a-green-gate.md) — floors and docs cannot change a test result.
+- [Build servers outlive the build](build-servers-outlive-the-build.md) — reap with `dotnet build-server shutdown`, never `pkill -f`.
+- [A move's regressions are wiring](a-moves-regressions-are-wiring.md) — three shipped at 620/620 green; count the assignments.
+- [Sound the demo does not carry](sound-the-demo-does-not-carry.md) — footsteps are client-predicted; reproducing them is authoring.
+- [A client dates a protocol, a demo does not](a-client-dates-a-protocol-a-demo-does-not.md) — this corpus is the counterexample.
+- [A fallback that makes sound hides itself](a-fallback-that-makes-sound-hides-itself.md) — when the engine refuses a case, refuse it too.
+- [A loop is state, not an event](a-loop-is-state-not-an-event.md) — ask what should be PLAYING now.
+- [A null-object default hides a missed wiring](a-null-object-default-hides-a-missed-wiring.md) — suite green, log lost 202 lines.
+- [An optimisation is not a skippable departure](an-optimisation-is-not-a-skippable-departure.md) — Valve's optimisations earn their place.
+- [A threshold instrument cannot see a sum](a-threshold-instrument-cannot-see-a-sum.md) — time the phase, not the event.
+- [Valve parity is the first principle](valve-parity-is-the-first-principle.md) — D89; performance never buys a departure.
+- [The fat column is the subtracted one](the-fat-column-is-the-subtracted-one.md) — six timers at 3 ms, remainder at 126.
+- [Refactors are when to check parity](refactors-are-when-to-check-parity.md) — a divergence in a new type is harder to see.
+- [Decide home and parity before writing](decide-home-and-parity-before-writing.md) — answer both before the code exists.
+- [custom/ and choosable huds](custom-folder-and-choosable-huds.md) — a deliberate step BEYOND TF2; do not "fix" it.
+- [A partial thin view is worse than none](a-partial-thin-view-is-worse-than-none.md) — enforcement is the TFM, not the file.
+- [A wrong invocation exits zero](a-wrong-invocation-exits-zero.md) — assert on output shape, not status.
+- [A divergence is asked, not documented](a-divergence-is-asked-not-documented.md) — a comment does not discharge it.
+- [Ask which input differs before bisecting](ask-which-input-differs-before-bisecting.md) — a check that never existed is absent from both.
+- [The f12 demo is the parity reference](the-f12-demo-is-the-parity-reference.md) — announce every demo change by name.
+- [A superseded type keeps its tests](a-superseded-type-keeps-its-tests.md) — eleven green tests on a camera nothing ran.
 - [Ask if the view must hold it](ask-if-the-view-must-hold-it.md) — a field only ever passed along belongs on the other side.
 - [Set the opposite state first](set-the-opposite-state-first.md) — a precondition equal to the assertion cannot fail.
-- [A log level regression is invisible to unit tests](a-log-level-regression-is-invisible-to-unit-tests.md) — the double records every level; the app discards below its own.
-- [A walking test cannot see a deletion](a-walking-test-cannot-see-a-deletion.md) — generate the denominator; a shortcut-collision test passed with an item removed.
+- [A log level regression is invisible to unit tests](a-log-level-regression-is-invisible-to-unit-tests.md) — the app discards below its own level.
+- [A walking test cannot see a deletion](a-walking-test-cannot-see-a-deletion.md) — generate the denominator.
+- [A ConVar registration is three pushes](a-convar-registration-is-three-pushes.md) — default, flags and help from ~20 bytes of x86.

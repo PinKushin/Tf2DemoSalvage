@@ -24,3 +24,26 @@ promising it later. Where the property genuinely cannot be observed from the aut
 order against another application, for instance — say so in the commit instead of substituting a
 check on the flag, which only restates the diff. Related: [[tests-before-codecs]],
 [[nunit-shared-fixture-is-the-standard]].
+
+## The phase-scoped exception has expired, 2026-08-26
+
+There used to be a companion entry saying the UI suite was optional *while the UI was small*. It is
+not small any more — twenty tests, and they have earned their keep: the F11 collision that silently
+broke full screen for days (B165), three wiring regressions that shipped at 620/620 green (B193), and
+a per-second diagnostic that a log-LEVEL change silenced while its unit tests stayed green. The
+exception is closed and this entry is the whole rule.
+
+**The worked example it carried is worth keeping**, because it is the reason a UI test can be worse
+than none. `Click_TheCycleTargetButton_ReachesTheSpectatorCode` counted the log line
+`"following entity N"` to prove a click reached `CycleTarget`. That line is written only when the
+target search SUCCEEDS; the other branch writes `"nobody else to follow at this tick"`, and **both
+prove the wiring**. So the test asserted "the click reached the handler" by requiring "and it found
+somebody" — a fact about the demo and the tick, not about the code. Once B171 required a target to be
+alive and drawn, the solo POV era specimen the UI session opens legitimately produced no target, and
+the test went red against a viewer the owner was watching work correctly. His verdict: *"that seems
+like a stupid test for a pov demo or a demo with a single player, it doesnt actually check
+anything"*.
+
+Fixed by counting the `[spectate]` area instead of either message — which also sharpened the negative
+control, since in the free camera `CycleTarget` returns before logging anything, so the count proves
+the handler never RAN rather than merely that it found nobody.
