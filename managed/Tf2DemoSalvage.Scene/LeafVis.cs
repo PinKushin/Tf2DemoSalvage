@@ -42,7 +42,40 @@ namespace Tf2DemoSalvage.Scene;
 /// </remarks>
 public static class LeafVis
 {
-    /// <summary>How large w must be before a corner is considered to be in front of the eye.</summary>
+    // A `/// <summary>How large w must be before a corner is considered to be in front of the
+    // eye.</summary>` sat here until 2026-08-26, describing a constant that no longer exists. An
+    // orphaned doc comment does not warn — it silently reattaches to the next member, so `Lines`
+    // carried a summary about clip-space W for however long the constant had been gone.
+
+    /// <summary>Why <see cref="Lines"/> drew nothing, in the words a user should see.</summary>
+    /// <param name="mapLoaded">Whether a map is open at all.</param>
+    /// <param name="tree">That map's BSP tree, or null when it carried none.</param>
+    /// <returns>The reason, ready to log.</returns>
+    /// <remarks>
+    /// **This was `MainForm.WhyNoLeafBox`** (B208). Deciding what an absent BSP tree means, and
+    /// telling it apart from an absent map and from a leaf with no bounds, is knowledge about the
+    /// format — a window has no business holding it.
+    ///
+    /// **Three cases and not two, deliberately.** "No map" and "a map with no tree" are different
+    /// problems with different fixes: one is a demo whose map could not be found, the other is a map
+    /// whose tree we failed to read. Collapsing them would send the reader to the wrong half.
+    ///
+    /// **`mapLoaded` is a bool rather than the map**, so this stays a question about the BSP rather
+    /// than acquiring a dependency on `LoadedMap` — which would point `LeafVis` upward at the thing
+    /// that composes it (D92).
+    /// </remarks>
+    public static string WhyNothing(bool mapLoaded, BspLeafTree? tree)
+    {
+        if (!mapLoaded)
+        {
+            return "mat_leafvis is on with no map loaded";
+        }
+
+        return tree is null or { IsEmpty: true }
+            ? "mat_leafvis is on but the map carried no BSP tree"
+            : "mat_leafvis is on but the leaf under the camera has no bounds";
+    }
+
     /// <summary>The twelve edges of the leaf containing a point, in world units.</summary>
     /// <param name="tree">The map's BSP tree, or null when no map is loaded.</param>
     /// <param name="eye">Where the viewer is standing, in world units.</param>
@@ -51,6 +84,8 @@ public static class LeafVis
     /// **Nothing rather than a box at the origin when the leaf has no bounds.** A tree built without
     /// the leaf lump can still say WHICH leaf a point is in — the walk needs only nodes and planes —
     /// but it cannot say how big that leaf is, and drawing a guess would be drawing a lie.
+    ///
+    /// When this returns nothing, <see cref="WhyNothing"/> says which of the three reasons it was.
     /// </remarks>
     public static IReadOnlyList<((float X, float Y, float Z) From, (float X, float Y, float Z) To)> Lines(
         BspLeafTree? tree,

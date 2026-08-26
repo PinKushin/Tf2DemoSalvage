@@ -30,6 +30,42 @@ public sealed class DemoModelsTests
     // timeline sources named above.
 
     [Test]
+    public void Precache_WithNoDemoOpen_DoesNothingRatherThanThrowing()
+    {
+        // **The guard moved here from the call site** (B208). "There is no demo" and "the game
+        // content is not open" are both statements about whether precaching is possible, and
+        // leaving them in the window means every future caller rediscovers the same two
+        // preconditions — which is how one of them eventually gets forgotten.
+        RecordingLogger log = new();
+
+        DemoModels.Precache(
+            new EntityModelSet(new RecordingLoggerFactory()), timeline: null, game: null, log);
+
+        log.Lines.ShouldBeEmpty("nothing was precached, so nothing should be reported");
+    }
+
+    [Test]
+    public void Precache_WithAnInstallButNoDemo_StillDoesNothing()
+    {
+        // **The control on the guard above**, and it separates the two conditions. With only one
+        // case, a `Precache` that checked the game and ignored the timeline would pass identically.
+        RecordingLogger log = new();
+        GameContent game = GameContent.Open(folder: null, new RecordingLoggerFactory());
+
+        DemoModels.Precache(
+            new EntityModelSet(new RecordingLoggerFactory()), timeline: null, game, log);
+
+        log.Lines.ShouldBeEmpty();
+    }
+
+    [Test]
+    public void Precache_WithoutAModelSet_Refuses()
+    {
+        Should.Throw<ArgumentNullException>(() => DemoModels.Precache(
+            models: null!, timeline: null, game: null, new RecordingLogger()));
+    }
+
+    [Test]
     public void Needed_WithNoInstall_IsEmptyRatherThanThrowing()
     {
         // **The control, and the ordinary case on a machine with no TF2.** An empty set means

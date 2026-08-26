@@ -1527,7 +1527,7 @@ internal class MainForm : Form, IFrameSteps
     public bool LoadMap(string mapName)
     {
         ClearMap();
-        return ReadMapNamed(mapName);
+        return ReadMapNamed(mapName).Drawn;
     }
 
     // `_modelsUploaded` was here until 2026-08-25. It is `MomentScene.Uploaded` now, beside the
@@ -1597,7 +1597,23 @@ internal class MainForm : Form, IFrameSteps
     /// touches no control, no demo, no timeline and no device — the one exception was a `_status.Text`
     /// assignment in a catch, which now records <see cref="_mapProblem"/> for the UI thread to show.
     /// </remarks>
-    private bool ReadMapNamed(string mapName)
+    /// <summary>Reads a map by name, and hands back the install it opened.</summary>
+    /// <param name="mapName">The map the demo names.</param>
+    /// <returns>Whether a world was drawn, and the game content now open.</returns>
+    /// <remarks>
+    /// **The `GameContent` is RETURNED rather than left in a field, and that is a correctness fix
+    /// rather than a tidy-up** (B208). Reading a map is what opens the install, and both precaches
+    /// begin `if (timeline is null || game is null) return;` — **silently**. So the three calls in
+    /// `LoadDemoAsync` had a load-bearing order that nothing enforced: put either precache first and
+    /// it does nothing at all, with no error and a green suite.
+    ///
+    /// Handing the content back makes the dependency an argument, so the wrong order has nothing to
+    /// pass. **It is not airtight** — `_game` is still reachable as a field — but the natural form
+    /// now carries the order, which is the difference between a comment and a shape.
+    ///
+    /// This is B203's lesson at a smaller scale: an order that matters, in a window, failing quietly.
+    /// </remarks>
+    private (bool Drawn, GameContent? Game) ReadMapNamed(string mapName)
     {
         string? path = _maps.Locate(mapName);
 
@@ -1608,12 +1624,12 @@ internal class MainForm : Form, IFrameSteps
             // without a map anyway.
             _mapLog.LogInformation("{Message}", $"{mapName} is not installed; fetching it");
             _ = DownloadMapAsync(mapName);
-            return false;
+            return (false, _game);
         }
 
         _mapLog.LogInformation("{Message}", $"found {path}");
 
-        return ReadMap(mapName, path);
+        return (ReadMap(mapName, path), _game);
     }
 
     /// <summary>Fetches a map that is not installed, then loads it.</summary>
@@ -1881,6 +1897,18 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private const int OpeningFrames = 45;
 
+    /// <summary>Frames to let the world settle before the opening state is applied.</summary>
+    /// <remarks>
+    /// **Five, and it used to be the bare literal `40` compared against the countdown** (B208). That
+    /// is `OpeningFrames - 5` written out, and the coupling was invisible: lower `OpeningFrames`
+    /// below 40 and `_shotDelay` never equals it, so `ApplyOpeningState` silently never runs — no
+    /// error, no log, just a viewer that ignores every `--camera`, `--first-person` and `--look-at`
+    /// it was given.
+    ///
+    /// **Derived rather than repeated**, so the two numbers cannot disagree.
+    /// </remarks>
+    private const int SettleFrames = 5;
+
     private int _shotDelay = OpeningFrames;
 
     // `ReadCaptureOptions` is `LaunchOptionsReader.Read` in Presentation (B188, D90), and it returns
@@ -1908,7 +1936,10 @@ internal class MainForm : Form, IFrameSteps
 
         if (_shotDelay-- > 0)
         {
-            if (_shotDelay == 40)
+            // **`OpeningFrames - SettleFrames`, not a literal 40** (B208). The two were coupled by
+            // arithmetic nobody had written down, so lowering `OpeningFrames` below 40 would have
+            // made this comparison unreachable and dropped every launch option in silence.
+            if (_shotDelay == OpeningFrames - SettleFrames)
             {
                 ApplyOpeningState();
             }
@@ -2068,17 +2099,11 @@ internal class MainForm : Form, IFrameSteps
     /// bounds the lump does not carry are three different problems with three different fixes, and
     /// only the first two are ours.
     /// </remarks>
-    private string WhyNoLeafBox()
-    {
-        if (_loaded is null)
-        {
-            return "mat_leafvis is on with no map loaded";
-        }
-
-        return _loaded.Level.Leaves is null or { IsEmpty: true }
-            ? "mat_leafvis is on but the map carried no BSP tree"
-            : "mat_leafvis is on but the leaf under the camera has no bounds";
-    }
+    // **`WhyNoLeafBox` was here until 2026-08-26** (B208). It is `LeafVis.WhyNothing`, because
+    // telling an absent map from a map with no BSP tree from a leaf with no bounds is knowledge
+    // about the format rather than about a window.
+    private string WhyNoLeafBox() =>
+        LeafVis.WhyNothing(_loaded is not null, _loaded?.Level.Leaves);
 
     /// <summary>Enters or leaves the first-person view, saying why when it cannot be entered.</summary>
     /// <returns>Whether the key was handled.</returns>
@@ -2595,7 +2620,11 @@ internal class MainForm : Form, IFrameSteps
             {
                 read = await Task.Run(() =>
                 {
-                    bool found = ReadMapNamed(decoded.Demo.MapName);
+                    // **The read comes first because it is what opens the install**, and both
+                    // precaches return silently without one (B208). That order used to be three
+                    // statements anyone could reorder into a silent no-op; it is now carried by
+                    // `game`, which does not exist until the read has produced it.
+                    (bool drawn, GameContent? game) = ReadMapNamed(decoded.Demo.MapName);
 
                     // **Packed here rather than when a prop first appears, which is what Valve
                     // does** (D86). `CBaseEntity::PrecacheModel` sits behind `IsPrecacheAllowed()`
@@ -2606,13 +2635,13 @@ internal class MainForm : Form, IFrameSteps
                     // a crowd of props came into view — measured 2026-08-24. Inside this Task.Run
                     // and before `_readingMap` is cleared, so it runs on the worker behind the
                     // barrier that already holds the render loop off during a map read (B146).
-                    PrecacheModels(decoded.Timeline);
+                    DemoModels.Precache(_models, decoded.Timeline, game, _renderLog);
 
                     // Same timing, same reason, and the audio path is where the cost actually
                     // landed once the model stalls were gone.
-                    PrecacheSounds(decoded.Timeline);
+                    DemoSounds.Precache(_sounds, decoded.Timeline, game, _soundscape, _audioLog);
 
-                    return found;
+                    return drawn;
                 }).ConfigureAwait(false);
             }
             finally
@@ -2721,11 +2750,17 @@ internal class MainForm : Form, IFrameSteps
         // After `haveMap` rather than before, because packing reads the geometry the MAP read
         // decoded into `_assets.EntityModels`. Called earlier it would find nothing, mark every path
         // as seen, and models would never load at all.
-        PrecacheModels(_timeline);
+        //
+        // **This path reads `_game` rather than a returned value** (B208), unlike the one in
+        // `LoadDemoAsync`, and the difference is real: here the map may have been read on either
+        // path — `read ?? LoadMap(...)` — so there is no single call whose result could carry it.
+        // The comment above is the whole of the guarantee here, which is exactly why the other call
+        // site was changed to carry it structurally instead.
+        DemoModels.Precache(_models, _timeline, _game, _renderLog);
 
         // Cheap to call twice for the same reason models are: `Sample` returns the cached decode,
         // so on the async path this finds the work already done.
-        PrecacheSounds(_timeline);
+        DemoSounds.Precache(_sounds, _timeline, _game, _soundscape, _audioLog);
 
         _status.Text = _mapProblem
             ?? (_demo.Describe() + (haveMap ? string.Empty : "  (map not found)"));
@@ -3438,9 +3473,10 @@ internal class MainForm : Form, IFrameSteps
             return true;
         }
 
-        double budget = 1d / _settings.FrameRateLimit;
-
-        if ((now - _lastFrameAt) / (double)Stopwatch.Frequency < budget)
+        // **The budget arithmetic moved to `FramePacer`** (B208), which is where its other copy in
+        // `WaitForTheNextFrame` went too — the same quantity was derived independently in both, and
+        // they had to agree with nothing making them.
+        if (!FramePacer.IsDue(SinceLastFrame(now), _settings.FrameRateLimit))
         {
             return false;
         }
@@ -3449,14 +3485,19 @@ internal class MainForm : Form, IFrameSteps
         return true;
     }
 
-    /// <summary>How long a sleep of one millisecond actually takes, near enough.</summary>
+    /// <summary>Seconds since the last frame was drawn.</summary>
     /// <remarks>
-    /// **Windows does not sleep for a millisecond when asked.** The default timer granularity is
-    /// about 15.6 milliseconds, so <c>Thread.Sleep(1)</c> returns after a whole tick of it - and a
-    /// frame limiter built on that caps at about 64 frames a second whatever it was asked for.
-    /// Measured exactly that way: a limit of 300 produced 63 to 66.
+    /// **The window owns the clock**, which is the half of pacing that is genuinely its own: it
+    /// knows when it last drew. What that duration MEANS — whether a frame is due, whether to sleep
+    /// or spin — is `FramePacer`'s.
     /// </remarks>
-    private const double SleepGranularitySeconds = 0.016;
+    private double SinceLastFrame(long now) =>
+        (now - _lastFrameAt) / (double)Stopwatch.Frequency;
+
+    // **`SleepGranularitySeconds` was here until 2026-08-26** (B208). It is
+    // `FramePacer.SleepGranularitySeconds`, and its measurement went with it: a limiter built on
+    // sleep alone capped at about 64 frames a second whatever it was asked for, with a limit of 300
+    // producing 63 to 66. How long Windows actually sleeps is not a fact about this window.
 
     /// <summary>Waits until the next frame is due, without burning a core doing it.</summary>
     /// <remarks>
@@ -3471,21 +3512,23 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private void WaitForTheNextFrame()
     {
-        if (_settings.FrameRateLimit <= 0)
+        // **`FramePacer` decides, this acts** (B208). The threading primitive stays beside the
+        // message pump; the policy — including the granularity threshold — is testable without any
+        // test ever sleeping.
+        switch (FramePacer.WaitFor(
+            SinceLastFrame(Stopwatch.GetTimestamp()), _settings.FrameRateLimit))
         {
-            return;
+            case FrameWait.Sleep:
+                Thread.Sleep(1);
+                break;
+
+            case FrameWait.Yield:
+                Thread.Yield();
+                break;
+
+            default:
+                break;
         }
-
-        double budget = 1d / _settings.FrameRateLimit;
-        double waited = (Stopwatch.GetTimestamp() - _lastFrameAt) / (double)Stopwatch.Frequency;
-
-        if (budget - waited > SleepGranularitySeconds)
-        {
-            Thread.Sleep(1);
-            return;
-        }
-
-        Thread.Yield();
     }
 
     // `_framesDrawn` was here until 2026-08-25. It is the count `FrameLedger.Drew` keeps — the last
@@ -3643,78 +3686,24 @@ internal class MainForm : Form, IFrameSteps
     // is the part nobody has thought to measure — and a frame that is slow with every named column
     // small says exactly that. `unaccounted` is Valve's own name for it.
 
-    /// <summary>Packs every model the demo will ever show, before playback starts.</summary>
-    /// <param name="timeline">The decoded timeline, or null when the demo carried none.</param>
-    /// <remarks>
-    /// **The engine's own timing** (D86). `CBaseEntity::PrecacheModel` is guarded by
-    /// `IsPrecacheAllowed()` and warns on an out-of-order precache, because Source loads models at
-    /// level load and not on sight. Packing when a prop first becomes visible is what cost 385 ms in
-    /// one frame, and an asynchronous load would only move the hitch rather than remove it — the
-    /// first appearance would still wait.
-    ///
-    /// **The timeline is a better list than `modelprecache`**, which is what the engine uses. The
-    /// table names what the server precached, including models this recording never shows; the
-    /// tracks name what actually appears. Both are known before the first frame, which is the part
-    /// that matters.
-    ///
-    /// **Runs on the map-read worker**, so it costs nothing on the UI thread — the packing is CPU
-    /// work over geometry the map read has already decoded into <c>_assets.EntityModels</c>, so by
-    /// here it touches no files.
-    ///
-    /// A failure costs the precache and nothing else: anything missed is packed on sight exactly as
-    /// before, which is slower rather than broken.
-    /// </remarks>
-    private void PrecacheModels(DemoTimeline? timeline)
-    {
-        if (timeline is null || _game is null)
-        {
-            return;
-        }
+    // **`PrecacheModels` was here until 2026-08-26** (B208). It is `DemoModels.Precache` now, and
+    // its notes went with it: the D86 timing argument, the 385 ms measurement, and the finding that
+    // a demo's TIMELINE is a better precache list than the engine's own `modelprecache` table —
+    // which names what the server precached, including models this recording never shows.
+    //
+    // **What stayed here is the one thing that is about this window**: the call runs inside
+    // `LoadDemoAsync`'s `Task.Run`, before `_readingMap` is cleared, so it works on the map-read
+    // worker behind the barrier that already holds the render loop off (B146). That is a fact about
+    // our threading, not about precaching, and it is written at the call site where it applies.
+    //
+    // It outlived its twin by a day: `PrecacheSounds` moved out and this one, identical in shape,
+    // was left behind. An asymmetry like that reads as deliberate afterwards, which is why the
+    // second audit went member by member instead of grepping for arithmetic.
 
-        try
-        {
-            long packedAt = Stopwatch.GetTimestamp();
-
-            _models.Precache(DemoModels.ToPack(timeline, _game));
-
-            double packedSeconds =
-                (Stopwatch.GetTimestamp() - packedAt) / (double)Stopwatch.Frequency;
-
-            _renderLog.LogInformation(
-                "{Message}",
-                string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"precached models in {packedSeconds * 1000d:0} ms " +
-                    $"({_models.Count} packed, {_models.Vertices.Count} vertices)"));
-        }
-        catch (Exception failure) when (
-            failure is InvalidDataException or ArgumentException or KeyNotFoundException)
-        {
-            _renderLog.LogWarning(failure, "precaching models");
-        }
-    }
-
-    /// <summary>Decodes every sound the demo will play, before playback starts.</summary>
-    /// <param name="timeline">The decoded timeline, or null when the demo carried none.</param>
-    /// <remarks>
-    /// **The engine's own timing, and here it is a refusal rather than a preference** (D86, D87).
-    /// `CBaseEntity::PrecacheSound` opens with `if ( !CBaseEntity::IsPrecacheAllowed() )` and then
-    /// `Assert( !"CBaseEntity::PrecacheSound:  too late" )` — `SoundEmitterSystem.cpp:1497`. Loading
-    /// a sound during play is something Source treats as a programming error, and it passes
-    /// `bPreload: true` to `enginesound->PrecacheSound` at `:1507`.
-    ///
-    /// **What this method is, now that <see cref="SoundCache.Precache"/> does the decoding: the
-    /// LIST.** Which sounds are worth having ready is the only part that needs a demo and a map —
-    /// the measurement that made a precache necessary lives with the code that acts on it.
-    ///
-    /// **Runs on the map-read worker on the async path**, where `_readingMap` holds the render loop
-    /// off (B146) — so nothing else touches the cache while this fills it.
-    ///
-    /// A failure costs the precache and nothing else: anything missed is decoded on first play
-    /// exactly as before, which is slower rather than broken.
-    /// </remarks>
-    private void PrecacheSounds(DemoTimeline? timeline) =>
-        DemoSounds.Precache(_sounds, timeline, _game, _soundscape, _audioLog);
+    // **The `PrecacheSounds` shim went with its twin on 2026-08-26** (B208). Both call sites name
+    // `DemoSounds.Precache` directly now, so the window forwards nothing — and its D86/D87 citation
+    // went with it: `CBaseEntity::PrecacheSound` asserts "too late" rather than merely preferring
+    // early (`SoundEmitterSystem.cpp:1497`), which is a fact about the engine, not about a window.
 
     /// <summary>This frame's screen-space overlay, which is the frame-rate meter and nothing else.</summary>
     /// <returns>Quads in screen pixels, empty when there is nothing to draw.</returns>
@@ -4371,13 +4360,10 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>The world position under a point in the viewport.</summary>
     private (float X, float Y) WorldAt(Point point)
     {
-        TopDownCamera camera = MapCamera();
-        float perPixel = camera.WorldUnitsPerPixel(_viewport.ClientSize.Width);
-        (float centreX, float centreY) = camera.Centre;
-
-        return (
-            centreX + ((point.X - (_viewport.ClientSize.Width / 2f)) * perPixel),
-            centreY - ((point.Y - (_viewport.ClientSize.Height / 2f)) * perPixel));
+        // **The arithmetic moved to `TopDownCamera.Unproject`** (B208). What is left is the only
+        // part a window owns: which pixel, and how big the viewport is.
+        return MapCamera().Unproject(
+            point.X, point.Y, _viewport.ClientSize.Width, _viewport.ClientSize.Height);
     }
 
     private void OnViewportResize(object? sender, EventArgs e)

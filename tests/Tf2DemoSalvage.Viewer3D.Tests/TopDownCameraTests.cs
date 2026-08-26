@@ -126,4 +126,63 @@ public sealed class TopDownCameraTests
         centreY.ShouldBe(0f, tolerance: 0.0001f);
         edgeX.ShouldBe(2f, tolerance: 0.001f);
     }
+
+    [Test]
+    public void Unproject_TheMiddlePixel_IsTheCameraCentre()
+    {
+        // **This was `MainForm.WorldAt`** (B208), untested for as long as it lived in a mouse
+        // handler. The middle pixel is the anchor: whatever the zoom or the pan, it must be exactly
+        // where the camera is looking.
+        TopDownCamera camera = TopDownCamera.Fit([(-1000f, -1000f), (1000f, 1000f)], 800, 600);
+
+        (float x, float y) = camera.Unproject(400, 300, 800, 600);
+
+        x.ShouldBe(camera.Centre.X, tolerance: 0.001f);
+        y.ShouldBe(camera.Centre.Y, tolerance: 0.001f);
+    }
+
+    [Test]
+    public void Unproject_APixelBelowTheMiddle_IsSOUTHOfTheCentre()
+    {
+        // **The sign that is easy to get wrong, asserted on its own.** Screen Y grows downward and
+        // world Y grows northward, so a pixel further DOWN the screen must map to a SMALLER world
+        // Y. Flipping this mirrors every drag and zoom-at-cursor vertically, which reads as an
+        // inverted preference rather than a coordinate error — and so gets "fixed" in the caller.
+        TopDownCamera camera = TopDownCamera.Fit([(-1000f, -1000f), (1000f, 1000f)], 800, 600);
+
+        (float _, float lower) = camera.Unproject(400, 500, 800, 600);
+
+        lower.ShouldBeLessThan(camera.Centre.Y);
+    }
+
+    [Test]
+    public void Unproject_APixelRightOfTheMiddle_IsEASTOfTheCentre()
+    {
+        // The control for the case above: X is NOT flipped, so right on screen is greater in world
+        // X. Without this, a version that negated both axes would satisfy the Y test perfectly.
+        TopDownCamera camera = TopDownCamera.Fit([(-1000f, -1000f), (1000f, 1000f)], 800, 600);
+
+        (float right, float _) = camera.Unproject(600, 300, 800, 600);
+
+        right.ShouldBeGreaterThan(camera.Centre.X);
+    }
+
+    [Test]
+    public void Unproject_ThenProject_ReturnsTheSamePixelAcrossTheViewport()
+    {
+        // **A round trip, which is the strongest property available here.** `Project` gives
+        // normalised device coordinates in [-1, 1]; mapping those back to pixels must land on the
+        // pixel we started from. Checked away from the centre, because the centre is the one point
+        // a wrong scale still gets right.
+        TopDownCamera camera = TopDownCamera.Fit([(-1000f, -1000f), (1000f, 1000f)], 800, 600);
+
+        (float worldX, float worldY) = camera.Unproject(650, 120, 800, 600);
+        (float ndcX, float ndcY) = camera.Project(worldX, worldY);
+
+        float backX = ((ndcX + 1f) / 2f) * 800;
+        float backY = ((1f - ndcY) / 2f) * 600;
+
+        backX.ShouldBe(650f, tolerance: 0.05f);
+        backY.ShouldBe(120f, tolerance: 0.05f);
+    }
 }

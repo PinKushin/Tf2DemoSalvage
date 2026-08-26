@@ -161,6 +161,33 @@ public sealed class TopDownCamera
     public (float X, float Y) Project(float worldX, float worldY) =>
         ((worldX - _centreX) * _scaleX, (worldY - _centreY) * _scaleY);
 
+    /// <summary>Where a pixel on screen lands in the world.</summary>
+    /// <param name="pixelX">Pixels from the left of the viewport.</param>
+    /// <param name="pixelY">Pixels from the top of the viewport.</param>
+    /// <param name="viewportWidth">The viewport's width in pixels.</param>
+    /// <param name="viewportHeight">The viewport's height in pixels.</param>
+    /// <returns>The world position under that pixel.</returns>
+    /// <remarks>
+    /// **This was `MainForm.WorldAt`** (B208) — inverse-projection arithmetic in a mouse handler.
+    /// It belongs beside <see cref="Project"/>, which is the forward direction, and beside
+    /// <see cref="WorldUnitsPerPixel"/>, which is the scale both of them turn on.
+    ///
+    /// **World Y is SUBTRACTED where world X is added, and that is the whole subtlety.** Screen Y
+    /// grows downward and world Y grows northward, so the two axes disagree in sign. Getting it
+    /// wrong mirrors every drag and zoom-at-cursor vertically — which looks like an inverted
+    /// preference rather than a coordinate-convention error, and so tends to be "fixed" in the
+    /// caller instead of here.
+    /// </remarks>
+    public (float X, float Y) Unproject(
+        int pixelX, int pixelY, int viewportWidth, int viewportHeight)
+    {
+        float perPixel = WorldUnitsPerPixel(viewportWidth);
+
+        return (
+            _centreX + ((pixelX - (viewportWidth / 2f)) * perPixel),
+            _centreY - ((pixelY - (viewportHeight / 2f)) * perPixel));
+    }
+
     /// <summary>Returns this camera told how high and how low the world goes.</summary>
     /// <param name="lowest">World height that should land furthest away.</param>
     /// <param name="highest">World height that should land nearest.</param>

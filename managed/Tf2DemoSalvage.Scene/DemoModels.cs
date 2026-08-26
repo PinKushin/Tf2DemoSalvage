@@ -1,5 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
+using System.IO;
+
+using Microsoft.Extensions.Logging;
 
 using Tf2DemoSalvage.Core.Scene;
 
@@ -17,6 +22,76 @@ namespace Tf2DemoSalvage.Scene;
 /// </remarks>
 public static class DemoModels
 {
+    /// <summary>Pack every model a demo will show, before anything is drawn.</summary>
+    /// <param name="models">Where packed models live.</param>
+    /// <param name="timeline">The decoded demo, or null when none is open.</param>
+    /// <param name="game">What the install provides, or null when it is not available.</param>
+    /// <param name="render">The render log.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="models"/> or <paramref name="render"/> is null.</exception>
+    /// <remarks>
+    /// **This was `MainForm.PrecacheModels`** (B208), and it is the exact twin of
+    /// `Presentation.DemoSounds.Precache` — same guards, same narrow catch, same timing line. Its
+    /// twin moved out of the window on 2026-08-26 and this one was left behind, which is the worse
+    /// kind of miss: an asymmetry that afterwards looks deliberate.
+    ///
+    /// **It lives in `Scene` while its twin lives in `Presentation`, and that is not an
+    /// inconsistency.** Each sits with its collaborators — this needs `EntityModelSet` and
+    /// `GameContent`, both here; the sound one needs `SoundCache` from `Audio`, which only
+    /// `Presentation` can see. Composing downward is D92.
+    ///
+    /// **The guards are here rather than at the call site**, so a future caller does not have to
+    /// rediscover that precaching needs both a demo and an open install.
+    ///
+    /// **The exceptions are caught rather than thrown**, and narrowly: a model that will not read is
+    /// a defect in that file or in our reading of it, and must not take the whole demo down with it.
+    /// A failure costs the precache and nothing else — anything missed is packed on sight exactly as
+    /// before, which is slower rather than broken.
+    ///
+    /// **Up front is the engine's own timing** (D86). `CBaseEntity::PrecacheModel` is guarded by
+    /// `IsPrecacheAllowed()` and warns on an out-of-order precache, because Source loads models at
+    /// level load and not on sight. Packing when a prop first became visible is what cost 385 ms in
+    /// a single frame here, and an asynchronous load would only move the hitch rather than remove
+    /// it — the first appearance would still wait.
+    ///
+    /// **The timeline is a better list than `modelprecache`, which is what the engine uses.** The
+    /// table names what the SERVER precached, including models this recording never shows; the
+    /// tracks name what actually appears. Both are known before the first frame, which is the part
+    /// that matters, so the narrower list wins at no cost.
+    /// </remarks>
+    public static void Precache(
+        EntityModelSet models, DemoTimeline? timeline, GameContent? game, ILogger render)
+    {
+        ArgumentNullException.ThrowIfNull(models);
+        ArgumentNullException.ThrowIfNull(render);
+
+        if (timeline is null || game is null)
+        {
+            return;
+        }
+
+        try
+        {
+            long packedAt = Stopwatch.GetTimestamp();
+
+            models.Precache(ToPack(timeline, game));
+
+            double packedSeconds =
+                (Stopwatch.GetTimestamp() - packedAt) / (double)Stopwatch.Frequency;
+
+            render.LogInformation(
+                "{Message}",
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"precached models in {packedSeconds * 1000d:0} ms " +
+                    $"({models.Count} packed, {models.Vertices.Count} vertices)"));
+        }
+        catch (Exception failure) when (
+            failure is InvalidDataException or ArgumentException or KeyNotFoundException)
+        {
+            render.LogWarning(failure, "precaching models");
+        }
+    }
+
     /// <summary>Every studio model the demo shows, at any tick, from any source.</summary>
     /// <param name="timeline">The decoded demo, or null when none is open.</param>
     /// <param name="game">What the install provides.</param>
