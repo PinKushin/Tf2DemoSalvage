@@ -203,13 +203,14 @@ internal class MainForm : Form
     /// </remarks>
     private GameContent? _game;
 
-    /// <summary>Which activity suffix each weapon in this demo drives.</summary>
-    /// <remarks>
-    /// Per demo rather than per install, because it is built from the weapon classes the recording
-    /// mentions — reading all 78 shipped scripts to answer for the four a match uses would be work
-    /// for nothing, and each one costs an ICE decryption.
-    /// </remarks>
-    private WeaponRoles? _weaponRoles;
+    // **`_weaponRoles` was here until 2026-08-25** (B188, D90). It is inside the appearance that
+    // `DemoAppearance.Ensure` builds, and `_moment.Appearance` is now the only cache — where there
+    // used to be two things to keep in step, a nullable field and a record built from it.
+    //
+    // **That pairing is what made this member dangerous.** `GameAppearance` CAPTURES the roles, so
+    // an appearance built before they were read answers null for every weapon suffix for ever, and
+    // that does not fail: it falls back to the primary forms and draws the wrong animation on every
+    // player. One cache cannot get out of step with itself.
 
     // `_drawn` moved with the rebuild that fills it (B188, D90). It is `MomentScene.Drawn`, still a
     // field there so the per-frame allocation happens once rather than per tick.
@@ -1958,49 +1959,8 @@ internal class MainForm : Form
     /// It was caught by a line missing from the log, which is the only instrument that could have
     /// caught it — the defect is in the wiring, and every component was correct.
     /// </remarks>
-    private void EnsureWeaponRoles()
-    {
-        if (_weaponRoles is not null || _game is not { } game || _timeline is not { } timeline)
-        {
-            return;
-        }
-
-        // Only the classes this recording mentions: the archive holds 78 weapon scripts, a match
-        // touches a handful, and each one costs an ICE decryption.
-        // **Weapon AND holder**, because the role is not a property of the weapon alone: a shotgun
-        // is a primary for an engineer and a secondary for a soldier, a heavy and a pyro.
-        HashSet<(string Weapon, int? Class)> held = [];
-
-        foreach (TimelineFrame frame in timeline.Frames)
-        {
-            foreach (ScenePlayer player in frame.Players)
-            {
-                if (player.WeaponClass is { } weapon)
-                {
-                    held.Add((weapon, player.PlayerClass));
-                }
-            }
-        }
-
-        _weaponRoles = WeaponRoles.Read(game.Archives.Read, held);
-
-        // **Handed on the moment they exist, because `GameAppearance` captures them.** It is a
-        // record built from the two values, so a scene holding one made before the roles were read
-        // keeps answering null for every weapon suffix — which does not fail, it silently falls back
-        // to the primary forms and draws the wrong animation. Rebuilt HERE rather than per frame,
-        // since this method populates the roles exactly once.
-        _moment.Appearance = new GameAppearance(_game?.Classes, _weaponRoles);
-
-        _demoLog.LogInformation(
-            "{Message}",
-            "weapon roles: " + string.Join(
-                ", ",
-                held.OrderBy(pair => pair.Weapon, StringComparer.Ordinal)
-                    .ThenBy(pair => pair.Class)
-                    .Select(pair =>
-                        $"{pair.Weapon}/{pair.Class?.ToString(CultureInfo.InvariantCulture) ?? "?"}=" +
-                        _weaponRoles.Suffix(pair.Weapon, pair.Class))));
-    }
+    private void EnsureWeaponRoles() =>
+        _moment.Appearance = DemoAppearance.Ensure(_moment.Appearance, _timeline, _game, _demoLog);
 
     // **`PlayerModel` was here until 2026-08-25** (B188, D90). It was a one-line delegation to
     // `PlayerProps.ModelFor`, and a delegating wrapper is the view knowing that a domain operation
@@ -2270,14 +2230,12 @@ internal class MainForm : Form
             return true;
         }
 
-        if (FirstPersonCamera() is null)
-        {
-            _renderLog.LogWarning(
-                "{Message}",
-                "first person unavailable: this demo has no recorded camera and no player to " +
-                "follow at this tick");
+        FirstPersonEntry entry = _spectator.Enter(_transport.CurrentTick, Aspect);
 
-            _status.Text = "No first-person view here: nothing to follow at this tick.";
+        if (!entry.Entered)
+        {
+            _renderLog.LogWarning("{Message}", entry.Message);
+            _status.Text = entry.Status;
             return true;
         }
 
@@ -2285,11 +2243,7 @@ internal class MainForm : Form
         _worldIsStale = true;
         _viewport.Invalidate();
 
-        _renderLog.LogInformation(
-            "{Message}",
-            _timeline?.HasRecordedView == true
-                ? "first person on, following the recording's own camera"
-                : "first person on, spectating a player (this demo has no recorded camera)");
+        _renderLog.LogInformation("{Message}", entry.Message);
 
         return true;
     }
@@ -2906,9 +2860,11 @@ internal class MainForm : Form
 
         _transport.SetDemoLength(_demo.LastTick);
 
-        // The weapon roles are NOT built here, and the first attempt was. See EnsureWeaponRoles:
-        // the archives are opened later than this, so building here silently produced nothing.
-        _weaponRoles = null;
+        // **The appearance is FORGOTTEN here, not rebuilt, and the first attempt rebuilt it.** The
+        // archives are opened later than this, so building now reads nothing — and caches that
+        // nothing for the life of the demo. `DemoAppearance.Ensure` fills it in on the first moment
+        // that can actually answer, which is why this is a reset rather than a build.
+        _moment.Appearance = DemoAppearance.None;
 
         if (_timeline is { } timeline)
         {
@@ -3366,8 +3322,15 @@ internal class MainForm : Form
     private void KeepOverlayOnTheViewport(object? sender, LayoutEventArgs e) =>
         _overlay?.PositionOver(_viewport);
 
-    /// <summary>Longest frame playback will believe in, in seconds.</summary>
-    private const double MaximumFrameSeconds = 0.1;
+    // `MaximumFrameSeconds` was here until 2026-08-25. It is `FreeCameraController` s, because
+    // flight was its only reader — which an analyzer said the moment `FlyCamera` handed the
+    // movement over (CA1823, S1144).
+    //
+    // **Its old summary called it "the longest frame playback will believe in", and that was a
+    // claim about a reader it did not have.** The playback clock does its own clamping; this one
+    // only ever governed how far the camera may travel across a stall. A constant that names a
+    // scope wider than its callers is how it gets borrowed for a use nobody checked — see D94, and
+    // the whole-moment threshold that was borrowed from a per-step one three commits ago.
 
     // `StallSeconds` was here until 2026-08-25. It is `StallReport.StallSeconds`, and it went with
     // the three reporters that were its only readers — which an analyzer confirmed the moment they
@@ -4082,16 +4045,15 @@ internal class MainForm : Form
         // Every frame's duration passes through here, so this is where the worst one is noticed —
         // and where the meter takes its reading, rather than starting a second clock (B174).
         //
-        // **Recorded UNCLAMPED, and the clamp being here was hiding the defect it was meant to help
-        // find.** This read `Math.Min(seconds, MaximumFrameSeconds)`, so the worst frame could never
-        // be reported as worse than 100 ms — the ceiling. The owner's report was "everything freezes
-        // for a half a second to maybe a second", and the log for those exact seconds said
-        // `longest 100 ms`: not a coincidence, not a measurement, just the clamp showing through.
+        // **Recorded UNCLAMPED, and the clamp used to be applied here, which hid the very defect it
+        // was meant to help find.** The reading was `Math.Min(seconds, MaximumFrameSeconds)`, so the
+        // worst frame could never be reported as worse than 100 ms — the ceiling. The owner's report
+        // was "everything freezes for a half a second to maybe a second", and the log for those
+        // exact seconds said `longest 100 ms`: not a coincidence, not a measurement, just the clamp
+        // showing through. A saturating instrument is worse than a missing one.
         //
-        // A saturating instrument is worse than a missing one, because 100 looks like a number
-        // somebody measured. The clamp still applies to FLIGHT below — a stall must not fling the
-        // camera across the map — which is what it was always for; applying it to the record of what
-        // happened was the mistake.
+        // The clamp lives with FLIGHT now, in `FreeCameraController`, which is what it was always
+        // for; applying it to the record of what happened was the mistake.
         _longestFrameSeconds = Math.Max(_longestFrameSeconds, seconds);
         _lastFrameSeconds = seconds;
 
@@ -4100,10 +4062,6 @@ internal class MainForm : Form
             return;
         }
 
-        // A stall is not flight time, for the same reason it is not playback time: a map load or a
-        // window drag would otherwise fling the camera across the map when the loop resumes.
-        seconds = Math.Min(seconds, MaximumFrameSeconds);
-
         // **`Intent` is read exactly once per frame, and that is a requirement rather than a
         // convenience.** Reading a button consumes its impulse bits — Valve's `CInput::KeyState`
         // ends with `key->state &= 1` — so a second read in the same frame reports a plain held
@@ -4111,22 +4069,13 @@ internal class MainForm : Form
         //
         // **The old "nothing is held, so skip" guard is gone with it.** A key pressed and released
         // between two frames is up by the time anyone looks, so that guard would have thrown the
-        // tap away; the zero check below still costs nothing when genuinely idle.
-        (float X, float Y, float Z) moved =
-            FreeFlightPath.Movement(_console.Intent(), seconds, _freeAngles.Pitch, _freeAngles.Yaw);
-
-        if (moved == (0f, 0f, 0f))
+        // tap away; `Fly` returning false still costs nothing when genuinely idle.
+        if (_freeCamera.Fly(_console.Intent(), seconds, FreeLookCamera().Origin))
         {
-            return;
+            // The view, and nothing else. Flight only happens in the free camera, where the map's
+            // screen-space projection is not what is being drawn (B98).
+            UploadCamera();
         }
-
-        (float X, float Y, float Z) where = _freeOrigin ?? FreeLookCamera().Origin;
-
-        _freeOrigin = (where.X + moved.X, where.Y + moved.Y, where.Z + moved.Z);
-
-        // The view, and nothing else. Flight only happens in the free camera, where the map's
-        // screen-space projection is not what is being drawn (B98).
-        UploadCamera();
     }
 
     /// <summary>The audio device, or null when the machine has none.</summary>

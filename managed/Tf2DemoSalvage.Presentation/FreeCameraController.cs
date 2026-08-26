@@ -56,6 +56,55 @@ public sealed class FreeCameraController(ILogger log)
 
     private float _fieldOfView = ViewerSettings.DefaultFieldOfView;
 
+    /// <summary>The longest a single frame may count as flight time, in seconds.</summary>
+    /// <remarks>
+    /// **A stall is not flight time, for the same reason it is not playback time**: a map load or a
+    /// window drag would otherwise fling the camera across the map the moment the loop resumes.
+    ///
+    /// **This clamp is for FLIGHT and for nothing else, which is a distinction that was got wrong
+    /// once.** The frame meter used to read its duration through the same `Math.Min`, so the worst
+    /// frame could never be reported as worse than 100 ms — the ceiling. The owner's report was
+    /// "everything freezes for a half a second to maybe a second" and the log for those exact
+    /// seconds said `longest 100 ms`: not a measurement, just the clamp showing through. A
+    /// saturating instrument is worse than a missing one, because 100 looks like a number somebody
+    /// measured.
+    /// </remarks>
+    public const double MaximumFrameSeconds = 0.1;
+
+    /// <summary>Flies the camera by however long the last frame took.</summary>
+    /// <param name="intent">What is held this frame.</param>
+    /// <param name="seconds">How long the last frame took; clamped, see <see cref="MaximumFrameSeconds"/>.</param>
+    /// <param name="ifUnplaced">Where to fly from when nothing has placed the camera yet.</param>
+    /// <returns>Whether the camera actually moved.</returns>
+    /// <remarks>
+    /// **Frame-driven rather than message-driven, which is the whole of B97.** A camera moved by
+    /// key-repeat messages travels at whatever rate Windows repeats a held key; one moved by
+    /// elapsed time travels at a speed.
+    ///
+    /// **The return value exists so the caller knows whether to re-upload**, rather than uploading
+    /// every frame or guessing from the input. A frame where nothing is held must cost nothing.
+    ///
+    /// **`ifUnplaced` rather than a placement call, because placing needs the viewport.** Flight can
+    /// happen on the same frame that first frames the map, and starting from the world origin
+    /// instead would put the viewer at the centre of the world, under the floor.
+    /// </remarks>
+    public bool Fly(FlightInput intent, double seconds, (float X, float Y, float Z) ifUnplaced)
+    {
+        (float X, float Y, float Z) moved = FreeFlightPath.Movement(
+            intent, Math.Min(seconds, MaximumFrameSeconds), Angles.Pitch, Angles.Yaw);
+
+        if (moved == (0f, 0f, 0f))
+        {
+            return false;
+        }
+
+        (float X, float Y, float Z) where = Origin ?? ifUnplaced;
+
+        Origin = (where.X + moved.X, where.Y + moved.Y, where.Z + moved.Z);
+
+        return true;
+    }
+
     /// <summary>The camera to draw with, placing it first if nothing has.</summary>
     /// <param name="aspect">The viewport's width over its height.</param>
     /// <param name="map">The map's outline, for framing it. Null before a map is read.</param>
