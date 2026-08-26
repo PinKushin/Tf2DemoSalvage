@@ -12618,6 +12618,44 @@ config, will come after we refactor the views to actually be pure views"*.
 proposed, agreed to be right, and deliberately not built: *"do not hard code home, no new hard
 codes"*. It is a good binding and it waits for the mechanism.
 
+#### And six of the fourteen contradict TF2 outright — found 2026-08-26
+
+**The parity audit went looking for convention divergences after the owner said there should be
+none left, and this is what it found.** TF2 ships its default bindings in plain text at
+`tf/cfg/config_default.cfg`, which nothing here had read.
+
+| key | ours | TF2's shipped bind |
+|---|---|---|
+| **F1** | `mat_drawflat` | `+showroundinfo` |
+| **F2** | `mat_luxels` | `show_quest_log` |
+| **F5** | fullbright off | **`screenshot`** |
+| **F6** | `mat_fullbright 1` | `save_replay` |
+| **F7** | `mat_fullbright 2` | `abuse_report_queue` |
+| **F10** | wireframe | `quit prompt` |
+| **F12** | **screenshot** | `replay_togglereplaytips` |
+| F3, F4, F8, F9, F11 | debug views, frame rate, full screen | unbound in TF2 — free to use |
+| Ctrl+O, Ctrl+L, Ctrl+T | open, leaf box, low-res | TF2 binds no Ctrl combinations |
+
+**The screenshot pair is the sharpest, because the two keys are swapped.** TF2's screenshot is
+**F5**; ours is F12, and our F5 is a debug view. A TF2 player pressing F5 from habit gets "normal
+lighting" instead of a capture — and F12 is doubly wrong, since TF2 gives it to replay tips and
+Steam's overlay takes it for its own screenshot.
+
+**This makes B214 a bigger job than "move the literals into a table", and a better-specified one.**
+Two defects on one surface: the keys cannot be rebound (D101), *and* their defaults contradict the
+game D69 promises to accept wholesale. Fixing only the first would leave a viewer that is
+configurable and still surprises every TF2 player out of the box.
+
+**What is NOT a divergence here, checked rather than assumed.** F3, F4, F8, F9 and F11 are unbound in
+TF2, so binding them is D79 rule 2 rather than a contradiction; TF2 binds no `Ctrl` combination at
+all, so Ctrl+O/L/T are free; and `SHIFT` → `+speed` — this viewer's walk key — **is not a TF2 default
+either**, because TF2 has no walk and binds neither. It is the Source-family convention filling a gap
+TF2 leaves, which is allowed and worth stating so it is not "fixed" later.
+
+**A smaller note from the same sweep:** `cl_screenshotname` is a real TF2 convar ("Custom Screenshot
+name"). It does not collide with our `cl_screenshot_folder`, which asks a different question, but the
+neighbouring name is worth knowing before anyone extends that setting.
+
 ### B213 — The height cut clipped on depth and never worked — FIXED 2026-08-26
 
 **The owner:** *"we dont need the height cut, that was a ortho thing that should be ripped out and
