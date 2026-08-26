@@ -162,6 +162,17 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>Automation id of the texture quality menu.</summary>
     public const string TextureQualityMenuId = "TextureQualityMenu";
 
+    /// <summary>Shown when no TF2 installation could be found.</summary>
+    /// <remarks>
+    /// **It names the fix, not just the fault** (B211). "Map not found" was what this said before,
+    /// which sent the reader looking for the wrong thing entirely — and the demo still plays without
+    /// a map, so the sentence has to say that too or it reads as a refusal.
+    /// </remarks>
+    public const string NoGameInstalled =
+        "No Team Fortress 2 installation found, so maps and models cannot be loaded. "
+        + "The demo will still play. Install TF2 through Steam, or put maps in the viewer's own "
+        + "maps folder.";
+
     private readonly Panel _viewport;
     private readonly ToolStripStatusLabel _status;
     private readonly FlowLayoutPanel _actions;
@@ -1228,9 +1239,22 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private (bool Drawn, GameContent? Game) ReadMapNamed(string mapName)
     {
-        string? path = _maps.Locate(mapName);
+        MapSearch found = _maps.Find(mapName);
 
-        if (path is null)
+        // **Three outcomes, because "not here" had two causes and only one earns a download**
+        // (B211). This asked `Locate`, got null, and said "not installed; fetching it" — so a
+        // machine with no TF2 at all was told about the MAP and watched a download start, which is
+        // the wrong cause and useless work. The owner's requirement is that a missing install "must
+        // just error and mention it", and mentioning the wrong thing is worse than silence.
+        if (found.Outcome == MapOutcome.NoGame)
+        {
+            _status.Text = NoGameInstalled;
+            _mapLog.LogWarning("{Message}", NoGameInstalled);
+
+            return (false, _game);
+        }
+
+        if (found.Path is not { } path)
         {
             // Not on this machine. Fetch it the way joining a server would - in the background,
             // because a 40 MB download must not freeze the window, and the demo is watchable
@@ -1314,8 +1338,22 @@ internal class MainForm : Form, IFrameSteps
 
             if (_game is null)
             {
-                // **Opened once, on the first map read rather than at startup**, because finding and
-                // opening the archives is slow and a viewer with no demo open needs none of it.
+                // **Opened once, on the first map read rather than at startup — and the reason
+                // written here until 2026-08-26 was the wrong one.** It said the archives are slow
+                // to open and a viewer with no demo needs none of it, which is true and is not what
+                // decides it. The owner's constraint is: *"the user has to point us to their tf2
+                // folder before we can do anything, and the program cant crash because its missing
+                // it must just error and mention it"*.
+                //
+                // So this is not lazy-because-slow, which would be a candidate for making eager. It
+                // is deferred because THE LOCATION IS NOT KNOWN YET, and that cannot be hurried.
+                // The distinction matters: a rule recorded with the wrong reason gets relaxed for
+                // the wrong reasons, and lazy initialisation is otherwise a shape this codebase is
+                // right to distrust (D86 — the engine precaches at level load precisely so nothing
+                // is decoded mid-game, and ours cost 385 ms in one frame when it packed on sight).
+                //
+                // `GameContent.Open(null, …)` is a normal answer, not a failure: it yields empty
+                // archives and logs `game folder: not found`. B211 is what the USER sees.
                 _game = GameContent.Open(_maps.GameFolder(), _loggers);
 
                 _levels.OpenGame(_game);
@@ -4094,9 +4132,10 @@ internal class MainForm : Form, IFrameSteps
 
         // Sorted once per library change rather than per keystroke: folder first so the list
         // reads as folders, then name within each.
-        _ordered = [.. _library.Entries
-            .OrderBy(entry => entry.Folder, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase)];
+        // **Beside the filter whose contract depends on it** (B188, D90). This was three lines here
+        // while `PlaylistFilter.Apply` documented its dependence on them — a precondition stated in
+        // one assembly and satisfied in another is a precondition nothing enforces.
+        _ordered = PlaylistFilter.Order(_library.Entries);
 
         RefreshPlaylist();
 

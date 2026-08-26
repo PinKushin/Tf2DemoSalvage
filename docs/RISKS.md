@@ -12466,6 +12466,48 @@ describing a constant that no longer existed. **An orphaned doc comment does not
 reattaches to the next member**, so `Lines` had been documented as being about clip-space W for
 however long the constant had been gone.
 
+### B211 — With no TF2 installed, the viewer blamed the map and downloaded one — FIXED 2026-08-26
+
+**The owner's requirement, which is what found this:**
+
+> *"the user has to point us to their tf2 folder before we can do anything, and the program cant
+> crash because its missing it must just error and mention it"*
+
+It does not crash. It mentions the **wrong thing**, which is worse than silence: on a machine with no
+TF2 install the viewer said *"cp_badlands is not installed; fetching it"* and started a 40 MB
+download — of a map, into a game it could not find, for a person whose actual problem was one step
+away from fixed.
+
+**One null for two facts.** `MapProvider.Locate` returns null both when the map is absent from an
+install it found and when it found no install at all. `ReadMapNamed` had only that null to go on, so
+it assumed the first. This is `docs/memory/sentinels-conflate-unknown-with-answer.md` in a place
+nobody had looked: a sentinel standing in for "no" and for "I do not know".
+
+`MapProvider.Find` answers `Found` / `NotInstalled` / `NoGame` instead. The install search runs
+**second**, only when the map was not found, so the ordinary case pays nothing for the diagnosis of
+the unusual one.
+
+**The message names the fix, not just the fault**, and says the demo still plays — otherwise it reads
+as a refusal, and the viewer's whole point is that a demo is watchable without the map.
+
+#### The comment beside it stated the wrong reason for the laziness
+
+`_game` is opened on the first map read, and the comment said why: *"finding and opening the archives
+is slow and a viewer with no demo open needs none of it."* True, and not the reason. The reason is
+the owner's constraint above — **the location is not known until someone points at it**, which cannot
+be hurried.
+
+**That distinction is the whole value of the entry.** Lazy initialisation is a shape this codebase is
+right to distrust: D86 records that the engine precaches at level load *precisely* so nothing is
+decoded mid-game, and ours cost 385 ms in a single frame when it packed on sight. Read as
+lazy-because-slow, this looks like the next candidate for the same fix. Read correctly, it is not
+laziness at all — it is a resource that does not exist yet.
+
+A rule recorded with the wrong reason gets relaxed for the wrong reasons. The global standards say
+exactly this about the decompiler rule, and it was true here within the hour: the owner's *"lazy load
+is normally wrong in this codebase too"* was aimed at the reason as written, and would have been
+right if that reason had been the real one.
+
 ### B210 — A debug view was unreachable, and its shortcut toggled a different one — FIXED 2026-08-26
 
 **`mat_showlowresimage` could not be turned on from the user interface at all**, and Ctrl+T — the

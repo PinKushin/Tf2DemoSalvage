@@ -121,6 +121,83 @@ public sealed class MapProviderTests
     }
 
     [Test]
+    public void Find_WithNoGameInstalled_SaysSoRatherThanBlamingTheMap()
+    {
+        // **The owner's requirement, 2026-08-26:** *"the user has to point us to their tf2 folder
+        // before we can do anything, and the program cant crash because its missing it must just
+        // error and mention it"*.
+        //
+        // `Locate` answers null for two different facts — the map is absent from a known install,
+        // and the install is not known at all — so the viewer reported "cp_badlands is not
+        // installed; fetching it" and started a DOWNLOAD when the real problem was that nobody had
+        // said where TF2 is. Telling someone the wrong cause is worse than telling them nothing,
+        // and downloading a map into a game you cannot find helps no one.
+        using MapProvider maps = Provider(TempFolder());
+
+        MapSearch found = maps.Find("cp_badlands");
+
+        found.Outcome.ShouldBe(MapOutcome.NoGame);
+        found.Path.ShouldBeNull();
+    }
+
+    [Test]
+    public void Find_WithTheGameInstalledButNoSuchMap_BlamesTheMap()
+    {
+        // **The control, and the reason this is not just a renamed `Locate`.** With an install
+        // present a missing map really IS a missing map, and downloading it is the right answer —
+        // so the two outcomes have to be distinguishable rather than merged into one safe message.
+        string folder = TempFolder();
+
+        InstallTf2(folder);
+
+        using MapProvider maps = Provider(folder);
+
+        maps.Find("cp_badlands").Outcome.ShouldBe(MapOutcome.NotInstalled);
+    }
+
+    [Test]
+    public void Find_WithTheMapPresent_HandsBackItsPath()
+    {
+        string folder = TempFolder();
+
+        File.WriteAllBytes(
+            Path.Combine(InstallTf2(folder), "cp_badlands.bsp"), BspHeader);
+
+        using MapProvider maps = Provider(folder);
+
+        MapSearch found = maps.Find("cp_badlands");
+
+        found.Outcome.ShouldBe(MapOutcome.Found);
+        found.Path.ShouldNotBeNull();
+    }
+
+    /// <summary>Lays out a TF2 install Steam's locator will actually find.</summary>
+    /// <param name="folder">The library root.</param>
+    /// <returns>The <c>tf/maps</c> folder.</returns>
+    /// <remarks>
+    /// **Both halves are required and the first draft had neither right.** `MapLocator` walks
+    /// <c>steamapps/common/Team Fortress 2/tf/maps</c> under each library, and a library only counts
+    /// if `libraryfolders.vdf` names app id **440** inside it — a `"path"` alone registers nothing.
+    /// A fixture that cannot satisfy the code under test measures nothing, which is the same mistake
+    /// <see cref="BspHeader"/> was written to avoid.
+    /// </remarks>
+    private static string InstallTf2(string folder)
+    {
+        string maps = Path.Combine(
+            folder, "steamapps", "common", "Team Fortress 2", "tf", "maps");
+
+        Directory.CreateDirectory(maps);
+
+        File.WriteAllText(
+            Path.Combine(folder, "libraryfolders.vdf"),
+            "\"libraryfolders\"\n{\n\t\"0\"\n\t{\n\t\t\"path\"\t\t\""
+            + folder.Replace(@"\", @"\\", StringComparison.Ordinal)
+            + "\"\n\t\t\"apps\"\n\t\t{\n\t\t\t\"440\"\t\t\"1\"\n\t\t}\n\t}\n}\n");
+
+        return maps;
+    }
+
+    [Test]
     public void Construct_WithoutADownloader_Refuses()
     {
         Should.Throw<ArgumentNullException>(() => new MapProvider("a", "b", downloader: null!));

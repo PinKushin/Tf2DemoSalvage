@@ -18,6 +18,31 @@ namespace Tf2DemoSalvage.Scene;
 /// </remarks>
 public static class PlaylistFilter
 {
+    /// <summary>Puts a library into the order the playlist shows it in.</summary>
+    /// <param name="entries">The whole library, in whatever order it was read.</param>
+    /// <returns>The entries grouped by folder, and by name within each folder.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="entries"/> is null.</exception>
+    /// <remarks>
+    /// **This is <see cref="Apply"/>'s precondition, and it lived in another project** until
+    /// 2026-08-26 (B188, D90) — three lines inline in `MainForm`, while `Apply` documented its
+    /// dependence on them: *"Order is preserved because the playlist groups by folder afterwards,
+    /// and reordering would scatter one folder across several groups of the same name."* A contract
+    /// stated in one assembly and satisfied in another is a contract nothing enforces.
+    ///
+    /// **Case-insensitive, because the library is read off a Windows disk** where `Season31` and
+    /// `season31` are one folder that may be spelled either way by whoever made it. An ordinal sort
+    /// puts every capital before every lowercase, so `ESEA` and `esea` would land at opposite ends
+    /// of the list with everything else between them — the exact scattering the grouping prevents.
+    /// </remarks>
+    public static IReadOnlyList<DemoEntry> Order(IReadOnlyList<DemoEntry> entries)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+
+        return [.. entries
+            .OrderBy(entry => entry.Folder, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase)];
+    }
+
     /// <summary>Keeps the entries matching every term in a query.</summary>
     /// <param name="entries">The whole library.</param>
     /// <param name="query">What the user typed; empty keeps everything.</param>
@@ -29,7 +54,8 @@ public static class PlaylistFilter
     /// most natural query there is.
     ///
     /// Order is preserved because the playlist groups by folder afterwards, and reordering would
-    /// scatter one folder across several groups of the same name.
+    /// scatter one folder across several groups of the same name. <see cref="Order"/> is what
+    /// establishes that grouping, and it sits above rather than in a window.
     /// </remarks>
     public static IReadOnlyList<DemoEntry> Apply(IReadOnlyList<DemoEntry> entries, string query)
     {

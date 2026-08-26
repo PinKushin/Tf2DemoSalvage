@@ -151,4 +151,5 @@
 - [Set the opposite state first](set-the-opposite-state-first.md) — a precondition equal to the assertion cannot fail.
 - [A log level regression is invisible to unit tests](a-log-level-regression-is-invisible-to-unit-tests.md) — the app discards below its own level.
 - [A walking test cannot see a deletion](a-walking-test-cannot-see-a-deletion.md) — generate the denominator.
+- [The game folder is the user's to provide](the-game-folder-is-the-users-to-provide.md) — not-yet-knowable is not laziness; a missing install must error clearly.
 - [A ConVar registration is three pushes](a-convar-registration-is-three-pushes.md) — default, flags and help from ~20 bytes of x86.
