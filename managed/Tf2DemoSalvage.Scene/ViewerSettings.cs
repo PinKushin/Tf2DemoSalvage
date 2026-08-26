@@ -259,10 +259,24 @@ public sealed record ViewerSettings
     ///
     /// The engine has a floor and no ceiling. `engine.dll` carries *"sv_cheats is 0 and fps_max is
     /// being limited to a minimum of 30 (or set to 0)"*, and nothing about a maximum; Valve's
-    /// shipped configs never set `fps_max`, and its default could not be recovered from the binary,
-    /// because the string pool pairs a cvar's name with its help text and not with its default.
+    /// shipped configs never set `fps_max`.
     ///
-    /// **300 is OURS**, and it stands on its own measurement rather than on Valve: the swap chain
+    /// **Its default is 400, and this entry contradicted our own finding for weeks** (corrected
+    /// 2026-08-26). It used to end *"its default could not be recovered from the binary, because the
+    /// string pool pairs a cvar's name with its help text and not with its default"*. The reasoning
+    /// about the pool is correct and the conclusion is not:
+    /// `docs/findings/37-the-engines-demo-vocabulary.md` had already recovered
+    /// `ConVar fps_max( "fps_max", "400", 0, ... )` — flags and all — by reconstructing the pooled
+    /// NUMERIC block rather than reading adjacency.
+    ///
+    /// **So this was not a missing source, it was an unrevisited impossibility claim.** Nothing about
+    /// finding 37 forced a re-read of a sentence saying the thing it established could not be known,
+    /// which is how the two sat here disagreeing. See
+    /// `docs/memory/an-impossibility-claim-expires.md`, and
+    /// `docs/findings/40-the-game-ships-its-own-cvar-list.md` for the cheaper instrument that
+    /// surfaced the contradiction.
+    ///
+    /// **300 is still OURS**, and it stands on its own measurement rather than on Valve: the swap chain
     /// presents asking for vertical sync and the viewer was still measured at about 600 frames a
     /// second, which is ten times any display and allocates every one of them.
     ///

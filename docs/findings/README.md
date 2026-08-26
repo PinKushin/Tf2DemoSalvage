@@ -60,6 +60,8 @@ it, because a second copy is a copy that goes stale.
 | [36-the-frame-order.md](36-the-frame-order.md) | The camera and the ears come from one `viewEye`; we drew tick T+1 through tick T's eye |
 | [37-the-engines-demo-vocabulary.md](37-the-engines-demo-vocabulary.md) | `demo_*` declarations read from `engine.dll`: most are ConCommands, `fps_max` is 400 and unarchived, `engine_no_focus_sleep` is 50 and archived |
 | [38-which-players-can-be-shown.md](38-which-players-can-be-shown.md) | TF2 OVERRIDES `CanPlayerBeSeen` and drops the origin check; `mp_forcecamera`, `userid` vs `entindex`, and a correction to a Valve citation |
+| [39-the-engines-frame-clocks.md](39-the-engines-frame-clocks.md) | Six engine clocks and which of ours maps onto each; `CalcDemoViewOverride` flies by `absoluteframetime`, and `cl_showfps` reads the same quantity |
+| [40-the-game-ships-its-own-cvar-list.md](40-the-game-ships-its-own-cvar-list.md) | `tf/cvarlist.log`: 3,668 convars with defaults and flags, in plain text — a cheap instrument for finding 37's job, and the impossibility claim it found still standing in our code |
 
 ## Which of this is original
 
