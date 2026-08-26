@@ -2,14 +2,16 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-using Tf2DemoSalvage.Viewer3D;
-
-namespace Tf2DemoSalvage.Viewer3D.Tests;
+namespace Tf2DemoSalvage.Presentation.Tests;
 
 /// <summary>
 /// Naming a screenshot so two of them cannot be the same file.
 /// </summary>
 /// <remarks>
+/// **Moved here from `Viewer3D.Tests` with `Captures.Name` on 2026-08-26** (B208). It asserted on
+/// `MainForm.CaptureName`, which was `public static` and tested — the tell that somebody had already
+/// decided this was policy rather than window code, and it stayed in the window anyway.
+///
 /// **Two captures in the same second overwrote each other**, measured 2026-08-20 while capturing
 /// the map view and the first-person view to compare them: both landed in
 /// <c>shot-20260820-000241.png</c> and only the second survived. The log said so —
@@ -30,28 +32,28 @@ namespace Tf2DemoSalvage.Viewer3D.Tests;
 public sealed class CaptureNameTests
 {
     [Test]
-    public void CaptureName_TwoCapturesInTheSameSecond_AreDifferentFiles()
+    public void Name_TwoCapturesInTheSameSecond_AreDifferentFiles()
     {
         // The defect, stated directly. 328 ms apart is what the run that found it actually did.
         DateTime first = new(2026, 8, 20, 0, 2, 41, 286, DateTimeKind.Local);
         DateTime second = new(2026, 8, 20, 0, 2, 41, 614, DateTimeKind.Local);
 
-        MainForm.CaptureName(first).ShouldNotBe(MainForm.CaptureName(second));
+        Captures.Name(first).ShouldNotBe(Captures.Name(second));
     }
 
     [Test]
-    public void CaptureName_TwoCapturesAMillisecondApart_AreStillDifferent()
+    public void Name_TwoCapturesAMillisecondApart_AreStillDifferent()
     {
         // The resolution actually claimed, rather than a comfortable margin. A name that only
         // separated tenths would pass the test above and fail here, and automation is quick
         // enough to reach it.
         DateTime first = new(2026, 8, 20, 0, 2, 41, 286, DateTimeKind.Local);
 
-        MainForm.CaptureName(first).ShouldNotBe(MainForm.CaptureName(first.AddMilliseconds(1)));
+        Captures.Name(first).ShouldNotBe(Captures.Name(first.AddMilliseconds(1)));
     }
 
     [Test]
-    public void CaptureName_SortedByName_IsSortedByTime()
+    public void Name_SortedByName_IsSortedByTime()
     {
         // **Retention depends on this.** FileRetention.Keep decides which captures to delete by
         // ORDINAL NAME ORDER, so a stamp whose text order disagreed with its time order would keep
@@ -68,19 +70,21 @@ public sealed class CaptureNameTests
             new(2026, 8, 20, 1, 0, 0, 0, DateTimeKind.Local),
         ];
 
-        List<string> names = [.. times.Select(MainForm.CaptureName)];
+        List<string> names = [.. times.Select(Captures.Name)];
 
         names.OrderBy(name => name, StringComparer.Ordinal).ShouldBe(names);
     }
 
     [Test]
-    public void CaptureName_StillMatchesWhatRetentionSweeps()
+    public void Name_AcrossADayBoundary_StillSortsForward()
     {
-        // The prune pattern is `shot-*.png`, and a name that stopped matching it would never be
-        // deleted — which is how the 233 screenshots that started all this accumulated.
-        string name = MainForm.CaptureName(new DateTime(2026, 8, 20, 0, 2, 41, 286, DateTimeKind.Local));
+        // Midnight is the other place a hand-rolled stamp breaks, and it is the one a retention bug
+        // would show up on: the oldest captures of a new day would sort before the newest of the
+        // previous one only if the date leads the time, which is why the format is yyyyMMdd first.
+        DateTime lastNight = new(2026, 8, 20, 23, 59, 59, 999, DateTimeKind.Local);
+        DateTime thisMorning = new(2026, 8, 21, 0, 0, 0, 1, DateTimeKind.Local);
 
-        name.ShouldStartWith("shot-");
-        name.ShouldEndWith(".png");
+        StringComparer.Ordinal.Compare(Captures.Name(lastNight), Captures.Name(thisMorning))
+            .ShouldBeLessThan(0);
     }
 }

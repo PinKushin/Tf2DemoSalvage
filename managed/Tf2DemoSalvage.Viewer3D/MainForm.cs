@@ -1442,34 +1442,21 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private void ApplyGeometryOverride()
     {
-        string? size = Environment.GetEnvironmentVariable(WindowSizeVariable);
-        string? position = Environment.GetEnvironmentVariable(WindowPositionVariable);
-
-        if (!string.IsNullOrWhiteSpace(size))
+        // **The parsing moved to `WindowGeometry`** (B208). What is left is the only view part:
+        // reading the environment and assigning to the window. Whether `"0x720"` counts as a usable
+        // size is a question about text, and it could not be tested while it lived here.
+        if (WindowGeometry.Size(Environment.GetEnvironmentVariable(WindowSizeVariable))
+            is { } size)
         {
-            string[] parts = size.Split('x', StringSplitOptions.TrimEntries);
-            if (parts.Length == 2 &&
-                int.TryParse(parts[0], CultureInfo.InvariantCulture, out int width) &&
-                int.TryParse(parts[1], CultureInfo.InvariantCulture, out int height) &&
-                width > 0 && height > 0)
-            {
-                Width = width;
-                Height = height;
-            }
+            Width = size.Width;
+            Height = size.Height;
         }
 
-        if (string.IsNullOrWhiteSpace(position))
-        {
-            return;
-        }
-
-        string[] coordinates = position.Split(',', StringSplitOptions.TrimEntries);
-        if (coordinates.Length == 2 &&
-            int.TryParse(coordinates[0], CultureInfo.InvariantCulture, out int x) &&
-            int.TryParse(coordinates[1], CultureInfo.InvariantCulture, out int y))
+        if (WindowGeometry.Position(Environment.GetEnvironmentVariable(WindowPositionVariable))
+            is { } at)
         {
             StartPosition = FormStartPosition.Manual;
-            Location = new Point(x, y);
+            Location = new Point(at.X, at.Y);
         }
     }
 
@@ -2439,34 +2426,11 @@ internal class MainForm : Form, IFrameSteps
     /// Falls back rather than failing when the named folder cannot be made: a screenshot is not
     /// worth refusing to run over, and the log says where it actually went.
     /// </remarks>
-    public string CaptureFolder
-    {
-        get
-        {
-            // The log's folder, which is also where captures go — one directory, one retention
-            // policy (D83). FileLogWriter owns the path so both writers agree on it.
-            string beside = FileLogWriter.DefaultFolder;
-            string? wanted = _settings.ScreenshotFolder;
-
-            if (string.IsNullOrWhiteSpace(wanted))
-            {
-                return beside;
-            }
-
-            try
-            {
-                Directory.CreateDirectory(wanted);
-                return wanted;
-            }
-            catch (Exception failure) when (
-                failure is IOException or UnauthorizedAccessException or ArgumentException
-                    or NotSupportedException)
-            {
-                _renderLog.LogWarning(failure, "{Message}", $"cannot write captures to {wanted}");
-                return beside;
-            }
-        }
-    }
+    // **The fallback policy moved to `Captures.Folder`** (B208). What this window still supplies is
+    // the fallback itself: the log's folder, which is also where captures go — one directory, one
+    // retention policy (D83). `FileLogWriter` owns that path so both writers agree on it.
+    public string CaptureFolder =>
+        Captures.Folder(_settings.ScreenshotFolder, FileLogWriter.DefaultFolder, _renderLog);
 
     /// <summary>Captures the viewport to a stamped file beside the log.</summary>
     /// <remarks>
@@ -2478,7 +2442,7 @@ internal class MainForm : Form, IFrameSteps
     {
         string folder = CaptureFolder;
 
-        CaptureViewport(Path.Combine(folder, CaptureName(DateTime.Now)));
+        CaptureViewport(Path.Combine(folder, Captures.Name(DateTime.Now)));
 
         // **Captures had no retention of any kind until 2026-08-19**, when 233 of them were found
         // occupying 203 MB — the single largest thing the viewer had written to the owner's disk,
@@ -2497,40 +2461,23 @@ internal class MainForm : Form, IFrameSteps
         //
         // After the write, matching the log path, and for the same reason: pruning first lets
         // concurrent writers each trim to the limit and then each add one.
-        FileRetention.Keep(folder, "shot-*.png", CapturesKept);
+        // **`Captures.Pattern` rather than a literal `"shot-*.png"`** (B208). The glob has to match
+        // what `Captures.Name` produces, and it did so only because the same prefix was typed in
+        // two places — a disagreement would prune nothing, silently, since deleting zero files looks
+        // exactly like having nothing to delete.
+        FileRetention.Keep(folder, Captures.Pattern, Captures.Kept);
     }
 
-    /// <summary>What a capture taken at a given moment is called.</summary>
-    /// <param name="when">When the capture was taken.</param>
-    /// <returns>The file name, without a directory.</returns>
-    /// <remarks>
-    /// **Milliseconds, because seconds were not enough.** Two captures taken in the same second
-    /// overwrote each other — measured 2026-08-20 while capturing the map view and the first-person
-    /// view to compare them, 328 milliseconds apart, both landing in
-    /// <c>shot-20260820-000241.png</c>. A second is not a long time for somebody pressing a key
-    /// twice and it is no time at all for a UI test.
-    ///
-    /// It was noticed only because <c>SaveBackBuffer</c> had started logging what it wrote an hour
-    /// earlier. Without that line the run reports success, one file exists, and nothing says which
-    /// of the two views it holds.
-    ///
-    /// **Ordinal name order has to stay chronological**, because <see cref="FileRetention"/>
-    /// decides what to delete by sorting the names — a stamp whose text order disagreed with its
-    /// time order would keep the wrong captures and would do it silently, since the count would
-    /// still come out right. A fixed-width, most-significant-first stamp is what guarantees that.
-    ///
-    /// Taken as a parameter rather than read inside, so the naming can be tested without waiting
-    /// for a clock.
-    /// </remarks>
-    public static string CaptureName(DateTime when) =>
-        string.Create(CultureInfo.InvariantCulture, $"shot-{when:yyyyMMdd-HHmmss-fff}.png");
-
-    /// <summary>How many F12 captures to keep before the oldest are deleted.</summary>
-    /// <remarks>
-    /// Twenty rather than the logs' fifty, purely on size: a viewport capture is close to a
-    /// megabyte where a run's log is tens of kilobytes.
-    /// </remarks>
-    private const int CapturesKept = 20;
+    // **`CaptureName` and `CapturesKept` were here until 2026-08-26** (B208). They are
+    // `Captures.Name` and `Captures.Kept`, with `Captures.Pattern` beside them — the glob retention
+    // deletes by, which has to agree with the name and previously did so only because the same
+    // prefix was typed in two places.
+    //
+    // Their notes went with them: the 2026-08-20 overwrite that produced the millisecond stamp, the
+    // requirement that ordinal name order stay chronological because `FileRetention` sorts by name,
+    // and the size argument for twenty rather than the logs' fifty. `CaptureNameTests` moved too,
+    // to `Presentation.Tests` — a test on a public static naming policy was never a viewer test.
+    //
 
     /// <summary>The points the viewport is currently drawing.</summary>
     public IReadOnlyList<ScenePoint> Scene => _scene;
