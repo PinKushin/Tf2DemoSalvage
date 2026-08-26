@@ -40,7 +40,7 @@ public sealed class ViewportPictureUiTests
     private static ViewerApplication _viewer => ViewerSession.App;
 
     [Test]
-    public void F12WritesAPictureOfWhatTheViewerDrew()
+    public void Screenshot_ThroughTheMenu_WritesAPictureOfWhatTheViewerDrew()
     {
         string[] before = Shots();
 
@@ -70,7 +70,7 @@ public sealed class ViewportPictureUiTests
             () => Shots().Except(before).Any(),
             TimeSpan.FromSeconds(20),
             throwOnTimeout: true,
-            timeoutMessage: "F12 produced no picture.");
+            timeoutMessage: "The screenshot menu item produced no picture.");
 
         // First rather than Single: the prune can remove an old capture between the two listings,
         // and more than one new file is not a reason to fail a test about the newest one.

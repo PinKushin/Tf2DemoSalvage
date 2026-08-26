@@ -67,6 +67,71 @@ public enum ViewerAction
     /// key they use for careful positioning and got a sprint.
     /// </remarks>
     FlyWalk,
+
+    // **Everything below was a `ShortcutKeys` literal on a menu item until 2026-08-26** (B214,
+    // D101). They are actions now for the same reason the flight keys are: a control nobody can
+    // rebind is a control that fights whatever the user already has in their hands.
+
+    /// <summary>Choose a demo to open.</summary>
+    /// <remarks>Ours; TF2 opens demos from a console command, not a key.</remarks>
+    OpenDemo,
+
+    /// <summary>Fill the screen, or stop.</summary>
+    /// <remarks>Ours. The engine changes mode through `mat_setvideomode`, which is a different
+    /// question — see <c>ViewerSettings.FullScreenModeCommand</c>.</remarks>
+    FullScreen,
+
+    /// <summary>Capture the viewport to a file.</summary>
+    /// <remarks>**TF2's own `screenshot`, on TF2's own F5** (B214).</remarks>
+    Screenshot,
+
+    /// <summary>Show or hide the frame-rate readout.</summary>
+    /// <remarks>TF2's `cl_showfps`.</remarks>
+    FrameRate,
+
+    /// <summary>Colour surfaces by their properties.</summary>
+    /// <remarks>Ours; no single engine convar covers it.</remarks>
+    SurfaceColours,
+
+    /// <summary>Draw the world as wireframe.</summary>
+    /// <remarks>TF2's `mat_wireframe`.</remarks>
+    Wireframe,
+
+    /// <summary>Replace every texture with flat white.</summary>
+    /// <remarks>TF2's `mat_drawflat`.</remarks>
+    DrawFlat,
+
+    /// <summary>Draw the lightmap's luxel grid.</summary>
+    /// <remarks>TF2's `mat_luxels`.</remarks>
+    Luxels,
+
+    /// <summary>Draw surface normals as colour.</summary>
+    /// <remarks>TF2's `mat_normalmaps`.</remarks>
+    NormalMaps,
+
+    /// <summary>Draw which lightmap basis vector a surface leans on.</summary>
+    /// <remarks>TF2's `mat_bumpbasis`.</remarks>
+    BumpBasis,
+
+    /// <summary>Draw the BSP leaf the camera stands in.</summary>
+    /// <remarks>TF2's `mat_leafvis`.</remarks>
+    LeafVis,
+
+    /// <summary>Draw materials from their embedded thumbnail.</summary>
+    /// <remarks>TF2's `mat_showlowresimage`.</remarks>
+    LowResImage,
+
+    /// <summary>Light the world normally.</summary>
+    /// <remarks>TF2's `mat_fullbright 0`.</remarks>
+    FullbrightOff,
+
+    /// <summary>Draw with no lighting at all.</summary>
+    /// <remarks>TF2's `mat_fullbright 1`.</remarks>
+    FullbrightNoLighting,
+
+    /// <summary>Draw the lighting alone.</summary>
+    /// <remarks>TF2's `mat_fullbright 2`.</remarks>
+    FullbrightLightingOnly,
 }
 
 /// <summary>
@@ -119,10 +184,15 @@ public sealed class KeyBindings
         new Dictionary<ViewerAction, string>
         {
             [ViewerAction.SwitchCameraMode] = "SPACE",
-            [ViewerAction.ResetCamera] = "f",
+
+            // **`f` and `k` until 2026-08-26, and both were taken by a pasted config** (B214). TF2
+            // binds `f` to `+inspect` and `k` to `cl_decline_first_notification` — commands this
+            // viewer does not implement — so loading a real config removed reset-camera and
+            // play/pause and only `ConfigConsole.Unbound()` said so.
+            [ViewerAction.ResetCamera] = "CTRL+r",
+
             [ViewerAction.CycleTargetForward] = "MOUSE1",
             [ViewerAction.CycleTargetReverse] = "MOUSE2",
-            [ViewerAction.PlayPause] = "k",
             [ViewerAction.FlyForward] = "w",
             [ViewerAction.FlyBack] = "s",
             [ViewerAction.FlyLeft] = "a",
@@ -160,6 +230,45 @@ public sealed class KeyBindings
             [ViewerAction.FlyUp] = "'",
             [ViewerAction.FlyDown] = "/",
             [ViewerAction.FlyWalk] = "SHIFT",
+
+            // **Everything below is on a key TF2's own `config_default.cfg` leaves alone** (B214).
+            // That file binds 64 keys — every letter except `o` — so a default anywhere else is
+            // taken away the moment a real config is pasted, and the action is silently gone.
+            // `DefaultBindingConformanceTests` reads Valve's file and enforces this, so it cannot
+            // drift.
+            //
+            // **`CTRL` combinations are safe by construction**: Source's `bind` has no syntax for a
+            // modifier, so nothing in a real config can name one. That is what makes room for the
+            // viewer's own actions at all — there are only six free single keys in the whole game.
+            [ViewerAction.OpenDemo] = "CTRL+o",
+
+            // The three keys TF2 does not use, spent on the things reached most often.
+            [ViewerAction.FullScreen] = "F11",
+            [ViewerAction.FrameRate] = "F8",
+            [ViewerAction.SurfaceColours] = "F9",
+
+            // **F5 is TF2's screenshot key and this is TF2's `screenshot` command**, so a config
+            // that rebinds screenshots moves ours with it. It was F12 until B214 — which TF2 gives
+            // to replay tips and Steam's overlay takes as well, while our F5 was a debug view. The
+            // two were swapped against the game.
+            [ViewerAction.Screenshot] = "F5",
+
+            // `o` is the ONLY letter TF2 leaves unbound, and play/pause earns a single key.
+            [ViewerAction.PlayPause] = "o",
+
+            [ViewerAction.NormalMaps] = "F3",
+            [ViewerAction.BumpBasis] = "F4",
+
+            [ViewerAction.Wireframe] = "CTRL+w",
+            [ViewerAction.DrawFlat] = "CTRL+f",
+            [ViewerAction.Luxels] = "CTRL+x",
+            [ViewerAction.LeafVis] = "CTRL+l",
+            [ViewerAction.LowResImage] = "CTRL+t",
+
+            // Numbered after `mat_fullbright`'s own argument, so the key says which mode it picks.
+            [ViewerAction.FullbrightOff] = "CTRL+0",
+            [ViewerAction.FullbrightNoLighting] = "CTRL+1",
+            [ViewerAction.FullbrightLightingOnly] = "CTRL+2",
         };
 
     /// <summary>The Source command each action answers to.</summary>
@@ -191,9 +300,34 @@ public sealed class KeyBindings
             [ViewerAction.FlyDown] = "+movedown",
             [ViewerAction.FlyWalk] = "+speed",
 
-            // Ours, because TF2 has nothing that means these.
+            // **TF2's own names wherever TF2 has one, which is more of them than it looks** (B214).
+            // `demo_togglepause` is "Toggles demo playback", which is exactly play/pause; the debug
+            // views are the convars the menu labels already name; `screenshot` is the command F5 is
+            // bound to. Using Valve's name is not decoration — it is what makes a pasted config move
+            // our action instead of taking its key away.
+            [ViewerAction.PlayPause] = "demo_togglepause",
+            [ViewerAction.Screenshot] = "screenshot",
+            [ViewerAction.FrameRate] = "cl_showfps",
+            [ViewerAction.Wireframe] = "mat_wireframe",
+            [ViewerAction.DrawFlat] = "mat_drawflat",
+            [ViewerAction.Luxels] = "mat_luxels",
+            [ViewerAction.NormalMaps] = "mat_normalmaps",
+            [ViewerAction.BumpBasis] = "mat_bumpbasis",
+            [ViewerAction.LeafVis] = "mat_leafvis",
+            [ViewerAction.LowResImage] = "mat_showlowresimage",
+
+            // **`mat_fullbright` takes an argument, so three actions share one convar.** Written
+            // with the value, as a config would: `bind "CTRL+1" "mat_fullbright 1"`.
+            [ViewerAction.FullbrightOff] = "mat_fullbright 0",
+            [ViewerAction.FullbrightNoLighting] = "mat_fullbright 1",
+            [ViewerAction.FullbrightLightingOnly] = "mat_fullbright 2",
+
+            // Ours, because TF2 has nothing that means these. D79 rule 2: Valve's style, no name of
+            // Valve's to borrow.
             [ViewerAction.ResetCamera] = "resetcamera",
-            [ViewerAction.PlayPause] = "playpause",
+            [ViewerAction.OpenDemo] = "opendemo",
+            [ViewerAction.FullScreen] = "togglefullscreen",
+            [ViewerAction.SurfaceColours] = "mat_surfacecolours",
         };
 
     /// <summary>The action a Source command names, or null when nothing here answers to it.</summary>

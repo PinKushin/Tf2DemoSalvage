@@ -105,14 +105,19 @@ internal sealed class ViewerMenu : IDisposable
     /// <summary>Builds the whole menu.</summary>
     /// <param name="actions">What each item asks the viewer to do.</param>
     /// <param name="settings">The saved settings, for the items that open already checked.</param>
+    /// <param name="bindings">Which key performs which action, so no shortcut is written in here.</param>
     /// <remarks>
     /// **Initial checked state comes from settings, not from the form**, so the menu can be built
     /// before anything else exists. Three items open checked because their feature is on by
     /// default — drawing the world, drawing entities and reflections — and those are literals rather
     /// than settings because they are not saved.
     /// </remarks>
-    public ViewerMenu(ViewerMenuActions actions, ViewerSettings settings)
+    public ViewerMenu(ViewerMenuActions actions, ViewerSettings settings, KeyBindings bindings)
     {
+        ArgumentNullException.ThrowIfNull(bindings);
+
+        Keys Shortcut(ViewerAction action) => KeyNames.Resolve(bindings.KeyFor(action));
+
         Dictionary<TextureQuality, ToolStripMenuItem> textureQualityItems = [];
 
         TextureQualityItems = textureQualityItems;
@@ -129,7 +134,7 @@ internal sealed class ViewerMenu : IDisposable
         {
             Name = MainForm.OpenDemoItemId,
             AccessibleName = "Open demo",
-            ShortcutKeys = Keys.Control | Keys.O,
+            ShortcutKeys = Shortcut(ViewerAction.OpenDemo),
         };
         open.Click += (_, _) => actions.OpenDemo();
 
@@ -144,7 +149,7 @@ internal sealed class ViewerMenu : IDisposable
         {
             Name = MainForm.FullScreenItemId,
             AccessibleName = MainForm.FullScreenItemName,
-            ShortcutKeys = Keys.F11,
+            ShortcutKeys = Shortcut(ViewerAction.FullScreen),
             CheckOnClick = true,
         };
         FullScreen.CheckedChanged += (_, _) => actions.SetFullScreen(FullScreen.Checked);
@@ -221,7 +226,7 @@ internal sealed class ViewerMenu : IDisposable
         {
             Name = MainForm.SurfaceColoursItemId,
             CheckOnClick = true,
-            ShortcutKeys = Keys.F9,
+            ShortcutKeys = Shortcut(ViewerAction.SurfaceColours),
         };
 
         SurfaceColours.CheckedChanged += (_, _) => actions.SetSurfaceColours(SurfaceColours.Checked);
@@ -246,7 +251,7 @@ internal sealed class ViewerMenu : IDisposable
             Name = MainForm.FrameRateItemId,
             CheckOnClick = true,
             Checked = settings.ShowFrameRate != 0,
-            ShortcutKeys = Keys.F8,
+            ShortcutKeys = Shortcut(ViewerAction.FrameRate),
             AccessibleName = "Frame rate",
             AccessibleDescription =
                 "Draws TF2's own frame rate meter in the top right: the average, the worst and best " +
@@ -269,7 +274,7 @@ internal sealed class ViewerMenu : IDisposable
             Name = MainForm.WireframeItemId,
             CheckOnClick = true,
             Checked = false,
-            ShortcutKeys = Keys.F10,
+            ShortcutKeys = Shortcut(ViewerAction.Wireframe),
             AccessibleName = "Wireframe",
             AccessibleDescription =
                 "Draws every surface as edges only, so geometry that never reached the screen can " +
@@ -318,11 +323,14 @@ internal sealed class ViewerMenu : IDisposable
                 "texture and a painted shape apart from a lit one.",
         };
 
-        foreach ((Fullbright mode, string label, Keys key) in new[]
+        // **The keys come from the binding table, and the three actions are numbered after
+        // `mat_fullbright`'s own argument** (B214, D101). They were F5, F6 and F7 — all three of
+        // which TF2 binds to something else, and F5 is its SCREENSHOT key.
+        foreach ((Fullbright mode, string label, ViewerAction action) in new[]
         {
-            (Fullbright.Off, "&Normal", Keys.F5),
-            (Fullbright.NoLighting, "&No lighting (mat_fullbright 1)", Keys.F6),
-            (Fullbright.LightingOnly, "Lighting &only (mat_fullbright 2)", Keys.F7),
+            (Fullbright.Off, "&Normal", ViewerAction.FullbrightOff),
+            (Fullbright.NoLighting, "&No lighting (mat_fullbright 1)", ViewerAction.FullbrightNoLighting),
+            (Fullbright.LightingOnly, "Lighting &only (mat_fullbright 2)", ViewerAction.FullbrightLightingOnly),
         })
         {
             Fullbright chosen = mode;
@@ -330,7 +338,7 @@ internal sealed class ViewerMenu : IDisposable
             ToolStripMenuItem item = new(label)
             {
                 Name = MainForm.FullbrightItemId + chosen,
-                ShortcutKeys = key,
+                ShortcutKeys = Shortcut(action),
                 Checked = chosen == Fullbright.Off,
             };
 
@@ -388,19 +396,22 @@ internal sealed class ViewerMenu : IDisposable
         //
         // The mapping sits beside the label now, so a seventh mode cannot be added without saying
         // what it sets — rather than being a second list, elsewhere, that has to agree with this one.
-        foreach ((string label, string cvar, Keys key, Func<DebugModes, bool, DebugModes> set)
-            in new (string, string, Keys, Func<DebugModes, bool, DebugModes>)[]
+        // **Every key here comes from the binding table now** (B214, D101). F1 and F2 were TF2's
+        // `+showroundinfo` and `show_quest_log`, so a pasted config took them; F3 and F4 stayed,
+        // because those are two of the five function keys TF2 leaves alone.
+        foreach ((string label, string cvar, ViewerAction bound, Func<DebugModes, bool, DebugModes> set)
+            in new (string, string, ViewerAction, Func<DebugModes, bool, DebugModes>)[]
         {
-            ("Flat &shading (mat_drawflat)", nameof(DebugModes.DrawFlat), Keys.F1,
+            ("Flat &shading (mat_drawflat)", nameof(DebugModes.DrawFlat), ViewerAction.DrawFlat,
                 static (modes, on) => modes with { DrawFlat = on }),
 
-            ("&Luxel grid (mat_luxels)", nameof(DebugModes.Luxels), Keys.F2,
+            ("&Luxel grid (mat_luxels)", nameof(DebugModes.Luxels), ViewerAction.Luxels,
                 static (modes, on) => modes with { Luxels = on }),
 
-            ("&Normal maps (mat_normalmaps)", nameof(DebugModes.NormalMaps), Keys.F3,
+            ("&Normal maps (mat_normalmaps)", nameof(DebugModes.NormalMaps), ViewerAction.NormalMaps,
                 static (modes, on) => modes with { NormalMaps = on }),
 
-            ("Bump &basis (mat_bumpbasis)", nameof(DebugModes.BumpBasis), Keys.F4,
+            ("Bump &basis (mat_bumpbasis)", nameof(DebugModes.BumpBasis), ViewerAction.BumpBasis,
                 static (modes, on) => modes with { BumpBasis = on }),
 
 
@@ -419,7 +430,7 @@ internal sealed class ViewerMenu : IDisposable
             // Off the function-key run rather than onto Shift+F11, deliberately: a modified twin of
             // the full-screen key is a mis-press away from the bug this fixes. Ctrl+L is mnemonic
             // for leaf, and the menu shows the binding.
-            ("Leaf &box (mat_leafvis)", nameof(DebugModes.LeafVis), Keys.Control | Keys.L,
+            ("Leaf &box (mat_leafvis)", nameof(DebugModes.LeafVis), ViewerAction.LeafVis,
                 static (modes, on) => modes with { LeafVis = on }),
 
             // **Ctrl+T, and for the same reason as Ctrl+L above: the function keys are full.** The
@@ -427,7 +438,7 @@ internal sealed class ViewerMenu : IDisposable
             // branch — every VTF's thumbnail had been skipped on the way past until now.
             ("Low-res &image (mat_showlowresimage)",
                 nameof(DebugModes.ShowLowResImage),
-                Keys.Control | Keys.T,
+                ViewerAction.LowResImage,
                 static (modes, on) => modes with { ShowLowResImage = on }),
         })
         {
@@ -438,7 +449,7 @@ internal sealed class ViewerMenu : IDisposable
             {
                 Name = MainForm.DebugMenuItemId + which,
                 CheckOnClick = true,
-                ShortcutKeys = key,
+                ShortcutKeys = Shortcut(bound),
             };
 
             item.CheckedChanged += (sender, _) =>

@@ -12563,7 +12563,13 @@ not answer the next one in it.
 diagonal one passed immediately: Valve gets diagonal parity from the clamp and we get it from
 normalising before scaling — different mechanisms, same observable, which is what parity means here.
 
-### B214 — Every menu shortcut is a hardcoded key — OPEN, scheduled after the view work
+#### The draft of B215 that named the wrong camera — kept deliberately
+
+**Everything below was written before the owner redirected to spectator speeds, and its table is
+wrong**: it takes `cl_demoviewoverride` as the reference and gives 320 u/s, where the answer is
+`FullNoClipMove` and 960. Kept because it is the more instructive half — the divergence was found
+correctly and then nearly closed against the wrong mechanism **with a citation**, which is the
+failure mode `docs/memory/ask-which-engine-mechanism-you-are-copying.md` exists for.
 
 **Found by the parity audit of 2026-08-26, and the evidence was already in this repository.**
 `FreeFlightPath.SpeedPerSecond = 600f` and `FastMultiplier = 4f` cite nothing. The file around them
@@ -12604,7 +12610,61 @@ flight sets `cl_demoviewoverride 2` rather than holding a key.
 including the destructive `key->state &= 1` — so the *shape* of the movement matches; only the
 constants do not.
 
-### B214 — Every menu shortcut is a hardcoded key — OPEN, scheduled after the view work
+### B214 — Every menu shortcut is a hardcoded key — FIXED 2026-08-26
+
+**Both halves done: the keys go through the config, and their defaults stop contradicting TF2.**
+Fourteen `ShortcutKeys = Keys.<something>` literals and three in `ProcessCmdKey` are now
+`ViewerAction` entries resolved through `KeyBindings`. Two `Keys.Escape` comparisons remain and are
+named in the code as the one deliberate exception — it is the way out of full screen, so a config
+that rebound it away would leave a user with no menu, no title bar and no key that closes either.
+
+**The default map, and the constraint that produced it.** `tf/cfg/config_default.cfg` binds 64 keys,
+**every letter except `o`**, so there are exactly six free single keys in the whole game. That is
+what puts the viewer's own actions on `CTRL` combinations: Source's `bind` has no modifier syntax, so
+no real config can name one, and the whole space is safe by construction.
+
+| | key | why |
+|---|---|---|
+| Screenshot | **F5** | TF2's own key **and** TF2's own `screenshot` command |
+| Full screen / frame rate / surface colours | F11 / F8 / F9 | three of the five function keys TF2 leaves alone |
+| Normal maps / bump basis | F3 / F4 | the other two |
+| Play/pause | `o` | the only unbound letter, and it earns a single key |
+| Reset camera | CTRL+r | was `f`, which TF2 gives to `+inspect` |
+| Open demo | CTRL+o | |
+| Wireframe / flat / luxels / leaf box / low-res | CTRL+w / f / x / l / t | |
+| Fullbright off / 1 / 2 | CTRL+0 / 1 / 2 | numbered after `mat_fullbright`'s own argument |
+
+**Commands are Valve's wherever Valve has one**, which is more of them than it looked: `screenshot`,
+`cl_showfps`, `mat_wireframe`, `mat_drawflat`, `mat_luxels`, `mat_normalmaps`, `mat_bumpbasis`,
+`mat_leafvis`, `mat_showlowresimage`, `mat_fullbright 0|1|2`, and **`demo_togglepause`** — "Toggles
+demo playback", which had been an invented `playpause`. That is not decoration: a shared command name
+is what makes a pasted config *move* our action instead of taking its key away.
+
+#### Three latent defects it exposed, none of which were the job
+
+All three were invisible while every default sat on a key TF2 itself binds.
+
+1. **`KeyNames.Resolve` mangled digits.** `Enum.TryParse` accepts a numeric string as an enum value,
+   so `"1"` resolved to `Keys.LButton`, `"2"` to `Keys.RButton` and `"0"` to `Keys.None` — a binding
+   attached to a key that cannot be pressed. TF2 binds every digit to `slot1`..`slot10`, so any
+   config using one hit this. Found by the new test's third assertion on its first run.
+2. **`ConfigConsole.Unbound()` could not see a default the config never mentions.** It walked
+   `_binds` only, and every real config opens with `unbindall` — which empties it. So after loading
+   one, a default on an untouched key was reported unbound while `CommandFor`'s fallback was still
+   answering for it: the control worked and the alarm said it did not. Twelve actions at once.
+3. **`Expand` matched `tokens[0]`, so a command with an argument was unreachable.**
+   `bind "F5" "mat_fullbright 1"` is ordinary Source, and three actions here are distinguished only
+   by that argument. The whole clause is tried first now.
+
+**The conformance test generates its denominator from Valve's file**
+(`DefaultBindingConformanceTests`), so it cannot go stale: one assertion refuses any default on a key
+TF2 binds to a different command, one requires that where we speak TF2's command we start on TF2's
+key, and one requires every default to resolve. It was red on the two collisions before the fix.
+
+**A `Home` → 1× speed reset is now buildable** — agreed to be right and deliberately deferred
+(*"do not hard code home, no new hard codes"*) because the mechanism did not exist. It does now.
+
+#### The original entry
 
 **D101 forbids hardcoded controls outright**, and fourteen of them remain: every `ShortcutKeys` on a
 menu item — F1 to F12, Ctrl+L, Ctrl+T. Two actions route through `KeyBindings` today

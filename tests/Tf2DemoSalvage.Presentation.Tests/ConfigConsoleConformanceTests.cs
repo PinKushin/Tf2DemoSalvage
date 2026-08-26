@@ -354,7 +354,10 @@ public sealed class ConfigConsoleConformanceTests
         ConfigConsole console = new();
         int triggered = 0;
 
-        console.Load("bind \"j\" \"playpause\"");
+        // `demo_togglepause` is Valve's own — "Toggles demo playback" — and replaced this project's
+        // invented `playpause` in B214. Any non-`+` command serves this test; the point is the
+        // release, not the name.
+        console.Load("bind \"j\" \"demo_togglepause\"");
         console.Triggered += (_, _) => triggered++;
 
         console.KeyDown("j");

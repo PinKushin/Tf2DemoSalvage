@@ -606,7 +606,13 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     113
 # Presentation held at 343 across the same change and that is a COINCIDENCE worth naming, not a
 # sign nothing moved: its own `HeightCutTests` (6) went while `TimeScale`'s tests arrived, and the
 # floor was raised to 343 in the same session. A floor that happens to hold is not evidence.
-run Tf2DemoSalvage.Viewer3D.Tests viewer    613
+# 613 -> 616 on 2026-08-26: DefaultBindingConformanceTests, three, written before the B214 fix.
+# The denominator is GENERATED from tf/cfg/config_default.cfg, so it cannot go stale: one test says
+# no default may sit on a key TF2 binds to a different command (it would be taken by a pasted
+# config), one says that where we speak TF2's command we start on TF2's key, and one says every
+# default resolves to a real key. The third caught a live defect on its first run -- Enum.TryParse
+# accepts a numeric string, so "1" resolved to Keys.LButton.
+run Tf2DemoSalvage.Viewer3D.Tests viewer    616
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."

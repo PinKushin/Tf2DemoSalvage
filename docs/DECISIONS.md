@@ -5778,6 +5778,24 @@ platform behaviour instead, which is not ours to un-hardcode.
 **Removals count as progress and were taken immediately.** The height cut's three keys are gone with
 the feature (B213), and the guard added in their place names no key at all.
 
+### Done 2026-08-26 (B214), and it needed one thing Source does not have
+
+Every key in the viewer now resolves through `KeyBindings`. **`Escape` is the single exception and is
+named as one in the code**: it is the way out of full screen, so a config that rebound it away would
+leave a user with no menu, no title bar and no key that closes either. TF2 treats `ESCAPE` the same
+way, as the escape hatch rather than as a control.
+
+**Making the keys rebindable was the easy half. Choosing defaults was the hard one**, because
+`tf/cfg/config_default.cfg` binds 64 keys — **every letter except `o`** — so any single-key default
+elsewhere is taken away the moment a real config loads, and the action is silently gone. Six free
+single keys, fifteen actions.
+
+**So `CTRL+<key>` was added to the key vocabulary as a deliberate SUPERSET of Source's.** `bind`
+takes one key and has no modifier syntax, which cuts both ways: no real config can name a
+combination, so nothing pasted is misparsed *and* the entire combination space is unclaimable. That
+is the only reason there is room for the viewer's own actions at all. Same shape as `custom/` HUDs
+under D91 — a step beyond the game, taken knowingly, in the game's own style.
+
 ## D102 — The free camera imitates the roaming SPECTATOR, not the demo camera
 
 **Source has two free cameras and they share nothing but a purpose.** Which one this viewer copies

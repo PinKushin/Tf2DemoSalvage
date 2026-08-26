@@ -229,6 +229,9 @@ public sealed class ConfigConsole
     /// (Quoted as it was observed. That third action is <see cref="ViewerAction.FlyWalk"/> since
     /// B215, so a run today prints the new name.)
     ///
+    /// (`playpause` became Valve's own `demo_togglepause` in B214 — "Toggles demo playback" — so
+    /// only `resetcamera` is still ours among these three.)
+    ///
     /// **`resetcamera` and `playpause` are this project's own command names.** TF2 has no concept of
     /// either, so no TF2 config can ever bind them — it simply uses `f` and `k` for its own purposes
     /// and the viewer's controls vanish. A config cannot express a preference about a feature the
@@ -622,7 +625,16 @@ public sealed class ConfigConsole
     {
         HashSet<ViewerAction> reachable = [];
 
-        foreach (string key in _binds.Keys)
+        // **The defaults' keys are walked too, and leaving them out was a real defect** (B214).
+        // Every real TF2 config opens with `unbindall`, which empties `_binds` — so after loading
+        // one, this loop could only see keys that config went on to mention. A default sitting on a
+        // key no config touches was therefore reported as UNBOUND while `CommandFor`'s fallback was
+        // happily still answering for it: the control worked and the report said it did not.
+        //
+        // It stayed hidden while every default lived on a key TF2 itself binds. Moving the viewer's
+        // own actions onto `CTRL` combinations — which no config can name — made twelve of them
+        // vanish from a report that is supposed to be the alarm for exactly this.
+        foreach (string key in _binds.Keys.Union(_defaults.Keys, StringComparer.OrdinalIgnoreCase))
         {
             foreach (ViewerAction action in Expand(CommandFor(key) ?? string.Empty, depth: 0))
             {
@@ -856,9 +868,20 @@ public sealed class ConfigConsole
                 continue;
             }
 
-            if (KeyBindings.ActionOf(tokens[0]) is { } action && !found.Contains(action))
+            // **The WHOLE clause first, then its verb** (B214). A bound command may carry an
+            // argument — `bind "F5" "mat_fullbright 1"` is ordinary Source — and three of this
+            // viewer's actions are distinguished only by that argument, since `mat_fullbright`
+            // takes 0, 1 or 2. Matching `tokens[0]` alone made all three unreachable, and the
+            // symptom was that they never appeared in a binding report at all.
+            //
+            // Rejoined with single spaces rather than compared against the raw text, so
+            // `mat_fullbright  1` and a tab both resolve.
+            ViewerAction? action =
+                KeyBindings.ActionOf(string.Join(' ', tokens)) ?? KeyBindings.ActionOf(tokens[0]);
+
+            if (action is { } named && !found.Contains(named))
             {
-                found.Add(action);
+                found.Add(named);
             }
         }
 

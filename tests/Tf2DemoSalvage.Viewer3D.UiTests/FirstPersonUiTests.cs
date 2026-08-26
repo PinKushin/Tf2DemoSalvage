@@ -181,7 +181,10 @@ public sealed class FirstPersonUiTests
             () => Viewer.Count("viewmodel models/weapons/") > 0,
             TimeSpan.FromSeconds(10));
 
-        Viewer.PressKey(VirtualKeyShort.F12);
+        // **F5, which is TF2's screenshot key** (B214). This was F12 until the default moved —
+        // TF2 gives F12 to `replay_togglereplaytips` and Steam's overlay takes it too, while our F5
+        // was a debug view, so the two were swapped against the game.
+        Viewer.PressKey(VirtualKeyShort.F5);
 
         Retry.WhileFalse(
             () => Viewer.Count("wrote ") > 0, TimeSpan.FromSeconds(10));
@@ -205,7 +208,10 @@ public sealed class FirstPersonUiTests
             throwOnTimeout: true,
             timeoutMessage: "The viewmodel never reached the screen, so the capture would show none.");
 
-        Viewer.PressKey(VirtualKeyShort.F12);
+        // **F5, which is TF2's screenshot key** (B214). This was F12 until the default moved —
+        // TF2 gives F12 to `replay_togglereplaytips` and Steam's overlay takes it too, while our F5
+        // was a debug view, so the two were swapped against the game.
+        Viewer.PressKey(VirtualKeyShort.F5);
 
         // The only assertion: that a capture was actually taken. Without it a failure to press the
         // key would look like a successful run that produced no evidence.
