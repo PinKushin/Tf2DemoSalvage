@@ -5,6 +5,7 @@ using System.Linq;
 
 using Tf2DemoSalvage.Animation.Animating;
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Animation.Tests;
 
@@ -27,7 +28,7 @@ namespace Tf2DemoSalvage.Animation.Tests;
 /// </remarks>
 public sealed class SkeletonPoseContentTests
 {
-    private const string Game = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
+    private static string Game => GameInstall.Require();
 
     private const int Vertices = 0x00000400;
 

@@ -25,6 +25,12 @@ The cost landed as two red CI runs the same day: with the check written from mem
 one of them said `Assert` where it should have said `Assert.Ignore`, and CI — the only machine
 without the game — reported a missing install as a defect in the renderer.
 
+**And forty of the ninety-four were not copies of the locator at all — they were a bare
+`"F:/SteamLibrary/..."` with no override and no fallback.** Those work on exactly one computer; on
+any other the `File.Exists` beside them fails and the test takes its skip branch, so it stops
+measuring anything and reports as a skip. Counting the duplicates is what surfaced them; no test
+could, because they all pass where they were written.
+
 **How to apply:**
 
 - When extracting, either delete the duplicates in the same change or **record the count and the
@@ -37,6 +43,9 @@ without the game — reported a missing install as a defect in the renderer.
   reminder, a helper sitting in another project is not.
 - Suspect divergence before assuming the copies are equivalent. They all pass; that is what let them
   drift.
+- **Sweep with the counts as the control.** Content.Tests read 682 passed / 13 skipped / 695 total
+  before and after; finding the same install by a different route must change nothing, and a moved
+  number means a test quietly stopped running.
 
 Related: [[one-place-or-it-drifts]] is the rule this is the failure mode of —
 [[replace-all-is-a-claim-about-every-site]] is why the sweep has to be done by hand, and

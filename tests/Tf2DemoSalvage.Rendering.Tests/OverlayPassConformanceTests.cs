@@ -117,13 +117,9 @@ public sealed class OverlayPassConformanceTests
     /// </remarks>
     private static ReadOnlyMemory<byte>? Map()
     {
-        foreach (string path in new[]
+        foreach (string name in new[] { "cp_badlands", "cp_dustbowl" })
         {
-            "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf/maps/cp_badlands.bsp",
-            "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf/maps/cp_dustbowl.bsp",
-        })
-        {
-            if (System.IO.File.Exists(path))
+            if (GameInstall.Find($"maps/{name}.bsp") is { } path)
             {
                 return System.IO.File.ReadAllBytes(path);
             }

@@ -48,7 +48,7 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 public sealed class WeaponViewModelConformanceTests
 {
     /// <summary>Where the game is, on this machine.</summary>
-    private const string GameDirectory = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
+    private static string GameDirectory => GameInstall.Require();
 
     /// <summary>The key the engine reads, verbatim.</summary>
     private const string ViewModelKey = "viewmodel";

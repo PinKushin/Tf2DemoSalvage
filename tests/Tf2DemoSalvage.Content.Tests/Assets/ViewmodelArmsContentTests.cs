@@ -32,7 +32,7 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 /// </remarks>
 public sealed class ViewmodelArmsContentTests
 {
-    private const string Game = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
+    private static string Game => GameInstall.Require();
 
     /// <summary>The demoman's first-person arms, which is the model in the reported capture.</summary>
     private const string DemoArms = "models/weapons/c_models/c_demo_arms.mdl";

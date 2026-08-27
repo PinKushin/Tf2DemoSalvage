@@ -6212,9 +6212,28 @@ decides" — and that contract is unchanged: the accessors still return null. Wh
 of the decisions a caller can make is now named once instead of spelt out per file. Not a new
 dependency for anyone: every project referencing it is a test project.
 
-### What is left
+### The sweep, and what it turned up
 
-`Tf2Install` is deleted and the UI suite's copy is gone. **Ninety-two files still carry their own
-locator** and are a separate, mechanical sweep — one that has to be done by hand, because a
-find-and-replace across ninety-two files is exactly the edit
-`docs/memory/replace-all-is-a-claim-about-every-site.md` was written about.
+**All ninety-four are done**, in a second commit and by hand — a find-and-replace across ninety-four
+files is exactly the edit `docs/memory/replace-all-is-a-claim-about-every-site.md` was written about,
+and the shapes were not uniform: sixteen were locator properties, twenty-one were `const` folder
+paths, and the rest were local variables, map paths and candidate lists.
+
+**Forty of them were not duplication at all — they were pinned to one machine.** A plain
+`"F:/SteamLibrary/steamapps/common/Team Fortress 2/tf"` with no `TF2_FOLDER` override and no
+fallback: correct on the owner's computer, and on any other it fails the `File.Exists` beside it and
+takes the `Assert.Ignore` branch. **A test that has stopped measuring anything reads as a skip**,
+which is the exact silent failure `GameInstall`'s own remarks record from the corrupt-path incident.
+That was the sweep's real return, and it was invisible until the locators were counted.
+
+Three smaller things came out with it: two copies recognised an install by `Directory.Exists` alone
+(a Steam library keeps the folder for an uninstalled game), one test held an absolute path under one
+user's home directory for a repository file, and `MapCache.RequirePath` lost its unreachable throw.
+
+**The control was the count.** Content.Tests measured 682 passed / 13 skipped / 695 total before the
+sweep and exactly that after it; the whole gate is unchanged at twelve assemblies. Finding the
+install by a different route is supposed to change nothing on a machine that has it, and a moved
+number would have meant a test had quietly stopped running.
+
+What is left is unrelated to this: the tests that build a *synthetic* Steam layout under a temp root
+(`MapLocatorTests`, `MapProviderTests`) keep their paths, because that layout is their subject.

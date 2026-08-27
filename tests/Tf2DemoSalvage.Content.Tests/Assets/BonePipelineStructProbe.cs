@@ -2,8 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-using Tf2DemoSalvage.SdkReference;
-
 namespace Tf2DemoSalvage.Content.Tests.Assets;
 
 /// <summary>

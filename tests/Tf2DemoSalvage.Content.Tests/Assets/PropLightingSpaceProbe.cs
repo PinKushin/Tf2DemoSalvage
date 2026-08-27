@@ -25,13 +25,7 @@ public sealed class PropLightingSpaceProbe
     [Test]
     public void PropLighting_ComparedWithLightmapLighting_IsReported()
     {
-        string map = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf/maps/cp_process_final.bsp";
-
-        if (!File.Exists(map))
-        {
-            Assert.Ignore("map missing");
-            return;
-        }
+        string map = GameInstall.RequireFile("maps/cp_process_final.bsp");
 
         ReadOnlyMemory<byte> bytes = File.ReadAllBytes(map);
         PakFile pak = PakFile.ReadFrom(bytes);

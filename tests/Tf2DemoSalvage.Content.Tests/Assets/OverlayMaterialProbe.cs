@@ -28,7 +28,7 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 /// </remarks>
 public sealed class OverlayMaterialProbe
 {
-    private const string GameFolder = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
+    private static string GameFolder => GameInstall.Require();
 
     [Test]
     public void OverlayMaterials_TheWallStripes_AreReportedInFull()

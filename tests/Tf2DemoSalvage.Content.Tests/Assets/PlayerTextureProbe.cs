@@ -27,7 +27,7 @@ public sealed class PlayerTextureProbe
     [Explicit("diagnostic")]
     public void PlayerTextures_AsDecoded_AreReported()
     {
-        string tf = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
+        string tf = GameInstall.Require();
 
         List<VpkArchive> archives = [.. new[] { "tf2_textures_dir.vpk", "tf2_misc_dir.vpk" }
             .Select(name => Path.Combine(tf, name))

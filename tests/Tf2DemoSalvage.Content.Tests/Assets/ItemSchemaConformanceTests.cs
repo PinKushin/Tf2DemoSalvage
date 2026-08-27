@@ -38,9 +38,13 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 /// </remarks>
 public sealed class ItemSchemaConformanceTests
 {
-    /// <summary>Where the game is, on this machine.</summary>
-    private const string SchemaPath =
-        "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf/scripts/items/items_game.txt";
+    /// <summary>The shipped item schema, when the game is installed.</summary>
+    /// <remarks>
+    /// Nullable and not skipping, because the tests below already check for it and report which
+    /// ones they could run. <c>GameInstall.RequireFile</c> would be wrong here for the same reason
+    /// it is wrong in a survey: it decides for the caller.
+    /// </remarks>
+    private static string? SchemaPath => GameInstall.Find("scripts/items/items_game.txt");
 
     /// <summary>The stock scattergun, and the first item a scout holds.</summary>
     private const string StockScattergun = "13";
@@ -131,7 +135,9 @@ public sealed class ItemSchemaConformanceTests
     /// </remarks>
     private static Dictionary<string, string?> Block(string parent, string name)
     {
-        byte[] schema = File.ReadAllBytes(SchemaPath);
+        // Every caller has already gated on the schema being there; this says so in a form the
+        // compiler accepts, and skips rather than throwing if one ever forgets to.
+        byte[] schema = File.ReadAllBytes(Skip.Unless(SchemaPath, GameInstall.Missing));
 
         Dictionary<string, string?> inside = [];
         bool inParent = false;

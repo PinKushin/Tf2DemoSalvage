@@ -26,36 +26,7 @@ namespace Tf2DemoSalvage.Content.Tests.Bsp;
 public sealed class BspTerrainTests
 {
     /// <summary>A shipped map with real displacements, when the game is installed.</summary>
-    private static string? MapFile
-    {
-        get
-        {
-            string? configured = Environment.GetEnvironmentVariable("TF2_FOLDER");
-
-            foreach (string? root in new[]
-            {
-                configured,
-                @"C:\Program Files (x86)\Steam\steamapps\common\Team Fortress 2\tf",
-                @"F:\SteamLibrary\steamapps\common\Team Fortress 2\tf",
-                @"D:\SteamLibrary\steamapps\common\Team Fortress 2\tf",
-            })
-            {
-                if (string.IsNullOrWhiteSpace(root))
-                {
-                    continue;
-                }
-
-                string map = Path.Combine(root, "maps", "cp_process_final.bsp");
-
-                if (File.Exists(map))
-                {
-                    return map;
-                }
-            }
-
-            return null;
-        }
-    }
+    private static string? MapFile => GameInstall.Find("maps/cp_process_final.bsp");
 
     private ReadOnlyMemory<byte> _map;
     private IReadOnlyList<BspSurface> _displacements = [];

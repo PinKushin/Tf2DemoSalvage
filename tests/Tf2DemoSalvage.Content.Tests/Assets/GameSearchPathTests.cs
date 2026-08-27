@@ -203,20 +203,10 @@ public sealed class GameSearchPathTests
         // **The stock file, because the fixtures above are this project's idea of the format.**
         // Only the real one proves the parser survives Valve's actual spacing, comments and
         // ordering.
-        string? installed = new[]
-        {
-            Environment.GetEnvironmentVariable("TF2_FOLDER"),
-            @"C:\Program Files (x86)\Steam\steamapps\common\Team Fortress 2\tf",
-            @"F:\SteamLibrary\steamapps\common\Team Fortress 2\tf",
-            @"D:\SteamLibrary\steamapps\common\Team Fortress 2\tf",
-        }.FirstOrDefault(folder =>
-            !string.IsNullOrWhiteSpace(folder) && File.Exists(Path.Combine(folder, "gameinfo.txt")));
-
-        if (installed is null)
-        {
-            Assert.Ignore("Team Fortress 2 is not installed; set TF2_FOLDER to run this.");
-            return;
-        }
+        // The recogniser here is `gameinfo.txt` rather than GameInstall's archive, because that
+        // file is the subject: an install without it has nothing for this test to read.
+        string installed = Path.GetDirectoryName(GameInstall.RequireFile("gameinfo.txt"))
+            ?? GameInstall.Require();
 
         IReadOnlyList<SearchPathEntry> entries = GameSearchPath.Read(installed);
 

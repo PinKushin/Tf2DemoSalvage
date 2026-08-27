@@ -32,7 +32,7 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 /// </remarks>
 public sealed class ViewmodelBoneMergeTests
 {
-    private const string Game = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
+    private static string Game => GameInstall.Require();
 
     private const string SoldierArms = "models/weapons/c_models/c_soldier_arms.mdl";
 

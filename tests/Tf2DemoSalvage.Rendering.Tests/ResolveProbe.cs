@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
 
@@ -11,13 +12,7 @@ public sealed class ResolveProbe
     [Test]
     public void SearchPath_TheHydroPipeMaterial_IsReported()
     {
-        string tf = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
-
-        if (!Directory.Exists(tf))
-        {
-            Assert.Ignore("game missing");
-            return;
-        }
+        string tf = GameInstall.Require();
 
         GameArchives archives = GameArchives.Open(tf);
 

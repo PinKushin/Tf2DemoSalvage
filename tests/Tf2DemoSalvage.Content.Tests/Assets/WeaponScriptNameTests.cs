@@ -5,7 +5,6 @@ using System.Linq;
 using System.Text.RegularExpressions;
 
 using Tf2DemoSalvage.Content.Assets;
-using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Content.Tests.Assets;
 

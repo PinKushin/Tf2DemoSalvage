@@ -59,7 +59,7 @@ public sealed class AmbientCubeScaleConformanceTests
 
     private static IEnumerable<string> Candidates =>
     [
-        @"F:\SteamLibrary\steamapps\common\Team Fortress 2\tf\maps\koth_harvest_final.bsp",
+        Path.Combine(GameInstall.Root ?? string.Empty, "maps", "koth_harvest_final.bsp"),
         Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "Tf2DemoSalvage", "maps", "cp_process_f12.bsp"),

@@ -21,7 +21,7 @@ public sealed class Mp3CategoryProbe
     [Test]
     public void Mp3Files_ByFolder_AreCounted()
     {
-        string tf = @"F:\SteamLibrary\steamapps\common\Team Fortress 2\tf";
+        string tf = GameInstall.Require();
 
         if (!Directory.Exists(tf))
         {

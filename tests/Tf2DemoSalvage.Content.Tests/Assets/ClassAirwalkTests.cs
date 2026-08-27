@@ -20,7 +20,7 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 /// </remarks>
 public sealed class ClassAirwalkTests
 {
-    private const string Game = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
+    private static string Game => GameInstall.Require();
 
     [Test]
     public void ClassScripts_AirWalkingClasses_AreDeclared()

@@ -26,34 +26,13 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 /// </remarks>
 public sealed class PlayerClassModelsTests
 {
-    private static string? GameFolder
-    {
-        get
-        {
-            if (Environment.GetEnvironmentVariable("TF2_FOLDER") is { Length: > 0 } configured &&
-                Directory.Exists(configured))
-            {
-                return configured;
-            }
-
-            string[] candidates =
-            [
-                @"C:\Program Files (x86)\Steam\steamapps\common\Team Fortress 2\tf",
-                @"F:\SteamLibrary\steamapps\common\Team Fortress 2\tf",
-                @"D:\SteamLibrary\steamapps\common\Team Fortress 2\tf",
-            ];
-
-            foreach (string candidate in candidates)
-            {
-                if (Directory.Exists(candidate))
-                {
-                    return candidate;
-                }
-            }
-
-            return null;
-        }
-    }
+    /// <summary>Where the game is, when it is installed on this machine.</summary>
+    /// <remarks>
+    /// **This copy recognised the install by <c>Directory.Exists</c> alone**, which a Steam library
+    /// satisfies for a game that has been uninstalled — the folder outlives the content.
+    /// <see cref="GameInstall"/> looks for an archive inside it instead.
+    /// </remarks>
+    private static string? GameFolder => GameInstall.Root;
 
     private string _tf = string.Empty;
 

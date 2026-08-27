@@ -12,19 +12,17 @@ public sealed class ToolMaterialFlagsProbe
     [Test]
     public void ToolMaterialFlags_EveryToolMaterial_IsReported()
     {
-        string path = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf/maps/cp_process_final.bsp";
-        string custom = "C:/Users/pinku/source/repos/PinKushin/Tf2DemoSalvage/tools/corpus/local/maps/cp_process_f12.bsp";
+        // The authored f12 map wins when it is there, because it carries tool materials the stock
+        // compile does not. The repository path is derived rather than typed: it used to be an
+        // absolute path under one user's home, which no other machine could ever satisfy.
+        string custom = Path.GetFullPath(Path.Combine(
+            TestContext.CurrentContext.TestDirectory,
+            "..", "..", "..", "..", "..",
+            "tools", "corpus", "local", "maps", "cp_process_f12.bsp"));
 
-        if (File.Exists(custom))
-        {
-            path = custom;
-        }
-
-        if (!File.Exists(path))
-        {
-            Assert.Ignore("map missing");
-            return;
-        }
+        string path = File.Exists(custom)
+            ? custom
+            : GameInstall.RequireFile("maps/cp_process_final.bsp");
 
         ReadOnlyMemory<byte> map = File.ReadAllBytes(path);
         IReadOnlyList<BspSurface> surfaces = BspSurfaces.Read(map);

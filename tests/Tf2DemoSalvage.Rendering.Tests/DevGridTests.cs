@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
 
@@ -27,7 +28,7 @@ public sealed class DevGridTests
     [Test]
     public void DevGrid_LoadedFromTheGame_CarriesStructureRatherThanOneColour()
     {
-        string tf = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
+        string tf = GameInstall.Root ?? string.Empty;
         string map = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "Tf2DemoSalvage", "maps", "cp_process_f12.bsp");

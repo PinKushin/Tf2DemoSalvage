@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
 
@@ -16,33 +17,7 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// </remarks>
 public sealed class MapAssetsTests
 {
-    private static string? GameFolder
-    {
-        get
-        {
-            string? configured = Environment.GetEnvironmentVariable("TF2_FOLDER");
-
-            if (!string.IsNullOrWhiteSpace(configured) && Directory.Exists(configured))
-            {
-                return configured;
-            }
-
-            foreach (string root in new[]
-            {
-                @"C:\Program Files (x86)\Steam\steamapps\common\Team Fortress 2\tf",
-                @"F:\SteamLibrary\steamapps\common\Team Fortress 2\tf",
-                @"D:\SteamLibrary\steamapps\common\Team Fortress 2\tf",
-            })
-            {
-                if (File.Exists(Path.Combine(root, "tf2_textures_dir.vpk")))
-                {
-                    return root;
-                }
-            }
-
-            return null;
-        }
-    }
+    private static string? GameFolder => GameInstall.Root;
 
     private string _folder = string.Empty;
 

@@ -25,7 +25,7 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 [Explicit("Reports TF2's shipped soundscape data; run deliberately.")]
 public sealed class SoundscapeManifestProbe
 {
-    private const string Game = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
+    private static string Game => GameInstall.Require();
 
     [Test]
     public void Soundscapes_TheShippedManifestAndFiles_AreReported()

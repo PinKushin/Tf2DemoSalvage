@@ -3,7 +3,6 @@ using System.IO;
 using System.Linq;
 
 using Tf2DemoSalvage.Content.Bsp;
-using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Content.Tests.Bsp;
 

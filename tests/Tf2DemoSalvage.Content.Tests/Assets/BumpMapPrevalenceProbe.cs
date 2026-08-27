@@ -26,7 +26,7 @@ public sealed class BumpMapPrevalenceProbe
     [Test]
     public void BumpMaps_ByKind_AreReported()
     {
-        string tf = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
+        string tf = GameInstall.Require();
         string map = Path.Combine(tf, "maps", "cp_process_final.bsp");
 
         if (!File.Exists(map))

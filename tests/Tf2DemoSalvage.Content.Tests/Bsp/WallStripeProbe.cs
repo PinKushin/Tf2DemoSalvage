@@ -26,29 +26,16 @@ public sealed class WallStripeProbe
     [Test]
     public void WallStripes_TheirMaterials_AreReported()
     {
+        // The authored f12 map first, then the stock one — the preference is the point, so this
+        // walks the names rather than taking the first that exists.
         string? path = null;
 
-        foreach (string? root in new[]
+        foreach (string name in new[] { "cp_process_f12.bsp", "cp_process_final.bsp" })
         {
-            Environment.GetEnvironmentVariable("TF2_FOLDER"),
-            @"F:\SteamLibrary\steamapps\common\Team Fortress 2\tf",
-        })
-        {
-            foreach (string name in new[] { "cp_process_f12.bsp", "cp_process_final.bsp" })
-            {
-                if (!string.IsNullOrWhiteSpace(root) &&
-                    File.Exists(Path.Combine(root, "maps", name)))
-                {
-                    path ??= Path.Combine(root, "maps", name);
-                }
-            }
+            path ??= GameInstall.Find($"maps/{name}");
         }
 
-        if (path is null)
-        {
-            Assert.Ignore("No map available; set TF2_FOLDER to run this.");
-            return;
-        }
+        path = Skip.Unless(path, "No map available; set TF2_FOLDER to run this.");
 
         ReadOnlyMemory<byte> map = File.ReadAllBytes(path);
 

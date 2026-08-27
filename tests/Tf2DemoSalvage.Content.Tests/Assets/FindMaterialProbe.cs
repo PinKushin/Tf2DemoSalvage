@@ -11,13 +11,7 @@ public sealed class FindMaterialProbe
     [Test]
     public void HydroPipeMaterial_ItsLocation_IsReported()
     {
-        string tf = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
-
-        if (!Directory.Exists(tf))
-        {
-            Assert.Ignore("game missing");
-            return;
-        }
+        string tf = GameInstall.Require();
 
         foreach (string name in new[] { "tf2_textures_dir.vpk", "tf2_misc_dir.vpk" })
         {

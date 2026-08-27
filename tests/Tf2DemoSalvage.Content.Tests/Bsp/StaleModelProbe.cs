@@ -13,12 +13,12 @@ public sealed class StaleModelProbe
     [Test]
     public void PackedModels_AgainstTheirLighting_AreReported()
     {
-        string tf = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
+        string tf = GameInstall.Require();
         string mapPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "Tf2DemoSalvage", "maps", "cp_process_f12.bsp");
 
-        if (!File.Exists(mapPath) || !Directory.Exists(tf))
+        if (!File.Exists(mapPath))
         {
             Assert.Ignore("map or game missing");
             return;

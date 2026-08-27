@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 
 using Tf2DemoSalvage.Content.Bsp;
+using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
 
@@ -30,8 +31,8 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// </remarks>
 public sealed class OverlayQuadExtentProbe
 {
-    private const string MapPath =
-        "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf/maps/cp_process_f12.bsp";
+    /// <summary>The authored f12 map, when it has been placed in the install.</summary>
+    private static string? MapPath => GameInstall.Find("maps/cp_process_f12.bsp");
 
     [Test]
     public void OverlayQuads_AgainstTheFacesTheyName_AreReported()
