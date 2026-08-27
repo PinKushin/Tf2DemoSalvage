@@ -215,6 +215,51 @@ public sealed record ViewerSettings
     /// </remarks>
     public const string ViewmodelFieldOfViewCommand = "viewmodel_fov";
 
+    /// <summary>Command name for the viewmodel's field of view DURING DEMO PLAYBACK.</summary>
+    /// <remarks>
+    /// **This is the one that applies here, and `viewmodel_fov` never does** (B166).
+    /// `ClientModeTFNormal::GetViewModelFOV` (<c>clientmode_tf.cpp:571</c>) branches on
+    /// <c>engine->IsPlayingDemo()</c> and returns <c>viewmodel_fov_demo</c> when it is true. A demo
+    /// viewer is always on that branch.
+    ///
+    /// **It looked correct for weeks because the two defaults agree.** `viewmodel_fov_demo` ships
+    /// `"54"` and this project clamped `viewmodel_fov` to 54..70, so the owner's stored
+    /// <c>viewmodel_fov "0.100000"</c> became 54 — the right number by the wrong route, which is why
+    /// nothing ever looked broken.
+    /// </remarks>
+    public const string DemoViewmodelFieldOfViewCommand = "viewmodel_fov_demo";
+
+    /// <summary>What TF2 ships <c>viewmodel_fov_demo</c> at.</summary>
+    /// <remarks>
+    /// <c>ConVar v_viewmodel_fov_demo( "viewmodel_fov_demo", "54", FCVAR_ARCHIVE )</c>,
+    /// <c>clientmode_tf.cpp:570</c>.
+    /// </remarks>
+    public const float DefaultDemoViewmodelFieldOfView = 54f;
+
+    /// <summary>Command name for whether the viewmodel is drawn at all.</summary>
+    /// <remarks>
+    /// **The switch the owner actually uses, and the viewer did not implement it** (B166).
+    /// <c>ConVar r_drawviewmodel( "r_drawviewmodel","1", FCVAR_DONTRECORD )</c>,
+    /// <c>viewrender.cpp:116</c>, read by <c>ClientModeTFNormal::ShouldDrawViewModel</c>.
+    ///
+    /// **`FCVAR_DONTRECORD` matters here**: a demo never carries a change to it, so playback always
+    /// begins at the default whatever the recorder had set. The value can only come from the
+    /// watcher's own config, which is exactly how this project takes it.
+    /// </remarks>
+    public const string DrawViewmodelCommand = "r_drawviewmodel";
+
+    /// <summary>The narrowest the viewmodel field of view may be — <c>view.cpp:111</c>.</summary>
+    /// <remarks>
+    /// **The FIRST of four bounds, and using the wrong pair was a real defect.** `viewmodel_fov` is
+    /// declared <c>true, 0.1, true, 179.9, true, 54, true, 70</c>: a hard range of 0.1..179.9 and a
+    /// COMPETITIVE range of 54..70. This project applied the competitive pair as though it were the
+    /// only one, so 0.1 — a legal value the owner's config actually stores — could not survive.
+    /// </remarks>
+    public const float SmallestDemoViewmodelFieldOfView = 0.1f;
+
+    /// <inheritdoc cref="SmallestDemoViewmodelFieldOfView"/>
+    public const float LargestDemoViewmodelFieldOfView = 179.9f;
+
     /// <summary>Command name for the player's world field of view.</summary>
     /// <remarks>
     /// What a real config sets, so a pasted one works (D69).
@@ -448,6 +493,23 @@ public sealed record ViewerSettings
     /// </remarks>
     public float ViewmodelFieldOfView { get; init; } = ViewmodelPass.LargestFieldOfView;
 
+    /// <summary>Whether the weapon in the player's hands is drawn at all.</summary>
+    /// <remarks>
+    /// **Valve's `r_drawviewmodel`, defaulted as Valve defaults it** (B166).
+    /// <c>ClientModeTFNormal::ShouldDrawViewModel</c> returns false when it is zero, and it ships
+    /// <c>"1"</c> — so a viewer that never implemented it happened to behave correctly for anyone
+    /// who had not turned it off.
+    ///
+    /// **The owner had turned it off, and still saw viewmodels here**, which is what raised this:
+    /// *"im actually a little surprised the viewmodels are actually showing right now at all,
+    /// because we are technically suppose to be using my real tf2 config as a base... i dont use
+    /// viewmodels for basically any class"*. Their config sets it through the `vm_off` alias in
+    /// `viewmodels.cfg`, invoked from class-selection scripts that never run while spectating a
+    /// demo — so even real TF2 would draw one here. The hypothesis was right and so was the output;
+    /// what was missing was the control.
+    /// </remarks>
+    public bool DrawViewmodel { get; init; } = true;
+
     /// <summary>The world field of view, in degrees.</summary>
     /// <remarks>
     /// **Settable because the game lets a player set it, which is the whole rule** (D69,
@@ -569,18 +631,46 @@ public sealed record ViewerSettings
             settings = settings with { NoFocusSleep = noFocus };
         }
 
-        // **Clamped rather than refused, which is what a ConVar with bounds does.** TF2 declares
-        // this one `true, 54, true, 70`, so a config asking for 90 gets 70 in the game and gets 70
-        // here — refusing it instead would be this viewer disagreeing with the file it was handed.
+        // **`viewmodel_fov_demo` is read AFTER `viewmodel_fov` and wins, because that is the order
+        // the engine resolves them in** (B166). `GetViewModelFOV` returns the demo convar whenever a
+        // demo is playing and never consults the other one, so a config setting both must land on
+        // the demo value here as it would in game.
+        //
+        // **Clamped rather than refused, which is what a ConVar with bounds does.** A config asking
+        // for 500 gets 179.9 in the game and gets 179.9 here; refusing it would be this viewer
+        // disagreeing with the file it was handed.
+        //
+        // **The bounds are the HARD pair, not the competitive one.** `viewmodel_fov` is declared
+        // with four — `true, 0.1, true, 179.9, true, 54, true, 70` — and this used to clamp to
+        // 54..70, which turned the owner's stored 0.1 into 54. That produced the right number by the
+        // wrong route, since 54 is also `viewmodel_fov_demo`'s default.
         if (ReadNumber(values, ViewmodelFieldOfViewCommand) is { } viewmodelFov)
         {
             settings = settings with
             {
                 ViewmodelFieldOfView = Math.Clamp(
                     viewmodelFov,
-                    ViewmodelPass.SmallestFieldOfView,
-                    ViewmodelPass.LargestFieldOfView),
+                    SmallestDemoViewmodelFieldOfView,
+                    LargestDemoViewmodelFieldOfView),
             };
+        }
+
+        if (ReadNumber(values, DemoViewmodelFieldOfViewCommand) is { } demoViewmodelFov)
+        {
+            settings = settings with
+            {
+                ViewmodelFieldOfView = Math.Clamp(
+                    demoViewmodelFov,
+                    SmallestDemoViewmodelFieldOfView,
+                    LargestDemoViewmodelFieldOfView),
+            };
+        }
+
+        // **`r_drawviewmodel`, the switch that decides whether there is a viewmodel at all** (B166).
+        // Read as a number because that is how a Source config writes a boolean convar.
+        if (Read(values, DrawViewmodelCommand) is { } drawViewmodel)
+        {
+            settings = settings with { DrawViewmodel = drawViewmodel != 0 };
         }
 
         // **Both names, and the demo one wins, which is the engine's own precedence.** A config

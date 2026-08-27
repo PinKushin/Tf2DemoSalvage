@@ -15,6 +15,10 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="Followed">The entity being spectated, or null.</param>
 /// <param name="Eye">That player's camera, or null when nobody's eyes are available.</param>
 /// <param name="ViewmodelFieldOfView">The user's viewmodel field of view, in degrees.</param>
+/// <param name="DrawViewmodel">
+/// Whether the weapon in hand is drawn — Valve's <c>r_drawviewmodel</c> (B166). A setting like the
+/// field of view beside it, defaulted true because Valve ships it at <c>"1"</c>.
+/// </param>
 /// <remarks>
 /// **Five values, and every one of them is genuinely the window's.** The camera mode is a UI state,
 /// the transport tick is a control's position, the eye needs the viewport's aspect, and the field of
@@ -26,7 +30,8 @@ public readonly record struct MomentView(
     bool FirstPerson,
     int? Followed,
     FreeCamera? Eye,
-    float ViewmodelFieldOfView);
+    float ViewmodelFieldOfView,
+    bool DrawViewmodel = true);
 
 /// <summary>Samples a moment from the demo and hands it to the scene.</summary>
 /// <remarks>
@@ -149,7 +154,8 @@ public sealed class MomentPresenter
                 view.Followed,
                 view.Eye,
                 LastInterval,
-                view.ViewmodelFieldOfView));
+                view.ViewmodelFieldOfView,
+                view.DrawViewmodel));
 
         _ledger.Posed(phases.Pose);
 

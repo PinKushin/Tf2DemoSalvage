@@ -165,19 +165,34 @@ public sealed class ViewerSettingsTests
     [Test]
     public void Load_AViewmodelFieldOfViewOutsideTheGamesRange_IsClamped()
     {
-        // `ConVar v_viewmodel_fov( "viewmodel_fov", "54", ..., true, 54, true, 70, NULL )` —
-        // view.cpp:111. A ConVar with bounds clamps rather than refuses, so a config asking for 90
-        // gets 70 in the game and gets 70 here. Refusing it instead would be this viewer
-        // disagreeing with a file TF2 itself would accept.
+        // **This asserted 54..70 and the citation above it was a misreading** (B166). It quoted
+        // `..., true, 54, true, 70, NULL` as though that were the declaration; the real line carries
+        // FOUR bounds:
+        //
+        //     ConVar v_viewmodel_fov( "viewmodel_fov", "54", FCVAR_ARCHIVE,
+        //         "Sets the field-of-view for the viewmodel.",
+        //         true, 0.1, true, 179.9, true, 54, true, 70, NULL );   // view.cpp:111
+        //
+        // The first pair is the range the convar accepts; the second is the COMPETITIVE range, which
+        // the game applies only in that mode. Reading the last pair as the only one is why the
+        // owner's stored `viewmodel_fov "0.100000"` — a legal value — could not survive here.
+        //
+        // A ConVar with bounds clamps rather than refuses, so a config asking for 500 gets 179.9 in
+        // the game and gets 179.9 here.
         string file = Path.Combine(_folder, "settings.cfg");
 
-        File.WriteAllText(file, $"{ViewerSettings.ViewmodelFieldOfViewCommand} 90\n");
-        ViewerSettings.Load(file).ViewmodelFieldOfView.ShouldBe(70f, 0.01f);
+        File.WriteAllText(file, $"{ViewerSettings.ViewmodelFieldOfViewCommand} 500\n");
+        ViewerSettings.Load(file).ViewmodelFieldOfView.ShouldBe(179.9f, 0.01f);
 
-        // The floor too, which is the end a player cannot lower past — and the end a test that
-        // only checked the ceiling would leave unmeasured.
-        File.WriteAllText(file, $"{ViewerSettings.ViewmodelFieldOfViewCommand} 10\n");
-        ViewerSettings.Load(file).ViewmodelFieldOfView.ShouldBe(54f, 0.01f);
+        // The floor too, which a test checking only the ceiling would leave unmeasured.
+        File.WriteAllText(file, $"{ViewerSettings.ViewmodelFieldOfViewCommand} -5\n");
+        ViewerSettings.Load(file).ViewmodelFieldOfView.ShouldBe(0.1f, 0.01f);
+
+        // **And the value the owner actually stores, which is the case that mattered.** 90 and 10
+        // both sit inside the hard range, so neither is clamped now — asserting on them would have
+        // been asserting the competitive rule under a different name.
+        File.WriteAllText(file, $"{ViewerSettings.ViewmodelFieldOfViewCommand} 0.1\n");
+        ViewerSettings.Load(file).ViewmodelFieldOfView.ShouldBe(0.1f, 0.01f);
     }
 
     [Test]
