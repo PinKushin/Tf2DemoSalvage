@@ -248,6 +248,20 @@ public sealed record ViewerSettings
     /// </remarks>
     public const string DrawViewmodelCommand = "r_drawviewmodel";
 
+    /// <summary>Whether materials asking for <c>$phong</c> get their highlight.</summary>
+    /// <remarks>
+    /// **Valve's, default 1**, read from the game's own shipped list: <c>mat_phong : 1 : :</c>. No
+    /// flags and no help text there, so the description on <see cref="Phong"/> is this project's
+    /// own rather than a quotation.
+    ///
+    /// **It is here rather than only on the menu because it is Valve's**, and D69 is that a real
+    /// config must work wholesale — the owner, 2026-08-27: *"if its a valve setting then yes it goes
+    /// in the config and can be imported from a config"*. Anyone who turns phong off in TF2 for
+    /// performance has `mat_phong 0` in the config they paste here, and a viewer that reached the
+    /// same switch only through its own menu would silently ignore them.
+    /// </remarks>
+    public const string PhongCommand = "mat_phong";
+
     /// <summary>The narrowest the viewmodel field of view may be — <c>view.cpp:111</c>.</summary>
     /// <remarks>
     /// **The FIRST of four bounds, and using the wrong pair was a real defect.** `viewmodel_fov` is
@@ -510,6 +524,20 @@ public sealed record ViewerSettings
     /// </remarks>
     public bool DrawViewmodel { get; init; } = true;
 
+    /// <summary>Whether <c>$phong</c> materials get their specular highlight — <c>mat_phong</c>.</summary>
+    /// <remarks>
+    /// **The term is large and additive, which is why a switch for it is worth having.** Valve
+    /// describes <c>$phongboost</c> as an "overbrightening factor (specular mask channel should be
+    /// authored to account for this)" (`vertexlitgeneric_dx9.cpp:55`), so a material pairs a big
+    /// boost with a small authored mask and anything reading that mask wrong lands the boost raw.
+    ///
+    /// Measured on one `cp_process_final` material, the highlight was roughly three quarters of the
+    /// surface's entire brightness — a centre pixel of `(116, 118, 122)` with phong on against
+    /// `(28, 29, 33)` with it off, over a `(3, 3, 3)` unlit baseline. So "is the highlight what
+    /// washes out a modern weapon" (B170) is a question worth being able to answer by looking.
+    /// </remarks>
+    public bool Phong { get; init; } = true;
+
     /// <summary>The world field of view, in degrees.</summary>
     /// <remarks>
     /// **Settable because the game lets a player set it, which is the whole rule** (D69,
@@ -671,6 +699,15 @@ public sealed record ViewerSettings
         if (Read(values, DrawViewmodelCommand) is { } drawViewmodel)
         {
             settings = settings with { DrawViewmodel = drawViewmodel != 0 };
+        }
+
+        // **`mat_phong`, read the same way and for the same reason** — a Source config writes a
+        // boolean convar as a number, and plenty of real configs carry `mat_phong 0` for
+        // performance. Ignoring it would be D69's exact failure: a pasted config that silently does
+        // less than it says.
+        if (Read(values, PhongCommand) is { } phong)
+        {
+            settings = settings with { Phong = phong != 0 };
         }
 
         // **Both names, and the demo one wins, which is the engine's own precedence.** A config

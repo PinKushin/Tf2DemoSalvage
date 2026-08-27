@@ -19,6 +19,7 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <param name="SetDrawEntities">Draw props and models.</param>
 /// <param name="SetDebugMode">Turn one per-surface debug view on or off.</param>
 /// <param name="SetSpecular">Add cubemap reflections.</param>
+/// <param name="SetPhong">Add specular highlights to materials asking for <c>$phong</c>.</param>
 /// <param name="Screenshot">Write a picture of the viewport.</param>
 /// <remarks>
 /// **Delegates rather than a reference to the form, and that is the point of the split.** A menu
@@ -45,6 +46,7 @@ internal readonly record struct ViewerMenuActions(
     Action<bool> SetDrawEntities,
     Action<Func<DebugModes, bool, DebugModes>, bool> SetDebugMode,
     Action<bool> SetSpecular,
+    Action<bool> SetPhong,
     Action Screenshot);
 
 /// <summary>The viewer's main menu: the strip, and the items whose state is read elsewhere.</summary>
@@ -86,6 +88,9 @@ internal sealed class ViewerMenu : IDisposable
 
     /// <summary>Cubemap reflections.</summary>
     public ToolStripMenuItem Specular { get; }
+
+    /// <summary>Specular highlights — Valve's <c>mat_phong</c>.</summary>
+    public ToolStripMenuItem Phong { get; }
 
     /// <summary>The lighting submenu, whose three items are checked as a group.</summary>
     public ToolStripMenuItem FullbrightMenu { get; }
@@ -311,6 +316,26 @@ internal sealed class ViewerMenu : IDisposable
 
         Specular.CheckedChanged += (_, _) => actions.SetSpecular(Specular.Checked);
 
+        // **Valve's `mat_phong`, default 1**, and it sits beside Reflections because it is the same
+        // kind of switch: a material feature removed wholesale rather than a debug visualisation.
+        // No shortcut, for the reason given above about Reflections — inventing one would be an
+        // arbitrary answer to a question nobody asked, and the menu reaches it.
+        Phong = new ToolStripMenuItem("&Highlights")
+        {
+            Name = MainForm.PhongItemId,
+            CheckOnClick = true,
+
+            // From the config, like every other item here that has one. A tick that disagreed with
+            // what the renderer was doing would be worse than no tick at all.
+            Checked = settings.Phong,
+            AccessibleName = "Highlights",
+            AccessibleDescription =
+                "Adds specular highlights to materials that ask for them. Turn off to see whether " +
+                "a highlight is washing out a model.",
+        };
+
+        Phong.CheckedChanged += (_, _) => actions.SetPhong(Phong.Checked);
+
         // **A submenu of three, because `mat_fullbright` has three states.** Offering it as a
         // checkbox would be the same mistake as reading the cvar's name and assuming a boolean —
         // and it is the more useful state, lighting-only, that a checkbox would drop.
@@ -484,6 +509,7 @@ internal sealed class ViewerMenu : IDisposable
         view.DropDownItems.Add(screenshot);
         view.DropDownItems.Add(Wireframe);
         view.DropDownItems.Add(Specular);
+        view.DropDownItems.Add(Phong);
         view.DropDownItems.Add(FullbrightMenu);
         view.DropDownItems.Add(DrawWorld);
         view.DropDownItems.Add(DrawEntities);
@@ -527,6 +553,7 @@ internal sealed class ViewerMenu : IDisposable
         Wireframe.Dispose();
         FrameRate.Dispose();
         Specular.Dispose();
+        Phong.Dispose();
 
         // Disposing the submenu disposes the three items it owns.
         FullbrightMenu.Dispose();
