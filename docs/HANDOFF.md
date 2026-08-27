@@ -26,6 +26,47 @@ Plus 20 UI, run separately under `run-exclusive.ps1`.
 > *"i think the next step in the naked convars, then the local lights. interp is a much bigger thing
 > than you realize i think."*
 
+…and then, after asking whether separating the conformance tests gains anything: *"ok write the
+helper into the handoff, that will be done first."* So the shared skip helper below comes ahead of
+all three.
+
+### 0. The shared test-support project and one skip helper — do this first
+
+**Agreed 2026-08-27 as the first task**, after the owner asked whether separating the conformance
+tests buys anything real. It does, but for reasons D105 did not give — and most of the value is
+available for far less than a fifty-file move.
+
+**What it fixes, and it has already cost real money.** CI is the machine without TF2 and is the only
+place the no-install path runs. A conformance test that *asserts* rather than *skips* when the game
+is absent turns "no install here" into a red build: that happened twice today on
+`LightingLumps_AcrossTheEraAxis_AreReported`, on two separate pushes. There is no shared way to say
+"this test needs the game", so every author reimplements the check and one of them will get it wrong
+again.
+
+**The second thing it fixes is placement.** `Tf2Install` is `internal` to
+`Tf2DemoSalvage.Rendering.Tests`. `CvarNameConformanceTests` has nothing to do with rendering and
+lives there anyway, because that is the only assembly that can find the game folder. That is not a
+judgement about where the test belongs — it is the helper's visibility choosing for it.
+
+**The shape:**
+
+- A test-support project holding `Tf2Install`, the skip helper, and probably `MapCache`.
+- One helper with the semantics the UI suite's `ViewerSession.RequireTheGame()` already has —
+  `Assert.Ignore` with a reason, never an assertion. A skip is neither a pass nor a failure and still
+  counts toward the suite total, so the count floors keep working.
+- Every conformance suite that touches the install routed through it.
+
+**Why this before D105 rather than instead of it.** The helpers have to be extracted either way; a
+project split with `Tf2Install` still trapped inside `Rendering.Tests` is not possible. So this is the
+prerequisite, it is small, and it removes the failure mode on its own. D105 stays the eventual shape
+and stays unhurried — the owner: *"im not super worried about the conformance tests as long as there
+are plenty of them"*, and there are fifty files of them across six projects.
+
+**Worth knowing while doing it:** `docs/CONFORMANCE.md` selects the suite with
+`dotnet test <project> --filter 'FullyQualifiedName~Conformance'`, which is six invocations today and
+is a naming convention with nothing enforcing it. Do not tighten that into a rule the compiler cannot
+check; the project boundary is what would make it structural, and that is D105's job.
+
 ### 1. The naked convars — D106
 
 **Twenty values are baked as constants that Valve declares as ConVars.** They are listed in
@@ -85,6 +126,20 @@ same conversation and are unimplemented.
 conformance tests as long as there are plenty of them."* The decision stands as written and is not
 urgent. Six suites landed in `Rendering.Tests` today; that is untidy rather than broken, and the
 count floors keep it honest either way.
+
+**But D105's stated reason is the weakest of the real ones**, and that is worth correcting here so
+nobody executes it for the wrong motive. It says their subject is Valve's behaviour rather than one
+of our assemblies — true, and purely conceptual; it would have prevented nothing. The two arguments
+that actually earn a split are:
+
+1. **Refactor safety.** A conformance test asserts what VALVE does. Sitting among unit tests it is
+   one more red thing during a sweep, and the tempting fix is to update it to match the new
+   behaviour — exactly backwards. A separate assembly makes editing one a visible, deliberate act.
+2. **The install dependency becomes a project fact** rather than something every author reimplements
+   per file. That is the one that has already cost two red CI runs, and task 0 above takes most of it
+   without moving anything.
+
+The count floors already cover the "tests go missing" worry, so that is not a reason.
 
 ## Landed this session
 
