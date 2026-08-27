@@ -5877,3 +5877,70 @@ these demos were watched in.
 correction that put it there is worth keeping: it arrived while investigating B170 and was briefly
 treated as a candidate fix for it. It is not one — see B170, where only the weapon washes out while
 the arms beside it are lit by the same cube, the same sun and the same tone-map-less output.
+
+---
+
+## D104 — Inventory Valve's convars deliberately, instead of adding one each time we miss it
+
+**Owner-set, 2026-08-27**, immediately after `mat_phong` had to be built before B170 could be
+tested at all: *"we are going to go through all valves settings, see which ones we need to import,
+and fill out our cvar list completely so we can stop forgetting to make shit bindable the right
+way"*.
+
+### What keeps happening
+
+**Every convar so far has arrived because something broke without it**, one at a time:
+
+| convar | what forced it |
+|---|---|
+| `r_drawviewmodel`, `viewmodel_fov_demo` | B166 — the owner's own config turns viewmodels off and this viewer drew them anyway |
+| `mat_leafvis`, `mat_showlowresimage` | B210 — a debug view was unreachable and its shortcut toggled a different one |
+| `engine_no_focus_sleep` | D100 — the viewer rendered at full rate while alt-tabbed |
+| `mat_phong` | B170 — the experiment that would settle it had no instrument |
+
+That is a pattern, not four coincidences. **The gap is only ever found by hitting it**, and the cost
+lands in the middle of investigating something else: `mat_phong` had to be designed, tested, wired
+and merged before the actual question could be asked.
+
+### The decision
+
+**Enumerate the whole surface once, from `tf/cvarlist.log`** — 3,668 shipped convars with defaults,
+flags and help text, which this project already treats as a source (`docs/findings/40`). Classify
+each: implemented, deliberately out of scope, or a gap worth filling. The output is a checked list
+rather than prose, so a later reader can tell "we decided against this" from "nobody looked".
+
+**"Bindable the right way" is the second half and is not automatic.** D101 is that every control
+goes through the config; D69 is that a real config must work wholesale. A convar can be implemented
+and still be wrong on both counts — reachable only from our own menu, or under a name we invented.
+`mat_phong` nearly shipped as a menu item alone, and the owner's correction is what put it in the
+config: *"if its a valve setting then yes it goes in the config and can be imported from a
+config"*.
+
+**Sequenced after B170.** The owner: *"after this mat_phong test, if its not the issue"*. The
+inventory is a sweep, and starting one while a live bug is mid-diagnosis is how the diagnosis gets
+dropped.
+
+---
+
+## D105 — Conformance tests get their own project, and should have already
+
+**Owner-set, 2026-08-27**: *"conformance test sshould have gotten their own project earlier"*.
+
+Said while `PhongCvarConformanceTests` was being added to `Tf2DemoSalvage.Rendering.Tests`, which is
+the fourth conformance suite to land in a project named for something else.
+
+**This is a repeat of a mistake already made once.** B184 moved the render and scene suites into
+their own assemblies after they had spent weeks in `Viewer3D.Tests`, and the reason recorded there
+was that tests drift from their subjects when they do not live beside them. Conformance tests have
+the same problem from the other direction: their subject is not a class of ours at all — it is
+**Valve's behaviour** — so no project named after one of our assemblies is ever the right home.
+
+**`docs/CONFORMANCE.md` already selects them by name**, with `--filter
+'FullyQualifiedName~Conformance'`, and `CLAUDE.md` requires any class whose name contains
+`Conformance` to keep it. That convention exists precisely because the suites are scattered; a
+project boundary would carry the same meaning structurally and stop depending on a naming rule
+nobody can enforce at compile time.
+
+**Not done in the same change as `mat_phong`**, deliberately — the move is mechanical, touches
+several assemblies and every count floor, and folding it into a bug investigation is how both get
+harder to review. Recorded here so the sequencing is a decision rather than an omission.
