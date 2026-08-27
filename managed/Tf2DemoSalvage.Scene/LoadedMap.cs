@@ -77,7 +77,6 @@ public sealed class LoadedMap
     /// <param name="game">What the install provides.</param>
     /// <param name="timeline">The open demo, whose models are loaded with the map.</param>
     /// <param name="textureQuality">The largest texture edge to decode to.</param>
-    /// <param name="colourByClass">Whether brush entities take Valve's per-class colours (B156).</param>
     /// <param name="loggers">Where each stage reports itself, by category (D83).</param>
     /// <returns>The map.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
@@ -87,7 +86,6 @@ public sealed class LoadedMap
         GameContent game,
         DemoTimeline? timeline,
         int textureQuality,
-        bool colourByClass,
         ILoggerFactory loggers)
     {
         ArgumentNullException.ThrowIfNull(game);
@@ -119,7 +117,10 @@ public sealed class LoadedMap
 
         LevelLighting lighting = LevelLighting.From(level, renderLog);
 
-        LoadedMap map = new(outline, level, null, lighting, game, null);
+        // **The early `LoadedMap` went with the baked tint** (B219). It existed only so
+        // `BrushModels.Build` could call `map.EntityTint` while the geometry was being built —
+        // a map constructed purely to answer a question during its own construction. The colours
+        // are per-instance now, so nothing needs an answer this early.
 
         // **The textured world is its own failure, and losing it costs the textures rather than the
         // map.** The outline still draws and the demo still plays.
@@ -151,7 +152,10 @@ public sealed class LoadedMap
                         level.BrushModels ?? [],
                         level.Surfaces,
                         atlas,
-                        colourByClass ? map.EntityTint : null),
+                        // **No tint baked in any more** (B219). Valve's per-class brush entity
+                        // colours travel on the instance now, so the geometry is the same whichever
+                        // view is on and switching costs a constant write instead of a rebuild.
+                        null),
 
                     // **The light cache, for props whose baked lighting is absent or refused**
                     // (B123). Usable here because the level was read above, before any asset is
@@ -265,6 +269,22 @@ public sealed class LoadedMap
             ? (colour.Red / 255f, colour.Green / 255f, colour.Blue / 255f)
             : HammerDefaultEntityColour;
     }
+
+    /// <summary>Valve's colour for the brush entity a <c>*N</c> path names, or null (B219).</summary>
+    /// <param name="modelPath">A scene prop's model path.</param>
+    /// <returns>The colour, or null for anything that is not a brush entity.</returns>
+    /// <remarks>
+    /// **The path form, because that is what the scene has.** A <c>SceneProp</c> carries <c>*N</c>
+    /// and the colour is keyed by submodel index, so the parse belongs beside the table it feeds
+    /// rather than in whatever holds the props. Anything not shaped like <c>*N</c> is an ordinary
+    /// model and has no class colour.
+    /// </remarks>
+    public (float Red, float Green, float Blue)? EntityTintFor(string modelPath) =>
+        modelPath is { Length: > 1 } &&
+        modelPath[0] == '*' &&
+        int.TryParse(modelPath.AsSpan(1), CultureInfo.InvariantCulture, out int model)
+            ? EntityTint(model)
+            : null;
 
     /// <summary>What Hammer draws an entity with no colour of its own in, which is magenta.</summary>
     /// <remarks>

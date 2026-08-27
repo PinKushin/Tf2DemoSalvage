@@ -3429,7 +3429,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
     private void SetMaterial(
         ComPtr<ID3D11DeviceContext> context,
         int materialIndex,
-        SurfaceCategory? category = null)
+        SurfaceCategory? category = null,
+        (float Red, float Green, float Blue)? tint = null)
     {
         // **The category view's underlay, chosen per material because that is what decides it.**
         // A material that resolved to nothing draws Valve's magenta-and-black chequer; everything
@@ -3582,6 +3583,15 @@ internal sealed unsafe class WorldRenderer : IDisposable
         if (category is { } which)
         {
             (float Red, float Green, float Blue) colour = CategoryColour(which);
+
+            // **A brush entity's class colour goes on top of its category** (B219, B156). It is
+            // brushwork, so it reads grey-blue like any other; the class colour is what says door,
+            // lift, areaportal or trigger. Multiplied for the same reason the grid is: each says
+            // something the other cannot, and replacing would throw one away.
+            if (tint is { } entity)
+            {
+                colour = (colour.Red * entity.Red, colour.Green * entity.Green, colour.Blue * entity.Blue);
+            }
 
             float* target = (float*)mapped.PData;
 
@@ -4116,6 +4126,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// and wrong for a skinned one — a skinned model's placement travels in its bones and leaves
     /// the matrix at identity, so the translation reads as the map origin (B170).
     /// </param>
+    /// <param name="tint">
+    /// Valve's colour for a brush entity's class, applied in the category view only (B219, B156).
+    /// Null for anything that is not a brush entity.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **One matrix and one draw per entity, which is the engine's shape.** The vertices were
@@ -4138,7 +4152,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         int body = 0,
         bool mirrored = false,
         bool bothSides = false,
-        (float X, float Y, float Z)? origin = null)
+        (float X, float Y, float Z)? origin = null,
+        (float Red, float Green, float Blue)? tint = null)
     {
         ArgumentNullException.ThrowIfNull(matrix);
         ArgumentNullException.ThrowIfNull(batches);
@@ -4408,8 +4423,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
             context.PSSetShaderResources(6, 1, ref ramp);
 
             // A model's own batches carry their category too — `Prop`, or `Missing` where the
-            // material did not resolve (B219).
-            SetMaterial(context, material, batch.Category);
+            // material did not resolve. A brush entity adds its class colour on top (B219).
+            SetMaterial(context, material, batch.Category, tint);
 
             context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
         }

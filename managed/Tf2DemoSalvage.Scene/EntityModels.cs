@@ -33,6 +33,9 @@ namespace Tf2DemoSalvage.Scene;
 /// the translation of <paramref name="Matrix"/>, which is right for a baked model and reads as the
 /// map origin for a skinned one, whose placement is carried by its bones (B170).
 /// </param>
+/// <param name="Tint">
+/// Valve's colour for a brush entity's class, applied in the category view only (B219, B156).
+/// </param>
 public readonly record struct ModelInstance(
     string ModelPath,
     float[] Matrix,
@@ -57,7 +60,18 @@ public readonly record struct ModelInstance(
     // position to choose which of the map's cubemaps the model reflects, and this is it — the same
     // illumination point the ambient cube was sampled at, so lighting and reflection agree about
     // where the model is.
-    (float X, float Y, float Z)? Origin = null);
+    (float X, float Y, float Z)? Origin = null,
+
+    // **Valve's colour for a brush entity's class, in the category view only** (B219, B156). A
+    // door, a lift, an areaportal and a trigger are all plain brushwork until something says which
+    // is which, and Hammer says it with these colours.
+    //
+    // Per INSTANCE rather than baked into the vertices, which is what it was until 2026-08-27 —
+    // and baking it is why switching the view had to rebuild the map. Null for anything that is not
+    // a brush entity, and null carries its own meaning here: the map may not name the model, the
+    // class may state no colour, or the FGDs may not be readable at all. A default at any of those
+    // points would report "Valve says grey" where the truth is "nobody said".
+    (float Red, float Green, float Blue)? Tint = null);
 
 /// <summary>
 /// The models a demo's entities wear, packed once and posed by the GPU.
@@ -1018,6 +1032,18 @@ public sealed class EntityModelSet
     /// </remarks>
     public Func<string, PropModels.ModelFrames?> Geometry { get; set; } = NoGeometry;
 
+    /// <summary>Valve's colour for a brush entity's class, by model path (B219).</summary>
+    /// <remarks>
+    /// **Set by a map load beside <see cref="Geometry"/>, and for the same reason** — it is content,
+    /// so it arrives with the map rather than being reached for through a reference the scene would
+    /// otherwise have to hold. Answers null until one is open, which is what a map with no FGDs and
+    /// a frame drawn before any map both mean.
+    /// </remarks>
+    public Func<string, (float Red, float Green, float Blue)?> EntityTint { get; set; } = NoTint;
+
+    /// <summary>The resting tint lookup: nothing is a brush entity until a map says so.</summary>
+    public static Func<string, (float Red, float Green, float Blue)?> NoTint { get; } = _ => null;
+
     /// <summary>The source a viewer with no map open reads from, which has nothing in it.</summary>
     public static Func<string, PropModels.ModelFrames?> NoGeometry { get; } = _ => null;
 
@@ -1552,7 +1578,10 @@ public sealed class EntityModelSet
                     : null,
                 prop.Pose.Body,
                 Mirrored: false,
-                Origin: origin));
+                Origin: origin,
+
+                // Only a brush entity has one; everything else answers null (B219).
+                Tint: EntityTint(prop.ModelPath)));
         }
 
         _tally.Report();
