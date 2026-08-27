@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Windows.Forms;
 
+using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.Presentation;
 using Tf2DemoSalvage.Viewer3D;
 
@@ -54,7 +55,8 @@ public sealed class FreeFlightTests
 
         console.Intent();
 
-        return FreeFlightPath.Movement(console.Intent(), seconds, pitch, yaw);
+        return FreeFlightPath.Movement(
+            console.Intent(), seconds, pitch, yaw, FreeFlightPath.Shipped);
     }
 
     /// <summary>A console bound as the viewer ships, or to a supplied table.</summary>
@@ -92,7 +94,7 @@ public sealed class FreeFlightTests
         // 960 being `sv_maxspeed * sv_specspeed`, the spectator ceiling (B215).
         (float X, float Y, float Z) moved = Fly([Keys.W], 0.5);
 
-        moved.X.ShouldBe(FreeFlightPath.SpeedPerSecond * 0.5f, 0.01f);
+        moved.X.ShouldBe(FreeFlightPath.SpeedPerSecond(FreeFlightPath.Shipped) * 0.5f, 0.01f);
         moved.Y.ShouldBe(0f, 0.01f);
         moved.Z.ShouldBe(0f, 0.01f);
     }
@@ -122,7 +124,7 @@ public sealed class FreeFlightTests
         float walking = Fly([Keys.W, Keys.ShiftKey], 0.1).X;
 
         walking.ShouldBeLessThan(normal, "+speed is the walk key");
-        walking.ShouldBe(normal * FreeFlightPath.WalkMultiplier, 0.01f);
+        walking.ShouldBe(normal * FreeFlightPath.WalkMultiplier(FreeFlightPath.Shipped), 0.01f);
     }
 
     [Test]

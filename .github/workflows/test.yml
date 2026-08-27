@@ -141,7 +141,9 @@ jobs:
         run: |
           # 1504 -> 1512 is a measurement, not arithmetic: SkipTests' eight cases read no files, so
           # a runner without the game executes every one of them exactly as this machine does.
-          ./build/assert-test-count.sh '**/core.trx' 1512 Core
+          # 1512 -> 1529: D106's convar declarations and resolver. The SDK-reading case skips on a
+          # runner rather than failing, and a skip still counts toward the trx total.
+          ./build/assert-test-count.sh '**/core.trx' 1529 Core
           ./build/assert-test-count.sh '**/cli.trx' 74 Cli
           # 628 -> 645 is ARITHMETIC, not a measurement: 17 tests were added to Content on
           # 2026-08-24 (SchemeFont 6, GlyphAtlas 11), all self-contained, so every one of them
@@ -159,7 +161,7 @@ jobs:
           # 673 -> 686: 13 more (StudioIkChainTests 7, StudioBoneControllerTests 5, one capacity
           # guard). All but one IK test build their own bytes and run anywhere.
           ./build/assert-test-count.sh '**/content.trx' 713 Content
-          ./build/assert-test-count.sh '**/presentation.trx' 391 Presentation
+          ./build/assert-test-count.sh '**/presentation.trx' 396 Presentation
           ./build/assert-test-count.sh '**/logging.trx' 17 Logging
           # 10 is MEASURED locally and safe on a runner without the SDK, because a .trx total counts
           # skipped tests: the two conformance cases Assert.Ignore where source-sdk-2013 is absent
@@ -385,7 +387,7 @@ jobs:
           ./build/assert-test-count.sh '**/viewer.trx' 101 Viewer
           ./build/assert-test-count.sh '**/rendering.trx' 538 Rendering
           ./build/assert-test-count.sh '**/viewer-ui.trx' 14 ViewerUi
-          ./build/assert-test-count.sh '**/corpus.trx' 113 Corpus
+          ./build/assert-test-count.sh '**/corpus.trx' 117 Corpus
 
       - uses: actions/upload-artifact@v7
         if: failure()

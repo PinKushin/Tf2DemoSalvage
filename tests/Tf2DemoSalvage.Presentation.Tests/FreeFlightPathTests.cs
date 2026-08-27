@@ -1,5 +1,6 @@
 using System;
 
+using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.Presentation;
 
 namespace Tf2DemoSalvage.Presentation.Tests;
@@ -22,8 +23,17 @@ public sealed class FreeFlightPathTests
     /// <summary>Half a second, so the expected distance is a round number.</summary>
     private const double Half = 0.5;
 
+    /// <summary>A server that changed nothing, so the speeds are Valve's declared defaults.</summary>
+    /// <remarks>
+    /// **The geometry here is not about the speed**, so every test uses the vanilla server and the
+    /// speed cancels out of the claims — except the two that name <see cref="Travel"/>, and those
+    /// derive it rather than typing 480. `FreeCameraConformanceTests` is where the magnitude is
+    /// predicted against the engine, and `FreeFlightServerSpeedTests` is where a changed server is.
+    /// </remarks>
+    private static readonly ServerConVars Vanilla = FreeFlightPath.Shipped;
+
     /// <summary>Distance covered in <see cref="Half"/> a second at normal speed.</summary>
-    private const float Travel = FreeFlightPath.SpeedPerSecond * (float)Half;
+    private static readonly float Travel = FreeFlightPath.SpeedPerSecond(Vanilla) * (float)Half;
 
     [Test]
     public void Movement_ForwardAtZeroPitchAndYaw_TravelsAlongPositiveX()
@@ -31,7 +41,8 @@ public sealed class FreeFlightPathTests
         // **Valve's convention: X forward, Y left, Z up.** A camera at yaw 0 and pitch 0 faces +X,
         // so forward must move along it and nowhere else.
         (float x, float y, float z) = FreeFlightPath.Movement(
-            new FlightInput(Forward: 1f, Right: 0f, Up: 0f, Walk: false), Half, pitch: 0f, yaw: 0f);
+            new FlightInput(Forward: 1f, Right: 0f, Up: 0f, Walk: false),
+            Half, pitch: 0f, yaw: 0f, Vanilla);
 
         x.ShouldBe(Travel, 0.01);
         y.ShouldBe(0f, 0.01);
@@ -46,7 +57,7 @@ public sealed class FreeFlightPathTests
         // camera fly into the floor while the user looks at the sky — which reads as an inverted
         // mouse setting rather than as an error.
         (float x, float _, float z) = FreeFlightPath.Movement(
-            new FlightInput(1f, 0f, 0f, false), Half, pitch: 90f, yaw: 0f);
+            new FlightInput(1f, 0f, 0f, false), Half, pitch: 90f, yaw: 0f, Vanilla);
 
         z.ShouldBe(-Travel, 0.01, "positive pitch is downward in Source");
         x.ShouldBe(0f, 0.01, "and looking straight down leaves no horizontal component");
@@ -59,7 +70,7 @@ public sealed class FreeFlightPathTests
         // gets a camera that strafes the wrong way, which is instantly obvious to a user and
         // invisible to any assertion that only checks the magnitude.
         (float x, float y, float _) = FreeFlightPath.Movement(
-            new FlightInput(0f, 1f, 0f, false), Half, pitch: 0f, yaw: 0f);
+            new FlightInput(0f, 1f, 0f, false), Half, pitch: 0f, yaw: 0f, Vanilla);
 
         y.ShouldBe(-Travel, 0.01);
         x.ShouldBe(0f, 0.01);
@@ -72,7 +83,7 @@ public sealed class FreeFlightPathTests
         // and right covers 1.41 times the distance — which feels like the camera being inconsistent
         // rather than like a defect anyone can name.
         (float x, float y, float z) = FreeFlightPath.Movement(
-            new FlightInput(1f, 1f, 0f, false), Half, pitch: 0f, yaw: 0f);
+            new FlightInput(1f, 1f, 0f, false), Half, pitch: 0f, yaw: 0f, Vanilla);
 
         float distance = MathF.Sqrt((x * x) + (y * y) + (z * z));
 
@@ -86,9 +97,9 @@ public sealed class FreeFlightPathTests
         // This test only pins that the modifier scales distance and leaves the direction alone; the
         // magnitude is the conformance suite's to predict.
         (float x, float y, float z) = FreeFlightPath.Movement(
-            new FlightInput(1f, 0f, 0f, Walk: true), Half, pitch: 0f, yaw: 0f);
+            new FlightInput(1f, 0f, 0f, Walk: true), Half, pitch: 0f, yaw: 0f, Vanilla);
 
-        x.ShouldBe(Travel * FreeFlightPath.WalkMultiplier, 0.1);
+        x.ShouldBe(Travel * FreeFlightPath.WalkMultiplier(Vanilla), 0.1);
         x.ShouldBeLessThan(Travel, "walking is slower than not walking");
         y.ShouldBe(0f, 0.01, "and the direction is unchanged");
         z.ShouldBe(0f, 0.01);
@@ -100,7 +111,7 @@ public sealed class FreeFlightPathTests
         // Holding W and S together is a person resting two fingers, not a fault to report.
         new FlightInput(0f, 0f, 0f, false).IsIdle.ShouldBeTrue();
 
-        FreeFlightPath.Movement(FlightInput.None, Half, 0f, 0f).ShouldBe((0f, 0f, 0f));
+        FreeFlightPath.Movement(FlightInput.None, Half, 0f, 0f, Vanilla).ShouldBe((0f, 0f, 0f));
     }
 
     [Test]
@@ -111,7 +122,8 @@ public sealed class FreeFlightPathTests
         // axis exactly after projection — and a naive divide by the resulting zero length yields
         // NaN, which moves the camera to nowhere and never comes back.
         (float x, float y, float z) = FreeFlightPath.Movement(
-            new FlightInput(Forward: 1f, Right: 0f, Up: 1f, Walk: false), Half, pitch: 90f, yaw: 0f);
+            new FlightInput(Forward: 1f, Right: 0f, Up: 1f, Walk: false),
+            Half, pitch: 90f, yaw: 0f, Vanilla);
 
         float.IsNaN(x).ShouldBeFalse();
         (x, y, z).ShouldBe((0f, 0f, 0f));
@@ -120,10 +132,10 @@ public sealed class FreeFlightPathTests
     [Test]
     public void Movement_ZeroOrNegativeElapsed_DoesNotMove()
     {
-        FreeFlightPath.Movement(new FlightInput(1f, 0f, 0f, false), 0, 0f, 0f)
+        FreeFlightPath.Movement(new FlightInput(1f, 0f, 0f, false), 0, 0f, 0f, Vanilla)
             .ShouldBe((0f, 0f, 0f));
 
-        FreeFlightPath.Movement(new FlightInput(1f, 0f, 0f, false), -1, 0f, 0f)
+        FreeFlightPath.Movement(new FlightInput(1f, 0f, 0f, false), -1, 0f, 0f, Vanilla)
             .ShouldBe((0f, 0f, 0f));
     }
 
@@ -132,7 +144,7 @@ public sealed class FreeFlightPathTests
     {
         // A second yaw, because one angle cannot distinguish a correct rotation from a constant.
         (float x, float y, float _) = FreeFlightPath.Movement(
-            new FlightInput(1f, 0f, 0f, false), Half, pitch: 0f, yaw: 90f);
+            new FlightInput(1f, 0f, 0f, false), Half, pitch: 0f, yaw: 90f, Vanilla);
 
         y.ShouldBe(Travel, 0.01);
         x.ShouldBe(0f, 0.01);
@@ -147,7 +159,7 @@ public sealed class FreeFlightPathTests
         foreach (float pitch in new[] { -60f, 0f, 45f })
         {
             (float x, float y, float z) = FreeFlightPath.Movement(
-                new FlightInput(0f, 0f, 1f, false), Half, pitch, yaw: 30f);
+                new FlightInput(0f, 0f, 1f, false), Half, pitch, yaw: 30f, Vanilla);
 
             z.ShouldBe(Travel, 0.01, $"at pitch {pitch}");
             x.ShouldBe(0f, 0.01, $"at pitch {pitch}");

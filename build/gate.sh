@@ -121,7 +121,10 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # exact exception type an absent prerequisite produces — IgnoreException, never AssertionException —
 # which is the distinction that reddened CI twice that day; three assert the reason survives. None
 # touches the filesystem, so all eight run on a runner too.
-run Tf2DemoSalvage.Core.Tests     core     1512
+# Raised to 1529 on 2026-08-27: MovementConVarConformanceTests (6) and ServerConVarsTests (11),
+# D106's declarations and the resolver that reads a demo's replicated values. Neither touches the
+# filesystem beyond the SDK and cvarlist.log, which the SDK test skips without.
+run Tf2DemoSalvage.Core.Tests     core     1529
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
@@ -387,7 +390,10 @@ run Tf2DemoSalvage.Audio.Tests    audio     183
 # 389 -> 391 same day: list type-ahead (B216). One test asserts a focused list keeps typed
 # characters, replacing one that asserted the opposite; one asserts nothing keeps a CTRL/ALT
 # combination, which is what stops the playlist swallowing Ctrl+R.
-run Tf2DemoSalvage.Presentation.Tests presentation 391
+# 396: FreeFlightServerSpeedTests, five cases on the free camera flying at the RECORDING server's
+# speeds rather than two constants (D106). Two of them are the wiring — a SetServer with an empty
+# body passes everything else in this project.
+run Tf2DemoSalvage.Presentation.Tests presentation 396
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.
@@ -495,7 +501,10 @@ run Tf2DemoSalvage.Content.Tests  content   713
 # 112: CorpusDecodedDemoTests (3), the end-to-end half of the DecodedDemo move. The synthetic
 # fixtures in Scene.Tests carry the load — a corpus test skips without the corpus and so kills no
 # mutants — but only a real demo can catch a roster that decodes to nothing.
-run Tf2DemoSalvage.Corpus.Tests   corpus     113
+# 117: CorpusServerConVarTests, the assertion that a real demo's replicated ConVars reach the
+# timeline. All four run on committed gcor demos, so they hold under TF2DEMOSALVAGE_GCOR_ONLY and
+# in CI rather than skipping there and testing nothing.
+run Tf2DemoSalvage.Corpus.Tests   corpus     117
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that

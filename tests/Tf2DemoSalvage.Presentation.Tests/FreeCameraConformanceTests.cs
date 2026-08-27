@@ -1,5 +1,7 @@
 using System;
 
+using Tf2DemoSalvage.Core.Net;
+
 namespace Tf2DemoSalvage.Presentation.Tests;
 
 /// <summary>How fast the engine's free camera flies, and by which of its two free cameras.</summary>
@@ -88,10 +90,12 @@ public sealed class FreeCameraConformanceTests
     /// <summary>One second of travel, so a distance reads directly as a speed.</summary>
     private const double OneSecond = 1d;
 
-    private static float SpeedOf(FlightInput input)
+    private static float SpeedOf(FlightInput input) => SpeedOf(input, FreeFlightPath.Shipped);
+
+    private static float SpeedOf(FlightInput input, ServerConVars server)
     {
         (float X, float Y, float Z) moved =
-            FreeFlightPath.Movement(input, OneSecond, pitch: 0f, yaw: 0f);
+            FreeFlightPath.Movement(input, OneSecond, pitch: 0f, yaw: 0f, server);
 
         return MathF.Sqrt((moved.X * moved.X) + (moved.Y * moved.Y) + (moved.Z * moved.Z));
     }
