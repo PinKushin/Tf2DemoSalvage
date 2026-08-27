@@ -180,14 +180,60 @@ z1800     30   mp_allowspectators, mp_tournament, mp_tournament_post_match_perio
 f12 pov    6   func_break_max_pieces, sv_skyname, think_limit, sv_turbophysics, tf_gamemode_cp, ...
 ```
 
-**Not one of the twenty appears in any of them.** A server sends what it changed, and every server in
-this corpus ran Valve's values for movement — so the baked defaults are right today by luck rather
-than by design. A server that raised `sv_maxspeed` would send it, this viewer would decode it, and
-ignore it.
+**Not one of the twenty appears in any of them** — a claim that holds for the corpus and **fails on
+real match demos**, where `sv_downloadurl` does appear. See below. Either way a server sends what it
+changed, every server here ran Valve's values for movement, and so the baked defaults are right today
+by luck rather than by design. A server that raised `sv_maxspeed` would send it, this viewer would
+decode it, and ignore it.
 
-**The era POV demos carry no `net_setconvar` at all**, while their STV counterparts do. Worth knowing
-before treating an empty result as "the server changed nothing"; it may mean the recording never
-carried the message. Unmeasured which of the two it is.
+### The POV question, measured — and the answer is not the structural one
+
+The era POV demos carry no `net_setconvar` while their STV counterparts do, which admits two
+readings: those servers changed nothing, or POV recordings do not carry the message. The owner
+expected the second — *"im pretty sure the answer is just going to be POV demos dont have that info,
+STV does"* — and pointed at the discriminating sample, ten of benroads' POV demos from competitive
+servers, 2013 to 2017.
+
+**They carry 32 to 40 values each.** So POV demos do carry it, the structural reading is wrong, and
+the era POVs are empty because they are the owner's own solo recordings where nothing was changed.
+An empty result means an unchanged server, which is what it looked like and is now measured rather
+than assumed.
+
+### What a competitive server actually changes, and why it matters more than the count
+
+From `20150119_2240_cp_process_final_(ovo)_blu.dem`, forty values. The gameplay ones are expected —
+`mp_tournament`, nine `tf_tournament_classlimit_*`, `tf_damage_disablespread`,
+`tf_use_fixed_weaponspreads`, `tf_weapon_criticals`. These are not:
+
+```
+sv_client_predict            sv_client_max_interp_ratio
+sv_mincmdrate  sv_minupdaterate  sv_maxrate  sv_minrate
+sv_downloadurl
+```
+
+**`sv_downloadurl` is one of the twenty**, so the claim that none of them appears in any demo held
+only for the corpus and not for real match demos.
+
+**And the interpolation clamps are the find.** `sv_client_max_interp_ratio`, `sv_mincmdrate` and
+`sv_minupdaterate` bound what the recording client's `cl_interp` could actually have been — the
+server constrains it. So reconstructing how a demo looked to the person who recorded it needs both
+halves: their `cl_interp` from `userinfo`, and the server's clamps from `net_setconvar`. Neither is
+read today, and a viewer that interpolates by its own rule is not showing what they saw.
+
+### Mods are the case that breaks the current arrangement
+
+The owner: *"the cvars can change by server… some mods will change move speed and all the other
+settings for the most part, like jailbreak. the only mods we might currently work with are DM and
+MGE, because those keep most things constant, but jump, surf, and other mods might not run right."*
+
+That is the sharp edge of D106. A vanilla competitive server already changes forty convars without
+touching movement; a jump or surf server changes movement itself, and every baked constant in the
+free camera and the movement path is then wrong for that demo — silently, because the value arrives,
+is decoded, and is ignored.
+
+It also sets the scope honestly: **DM and MGE should work today** because they leave the movement
+values alone, and **jump and surf should not be assumed to**. That is a testable claim and no demo
+of either is in the corpus yet.
 
 **And the trace does not show any of this** — it prints `svc_setconvar;` with no payload while the
 assembly prints all six. Filed as B220.
