@@ -13783,3 +13783,37 @@ still instant"*.
 **Left open**: `WorldPresenter`'s failed-upload path still calls `ClearWorld` and cannot reach the
 scene to reset the flag, so the original symptom survives there. It is an error path that already
 reports "Textures unavailable", so it is visible rather than silent.
+
+### B220 — the trace prints `svc_setconvar` and never says which convars — OPEN
+
+Found while measuring D104's emulated-convar category, 2026-08-27.
+
+**The decode is correct and the human-readable output drops the payload.** `SetConVarMessage` carries
+`IReadOnlyList<KeyValuePair<string, string>>`, and the assembly form renders all of it — it has to,
+since `-a` compiles back to the demo:
+
+```
+net_setconvar 6 "func_break_max_pieces" "0" "sv_skyname" "sky_trainyard_01" "think_limit" "0"
+              "sv_turbophysics" "1" "tf_gamemode_cp" "1" "tv_transmitall" "1"
+```
+
+The trace, for the same message, prints:
+
+```
+svc_setconvar;
+```
+
+**Six values decoded, none shown.** The trace is the form a person reads — `ROADMAP.md` calls it "the
+demo decompiled to text, message by message" — so this is the one output where the loss matters, and
+it is invisible precisely because the round-trip test passes: the assembly carries everything, so
+nothing is broken in a way a byte comparison can see.
+
+**Why it was worth finding.** This is the message that answers "what did the server change from
+default", which is the whole question behind D106 and the emulated-convar table in
+`docs/CVAR-COVERAGE.md`. A reader tracing a demo to find out why movement looks wrong would see the
+message exist and learn nothing from it.
+
+**Same family as the kill annotation, the kill feed and `m_flPlaybackRate`** — decoded, retained,
+and never reaching the output somebody reads. `docs/memory/output-level-assertion-or-it-is-not-done.md`
+is the standing rule, and the assertion this needs is one that reads a traced line rather than one
+that checks the parser.

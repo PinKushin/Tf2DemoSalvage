@@ -141,9 +141,46 @@ So there are three states, not two, and this page's table above only distinguish
 that even a correctly-read default is the *fallback*, and for an emulated system the demo outranks
 it.
 
-**None of that is measured yet.** Which of the twenty a demo actually carries — in its string tables,
-its server info, or not at all — is the next pass, and it is an evidence question rather than a
-classification one.
+### Measured: what a demo actually carries
+
+The shipped list marks replicated convars `"rep"`, and that splits the twenty cleanly:
+
+| | convars | can a demo carry it? |
+|---|---|---|
+| replicated | `sv_maxspeed`, `sv_specspeed`, `sv_specaccelerate`, `sv_specnoclip`, `sv_cheats`, `sv_downloadurl`, `cl_forwardspeed`, `cl_sidespeed`, `cl_upspeed`, `host_timescale` | **yes** — the server sends these |
+| userinfo (`"user"`) | `cl_interp` | **yes** — it travels in the `userinfo` string table, which this project already reads for the roster |
+| client-only | `cl_showpos`, `cl_drawleaf`, `cl_first_person_uses_world_model`, `snd_gain`, `snd_gain_min`, `snd_refdb`, `snd_refdist` | no — the watcher's, and a baked default is the right answer |
+
+**`cl_forwardspeed`, `cl_sidespeed` and `cl_upspeed` are the surprise.** Despite the `cl_` prefix all
+three are flagged `"sv"`, `"cheat"` and `"rep"` — server-controlled and replicated. The free camera's
+walk speed is derived from `cl_forwardspeed` (B215), so that is a server value this viewer treats as
+its own constant.
+
+**And `NET_SetConVar` is already decoded.** `SetConVarMessage` carries the name/value pairs and the
+assembly round-trips them. Nothing consumes them.
+
+Read from every corpus demo:
+
+```
+2007 stv   6   sv_skyname, mp_timelimit, think_limit, sv_turbophysics, mp_winlimit, tv_transmitall
+2008 stv   7   ... plus mp_maxrounds
+2011 stv   5   sv_skyname, think_limit, sv_turbophysics, tf_gamemode_cp, tv_transmitall
+2013 stv   9   ... plus steamworks_sessionid_server
+z1800     30   mp_allowspectators, mp_tournament, mp_tournament_post_match_period, ...
+f12 pov    6   func_break_max_pieces, sv_skyname, think_limit, sv_turbophysics, tf_gamemode_cp, ...
+```
+
+**Not one of the twenty appears in any of them.** A server sends what it changed, and every server in
+this corpus ran Valve's values for movement — so the baked defaults are right today by luck rather
+than by design. A server that raised `sv_maxspeed` would send it, this viewer would decode it, and
+ignore it.
+
+**The era POV demos carry no `net_setconvar` at all**, while their STV counterparts do. Worth knowing
+before treating an empty result as "the server changed nothing"; it may mean the recording never
+carried the message. Unmeasured which of the two it is.
+
+**And the trace does not show any of this** — it prints `svc_setconvar;` with no payload while the
+assembly prints all six. Filed as B220.
 
 ## The rules this establishes
 

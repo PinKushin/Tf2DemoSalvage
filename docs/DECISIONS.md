@@ -5944,3 +5944,71 @@ nobody can enforce at compile time.
 **Not done in the same change as `mat_phong`**, deliberately — the move is mechanical, touches
 several assemblies and every count floor, and folding it into a bug investigation is how both get
 harder to review. Recorded here so the sequencing is a decision rather than an omission.
+
+---
+
+## D106 — Nothing is hardcoded that Valve does not hardcode
+
+**Owner-set, 2026-08-27**, while auditing the convar surface under D104:
+
+> *"the vast majority of the cvars are going to be constants that never change, but i still dont want
+> anything hardcoded that valve does not hard code, because doing so makes the rendering engine we
+> are using less agnostic, and while i dont plan to include any other source engine games, there is a
+> small possibility i change my mind and decide to run any demo from gldsrc to source 2, so i want to
+> be able to do that pretty easily if we decide to."*
+
+### The rule
+
+**If Valve expresses a value as a `ConVar` — a name, a default, and the ability to change it — this
+project expresses it the same way.** A `const float` is only correct where the engine itself has a
+constant.
+
+**The test is what Valve wrote, not whether the number ever moves.** Most of these never change in
+practice; that is not the point and the owner says so explicitly. A value that never changes is still
+a *named, defaulted* value in the engine, and copying only the number throws away the two parts that
+make it portable.
+
+### Why: engine-agnosticism, and the era axis is already the live case
+
+The motive is not that users will retune movement speeds. It is that **a hardcoded number bakes one
+engine build's answer into the renderer**.
+
+**And that is not hypothetical here.** The owner, correcting a first draft of this entry that framed
+it as future-proofing: *"well we already are handeling demos across engine versions, but not across
+games"*. This project reads protocols 11 through 24, from 2007 builds to 2026 ones — a nineteen-year
+span of one engine, with the corpus to prove it. A default that moved between TF2 builds is already
+wrong for half the corpus, and a `const float` cannot even express the question.
+
+**Cross-GAME is the hypothetical part**, and the owner says so plainly: GoldSrc through Source 2 is
+a possibility rather than a plan. So the rule earns its keep on the era axis this project already
+serves, and the cross-game case is the extension it happens to make cheap.
+
+That ordering matters. A rule justified only by a maybe gets relaxed the first time it is
+inconvenient; this one is justified by the corpus sitting in `tools/corpus/`.
+
+### What this is NOT
+
+**Not a demand that every value be settable from a config.** D104 establishes three homes for a
+value — the watcher's config, the demo, or Valve's default as a fallback — and this decision is about
+the third. A default read from a named declaration is still a default; it simply stays a *default*
+rather than becoming a constant.
+
+**Not retroactive panic.** Twenty are baked today, measured under D104 and listed in
+`docs/CVAR-COVERAGE.md`. They are wrong by this rule and none of them is urgent, because every corpus
+demo measured ran the engine's own values.
+
+### The measurement that motivated it
+
+Every era demo's `net_setconvar` was read, and **none of the twenty appears in any of them**:
+
+```
+2007 stv   6   sv_skyname, mp_timelimit, think_limit, sv_turbophysics, mp_winlimit, tv_transmitall
+2011 stv   5   sv_skyname, think_limit, sv_turbophysics, tf_gamemode_cp, tv_transmitall
+2013 stv   9   ... plus mp_maxrounds, steamworks_sessionid_server
+z1800     30   mp_allowspectators, mp_tournament, mp_tournament_post_match_period, ...
+f12 pov    6   func_break_max_pieces, sv_skyname, think_limit, sv_turbophysics, tf_gamemode_cp, ...
+```
+
+So the baked defaults are right for every demo this project has — **by luck of the servers running
+Valve's values, not by design**. A server that raised `sv_maxspeed` would send it, this viewer would
+receive it, decode it, and ignore it.
