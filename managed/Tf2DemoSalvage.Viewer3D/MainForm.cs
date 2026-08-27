@@ -1405,8 +1405,7 @@ internal class MainForm : Form, IFrameSteps
                 bytes,
                 _game,
                 _timeline,
-                (int)_settings.TextureQuality,
-                _menu.SurfaceColours.Checked);
+                (int)_settings.TextureQuality);
 
             // **The LEVEL survives a content failure, and it did not before.** The old catch set
             // `_level = null` alongside `_assets = null`, throwing away lumps that had read
@@ -2489,18 +2488,20 @@ internal class MainForm : Form, IFrameSteps
         // i need you to restart the program"*. Every model, not just the viewmodel, and the log had
         // been saying so 444,242 times in seven seconds.
         //
-        // **`MomentScene.Uploaded` is the mechanism, and it already existed** — B148 is this same
-        // bug on the map-change path, where the packed set survived a second demo and its GPU
-        // buffer did not. `Pack` guards on `if (!grew && Uploaded) return;`, and level shutdown
-        // clears the flag. This path discarded the buffer and never told it, so it is the one
-        // caller of `ClearWorld` that was not paired with the reset.
+        // **A repaint, not a rebuild, and the owner asked for exactly that**: *"it shouldnt, which
+        // is why its super slow compared to any other view"*. It rebuilt because the colours were
+        // baked into vertices — flat colours by surface kind in `MapWorldBuilder`, Valve's per-class
+        // colours in `BrushModels` — so switching the view meant rebuilding every vertex in the map.
         //
-        // A second mechanism was written for this and thrown away. Inventing one where a tested one
-        // exists is how two of them drift apart, which is the fault under this bug rather than a
-        // separate one.
-        _device?.ClearWorld();
-        _moment.Uploaded = false;
-        _world.Invalidate();
+        // Neither is baked now. A batch carries its `SurfaceCategory` and an instance carries its
+        // class colour, so the view is a shader constant like `mat_specular`, and the flag reaches
+        // the draw through `SetCamera` on the next frame.
+        //
+        // **B219 goes with it.** `ClearWorld` was here, and it discarded every model's GPU buffer
+        // while only the map was re-uploaded — the viewmodel and every prop gone until a restart.
+        // The fix that pairs it with `MomentScene.Uploaded = false` still stands for the other
+        // callers; this one no longer needs either.
+        _viewport.Invalidate();
     }
 
     /// <summary>Shows or hides Valve's frame rate meter.</summary>

@@ -872,7 +872,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
                         // Where the model stands, for its cubemap. Its matrix cannot say, because a
                         // skinned model's placement is in its bones (B170).
-                        origin: instance.Origin);
+                        origin: instance.Origin,
+
+                        // Valve's class colour for a brush entity, in the category view (B219).
+                        tint: instance.Tint);
                 }
 
                 // **The see-through parts of models, after every solid one.** A hologram, a glass
@@ -908,7 +911,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
                         // Where the model stands, for its cubemap. Its matrix cannot say, because a
                         // skinned model's placement is in its bones (B170).
-                        origin: instance.Origin);
+                        origin: instance.Origin,
+
+                        // Valve's class colour for a brush entity, in the category view (B219).
+                        tint: instance.Tint);
                 }
 
                 WorldRenderer.ResetBlend(_context);

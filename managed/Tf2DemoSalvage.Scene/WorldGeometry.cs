@@ -58,6 +58,7 @@ public readonly record struct WorldVertex(
 /// <param name="VertexCount">How many vertices it covers.</param>
 /// <param name="BodyPart">Which body part this run belongs to, for a model batch.</param>
 /// <param name="BodyModel">Which of that part's alternatives, so one can be chosen per entity.</param>
+/// <param name="Category">What this run of triangles is, for the category view (B219).</param>
 /// <remarks>
 /// **A batch never spans two body parts**, which is what makes the choice possible at draw time. The
 /// grouping key is the material AND the part and alternative it came from, so a run can be skipped
@@ -69,7 +70,46 @@ public readonly record struct WorldBatch(
     int FirstVertex,
     int VertexCount,
     int BodyPart = 0,
-    int BodyModel = 0);
+    int BodyModel = 0,
+
+    // **What this run of triangles IS, for the category view** (B219). It rode in the vertex
+    // COLOUR until 2026-08-27, which meant switching the view rebuilt every vertex in the map —
+    // and `ClearWorld` discarding the models with them was the bug that forced this out. A batch
+    // belongs to exactly one category, so this is where the answer belongs: the colour is then
+    // chosen at draw time and the toggle is a constant write rather than a rebuild.
+    SurfaceCategory Category = SurfaceCategory.Brush);
+
+/// <summary>What a drawn surface is, for the diagnostic view.</summary>
+/// <remarks>
+/// **Public, and beside <see cref="WorldBatch"/> rather than inside the builder**, because the
+/// renderer now needs it: the category decides a colour at DRAW time instead of at build time, so
+/// the type has to cross the same boundary the batch does.
+/// </remarks>
+public enum SurfaceCategory
+{
+    /// <summary>Ordinary world brushwork.</summary>
+    Brush,
+
+    /// <summary>A displacement's subdivided terrain.</summary>
+    Terrain,
+
+    /// <summary>A placed model.</summary>
+    Prop,
+
+    /// <summary>An overlay fragment — a marking clipped to the surface it lies on.</summary>
+    /// <remarks>
+    /// **Added because its absence was read as an answer.** Overlay fragments carried no vertex
+    /// colour, so they took the default of white — which is not a category colour but the lack of
+    /// one, and there was no legend entry saying so. During the B154 hunt that white was read first
+    /// as "an uncoloured surface" and then as the sign being investigated, and it was neither. A
+    /// diagnostic view that omits a category cannot answer "is anything here" for that category,
+    /// which is the one question it exists to answer.
+    /// </remarks>
+    Overlay,
+
+    /// <summary>Anything whose material could not be resolved.</summary>
+    Missing,
+}
 
 /// <summary>The sun as it reaches one model.</summary>
 /// <param name="Red">Intensity, linear, from the map's own emit_skylight.</param>

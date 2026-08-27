@@ -335,6 +335,14 @@ internal sealed unsafe class WorldRenderer : IDisposable
             //    rim lives in the Skin shader and VertexLitGeneric reaches it on $phong alone.
             // w: unused.
             float4 rimControl;
+
+            // **What this BATCH is, for the category view, and it is per batch rather than per
+            // material** (B219). Written straight into the mapped buffer after the material's own
+            // constants are copied, because two batches of the same material can be different
+            // categories — a texture used on both a wall and a displacement.
+            //
+            // rgb is the colour, w says whether one was supplied at all.
+            float4 categoryColour;
         };
 
         // **Valve's overbright.** A lightmap is stored halved so that light brighter than white
@@ -730,6 +738,19 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 // This is the same lesson as mat_fullbright's: substitute at the point the value is
                 // USED, not one step later where it has stopped being the same quantity.
                 albedo.rgb = 0.40f + (0.60f * ink);
+
+                // **The category's own colour, applied HERE rather than baked into the vertices**
+                // (B219). The grid says how big and which way up; this says what the surface IS.
+                // Multiplied rather than replacing, so both survive — the arrangement the vertex
+                // colour already had, moved to where changing it costs a constant write instead of
+                // rebuilding every vertex in the map.
+                //
+                // `w` says whether a category was supplied at all, so without one this is an
+                // identity rather than a black surface.
+                if (categoryColour.w > 0.5f)
+                {
+                    albedo.rgb *= categoryColour.rgb;
+                }
             }
             float3 light;
 
@@ -2378,6 +2399,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     phongFresnel.Low, phongFresnel.Mid, phongFresnel.High, hasLightWarp,
                     phongTint.Red, phongTint.Green, phongTint.Blue, 0f,
                     rimExponent, rimBoost, hasRim, 0f,
+
+                    // categoryColour, a placeholder: it is per BATCH, so SetMaterial overwrites it
+                    // in the mapped buffer after this array is copied in. Present so the array
+                    // stays the length the shader's struct declares (B219).
+                    1f, 1f, 1f, 0f,
                 ]);
         }
 
@@ -2699,7 +2725,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     ? _cubemaps[batch.MaterialIndex]
                     : default;
 
-            SetMaterial(context, batch.MaterialIndex);
+            SetMaterial(context, batch.MaterialIndex, batch.Category);
 
             context.PSSetShaderResources(0, 1, ref texture);
             context.PSSetShaderResources(2, 1, ref blend);
@@ -2903,6 +2929,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         // rimControl: exponent 4 (its own declared default, not phong's 5), boost 1, no rim.
         4f, 1f, 0f, 0f,
+
+        // categoryColour: white, and w = 0 for "no category was supplied" (B219). Always written
+        // rather than skipped, and this array must stay the same length as the shader's struct —
+        // the comment above records what happened the last time it did not.
+        1f, 1f, 1f, 0f,
     ];
 
     /// <summary>The model matrix for geometry already in world space.</summary>
@@ -3365,7 +3396,41 @@ internal sealed unsafe class WorldRenderer : IDisposable
         contents[row1 + 3] = transform.Row1.W;
     }
 
-    private void SetMaterial(ComPtr<ID3D11DeviceContext> context, int materialIndex)
+    /// <summary>Valve's dev-texture colour for a category, chosen at draw time (B219).</summary>
+    /// <param name="category">What the batch is.</param>
+    /// <returns>The colour the category view tints it.</returns>
+    /// <remarks>
+    /// **These numbers were baked into vertices until 2026-08-27**, which is why switching the view
+    /// rebuilt every vertex in the map — and why `ClearWorld` then discarded the models with them.
+    /// They are a bounded set, so nothing about them ever needed to be per-vertex: the owner,
+    /// correcting the assumption that they might be arbitrary, *"the colors match valves dev texture
+    /// colors"*.
+    ///
+    /// **White for Missing, so Valve's chequer shows in its own colours.** The renderer binds the
+    /// magenta-and-black missing-material chequer under that category rather than the measurement
+    /// grid, and a tint would only muddy the most recognisable "this is broken" signal in Source.
+    /// Magenta belongs to Hammer's uncoloured entity; an unresolved material is a PATTERN, and the
+    /// two are told apart by that rather than by hue.
+    /// </remarks>
+    private static (float Red, float Green, float Blue) CategoryColour(SurfaceCategory category) =>
+        category switch
+        {
+            SurfaceCategory.Terrain => (0.25f, 0.85f, 0.35f),
+            SurfaceCategory.Prop => (1f, 0.6f, 0.15f),
+
+            // Violet, chosen to sit away from all four of the others rather than to look nice: an
+            // overlay lies ON brushwork and next to props, so it has to be told from grey-blue and
+            // orange at a glance and at a distance.
+            SurfaceCategory.Overlay => (0.62f, 0.4f, 0.92f),
+            SurfaceCategory.Missing => (1f, 1f, 1f),
+            _ => (0.55f, 0.6f, 0.72f),
+        };
+
+    private void SetMaterial(
+        ComPtr<ID3D11DeviceContext> context,
+        int materialIndex,
+        SurfaceCategory? category = null,
+        (float Red, float Green, float Blue)? tint = null)
     {
         // **The category view's underlay, chosen per material because that is what decides it.**
         // A material that resolved to nothing draws Valve's magenta-and-black chequer; everything
@@ -3508,6 +3573,34 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 sizeof(float) * contents.Length);
         }
 
+        // **The category goes in after the copy, because it belongs to the BATCH** (B219). Two
+        // batches of the same material can be different categories — a texture on a wall and on a
+        // displacement — so it cannot live in the material's own array, and writing it here rather
+        // than into a copy of that array keeps the per-batch cost at four floats instead of an
+        // allocation.
+        //
+        // The last float4 of the struct, which is what `NoDetail` and both built arrays end with.
+        if (category is { } which)
+        {
+            (float Red, float Green, float Blue) colour = CategoryColour(which);
+
+            // **A brush entity's class colour goes on top of its category** (B219, B156). It is
+            // brushwork, so it reads grey-blue like any other; the class colour is what says door,
+            // lift, areaportal or trigger. Multiplied for the same reason the grid is: each says
+            // something the other cannot, and replacing would throw one away.
+            if (tint is { } entity)
+            {
+                colour = (colour.Red * entity.Red, colour.Green * entity.Green, colour.Blue * entity.Blue);
+            }
+
+            float* target = (float*)mapped.PData;
+
+            target[contents.Length - 4] = colour.Red;
+            target[contents.Length - 3] = colour.Green;
+            target[contents.Length - 2] = colour.Blue;
+            target[contents.Length - 1] = 1f;
+        }
+
         context.Unmap(_material, 0);
         context.PSSetConstantBuffers(1, 1, ref _material);
 
@@ -3630,7 +3723,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     ? _textures[batch.MaterialIndex]
                     : _white;
 
-            SetMaterial(context, batch.MaterialIndex);
+            SetMaterial(context, batch.MaterialIndex, batch.Category);
 
             // A decal's second texture, on the same rule as everything else: the real one when the
             // material names it, and the base otherwise so a mix stays an identity.
@@ -3706,7 +3799,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     ? _bumps[batch.MaterialIndex]
                     : _white;
 
-            SetMaterial(context, batch.MaterialIndex);
+            SetMaterial(context, batch.MaterialIndex, batch.Category);
 
             context.PSSetShaderResources(0, 1, ref texture);
             context.PSSetShaderResources(2, 1, ref texture);
@@ -3746,7 +3839,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     ? _details[batch.MaterialIndex]
                     : _white;
 
-            SetMaterial(context, batch.MaterialIndex);
+            SetMaterial(context, batch.MaterialIndex, batch.Category);
 
             context.PSSetShaderResources(0, 1, ref texture);
             context.PSSetShaderResources(2, 1, ref texture);
@@ -4033,6 +4126,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// and wrong for a skinned one — a skinned model's placement travels in its bones and leaves
     /// the matrix at identity, so the translation reads as the map origin (B170).
     /// </param>
+    /// <param name="tint">
+    /// Valve's colour for a brush entity's class, applied in the category view only (B219, B156).
+    /// Null for anything that is not a brush entity.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **One matrix and one draw per entity, which is the engine's shape.** The vertices were
@@ -4055,7 +4152,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         int body = 0,
         bool mirrored = false,
         bool bothSides = false,
-        (float X, float Y, float Z)? origin = null)
+        (float X, float Y, float Z)? origin = null,
+        (float Red, float Green, float Blue)? tint = null)
     {
         ArgumentNullException.ThrowIfNull(matrix);
         ArgumentNullException.ThrowIfNull(batches);
@@ -4324,7 +4422,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
             context.PSSetShaderResources(6, 1, ref ramp);
 
-            SetMaterial(context, material);
+            // A model's own batches carry their category too — `Prop`, or `Missing` where the
+            // material did not resolve. A brush entity adds its class colour on top (B219).
+            SetMaterial(context, material, batch.Category, tint);
 
             context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
         }

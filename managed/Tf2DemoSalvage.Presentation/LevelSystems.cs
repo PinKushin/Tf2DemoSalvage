@@ -194,7 +194,6 @@ public sealed class LevelSystems
     /// <param name="game">What the install provides.</param>
     /// <param name="timeline">The decoded demo, or null when none is open.</param>
     /// <param name="textureQuality">How far to downscale textures.</param>
-    /// <param name="colourByClass">Whether to build the surface-category view.</param>
     /// <returns>The level, for the caller to keep.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="game"/> is null.</exception>
     /// <exception cref="System.IO.InvalidDataException">The file is not a readable BSP.</exception>
@@ -202,12 +201,14 @@ public sealed class LevelSystems
         ReadOnlyMemory<byte> bytes,
         GameContent game,
         DemoTimeline? timeline,
-        int textureQuality,
-        bool colourByClass)
+        int textureQuality)
     {
         ArgumentNullException.ThrowIfNull(game);
 
-        LoadedMap map = LoadedMap.Read(bytes, game, timeline, textureQuality, colourByClass, _loggers);
+        // **A map load no longer depends on which VIEW is on** (B219). It took a `colourByClass`
+        // flag until 2026-08-27, because the category view's colours were baked into the geometry —
+        // which is what made switching the view a reload, and what let it throw the models away.
+        LoadedMap map = LoadedMap.Read(bytes, game, timeline, textureQuality, _loggers);
 
         // **The payload, assigned before the walk.** Valve's hooks take no arguments because a
         // system reads globals; ours are handed their data here and then told the level has begun.
@@ -216,6 +217,11 @@ public sealed class LevelSystems
         _models.Geometry = map.Assets is { } content
             ? content.Geometry
             : EntityModelSet.NoGeometry;
+
+        // **Beside the geometry, because it arrives with the map for the same reason** (B219).
+        // Valve's per-class brush entity colours used to be baked into vertices at load, so the
+        // category view could not be switched without rebuilding; they travel per instance now.
+        _models.EntityTint = map.EntityTintFor;
 
         _soundscape.Placements = _soundscape.Catalog is { } loaded
             ? SoundscapePlacements.From(map.Level.Entities, loaded, map.Level.Leaves)
