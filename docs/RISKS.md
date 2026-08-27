@@ -13490,3 +13490,93 @@ candidates to look at are a cloaked spy's own viewmodel and any weapon with a gl
 **Ordering matters if this is fixed**, and the engine states it: opaque first, translucent second,
 with `STUDIO_TRANSPARENCY`. Both lists sit inside the same depth-range hack, so the near-tenth
 compression applies to both.
+
+### B219 — surface colours unloads every model and nothing ever puts them back — OPEN
+
+**Found by the owner looking at the viewer**, 2026-08-27, while testing `mat_phong` for B170:
+*"setting surface colors on removes the viewmodel and doesnt bring it back, so i need you to restart
+the program"*.
+
+**Not just the viewmodel — every model on the map.** The log says so, and the number is the finding:
+
+```
+444242  WARN [render] *N was posed before its geometry was uploaded
+ 35304  WARN [render] models/items/ammopack_small.mdl was posed before its geometry was uploaded
+ 23536  WARN [render] models/items/medkit_medium.mdl ...
+```
+
+**617,923 log lines in seven seconds**, between "surface colours on" and "surface colours off".
+
+#### The mechanism
+
+`MainForm.SetSurfaceColours` ends with `_device?.ClearWorld()`, and `ClearWorld` does this:
+
+```csharp
+_world?.Dispose();
+_world = null;
+_packedModels.Clear();
+```
+
+**The map comes back and the models do not.** `_world.Invalidate()` re-projects and re-uploads the
+brushwork, so brushwork returns; nothing re-runs `UploadModels`, so `_packedModels` stays empty for
+the rest of the session. Every model is then posed each frame against geometry the renderer never
+received — which is B193's exact symptom, and B148's before it.
+
+**`MomentScene` is where it becomes permanent.** `Upload` is called at
+`MomentScene.cs:486` under `if (_models.Add(scene.Props) && Upload is { } upload)` — so an upload
+happens when the model set **grows**. After `ClearWorld` the set has not grown; it is the GPU-side
+copy that was destroyed, and the scene has no way to know. The two disagree and only one of them is
+tracking anything.
+
+**Why `mat_specular` does not do this and this does.** `SetSpecular` is a shader constant and repaints;
+`SetSurfaceColours` rebuilds, and its own comment on the specular path already noted the asymmetry —
+"the rebuild was why reflections appeared instantly while every other debug view waited". The
+rebuild was left in place as merely slow. It is not merely slow.
+
+#### Worth noting about the instrument
+
+**The warning was already there and said exactly the right thing**, 444,242 times, and nobody saw it
+because nobody had a reason to read the log after toggling a debug view. The defect is visible in
+one line of `uniq -c`. That is the "log what you will need before you need it" rule paying off —
+and an argument for a rate limit on this particular warning, which is per model per frame.
+
+#### B170 — it is the REFLECTION, not phong, and the owner found it in one toggle
+
+2026-08-27, with `mat_phong` in the viewer at last: *"toggling phong does nothing, but toggling
+reflections actually makes the weapon look right too"*.
+
+**So phong is cleared and `$envmap` is the term.** The owner's own hypothesis was phong and it was
+wrong; the instrument built to test it answered a different question, which is the best outcome a
+manipulation can have.
+
+**It fits everything the reading could not.** TF2's `c_` weapon materials almost all declare
+`$envmap` — weapons are shiny metal — while arms materials are skin and cloth and declare none. That
+is "only the weapon" and "all modern weapons" from one fact about the art, and the era boundary
+falls in the same place. The reflection is **added**, not blended, per Valve's
+`result = diffuseComponent + specularLighting`, so it can only ever brighten.
+
+**A refinement, and it kills the obvious reading.** First guess was that fullbright suppresses the
+reflection, which would have made "fullbright looks normal" and "reflections off looks normal" the
+same fact. The owner checked: *"no reflection still exist in full bright, at least our
+implementation of it, i can see the difference when i turn it off even when full bright is on"*.
+
+So the reflection is drawn in both, and under fullbright it looks **fine**. That says the term is not
+wrong in kind — it is too large in absolute terms, and only READS as washed out when the diffuse
+under it is dim. Against a full-brightness albedo the same addition is proportionally small.
+
+This project already wrote down that failure, on `Device3D.Specular`: *"A surface reflecting the sky
+at full strength IS the sky."*
+
+#### What is measured, and what to look at next
+
+- **32 model materials on `cp_process_f12` reflect the map's own cubemap, chosen per draw by
+  position** (from the viewer's own census). A viewmodel sits at the eye, so it takes whichever
+  placement the camera is nearest — which is right in principle and unverified in fact.
+- **`$envmapmask` is not implemented**, but no material on this map declares it, so it is not this.
+- **`$basemapalphaenvmapmask` IS declared, by 6 model materials, and is unimplemented** — the census
+  names it. A material whose mask we ignore gets a full-strength reflection, which is exactly the
+  symptom. It is **not in `source-sdk-2013` at all**, so it is TF2's own, from their closed shaders,
+  and neither the SDK nor `docs/SDK-COVERAGE.md` would ever have listed it as a gap.
+
+The three candidates, in the order worth testing: the missing `$basemapalphaenvmapmask`; the
+cubemap a viewmodel is assigned; and whether the term needs a Fresnel this renderer is not applying.

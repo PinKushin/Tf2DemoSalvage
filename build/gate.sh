@@ -465,7 +465,7 @@ run Tf2DemoSalvage.Presentation.Tests presentation 391
 # never measured: BspVertexNormalsTests added FOUR tests to 707, and the commit that raised it
 # (bb8af0d) verified Viewer and Scene and not Content. A floor is the CURRENT count, so inventing
 # one makes the gate permanently red - which the ratchet then reports as missing tests.
-run Tf2DemoSalvage.Content.Tests  content   711
+run Tf2DemoSalvage.Content.Tests  content   713
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
@@ -640,7 +640,7 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     113
 # `C:\Program Files (x86)\Steam` and `Program` is a Viewer3D type; `SkinOverrideConformanceTests`
 # named `MainForm` only in a comment; and `PlaylistFilterTests` carried a dead
 # `using Tf2DemoSalvage.Viewer3D` when `PlaylistFilter` lives in `Scene`.
-run Tf2DemoSalvage.Rendering.Tests rendering 528
+run Tf2DemoSalvage.Rendering.Tests rendering 529
 run Tf2DemoSalvage.Viewer3D.Tests viewer    101
 
 echo
