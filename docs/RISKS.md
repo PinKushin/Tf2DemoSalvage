@@ -12167,6 +12167,42 @@ against the same player's feet and a nearby world prop. No window, no desktop lo
 `ReportLightTerms` already separates bounce from direct for exactly this question, but it logs at
 Debug and so is absent from an ordinary viewer run.
 
+#### A unit mismatch was predicted, measured, and does not exist — 2026-08-27
+
+**The prediction.** vrad's `LightForString` (`utils/vrad/lightmap.cpp:1088`) stores a light key as
+`pow(r/255.0, 2.2) * 255`, which says `LUMP_WORLDLIGHTS` is on a nought-to-255 scale, while leaf
+ambient is `TexLightToLinear` — nought-to-one. `LevelLighting` sums them. Point lights would survive
+it, because `LocalLights.Falloff` divides by distance squared and absorbs the factor at any room
+distance; **the sun would not**, because `emit_skylight` is directional, gets no falloff, and
+`SunAt` hands its intensity straight to a shader that multiplies it only by a Lambert term. Excess
+light, only where the sun reaches, worst at the eye — which fits every symptom.
+
+**The measurement, on `cp_process_final`: sky light 2.313, brightest leaf ambient sample 2.938.**
+The sun is not 200 and the ambient is not below one. They are on the same scale and the mismatch
+does not exist. The reasoning was about `light` *keys* rather than about what a compiled map holds.
+
+Kept as `LightScaleConformanceTests`, which now asserts what is true — both lumps sit in Valve's
+overbright range, above white and far below a nought-to-255 scale. Verified by manipulation:
+reinstating the historical `/255` in `BspAmbientLight.Colour` drops the ambient reading to 0.012 and
+reddens that assertion alone, with the sky light unmoved.
+
+**Two things the measurement did establish**, and they are the live leads:
+
+1. **Light above white is normal here and nothing tone maps it.** Both lumps reach ~2.3–2.9, and the
+   model shader ends at `return float4(lit, albedo.a)` with no exposure or tone-mapping step
+   anywhere in `Tf2DemoSalvage.Render`. So a model in a bright spot clips toward white. That is the
+   right *shape* for washed-out, and it is not yet tied to the observed cases.
+2. **The two paths treat that range differently.** `BspLightmaps.Overbright` halves a sample into an
+   8-bit texture and the shader doubles it back — Valve's overbright, with the byte storage
+   clamping what goes above it. `BspAmbientLight.Colour` stores a raw float with no equivalent step.
+   Brush surfaces and models therefore reach the shader by different routes, which is exactly the
+   asymmetry that would let the world look right while models blow out.
+
+**What is needed next is not another reading of the code.** The owner's word is *"some"* — so the
+discriminating evidence is which weapons, on which demo, and whether the eye can see sky at the
+time. That is a question for the owner, per `CLAUDE.md` on UI claims, and one demo plus one weapon
+name would turn the two leads above into a differential.
+
 ### B167 — CLOSED 2026-08-23. A one-bone model could never be skinned, so it could never merge
 
 The Original ("the quake launcher") drew far too high and filled the screen, on every demo since
