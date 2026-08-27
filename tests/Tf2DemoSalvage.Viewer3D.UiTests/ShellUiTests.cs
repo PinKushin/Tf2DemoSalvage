@@ -218,5 +218,17 @@ public sealed class ShellUiTests
             () => Math.Abs(_viewer.Find("Viewport").BoundingRectangle.Width - windowedWidth) < 2,
             TimeSpan.FromSeconds(10));
     }
+
+    // **A type-ahead test lived here briefly and moved to `FirstPersonUiTests`** (B216). It asserted
+    // that `SPACE` with the playlist focused does NOT switch camera mode, and it could never pass in
+    // this fixture: this assembly's shell session opens no demo, so there is no recorded camera to
+    // switch to and the CONTROL arm — the same key at the viewport, which must work — failed on
+    // every run. The subject was fine; the fixture could not express it.
+    //
+    // **Also tried and abandoned here: driving `Ctrl+R` at the form.** Neither
+    // `Keyboard.TypeSimultaneously` nor an explicit `Press`/`Type`/`Release` produced a keystroke
+    // `ProcessCmdKey` ever saw as a combination, and a control at the viewport failed identically —
+    // which is the only reason it was distinguishable from a real defect. Unsolved; the
+    // command-modifier flag keeps unit coverage in `WidgetKeysTests`. See `ViewerApplication`.
 }
 

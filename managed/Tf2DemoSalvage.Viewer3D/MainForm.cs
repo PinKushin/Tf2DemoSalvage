@@ -827,7 +827,10 @@ internal class MainForm : Form, IFrameSteps
         Height = 720;
         ApplyGeometryOverride();
 
-        _viewport = new Panel
+        // **A `ViewportPanel` rather than a `Panel`, so it can actually hold focus** (B216). The
+        // `TabStop` below was set on a plain panel and did nothing — WinForms gates focus on
+        // `ControlStyles.Selectable`, which `Panel` clears. See `ViewportPanel` for what that cost.
+        _viewport = new ViewportPanel
         {
             Name = ViewportId,
             AccessibleName = "Demo viewport",
@@ -1048,6 +1051,11 @@ internal class MainForm : Form, IFrameSteps
         // the map gets the display. What the status line says is not worth a band across it, and
         // the transport moves to a transparent overlay for the same reason.
         _hiddenInFullScreen.Add(statusStrip);
+
+        // **The scene starts focused, not the playlist** (B216). WinForms hands focus to the first
+        // tab stop otherwise, and every shortcut is then asked about a list nobody is using. This is
+        // also what a person expects: the window opens looking at the demo, so the demo has the keys.
+        ActiveControl = _viewport;
 
         if (initialPaths.Length > 0)
         {
@@ -3835,6 +3843,12 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private void OnViewportMouseDown(object? sender, MouseEventArgs e)
     {
+        // **Clicking the scene focuses it, which it could not do before B216.** Without this, focus
+        // stays wherever it was — the playlist — so the window's idea of "the focused control" is a
+        // list while somebody is flying a camera across a map. Every shortcut question downstream
+        // depends on focus meaning what the user is working with.
+        _viewport.Focus();
+
         if (e.Button == MouseButtons.Left)
         {
             _dragFrom = e.Location;
@@ -4025,7 +4039,14 @@ internal class MainForm : Form, IFrameSteps
         //
         // The decision is `WidgetKeys.Keeps`, in `Presentation`, which knows nothing about WinForms;
         // this line and `FocusKind` are the whole of the toolkit-specific part.
-        if (WidgetKeys.Keeps(FocusKind(), KeyNames.NameOf(keyData & Keys.KeyCode)))
+        // **`CTRL`/`ALT` is passed separately because the name is the BARE key.** `NameOf` masks the
+        // modifiers off, so `Ctrl+R` and `r` arrive here spelled identically — and the playlist keeps
+        // `r` for type-ahead. Without this the list would swallow `Ctrl+R` and reset-camera would
+        // stop working whenever it had focus. `SHIFT` is not a command modifier: it types a capital.
+        if (WidgetKeys.Keeps(
+                FocusKind(),
+                KeyNames.NameOf(keyData & Keys.KeyCode),
+                (keyData & (Keys.Control | Keys.Alt)) != Keys.None))
         {
             return base.ProcessCmdKey(ref msg, keyData);
         }
@@ -4114,7 +4135,12 @@ internal class MainForm : Form, IFrameSteps
             // or "free camera off, back to the map view", and both are now false: there is one
             // camera and this key does not switch anything. A log that names the wrong quantity
             // misdirects with authority (`docs/memory/a-log-must-name-what-it-measured.md`).
-            _renderLog.LogDebug("{Message}", "camera reset to the overhead placement");
+            // **Information rather than Debug since 2026-08-26.** It is a thing the user did and the
+            // picture jumps because of it, which is the same class as "wrote shot-…" beside it — and
+            // at Debug the app discarded it, so nothing outside a debugger could ever tell whether
+            // the key arrived (`docs/memory/a-log-level-regression-is-invisible-to-unit-tests.md`).
+            // Found because a UI test asserted on this line and watched a line that is never written.
+            _renderLog.LogInformation("{Message}", "camera reset to the overhead placement");
 
             return true;
         }
