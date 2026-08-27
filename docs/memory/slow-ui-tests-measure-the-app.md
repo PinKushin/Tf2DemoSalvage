@@ -26,5 +26,5 @@ you already paid for; treating it as test flakiness throws the finding away and 
 timeout to hide it.
 
 See [[measure-every-hop-before-blaming-one]] — this is that rule with the hops being phases of a
-load — and [[a-log-must-name-what-it-measured]], since the first wrong guess picked the one phase
+load — and [[logs-are-the-debugger]], since the first wrong guess picked the one phase
 that already happened to be wrapped in a timer.

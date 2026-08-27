@@ -26,7 +26,7 @@ stood up.
 **How to apply:** Valve's own `Studio_LookupSequence` compares with `stricmp`. Match exactly. And
 when a lookup is suspected, print what it RETURNED next to what was asked for — that one line
 settled this after hours of measuring things downstream of it. Related:
-[[a-log-must-name-what-it-measured]] and [[instrument-bugs-outnumber-decoder-bugs]].
+[[logs-are-the-debugger]] and [[instrument-bugs-outnumber-decoder-bugs]].
 
 Posed Z spans for a scout, useful as a reference: reference pose 14, `AttackStand_PRIMARY` 23,
 `stand_PRIMARY` 59, `run_PRIMARY` 68. Standing is ~60 and nothing else is.

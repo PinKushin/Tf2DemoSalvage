@@ -48,5 +48,5 @@ could, because they all pass where they were written.
   number means a test quietly stopped running.
 
 Related: [[one-place-or-it-drifts]] is the rule this is the failure mode of —
-[[replace-all-is-a-claim-about-every-site]] is why the sweep has to be done by hand, and
-[[a-skip-is-not-a-pass-or-a-failure]] is what the copies were getting wrong.
+[[edit-files-with-the-file-tools]] is why the sweep has to be done by hand, and
+[[read-the-trx-total-not-the-console]] is what the copies were getting wrong.

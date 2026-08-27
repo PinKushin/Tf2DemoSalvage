@@ -63,7 +63,7 @@ from a `.cpp`-only sweep when the real answer spans `.h` and `.fxc` too.
 - **Search for the string, not the identifier** — see [[wire-names-are-strings]].
 - **Widen the root once.** `public/` sits beside `game/`, and shared code lives there.
 - **Try a file type you did not think of.** `.res`, `.vmt`, `.fxc` and VPK contents are sources; see
-  [[shipped-data-is-a-source]].
+  [[nothing-is-closed]].
 - **State the scope in the claim.** "Not in `game/`" is checkable and survives; "not in the SDK" is a
   claim about 40,000 files that nobody verified. This applies to our own code too: "no renderer reads
   it" was a claim about one project directory, and the answer was in the next one up.
@@ -102,6 +102,6 @@ decisive check here was `git stash push -- <the file>`, running the scan against
 and confirming it named BOTH fields — sensitivity to a case someone invented is weaker evidence
 than sensitivity to the case that actually shipped.
 
-Related: [[an-uncoverable-gap-is-usually-your-reader]], [[tf2-game-code-is-in-the-sdk]],
-[[binaries-answer-what-the-sdk-cannot]], [[a-moves-regressions-are-wiring]],
+Related: [[an-uncoverable-gap-is-usually-your-reader]], [[nothing-is-closed]],
+[[a-moves-regressions-are-wiring]],
 [[instrument-bugs-outnumber-decoder-bugs]].

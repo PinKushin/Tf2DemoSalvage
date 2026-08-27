@@ -17,7 +17,7 @@ chasing it as a decoder defect.
 
 **What made it visible at all is the count floor.** The run printed a summary and stopped; only
 comparing 192 against the project's known 512 said anything was wrong. That is the whole argument for
-exact floors rather than comfortable ones — see [[a-floor-must-track-the-number-it-guards]].
+exact floors rather than comfortable ones — see [[read-the-trx-total-not-the-console]].
 
 **How to apply:** before treating a viewer-suite abort as a code defect, ask what else was on the
 screen, then re-run. A genuine crash reproduces; this did not. And do not confuse it with flake in the
@@ -41,5 +41,5 @@ dotnet test tests/<project> --logger "trx;LogFileName=check.trx" && \
   find . -name check.trx | head -1 | xargs grep -oE '<Counters[^/]*/>'
 ```
 
-Same family as [[a-log-must-name-what-it-measured]]: two instruments reporting "total" and meaning
+Same family as [[logs-are-the-debugger]]: two instruments reporting "total" and meaning
 different things, with nothing on either line saying which.

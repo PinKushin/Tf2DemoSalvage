@@ -41,4 +41,4 @@ concluded `moveparent` was special and wrote it into a test: *"it will never app
 A regex limitation recorded as a fact about the format, then defended by an assertion — see
 [[an-uncoverable-gap-is-usually-your-reader]].
 
-Related: [[shipped-data-is-a-source]], [[tf2-game-code-is-in-the-sdk]].
+Related: [[nothing-is-closed]].

@@ -29,5 +29,5 @@ a whole category is empty, check whether it can see that category at all before 
 absence produced by not looking is identical to an absence produced by nothing being there.
 
 Related: [[instrument-bugs-outnumber-decoder-bugs]], [[an-empty-search-needs-a-control]],
-[[measure-the-output-not-the-capability]], [[a-log-must-name-what-it-measured]],
-[[a-count-cannot-see-past-a-pruner]].
+[[measure-the-output-not-the-capability]], [[logs-are-the-debugger]],
+[[instrument-bugs-outnumber-decoder-bugs]].

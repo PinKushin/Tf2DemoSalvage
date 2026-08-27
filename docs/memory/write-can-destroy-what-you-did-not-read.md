@@ -35,4 +35,4 @@ while you are adding is never explained by your additions.
   The same session had already filed [[a duplicate risk]] for a fixed defect and re-derived a
   measurement that existed. Grep first: the cost is seconds and the alternative is deleting work.
 - A count that moves the wrong way is a finding, never an accounting nuisance. See
-  [[a-floor-must-track-the-number-it-guards]].
+  [[read-the-trx-total-not-the-console]].

@@ -18,7 +18,7 @@ old file is invisible to both the suite and the eye.
 **How to apply:** when a change touches how something is drawn or resolved, ask what the oldest
 supported demo does with it, and open one. The era axis is measured — protocols 11, 14, 15, 16 and
 24, with matched POV/STV pairs — so the specimen exists. Related:
-[[a-viewmodel-is-one-model-or-two]], [[era-axis-is-measured]], [[record-both-points-of-view]],
+[[a-player-has-two-viewmodels]], [[era-axis-is-measured]], [[record-both-points-of-view]],
 [[the-demo-dates-its-own-fields]].
 
 **A constraint on verifying era behaviour:** the period clients have **no internet connection**, so

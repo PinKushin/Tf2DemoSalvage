@@ -45,7 +45,7 @@ does not survive 433 files.
 **And the zero case is unreachable from the committed corpus.** All 53 gcor and lcor demos declare
 real values — the era specimens are the owner's own clean recordings and the local ones come from
 demos.tf, ETF2L, RGL and serveme, none from ESEA. So the case is common in the wild and **untestable
-with a corpus demo**; it has to be authored, which is the case [[put-the-real-file-in-the-fixture]]
+with a corpus demo**; it has to be authored, which is the case [[fixtures-are-the-weak-point]]
 now names explicitly.
 
 **Why this is worse than the truncated tail it accompanies.** A missing tail eventually announces

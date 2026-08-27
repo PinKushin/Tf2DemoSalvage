@@ -40,4 +40,4 @@ Residual caveat, independent of changelog timing: code can ship dark before the 
 it is announced, so a feature date bounds a code change from above too. Prefer evidence that needs
 no date at all — the *presence* of a late id in a demo proves the late table regardless.
 
-Related: [[era-axis-is-measured]], [[binaries-answer-what-the-sdk-cannot]], [[research-before-code]].
+Related: [[era-axis-is-measured]], [[nothing-is-closed]], [[research-before-code]].

@@ -112,5 +112,5 @@ problem and would have been believed. `$(git rev-parse main)` rather than anythi
 `gh run list --branch main --limit 3`. If a run is still in flight, come back to it — do not report
 the work as landed until the run is read.
 
-Related: [[a-floor-must-track-the-number-it-guards]] and [[read-the-trx-total-not-the-console]] for
+Related: [[read-the-trx-total-not-the-console]] for
 reading the gate's output correctly.

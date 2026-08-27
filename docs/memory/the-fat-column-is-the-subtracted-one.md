@@ -46,5 +46,5 @@ caller on the machine through the global `DBWinMutex`. One line cost ~120 ms. Fi
   invisible in the configuration users run and only ever paid by developers.
 
 Related: [[a-threshold-instrument-cannot-see-a-sum]], [[measure-every-hop-before-blaming-one]],
-[[instrument-bugs-outnumber-decoder-bugs]], [[a-log-must-name-what-it-measured]],
+[[instrument-bugs-outnumber-decoder-bugs]], [[logs-are-the-debugger]],
 [[logs-are-the-debugger]].

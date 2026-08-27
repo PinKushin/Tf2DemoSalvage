@@ -22,7 +22,7 @@ difference is only visible over time, or by asking the operating system.
 **How to apply:** to know whether a launched application is still running, ask for the process —
 `Get-Process -Name tf2demoview` — never the task notification and never the log's last line. If the
 log must be the instrument, read it twice and compare, because growth is the signal. The same shape as
-[[a-count-cannot-see-past-a-pruner]]: a single reading of a moving quantity is not a measurement of it.
+[[instrument-bugs-outnumber-decoder-bugs]]: a single reading of a moving quantity is not a measurement of it.
 
 And when reporting to a person who is sitting in front of the machine, remember they can see the screen
 and you cannot — [[instrument-bugs-outnumber-decoder-bugs]]. Saying "it exited, you saw nothing" to

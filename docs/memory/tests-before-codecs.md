@@ -56,4 +56,4 @@ helper that writes *into* an existing writer rather than returning bytes. See
 
 Related: trailing zero padding decodes as a run of `net_NOP`, because NOP is message id 0.
 Fixtures must expect those extra messages or filter them out — see
-[[z1800-is-modern-not-2015]] for the pattern of assumptions that only real bytes disprove.
+[[era-axis-is-measured]] for the pattern of assumptions that only real bytes disprove.

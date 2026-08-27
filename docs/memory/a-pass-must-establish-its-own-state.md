@@ -38,5 +38,5 @@ the code you moved. And when a surface is present in a diagnostic view and absen
 the fragment is reaching the output merger — look at blending before looking at geometry.
 
 Related: [[build-time-shortcuts-assume-the-camera]], [[instrument-bugs-outnumber-decoder-bugs]],
-[[output-level-assertion-or-it-is-not-done]], [[a-faithful-fixture-can-be-blind]],
-[[log-what-is-about-to-be-drawn]].
+[[output-level-assertion-or-it-is-not-done]], [[instrument-bugs-outnumber-decoder-bugs]],
+[[logs-are-the-debugger]].
