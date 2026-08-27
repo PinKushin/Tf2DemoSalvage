@@ -13491,7 +13491,7 @@ candidates to look at are a cloaked spy's own viewmodel and any weapon with a gl
 with `STUDIO_TRANSPARENCY`. Both lists sit inside the same depth-range hack, so the near-tenth
 compression applies to both.
 
-### B219 — surface colours unloads every model and nothing ever puts them back — OPEN
+### B219 — surface colours unloads every model and nothing ever puts them back — FIXED 2026-08-27
 
 **Found by the owner looking at the viewer**, 2026-08-27, while testing `mat_phong` for B170:
 *"setting surface colors on removes the viewmodel and doesnt bring it back, so i need you to restart
@@ -13722,3 +13722,64 @@ rather than a defect of its own.
 
 An experiment, not more reading: give the viewmodel a phong term driven by something other than the
 sun and see whether the weapon comes to look like TF2's. If it does not, the term is elsewhere.
+
+#### B219 closed twice over: the guard, then removing the thing it guarded
+
+**First the pairing.** `MainForm.SetSurfaceColours` called `Device3D.ClearWorld`, which disposes the
+world and empties `_packedModels` with the buffers they feed. `Invalidate` re-uploaded the brushwork
+and nothing re-uploaded the models, because `MomentScene` asks for one only when the packed set
+GREW — and after a clear it has not. `MomentScene.Uploaded = false` is the reset that says otherwise,
+and B148 built it for this exact case on the map-change path.
+
+**Then the cause went.** The owner: *"it shouldnt [rebuild], which is why its super slow compared to
+any other view"*, and then *"lets fix the view to repaint, instead of rebuild"*. `ClearWorld` is no
+longer on that path at all, so B219 cannot happen there however the guard behaves.
+
+#### What made a repaint cheap, and it was the owner's correction
+
+The colours were baked into vertices — flat colours by surface kind at six sites in
+`MapWorldBuilder`, Valve's per-class brush entity colours in `BrushModels`. The first estimate was a
+new `float` on `WorldVertex` carrying a category index, which touches the vertex layout, the input
+layout, the stride and every construction site.
+
+Two facts removed all of that:
+
+- **Props and overlays were already grouped in their own dictionaries**, so those batches are
+  category-homogeneous. Only terrain and brushwork shared one, and splitting them is four lines.
+- **The FGD colours are not arbitrary.** The owner: *"the color is not arbitrary, at least not on our
+  side, the colors match valves dev texture colors"*. A bounded set needs no per-vertex encoding.
+
+So a batch carries its `SurfaceCategory`, an instance carries its class colour, and the view is a
+shader constant. `colourByClass` left `LoadedMap.Read` and `LevelSystems.Load` entirely: **a map load
+no longer depends on which view is on**, which is the fact under the whole bug.
+
+#### The third time one array disagreed with the shader's struct
+
+Adding `categoryColour` needed three arrays to grow together: `NoDetail`, which sizes the buffer, and
+both branches of the per-material array. **Two grew.** `NoDetail` and the no-detail branch end with
+`]);`; the with-detail branch ends with a bare `]`, so a replace-all matched two of three and
+reported success.
+
+Materials carrying a detail texture then copied **64 floats into a 68-float buffer**. The tail was
+whatever the last frame left there, and `Map.WriteDiscard` renames the allocation every time, so it
+differed per frame. The owner, immediately: *"the colors are kinda doing a disco now"*, and the
+diagnostic half — *"it actually looks like it might be trying to do more than one debug view at
+once"*, which is what a garbage `float4` read as flags looks like. The short write also landed four
+floats early, on `phongTint` and `rimControl`.
+
+**Two screenshots milliseconds apart settled it**: the same camera, the whole scene lavender in one
+frame and tan in the next. One varying value read by everything, not each surface getting its own
+wrong colour.
+
+**This is the third recorded instance of the same trap** — the file already carries a buffer created
+160 bytes wide against a declared 192, out of bounds both ways, *and it worked*, because this driver
+tolerates it. So the comment is no longer the guard: `SetMaterial` now throws when an array's length
+disagrees with `NoDetail.Length`, naming both numbers. One integer comparison per batch against a
+corruption only some drivers punish.
+
+**Confirmed by the owner**: *"colors look right now, at least to me, no flickering, good job and its
+still instant"*.
+
+**Left open**: `WorldPresenter`'s failed-upload path still calls `ClearWorld` and cannot reach the
+scene to reset the flag, so the original symptom survives there. It is an error path that already
+reports "Textures unavailable", so it is visible rather than silent.

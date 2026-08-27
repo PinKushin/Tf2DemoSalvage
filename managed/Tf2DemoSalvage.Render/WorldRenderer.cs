@@ -1462,6 +1462,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <summary>Material indices whose reflection parameters have been reported (B170).</summary>
     private readonly HashSet<int> _reportedEnvmap = [];
 
+
     /// <summary>Model paths whose drawn material indices have been reported (B170).</summary>
     private readonly HashSet<string> _reportedBatchMaterials =
         new(StringComparer.OrdinalIgnoreCase);
@@ -2358,6 +2359,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     phongFresnel.Low, phongFresnel.Mid, phongFresnel.High, hasLightWarp,
                     phongTint.Red, phongTint.Green, phongTint.Blue, 0f,
                     rimExponent, rimBoost, hasRim, 0f,
+
+                    // categoryColour, a placeholder: it is per BATCH, so SetMaterial overwrites it
+                    // in the mapped buffer after this array is copied in. Present so the array
+                    // stays the length the shader's struct declares (B219).
+                    1f, 1f, 1f, 0f,
                 ]
                 :
                 [
@@ -3553,6 +3559,30 @@ internal sealed unsafe class WorldRenderer : IDisposable
             contents = [.. contents];
 
             ApplyProxies(contents, _proxies[materialIndex]);
+        }
+
+        // **Every array feeding this buffer must be exactly the shader struct's length, and this is
+        // the third time that has mattered.** The file already records a buffer created 160 bytes
+        // wide against a declared 192 — written and read out of bounds, and it WORKED, because this
+        // driver tolerated it.
+        //
+        // It happened again on 2026-08-27 adding `categoryColour`. Three arrays needed the extra
+        // float4 and only two got it: `NoDetail` and the no-detail branch end with `]);` while the
+        // WITH-detail branch ends with a bare `]`, so a replace-all matched two of three. Materials
+        // carrying a detail texture then copied 64 floats into a 68-float buffer, leaving a tail of
+        // whatever the last frame put there — and `Map.WriteDiscard` makes that different every
+        // frame. The owner saw it immediately: *"the colors are kinda doing a disco now"*, and
+        // *"it actually looks like it might be trying to do more than one debug view at once"*,
+        // which is what a garbage float4 read as flags looks like.
+        //
+        // A comparison per batch is nothing next to a silent corruption that only some drivers
+        // punish. Checked here rather than at load because this is the one place every array
+        // arrives.
+        if (contents.Length != NoDetail.Length)
+        {
+            throw new InvalidOperationException(
+                $"material {materialIndex} carries {contents.Length} constants where the shader " +
+                $"declares {NoDetail.Length}; a short array leaves the buffer's tail undefined");
         }
 
         MappedSubresource mapped = default;
