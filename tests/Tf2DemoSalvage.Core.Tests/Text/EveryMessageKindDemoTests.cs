@@ -110,6 +110,11 @@ public sealed class EveryMessageKindDemoTests
         convars.Variables.ShouldContain(
             new KeyValuePair<string, string>("sv_gravity", "800"));
 
+        // **Decoding it is not showing it, and that gap shipped** (B220). This assertion sat here
+        // alone and passed while the trace printed `svc_setconvar;` with no payload at all — the
+        // message present, its six values gone. See Trace_SetConVar_NamesTheVariables below, which
+        // is the half that was missing.
+
         GameEventListMessage list = read.OfType<GameEventListMessage>().ShouldHaveSingleItem();
         list.Definitions.Select(definition => definition.Name)
             .ShouldBe(["player_death", "teamplay_round_win"]);
@@ -120,6 +125,42 @@ public sealed class EveryMessageKindDemoTests
         fired.Values["weapon"].ShouldBe("scattergun");
         fired.Values["customkill"].ShouldBe((byte)7);
         fired.Values["crit"].ShouldBe(true);
+    }
+
+    /// <summary>That the trace says WHICH convars the server set, not merely that it set some.</summary>
+    /// <remarks>
+    /// **B220, found while auditing the convar surface under D104.** The trace is the form a person
+    /// reads — `ROADMAP.md` calls it the demo decompiled to text — and for this message it printed:
+    ///
+    /// <code>
+    /// svc_setconvar;
+    /// </code>
+    ///
+    /// while the assembly for the same message printed all six name/value pairs. It has to: `-a`
+    /// compiles back to the demo. So nothing was broken in a way the round-trip test could see, and
+    /// the decode assertion above passed throughout.
+    ///
+    /// **This is the message that answers "what did the server change from default"**, which is the
+    /// whole question behind D106 and `docs/CVAR-COVERAGE.md`. A real match server sends forty
+    /// values here, including the interpolation clamps that decide how the recording client saw its
+    /// own demo. A reader tracing one to find out why movement looks wrong would have seen the
+    /// message exist and learned nothing.
+    ///
+    /// Same family as the kill annotation, the kill feed and `m_flPlaybackRate`: decoded, retained,
+    /// and never reaching the output somebody reads.
+    /// </remarks>
+    [Test]
+    public void Trace_SetConVar_NamesTheVariables()
+    {
+        string trace = Trace();
+
+        trace.ShouldContain("svc_setconvar", Case.Insensitive);
+
+        // Both halves of a pair, and both pairs — a renderer that printed only the first, or only
+        // the names, would satisfy a looser check while still losing what the message says.
+        trace.ShouldContain("sv_gravity");
+        trace.ShouldContain("800");
+        trace.ShouldContain("tf_weapon_criticals");
     }
 
     [Test]

@@ -117,7 +117,7 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # **Lowered 1504 -> 1497 on 2026-08-22, and the arithmetic is the justification.**
 # SoundAttenuationConformanceTests (7) moved to Audio.Tests with SoundAttenuation itself (D53).
 # Nothing was deleted: core -7 and content -33 are exactly the +40 the audio floor gained.
-run Tf2DemoSalvage.Core.Tests     core     1503
+run Tf2DemoSalvage.Core.Tests     core     1504
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.

@@ -6024,3 +6024,120 @@ f12 pov    6   func_break_max_pieces, sv_skyname, think_limit, sv_turbophysics, 
 So the baked defaults are right for every demo this project has — **by luck of the servers running
 Valve's values, not by design**. A server that raised `sv_maxspeed` would send it, this viewer would
 receive it, decode it, and ignore it.
+
+---
+
+## D107 — LINQ is a test tool; the program proper does without it
+
+**Owner-set, 2026-08-27**, on a `Join` over a `Select` added to the trace writer:
+
+> *"linq can be slow if its in a hot path, i dont like link in the program proper so performance stays
+> high, its really only a test thing in this project."*
+
+### The rule
+
+**Never on a hot path. Off one, allowed when what LINQ buys outweighs the cost — and it is always a
+cost.** Tests may use it freely.
+
+The first draft of this entry made it an outright ban and argued that a second standard "splits every
+reader into is-this-hot arguments nobody wins". The owner corrected that immediately: *"if its not on
+a hot path and the better things linq does overrides the downsides, i am open to having it in the
+program, but it is a performance hit."* Recorded because the overstatement was mine and a rule
+stricter than its author intended gets cited later as if it were.
+
+So the test is a judgement the author has to actually make, not a keyword ban:
+
+1. **Is this a hot path?** Then no, regardless of what the query buys.
+2. **Otherwise, does the query genuinely read better or fail less often?** If yes, take it knowing it
+   costs allocations. If it is a wash, the loop wins by default.
+
+The cost is the enumerator and the closure, not taste: `Select` allocates, `Join` allocates, and a
+lambda capturing a local allocates again. In a method called once at load that is invisible; in one
+called per message of a demo, per entity of a snapshot, or per frame, it is the whole cost.
+
+### What counts as a hot path here
+
+Per-message decode and text, per-entity instancing and posing, per-batch drawing. Those are where
+every performance finding of the last month landed — B181's ordering pass, B189's uncounted worn
+lighting, B191's per-frame log formatting — and a query there is paid tens of thousands of times a
+second.
+
+**Load time counts too.** The owner: *"we just have to make sure none of its in a hot path, or slowing
+loads down."* A map load is once per demo and still the thing a person waits on, so "not per frame"
+is not the same as "free". Asset resolution and config parsing are where the second half of the rule
+applies, and even there the question is whether the query earns its cost rather than whether anyone
+will notice.
+
+**And LINQ is already sparing here**, which changes what the debt below is worth. The owner:
+*"linq is uses very sparingly already, so we just have to make sure none of its in a hot path"*. The
+job is a check, not a migration.
+
+### The debt this creates, measured rather than waved at
+
+**45 of 356 files in `managed/` declare `using System.Linq;` — 13%.**
+
+| project | files with LINQ | of |
+|---|---:|---:|
+| `Scene` | 15 | 58 |
+| `Core` | 10 | 102 |
+| `Content` | 7 | 70 |
+| `Presentation` | 4 | 38 |
+| `Audio` | 3 | 27 |
+| `Render` | 2 | 16 |
+| `Viewer3D` | 2 | 15 |
+| `Animation`, `Cli` | 1 each | 8 each |
+
+**This decision does not order a sweep, and under the corrected rule most of the 45 may be fine.**
+The number worth having is not "how many files use LINQ" but "how many use it on a hot path", and
+that is unmeasured. `Scene` and `Core` are where to look first, since they hold the per-entity and
+per-message paths; a query in a map loader or a config reader is exactly the case the owner is open
+to.
+
+**What was forbidden outright is the one that prompted this.** Rendering `net_SetConVar` was a
+`string.Join` over a `Select`, in a method that runs once per message of a demo — a hot path by any
+reading, and the first test of the rule failed it.
+
+---
+
+## D108 — The budget is one millisecond a frame, and the engine we are copying meets it
+
+**Owner-set, 2026-08-27**, as the thing to understand above every other performance rule:
+
+> *"what must be understood above all is that at 1000fps we have to do everything in around 1
+> millisecond and the real tf2 can do it."*
+
+### The standard
+
+**One frame is one millisecond, and that covers everything** — sampling the timeline, deciding what
+is drawn, packing, posing, lighting, the viewmodel pass, the HUD, the sound. Not one of those gets a
+millisecond; all of them share one.
+
+**And the comparison is not aspirational.** TF2 renders the same map, the same players, the same
+weapons at that rate on the same machine. Whatever this project cannot do inside the budget, the
+engine it is copying does — so a shortfall is never evidence that the target is unreasonable. It is
+evidence that something here is doing more work than Valve's equivalent, and the interesting question
+is always which.
+
+### What follows from it
+
+**A cost is measured against a millisecond, not against a stopwatch's noise floor.** "It only takes
+three milliseconds" is not a small number; it is three frames. Every stall this project has found
+reads differently in that light: B189's deterministic 130 ms was a hundred and thirty frames, and
+B191's per-frame log formatting was paying for strings nobody read.
+
+**"Fast enough" is not a finding.** The number to report is the share of a millisecond, and the
+comparison is what Valve spends on the same work — which is usually readable, because
+`source-sdk-2013` is right there and this project already reads it for everything else.
+
+**It also bounds D107 and every convenience like it.** A `Select` is not banned because allocation is
+distasteful; it is banned on a hot path because the path has microseconds to spend and an allocation
+is not one of the things worth spending them on. The same test applies to anything else that looks
+harmless per call: at a thousand calls a frame, per-call costs are the frame.
+
+### Where it does not apply, and saying so keeps it credible
+
+**Load time is not this budget** — it has its own, which is a person's patience rather than a frame,
+and D107's note on loads covers it. **Tests are not this budget either**; a test's cost is developer
+seconds and its clarity is the product.
+
+The rule is about the frame, and the frame is one millisecond.

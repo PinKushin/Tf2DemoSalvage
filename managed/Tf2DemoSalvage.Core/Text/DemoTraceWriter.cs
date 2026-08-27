@@ -526,6 +526,16 @@ public static class DemoTraceWriter
             $"svc_serverinfo protocol {info.NetworkProtocol} map {Quote(info.Map)} " +
             $"max_classes {info.MaxClasses} tickrate {info.IntervalPerTick:F6}"),
 
+        // **What the server CHANGED from default, which is the only place a demo says so** (B220).
+        // This fell through to the bare-name default and printed `svc_setconvar;` — the message
+        // present and its values gone — while the assembly rendered all of them, because `-a` has
+        // to compile back to the demo. Nothing was broken in a way a byte comparison could see.
+        //
+        // It matters more than its size suggests: a real match server sends forty values here,
+        // including `sv_client_max_interp_ratio` and the cmdrate clamps that bound what the
+        // recording client's own interpolation could have been (D106, docs/CVAR-COVERAGE.md).
+        SetConVarMessage convars => RenderConVars(convars),
+
         PacketEntitiesMessage entities => string.Create(
             CultureInfo.InvariantCulture,
             $"svc_packetentities delta {(entities.IsDelta ? 1 : 0)} " +
@@ -658,6 +668,33 @@ public static class DemoTraceWriter
     /// unescaped newline inside a value would split one message across two lines and make the
     /// trace unparseable — which matters because this format is meant to be read back.
     /// </remarks>
+    /// <summary>Renders <c>net_SetConVar</c> with every name and value it carries (B220).</summary>
+    /// <param name="convars">The message.</param>
+    /// <returns>The trace line.</returns>
+    /// <remarks>
+    /// **A loop and a builder rather than a `Join` over a `Select`.** LINQ is a test-only tool in
+    /// this project — the owner: *"linq can be slow if its in a hot path, i dont like link in the
+    /// program proper so performance stays high"* — and this runs once per message of a demo, which
+    /// is a hot path by any reading.
+    ///
+    /// The count is printed as well as the pairs so that an EMPTY message still says something. A
+    /// server that changed nothing sends no message at all, so a zero here means the message existed
+    /// and carried nothing, which is a different fact and worth being able to tell apart.
+    /// </remarks>
+    private static string RenderConVars(SetConVarMessage convars)
+    {
+        StringBuilder line = new();
+
+        line.Append(CultureInfo.InvariantCulture, $"svc_setconvar count {convars.Variables.Count}");
+
+        foreach (KeyValuePair<string, string> entry in convars.Variables)
+        {
+            line.Append(' ').Append(Quote(entry.Key)).Append(' ').Append(Quote(entry.Value));
+        }
+
+        return line.ToString();
+    }
+
     private static string Quote(string value)
     {
         StringBuilder quoted = new(value.Length + 2);
