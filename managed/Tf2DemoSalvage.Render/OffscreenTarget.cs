@@ -217,6 +217,11 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <param name="light">The ambient cube reaching it, or null for none.</param>
     /// <param name="bothSides">Draw every face regardless of winding, as <c>$nocull</c> does.</param>
     /// <param name="sun">The sun reaching it, or null for a model in shade.</param>
+    /// <param name="fullbright">Which <c>mat_fullbright</c> substitution to apply, if any.</param>
+    /// <param name="debug">
+    /// The debug views to apply — <c>mat_drawflat</c> and its neighbours. Passing these at all is
+    /// what makes B187 testable: a posed model was previously always drawn with them off.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The model path is not the world path and the difference has hidden a defect.** Every
@@ -233,7 +238,9 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         MapAssets assets,
         AmbientCube? light = null,
         bool bothSides = false,
-        SunLight? sun = null)
+        SunLight? sun = null,
+        Fullbright fullbright = Fullbright.Off,
+        DebugModes debug = default)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -264,7 +271,15 @@ internal sealed unsafe class OffscreenTarget : IDisposable
                 [Posed] = new PackedModel(vertices, new[] { batches }),
             });
 
-        _world.SetCamera(_device, _context, camera);
+        // **The debug state is passed rather than defaulted, which is what lets B187 be tested.**
+        // This read `SetCamera(_device, _context, camera)` — three arguments against a method whose
+        // remaining four are optional — so a posed model was always drawn with the debug views OFF
+        // and no test could tell whether the model shader honours them.
+        //
+        // That is the same omission `Device3D.DrawViewmodels` had, and it is the reason the defect
+        // could sit in the viewer with a full offscreen render suite in place: the harness reproduced
+        // the bug rather than exposing it.
+        _world.SetCamera(_device, _context, camera, surfaceColours: false, specular: true, fullbright, debug);
 
         Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
 
