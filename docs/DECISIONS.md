@@ -5990,8 +5990,20 @@ inconvenient; this one is justified by the corpus sitting in `tools/corpus/`.
 
 **Not a demand that every value be settable from a config.** D104 establishes three homes for a
 value — the watcher's config, the demo, or Valve's default as a fallback — and this decision is about
-the third. A default read from a named declaration is still a default; it simply stays a *default*
-rather than becoming a constant.
+the FORM rather than the source. A default read from a named declaration is still a default; it
+simply stays a *default* rather than becoming a constant.
+
+**And no category is exempt, including the ones a demo can never supply.** The owner, on a first
+draft of `CVAR-COVERAGE.md` that let client-side convars off: *"baked default is never the right
+answer i dont think, at least not if its not a baked default valve has"*. That page had said a baked
+default was correct for the seven client-only convars — `snd_gain`, `cl_showpos` and the rest — on
+the reasoning that a demo cannot carry them. That reasoning settles where the value COMES FROM and
+says nothing about how it is written, which is what this decision governs. Valve declares all seven
+as ConVars, so all seven are named defaults here too.
+
+**The one real exemption is a value Valve itself hardcodes.** `MAX_EDICTS`, a struct's field order,
+the overbright factor of two — the engine wrote those as constants, so a constant is the faithful
+copy. The test is always "what did Valve write", never "does this number ever change".
 
 **Not retroactive panic.** Twenty are baked today, measured under D104 and listed in
 `docs/CVAR-COVERAGE.md`. They are wrong by this rule and none of them is urgent, because every corpus
