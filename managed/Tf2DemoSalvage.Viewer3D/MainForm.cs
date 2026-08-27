@@ -2480,7 +2480,26 @@ internal class MainForm : Form, IFrameSteps
                   "states none, as Hammer draws them"
                 : "surface colours off");
 
+        // **`ClearWorld` throws away the models too, and only the map came back** (B219). It
+        // disposes the world and empties `_packedModels` with the buffers they feed; `Invalidate`
+        // re-projects and re-uploads the brushwork, and nothing re-ran `UploadModels`, because
+        // `MomentScene` asks for one only when the model set GREW — which after a clear it has not.
+        //
+        // The owner: *"setting surface colors on removes the viewmodel and doesnt bring it back, so
+        // i need you to restart the program"*. Every model, not just the viewmodel, and the log had
+        // been saying so 444,242 times in seven seconds.
+        //
+        // **`MomentScene.Uploaded` is the mechanism, and it already existed** — B148 is this same
+        // bug on the map-change path, where the packed set survived a second demo and its GPU
+        // buffer did not. `Pack` guards on `if (!grew && Uploaded) return;`, and level shutdown
+        // clears the flag. This path discarded the buffer and never told it, so it is the one
+        // caller of `ClearWorld` that was not paired with the reset.
+        //
+        // A second mechanism was written for this and thrown away. Inventing one where a tested one
+        // exists is how two of them drift apart, which is the fault under this bug rather than a
+        // separate one.
         _device?.ClearWorld();
+        _moment.Uploaded = false;
         _world.Invalidate();
     }
 
