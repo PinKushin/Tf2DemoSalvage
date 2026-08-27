@@ -100,6 +100,80 @@ public sealed class WeaponEnvmapProbe
         return null;
     }
 
+    /// <summary>
+    /// What the RENDERER resolved for each weapon and arms material, not what a guessed path says.
+    /// </summary>
+    /// <remarks>
+    /// **The probe above guesses `.vmt` paths and that is a weakness, not a detail.** It resolved
+    /// nothing at all for `c_scout_arms` and `c_soldier_arms`, which is proof its candidate list is
+    /// incomplete — and a list incomplete for the arms may equally have read the WRONG file for a
+    /// weapon. An absence it reports is a fact about the guess
+    /// (`docs/memory/an-empty-search-needs-a-control.md`).
+    ///
+    /// This asks `MapAssets` instead, which is the same load the viewer performs, so a material
+    /// named here is a material the renderer actually uses and `LocalReflections[i]` is exactly the
+    /// value the shader is handed. That closes the contradiction the VMT probe left open: two of
+    /// the three weapons appeared to declare no `$envmap` at all, while the owner reports that
+    /// toggling reflections fixes the weapon.
+    /// </remarks>
+    [Test]
+    [Explicit("A probe: reports the reflection each weapon material resolved to.")]
+    public void WeaponMaterials_AsTheRendererResolvesThem_AreReported()
+    {
+        if (Tf2Install.Folder is not { } game || game.Length == 0)
+        {
+            Assert.Ignore("Team Fortress 2 is not installed; set TF2_FOLDER to run this.");
+            return;
+        }
+
+        MapAssets assets = MapCache.Load(entityModels:
+        [
+            "models/weapons/c_models/c_scattergun.mdl",
+            "models/weapons/c_models/c_shotgun/c_shotgun.mdl",
+            "models/weapons/c_models/c_scout_arms.mdl",
+            "models/weapons/c_models/c_soldier_arms.mdl",
+        ]);
+
+        for (int index = 0; index < assets.Materials.Count; index++)
+        {
+            string name = assets.Materials[index].Name;
+
+            if (!name.Contains("weapon", StringComparison.OrdinalIgnoreCase) &&
+                !name.Contains("arms", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            MapEnvmapShading? local =
+                index < assets.LocalReflections.Count ? assets.LocalReflections[index] : null;
+
+            MapCubemap? baked = index < assets.Cubemaps.Count ? assets.Cubemaps[index] : null;
+            MapPhong? phong = index < assets.Phong.Count ? assets.Phong[index] : null;
+
+            TestContext.Out.WriteLine(
+                $"{name}: local={(local is { } l ? $"tint {l.Tint}, baseMask {l.MaskedByBaseAlpha}, " +
+                    $"normalMask {l.MaskedByNormalMapAlpha}, contrast {l.Contrast}" : "none")}" +
+                $" | baked={(baked is null ? "none" : "yes")}" +
+                $" | phong={(phong is { } p ? $"boost {p.Boost}" : "none")}");
+        }
+
+        // **What the tint is multiplying, which is the other half and the half nobody measured.** A
+        // tint of 0.085 is only small against a sample near one. Source's HDR cubemaps are stored in
+        // formats that carry values far above white, so the FORMAT decides whether these weapons
+        // reflect at eight percent of white or at eight percent of something much larger.
+        foreach (MapPlacedCubemap placed in assets.PlacedCubemaps.Take(3))
+        {
+            string formats = string.Join(
+                ", ", placed.Faces.Select(face => face.Image.Format.ToString()).Distinct());
+
+            TestContext.Out.WriteLine(
+                $"PLACED CUBEMAP at ({placed.Placement.X}, {placed.Placement.Y}, {placed.Placement.Z}): " +
+                $"{placed.Faces.Count} faces, formats {formats}");
+        }
+
+        TestContext.Out.WriteLine($"PLACED CUBEMAPS: {assets.PlacedCubemaps.Count} in total");
+    }
+
     /// <summary>The lines that decide how much reflection a material adds.</summary>
     private static IEnumerable<string> Interesting(string vmt)
     {
