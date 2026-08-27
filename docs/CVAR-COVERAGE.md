@@ -133,8 +133,18 @@ So there are three states, not two, and this page's table above only distinguish
 1. **Accepted from the config** — the watcher's preference. 42 names today.
 2. **Taken from the demo** — what the server or the recording client had. The right home for most
    of the twenty, and none are read that way today.
-3. **Valve's default, baked** — the honest fallback when the demo does not carry it, and the state
-   all twenty are in now, correct or not.
+3. **Valve's declared default** — the fallback when neither of the first two supplies a value, and
+   the state all twenty are in now, correct or not.
+
+**"Declared", not "baked", and the distinction is D106.** The owner: *"baked default is never the
+right answer i dont think, at least not if its not a baked default valve has"*. A default is right
+as a VALUE and wrong as a `const float`: Valve wrote a name, a default and the ability to change it,
+so copying only the number discards the two parts that make it portable across the nineteen years of
+builds this project already reads.
+
+So the third home is not an exemption from D106 — it is the case D106 is mostly about. None of the
+twenty is exempt because it is client-side; the client-side ones simply cannot take their value from
+the demo, which decides the SOURCE and says nothing about the FORM.
 
 `docs/memory/a-default-is-not-a-constant.md` is the standing rule for the third: a default is a
 `ConVar` declaration that can change between builds, not a number to copy in. What this page adds is
@@ -149,7 +159,7 @@ The shipped list marks replicated convars `"rep"`, and that splits the twenty cl
 |---|---|---|
 | replicated | `sv_maxspeed`, `sv_specspeed`, `sv_specaccelerate`, `sv_specnoclip`, `sv_cheats`, `sv_downloadurl`, `cl_forwardspeed`, `cl_sidespeed`, `cl_upspeed`, `host_timescale` | **yes** — the server sends these |
 | userinfo (`"user"`) | `cl_interp` | **yes** — it travels in the `userinfo` string table, which this project already reads for the roster |
-| client-only | `cl_showpos`, `cl_drawleaf`, `cl_first_person_uses_world_model`, `snd_gain`, `snd_gain_min`, `snd_refdb`, `snd_refdist` | no — the watcher's, and a baked default is the right answer |
+| client-only | `cl_showpos`, `cl_drawleaf`, `cl_first_person_uses_world_model`, `snd_gain`, `snd_gain_min`, `snd_refdb`, `snd_refdist` | no — the watcher's, so the value comes from their config or from Valve's declared default |
 
 **`cl_forwardspeed`, `cl_sidespeed` and `cl_upspeed` are the surprise.** Despite the `cl_` prefix all
 three are flagged `"sv"`, `"cheat"` and `"rep"` — server-controlled and replicated. The free camera's
