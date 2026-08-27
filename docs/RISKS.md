@@ -13624,3 +13624,37 @@ B187, where the harness reproduced the bug instead of exposing it.
 **The next instrument has to draw a real weapon model, not a quad.** A curved surface samples the
 cube across many directions at once where a flat one samples a single texel, and no amount of
 refining the quad test will reach that.
+
+#### A real weapon model behaves too, which localises the fault to the viewmodel pass
+
+`WeaponModelReflectionTests` draws the actual `c_shotgun.mdl` — real curved geometry, loaded through
+`EntityModelSet.Geometry = MapAssets.Geometry`, which is the seam `LevelSystems` sets on a map load,
+so it is the viewer's own loading path rather than a second one that could drift.
+
+Measured, `mat_specular` on against off, same draw otherwise:
+
+| condition | with | without | added | ceiling |
+|---|---|---|---|---|
+| flat quad, 300u | — | — | 8 | 25.5 |
+| real model, 40u | (108, 115, 122) | (101, 110, 118) | **7** | 25.5 |
+| real model, 5u (at the eye) | (104, 116, 128) | (97, 107, 118) | **10** | 25.5 |
+
+**Every one is well inside the tint's bound.** Curvature was the leading suspect — a flat surface
+samples one cube direction where a weapon's normals sweep a hemisphere — and it changed the figure
+from 7 to 10, not from 7 to washed out.
+
+**So the space is nearly closed.** Excluded by measurement: the tint reaches the shader; the cubemap
+is chosen per draw from the model matrix's translation; Fresnel is correctly absent
+(`$envmapfresnel` defaults to `"0"`); curvature does not amplify it; eye-range does not amplify it.
+Excluded by reading: `output.wpos` is `mul(float4(posed, 1), model)` on **both** the skinned and the
+baked path, so skinning cannot corrupt the position the reflection is computed from.
+
+**What is left is `Device3D.DrawViewmodels` itself**, and no offscreen test can reach it: it is
+private, it sets its own camera, it compresses the viewport into the near tenth, and it runs after
+the world pass. Everything reproducible through `OffscreenTarget` behaves.
+
+**The next instrument therefore belongs INSIDE the viewer, not in the suite.** Logging the viewmodel
+pass's `eyePosition` and the cubemap index each weapon draw selects, then reading the log, is
+measurable without the owner's eyes and without another offscreen approximation of a pass that
+cannot be approximated. That the harness cannot reach this pass is itself the finding — it is the
+same structural gap that hid B187, where the harness reproduced the bug rather than exposing it.
