@@ -12290,6 +12290,51 @@ Shipped data answers this without a decompiler and without running anything, and
 comparison that has not been made. Confirming the owner's *"i think"* by eye is worth doing first,
 since it is one demo and it decides whether this section is even about the right thing.
 
+#### "Some" belongs to B190, not here — this is ALL weapons
+
+The owner, correcting the record: *"some weapons is the ittermittent cutouts, not this problem"*.
+
+**The original report conflated two bugs and this entry inherited it.** B170's opening quote says
+*"some of the new demo viewmodels"*, and every line of reasoning above that leaned on "some" was
+leaning on B190's intermittency. Washed-out is **all** weapons on modern demos.
+
+That kills `$selfillum` outright, which was the best remaining material candidate: it is gated on
+`VmtMaterial.IsSelfIlluminated` reading the `$selfillum` flag, so it can only ever affect materials
+that declare it. A universal symptom needs a universal cause.
+
+#### The owner's own hypothesis: phong, and when it arrived
+
+*"i personally think its probably phlog, i think it started when we implemented phong, but idk"* —
+phong, and a **temporal** correlation, which is a kind of evidence none of the reading above
+produced. It fits where the others did not:
+
+- **Every modern TF2 weapon material declares `$phong 1`.** That is the universality the symptom
+  needs, and it is exactly the era boundary: `c_` weapons come from TF2's phong-era art pass.
+- **Phong is additive and boosted.** `shine = highlight * sunColour.rgb * phongMask * $phongboost`,
+  and TF2 weapons commonly set a boost of 5–25 where arms are far lower. A term that adds several
+  times the diffuse is "washed out" precisely.
+- **`mat_fullbright` removes it**, along with everything else, which is why fullbright reads as
+  normal.
+
+**Valve's own parameter description is the thing to check against**, from
+`vertexlitgeneric_dx9.cpp:55`: *"Phong overbrightening factor (**specular mask channel should be
+authored to account for this**)"*. So a large boost is only safe because the mask is authored small.
+**If our mask reads high where Valve's reads low, the boost lands raw** — which is the shape of the
+bug and is a measurable claim rather than a story.
+
+Two parts of that were checked and are NOT the fault: the mask-source selection is correct,
+including the subtle case (`$basemapalphaphongmask` means "there is no normal map", and
+`WorldRenderer` treats a phong material with no bump as being in that state whether it says so or
+not); and the bump texture keeps its alpha through `MapAssets`, so a DXT5 normal map's phong mask
+survives decoding.
+
+**What has not been measured is the mask's actual VALUE, and the sun's contribution to the term.**
+`sunColour.rgb` here is the raw world-light intensity — 2.313 on `cp_process_final` — so the whole
+product is `2.313 × mask × boost`, and with a boost of 10 that saturates unless the mask is around a
+twentieth. Reading a real weapon's mask alpha and its declared boost, and comparing the product
+against the diffuse it sits on top of, is the experiment. That is shipped data plus arithmetic, no
+window required.
+
 ### B167 — CLOSED 2026-08-23. A one-bone model could never be skinned, so it could never merge
 
 The Original ("the quake launcher") drew far too high and filled the screen, on every demo since

@@ -398,6 +398,33 @@ grounds that the MVP extraction (D60–D63) already confines this damage to `Ren
 that the list is enumerable — but the audit is what converts that from an assertion into a number,
 and if the number is large the rewrite argument wins.
 
+### HDR lighting and tone mapping (owner-stated, 2026-08-27)
+
+**This viewer is an LDR renderer and TF2 ships HDR on by default.** The owner, on being shown that:
+*"i think most comp players run ldr so i didnt know that tf2 shipped with it on be default, we will
+need to implement that, but its roadmap so write it down"*. Recorded as **D103**.
+
+Every compiled map carries both compiles — measured across the era axis, with `cp_granary`'s LDR and
+HDR lumps byte-identical — and this project reads the LDR pair unconditionally: `LUMP_LIGHTING` (8)
+and `LUMP_LEAF_AMBIENT_LIGHTING` (56) with its index (52). Lumps 53, 55 and 51 are never touched.
+
+**The work is a fork, not a switch**, and half of it is worse than none:
+
+1. Read the HDR lumps when a map carries them.
+2. Tone map, because HDR light routinely exceeds white and nothing currently scales it —
+   `FinalOutput` (`common_ps_fxc.h:345`) multiplies by `LINEAR_LIGHT_SCALE` before `SRGBOutput`.
+3. Autoexposure, which is what that scale actually holds: `viewrender.cpp:2214` sets it only under
+   `HDR_TYPE_INTEGER`. Without it, walking from shade into sun stays blown out instead of settling.
+
+**The current state is not a bug and should not be "fixed" piecemeal.** Under `HDR_TYPE_NONE` Source
+does no tone mapping and lets overbright light clip, which is exactly what this renderer does — so
+as an LDR renderer it is already at parity, and adding a tone mapper to the LDR path would match
+neither engine mode. The gap is against Valve's *default*, not against what these demos were watched
+in, which is the owner's point about the competitive audience.
+
+**Not a candidate fix for B170.** It was briefly treated as one and is not: only the weapon washes
+out, while the arms beside it take the same cube, the same sun and the same tone-map-less output.
+
 ## 4. Repo scaffold (once we lock the plan)
 
 ```
