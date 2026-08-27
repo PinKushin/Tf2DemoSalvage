@@ -1,9 +1,8 @@
 using System.Collections.Generic;
 using System.Linq;
 
-using Tf2DemoSalvage.Viewer3D;
 
-namespace Tf2DemoSalvage.Viewer3D.Tests;
+namespace Tf2DemoSalvage.Rendering.Tests;
 
 /// <summary>
 /// Narrowing a playlist to the demo someone is looking for.
