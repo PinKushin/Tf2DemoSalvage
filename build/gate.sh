@@ -640,7 +640,7 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     113
 # `C:\Program Files (x86)\Steam` and `Program` is a Viewer3D type; `SkinOverrideConformanceTests`
 # named `MainForm` only in a comment; and `PlaylistFilterTests` carried a dead
 # `using Tf2DemoSalvage.Viewer3D` when `PlaylistFilter` lives in `Scene`.
-run Tf2DemoSalvage.Rendering.Tests rendering 532
+run Tf2DemoSalvage.Rendering.Tests rendering 533
 run Tf2DemoSalvage.Viewer3D.Tests viewer    101
 
 echo

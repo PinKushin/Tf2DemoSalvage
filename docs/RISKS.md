@@ -13580,3 +13580,47 @@ at full strength IS the sky."*
 
 The three candidates, in the order worth testing: the missing `$basemapalphaenvmapmask`; the
 cubemap a viewmodel is assigned; and whether the term needs a Fresnel this renderer is not applying.
+
+#### The reflection is the cause, confirmed by manipulation in both directions
+
+The owner, 2026-08-27: *"toggling off makes it look right, togling back on makes it look wrong
+again"*.
+
+**Both directions matter and that is why it was asked for.** A single "off fixes it" is also
+consistent with the toggle merely re-sending the camera constants — `Device3D.Specular`'s setter
+calls `ReapplyCamera()` — and repairing stale state the viewmodel pass left behind. That alternative
+predicts it looks right BOTH ways. It does not. So `mat_specular`'s own term, the baked cubemap
+reflection, is what washes the weapon out.
+
+#### And the instrument built to measure it was measuring the wrong quantity
+
+`WeaponReflectionStrengthTests` first compared two NORMALS and called the difference the reflection.
+That is its **variation**, not its **contribution** — a term adding a large constant to both draws
+leaves that difference tiny. A swing of 4 was therefore consistent with a well-behaved reflection
+AND with one washing the weapon out, which is the first of `CLAUDE.md`'s four ways a test cannot
+fail: a proxy that is not faithful to the variable.
+
+**The owner's manipulation was the correct instrument all along**, and the harness now does the same
+thing — `mat_specular` on against off, same draw otherwise, which needed `specular` plumbed through
+`OffscreenTarget.DrawModelPose` exactly as `phong` was.
+
+Measured on `c_shotgun` at viewmodel range: `(165, 22, 18)` with the reflection against
+`(157, 15, 11)` without. **It adds 8 of 255**, against a ceiling of 25.5 that its `$envmaptint` of
+0.05 allows. Well behaved.
+
+#### So the fault is in what the harness still cannot reproduce
+
+Three candidates are now excluded by measurement rather than by reading: the tint reaches the shader,
+the cubemap is chosen per draw from the model's own position (`BspCubemaps.Closest` on the model
+matrix's translation, which for a viewmodel is the eye), and Fresnel is absent on both sides —
+Valve's `$envmapfresnel` defaults to `"0"`, so no falloff is correct for `VertexLitGeneric`.
+
+What the harness draws is a **flat quad with one uniform normal**, through
+`OffscreenTarget.DrawModelPose`. What the viewer draws is a **skinned, curved model** through
+`Device3D.DrawViewmodels`, which has its own camera, its own near-compressed viewport, and runs
+after the world pass. Every remaining difference lives in that gap — and it is the same gap that hid
+B187, where the harness reproduced the bug instead of exposing it.
+
+**The next instrument has to draw a real weapon model, not a quad.** A curved surface samples the
+cube across many directions at once where a flat one samples a single texel, and no amount of
+refining the quad test will reach that.
