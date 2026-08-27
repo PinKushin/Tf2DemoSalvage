@@ -29,4 +29,4 @@ the project deliberately wants. The reasons are recorded in comments at both sit
 
 **How to apply:** Don't relax `TreatWarningsAsErrors` or `AnalysisMode` to make a stub
 compile. Don't add `System` to `GlobalUsings.cs`. Related:
-[[stryker-targetframework-must-be-in-csproj]].
+[[mutation-score-is-not-the-goal]].

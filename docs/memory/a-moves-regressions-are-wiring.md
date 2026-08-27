@@ -50,7 +50,7 @@ map load, teardown) and each needs checking separately.
   enormous `sampling` spike.
 - **Check that a counter which kept its NAME kept its MEANING.** `_samplingTicks` was fed
   `phases.DrawList` for one commit — the draw-list build under a name that means timeline sampling.
-  See [[a-log-must-name-what-it-measured]].
+  See [[logs-are-the-debugger]].
 
 ## How to apply
 

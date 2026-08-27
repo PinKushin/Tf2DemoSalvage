@@ -25,5 +25,5 @@ a reason unrelated to that weapon.
 **How to apply:** when a predicate mixes "must" with "worth it", check the must cannot be overridden.
 The tell here was a comment stating the intent — "skinned however cheap it is, and this is not an
 optimisation choice" — directly above a line that contradicted it. Related:
-[[bone-merge-sends-no-position]], [[a-viewmodel-is-one-model-or-two]],
+[[bone-merge-sends-no-position]], [[a-player-has-two-viewmodels]],
 [[measure-the-output-not-the-capability]].

@@ -35,4 +35,4 @@ saved were pure clock.
 FALSE is this bug. Find a positive signal that proves the app is alive and past the input — a frame
 counter, a log line the loop writes, a state that must change — synchronise on that, and assert the
 negative afterwards. Related: [[slow-ui-tests-measure-the-app]],
-[[cancelling-sabotages-mean-coupled-tests]], [[a-skip-is-not-a-pass-or-a-failure]].
+[[instrument-bugs-outnumber-decoder-bugs]], [[read-the-trx-total-not-the-console]].

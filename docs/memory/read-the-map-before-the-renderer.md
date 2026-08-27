@@ -28,4 +28,4 @@ edge, and which way that points depends on the outline's winding — a BSP carri
 clips every fragment to nothing, which is indistinguishable from an overlay missing its face and
 invisible in the counts. Settle it per edge against the face centroid.
 
-Related: [[closed-source-check-the-public-api]] and [[arithmetic-settles-disputes]].
+Related: [[nothing-is-closed]] and [[arithmetic-settles-disputes]].

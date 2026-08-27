@@ -38,6 +38,6 @@ old code could have gone red.
   Three of these came from having to write something down.
 - **Do the smallest concern first and wire it before extracting more.** The pattern is proven end to
   end on one, and a design flaw found on the sixth presenter costs six.
-- Related: [[a-faithful-fixture-can-be-blind]] and
+- Related: [[instrument-bugs-outnumber-decoder-bugs]] and
   [[output-level-assertion-or-it-is-not-done]] — different instruments, same theme, that a check
   only sees what its shape allows it to see.

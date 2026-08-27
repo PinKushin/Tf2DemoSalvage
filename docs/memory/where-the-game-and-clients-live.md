@@ -94,7 +94,30 @@ Same family as [[an-empty-search-needs-a-control]] — an absence asserted rathe
 the extra sting that nothing was searched at all. **A rule about where something may live says
 nothing about whether it exists.**
 
-**Test files hardcode the install path rather than searching for it**, using the exact string
-`F:/SteamLibrary/steamapps/common/Team Fortress 2/tf` (see `ArmsModelProbe`, `ClassScriptProbe`,
-`ControlPointMaterialProbe`). There is no shared helper for it; adding one would be a tidy-up worth
-doing if a third form of the path appears.
+**No test hardcodes any of this any more, and none may.** `SdkReference.GameInstall` is the one
+place that knows where the game is and `SourceSdk` the one place that knows where the SDK is; both
+honour `TF2_FOLDER` / `SOURCE_SDK` first. All ninety-four private copies were removed on 2026-08-27
+(D109) — see [[extraction-without-adoption-is-not-dry]], which is also where the reason lives: forty
+of them were a bare `F:` path with no override, so they measured nothing on any other machine and
+reported it as a skip.
+
+**This paragraph used to say the opposite** — that the path was hardcoded in `ArmsModelProbe`,
+`ClassScriptProbe` and `ControlPointMaterialProbe`, and that a helper "would be a tidy-up worth
+doing if a third form of the path appears". All three of those files are converted, and the third
+form had long since appeared. Kept rather than deleted because it is the failure mode this whole
+directory is about: a memory that names files goes stale silently, and this one would have sent the
+next session looking for something that is gone.
+
+**Grep the SDK checkout; never fetch it a file at a time.** `F:/src/source-sdk-2013` (sources under
+`src/`) is the whole tree, and a whole-tree grep answers in one call what a `WebFetch` answers only
+if you guessed the right filename. This was hunted for twice in one session before the owner said it
+existed, after fetching `bspfile.h` and `utils/vbsp/map.cpp` from GitHub one at a time in between.
+Landmarks: `src/tier1/bitbuf.cpp` ([[valve-publishes-bitbuf]]), `src/public/bspfile.h`,
+`src/utils/vbsp/overlay.cpp`, `src/utils/common/bsplib.cpp`.
+
+**It does not contain the engine**, which is a real limit rather than a search failure. `vbsp` writes
+an overlay's `uv0`–`uv3` straight through from the VMF and nothing in the SDK reads them back, so the
+corner-to-texture-coordinate order is not answerable from source at all — that one was settled by
+measuring the corners in a real map. When a whole-tree grep comes back empty for a *consumer*, the
+answer is "engine-side, never released", and the next move is measurement or the decompiler above,
+not another fetch. See [[nothing-is-closed]] and [[differential-beats-fixtures]].

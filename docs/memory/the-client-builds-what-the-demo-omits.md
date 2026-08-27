@@ -25,5 +25,5 @@ if it does, the demo will carry the INPUT to that construction rather than its r
 **How to apply:** before hunting a field, check whether the thing is created client-side. `grep` for
 the class in `client/` with no matching `server/` definition, or for `InitializeAsClientEntity`.
 Then find what the client reads to build it, and read the same thing. Shipped data files are usually
-where that lands ([[shipped-data-is-a-source]]), and an absent networked value normally means the
+where that lands ([[nothing-is-closed]]), and an absent networked value normally means the
 default rather than "unknown" ([[sentinels-conflate-unknown-with-answer]]).

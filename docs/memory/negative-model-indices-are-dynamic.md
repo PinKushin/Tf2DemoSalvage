@@ -26,5 +26,5 @@ which lists its own string tables (`decalprecache DynamicModels EffectDispatch i
 modelprecache ParticleEffectNames Scenes ...`). Never halve the odd ones as a fallback: it lands on a
 real entry of the networked table and draws a confidently wrong model.
 
-Related: [[closed-source-check-the-public-api]], and
+Related: [[nothing-is-closed]], and
 [[fallbacks-do-not-make-guesses-safe]] — the null for the odd half is the right answer, not a gap.

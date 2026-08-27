@@ -13,7 +13,7 @@ it picks is wrong half the time.**
 
 The first implementation did exactly that and passed fifteen synthetic tests, because every fixture
 came from `config_default.cfg` — which binds movement directly and therefore contains no alias to
-miss. Related: [[put-the-real-file-in-the-fixture]].
+miss. Related: [[fixtures-are-the-weak-point]].
 
 `ConfigConsole` in `Tf2DemoSalvage.Presentation` is the interpreter. Everything in it is read from
 `src/game/client/in_main.cpp` and `kbutton.h`, both in `source-sdk-2013` — this is client code, not

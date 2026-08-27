@@ -40,5 +40,5 @@ exercised the path directly. Reach for the writer when the thing under test is t
 not when it is something a demo merely happens to supply.
 
 Related: [[round-trip-needs-the-encoding-shape]] for what an authored file has to record beyond the
-values, [[put-the-real-file-in-the-fixture]] for why an authored input is still weaker evidence than
+values, [[fixtures-are-the-weak-point]] for why an authored input is still weaker evidence than
 a real one where a real one exists.

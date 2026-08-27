@@ -40,6 +40,6 @@ sat in a bucket nothing was reading. The lesson had been written down and was no
 - Ask the owner what the previous fix actually was — "check the commits where we fixed the stutter
   and hiccup the last time" located this in one step after a long stretch of guessing.
 
-Related: [[measure-the-output-not-the-capability]], [[a-log-must-name-what-it-measured]],
+Related: [[measure-the-output-not-the-capability]], [[logs-are-the-debugger]],
 [[instrument-bugs-outnumber-decoder-bugs]], [[measure-every-hop-before-blaming-one]],
 [[logs-are-the-debugger]].

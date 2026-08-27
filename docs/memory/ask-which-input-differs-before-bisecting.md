@@ -45,6 +45,6 @@ missing, and the way in is the input that provokes it.
 decodes it, keeps it on `ServerInfoMessage.MapCrc`, writes it back and prints it in the trace — and
 compares it to nothing. The engine refuses a mismatched map; we draw one silently. Filed as B200.
 
-Related: [[a-log-must-name-what-it-measured]], [[instrument-bugs-outnumber-decoder-bugs]],
+Related: [[logs-are-the-debugger]], [[instrument-bugs-outnumber-decoder-bugs]],
 [[read-the-spec-before-measuring-our-data]], [[pov-demos-are-pvs-limited]],
 [[fallbacks-do-not-make-guesses-safe]].

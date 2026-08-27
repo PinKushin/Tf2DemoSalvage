@@ -16,7 +16,7 @@ covered 2007 through modern in a 150 ms test.
 
 **Why to apply:** the SDK proves what one build did. A demo proves what the build that recorded it
 did, which is the actual question whenever a defect is era-shaped. Reaching past that for
-[[binaries-answer-what-the-sdk-cannot]] or a decompiler is work for an answer already on disk.
+[[nothing-is-closed]] or a decompiler is work for an answer already on disk.
 
 **How to apply:** when a property's existence, width or flags is in doubt for an era, write a
 conformance test that reads `Corpus.Schema(path)` for every demo and asserts on the `SendProperty`.

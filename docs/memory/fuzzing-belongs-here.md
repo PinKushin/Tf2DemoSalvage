@@ -95,4 +95,4 @@ reintroduce it.
   already takes for analyzers and dependencies.
 
 See [[tf2demosalvage-build-gates]] and
-[[stryker-targetframework-must-be-in-csproj]].
+[[mutation-score-is-not-the-goal]].

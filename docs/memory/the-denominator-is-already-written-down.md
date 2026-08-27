@@ -41,4 +41,4 @@ committed is not verification, it is re-work that happens to agree.
   to be real. Nothing fails when coverage drops, so nothing prompts you to look — you have to.
 
 Related: [[conformance-test-before-implementation]], [[read-the-spec-before-measuring-our-data]],
-[[nothing-is-closed]], [[binaries-answer-what-the-sdk-cannot]].
+[[nothing-is-closed]].

@@ -51,4 +51,4 @@ read what was actually inside it).
 program is published — prefer the encoder to the decoder. State the hypothesis, find the passage
 that settles it, then code. Related: [[decode-must-be-total]],
 [[read-the-encoder-not-the-decoder]], [[valve-publishes-bitbuf]],
-[[binaries-answer-what-the-sdk-cannot]], [[a-client-dates-a-protocol-a-demo-does-not]].
+[[nothing-is-closed]], [[era-axis-is-measured]].

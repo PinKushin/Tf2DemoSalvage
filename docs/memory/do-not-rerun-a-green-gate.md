@@ -15,5 +15,5 @@ and it was time the owner spent waiting.
 
 **How to apply:** after a green gate, ask what changed. Test code, production code or project files
 mean run it again. Floors in `gate.sh`, `docs/`, `docs/memory/` or a commit message do not — take
-the counts from the run already in hand and commit. Related: [[a-floor-must-track-the-number-it-guards]],
+the counts from the run already in hand and commit. Related: [[read-the-trx-total-not-the-console]],
 [[push-when-the-gate-is-green]].

@@ -26,5 +26,5 @@ fact about the world.
 **How to apply:** when a finding establishes something, grep for prior claims that it cannot be
 established — `cannot`, `impossible`, `no way to`, `not recoverable` — and retire them in the same
 commit. And when writing one, scope it to the instrument: *"not recoverable from the string pool"*,
-never *"not recoverable"*. Related: [[nothing-is-closed]], [[shipped-data-is-a-source]],
+never *"not recoverable"*. Related: [[nothing-is-closed]],
 [[the-denominator-is-already-written-down]], [[a-filed-design-choice-may-not-be-one]].
