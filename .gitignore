@@ -49,3 +49,12 @@ coverage/
 # BenchmarkDotNet's generated harness projects and reports.
 BenchmarkDotNet.Artifacts/
 *-ShortRun-*/
+
+# **Default WinForms resource files, which MSBuild regenerates and nobody edits.** Three appeared
+# untracked on 2026-08-26 — MainForm, OverlayWindow, TransportBar — byte-identical 5,817-byte empty
+# templates. The project had built for weeks without them, so they are generated boilerplate rather
+# than source. Ignored rather than committed: a designer file with no designer content is noise, and
+# a `git add -A` during a large refactor is exactly when it slips in unnoticed.
+#
+# A resx that ever holds real resources should be force-added and this line narrowed.
+managed/Tf2DemoSalvage.Viewer3D/*.resx

@@ -1,0 +1,59 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The tests for what the viewer DRAWS, freed from Windows (B184).
+
+    This is the sweep `Tf2DemoSalvage.Scene.Tests` deferred when it was created: 98 of the 113 files
+    in Viewer3D.Tests reference nothing Windows-only, and were pinned to `net10.0-windows` by their
+    project file alone. Their subject is materials, maps, models, lighting, overlays and cubemaps —
+    code that moved out of the viewer during the thin-view work while its tests stayed behind.
+
+    **The owner's framing, and it is the right one**: *"if the tests are not moved technically the
+    thin view work isnt done yet ... i just dont like to because thats how tests and code get out of
+    sync"*. Moving the production code and leaving the tests is half a refactor.
+
+    And the MVP refactor's actual goal was never tidiness: *"it wass to be able to test more on
+    linux, and have compile time safety"*. A Windows TFM is what stops these running on the
+    measurement boxes, so it is also what stops them being mutation tested.
+
+    **What belongs here**: anything about the drawn scene that needs no device and no Form.
+    **What does not**: anything that builds a D3D device or a WinForms control, which stays in
+    Viewer3D.Tests with the GPU and the message pump it needs.
+
+    Why not the existing projects: `Scene.Tests` references only `Scene` and these need `Content`
+    and `Core`; `Content.Tests` is the asset layer's own suite and burying 36 rendering conformance
+    suites in it would hide them. `SdkReference` is not a test project at all — `IsTestProject` is
+    false and it holds zero tests — it is the shared library these suites read the SDK through.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Tf2DemoSalvage.Rendering.Tests</RootNamespace>
+    <IsTestProject>true</IsTestProject>
+
+    <!-- NUnit discovers public fixtures; CA1515 wants an application's types internal.
+         Inapplicable here rather than ignored. -->
+    <NoWarn>$(NoWarn);CA1515</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="NUnit" />
+    <PackageReference Include="NUnit3TestAdapter" />
+    <PackageReference Include="NUnit.Analyzers">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Shouldly" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\managed\Tf2DemoSalvage.Content\Tf2DemoSalvage.Content.csproj" />
+    <ProjectReference Include="..\..\managed\Tf2DemoSalvage.Core\Tf2DemoSalvage.Core.csproj" />
+    <ProjectReference Include="..\..\managed\Tf2DemoSalvage.Presentation\Tf2DemoSalvage.Presentation.csproj" />
+    <ProjectReference Include="..\..\managed\Tf2DemoSalvage.Render\Tf2DemoSalvage.Render.csproj" />
+    <ProjectReference Include="..\..\managed\Tf2DemoSalvage.Scene\Tf2DemoSalvage.Scene.csproj" />
+    <ProjectReference Include="..\Tf2DemoSalvage.SdkReference\Tf2DemoSalvage.SdkReference.csproj" />
+  </ItemGroup>
+
+</Project>

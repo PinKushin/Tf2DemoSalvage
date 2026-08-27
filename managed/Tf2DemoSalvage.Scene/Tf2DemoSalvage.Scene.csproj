@@ -54,6 +54,12 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Tf2DemoSalvage.Scene.Tests" />
 
+    <!-- Where the viewer's suite is moving to (B184). The comment below anticipated this: the
+         tests are following their subjects out of the Windows-pinned project, and the ones about
+         the drawn scene land in `Rendering.Tests` rather than `Scene.Tests` because they span
+         Content and Core as well. -->
+    <InternalsVisibleTo Include="Tf2DemoSalvage.Rendering.Tests" />
+
     <!-- The viewer's own suite still covers most of this while the split settles; it moves to
          Scene.Tests as the tests follow their subjects. -->
     <InternalsVisibleTo Include="Tf2DemoSalvage.Viewer3D.Tests" />

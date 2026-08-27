@@ -24,7 +24,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- `Render.Tests` has never existed; the line is a placeholder someone left for a project
+         that was not created, so it grants internals to nothing. Kept rather than removed only
+         because deleting it is a separate change from B184. The real home for these tests is
+         `Rendering.Tests` below, which spans Render, Scene and Content because that is what the
+         drawn scene is made of — a `Render.Tests` holding 57 Content tests would misdescribe it. -->
     <InternalsVisibleTo Include="Tf2DemoSalvage.Render.Tests" />
+    <InternalsVisibleTo Include="Tf2DemoSalvage.Rendering.Tests" />
     <InternalsVisibleTo Include="Tf2DemoSalvage.Viewer3D.Tests" />
   </ItemGroup>
 

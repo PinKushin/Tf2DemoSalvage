@@ -1,0 +1,312 @@
+using System;
+using System.Linq;
+
+using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.SdkReference;
+
+namespace Tf2DemoSalvage.Rendering.Tests;
+
+/// <summary>
+/// What the engine does for features this project has NOT implemented, written before the code.
+/// </summary>
+/// <remarks>
+/// **These tests are written to skip today and to activate themselves when the feature lands.**
+/// Each one carries the real assertion with its citation, behind a check of whether the capability
+/// exists yet. So the gap is visible in the skip count now, and the day someone implements the
+/// feature the test starts running against a specification written before any code existed to bias
+/// it — which is the order of work this project states outright:
+///
+/// > A conformance test comes first, then unit/integration/UI tests, then the implementation.
+/// > Written afterwards it becomes a description of what was built, which is the one thing a parity
+/// > test must never be.
+///
+/// **The capability check is the census itself**, not a hand-maintained flag. A parameter is
+/// implemented when <c>MaterialCensus</c> stops reporting it as unimplemented, which is the same
+/// fact the coverage report is built on — so these cannot drift apart from the score.
+///
+/// **Ordered by how many materials on a real map want them**, because that is the honest priority
+/// and it is measured rather than guessed: 79 for <c>$envmap</c>, 66 for the vertex-colour pair, 58
+/// for <c>$decalscale</c>.
+/// </remarks>
+public sealed class UnimplementedFeatureConformanceTests
+{
+    [SetUp]
+    public void RequireTheSdk()
+    {
+        if (!SourceSdk.Available)
+        {
+            Assert.Ignore(SourceSdk.Missing);
+        }
+    }
+
+    [Test]
+    public void Features_EnvMap_IsACubemapReflectionAddedAfterLighting()
+    {
+        // **79 materials on cp_process_final, the largest single gap (B55), and what B83 turns on.**
+        //
+        // LightmappedGeneric_ps2_3_x.h composites it as an ADDITIVE term over the lit result, scaled
+        // by the cubemap tint and optionally masked by an alpha channel:
+        //
+        //     specularLighting = ENV_MAP_SCALE * envMapColor * specularFactor;
+        //     result = diffuseLighting + specularLighting
+        //
+        // So the two things that must be true of any implementation are that it ADDS rather than
+        // multiplies, and that it survives fullbright — a reflection is not a lighting term, which
+        // is exactly why mat_fullbright does nothing to a capture point in the real game.
+        RequireImplemented("$envmap", "B55");
+
+        VmtMaterial material = Parse(
+            """
+            "LightmappedGeneric"
+            {
+                "$basetexture" "concrete/wall"
+                "$envmap" "env_cubemap"
+                "$envmaptint" "[.5 .5 .5]"
+            }
+            """);
+
+        material.Value("$envmap").ShouldBe("env_cubemap");
+        material.Value("$envmaptint").ShouldNotBeNull();
+    }
+
+    [Test]
+    public void Features_VertexColour_TintsTheBaseTexturePerVertex()
+    {
+        // **66 materials, and it is not clear that any work is owed.** This was written as a plain
+        // gap; measuring it turned it into an open question, and the question is worth more than
+        // the guess it replaced.
+        //
+        // **The gate is in the VERTEX shader, not the pixel shader**
+        // (lightmappedgeneric_vs20.fxc:213):
+        //
+        //     if (!g_bVertexColor)
+        //         o.vertexColor = float4( 1.0f, 1.0f, 1.0f, cModulationColor.a );
+        //     else
+        //         o.vertexColor = v.vColor;
+        //
+        // and the pixel shader then applies it unconditionally — `albedo.xyz *= i.vertexColor` at
+        // lightmappedgeneric_ps2_3_x.h:427. So the flag chooses the VALUE, and a material without
+        // it is multiplied by white rather than skipping a multiply.
+        //
+        // This renderer multiplies by its own per-vertex colour with no gate at all. For a brush
+        // face that channel holds white, so the two agree today for every material that does NOT
+        // declare the flag — which is the great majority.
+        //
+        // **What is undecided is where `v.vColor` comes from for the ones that do.** Measured on
+        // cp_process_final: 64 LightmappedGeneric and 2 UnLitGeneric materials declare it, always
+        // paired with $vertexalpha, and they are overlays, decals, signs and stains —
+        // `overlays/stain016`, `signs/factory_label02`, `OVERLAYS/DUST_GRADIENT01`. The BSP gives
+        // no colour for those: `doverlay_t` (bspfile.h:1007) carries an id, a texinfo, faces and
+        // texture coordinates, and no colour at all.
+        //
+        // So either the engine's world mesh builder supplies one — and that is engine code the SDK
+        // does not ship — or these declarations are inert, which would make this $modblend again:
+        // declared in shipped VMTs, read by nothing, correct implementation nothing.
+        //
+        // **Not guessed either way.** The assertion below is the part that is settled: the pairing,
+        // and that the absent case is white rather than skipped.
+        RequireImplemented("$vertexcolor", "no entry yet");
+
+        VmtMaterial material = Parse(
+            """
+            "LightmappedGeneric"
+            {
+                "$basetexture" "wood/planks"
+                "$vertexcolor" "1"
+                "$vertexalpha" "1"
+            }
+            """);
+
+        material.Value("$vertexcolor").ShouldBe("1");
+        material.Value("$vertexalpha").ShouldBe("1");
+
+        // **$vertexalpha is already half-consumed, which is the trap in the census number.** It
+        // makes a material translucent — VmtMaterial.IsTranslucent reads it — so it is implemented
+        // for the sorting decision and unimplemented for the colour. That is the same shape as
+        // $alpha before the modulation work, and it is why "66 materials want this" does not
+        // translate into 66 materials drawn wrongly.
+        material.IsTranslucent.ShouldBeTrue("$vertexalpha alone makes a material blend");
+
+        Parse("""
+            "LightmappedGeneric"
+            {
+                "$basetexture" "wood/planks"
+            }
+            """)
+            .IsTranslucent.ShouldBeFalse("and a material declaring neither must stay opaque");
+    }
+
+    [Test]
+    public void Features_DecalScale_SizesADecalIndependentlyOfItsTexture()
+    {
+        // **58 materials.** A decal's world size is its texture size divided by $decalscale, so a
+        // reader ignoring it draws every decal at texture scale — which is right only when the
+        // value happens to be 1. TF2's are typically 0.25, making its decals four times too large
+        // here, and "too large" on a stain or a sign reads as art direction rather than a defect.
+        RequireImplemented("$decalscale", "no entry yet");
+
+        Parse(
+            """
+            "LightmappedGeneric"
+            {
+                "$basetexture" "decals/blood"
+                "$decalscale" "0.25"
+            }
+            """)
+            .Value("$decalscale")
+            .ShouldBe("0.25");
+    }
+
+    [Test]
+    public void Features_AProxyBlock_DrivesAMaterialParameterOverTime()
+    {
+        // **B80. The arithmetic is ported and nothing parses the block**, so every transform sits at
+        // identity: the capture point beams do not scroll and the signs do not pulse.
+        //
+        // A Proxies block is a nested KeyValues section naming one proxy per entry, each with its
+        // own parameters. game/client/texturescrollmaterialproxy.cpp reads texturescrollvar,
+        // texturescrollrate and texturescrollangle, and writes a VMatrix into the named variable
+        // every frame.
+        //
+        // The parser deliberately reads only depth-1 keys today, so this asserts the thing that
+        // has to change: the block must become reachable without the shader's own keys being
+        // polluted by it.
+        VmtMaterial material = Parse(
+            """
+            "UnlitTwoTexture"
+            {
+                "$basetexture" "effects/beam"
+                "$texture2" "effects/beam_mask"
+                "Proxies"
+                {
+                    "TextureScroll"
+                    {
+                        "texturescrollvar" "$basetexturetransform"
+                        "texturescrollrate" "0.5"
+                        "texturescrollangle" "90"
+                    }
+                }
+            }
+            """);
+
+        // What is already true and must stay true: a Proxies block does not leak into the
+        // material's own parameters. B80's fix must add access without breaking this.
+        material.Value("texturescrollvar").ShouldBeNull(
+            "a proxy's parameters are not the material's own");
+
+        material.Value("$basetexture").ShouldBe("effects/beam");
+
+        // **The skip that stood here was false and the assertions below are what it was guarding.**
+        // It said "the Proxies block is not parsed", and the block is parsed: the proxy arrives with
+        // its name and its own parameters, separate from the material's. Asserting that outright is
+        // what the marker was for once the feature landed, and it landed without anyone coming back
+        // for the marker.
+        material.Proxies.Count.ShouldBe(1, "the Proxies block is parsed, not dropped");
+        material.Proxies[0].Name.ShouldBe("TextureScroll");
+        material.Proxies[0].Argument("texturescrollvar").ShouldBe("$basetexturetransform");
+        material.Proxies[0].Argument("texturescrollrate").ShouldBe("0.5");
+        material.Proxies[0].Argument("texturescrollangle").ShouldBe("90");
+    }
+
+    [Test]
+    public void Features_Phong_IsAModelSpecularTermFromAMaskAndExponent()
+    {
+        // **B60.** vertexlitgeneric_dx9.cpp gates the whole pass on $phong, then reads $phongexponent
+        // (sharpness), $phongboost (intensity) and $phongfresnelranges (grazing-angle falloff). The
+        // mask is the base texture's alpha or a normal map's, chosen by
+        // $basemapalphaphongmask — which is why implementing the term without the mask lights the
+        // whole model rather than its metal.
+        RequireImplemented("$phong", "B60");
+
+        VmtMaterial material = Parse(
+            """
+            "VertexLitGeneric"
+            {
+                "$basetexture" "models/player/scout"
+                "$phong" "1"
+                "$phongexponent" "20"
+                "$phongboost" "2"
+                "$basemapalphaphongmask" "1"
+            }
+            """);
+
+        material.Value("$phong").ShouldBe("1");
+        material.Value("$phongexponent").ShouldBe("20");
+    }
+
+    [Test]
+    public void Features_AnAttachment_PlacesAnItemAtAPointNotABone()
+    {
+        // **B82, and the layout is already pinned by StudioStructTests** — mstudioattachment_t is 92
+        // bytes with localbone at 8 and a 3x4 matrix at 12. Nothing reads it, so a halo or a canteen
+        // sits at the wearer's feet.
+        //
+        // The assertion that matters is the one that fails the likely HALF-fix: an attachment is not
+        // just a bone reference. Taking localbone and stopping places the item AT the bone, which is
+        // the bone-merge path this project already has, and is close enough on a hat to look almost
+        // right.
+        StudioLayoutFacts();
+
+        // **The skip that stood here was false, and the warning in it was heeded.** B82 is closed:
+        // `EntityModels` looks the attachment up by the entity's one-based `m_iParentAttachment`,
+        // then calls `AttachmentPlacement.Matrix( bone, attachment.Local, wearer )` — the
+        // composition this marker said the half-fix would miss, not the bone alone.
+        //
+        // **The behaviour is asserted where it can be measured, not here.**
+        // `AttachmentPlacementTests` turns a wearer through ninety degrees and predicts the item's
+        // exact position, which is the only arrangement where a missing transpose or a wrong
+        // composition order shows. Checking from this file that a method with the right NAME exists
+        // would be a change-detector, and would have passed against `BspCubemaps` on the day it was
+        // complete, correct and called by nothing.
+        //
+        // What this test keeps is what it was always for: the struct layout, and one case that
+        // separates the composition from the half-fix it warned about. A bone lifted 10 with an
+        // attachment offset 5 further along its own X gives (5, 0, 10); taking the bone alone gives
+        // (0, 0, 10), which is the "close enough on a hat to look almost right" this marker named.
+        float[] bone = [1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 10f];
+        float[] local = [1f, 0f, 0f, 5f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f];
+
+        float[] placed = AttachmentPlacement.Matrix(
+            bone, local, [1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f]);
+
+        (placed[12], placed[13], placed[14]).ShouldBe((5f, 0f, 10f));
+    }
+
+    /// <summary>Skips unless the census says the parameter is implemented.</summary>
+    /// <remarks>
+    /// **The census is the oracle rather than a hand-kept flag**, so a test cannot claim a feature
+    /// exists while the coverage report still counts it as a gap. The two are the same fact.
+    /// </remarks>
+    private static void RequireImplemented(string parameter, string entry)
+    {
+        // TF2DEMOSALVAGE_CHECK_SPEC=1 runs the assertions anyway, to check the SPECIFICATION rather
+        // than the code — see EnvmapConformanceTests, where the reasoning is written out. A
+        // conformance test that only ever skips is unverified prose, and a wrong citation in one
+        // surfaces months later as a failure blamed on whoever implemented the feature.
+        if (Environment.GetEnvironmentVariable("TF2DEMOSALVAGE_CHECK_SPEC") is "1")
+        {
+            return;
+        }
+
+        bool implemented = MaterialCensus.ImplementedParameters
+            .Contains(parameter, StringComparer.OrdinalIgnoreCase);
+
+        if (!implemented)
+        {
+            Assert.Ignore(
+                $"{parameter} is not implemented ({entry}). The assertion below is what the engine " +
+                "does, written before the code so it cannot be a description of it.");
+        }
+    }
+
+    /// <summary>The attachment layout this project has already derived, restated as a reminder.</summary>
+    private static void StudioLayoutFacts()
+    {
+        // Deliberately not asserted here — StudioStructTests owns these and derives them from
+        // studio.h. Naming them keeps the two tests findable from each other.
+    }
+
+    /// <summary>Parses a VMT from text.</summary>
+    private static VmtMaterial Parse(string text) =>
+        VmtMaterial.Parse(System.Text.Encoding.UTF8.GetBytes(text));
+}

@@ -23,6 +23,11 @@
          which left the rule about bone-merged models (WornModels) untestable from the viewer's own
          suite - the gap that let B119 ship. -->
     <InternalsVisibleTo Include="Tf2DemoSalvage.Viewer3D.Tests" />
+
+    <!-- Where `WornModelsTests` lives since B184 moved the drawn-scene tests off the Windows TFM.
+         Same reason as the entry above: `ScenePropTrack.AttachedTo` has an internal setter, so the
+         bone-merge rule cannot be set up through the public API. -->
+    <InternalsVisibleTo Include="Tf2DemoSalvage.Rendering.Tests" />
   </ItemGroup>
 
   <ItemGroup>
