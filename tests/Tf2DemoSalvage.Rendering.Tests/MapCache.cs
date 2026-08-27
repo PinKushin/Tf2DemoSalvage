@@ -124,6 +124,16 @@ internal static class MapCache
 
     private static readonly ConcurrentDictionary<string, Lazy<byte[]>> MapBytes = new();
 
+    /// <summary>Whether a map is installed, for a test that walks several and skips the absent.</summary>
+    /// <remarks>
+    /// **Asks rather than skips**, which <see cref="RequirePath"/> cannot do: a test comparing maps
+    /// across TF2's history has to report which ones it managed to read, and `Assert.Ignore` on the
+    /// first missing one would abandon the maps that ARE installed.
+    /// </remarks>
+    public static bool Exists(string mapName) =>
+        Tf2Install.Folder is { } game &&
+        File.Exists(Path.Combine(game, "maps", mapName + ".bsp"));
+
     /// <summary>The map's path, or skips the calling test.</summary>
     private static string RequirePath(string mapName)
     {
