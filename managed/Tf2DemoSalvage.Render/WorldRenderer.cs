@@ -1441,6 +1441,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <summary>Material indices whose reflection parameters have been reported (B170).</summary>
     private readonly HashSet<int> _reportedEnvmap = [];
 
+    /// <summary>Model paths whose drawn material indices have been reported (B170).</summary>
+    private readonly HashSet<string> _reportedBatchMaterials =
+        new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>
     /// The materials that reflect the map's own cubemap rather than one of their own.
     /// </summary>
@@ -4278,6 +4282,33 @@ internal sealed unsafe class WorldRenderer : IDisposable
             else if (material >= 0 && material < _cubemaps.Count)
             {
                 reflection = _cubemaps[material];
+            }
+
+            // **Which material each batch of a model actually DRAWS with, said once per model**
+            // (B170). Everything read so far was the material table at BUILD time, where
+            // `c_shotgun` carries a tint of 0.05 — and the screenshots show the weapon changing by
+            // far more than that tint can produce. The gap between those two facts is which
+            // material index the draw resolves to, after the skin swap, which nothing has reported.
+            if (_reportedBatchMaterials.Add(modelPath))
+            {
+                _render.LogInformation(
+                    "{Message}",
+                    $"{System.IO.Path.GetFileNameWithoutExtension(modelPath)} draws materials: " +
+                    string.Join(
+                        ", ",
+                        batches
+                            .Select(each =>
+                            {
+                                int drawn = skin is not null &&
+                                    skin.TryGetValue(each.MaterialIndex, out int swap)
+                                    ? swap
+                                    : each.MaterialIndex;
+
+                                return $"{drawn}" +
+                                    $"{(drawn != each.MaterialIndex ? $"(from {each.MaterialIndex})" : string.Empty)}" +
+                                    $"{(drawn >= 0 && _usesLocalCubemap.Contains(drawn) ? " REFLECTS-LOCAL" : string.Empty)}";
+                            })
+                            .Distinct()));
             }
 
             context.PSSetShaderResources(0, 1, ref texture);
