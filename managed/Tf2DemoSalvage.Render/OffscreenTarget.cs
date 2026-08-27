@@ -226,6 +226,11 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// Valve's <c>mat_phong</c>, default 1. Present so a test can remove the specular term and
     /// measure what is left, which is the manipulation B170 turns on.
     /// </param>
+    /// <param name="specular">
+    /// Valve's <c>mat_specular</c>, default 1 — the baked cubemap reflection. Present for the same
+    /// reason as <paramref name="phong"/>: the owner's decisive observation on B170 was made by
+    /// toggling exactly this, and a harness that cannot toggle it cannot reproduce the finding.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The model path is not the world path and the difference has hidden a defect.** Every
@@ -245,7 +250,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         SunLight? sun = null,
         Fullbright fullbright = Fullbright.Off,
         DebugModes debug = default,
-        bool phong = true)
+        bool phong = true,
+        bool specular = true)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -285,7 +291,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         // could sit in the viewer with a full offscreen render suite in place: the harness reproduced
         // the bug rather than exposing it.
         _world.SetCamera(
-            _device, _context, camera, surfaceColours: false, specular: true, fullbright, debug, phong);
+            _device, _context, camera, surfaceColours: false, specular, fullbright, debug, phong);
 
         Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
 

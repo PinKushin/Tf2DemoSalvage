@@ -171,6 +171,78 @@ public sealed class WeaponReflectionStrengthTests
             $"{ViewmodelRange}, the reflection a VIEWMODEL gets is not the one its material asked for");
     }
 
+    /// <summary>
+    /// How much the reflection actually ADDS, which is what the owner toggled.
+    /// </summary>
+    /// <remarks>
+    /// **The two tests above measure the wrong quantity, and this records why.** They compare two
+    /// NORMALS and call the difference the reflection — but that is the reflection's *variation*,
+    /// not its *contribution*. A term adding a large constant to both draws leaves that difference
+    /// tiny, so a swing of 4 was consistent both with a well-behaved reflection and with one
+    /// washing the weapon out. Wrong instrument, the first of `CLAUDE.md`'s four: measuring a proxy
+    /// that is not faithful to the variable.
+    ///
+    /// **The owner's manipulation is the right one and it is unambiguous**, 2026-08-27: *"toggling
+    /// off makes it look right, togling back on makes it look wrong again"*. Reproducible in both
+    /// directions, which also rules out the alternative that toggling merely re-sent the camera
+    /// constants and repaired stale state — that would have looked right BOTH ways.
+    ///
+    /// So this draws the same weapon material twice, changing only `mat_specular`, and measures the
+    /// difference. That is the contribution, and it is directly comparable to the tint's ceiling:
+    /// `$envmaptint` scales the cubemap sample, so on an LDR cube the reflection cannot brighten a
+    /// channel by more than the tint times 255.
+    /// </remarks>
+    [Test]
+    public void WeaponReflection_TurnedOnAndOff_ContributesNoMoreThanItsTint()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        if (Assets is not { } assets)
+        {
+            Assert.Ignore("the map or the game is not installed");
+            return;
+        }
+
+        if (Weapon(assets) is not { } found)
+        {
+            Assert.Ignore("no weapon material on this map asks for the map's own cubemap");
+            return;
+        }
+
+        (int Index, float Tint, string Name) = found;
+
+        BspCubemap at = assets.PlacedCubemaps[0].Placement;
+
+        (int R, int G, int B) on =
+            DrawModelAt(target, assets, Index, at, (0f, -1f, 0f), ViewmodelRange, specular: true);
+
+        (int R, int G, int B) off =
+            DrawModelAt(target, assets, Index, at, (0f, -1f, 0f), ViewmodelRange, specular: false);
+
+        int added = Math.Max(
+            Math.Abs(on.R - off.R), Math.Max(Math.Abs(on.G - off.G), Math.Abs(on.B - off.B)));
+
+        float ceiling = Tint * ByteRange * Headroom;
+
+        TestContext.Out.WriteLine(
+            $"WEAPON REFLECTION CONTRIBUTION {Name}: tint {Tint:0.###}, " +
+            $"mat_specular 1 {on}, mat_specular 0 {off}, added {added}, ceiling {ceiling:0.#}");
+
+        (off.R + off.G + off.B).ShouldBeGreaterThan(
+            30, "the model must be visibly drawn with the reflection off before the pair means anything");
+
+        ((float)added).ShouldBeLessThan(
+            ceiling,
+            $"$envmaptint scales the cubemap sample before anything else touches it, so a material " +
+            $"tinted to {Tint:0.###} cannot brighten a channel by more than that fraction of white");
+    }
+
     /// <summary>How far a viewmodel sits from the eye, in world units.</summary>
     /// <remarks>
     /// **Measured from the viewer's own log, not chosen.** `Device3D.DrawViewmodels` reports the
@@ -232,7 +304,8 @@ public sealed class WeaponReflectionStrengthTests
         int material,
         BspCubemap at,
         (float X, float Y, float Z) normal,
-        float range = 300f)
+        float range = 300f,
+        bool specular = true)
     {
         WorldVertex Corner(float dx, float dz, float u, float v) =>
             new(dx, 0f, dz, u, v, 0f, 0f, 0f)
@@ -284,7 +357,8 @@ public sealed class WeaponReflectionStrengthTests
             // Full brightness is also the right condition for this measurement: it puts the albedo
             // at its largest, so a reflection added on top has the least room to hide.
             light: null,
-            bothSides: true);
+            bothSides: true,
+            specular: specular);
 
         return target.PixelAt(32, 32);
     }
