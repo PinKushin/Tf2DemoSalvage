@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 
 using Silk.NET.OpenAL;
 
@@ -72,6 +73,17 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     {
         try
         {
+            // **The shipped library is loaded by absolute path first, and without this a machine
+            // that HAS it still fails** (B217). The package puts it under
+            // `runtimes/<rid>/native/`, which .NET's native probing does not reach for a load
+            // issued by `Silk.NET.OpenAL` rather than by this assembly — measured headless on
+            // `mutation-box`, where `libopenal.so` sat in the output and `AL.GetApi()` reported
+            // "Could not load from any of the possible library names".
+            //
+            // Ignored on failure rather than checked: a machine with OpenAL installed system-wide
+            // needs nothing from us, and one with neither is handled by the catches below.
+            NativeLibraryResolver.TryLoadOpenAl();
+
             AL al = AL.GetApi();
             ALContext alc = ALContext.GetApi();
 
@@ -102,6 +114,20 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         }
         catch (EntryPointNotFoundException)
         {
+            return null;
+        }
+        catch (FileNotFoundException)
+        {
+            // **What Silk.NET actually throws when the library is absent, and it was not caught**
+            // (B217). Its loader reports *"Could not load from any of the possible library names"*
+            // as a `FileNotFoundException`, not the `DllNotFoundException` the two catches above
+            // expect — so on a machine with no OpenAL at all this method THREW rather than handing
+            // back null, and the viewer died at startup instead of running without sound.
+            //
+            // Never seen on a developer's machine, because every one of them has an audio stack.
+            // Found by running these tests on a headless box, which is the same reason CI is the
+            // only place the no-TF2 path gets exercised
+            // (`docs/memory/ci-is-the-machine-without-tf2.md`).
             return null;
         }
     }

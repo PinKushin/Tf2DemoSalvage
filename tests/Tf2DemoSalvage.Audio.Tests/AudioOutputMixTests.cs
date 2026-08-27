@@ -53,6 +53,33 @@ public sealed class AudioOutputMixTests
     }
 
     [Test]
+    public void ToStereo16_AStereoSampleOfSeveralFrames_ReadsEachFrameAtItsOwnStride()
+    {
+        // **One frame cannot test a stride, and that is why two mutants survived here** (B217).
+        // The test above is correct and complete about panning, but its sample is a single frame —
+        // so `frame * sample.Channels` is `0 * 2`, and a mutant changing it to `0 / 2` computes the
+        // same index. Correct and broken agree on the only input given, which is the "wrong
+        // condition" case in CLAUDE.md: the fix is a bigger input, not a sharper assertion.
+        //
+        // Three frames, each carrying a value no other frame has, so a reader taking the wrong
+        // stride lands on a number that names where it went.
+        short[] mixed = AudioOutput.ToStereo16(
+            Stereo(1f, -1f, 0.5f, -0.5f, 0.25f, -0.25f), leftGain: 1f, rightGain: 1f);
+
+        mixed.Length.ShouldBe(6, "three frames, two channels out");
+
+        mixed[0].ShouldBe(short.MaxValue);
+        mixed[1].ShouldBe((short)-short.MaxValue);
+
+        // Frame 1 is where `* 2` and `/ 2` first disagree: the correct index is 2, the mutant's is 0.
+        mixed[2].ShouldBe((short)(0.5f * short.MaxValue));
+        mixed[3].ShouldBe((short)(-0.5f * short.MaxValue));
+
+        mixed[4].ShouldBe((short)(0.25f * short.MaxValue));
+        mixed[5].ShouldBe((short)(-0.25f * short.MaxValue));
+    }
+
+    [Test]
     public void ToStereo16_AGainAboveOne_SaturatesRatherThanWrapping()
     {
         // **Legitimate input, not a guard against nonsense.** Valve's volume and the distance curve

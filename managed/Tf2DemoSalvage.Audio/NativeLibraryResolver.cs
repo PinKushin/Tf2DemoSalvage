@@ -28,6 +28,13 @@ internal static class NativeLibraryResolver
 {
     private const string OpusLibrary = "opus";
 
+    /// <summary>What the shipped OpenAL is called, before the platform's prefix and suffix.</summary>
+    /// <remarks>
+    /// `Silk.NET.OpenAL.Soft.Native` names it `openal` on every platform it ships — `libopenal.so`,
+    /// `libopenal.dylib`, `openal.dll` — which is what <see cref="FileName"/> already builds.
+    /// </remarks>
+    private const string OpenAlLibrary = "openal";
+
     /// <summary>
     /// Native libraries built by <c>tools/native-audio/build.ps1</c> and copied flat into the
     /// output directory by this project's own <c>.csproj</c> — no NuGet RID-fanout involved, so
@@ -56,6 +63,41 @@ internal static class NativeLibraryResolver
     internal static void EnsureRegistered()
     {
         // The call itself does nothing; touching the type is what matters; see remarks.
+    }
+
+    /// <summary>Loads the shipped OpenAL into the process, so Silk.NET's own loader finds it.</summary>
+    /// <returns>Whether a library is now loadable under that name.</returns>
+    /// <remarks>
+    /// **A `DllImportResolver` cannot help here, which is why this is separate.**
+    /// <see cref="NativeLibrary.SetDllImportResolver"/> is registered per ASSEMBLY, and the P/Invoke
+    /// that loads OpenAL lives in `Silk.NET.OpenAL` rather than in this one — so the resolver above
+    /// is never consulted for it however many names are added to it.
+    ///
+    /// **Loading it by absolute path first is what fixes that.** A native library is loaded once per
+    /// process and cached by name, so once this succeeds Silk.NET's later `NativeLibrary.TryLoad`
+    /// for the same name finds the loaded module instead of searching.
+    ///
+    /// **Measured on `mutation-box`, 2026-08-26** (B217). The box is headless `aarch64` and the
+    /// package ships `runtimes/linux-arm64/native/libopenal.so`, which was present in the test output
+    /// the whole time — and `AL.GetApi()` still threw *"Could not load from any of the possible
+    /// library names"*, because .NET's native probing does not reach that folder for a load issued
+    /// by another assembly. Setting `LD_LIBRARY_PATH` to it made every device test pass, which is
+    /// what this does without needing an environment variable.
+    ///
+    /// **Returns false rather than throwing on a machine with no library at all**, which is the
+    /// normal case for a machine with no audio stack: the caller degrades to silence.
+    /// </remarks>
+    internal static bool TryLoadOpenAl()
+    {
+        if (CurrentRid() is not { } rid)
+        {
+            return false;
+        }
+
+        string candidate = Path.Combine(
+            AppContext.BaseDirectory, "runtimes", rid, "native", FileName(OpenAlLibrary));
+
+        return File.Exists(candidate) && NativeLibrary.TryLoad(candidate, out _);
     }
 
     static NativeLibraryResolver() =>
