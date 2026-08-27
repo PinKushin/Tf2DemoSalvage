@@ -219,6 +219,48 @@ public sealed class MomentSceneTests
         uploads.Count.ShouldBe(1);
     }
 
+    /// <summary>
+    /// That clearing <see cref="MomentScene.Uploaded"/> brings the models back (B219).
+    /// </summary>
+    /// <remarks>
+    /// **The owner, looking at the viewer**: *"setting surface colors on removes the viewmodel and
+    /// doesnt bring it back, so i need you to restart the program"*. It was every model, not just
+    /// the viewmodel, and the log had said so 444,242 times in seven seconds —
+    /// `*N was posed before its geometry was uploaded`, 617,923 lines between the two toggles.
+    ///
+    /// `SetSurfaceColours` ends in `Device3D.ClearWorld`, which disposes the world and empties
+    /// `_packedModels` along with the buffers they feed. The map returns because `Invalidate`
+    /// re-projects it. The models did not, because the test above is the rule the whole time: an
+    /// upload happens when the set GREW, and after a clear it has not — it is the GPU-side copy
+    /// that went.
+    ///
+    /// **B148 is this same bug on the map-change path** and built the mechanism this asserts: the
+    /// packed set survived a second demo while its buffer did not, so `Pack` guards on
+    /// <c>if (!grew &amp;&amp; Uploaded) return;</c> and level shutdown clears the flag. Surface colours was
+    /// simply the one caller of `ClearWorld` never paired with that reset.
+    ///
+    /// **This is the pair to the test above and neither means much alone.** That one says an
+    /// unchanged set costs nothing; this one says an unchanged set whose buffer is gone still gets
+    /// sent. A fix that uploaded every frame passes this and fails that.
+    /// </remarks>
+    [Test]
+    public void Build_AfterTheRenderersCopyWasDiscarded_UploadsAgain()
+    {
+        Uploads uploads = new();
+        MomentScene scene = Scene(uploads);
+
+        scene.Build([], [Prop("models/props/crate.mdl")], Info());
+
+        uploads.Count.ShouldBe(1, "the first build has to upload before a second can be measured");
+
+        // What `ClearWorld` leaves behind: the same props, and a renderer holding nothing.
+        scene.Uploaded = false;
+
+        scene.Build([], [Prop("models/props/crate.mdl")], Info() with { Tick = 2d });
+
+        uploads.Count.ShouldBe(2);
+    }
+
     [Test]
     public void Build_WithNoModelUpload_StillDrawsRatherThanThrowing()
     {
