@@ -11261,7 +11261,7 @@ View menu reddened two of the four new tests — **and `ShortcutCollisionTests` 
 measured demonstration of the blind spot rather than an argument about it. Removing one entry from
 the debug list reddened the reflection-denominator test alone.
 
-### B187 — the debug views do not apply to viewmodels — FIXED 2026-08-26, needs a look
+### B187 — the debug views do not apply to viewmodels — FIXED 2026-08-26, confirmed by eye 2026-08-27
 
 **The cause was a call with too few arguments, and every remaining one was optional.**
 `Device3D.DrawViewmodels` set its pass camera with
@@ -11304,6 +11304,12 @@ viewmodel pass now carries the debug state. What is proven is that the shader ho
 Per `CLAUDE.md`, a visual claim that cannot be checked by looking is a question for the owner:
 **does `mat_drawflat` now change the weapon in your hands?** If it does, B170's washed-out viewmodels
 can finally be inspected with the tool built for them.
+
+**Answered, 2026-08-27** — the owner, looking at the viewer: *"ctrl+f works on the viewmodel now, and
+it flattens, what actually makes the viewmodel look normal is full bright"*. `CTRL+f` is
+`mat_drawflat`, so the call site is confirmed from the only instrument that could confirm it. The
+second half of that sentence is the finding, and it is filed under B170 below: it falsifies that
+bug's leading hypothesis outright.
 
 **Wireframe may already have worked.** `_world.Wireframe` is a property on the shared renderer set
 during the world pass, so it persists into the viewmodel pass rather than being re-defaulted like the
@@ -12094,7 +12100,7 @@ and should be decided deliberately rather than slipped in.
 
 Filed here so nobody spends another session looking for a bug in the sound path.
 
-### B170 — some viewmodels on modern demos are washed out — OPEN
+### B170 — some viewmodels on modern demos are washed out — OPEN, narrowed to the lighting term 2026-08-27
 
 The owner, 2026-08-23: *"some of the new demo viewmodels are not displaying right either, they are
 basically washed out, like the old demos weapon models that were drawing on top for that demo that
@@ -12110,6 +12116,56 @@ question: are these viewmodels resolving their materials at all, or falling back
 untextured? The B160 investigation established that our missing-material signal is Valve's magenta
 chequer, so "washed out" is NOT that fallback and is something else again — worth knowing before
 anyone assumes it is the same bug.
+
+#### That hypothesis is dead, and one sentence from the owner killed it — 2026-08-27
+
+Looking at the viewer once B187 made the debug views reach a viewmodel at all: *"ctrl+f works on the
+viewmodel now, and it flattens, **what actually makes the viewmodel look normal is full bright**"*.
+
+**`mat_fullbright` shows the albedo with the lighting term removed.** If that is what "normal" looks
+like, the texture is resolving and resolving correctly — so the material-resolution theory above is
+falsified, and the fault is in the lighting applied on top of a correct texture. Recorded rather than
+quietly deleted, because the reasoning that produced it was sound and the B160 comparison it rests on
+is still true; what it lacked was this observation.
+
+**It also bounds the direction.** A normally-lit model indoors is *darker* than its fullbright
+albedo. This one is brighter, so the lighting multiplier at the viewmodel exceeds 1 rather than
+falling short — the fault is excess light, not missing light.
+
+#### Four hops were checked against the SDK and are correct — do not re-walk them
+
+Per `docs/memory/measure-every-hop-before-blaming-one.md`, each was measured rather than assumed:
+
+1. **The sample position is world-space and correct.** `MomentScene` builds the viewmodel's
+   `ViewmodelPlacement` from `camera.Origin`, which reaches `ScenePose.X/Y/Z` and is what
+   `ModelLighting.For` hands to `ComputeLighting`. An early guess that `SceneProp` carries no
+   position and so sampled the map origin was wrong — `SceneProp` has no position because the
+   **pose** carries it.
+2. **The pass state is correct as of B187.** `DrawViewmodels` now passes `surfaceColours`,
+   `specular`, `fullbright` and `debug` through to `SetCamera`.
+3. **The engine has no viewmodel-specific lighting override.** `CViewRender::DrawViewModels`
+   (`viewrender.cpp:1051`) changes fov, znear/zfar, depth range and colour modulation and touches
+   lighting nowhere; `SuppressEngineLighting` exists but its only callers are the model panels in
+   `basemodelpanel.cpp:662,676`. So Valve lights a viewmodel through the ordinary model path, which
+   is what we do — the approach matches and the values are what differ.
+4. **Normals are skinned, not just positions.** `WorldRenderer`'s vertex shader skins `posedNormal`
+   through `SkinPosition` and renormalises, so a bone-driven model is not sampling the ambient cube
+   with bind-pose normals.
+
+#### What is still unmeasured, and the next instrument
+
+The remaining hop is the **value** `ComputeLighting` returns at an eye position, and specifically
+`LocalLights.AddTo`, which folds nearby world lights **into the ambient cube** rather than leaving
+them as the engine's separate `locallight[]` array. A light folded into a cube arrives from every
+direction at once with no N·L shaping, which is a mechanism that produces exactly "too bright and
+flat" — and a viewmodel sits at the player's head, the position in the scene most reliably close to
+whatever lamp the player is walking under, where a world prop's origin is at its base.
+
+That is a hypothesis, not a finding. It is measurable **headlessly** — `LevelLighting.ComputeLighting`
+is a pure function of map and position — by reading the cube at a first-person eye and comparing it
+against the same player's feet and a nearby world prop. No window, no desktop lock, no screenshot.
+`ReportLightTerms` already separates bounce from direct for exactly this question, but it logs at
+Debug and so is absent from an ordinary viewer run.
 
 ### B167 — CLOSED 2026-08-23. A one-bone model could never be skinned, so it could never merge
 
@@ -13230,3 +13286,39 @@ battery burnt for a window nobody is looking at.
 **Both need a decision rather than a fix.** The second is a behaviour change a user would notice, and
 the standing rule is that a divergence is asked, not assumed. `FramePacer` is where either would go:
 it already owns the budget and the sleep-or-spin threshold, so neither needs the window reopened.
+
+### B218 — the viewmodel pass has no translucent draw at all — OPEN, found while narrowing B170
+
+**Found by reading `CViewRender::DrawViewModels` rather than by a symptom**, which is the order
+`CLAUDE.md` asks for: the SDK was opened to ask whether the engine lights a viewmodel specially (it
+does not, see B170), and the answer to a different question was sitting in the same function.
+
+Valve collates **two** lists and draws them separately (`viewrender.cpp:1114,1117,1149-1150`):
+
+```cpp
+CUtlVector< IClientRenderable * > opaqueViewModelList( 32 );
+CUtlVector< IClientRenderable * > translucentViewModelList( 32 );
+
+ClientLeafSystem()->CollateViewModelRenderables( opaqueViewModelList, translucentViewModelList );
+...
+DrawRenderablesInList( opaqueViewModelList );
+DrawRenderablesInList( translucentViewModelList, STUDIO_TRANSPARENCY );
+```
+
+`Device3D.DrawViewmodels` has **one** loop and passes `blended: false` for every instance. So a
+viewmodel material that asks for translucency is drawn opaque, and nothing in the viewer's own
+structure records that the second list was ever meant to exist.
+
+**The world pass already does this correctly**, which is what makes the gap visible: `Device3D` draws
+its opaque model instances and then its blended ones in a second loop with `blended: true`, for the
+reason its own comment gives — "a hologram, a glass visor and a cloaked spy all have to blend against
+what is behind them". The viewmodel pass was written without that half.
+
+**Not yet tied to a symptom, and that is stated rather than glossed.** It was found while
+investigating B170 and is *not* being claimed as its cause — B170 is excess brightness, and drawing a
+translucent material opaque is a different failure. Filed separately for that reason. The natural
+candidates to look at are a cloaked spy's own viewmodel and any weapon with a glass or additive part.
+
+**Ordering matters if this is fixed**, and the engine states it: opaque first, translucent second,
+with `STUDIO_TRANSPARENCY`. Both lists sit inside the same depth-range hack, so the near-tenth
+compression applies to both.
