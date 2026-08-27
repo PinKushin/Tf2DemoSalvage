@@ -12255,6 +12255,41 @@ and the merged path in `EntityModels.Instances` then lights. That is the next th
 the cheapest discriminating question is whether the ARMS wash out too or only the weapon — they are
 separate models on a modern demo and the same model on an old one.
 
+#### Only the weapon, which rules out the whole lighting-input space
+
+The owner, 2026-08-27: *"just the weapon i think, youd have to run the demo again for me to be
+sure"*. Provisional, and it still decides a great deal, because **the arms and the weapon are given
+the same light and that can be established by reading**:
+
+- `ViewmodelScene.Build` gives both props the same pose — `at.PoseFor(...)` from one
+  `ViewmodelPlacement` — so neither starts from a different position.
+- The weapon carries `AttachedTo: ArmsEntityIndex`, so it takes the merged branch in
+  `EntityModels.Instances`, which replaces its own sample point with
+  `_lightPoints[wearer]` — **the arms' illumination point**.
+- `_lightPoints` is filled by `Simulate`, which `Instances` calls at its top on the props it was
+  handed. The viewmodel pass has its own `Instances` call, so `_lightPoints[4096]` is populated
+  before the draw loop reads it. An early worry that the synthetic indices might collide with real
+  entities is unfounded: they are 4096–4098, deliberately above `MAX_EDICTS`.
+
+So the weapon is lit at the arms' point, with the arms' cube and the arms' sun. **If the arms look
+right and the weapon does not, no difference in the lighting INPUT can be responsible** — which
+retires the ambient cube, the sun, the sample position, the LDR/HDR question and the tone map all at
+once, for this symptom.
+
+**That leaves what the two models do not share: their materials.** The candidates are the terms a
+weapon's VMT can add on top of a correct diffuse — `$phong` with `$phongboost`, `$rimlight`,
+`$lightwarptexture` (whose lookup this renderer doubles, per Valve's `DiffuseTerm`), `$envmap`, and
+`$selfillum`. Self-illumination fits the described appearance best — `lerp(lit, tint * albedo,
+albedo.a)` moves a model toward exactly its fullbright look — but it is gated on
+`VmtMaterial.IsSelfIlluminated`, which reads the `$selfillum` FLAG correctly, so it should fire only
+for materials that declare it. That predicts *some* weapons rather than all, and the owner reports
+all.
+
+**Next instrument: read what a modern `c_` weapon's VMT declares against what the arms declare.**
+Shipped data answers this without a decompiler and without running anything, and it is the
+comparison that has not been made. Confirming the owner's *"i think"* by eye is worth doing first,
+since it is one demo and it decides whether this section is even about the right thing.
+
 ### B167 — CLOSED 2026-08-23. A one-bone model could never be skinned, so it could never merge
 
 The Original ("the quake launcher") drew far too high and filled the screen, on every demo since
