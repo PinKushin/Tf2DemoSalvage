@@ -361,6 +361,117 @@ public sealed class MomentSceneTests
     }
 
     [Test]
+    public void Build_InFirstPersonWithDrawViewmodelOff_DrawsNoWeaponEvenWithASource()
+    {
+        // **The assertion that actually covers the gate**, and the first attempt did not. That one
+        // built a scene with NO viewmodel source and asserted the camera was null with the switch
+        // off — which is true with the switch on as well, because an absent source drops the camera
+        // by itself. Correct and broken predicted the same observation, so removing the
+        // `!info.DrawViewmodel` clause reddened nothing. The fix is a bigger setup, not a sharper
+        // assertion: a source that WOULD draw, so the switch is the only thing left deciding.
+        MomentScene source = Scene();
+        source.Viewmodels = new FakeViewmodels
+        {
+            MainHand = new SceneViewmodel(
+                "models/weapons/v_models/v_rocketlauncher_soldier.mdl",
+                Sequence: 0,
+                PlaybackRate: 1f,
+                OwnerEntityIndex: 3,
+                Slot: SceneViewmodel.MainHand),
+        };
+
+        source.Build(
+            [Soldier(entity: 3)],
+            [],
+            Info() with
+            {
+                FirstPerson = true,
+                Followed = 3,
+                EyeCamera = Eye(),
+                DrawViewmodel = false,
+            });
+
+        source.ViewmodelCamera.ShouldBeNull(
+            "r_drawviewmodel 0 means no weapon in hand, however much of one is available");
+    }
+
+    [Test]
+    public void Build_InFirstPersonWithDrawViewmodelOn_DrawsTheWeapon()
+    {
+        // **The control for the case above**, identical but for the switch. Without it, "the switch
+        // turned it off" is indistinguishable from "this setup never draws anything" — which is
+        // exactly the trap the first attempt fell into.
+        MomentScene source = Scene();
+        source.Viewmodels = new FakeViewmodels
+        {
+            MainHand = new SceneViewmodel(
+                "models/weapons/v_models/v_rocketlauncher_soldier.mdl",
+                Sequence: 0,
+                PlaybackRate: 1f,
+                OwnerEntityIndex: 3,
+                Slot: SceneViewmodel.MainHand),
+        };
+
+        source.Build(
+            [Soldier(entity: 3)],
+            [],
+            Info() with
+            {
+                FirstPerson = true,
+                Followed = 3,
+                EyeCamera = Eye(),
+                DrawViewmodel = true,
+            });
+
+        source.ViewmodelCamera.ShouldNotBeNull(
+            "the same setup with the switch on must reach the viewmodel");
+    }
+
+    /// <summary>A viewmodel source that hands back whatever it was given.</summary>
+    private sealed class FakeViewmodels : IViewmodelSource
+    {
+        public SceneViewmodel? MainHand { get; init; }
+
+        public SceneViewmodel? MainHandAt(int tick, int player) => MainHand;
+
+        public SceneViewmodel? OffHandAt(int tick, int player) => null;
+    }
+
+    [Test]
+    public void Build_InFirstPersonWithDrawViewmodelOff_SaysNothingAboutAMissingSource()
+    {
+        // **With the viewmodel switched off, an absent source is not a wiring fault** — nothing was
+        // going to be drawn. Warning anyway would be the same mistake the third-person clause above
+        // already avoids, and it would fire every frame for anyone running `r_drawviewmodel 0`.
+        RecordingLogger log = new();
+        MomentScene scene = new(new EntityModelSet(), new ViewmodelScene(), log);
+
+        scene.Build(
+            [Soldier(entity: 3)],
+            [],
+            Info() with { FirstPerson = true, DrawViewmodel = false });
+
+        log.Count("no viewmodel source").ShouldBe(0);
+    }
+
+    [Test]
+    public void Build_InFirstPersonWithDrawViewmodelOn_StillReportsAMissingSource()
+    {
+        // **The control, and it is the one that matters here.** Without it the assertion above is
+        // satisfied by a scene that stopped reporting missing sources altogether — which is exactly
+        // the alarm B193 was filed to add, so silencing it by accident would undo that.
+        RecordingLogger log = new();
+        MomentScene scene = new(new EntityModelSet(), new ViewmodelScene(), log);
+
+        scene.Build(
+            [Soldier(entity: 3)],
+            [],
+            Info() with { FirstPerson = true, DrawViewmodel = true });
+
+        log.Count("no viewmodel source").ShouldBe(1, "the switch is on, so a missing source is a fault");
+    }
+
+    [Test]
     public void Build_WithNoPlayers_Refuses()
     {
         Should.Throw<ArgumentNullException>(() => Scene().Build(null!, [], Info()));

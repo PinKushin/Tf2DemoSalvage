@@ -394,7 +394,11 @@ public sealed class MomentScene : IGameSystemPerFrame
         // source and a demo that genuinely carries no viewmodel look identical from the outside, and
         // the first of those shipped: nothing assigned `Viewmodels` when this moved out of the form,
         // so the weapon never drew and the suite stayed green (B193).
-        if (info.FirstPerson && Viewmodels is null && !_reportedNoViewmodels)
+        // **`DrawViewmodel` is part of the condition, not just of the guard below** (B166). With
+        // `r_drawviewmodel 0` nothing was going to be drawn, so an unset source is not a wiring
+        // fault — warning about it would be the same mistake as warning in third person, which the
+        // clause above already avoids.
+        if (info.FirstPerson && info.DrawViewmodel && Viewmodels is null && !_reportedNoViewmodels)
         {
             _reportedNoViewmodels = true;
 
@@ -404,7 +408,15 @@ public sealed class MomentScene : IGameSystemPerFrame
                 "so no weapon will be drawn in hand");
         }
 
-        if (!info.FirstPerson ||
+        // **`r_drawviewmodel` is checked here because this is where the engine checks it** (B166).
+        // `ClientModeTFNormal::ShouldDrawViewModel` (`clientmode_tf.cpp:584`) gates the whole
+        // viewmodel on it, and it ships `"1"` — so a viewer that never read it behaved correctly for
+        // anyone who had not turned it off, and wrongly for the owner, who had.
+        //
+        // It joins the existing early return rather than getting one of its own: every clause here
+        // means "draw no weapon in hand", and they must all drop the camera the same way.
+        if (!info.DrawViewmodel ||
+            !info.FirstPerson ||
             Viewmodels is not { } source ||
             info.Followed is not { } follower ||
             info.EyeCamera is not { } camera)

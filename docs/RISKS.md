@@ -12097,12 +12097,44 @@ Two instruments were written before the fix and one of them killed the first the
 `ViewmodelBoneMergeTests` showed the Original's single bone IS supplied by the arms, which ruled out
 "its bones do not match" before any code was touched.
 
-### B166 — the viewmodel cvars are unimplemented, and 54 is right by coincidence — OPEN
+### B166 — the viewmodel cvars are unimplemented, and 54 is right by coincidence — FIXED 2026-08-26
 
 The owner, watching the viewer draw a viewmodel: *"im actually a little surprised the viewmodels are
 actually showing right now at all, because we are technically suppose to be using my real tf2 config
 as a base... i dont use viewmodels for basically any class, but maybe because im not technically
 booting as a class but as a spec with the demo, the vioewmodel switcher doesnt fire."*
+
+**FIXED 2026-08-26**, and every citation below was re-read against `source-sdk-2013` first rather
+than trusted — two register entries turned out stale earlier the same day, so a claim being written
+down is not evidence that it still holds. All of them held.
+
+What landed:
+
+- **`r_drawviewmodel`**, Valve's name and Valve's default of `1`, gating the viewmodel in
+  `MomentScene.AddViewmodel` — which is where `ShouldDrawViewModel` gates it.
+- **`viewmodel_fov_demo`**, read in preference to `viewmodel_fov`, because
+  `ClientModeTFNormal::GetViewModelFOV` never consults the latter while a demo plays and a demo is
+  always what plays here.
+- **The clamp corrected to the HARD pair**, 0.1..179.9. `ViewerSettingsTests` asserted 54..70 under
+  a citation that quoted `..., true, 54, true, 70, NULL` as though that were the declaration; the
+  real line carries four bounds and that is the second, competitive pair. The test encoded the
+  misreading, so it had to change with the code.
+
+**One thing this nearly shipped as a no-op.** The first version parsed `r_drawviewmodel` into a
+property and nothing read it — `ViewerSettings.DrawViewmodel` existed, the conformance suite passed,
+and no viewmodel was gated by anything. Caught by grepping for consumers rather than by any test,
+which is `docs/memory/output-level-assertion-or-it-is-not-done.md` exactly.
+
+**And the first wiring test was vacuous.** It built a scene with no viewmodel source and asserted the
+camera was null with the switch off — true with the switch on as well, since an absent source drops
+the camera by itself. Removing the gate reddened nothing. The fix was a bigger setup rather than a
+sharper assertion: a fake source that WOULD draw, so the switch is the only thing left deciding.
+Sabotage now reddens exactly one test.
+
+**`TF_COND_ZOOMED` is still unimplemented** — the other half of `ShouldDrawViewModel`. It needs
+player condition state rather than a setting, so it is its own piece of work.
+
+**The original entry follows.**
 
 **The hypothesis was right, and the SDK says why.** `ShouldDrawViewModel`
 (`clientmode_tf.cpp:582`) gates on `r_drawviewmodel`, which is declared `"1"` and `FCVAR_DONTRECORD`

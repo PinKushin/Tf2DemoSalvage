@@ -1959,7 +1959,12 @@ internal class MainForm : Form, IFrameSteps
                 _firstPerson,
                 FollowedEntity(),
                 _firstPerson ? FirstPersonCamera() : null,
-                _settings.ViewmodelFieldOfView));
+                _settings.ViewmodelFieldOfView,
+
+                // **`r_drawviewmodel`, which the viewer never read until B166.** It travels beside
+                // the field of view because they are the same kind of thing: a setting the watcher
+                // owns, applied to the moment being drawn rather than stored in the scene.
+                _settings.DrawViewmodel));
     }
 
     // `HandsForFollowed` lived here for exactly one commit, and its own comment admitted what it

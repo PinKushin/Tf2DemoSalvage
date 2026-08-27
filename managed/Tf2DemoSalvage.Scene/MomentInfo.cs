@@ -10,6 +10,11 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="EyeCamera">Where that eye is, or null when there is none to draw from.</param>
 /// <param name="IntervalPerTick">Seconds per tick, from the demo rather than an assumed 66.67.</param>
 /// <param name="ViewmodelFieldOfView">The first-person weapon's own FOV, which is not the world's.</param>
+/// <param name="DrawViewmodel">
+/// Whether the weapon in hand is drawn at all — Valve's <c>r_drawviewmodel</c>, which
+/// <c>ClientModeTFNormal::ShouldDrawViewModel</c> checks before anything else (B166). Defaulted to
+/// true because Valve ships it at <c>"1"</c>, which also keeps every existing construction valid.
+/// </param>
 /// <remarks>
 /// **This is <c>SetupRenderInfo_t</c>'s shape, and the shape is the point.** Valve's renderables-list
 /// builder takes one:
@@ -53,7 +58,8 @@ public readonly record struct MomentInfo(
     int? Followed,
     FreeCamera? EyeCamera,
     float IntervalPerTick,
-    float ViewmodelFieldOfView)
+    float ViewmodelFieldOfView,
+    bool DrawViewmodel = true)
 {
     /// <summary>How far into the demo this moment is, in seconds.</summary>
     /// <remarks>

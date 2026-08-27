@@ -278,7 +278,7 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 # Tf2ConfigFiles.DefaultGameFolder looks under Program Files while this machine keeps TF2 on another
 # drive. The code was right and the test was measuring the ENVIRONMENT — pointing it at a better
 # path would have hidden that rather than fixed it.
-run Tf2DemoSalvage.Scene.Tests    scene     197
+run Tf2DemoSalvage.Scene.Tests    scene     201
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -321,7 +321,7 @@ run Tf2DemoSalvage.Scene.Tests    scene     197
 # 161: SoundCacheTests (10), out of MainForm.Sample and the three fields beside it. The engine keeps
 # its sample cache behind IEngineSound (IEngineSound.h:89-91) and game code asks it, so a window
 # owning one was ours alone — and none of it had a test.
-run Tf2DemoSalvage.Audio.Tests    audio     180
+run Tf2DemoSalvage.Audio.Tests    audio     183
 
 # The presenter suite (D62). Sixteen tests, ~24 ms, no window and no desktop lock — which is the
 # whole point: this logic lived in MainForm and could only be reached by driving a real form, so
@@ -640,7 +640,7 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     113
 # `C:\Program Files (x86)\Steam` and `Program` is a Viewer3D type; `SkinOverrideConformanceTests`
 # named `MainForm` only in a comment; and `PlaylistFilterTests` carried a dead
 # `using Tf2DemoSalvage.Viewer3D` when `PlaylistFilter` lives in `Scene`.
-run Tf2DemoSalvage.Rendering.Tests rendering 515
+run Tf2DemoSalvage.Rendering.Tests rendering 520
 run Tf2DemoSalvage.Viewer3D.Tests viewer    101
 
 echo
