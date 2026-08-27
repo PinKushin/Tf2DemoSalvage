@@ -11261,7 +11261,55 @@ View menu reddened two of the four new tests — **and `ShortcutCollisionTests` 
 measured demonstration of the blind spot rather than an argument about it. Removing one entry from
 the debug list reddened the reflection-denominator test alone.
 
-### B187 — the debug views do not apply to viewmodels — OPEN
+### B187 — the debug views do not apply to viewmodels — FIXED 2026-08-26, needs a look
+
+**The cause was a call with too few arguments, and every remaining one was optional.**
+`Device3D.DrawViewmodels` set its pass camera with
+
+```csharp
+_world.SetCamera(_device, _context, camera);
+```
+
+against a method declared `SetCamera(device, context, matrix, surfaceColours = false,
+specular = true, fullbright = Fullbright.Off, debug = default)`. So the viewmodel pass ran with every
+debug view OFF while the world around it ran with whatever the user had chosen. It compiled, it ran,
+and it drew something plausible — which is why a defect this simple survived in a project with a full
+offscreen render suite.
+
+**In TF2 these are material-system overrides**, applied to everything drawn rather than to a pass, so
+a viewmodel exempt from them is a departure nobody chose.
+
+#### The harness was reproducing the bug rather than exposing it
+
+`OffscreenTarget.DrawModelPose` made the **same three-argument call**. Every posed-model test in this
+project has therefore always drawn with the debug views off, and no test could have told whether the
+model shader honours them at all. That half is now passed through and asserted:
+`ViewmodelDebugViewRenderTests` draws a posed model with and without `mat_drawflat` and requires the
+picture to move. Reverting the harness fix makes both readings identical — `(2, 2, 2)` — and the test
+fails, so it is measuring the right thing.
+
+**Its control earned its place immediately.** The first run reported `(0, 0, 0)` for both, and the
+control said why: the model was not being drawn at all. The model shader wraps its entire direct term
+in `if (ambientCube[0].w > 0.5f)`, so a pose with no ambient cube renders black — a trap
+`PhongRenderTests` had already recorded. Without the control this would have read as "the debug view
+changed nothing", which is the bug's own signature.
+
+#### What is NOT asserted, and why it is a question rather than a claim
+
+**The call site itself has no test.** `DrawViewmodels` is private to `Device3D` and the state it sets
+goes into a constant buffer rather than anywhere readable, so nothing here can observe that the
+viewmodel pass now carries the debug state. What is proven is that the shader honours it on the same
+`DrawModelPose` path a viewmodel takes, and that the viewer now passes what the world pass passes.
+
+Per `CLAUDE.md`, a visual claim that cannot be checked by looking is a question for the owner:
+**does `mat_drawflat` now change the weapon in your hands?** If it does, B170's washed-out viewmodels
+can finally be inspected with the tool built for them.
+
+**Wireframe may already have worked.** `_world.Wireframe` is a property on the shared renderer set
+during the world pass, so it persists into the viewmodel pass rather than being re-defaulted like the
+`SetCamera` arguments. Untested either way, and worth including in the look.
+
+### B187 (original entry)
 
 **Reported by the owner 2026-08-24**, alongside B186 and B170 as things that survived the D88 bone
 work rather than being caused by it: *"the dubug views not applying to viewmodels"*.

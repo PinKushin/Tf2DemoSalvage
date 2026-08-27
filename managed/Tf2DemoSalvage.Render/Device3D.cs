@@ -541,7 +541,30 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             0f, 0f, _width, _height, ViewmodelPass.DepthMinimum, ViewmodelPass.DepthMaximum);
 
         _context.RSSetViewports(1, in near);
-        _world.SetCamera(_device, _context, camera);
+
+        // **The debug state travels with the camera, and omitting it is what B187 was.** This called
+        // the same method with three arguments, and every remaining parameter is OPTIONAL — so the
+        // viewmodel pass silently ran with `surfaceColours: false, specular: true,
+        // fullbright: Off, debug: default` while the world around it ran with whatever the user had
+        // chosen. `mat_drawflat`, `mat_luxels`, `mat_normalmaps`, `mat_bumpbasis` and
+        // `mat_fullbright` therefore changed the world and left the weapon in hand alone.
+        //
+        // **In TF2 these are material-system overrides**, applied to everything drawn rather than to
+        // a pass, so a viewmodel exempt from them is a departure nobody chose.
+        //
+        // **It cost more than the debug views themselves**: B170 is washed-out viewmodels, and the
+        // tools built to diagnose exactly that could not be pointed at the thing that was wrong.
+        //
+        // Defaults on a parameter list are what made this invisible — the call compiled, ran, and
+        // drew something plausible. Passing them explicitly is the whole fix.
+        _world.SetCamera(
+            _device,
+            _context,
+            camera,
+            _worldCamera?.Colours ?? false,
+            _specular,
+            _fullbright,
+            _debug);
         _context.OMSetDepthStencilState(_depthOn, 0);
 
         // **No depth clear, which is the engine's arrangement.** Source compresses the viewmodel
