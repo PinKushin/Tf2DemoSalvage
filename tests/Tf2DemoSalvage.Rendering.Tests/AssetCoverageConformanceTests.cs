@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
 
@@ -45,33 +46,7 @@ public sealed class AssetCoverageConformanceTests
     /// game installed, and three tests reported "skipped" — which in a suite reads as "not
     /// applicable here" rather than "your helper is worse than the one next door".
     /// </remarks>
-    private static string? GameFolder
-    {
-        get
-        {
-            string? configured = Environment.GetEnvironmentVariable("TF2_FOLDER");
-
-            if (!string.IsNullOrWhiteSpace(configured) && Directory.Exists(configured))
-            {
-                return configured;
-            }
-
-            foreach (string root in new[]
-            {
-                @"C:\Program Files (x86)\Steam\steamapps\common\Team Fortress 2\tf",
-                @"F:\SteamLibrary\steamapps\common\Team Fortress 2\tf",
-                @"D:\SteamLibrary\steamapps\common\Team Fortress 2\tf",
-            })
-            {
-                if (File.Exists(Path.Combine(root, "tf2_textures_dir.vpk")))
-                {
-                    return root;
-                }
-            }
-
-            return null;
-        }
-    }
+    private static string? GameFolder => GameInstall.Root;
 
     [Test]
     public void Census_APropHeavyMap_ExaminesPropsNotOnlyBrushwork()

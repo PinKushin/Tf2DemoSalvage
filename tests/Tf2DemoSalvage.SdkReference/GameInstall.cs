@@ -67,6 +67,42 @@ public static class GameInstall
     public const string Missing =
         "Team Fortress 2 is not installed; set TF2_FOLDER to an install to run this.";
 
+    /// <summary>The <c>tf</c> folder, or skips the calling test when the game is absent.</summary>
+    /// <returns>The install root, known to exist.</returns>
+    /// <remarks>
+    /// **The form a test should reach for**, over <c>if (!Available) Assert.Ignore(Missing)</c>
+    /// written by hand. Both say the same thing; only one of them can be written as an assertion by
+    /// mistake, and that mistake reddens CI rather than skipping there — see <see cref="Skip"/>.
+    ///
+    /// A test that surveys several things and reports which it managed to read wants
+    /// <see cref="Root"/> or <see cref="Find"/> instead: skipping on the first absent one abandons
+    /// the ones that ARE installed.
+    /// </remarks>
+    public static string Require() => Skip.Unless(Root, Missing);
+
+    /// <summary>A file under the install, or skips the calling test when it is not there.</summary>
+    /// <param name="relativePath">Path under <c>tf</c>, such as <c>maps/cp_process_final.bsp</c>.</param>
+    /// <returns>The absolute path, known to exist.</returns>
+    /// <remarks>
+    /// **The two reasons are kept apart deliberately.** "The game is not installed" and "the game is
+    /// installed and this map is not" are different facts about the machine and call for different
+    /// actions, so a single "not installed" for both would send someone to reinstall a game they
+    /// already have.
+    /// </remarks>
+    public static string RequireFile(string relativePath)
+    {
+        ArgumentNullException.ThrowIfNull(relativePath);
+
+        if (Root is null)
+        {
+            Skip.Because(Missing);
+        }
+
+        return Skip.Unless(
+            Find(relativePath),
+            $"{relativePath} is not in this Team Fortress 2 install.");
+    }
+
     /// <summary>An absolute path under the install, or null when it is not there.</summary>
     /// <param name="relativePath">Path under <c>tf</c>, such as <c>maps/cp_process_final.bsp</c>.</param>
     /// <returns>The absolute path, or null when the install or that file is absent.</returns>

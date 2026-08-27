@@ -24,7 +24,7 @@ public sealed class Mp3HeaderProbe
     [Test]
     public void Mp3Files_TheirFrameHeaders_AreCounted()
     {
-        string tf = @"F:\SteamLibrary\steamapps\common\Team Fortress 2\tf";
+        string tf = GameInstall.Require();
 
         if (!Directory.Exists(tf))
         {

@@ -13,7 +13,7 @@ public sealed class StaleLightingProbe
     [Test]
     public void StaleLighting_PropsMismatchingTheirModel_AreReported()
     {
-        string tf = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
+        string tf = GameInstall.Require();
         string mapPath = Path.Combine(tf, "maps", "cp_process_final.bsp");
 
         if (!File.Exists(mapPath))

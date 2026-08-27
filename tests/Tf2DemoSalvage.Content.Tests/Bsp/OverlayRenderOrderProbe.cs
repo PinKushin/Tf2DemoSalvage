@@ -27,8 +27,7 @@ public sealed class OverlayRenderOrderProbe
     [Test]
     public void RenderOrder_AcrossEveryStockMap_IsCounted()
     {
-        string maps = Path.Combine(
-            "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf", "maps");
+        string maps = Path.Combine(GameInstall.Require(), "maps");
 
         if (!Directory.Exists(maps))
         {

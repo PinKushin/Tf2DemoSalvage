@@ -7,6 +7,7 @@ using FlaUI.Core.Tools;
 using FlaUI.Core.WindowsAPI;
 
 using Tf2DemoSalvage.Presentation;
+using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Viewer3D.UiTests;
 
@@ -45,7 +46,6 @@ internal sealed partial class ViewerSession
     public static ViewerApplication App => _viewer ?? throw new InvalidOperationException(
         "The viewer is not running; ViewerSession did not complete its setup.");
 
-    /// <summary>A committed demo whose map ships with the game.</summary>
     /// <summary>Skips the caller unless Team Fortress 2 is installed on this machine.</summary>
     /// <remarks>
     /// **The UI suite never had this gate and CI has been red because of it.** A test that waits
@@ -58,42 +58,29 @@ internal sealed partial class ViewerSession
     /// checks after it had never executed at all. One un-gated precondition was hiding the state of
     /// the whole gate.
     ///
-    /// **The convention is not new — it is copied from
-    /// <c>GameAssetIntegrationTests.GameFolder</c>**, which has gated on exactly this since it was
-    /// written. `TF2_FOLDER` first, then the standard library roots, and the file it looks for is a
-    /// VPK rather than the folder, because a Steam library keeps a directory for a game that has
-    /// been uninstalled.
+    /// **This used to be twenty lines of its own, and that was the problem, not the length.** It
+    /// carried a fourth private copy of the Steam library roots — and a laxer one: it accepted
+    /// `TF2_FOLDER` on the folder merely existing, so a stale or mistyped value made this pass
+    /// while every other suite skipped. <see cref="GameInstall"/> requires the VPK in there,
+    /// because a Steam library keeps a directory for a game that has been uninstalled.
+    ///
+    /// **The reason text is kept**, because it is specific in a way the generic one is not: it says
+    /// what will be missing on screen, not merely that a folder was not found.
     ///
     /// Only tests that need game ASSETS call this. The shell and transport tests drive the window
     /// and need no models, so gating them would hide real breakage.
     /// </remarks>
     public static void RequireTheGame()
     {
-        string? configured = Environment.GetEnvironmentVariable("TF2_FOLDER");
-
-        if (!string.IsNullOrWhiteSpace(configured) && Directory.Exists(configured))
+        if (!GameInstall.Available)
         {
-            return;
+            Skip.Because(
+                "Team Fortress 2 is not installed, so no model can resolve and nothing can be drawn "
+                + "into a viewmodel. Set TF2_FOLDER to run these.");
         }
-
-        foreach (string root in new[]
-        {
-            @"C:\Program Files (x86)\Steam\steamapps\common\Team Fortress 2\tf",
-            @"F:\SteamLibrary\steamapps\common\Team Fortress 2\tf",
-            @"D:\SteamLibrary\steamapps\common\Team Fortress 2\tf",
-        })
-        {
-            if (File.Exists(Path.Combine(root, "tf2_textures_dir.vpk")))
-            {
-                return;
-            }
-        }
-
-        Assert.Ignore(
-            "Team Fortress 2 is not installed, so no model can resolve and nothing can be drawn "
-            + "into a viewmodel. Set TF2_FOLDER to run these.");
     }
 
+    /// <summary>A committed demo whose map ships with the game.</summary>
     public static string DemoPath => Corpus("tf2-2013-build1729296-pov-cp_badlands.dem");
 
     /// <summary>The file name of the demo the session opens with.</summary>

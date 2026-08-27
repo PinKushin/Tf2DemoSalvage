@@ -4,7 +4,6 @@ using System.Reflection;
 using System.Text.RegularExpressions;
 
 using Tf2DemoSalvage.Content.Bsp;
-using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Content.Tests.Bsp;
 

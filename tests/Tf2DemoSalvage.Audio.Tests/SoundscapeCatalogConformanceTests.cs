@@ -6,6 +6,7 @@ using System.Linq;
 
 using Tf2DemoSalvage.Audio;
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Audio.Tests;
 
@@ -29,7 +30,7 @@ namespace Tf2DemoSalvage.Audio.Tests;
 /// </remarks>
 public sealed class SoundscapeCatalogConformanceTests
 {
-    private const string Game = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
+    private static string Game => GameInstall.Require();
 
     /// <summary>The client's own dump, as captured from `cl_soundscape_printdebuginfo`.</summary>
     private static string[] Expected =>

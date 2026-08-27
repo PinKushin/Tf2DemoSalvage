@@ -29,7 +29,7 @@ public sealed class EraGeometryProbe
     public void EraGeometry_TheCorpus_IsReported()
     {
         string old = "F:/tf2-builds/tf2-2008/tf/maps";
-        string now = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf/maps";
+        string now = Path.Combine(GameInstall.Require(), "maps");
 
         if (!Directory.Exists(old) || !Directory.Exists(now))
         {

@@ -25,48 +25,17 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 /// </remarks>
 public sealed class GameAssetIntegrationTests
 {
-    /// <summary>Where the game is, when it is installed on this machine.</summary>
-    private static string? GameFolder
-    {
-        get
-        {
-            string? configured = Environment.GetEnvironmentVariable("TF2_FOLDER");
-
-            if (!string.IsNullOrWhiteSpace(configured) && Directory.Exists(configured))
-            {
-                return configured;
-            }
-
-            foreach (string root in new[]
-            {
-                @"C:\Program Files (x86)\Steam\steamapps\common\Team Fortress 2\tf",
-                @"F:\SteamLibrary\steamapps\common\Team Fortress 2\tf",
-                @"D:\SteamLibrary\steamapps\common\Team Fortress 2\tf",
-            })
-            {
-                if (File.Exists(Path.Combine(root, "tf2_textures_dir.vpk")))
-                {
-                    return root;
-                }
-            }
-
-            return null;
-        }
-    }
-
     private string _tf = string.Empty;
 
+    /// <summary>Skips every test here unless the game is installed.</summary>
+    /// <remarks>
+    /// **This class's own gate is where the shared one was copied FROM** — `ViewerSession` names it
+    /// as the convention it followed, and so did most of the ninety-four private copies. The
+    /// original is now the one calling the shared helper, which is the point of D109: the pattern
+    /// worth copying is a call, not twenty lines.
+    /// </remarks>
     [SetUp]
-    public void RequireTheGame()
-    {
-        if (GameFolder is not { } folder)
-        {
-            Assert.Ignore("Team Fortress 2 is not installed; set TF2_FOLDER to run these.");
-            return;
-        }
-
-        _tf = folder;
-    }
+    public void RequireTheGame() => _tf = GameInstall.Require();
 
     [Test]
     public void GameAssets_TheTexturesArchive_HoldsAStockMaterial()

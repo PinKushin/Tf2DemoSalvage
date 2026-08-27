@@ -45,6 +45,10 @@
          presents as a passing suite. (Written without the flag's name because an XML comment
          cannot contain a doubled hyphen.) -->
     <ProjectReference Include="..\..\managed\Tf2DemoSalvage.Viewer3D\Tf2DemoSalvage.Viewer3D.csproj" />
+    <!-- For GameInstall and Skip only. This suite is the one place a missing install presents as a
+         renderer defect rather than as a missing file, so its gate has to be the same gate every
+         other suite uses rather than a fourth private copy of the Steam library roots. -->
+    <ProjectReference Include="..\Tf2DemoSalvage.SdkReference\Tf2DemoSalvage.SdkReference.csproj" />
   </ItemGroup>
 
 </Project>

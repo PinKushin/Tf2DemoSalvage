@@ -26,7 +26,7 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 /// </remarks>
 public sealed class BoneFlagContentTests
 {
-    private const string Game = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
+    private static string Game => GameInstall.Require();
 
     /// <summary>Every bit any <c>BONE_*</c> family declares, so an unknown one is detectable.</summary>
     private const int KnownFlags =

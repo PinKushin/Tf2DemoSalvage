@@ -21,7 +21,7 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 /// </remarks>
 public sealed class BoneFlagContentProbe
 {
-    private const string Game = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
+    private static string Game => GameInstall.Require();
 
     [Test]
     [Explicit("Reports the bone flags real models carry; run it when the pipeline needs to know.")]

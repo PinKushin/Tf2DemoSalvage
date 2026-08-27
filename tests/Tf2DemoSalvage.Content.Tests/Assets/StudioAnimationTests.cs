@@ -22,7 +22,7 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 /// </remarks>
 public sealed class StudioAnimationTests
 {
-    private const string Game = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
+    private static string Game => GameInstall.Require();
 
     /// <summary>How tall a TF2 player is, from the game's own player hull.</summary>
     private const float PlayerHeight = 83f;

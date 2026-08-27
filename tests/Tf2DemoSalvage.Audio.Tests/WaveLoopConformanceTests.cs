@@ -3,6 +3,7 @@ using System.IO;
 
 using Tf2DemoSalvage.Audio;
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Audio.Tests;
 
@@ -26,7 +27,7 @@ namespace Tf2DemoSalvage.Audio.Tests;
 /// </remarks>
 public sealed class WaveLoopConformanceTests
 {
-    private const string Game = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
+    private static string Game => GameInstall.Require();
 
     /// <summary>An ambient loop, and the sound the owner reported missing.</summary>
     private const string Looping = "sound/ambient/machine_hum.wav";

@@ -5,6 +5,7 @@ using System.Linq;
 
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
+using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Core.Tests.Scene;
 
@@ -23,9 +24,8 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 /// </remarks>
 public sealed class HeldWeaponModelTests
 {
-    /// <summary>Where the game is, on this machine.</summary>
-    private const string SchemaPath =
-        "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf/scripts/items/items_game.txt";
+    /// <summary>The shipped item schema, when the game is installed.</summary>
+    private static string? SchemaPath => GameInstall.Find("scripts/items/items_game.txt");
 
     [Test]
     public void WeaponItem_ForEveryPlayerHoldingSomething_ResolvesToAModel()

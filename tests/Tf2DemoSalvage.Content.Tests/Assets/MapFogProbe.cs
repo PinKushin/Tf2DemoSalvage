@@ -46,7 +46,7 @@ public sealed class MapFogProbe
     [Test]
     public void MapFog_AcrossTheCorpusMaps_IsReported()
     {
-        string maps = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf/maps";
+        string maps = Path.Combine(GameInstall.Require(), "maps");
 
         if (!Directory.Exists(maps))
         {

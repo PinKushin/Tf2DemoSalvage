@@ -139,7 +139,9 @@ jobs:
         # described the suite. Nothing connects the two files, so a change to one has to be made in
         # both by hand — check here whenever a floor moves in gate.sh.
         run: |
-          ./build/assert-test-count.sh '**/core.trx' 1504 Core
+          # 1504 -> 1512 is a measurement, not arithmetic: SkipTests' eight cases read no files, so
+          # a runner without the game executes every one of them exactly as this machine does.
+          ./build/assert-test-count.sh '**/core.trx' 1512 Core
           ./build/assert-test-count.sh '**/cli.trx' 74 Cli
           # 628 -> 645 is ARITHMETIC, not a measurement: 17 tests were added to Content on
           # 2026-08-24 (SchemeFont 6, GlyphAtlas 11), all self-contained, so every one of them

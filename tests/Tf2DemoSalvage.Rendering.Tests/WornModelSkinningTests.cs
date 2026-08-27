@@ -2,6 +2,7 @@ using System;
 using System.IO;
 
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
 
@@ -35,7 +36,7 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// </remarks>
 public sealed class WornModelSkinningTests
 {
-    private const string Game = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
+    private static string Game => GameInstall.Require();
 
     /// <summary>The Original, one bone, and the model the owner reported.</summary>
     private const string Original =

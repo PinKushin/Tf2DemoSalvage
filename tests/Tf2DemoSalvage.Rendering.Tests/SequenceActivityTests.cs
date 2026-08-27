@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
 
@@ -25,7 +26,7 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// </remarks>
 public sealed class SequenceActivityTests
 {
-    private const string GamePath = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
+    private static string GamePath => GameInstall.Require();
 
     /// <summary>The scout, because every class model is built the same way.</summary>
     private const string PlayerModel = "models/player/scout.mdl";

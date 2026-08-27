@@ -5,6 +5,7 @@ using System.Linq;
 
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
+using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
 
@@ -38,34 +39,7 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// </remarks>
 public sealed class DarkMaterialsDiagnostic
 {
-    private static string? MapFile
-    {
-        get
-        {
-            foreach (string? root in new[]
-            {
-                Environment.GetEnvironmentVariable("TF2_FOLDER"),
-                @"C:\Program Files (x86)\Steam\steamapps\common\Team Fortress 2\tf",
-                @"F:\SteamLibrary\steamapps\common\Team Fortress 2\tf",
-                @"D:\SteamLibrary\steamapps\common\Team Fortress 2\tf",
-            })
-            {
-                if (string.IsNullOrWhiteSpace(root))
-                {
-                    continue;
-                }
-
-                string map = Path.Combine(root, "maps", "cp_process_final.bsp");
-
-                if (File.Exists(map))
-                {
-                    return map;
-                }
-            }
-
-            return null;
-        }
-    }
+    private static string? MapFile => GameInstall.Find("maps/cp_process_final.bsp");
 
     [Test]
     public void DarkestMaterials_ByArea_AreReported()

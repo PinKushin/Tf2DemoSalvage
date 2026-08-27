@@ -1,7 +1,5 @@
 using System.Collections.Generic;
 
-using Tf2DemoSalvage.SdkReference;
-
 namespace Tf2DemoSalvage.Content.Tests.Bsp;
 
 /// <summary>

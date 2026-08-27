@@ -56,6 +56,19 @@ public static class SourceSdk
     public const string Missing =
         "source-sdk-2013 is not available; set SOURCE_SDK to a checkout to run this.";
 
+    /// <summary>The checkout, or skips the calling test when the SDK is absent.</summary>
+    /// <returns>The SDK root, known to exist.</returns>
+    /// <remarks>
+    /// The counterpart to <see cref="GameInstall.Require"/>, and the reason both exist rather than
+    /// one generic gate: the two subjects are absent for different reasons, are supplied by
+    /// different environment variables, and a suite reading both should say which one it lacks.
+    ///
+    /// The "caller decides" contract in this type's own remarks is unchanged — the accessors still
+    /// return empty rather than throwing, and this is one of the decisions a caller can make, named
+    /// once instead of spelt out per file.
+    /// </remarks>
+    public static string Require() => Skip.Unless(Root, Missing);
+
     /// <summary>What has already been read, so a suite reads the SDK once rather than per test.</summary>
     /// <remarks>
     /// **The reads are repetitive in a way that adds up.** <c>BspStructTests</c> asks for

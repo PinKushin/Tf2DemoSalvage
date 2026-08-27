@@ -17,7 +17,14 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 /// </remarks>
 public sealed class FgdClassesTests
 {
-    private static string Bin => "F:/SteamLibrary/steamapps/common/Team Fortress 2/bin";
+    /// <summary>The game's <c>bin</c>, a sibling of <c>tf</c>, where the FGDs ship.</summary>
+    /// <remarks>
+    /// Derived from the install rather than named separately, so a machine that keeps its library
+    /// somewhere else needs no second path. <c>bin</c> is outside <c>tf</c>, which is why this goes
+    /// up one level instead of asking <see cref="GameInstall.Find"/>.
+    /// </remarks>
+    private static string Bin =>
+        Path.GetFullPath(Path.Combine(GameInstall.Require(), "..", "bin"));
 
     [Test]
     public void Colour_AClassStatingOne_IsReadFromTheDeclaration()

@@ -15,4 +15,16 @@
     <NoWarn>$(NoWarn);CA1515</NoWarn>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- **NUnit, for `Skip` alone.** This project deliberately does not assert: every accessor
+         returns null when its subject is absent and the caller decides what that means, which is
+         what lets a survey walk past a map it does not have. `Skip` is the other half of that
+         contract - the one place that turns a null into a SKIP rather than a failure - and
+         `Assert.Ignore` is NUnit's only way to record one.
+
+         Not a new dependency for anybody: every project referencing this one is a test project and
+         already has NUnit. IsTestProject stays false above - this holds no fixtures. -->
+    <PackageReference Include="NUnit" />
+  </ItemGroup>
+
 </Project>

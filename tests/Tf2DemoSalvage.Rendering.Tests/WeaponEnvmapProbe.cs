@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
 
@@ -47,7 +48,7 @@ public sealed class WeaponEnvmapProbe
     [Explicit("A probe: reports what weapon and arms materials declare about reflection.")]
     public void WeaponMaterials_AgainstTheArmsBesideThem_AreReported()
     {
-        if (Tf2Install.Folder is not { } game)
+        if (GameInstall.Root is not { } game)
         {
             Assert.Ignore("Team Fortress 2 is not installed; set TF2_FOLDER to run this.");
             return;
@@ -138,7 +139,7 @@ public sealed class WeaponEnvmapProbe
     [Explicit("A probe: reports the reflection each weapon material resolved to.")]
     public void WeaponMaterials_AsTheRendererResolvesThem_AreReported()
     {
-        if (Tf2Install.Folder is not { } game || game.Length == 0)
+        if (GameInstall.Root is not { } game || game.Length == 0)
         {
             Assert.Ignore("Team Fortress 2 is not installed; set TF2_FOLDER to run this.");
             return;

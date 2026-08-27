@@ -23,28 +23,7 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 public sealed class StudioModelTests
 {
     /// <summary>Where the game is, when it is installed on this machine.</summary>
-    private static string? GameFolder
-    {
-        get
-        {
-            foreach (string? root in new[]
-            {
-                Environment.GetEnvironmentVariable("TF2_FOLDER"),
-                @"C:\Program Files (x86)\Steam\steamapps\common\Team Fortress 2\tf",
-                @"F:\SteamLibrary\steamapps\common\Team Fortress 2\tf",
-                @"D:\SteamLibrary\steamapps\common\Team Fortress 2\tf",
-            })
-            {
-                if (!string.IsNullOrWhiteSpace(root) &&
-                    File.Exists(Path.Combine(root, "tf2_misc_dir.vpk")))
-                {
-                    return root;
-                }
-            }
-
-            return null;
-        }
-    }
+    private static string? GameFolder => GameInstall.Root;
 
     private VpkArchive _models = null!;
     private IReadOnlyList<string> _paths = [];

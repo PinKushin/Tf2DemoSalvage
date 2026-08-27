@@ -23,7 +23,7 @@ public sealed class StudioIkChainTests
 {
     private const int HeaderSize = 408;
 
-    private const string Game = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
+    private static string Game => GameInstall.Require();
 
     [Test]
     public void Read_AChainWithThreeLinks_ReportsThemRootFirst()

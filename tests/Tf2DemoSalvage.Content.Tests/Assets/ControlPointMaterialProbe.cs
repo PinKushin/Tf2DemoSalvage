@@ -24,7 +24,7 @@ public sealed class ControlPointMaterialProbe
     [Test]
     public void ControlPointFloor_ItsMaterialRequests_AreReported()
     {
-        string tf = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
+        string tf = GameInstall.Require();
 
         string mapPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -32,7 +32,7 @@ public sealed class ControlPointMaterialProbe
             "maps",
             "cp_process_f12.bsp");
 
-        if (!File.Exists(mapPath) || !Directory.Exists(tf))
+        if (!File.Exists(mapPath))
         {
             Assert.Ignore("the map or the game is not installed");
             return;

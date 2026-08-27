@@ -6141,3 +6141,99 @@ and D107's note on loads covers it. **Tests are not this budget either**; a test
 seconds and its clarity is the product.
 
 The rule is about the frame, and the frame is one millisecond.
+
+---
+
+## D109 — One place decides that a missing prerequisite is a skip, not a failure
+
+**Owner-set, 2026-08-27.** Asked whether pulling the conformance tests into their own project (D105)
+was worth it, the owner put the question the useful way round:
+
+> *"does having the the tests seperate really gain us anything, or am i stupid for wanting them
+> seperate?"*
+
+and, once the answer came back that most of the value was in one small piece rather than in the
+fifty-file move:
+
+> *"ok write the helper into the handoff, that will be done first."*
+
+So this is the part of D105 that was actually load-bearing, done on its own and ahead of it.
+
+### What it fixes, measured
+
+**CI is the machine without Team Fortress 2, and it is the only place the no-install path ever
+runs.** A suite that *asserts* rather than *skips* when the game is absent therefore reports a fact
+about the runner as a defect in the code. That happened twice on 2026-08-27, on two separate pushes,
+on `LightingLumps_AcrossTheEraAxis_AreReported`.
+
+It was not carelessness, it was arithmetic: **ninety-four test files carried their own copy of the
+install gate** — their own list of Steam library roots, their own existence check, their own reason
+string, each written from memory. `GameInstall` had already been extracted for exactly this reason
+and its own remarks record the count at **seventy-three**; it has since grown, because a shared
+locator that nothing forces you to use is a suggestion.
+
+**Three of those copies were independent locators rather than call sites**, and they did not agree:
+
+| copy | `TF2_FOLDER` accepted when | skips? |
+|---|---|---|
+| `SdkReference.GameInstall` | it contains `tf2_textures_dir.vpk` | no — returns null |
+| `Rendering.Tests.Tf2Install` | the folder merely exists | no — returns null |
+| `UiTests.ViewerSession.RequireTheGame` | the folder merely exists | yes, inline |
+
+The two lax ones would accept a stale or mistyped `TF2_FOLDER` and run against the wrong install
+while every other suite skipped — the silent-skip trap `GameInstall`'s own remarks were written
+about, from the other direction.
+
+### The shape
+
+**`Skip` holds the decision; the locators keep holding the facts.** `GameInstall` and `SourceSdk`
+still return null when their subject is absent, because a survey that walks several maps has to
+carry on past the ones it does not have rather than abandon the ones it does. `Skip.Because` and
+`Skip.Unless` turn a null into an `Assert.Ignore` — the *only* thing they do.
+
+`GameInstall.Require()`, `GameInstall.RequireFile(path)` and `SourceSdk.Require()` are the forms a
+test reaches for. `RequireFile` keeps two reasons apart on purpose: "the game is not installed" and
+"the game is installed and this map is not" are different facts about the machine and call for
+different actions.
+
+**A skip still counts toward the suite total**, so `build/gate.sh`'s exact floors keep working
+unchanged — a test that skips has not gone missing.
+
+### Two choices worth defending
+
+**It lives in `Tf2DemoSalvage.SdkReference`, not in a new test-support project.** The handoff said
+"a test-support project", written before checking; that project already exists under another name
+and already holds `GameInstall`. Splitting a locator from its own skip helper across two assemblies
+would mean two references to do one thing. The name is now half a misnomer and that is the cost
+being accepted.
+
+**NUnit enters that project, for `Skip` alone.** It was deliberately assertion-free — "the caller
+decides" — and that contract is unchanged: the accessors still return null. What changed is that one
+of the decisions a caller can make is now named once instead of spelt out per file. Not a new
+dependency for anyone: every project referencing it is a test project.
+
+### The sweep, and what it turned up
+
+**All ninety-four are done**, in a second commit and by hand — a find-and-replace across ninety-four
+files is exactly the edit `docs/memory/replace-all-is-a-claim-about-every-site.md` was written about,
+and the shapes were not uniform: sixteen were locator properties, twenty-one were `const` folder
+paths, and the rest were local variables, map paths and candidate lists.
+
+**Forty of them were not duplication at all — they were pinned to one machine.** A plain
+`"F:/SteamLibrary/steamapps/common/Team Fortress 2/tf"` with no `TF2_FOLDER` override and no
+fallback: correct on the owner's computer, and on any other it fails the `File.Exists` beside it and
+takes the `Assert.Ignore` branch. **A test that has stopped measuring anything reads as a skip**,
+which is the exact silent failure `GameInstall`'s own remarks record from the corrupt-path incident.
+That was the sweep's real return, and it was invisible until the locators were counted.
+
+Three smaller things came out with it: two copies recognised an install by `Directory.Exists` alone
+(a Steam library keeps the folder for an uninstalled game), one test held an absolute path under one
+user's home directory for a repository file, and `MapCache.RequirePath` lost its unreachable throw.
+
+**The control was the count.** Content.Tests measured 682 passed / 13 skipped / 695 total before the
+sweep and exactly that after it; the whole gate is unchanged at twelve assemblies. Finding the
+install by a different route is supposed to change nothing on a machine that has it, and a moved
+number would have meant a test had quietly stopped running.
+
+What is left is unrelated to this: the tests that build a *synthetic* Steam layout under a temp root
+(`MapLocatorTests`, `MapProviderTests`) keep their paths, because that layout is their subject.

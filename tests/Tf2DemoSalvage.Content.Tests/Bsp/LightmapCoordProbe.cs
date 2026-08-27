@@ -12,13 +12,7 @@ public sealed class LightmapCoordProbe
     [Test]
     public void LightmapCoords_FacesOutsideTheirOwnLightmap_AreReported()
     {
-        string path = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf/maps/cp_process_final.bsp";
-
-        if (!File.Exists(path))
-        {
-            Assert.Ignore("map missing");
-            return;
-        }
+        string path = GameInstall.RequireFile("maps/cp_process_final.bsp");
 
         ReadOnlyMemory<byte> map = File.ReadAllBytes(path);
         IReadOnlyList<BspSurface> surfaces = BspSurfaces.Read(map);

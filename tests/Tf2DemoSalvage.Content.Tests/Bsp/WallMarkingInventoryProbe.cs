@@ -35,8 +35,14 @@ namespace Tf2DemoSalvage.Content.Tests.Bsp;
 /// </remarks>
 public sealed class WallMarkingInventoryProbe
 {
-    private const string MapsFolder =
-        "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf/maps";
+    /// <summary>The install's <c>maps</c>, or a path that cannot exist when there is no install.</summary>
+    /// <remarks>
+    /// Deliberately not skipping here: the test below reports which maps it managed to read, and a
+    /// gate on the folder is how it says "none". <see cref="string.Empty"/> for the root makes the
+    /// combined path relative, so <c>Directory.Exists</c> is false and that gate still fires.
+    /// </remarks>
+    private static string MapsFolder =>
+        Path.Combine(GameInstall.Root ?? string.Empty, "maps");
 
     [Test]
     public void WallMarkings_OnTheCorpusMaps_AreCountedByMechanism()

@@ -26,33 +26,7 @@ public sealed class OverlayAndCubemapProbe
     /// <summary><c>dcubemapsample_t</c>: three ints and a size byte, padded.</summary>
     private const int CubemapStride = 16;
 
-    private static string? MapFile
-    {
-        get
-        {
-            foreach (string? root in new[]
-            {
-                Environment.GetEnvironmentVariable("TF2_FOLDER"),
-                @"C:\Program Files (x86)\Steam\steamapps\common\Team Fortress 2\tf",
-                @"F:\SteamLibrary\steamapps\common\Team Fortress 2\tf",
-            })
-            {
-                if (string.IsNullOrWhiteSpace(root))
-                {
-                    continue;
-                }
-
-                string map = Path.Combine(root, "maps", "cp_process_final.bsp");
-
-                if (File.Exists(map))
-                {
-                    return map;
-                }
-            }
-
-            return null;
-        }
-    }
+    private static string? MapFile => GameInstall.Find("maps/cp_process_final.bsp");
 
     [Test]
     public void OverlaysAndCubemaps_TheirCounts_AreReported()

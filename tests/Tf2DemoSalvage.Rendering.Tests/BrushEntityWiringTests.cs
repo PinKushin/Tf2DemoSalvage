@@ -5,6 +5,7 @@ using System.Linq;
 
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
+using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
 
@@ -26,7 +27,7 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// </remarks>
 public sealed class BrushEntityWiringTests
 {
-    private const string GamePath = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
+    private static string GamePath => GameInstall.Require();
 
     private static string MapPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),

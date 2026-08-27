@@ -7,6 +7,7 @@ using Tf2DemoSalvage.Audio;
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Core.Net;
+using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Core.Tests.Net;
 
@@ -347,14 +348,5 @@ public sealed class SoundResolutionProbe
     }
 
     /// <summary>Where the game is, when it is installed.</summary>
-    private static string? GameInstallFolder =>
-        new[]
-        {
-            Environment.GetEnvironmentVariable("TF2_FOLDER"),
-            @"F:\SteamLibrary\steamapps\common\Team Fortress 2\tf",
-            @"C:\Program Files (x86)\Steam\steamapps\common\Team Fortress 2\tf",
-        }
-        .FirstOrDefault(candidate =>
-            !string.IsNullOrWhiteSpace(candidate) &&
-            File.Exists(Path.Combine(candidate, "tf2_textures_dir.vpk")));
+    private static string? GameInstallFolder => GameInstall.Root;
 }

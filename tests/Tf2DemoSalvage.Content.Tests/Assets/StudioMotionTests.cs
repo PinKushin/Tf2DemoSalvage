@@ -28,7 +28,7 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 /// </remarks>
 public sealed class StudioMotionTests
 {
-    private const string Game = "F:/SteamLibrary/steamapps/common/Team Fortress 2/tf";
+    private static string Game => GameInstall.Require();
 
     /// <summary><c>speed_max</c> for each class, and the animation model that should match it.</summary>
     [TestCase("models/player/scout_animations.mdl", 400f)]

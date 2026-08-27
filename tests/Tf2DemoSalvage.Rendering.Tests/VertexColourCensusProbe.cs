@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
 
@@ -32,7 +33,7 @@ public sealed class VertexColourCensusProbe
     [Explicit("A probe: reports what declares vertex colour rather than asserting anything.")]
     public void VertexColour_DeclaringShaders_AreReported()
     {
-        if (Tf2Install.Folder is not { } game)
+        if (GameInstall.Root is not { } game)
         {
             Assert.Ignore("Team Fortress 2 is not installed; set TF2_FOLDER to run this.");
             return;

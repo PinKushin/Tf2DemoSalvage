@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading;
 
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
 
@@ -100,7 +101,7 @@ internal static class MapCache
             _ => new Lazy<MapAssets>(
                 () => MapAssets.Load(
                     File.ReadAllBytes(path),
-                    GameArchives.Open(Tf2Install.Folder),
+                    GameArchives.Open(GameInstall.Root),
                     maximumTextureSize,
                     entityModels),
                 LazyThreadSafetyMode.ExecutionAndPublication))
@@ -131,26 +132,20 @@ internal static class MapCache
     /// first missing one would abandon the maps that ARE installed.
     /// </remarks>
     public static bool Exists(string mapName) =>
-        Tf2Install.Folder is { } game &&
+        GameInstall.Root is { } game &&
         File.Exists(Path.Combine(game, "maps", mapName + ".bsp"));
 
     /// <summary>The map's path, or skips the calling test.</summary>
-    private static string RequirePath(string mapName)
-    {
-        if (Tf2Install.Folder is not { } game)
-        {
-            Assert.Ignore("Team Fortress 2 is not installed; set TF2_FOLDER to run this.");
-
-            throw new InvalidOperationException("unreachable; Assert.Ignore throws");
-        }
-
-        string path = Path.Combine(game, "maps", mapName + ".bsp");
-
-        if (!File.Exists(path))
-        {
-            Assert.Ignore($"{mapName} is not installed.");
-        }
-
-        return path;
-    }
+    /// <remarks>
+    /// **This was fifteen lines and is now one**, which is the whole case for
+    /// <see cref="GameInstall.RequireFile"/>: it already distinguishes "the game is absent" from
+    /// "the game is here and this map is not", which is what those fifteen lines spelt out.
+    ///
+    /// It also removes a
+    /// <c>throw new InvalidOperationException("unreachable; Assert.Ignore throws")</c> that stood
+    /// here only to satisfy definite assignment. <see cref="Skip.Because"/> is
+    /// <c>[DoesNotReturn]</c>, so the compiler now knows control stops at the skip.
+    /// </remarks>
+    private static string RequirePath(string mapName) =>
+        GameInstall.RequireFile($"maps/{mapName}.bsp");
 }
