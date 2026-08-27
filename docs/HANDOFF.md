@@ -3,16 +3,14 @@
 Written 2026-08-27 at the end of a very long session. **Supersedes the previous handoff**, which
 covered the `MainForm` thin-view refactor — that work is merged and done.
 
-**Everything is on `main`, pushed, gate green.** Head is `795da1b`. No branch is waiting, nothing is
-half-applied, and no viewer process is left running. CI was still pending on that sha at handoff
-time: **check it before trusting the tail of this session**, because two earlier pushes today went
-red on a test that failed rather than skipped without TF2 installed.
+**Everything is on `main`, pushed, gate green.** No branch is waiting, nothing is half-applied, and
+no viewer process is left running.
 
-Gate green across twelve assemblies, D1..D108 each used once.
+Gate green across twelve assemblies, D1..D109 each used once.
 
 | project | floor | | project | floor |
 |---|---:|---|---|---:|
-| core | 1504 | | content | 713 |
+| core | 1512 | | content | 713 |
 | cli | 74 | | corpus | 113 |
 | audio | 183 | | rendering | 538 |
 | presentation | 391 | | viewer | 101 |
@@ -30,42 +28,24 @@ Plus 20 UI, run separately under `run-exclusive.ps1`.
 helper into the handoff, that will be done first."* So the shared skip helper below comes ahead of
 all three.
 
-### 0. The shared test-support project and one skip helper — do this first
+### 0. ~~The shared skip helper~~ — **DONE 2026-08-27, D109**
 
-**Agreed 2026-08-27 as the first task**, after the owner asked whether separating the conformance
-tests buys anything real. It does, but for reasons D105 did not give — and most of the value is
-available for far less than a fifty-file move.
+`Skip.Because` / `Skip.Unless` in `Tf2DemoSalvage.SdkReference`, with `GameInstall.Require`,
+`GameInstall.RequireFile` and `SourceSdk.Require` on top. **All ninety-four private install gates are
+routed through it**; `Rendering.Tests.Tf2Install` and the UI suite's copy are deleted. Full account in
+D109.
 
-**What it fixes, and it has already cost real money.** CI is the machine without TF2 and is the only
-place the no-install path runs. A conformance test that *asserts* rather than *skips* when the game
-is absent turns "no install here" into a red build: that happened twice today on
-`LightingLumps_AcrossTheEraAxis_AreReported`, on two separate pushes. There is no shared way to say
-"this test needs the game", so every author reimplements the check and one of them will get it wrong
-again.
+**Two things it turned up that were not the point of the task**, and are worth carrying:
 
-**The second thing it fixes is placement.** `Tf2Install` is `internal` to
-`Tf2DemoSalvage.Rendering.Tests`. `CvarNameConformanceTests` has nothing to do with rendering and
-lives there anyway, because that is the only assembly that can find the game folder. That is not a
-judgement about where the test belongs — it is the helper's visibility choosing for it.
+- **Forty of the ninety-four were pinned to one machine** — a bare `"F:/SteamLibrary/…"` with no
+  `TF2_FOLDER` override and no fallback. On any other computer they fail the `File.Exists` beside
+  them and take the skip branch, so they stop measuring and report as skips. Only counting the
+  locators could have found that.
+- **`SdkReference` was already the test-support project** the handoff asked for. It holds
+  `GameInstall`, six suites referenced it, and the plan above did not know. Its name is now half a
+  misnomer; renaming it is a tidy-up nobody needs yet.
 
-**The shape:**
-
-- A test-support project holding `Tf2Install`, the skip helper, and probably `MapCache`.
-- One helper with the semantics the UI suite's `ViewerSession.RequireTheGame()` already has —
-  `Assert.Ignore` with a reason, never an assertion. A skip is neither a pass nor a failure and still
-  counts toward the suite total, so the count floors keep working.
-- Every conformance suite that touches the install routed through it.
-
-**Why this before D105 rather than instead of it.** The helpers have to be extracted either way; a
-project split with `Tf2Install` still trapped inside `Rendering.Tests` is not possible. So this is the
-prerequisite, it is small, and it removes the failure mode on its own. D105 stays the eventual shape
-and stays unhurried — the owner: *"im not super worried about the conformance tests as long as there
-are plenty of them"*, and there are fifty files of them across six projects.
-
-**Worth knowing while doing it:** `docs/CONFORMANCE.md` selects the suite with
-`dotnet test <project> --filter 'FullyQualifiedName~Conformance'`, which is six invocations today and
-is a naming convention with nothing enforcing it. Do not tighten that into a rule the compiler cannot
-check; the project boundary is what would make it structural, and that is D105's job.
+D105 is still open and still unhurried. It no longer has a prerequisite.
 
 ### 1. The naked convars — D106
 
@@ -136,8 +116,9 @@ that actually earn a split are:
    one more red thing during a sweep, and the tempting fix is to update it to match the new
    behaviour — exactly backwards. A separate assembly makes editing one a visible, deliberate act.
 2. **The install dependency becomes a project fact** rather than something every author reimplements
-   per file. That is the one that has already cost two red CI runs, and task 0 above takes most of it
-   without moving anything.
+   per file. That is the one that has already cost two red CI runs — and D109 has now taken all of
+   it without moving anything, so what a project split would add here is only that a NEW file cannot
+   reintroduce a private gate. That is worth something and it is not urgent.
 
 The count floors already cover the "tests go missing" worry, so that is not a reason.
 
