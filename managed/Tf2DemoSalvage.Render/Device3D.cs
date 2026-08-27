@@ -537,6 +537,28 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                         $"{(36f * instance.Matrix[2]) + instance.Matrix[14]:0.#})")));
         }
 
+        // **What the viewmodel pass tells the shader the eye is, said once** (B170). The reflection
+        // is `reflect(-normalize(eyePosition - wpos), normal)`, and `eyePosition` is not passed in —
+        // it is DERIVED from this pass's own camera by inverting it (`EyePosition.From`). Every
+        // offscreen measurement of the reflection came back inside its material's tint, including on
+        // the real weapon model at eye range, so what is left is the state this pass supplies that
+        // no harness can reach.
+        //
+        // Compared against where the models actually are, which the line below prints: if the eye
+        // and the weapon disagree, the reflection is being computed from a view direction that is
+        // not the viewer's, and it would sample the cube somewhere arbitrary — which is the shape of
+        // a wash rather than a highlight.
+        if (!_reportedViewmodelEye)
+        {
+            _reportedViewmodelEye = true;
+
+            _render.LogInformation(
+                "{Message}",
+                $"viewmodel pass eye: {(EyePosition.From(camera) is { } eye
+                    ? $"({eye.X:0.#}, {eye.Y:0.#}, {eye.Z:0.#})"
+                    : "NONE — the camera would not invert, so the shader reflects nothing")}");
+        }
+
         Viewport near = new(
             0f, 0f, _width, _height, ViewmodelPass.DepthMinimum, ViewmodelPass.DepthMaximum);
 
@@ -594,7 +616,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 instance.Body,
                 // Culled normally, per material, like everything else. Drawing both sides was tried
                 // as a diagnostic and changed nothing, which ruled winding out.
-                instance.Mirrored);
+                instance.Mirrored,
+
+                // **The whole of B170.** A viewmodel is always skinned, so its matrix is identity
+                // and its translation reads (0, 0, 0) — every weapon reflected the cubemap nearest
+                // the MAP ORIGIN, thousands of units from the player, at whatever brightness that
+                // cube happened to hold. This is where it stands instead.
+                origin: instance.Origin);
         }
 
         // **Both of the pass's changes are put back, and forgetting the camera was a real defect.**
@@ -816,7 +844,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                         blended: false,
                         instance.BodyParts,
                         instance.Body,
-                        instance.Mirrored);
+                        instance.Mirrored,
+
+                        // Where the model stands, for its cubemap. Its matrix cannot say, because a
+                        // skinned model's placement is in its bones (B170).
+                        origin: instance.Origin);
                 }
 
                 // **The see-through parts of models, after every solid one.** A hologram, a glass
@@ -848,7 +880,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                         blended: true,
                         instance.BodyParts,
                         instance.Body,
-                        instance.Mirrored);
+                        instance.Mirrored,
+
+                        // Where the model stands, for its cubemap. Its matrix cannot say, because a
+                        // skinned model's placement is in its bones (B170).
+                        origin: instance.Origin);
                 }
 
                 WorldRenderer.ResetBlend(_context);
@@ -1333,6 +1369,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
     /// <summary>Whether the repeated-model census has been written.</summary>
     private bool _reportedRepeats;
+
+    /// <summary>Whether the viewmodel pass has said where it thinks the eye is (B170).</summary>
+    private bool _reportedViewmodelEye;
 
     /// <summary>Every model drawn more than once, with the body number of each instance.</summary>
     /// <param name="models">This frame's instances.</param>

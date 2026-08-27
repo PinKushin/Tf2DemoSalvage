@@ -1435,6 +1435,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <summary>Where each of <see cref="_placedCubemaps"/> stands, in world units.</summary>
     private readonly List<BspCubemap> _placements = [];
 
+    /// <summary>Model paths whose chosen cubemap has been reported, so each is said once.</summary>
+    private readonly HashSet<string> _reportedCubemap = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Material indices whose reflection parameters have been reported (B170).</summary>
+    private readonly HashSet<int> _reportedEnvmap = [];
+
     /// <summary>
     /// The materials that reflect the map's own cubemap rather than one of their own.
     /// </summary>
@@ -2219,6 +2225,23 @@ internal sealed unsafe class WorldRenderer : IDisposable
             }
 
             float hasEnvmap = shading is null ? 0f : 1f;
+
+            // **What each reflecting material actually got, said once** (B170). Fixing which CUBE a
+            // skinned model reflects did not fix the wash, and the owner's manipulation is
+            // unambiguous — `mat_specular 0` makes the weapon look right. So the next thing to read
+            // is the strength the material is being given, which no offscreen measurement of a
+            // material chosen BY THE TEST can answer: this reports the ones the map and its models
+            // actually carry.
+            if (hasEnvmap > 0.5f && index < assets.Materials.Count && _reportedEnvmap.Add(index))
+            {
+                _render.LogInformation(
+                    "{Message}",
+                    $"{assets.Materials[index].Name} reflects: tint " +
+                    $"({envmapTint.Red:0.###}, {envmapTint.Green:0.###}, {envmapTint.Blue:0.###}), " +
+                    $"mask {envmapMask:0}, contrast {envmapContrast:0.###}, " +
+                    $"saturation {envmapSaturation:0.###}, " +
+                    $"source {(reflection is null ? "local env_cubemap" : "BAKED")}");
+            }
 
             // **The highlight's parameters, carrying their declared defaults when absent.** Zero is
             // the wrong resting value for two of these: an exponent of 0 makes `pow(x, 0)` return 1
@@ -4000,6 +4023,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// Draw every face regardless of winding, as <c>$nocull</c> does per material. A diagnostic
     /// lever: it separates "this model is culled away" from "this model is not where it seems".
     /// </param>
+    /// <param name="origin">
+    /// Where the model actually stands, for choosing which of the map's cubemaps it reflects.
+    /// Defaults to the translation of <paramref name="matrix"/>, which is right for a BAKED model
+    /// and wrong for a skinned one — a skinned model's placement travels in its bones and leaves
+    /// the matrix at identity, so the translation reads as the map origin (B170).
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **One matrix and one draw per entity, which is the engine's shape.** The vertices were
@@ -4021,7 +4050,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         IReadOnlyList<(int Base, int Count)>? bodyParts = null,
         int body = 0,
         bool mirrored = false,
-        bool bothSides = false)
+        bool bothSides = false,
+        (float X, float Y, float Z)? origin = null)
     {
         ArgumentNullException.ThrowIfNull(matrix);
         ArgumentNullException.ThrowIfNull(batches);
@@ -4076,12 +4106,50 @@ internal sealed unsafe class WorldRenderer : IDisposable
         //
         // The translation of a row-vector model matrix is row three, indices 12 to 14 — see
         // MatrixConvention, which is the one place that crosses between the two conventions here.
+        // **Where the model IS, which is not always what its matrix says** (B170). A baked model is
+        // put in the world by its matrix, so the translation is its position. A SKINNED model is put
+        // there by its bones and its matrix stays at identity — so reading the translation asks for
+        // the cubemap nearest the map ORIGIN, and every skinned model on the map reflects the same
+        // wrong cube.
+        //
+        // Measured in the viewer with the eye at (-4816, -1280, 648): `c_scattergun at (0, 0, 0)`,
+        // `scout at (0, 0, 0)`, `soldier at (0, 0, 0)`, all reflecting cubemap 39 at (0, 0, 608).
+        // It shows on weapons and not on arms or player skins because TF2's `c_` weapon materials
+        // declare `$envmap` and those do not.
+        //
+        // The same mistake, in the same shape, as the one `EntityModels` already records for
+        // LIGHTING: "a merged item's own pose is (0,0,0) by construction, so sampling the ambient
+        // cube from it asks the leaf at the map origin". That was fixed by sampling at the wearer's
+        // illumination point; this is the cubemap half of it, and it never got the same treatment.
+        (float X, float Y, float Z) where = origin ?? (matrix[12], matrix[13], matrix[14]);
+
         ComPtr<ID3D11ShaderResourceView> local = default;
 
         if (_placements.Count > 0 &&
-            BspCubemaps.Closest(_placements, matrix[12], matrix[13], matrix[14]) is >= 0 and var nearest)
+            BspCubemaps.Closest(_placements, where.X, where.Y, where.Z) is >= 0 and var nearest)
         {
             local = _placedCubemaps[nearest];
+
+            // **Which cube a model reflects, said once per model path** (B170). Every offscreen
+            // measurement of the reflection came back within its material's tint, so what is left is
+            // the state the VIEWMODEL PASS supplies — and the cube it picks is half of that. Said
+            // once rather than per draw: the answer is about a model, and this runs for every model
+            // every frame.
+            //
+            // Information rather than Debug deliberately. The question this answers cannot be asked
+            // of a normal run otherwise, and a `developer 1` requirement is exactly why the
+            // viewmodel position line was unreadable when it was needed.
+            if (_reportedCubemap.Add(modelPath))
+            {
+                BspCubemap placement = _placements[nearest];
+
+                _render.LogInformation(
+                    "{Message}",
+                    $"{System.IO.Path.GetFileNameWithoutExtension(modelPath)} at " +
+                    $"({where.X:0.#}, {where.Y:0.#}, {where.Z:0.#}) reflects cubemap " +
+                    $"{nearest} of {_placements.Count} at " +
+                    $"({placement.X:0.#}, {placement.Y:0.#}, {placement.Z:0.#})");
+            }
         }
 
         foreach (WorldBatch batch in batches)
