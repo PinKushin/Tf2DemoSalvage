@@ -690,6 +690,18 @@ public sealed class DemoTimeline
     /// </remarks>
     public float IntervalPerTick { get; private init; }
 
+    /// <summary>What the recording server had its replicated ConVars set to.</summary>
+    /// <remarks>
+    /// **Never null, and a fresh one answers with Valve's declared defaults** — which is exactly
+    /// what the engine does for a server that changed nothing, so a timeline built from tracks for
+    /// a test is not a special case needing a guard at every reader.
+    ///
+    /// This is where a mod's altered movement arrives. A vanilla competitive server sends forty
+    /// values without touching movement and every one of these stays at its default;
+    /// <c>ServerConVars.Changed</c> is what distinguishes that from a jump or surf server.
+    /// </remarks>
+    public ServerConVars ServerConVars { get; private init; } = new();
+
     /// <summary>Builds a timeline directly from tracks, for tests that need an exact motion.</summary>
     /// <param name="tracks">The entity tracks the timeline should answer from.</param>
     /// <returns>A timeline with no frames and these tracks.</returns>
@@ -811,6 +823,11 @@ public sealed class DemoTimeline
         List<ScenePropTrack> playerTracks = [];
         List<(int Tick, RecordedView View)> recordedViews = [];
         int? recorderSlot = null;
+
+        // **What the server had its replicated ConVars set to** (D106). Built here rather than by
+        // a caller because the values arrive as messages in this stream and nowhere else, and the
+        // engine applies them the same way: at signon, and again whenever one changes mid-match.
+        ServerConVars serverConVars = new();
         List<(int Tick, SceneViewmodel Weapon)> viewmodels = [];
         List<(int Tick, SceneFog Fog)> fogSamples = [];
         int fogControllersSeen = 0;
@@ -868,6 +885,14 @@ public sealed class DemoTimeline
                         // eye height, and picking whichever player moves like the camera would be
                         // an instrument that agrees with its own hypothesis.
                         recorderSlot = server.PlayerSlot;
+                        continue;
+
+                    // **What the server changed, which for a mod is the whole of how it plays.**
+                    // Decoded and round-tripped since the container work and consumed by nothing
+                    // until D106 — so a server that raised `sv_maxspeed` sent the value, this
+                    // project read it correctly, and every reader used a baked constant instead.
+                    case SetConVarMessage convars:
+                        serverConVars.Apply(convars);
                         continue;
 
                     case CreateStringTableMessage { Name: BaselineBuilder.TableName } create:
@@ -1293,6 +1318,7 @@ public sealed class DemoTimeline
             FogControllerProperties = fogProperties,
             IntervalPerTick = interval,
             RecorderEntityIndex = recorderSlot is { } recorded ? recorded + 1 : null,
+            ServerConVars = serverConVars,
         };
     }
 

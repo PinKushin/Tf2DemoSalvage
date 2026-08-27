@@ -1,5 +1,6 @@
 using System;
 
+using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.Scene;
 
 namespace Tf2DemoSalvage.Presentation;
@@ -45,19 +46,24 @@ public readonly record struct FlightInput(float Forward, float Right, float Up, 
 /// </remarks>
 public static class FreeFlightPath
 {
-    /// <summary><c>sv_maxspeed</c>, shipped <c>320</c>.</summary>
-    public const float MaxSpeed = 320f;
-
-    /// <summary><c>sv_specspeed</c>, shipped <c>3</c> — <c>movevars_shared.cpp:48</c>.</summary>
-    public const float SpectatorScale = 3f;
-
-    /// <summary><c>cl_forwardspeed</c> and <c>cl_sidespeed</c>, shipped <c>450</c>.</summary>
-    /// <remarks><c>in_main.cpp:78</c>. Only reachable through the clamp, never on its own.</remarks>
-    public const float ForwardSpeed = 450f;
-
-    /// <summary>Units travelled per second with nothing else held.</summary>
+    /// <summary>The speeds Valve declares, for a recording whose server changed nothing.</summary>
     /// <remarks>
-    /// **960, and it is `sv_maxspeed * sv_specspeed` rather than a number anyone picked** (B215).
+    /// **These were four `const float`s until D106.** A server that raised `sv_maxspeed` sends the
+    /// new value, this project decodes it, and constants ignore it — which is silent, because the
+    /// picture stays plausible. The owner: *"baked default is never the right answer i dont think,
+    /// at least not if its not a baked default valve has"*.
+    ///
+    /// Passing a <see cref="ServerConVars"/> from the open demo is what makes a jump or surf server
+    /// replay at its own speeds; this static one is the vanilla answer and the fallback.
+    /// </remarks>
+    public static readonly ServerConVars Shipped = new();
+
+    /// <summary>Units travelled per second with nothing else held, under a given server.</summary>
+    /// <param name="server">What the recording server had set, or <see cref="Shipped"/>.</param>
+    /// <returns>The ceiling the spectator move clamps to.</returns>
+    /// <remarks>
+    /// **960 at Valve's defaults, and it is `sv_maxspeed * sv_specspeed` rather than a number
+    /// anyone picked** (B215).
     ///
     /// TF2's roaming spectator runs `FullObserverMove` (`gamemovement.cpp:2144`), which delegates
     /// straight to `FullNoClipMove( sv_specspeed, sv_specaccelerate )` because `sv_specnoclip` ships
@@ -66,37 +72,60 @@ public static class FreeFlightPath
     ///
     /// The keys ask for more than this and never get it: forward is `cl_forwardspeed * factor` =
     /// 1350, clamped to 960. Vertical asks for `cl_upspeed(320) * 3` = 960 exactly, which is why one
-    /// constant can serve every axis here.
+    /// number can serve every axis here.
     ///
     /// **This viewer flew at 600 until 2026-08-26**, which was nobody's reading of the engine — it
     /// was reasoned from the keyboard-repeat defect it replaced (B97). The free camera was slower
     /// than the game's, while carrying a ×4 modifier that suggested the opposite.
     /// </remarks>
-    public const float SpeedPerSecond = MaxSpeed * SpectatorScale;
+    public static float SpeedPerSecond(ServerConVars server)
+    {
+        ArgumentNullException.ThrowIfNull(server);
 
-    /// <summary>Units travelled per second with <c>+speed</c> held.</summary>
+        return server.Number("sv_maxspeed") * server.Number("sv_specspeed");
+    }
+
+    /// <summary>Units travelled per second with <c>+speed</c> held, under a given server.</summary>
+    /// <param name="server">What the recording server had set, or <see cref="Shipped"/>.</param>
+    /// <returns>The walk speed, which is lower.</returns>
     /// <remarks>
-    /// **675, which is 70.3% of normal and NOT half of it.** `FullNoClipMove` halves `factor`
-    /// (`:2265`) *after* computing `maxspeed` from the unhalved value, so the normal case is clamped
-    /// to 960 and this one — `cl_forwardspeed * 1.5` = 675 — stays under the ceiling untouched.
-    /// Reading `factor /= 2.0f` as "halves the camera" gives 480 and is wrong by 20 points.
+    /// **675 at Valve's defaults, which is 70.3% of normal and NOT half of it.** `FullNoClipMove`
+    /// halves `factor` (`:2265`) *after* computing `maxspeed` from the unhalved value, so the normal
+    /// case is clamped to 960 and this one — `cl_forwardspeed * 1.5` = 675 — stays under the ceiling
+    /// untouched. Reading `factor /= 2.0f` as "halves the camera" gives 480 and is wrong by 20
+    /// points.
+    ///
+    /// **It is clamped like the other**, which matters once a server is in play rather than the
+    /// defaults: at Valve's values `cl_forwardspeed * 1.5` happens to sit under the ceiling, and on
+    /// a server that raised `cl_forwardspeed` without raising `sv_maxspeed` it would not.
     /// </remarks>
-    public const float WalkSpeed = ForwardSpeed * (SpectatorScale / 2f);
+    public static float WalkSpeed(ServerConVars server)
+    {
+        ArgumentNullException.ThrowIfNull(server);
 
-    /// <summary>What <c>+speed</c> multiplies the speed by: 0.703125.</summary>
+        float asked = server.Number("cl_forwardspeed") * (server.Number("sv_specspeed") / 2f);
+
+        return Math.Min(asked, SpeedPerSecond(server));
+    }
+
+    /// <summary>What <c>+speed</c> multiplies the speed by: 0.703125 at Valve's defaults.</summary>
+    /// <param name="server">What the recording server had set, or <see cref="Shipped"/>.</param>
+    /// <returns>The ratio of walk speed to normal speed.</returns>
     /// <remarks>
     /// **Source's <c>+speed</c> is the WALK key — it slows you down.** `IN_SPEED` divides the move
     /// factor by two in both `FullObserverMove` and `FullNoClipMove`. This viewer bound Shift to
     /// `+speed` and then made it a ×4 accelerator, so a pasted config (D69) did the opposite of what
     /// its author meant: a key held for precise positioning quadrupled the speed instead.
     /// </remarks>
-    public const float WalkMultiplier = WalkSpeed / SpeedPerSecond;
+    public static float WalkMultiplier(ServerConVars server) =>
+        WalkSpeed(server) / SpeedPerSecond(server);
 
     /// <summary>Where one frame of flight moves the camera.</summary>
     /// <param name="input">What is being asked for.</param>
     /// <param name="seconds">How long the frame took.</param>
     /// <param name="pitch">Camera pitch in degrees, positive downwards.</param>
     /// <param name="yaw">Camera yaw in degrees.</param>
+    /// <param name="server">What the recording server had set, or <see cref="Shipped"/>.</param>
     /// <returns>A world-space delta, zero when nothing is asked for.</returns>
     /// <remarks>
     /// **The result is normalised before it is scaled**, so travelling diagonally is not faster than
@@ -105,8 +134,10 @@ public static class FreeFlightPath
     /// like a defect anyone can name.
     /// </remarks>
     public static (float X, float Y, float Z) Movement(
-        FlightInput input, double seconds, float pitch, float yaw)
+        FlightInput input, double seconds, float pitch, float yaw, ServerConVars server)
     {
+        ArgumentNullException.ThrowIfNull(server);
+
         if (input.IsIdle || seconds <= 0)
         {
             return (0f, 0f, 0f);
@@ -141,7 +172,8 @@ public static class FreeFlightPath
             return (0f, 0f, 0f);
         }
 
-        float travel = (float)(SpeedPerSecond * (input.Walk ? WalkMultiplier : 1f) * seconds);
+        float speed = input.Walk ? WalkSpeed(server) : SpeedPerSecond(server);
+        float travel = (float)(speed * seconds);
         float scale = travel / length;
 
         return (x * scale, y * scale, z * scale);

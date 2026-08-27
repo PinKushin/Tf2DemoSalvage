@@ -3,6 +3,7 @@ using System.Globalization;
 
 using Microsoft.Extensions.Logging;
 
+using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.Scene;
 
 namespace Tf2DemoSalvage.Presentation;
@@ -138,6 +139,46 @@ public sealed class FreeCameraController(ILogger log)
 
     private float _fieldOfView = ViewerSettings.DefaultFieldOfView;
 
+    /// <summary>What the open demo's server had its replicated ConVars set to.</summary>
+    /// <remarks>
+    /// **The free camera's speed is the server's, not this project's** (D106, B215). `sv_maxspeed`
+    /// and `sv_specspeed` are what `FullNoClipMove` multiplies, both are `FCVAR_REPLICATED`, and a
+    /// mod that changes movement — a jump or surf server — sends the new values in the demo. Until
+    /// this was wired the values arrived, decoded correctly, and were ignored in favour of two
+    /// constants.
+    ///
+    /// **Valve's declared defaults until a demo says otherwise**, which is what the engine does for
+    /// a server that changed nothing. <see cref="SetServer"/> is how a demo replaces it, and it logs
+    /// what moved so a wrong speed is a line in the log rather than a feeling about the camera.
+    /// </remarks>
+    public ServerConVars Server { get; private set; } = FreeFlightPath.Shipped;
+
+    /// <summary>Takes the open demo's replicated ConVars, replacing Valve's defaults.</summary>
+    /// <param name="server">What the recording server had set.</param>
+    /// <remarks>
+    /// **Logged rather than silent, and only when something actually moved.** A vanilla competitive
+    /// server sends forty values and changes none of these; saying so every time a demo opens would
+    /// be noise, and saying nothing when a jump server halves the camera's speed is the failure this
+    /// whole change is about.
+    /// </remarks>
+    public void SetServer(ServerConVars server)
+    {
+        ArgumentNullException.ThrowIfNull(server);
+
+        Server = server;
+
+        if (server.Changed is { Count: > 0 } moved)
+        {
+            log.LogInformation(
+                "free camera: this server changed {Count} movement convars ({Names}); flying at " +
+                "{Speed} units a second rather than {Shipped}",
+                moved.Count,
+                string.Join(", ", moved),
+                FreeFlightPath.SpeedPerSecond(server),
+                FreeFlightPath.SpeedPerSecond(FreeFlightPath.Shipped));
+        }
+    }
+
     /// <summary>The longest a single frame may count as flight time, in seconds.</summary>
     /// <remarks>
     /// **A stall is not flight time, for the same reason it is not playback time**: a map load or a
@@ -173,7 +214,7 @@ public sealed class FreeCameraController(ILogger log)
     public bool Fly(FlightInput intent, double seconds, (float X, float Y, float Z) ifUnplaced)
     {
         (float X, float Y, float Z) moved = FreeFlightPath.Movement(
-            intent, Math.Min(seconds, MaximumFrameSeconds), Angles.Pitch, Angles.Yaw);
+            intent, Math.Min(seconds, MaximumFrameSeconds), Angles.Pitch, Angles.Yaw, Server);
 
         if (moved == (0f, 0f, 0f))
         {

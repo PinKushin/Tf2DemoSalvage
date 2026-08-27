@@ -2292,6 +2292,16 @@ internal class MainForm : Form, IFrameSteps
         _demo = decoded.Demo;
         _timeline = decoded.Timeline;
 
+        // **The free camera flies at the SERVER's speeds** (D106). `sv_maxspeed * sv_specspeed` is
+        // what TF2's roaming spectator clamps to, both are replicated, and a mod that changes
+        // movement sends the new values in this demo. One assignment, here, because this is where
+        // the timeline arrives — and a camera whose speed is decided anywhere else is the shape
+        // B193 collected six of.
+        // A demo whose timeline failed to build keeps Valve's defaults, which is what the engine
+        // would use for a server that changed nothing — and the alternative, carrying the PREVIOUS
+        // demo's server, would be silently wrong rather than merely vanilla.
+        _freeCamera.SetServer(decoded.Timeline?.ServerConVars ?? FreeFlightPath.Shipped);
+
         // **One call where there were six assignments, and that is the whole point** (B193). The
         // eyes, the viewmodels, the sound schedule and the appearance were each written inline
         // here, and three of them separately became a property nobody set — two of those shipped,

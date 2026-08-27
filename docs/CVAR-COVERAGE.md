@@ -151,6 +151,59 @@ the demo, which decides the SOURCE and says nothing about the FORM.
 that even a correctly-read default is the *fallback*, and for an emulated system the demo outranks
 it.
 
+### Which of the three wins — answered, and it is Valve's answer rather than ours
+
+**Done 2026-08-27 for the movement set.** `public/tier1/iconvar.h` settles the precedence in its own
+comment above `FCVAR_REPLICATED`:
+
+> It's a ConVar that's shared between the client and the server. At signon, the values of all such
+> ConVars are sent from the server to the client … **If a change is requested it must come from the
+> console (i.e., no remote client changes)** … If a value is changed while a server is active, it's
+> replicated to all connected clients.
+
+and the flag's own trailing comment calls it *"server setting enforced on clients"*. So for a
+replicated ConVar the order is **demo, then Valve's declared default** — the watcher's config is not
+a third rung that loses, it is not on the ladder at all. For the three `cl_` speeds it is stronger
+again, because they are `FCVAR_CHEAT` as well: a player could not have changed them without
+`sv_cheats`, so there is no watcher value to consider.
+
+That leaves the earlier three-state picture correct for the *set* of twenty and wrong if read as a
+precedence chain for any one of them. A given ConVar's value has exactly one source, decided by its
+flags:
+
+| flags | source | example |
+|---|---|---|
+| `"rep"` | the demo, else Valve's default | `sv_maxspeed`, `cl_forwardspeed` |
+| `"user"` | the demo's `userinfo`, else Valve's default | `cl_interp` |
+| neither | the watcher's config, else Valve's default | `snd_gain`, `cl_showpos` |
+
+**Eight of the twenty are done.** `EngineConVars` holds the declarations — name, default string,
+`Replicated`, `Cheat` — and `ServerConVars` resolves them against what a demo's `NET_SetConVar`
+carried. `MovementConVarConformanceTests` checks each declaration against **both** the SDK and
+`cvarlist.log`, which are thirteen years apart and agree; `CorpusServerConVarTests` is the assertion
+that the values actually reach the timeline on a real demo.
+
+| convar | state |
+|---|---|
+| `sv_maxspeed`, `sv_specspeed`, `sv_specaccelerate`, `sv_specnoclip` | **declared and read from the demo** |
+| `cl_forwardspeed`, `cl_backspeed`, `cl_sidespeed`, `cl_upspeed` | **declared and read from the demo** |
+| `sv_cheats`, `sv_downloadurl`, `host_timescale` | still baked; replicated, so the same shape applies |
+| `cl_interp` | still baked; `userinfo`, which is a different reader |
+| `cl_showpos`, `cl_drawleaf`, `cl_first_person_uses_world_model`, `snd_gain`, `snd_gain_min`, `snd_refdb`, `snd_refdist` | still baked; client-only, so the config is the missing source |
+
+**The free camera was the first because it was the smallest complete instance.** Its speed is
+`sv_maxspeed * sv_specspeed` (B215) and both are replicated, so it exercises the declaration, the
+demo read and the fallback in one number. `FreeFlightPath.SpeedPerSecond` takes a `ServerConVars`
+where it took two `const float`s, and `FreeCameraController.SetServer` logs when a server moved any
+of them — so a jump server replaying at the wrong speed is a line in the log rather than a feeling
+about the camera.
+
+**Undeclared names are kept rather than dropped.** A real match demo sends forty values against the
+eight declared here; refusing the rest would throw on an ordinary file, and discarding them would
+lose the evidence the mod question needs. `ServerConVars.Changed` reports only the declared ones a
+server actually moved, so a vanilla server — which re-sends `sv_maxspeed 320` among its forty —
+reports nothing.
+
 ### Measured: what a demo actually carries
 
 The shipped list marks replicated convars `"rep"`, and that splits the twenty cleanly:
@@ -182,9 +235,14 @@ f12 pov    6   func_break_max_pieces, sv_skyname, think_limit, sv_turbophysics, 
 
 **Not one of the twenty appears in any of them** — a claim that holds for the corpus and **fails on
 real match demos**, where `sv_downloadurl` does appear. See below. Either way a server sends what it
-changed, every server here ran Valve's values for movement, and so the baked defaults are right today
-by luck rather than by design. A server that raised `sv_maxspeed` would send it, this viewer would
-decode it, and ignore it.
+changed, every server here ran Valve's values for movement, and so the baked defaults were right at
+the time of writing by luck rather than by design. A server that raised `sv_maxspeed` would send it,
+this viewer would decode it, and ignore it.
+
+**That last sentence is no longer true for the movement set** (2026-08-27) — the values are read and
+used, and `CorpusServerConVarTests` asserts it against a real demo. It stays here because it is the
+shape the remaining twelve are still in, and because "decoded correctly and ignored" is the failure
+mode to recognise rather than one occurrence of it.
 
 ### The POV question, measured — and the answer is not the structural one
 
