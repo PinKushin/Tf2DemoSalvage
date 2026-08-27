@@ -65,7 +65,12 @@ public sealed class LevelSystemsTests
         SoundscapeSystem soundscape = Soundscape();
         SoundPresenter sound = new(soundscape, new ActiveLoops(), _ => null, NullLogger.Instance);
 
-        moment.Uploaded = true;
+        // **Observed through the lighting since `Uploaded` went** (B219). The scene used to hold a
+        // bool saying its geometry had reached the GPU, and shutdown cleared it; the device answers
+        // that question itself now, so this watches the other state the same shutdown owns.
+        LevelLighting carried = LevelLighting.Unlit(NullLogger.Instance);
+
+        moment.Lighting = carried;
         soundscape.Leaves = null;
         sound.Schedule = null;
 
@@ -74,7 +79,8 @@ public sealed class LevelSystemsTests
             soundscape, sound, Appearances(), NullLoggerFactory.Instance)
             .Shutdown();
 
-        moment.Uploaded.ShouldBeFalse("the scene must forget that THIS level's geometry was uploaded");
+        moment.Lighting.ShouldNotBeSameAs(
+            carried, "the scene must let go of THIS level's lighting");
     }
 
     [Test]

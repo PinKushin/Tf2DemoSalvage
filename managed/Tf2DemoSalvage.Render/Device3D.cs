@@ -1261,6 +1261,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     public int TextureUploads => _world?.TextureUploads ?? 0;
 
     /// <summary>Forgets any uploaded map.</summary>
+    /// <summary>Whether packed model geometry is still on the device (B148, B219).</summary>
+    /// <remarks>
+    /// **The authoritative answer, which is why the scene asks instead of remembering.**
+    /// <see cref="ClearWorld"/> empties `_packedModels` along with the buffers they feed, and it has
+    /// three callers — only one of which used to be paired with a reset on the other side.
+    /// </remarks>
+    public bool HasModels => _packedModels.Count > 0;
+
     public void ClearWorld()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);

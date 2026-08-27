@@ -220,7 +220,7 @@ public sealed class MomentSceneTests
     }
 
     /// <summary>
-    /// That clearing <see cref="MomentScene.Uploaded"/> brings the models back (B219).
+    /// That a device reporting no geometry gets it sent again (B219).
     /// </summary>
     /// <remarks>
     /// **The owner, looking at the viewer**: *"setting surface colors on removes the viewmodel and
@@ -253,8 +253,10 @@ public sealed class MomentSceneTests
 
         uploads.Count.ShouldBe(1, "the first build has to upload before a second can be measured");
 
-        // What `ClearWorld` leaves behind: the same props, and a renderer holding nothing.
-        scene.Uploaded = false;
+        // **What `ClearWorld` leaves behind**: the same props on this side, and a device holding
+        // nothing. Said by the DEVICE rather than by resetting a flag on the scene, because that is
+        // the change — the scene asks instead of remembering, so no caller can forget to tell it.
+        uploads.HasModels = false;
 
         scene.Build([], [Prop("models/props/crate.mdl")], Info() with { Tick = 2d });
 
@@ -587,7 +589,18 @@ public sealed class MomentSceneTests
     {
         public int Count { get; private set; }
 
-        public void UploadModels(EntityModelSet models) => Count++;
+        /// <summary>What a real device answers from its packed set (B219).</summary>
+        /// <remarks>
+        /// **Settable, because discarding the geometry is the condition worth testing.** A real
+        /// device answers false after `ClearWorld`; this lets a test say the same thing without one.
+        /// </remarks>
+        public bool HasModels { get; set; }
+
+        public void UploadModels(EntityModelSet models)
+        {
+            Count++;
+            HasModels = true;
+        }
     }
 
     /// <summary>A stand-in for the installed game, so this needs no TF2 and no window.</summary>
