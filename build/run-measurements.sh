@@ -190,7 +190,28 @@ case "$MODE" in
   # Fuzzing builds Core and the harness and never opens a demo, so it takes no LFS bandwidth.
   # Same reasoning as `lfs: false` in .github/workflows/fuzz.yml, for the same reason.
   fuzz)    PROJECT="tests/Tf2DemoSalvage.Fuzz";         NEEDS_CORPUS=0 ;;
-  *) echo "ERROR: unknown mode '$MODE'. Expected corpus, core, cli, content, audio or fuzz." >&2; exit 2 ;;
+
+  # **Four projects that could always have run here and never did** (B217). Each needs no demos, no
+  # TF2 install and no display, so the only reason they were absent is that nobody added the mode.
+  #
+  #   scene       Tf2DemoSalvage.Scene, 56 files. Its config has existed since 2026-08-24 and has
+  #               never been scheduled — the densest untested behaviour on the list.
+  #   presentation Tf2DemoSalvage.Presentation, 36 files. Had no config at all; every presenter,
+  #               the config console, the key bindings and the transport are unmutated.
+  #   rendering   Tf2DemoSalvage.Render, 14 files, via the suite B184 freed from the Windows TFM.
+  #               Render has NEVER been mutation tested, because the tests of it were pinned to
+  #               net10.0-windows and could not run on this box at all.
+  #   animation   Tf2DemoSalvage.Animation, the bone pipeline (B182).
+  #
+  # **Audio is the worked example of why this matters.** Its device half had 79 mutants with no
+  # coverage until the tests were written; before that the score read as a test-quality problem and
+  # was partly a "nobody ran it here" problem.
+  scene)        PROJECT="tests/Tf2DemoSalvage.Scene.Tests";        NEEDS_CORPUS=0 ;;
+  presentation) PROJECT="tests/Tf2DemoSalvage.Presentation.Tests"; NEEDS_CORPUS=0 ;;
+  rendering)    PROJECT="tests/Tf2DemoSalvage.Rendering.Tests";    NEEDS_CORPUS=0 ;;
+  animation)    PROJECT="tests/Tf2DemoSalvage.Animation.Tests";    NEEDS_CORPUS=0 ;;
+
+  *) echo "ERROR: unknown mode '$MODE'. Expected corpus, core, cli, content, audio, scene, presentation, rendering, animation or fuzz." >&2; exit 2 ;;
 esac
 
 # `corpus` mutation is OFF, and refuses rather than warns.
