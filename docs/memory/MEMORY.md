@@ -161,3 +161,4 @@
 - [TF2 binds every letter but o](tf2-binds-every-letter-but-o.md) — a pasted config TAKES keys; CTRL combos are the only safe space.
 - [Portable half and adapter half](portable-half-and-adapter-half.md) — view rules in net10.0; only a tiny adapter names the toolkit.
 - [A Panel cannot hold focus](a-panel-cannot-hold-focus.md) — TabStop does nothing; focus never described what the user was doing.
+- [A negative retry is a sleep](a-negative-retry-is-a-sleep.md) — waiting for what must not happen always burns the full window.
