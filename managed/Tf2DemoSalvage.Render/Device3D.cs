@@ -559,6 +559,30 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                     : "NONE — the camera would not invert, so the shader reflects nothing")}");
         }
 
+        // **The light each viewmodel instance actually carries into the draw** (B170). The scene
+        // computes a healthy cube at the eye — luminance 0.2344 measured in that control room — and
+        // the weapon still renders at about linear 0.004, roughly twenty times darker than TF2's in
+        // the same place. Between those two numbers there is exactly one link nothing has reported:
+        // whether the cube reaches the instance the renderer is handed.
+        if (!_reportedViewmodelInstanceLight)
+        {
+            _reportedViewmodelInstanceLight = true;
+
+            _render.LogInformation(
+                "{Message}",
+                "viewmodel instance light: " + string.Join(
+                    "; ",
+                    viewmodels.Select(instance =>
+                        $"{System.IO.Path.GetFileNameWithoutExtension(instance.ModelPath)} " +
+                        $"{(instance.Light is { } cube
+                            ? $"cube +Z ({cube.PositiveZ.Red:0.###}, {cube.PositiveZ.Green:0.###}, " +
+                              $"{cube.PositiveZ.Blue:0.###}), -Z ({cube.NegativeZ.Red:0.###}, " +
+                              $"{cube.NegativeZ.Green:0.###}, {cube.NegativeZ.Blue:0.###})"
+                            : "NO CUBE — the shader draws it at full brightness")}, " +
+                        $"sun {(instance.Sun is null ? "none" : "reaching")}, " +
+                        $"bones {instance.Bones?.Count ?? 0}")));
+        }
+
         Viewport near = new(
             0f, 0f, _width, _height, ViewmodelPass.DepthMinimum, ViewmodelPass.DepthMaximum);
 
@@ -1372,6 +1396,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
     /// <summary>Whether the viewmodel pass has said where it thinks the eye is (B170).</summary>
     private bool _reportedViewmodelEye;
+
+    /// <summary>Whether the light the viewmodel instances carry has been reported (B170).</summary>
+    private bool _reportedViewmodelInstanceLight;
 
     /// <summary>Every model drawn more than once, with the body number of each instance.</summary>
     /// <param name="models">This frame's instances.</param>

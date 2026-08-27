@@ -454,6 +454,30 @@ public sealed class MomentScene : IGameSystemPerFrame
             ? Appearance.Hands(playerClass)
             : null;
 
+        // **What light the viewmodel is actually given, said once** (B170). Measured against TF2 in
+        // the same room with `mat_hdr_level 0` and `mat_specular 0`: TF2's scattergun reads 81 to
+        // 108 on its metal, ours 11 to 28 — about twenty times darker in linear terms, while world
+        // surfaces beside it are within thirty percent. So the weapon is not washed out because its
+        // reflection is too strong; the reflection is roughly right and the DIFFUSE under it has
+        // almost nothing in it.
+        //
+        // This prints the cube the eye samples, which is the input that claim rests on.
+        if (!_reportedViewmodelLight)
+        {
+            _reportedViewmodelLight = true;
+
+            AmbientCube atEye = Lighting.ComputeLighting(
+                camera.Origin.X, camera.Origin.Y, camera.Origin.Z);
+
+            _render.LogInformation(
+                "{Message}",
+                $"viewmodel light at ({camera.Origin.X:0}, {camera.Origin.Y:0}, {camera.Origin.Z:0}): " +
+                $"luminance {AmbientCube.Luminance(atEye):0.####}, " +
+                $"+Z ({atEye.PositiveZ.Red:0.###}, {atEye.PositiveZ.Green:0.###}, {atEye.PositiveZ.Blue:0.###}), " +
+                $"-Z ({atEye.NegativeZ.Red:0.###}, {atEye.NegativeZ.Green:0.###}, {atEye.NegativeZ.Blue:0.###}), " +
+                $"sun {(Lighting.SunAt(camera.Origin.X, camera.Origin.Y, camera.Origin.Z) is null ? "none" : "reaching")}");
+        }
+
         ViewmodelSceneResult scene = _viewmodels.Build(
             source,
             info.CurrentTick,
@@ -573,6 +597,9 @@ public sealed class MomentScene : IGameSystemPerFrame
 
     /// <summary>Whether the missing-viewmodel-source warning has already been given.</summary>
     private bool _reportedNoViewmodels;
+
+    /// <summary>Whether the light the viewmodel receives has been reported (B170).</summary>
+    private bool _reportedViewmodelLight;
 
     /// <summary>Whether the missing-upload warning has already been given.</summary>
     private bool _reportedNoUpload;

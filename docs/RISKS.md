@@ -13658,3 +13658,67 @@ pass's `eyePosition` and the cubemap index each weapon draw selects, then readin
 measurable without the owner's eyes and without another offscreen approximation of a pass that
 cannot be approximated. That the harness cannot reach this pass is itself the finding — it is the
 same structural gap that hid B187, where the harness reproduced the bug rather than exposing it.
+
+#### The chain measured end to end, and where it stops being measured — 2026-08-27
+
+**Everything below the line is measured. What it points AT is not, and the difference matters here
+more than usual**, because three confident conclusions have already died in this entry.
+
+##### Measured
+
+The owner produced the control this needed: TF2 itself, same room on `cp_process`, `mat_hdr_level 0`,
+with `mat_specular` on and off. Sampled from the four screenshots:
+
+| | `mat_specular 1` | `mat_specular 0` | delta |
+|---|---|---|---|
+| TF2, weapon metal | 100, 26, 15, 101, 24 | 81, 21, 10, 108, 20 | 19, 5, 5, 7, 4 |
+| ours, weapon metal | 74, 20, 48, 26, 42 | 11, 5, 28, 14, 17 | 63, 15, 20, 12, 25 |
+
+**Converted out of sRGB the reflections are comparable** — TF2 adds about 0.044 linear, we add about
+0.064. Within 1.5×. **The reflection was never the fault**, and an earlier claim in this entry that
+it arrived "at a strength its material never asked for" was arithmetic done in the wrong space:
+linear values were compared against sRGB output, where near-black is hugely expanded.
+
+**The light reaches the weapon.** Logged from the viewer in that room:
+
+```
+viewmodel light at (-4815, -1280, 648): luminance 0.2344, +Z (0.295, 0.297, 0.29), sun none
+viewmodel instance light: c_scattergun cube +Z (0.295, 0.297, 0.29), sun none, bones 3
+```
+
+So the cube is healthy, it is the same cube the arms get, and nothing drops it between the scene and
+the draw. **Our output is arithmetically correct for its inputs**: a near-black gun albedo against a
+0.25 cube lands at roughly 0.005 linear, which is the 11 that was measured.
+
+**`sun none`, and our phong is gated on the sun.** `if (surfaceColours.y > 0.5f && phongControl.z >
+0.5f && sunColour.w > 0.5f && ...)`. Indoors that gate is shut, so the viewmodel receives **no phong
+term at all** — and the shader's own comment already said so: *"the term is summed over the light
+cache's local lights as well, and those do not reach a model in this renderer — so a highlight
+appears where the sun reaches and nowhere else."*
+
+##### Inferred, and NOT established
+
+**That the missing term is phong from local lights is a hypothesis.** It fits: TF2's weapon metal
+reads 81–108 with specular off, ours 11–28; the scattergun declares `$phong 1, $phongboost 6,
+$phongexponentfactor 195`; there is a fluorescent tube overhead in that room; and an additive term
+would show on a dark surface while leaving a bright one alone.
+
+**But nothing here measured TF2's shader.** That those readings ARE phong rather than a brighter
+ambient, a rim term, a different albedo, or something else entirely is read off a picture. The
+project has three dead conclusions in this entry already, every one of which also "fit".
+
+**One piece of supporting arithmetic is weaker than it looks.** A locker in the same room reads 96 in
+TF2 and 68 here, which reconciles almost exactly if its albedo is around 0.5 — suggesting diffuse is
+fine and only an additive term is missing. That agreement is suspiciously good given the two images
+have different framing and resolution and the sample points were matched by eye; two of four
+attempted pairs clearly landed on different surfaces. Treat it as consistent, not as confirmation.
+
+**And the owner's standing caveat applies**: *"our lighting is darker than real tf2, but i think
+thats from missing lighting implementations, not exactly something we can fix right now"*. Local
+lights for models is one of those missing implementations, so this may be a symptom of a known gap
+rather than a defect of its own.
+
+##### What would settle it
+
+An experiment, not more reading: give the viewmodel a phong term driven by something other than the
+sun and see whether the weapon comes to look like TF2's. If it does not, the term is elsewhere.
