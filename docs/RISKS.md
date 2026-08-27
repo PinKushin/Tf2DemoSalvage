@@ -12519,6 +12519,55 @@ a test cannot put a non-null value there, and asserting null after `Open` when i
 the precondition-equals-assertion shape that made the rest of that test worthless until it was fixed
 this morning. The third level covers it instead.
 
+### B217 — Audio's mutation score fell and there is no baseline to compare it against — OPEN
+
+**Raised by the owner, 2026-08-26:** *"we need more audio tests btw, out mutation score on audio went
+to shit"*.
+
+**Measured, not estimated.** The owner pointed at the boxes — *"there might be something in the
+measurement box convo about the oracle boxes and mut score"* — and there is a `tf2-audio` slot on
+`mutation-box` at 15:20 daily that nothing had been reading. Today's run,
+`20260826T192001Z-e93ff35-tf2-audio`: **37.91 %**, 281 killed, 130 survived, 9 timeout.
+
+**The trend inverts the diagnosis, so it is worth having before any test is written:**
+
+| date | score | killed |
+|---|---:|---:|
+| 08-20 → 08-22 | 47.06 % | ~31 |
+| 08-23 | 60.25 % | 229 |
+| 08-24 | 39.39 % | 264 |
+| 08-25 | 39.68 % | 268 |
+| **08-26** | **37.91 %** | **281** |
+
+**The kill count is RISING — 31 to 281 — while the score falls.** So the tests are not getting worse;
+the denominator is growing faster than they are. Audio's mutant count has roughly sextupled since the
+23rd, which is production code arriving without behaviour tests beside it. "The score went down" and
+"the tests got worse" are different claims, and only the second would have been worth hunting a
+regression for.
+
+**The actionable list is the 130 survivors, not the percentage** — see
+`docs/memory/mutation-score-is-not-the-goal.md`. Concentrated in twelve files:
+
+```
+19 RiffWave.cs          18 NativeLibraryResolver.cs   18 SoundScript.cs
+13 SoundSample.cs       10 SoundGain.cs                8 SoundscapeMixer.cs
+ 7 SpeexVoiceDecoder.cs  6 CeltVoiceDecoder.cs         6 SoundAttenuation.cs
+ 5 SoundCache.cs         4 ActiveLoops.cs              4 AudioOutput.cs
+```
+
+The full report is on the box at `~/measurements/20260826T192001Z-e93ff35-tf2-audio/reports/`.
+Read the survivors rather than chasing the number: some will be equivalent by construction and some
+mark code that does not matter and can go.
+
+**Do not measure this locally.** A Stryker run takes the machine-wide exclusive lock and ~35 minutes,
+and a competing build failure is scored as a SURVIVING MUTANT rather than as an error. The box
+already runs it daily and keeps 30 runs; read those.
+
+**A stale claim found while looking.** `docs/RISKS.md` says *"`Tf2DemoSalvage.Scene` has no Stryker
+config at all. Six configs exist"* — there are eight now, Scene's among them. Second drifted entry
+found today after B165; the register needs a sweep, and this note is here so the sweep has two
+worked examples rather than one.
+
 ### B216 — A shortcut could take a key the focused widget needed — FIXED 2026-08-26
 
 **B212's guard was right about its case and wrong in general.** It excused `TextBoxBase` and nothing
