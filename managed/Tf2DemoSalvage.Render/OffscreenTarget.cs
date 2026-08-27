@@ -231,6 +231,12 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// reason as <paramref name="phong"/>: the owner's decisive observation on B170 was made by
     /// toggling exactly this, and a harness that cannot toggle it cannot reproduce the finding.
     /// </param>
+    /// <param name="origin">
+    /// Where the model stands, for choosing its cubemap. Null takes the model matrix's translation.
+    /// Present because a skinned model's placement is in its BONES, so the matrix reads as the map
+    /// origin — the condition every earlier offscreen test made impossible by construction, since
+    /// each translated its model through the matrix (B170).
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The model path is not the world path and the difference has hidden a defect.** Every
@@ -251,7 +257,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         Fullbright fullbright = Fullbright.Off,
         DebugModes debug = default,
         bool phong = true,
-        bool specular = true)
+        bool specular = true,
+        (float X, float Y, float Z)? origin = null)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -300,7 +307,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _context.OMSetRenderTargets(1u, _view.GetAddressOf(), _depthView);
 
         _world.DrawModel(
-            _context, Posed, model, _world.ModelBatches(Posed), light, sun, bothSides: bothSides);
+            _context, Posed, model, _world.ModelBatches(Posed), light, sun, bothSides: bothSides,
+            origin: origin);
     }
 
     /// <summary>

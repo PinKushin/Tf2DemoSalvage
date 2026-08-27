@@ -28,6 +28,11 @@ namespace Tf2DemoSalvage.Scene;
 /// Whether this is a viewmodel, drawn mirrored — which reverses its winding, so the cull has to
 /// flip with it or the weapon draws inside out.
 /// </param>
+/// <param name="Origin">
+/// Where the model stands, for choosing which of the map's cubemaps it reflects. Null falls back to
+/// the translation of <paramref name="Matrix"/>, which is right for a baked model and reads as the
+/// map origin for a skinned one, whose placement is carried by its bones (B170).
+/// </param>
 public readonly record struct ModelInstance(
     string ModelPath,
     float[] Matrix,
@@ -44,7 +49,15 @@ public readonly record struct ModelInstance(
     IReadOnlyDictionary<int, int>? SkinSwap = null,
     IReadOnlyList<(int Base, int Count)>? BodyParts = null,
     int Body = 0,
-    bool Mirrored = false);
+    bool Mirrored = false,
+
+    // **Where the model stands, which its Matrix does not always say** (B170). A baked model is put
+    // in the world by its matrix; a SKINNED one is put there by its bones and leaves the matrix at
+    // identity, so `Matrix`'s translation reads as the map origin. The renderer needs a real
+    // position to choose which of the map's cubemaps the model reflects, and this is it — the same
+    // illumination point the ambient cube was sampled at, so lighting and reflection agree about
+    // where the model is.
+    (float X, float Y, float Z)? Origin = null);
 
 /// <summary>
 /// The models a demo's entities wear, packed once and posed by the GPU.
@@ -1353,6 +1366,13 @@ public sealed class EntityModelSet
             AmbientCube? light = lit.Light;
             SunLight? sun = lit.Sun;
 
+            // **The point the cube was sampled at, carried so the RENDERER can choose a cubemap
+            // from it** (B170). `ModelLighting.For` already resolved where this model is — via the
+            // model's own `illumposition` — and the reflection needs the same answer. Taking it
+            // from here rather than recomputing is what keeps lighting and reflection agreeing
+            // about a model's position instead of drifting apart.
+            (float X, float Y, float Z) origin = (lit.X, lit.Y, lit.Z);
+
             // **The last unmeasured thing in this loop, and it runs three times per prop per
             // frame.** Everything else has been split and come back at a millisecond or less while
             // the total holds a deterministic ~130 ms (B189). Reporting is the remaining candidate
@@ -1493,6 +1513,13 @@ public sealed class EntityModelSet
 
                     light = lightAt is null ? default : lightAt(at.X, at.Y, at.Z);
 
+                    // **And the reflection follows the light to the same place.** A merged item's
+                    // own pose is (0,0,0) by construction — the comment above says why — so its
+                    // cubemap has to be chosen where its WEARER stands, exactly as its ambient cube
+                    // is. Leaving this behind would fix the lighting and leave a weapon reflecting
+                    // the map origin, which is B170.
+                    origin = at;
+
                     WornLightTicks += System.Diagnostics.Stopwatch.GetTimestamp() - wornAt;
                 }
 
@@ -1523,7 +1550,9 @@ public sealed class EntityModelSet
                 _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? parts)
                     ? parts.BodyParts
                     : null,
-                prop.Pose.Body));
+                prop.Pose.Body,
+                Mirrored: false,
+                Origin: origin));
         }
 
         _tally.Report();
