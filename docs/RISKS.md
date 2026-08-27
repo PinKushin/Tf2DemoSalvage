@@ -12203,6 +12203,58 @@ discriminating evidence is which weapons, on which demo, and whether the eye can
 time. That is a question for the owner, per `CLAUDE.md` on UI claims, and one demo plus one weapon
 name would turn the two leads above into a differential.
 
+#### The discriminator is the ERA, not the weapon — and both leads then died too
+
+The owner, asked which weapons: *"no all the weapons are washed out on the modern demos"*. So the
+variable is the demo, and a demo selects both a map and a viewmodel scheme. The owner then asked for
+both leads above to be fixed. **Measuring them first is what stopped two wrong fixes**, and each
+number is now a test.
+
+**Lead 2, the overbright asymmetry, is not a defect.** `BspLightmaps.Overbright` halves into a byte
+and the shader doubles back; `BspAmbientLight.Colour` does neither. That reads as an asymmetry and is
+Valve's own convention for **byte-stored** light — `common_vertexlitgeneric_dx9.h:270` does exactly
+this to static vertex lighting, *"premultiplied by $cOOOverbright"* and multiplied by `cOverbright`
+in the shader. An ambient cube is a float constant and correctly skips a step that exists to fit
+light into eight bits.
+
+Measured on `cp_process_final`: brightest lightmap luxel **2464 raw**, which is not comparable to
+anything until the byte storage is accounted for — halved, clamped into a byte, normalised against
+255 and doubled, it **delivers 2.0**. Brightest leaf ambient sample is **2.938**. The two paths agree
+to well within a factor of two. **Changing either would be the divergence**, which is why this is
+recorded rather than fixed (`LightingLumps_DecodedIdentically_AgreeOnScale`).
+
+**Lead 1, the missing tone map, is real but the fix is a fork rather than a patch.**
+`FinalOutput` (`common_ps_fxc.h:345`) multiplies by `LINEAR_LIGHT_SCALE` before `SRGBOutput`, and we
+have no equivalent stage. But that scale is only meaningful under HDR: `viewrender.cpp:2214` sets it
+at all only when `GetHDRType() == HDR_TYPE_INTEGER`, and under `HDR_TYPE_NONE` Source does no tone
+mapping — **overbright light clips, which is what LDR Source looks like and what we already do.**
+
+So there is no "add a tone mapper" that is parity. This project reads the **LDR** lumps
+(`BspAmbientLight` takes 56 and 52, `BspLightmaps` takes 8) with no branch, while TF2 ships
+`mat_hdr_level 2`. Matching TF2's actual appearance means taking the HDR pair *and* implementing
+autoexposure; matching LDR Source means leaving it exactly as it is. **That is a decision for the
+owner and is filed as one**, per D89.
+
+**And the era theory that made this urgent is dead as well.** If modern maps were HDR-first and their
+LDR compile neglected, the LDR path would get poor data on exactly the modern demos. Measured
+(`LightingLumps_AcrossTheEraAxis_AreReported`):
+
+| map | LDR lighting | HDR lighting | LDR leaf ambient | HDR leaf ambient |
+|---|---|---|---|---|
+| `cp_process_final` | 4,377,583 | 4,377,083 | 344,140 | 344,255 |
+| `cp_badlands` | 5,306,639 | 5,302,986 | 511,383 | 511,286 |
+| `cp_granary` | 11,067,768 | 11,067,768 | 918,988 | 918,988 |
+
+Every map carries both compiles at effectively the same size, and granary's are byte-identical. **The
+map is not the discriminator.**
+
+**What remains is the other era difference, and it is about models rather than light.** Before 2013 a
+viewmodel was a single `v_` model carrying arms and weapon together; afterwards it is a `c_` weapon
+bone-merged onto a separate arms model, which is the branch `ViewmodelScene.AttachesToHands` selects
+and the merged path in `EntityModels.Instances` then lights. That is the next thing to measure, and
+the cheapest discriminating question is whether the ARMS wash out too or only the weapon — they are
+separate models on a modern demo and the same model on an old one.
+
 ### B167 — CLOSED 2026-08-23. A one-bone model could never be skinned, so it could never merge
 
 The Original ("the quake launcher") drew far too high and filled the screen, on every demo since
