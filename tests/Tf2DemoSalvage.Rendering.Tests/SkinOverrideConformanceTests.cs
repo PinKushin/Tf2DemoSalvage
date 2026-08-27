@@ -1,7 +1,7 @@
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.SdkReference;
 
-namespace Tf2DemoSalvage.Viewer3D.Tests;
+namespace Tf2DemoSalvage.Rendering.Tests;
 
 /// <summary>
 /// Skins the client computes rather than receives, and the two overrides applied after.

@@ -620,15 +620,28 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     113
 # config), one says that where we speak TF2's command we start on TF2's key, and one says every
 # default resolves to a real key. The third caught a live defect on its first run -- Enum.TryParse
 # accepts a numeric string, so "1" resolved to Keys.LButton.
-# **616 -> 116 on 2026-08-26, and this is a SPLIT rather than a loss** (B184). 92 of the 113 files
+# **616 -> 101 on 2026-08-26, and this is a SPLIT rather than a loss** (B184). 99 of the 113 files
 # here referenced nothing Windows-only and were pinned to `net10.0-windows` by the project file
 # alone; they now live in `Tf2DemoSalvage.Rendering.Tests` on plain net10.0. The arithmetic is the
-# check that nothing went missing: 500 + 116 = 616, which is exactly what this project ran before the move.
+# check that nothing went missing: **515 + 101 = 616**, exactly what this project ran before.
 #
-# What stays is what genuinely needs a Form or a device: MainForm, the menu, the playlist filter,
-# the binding conformance suite, FreeFlight, PngWriter, full screen.
-run Tf2DemoSalvage.Rendering.Tests rendering 500
-run Tf2DemoSalvage.Viewer3D.Tests viewer    116
+# **84% of the suite came off the Windows TFM**, so it can run on Linux and on the mutation box —
+# which was the MVP refactor's actual goal, not tidiness: *"it wass to be able to test more on
+# linux, and have compile time safety"*.
+#
+# What stays genuinely needs a Form, a device, or this assembly: MainForm's construction and
+# disposal, the menu, full screen, shortcut collisions, FreeFlight and KeyNames (WinForms `Keys`),
+# PngWriter (`System.Drawing`), the binding conformance suite — plus `GlobalUsings.cs` and
+# `AssemblyTestPolicy.cs`, which configure this assembly, and `FieldSeedingTests`, which scans
+# `managed/Tf2DemoSalvage.Viewer3D`'s source by path and so has that project as its subject.
+#
+# **Four files were held back by a bad filter before being found**, which is why the survivors were
+# re-checked one at a time by what they USE rather than what they mention. Five contained the path
+# `C:\Program Files (x86)\Steam` and `Program` is a Viewer3D type; `SkinOverrideConformanceTests`
+# named `MainForm` only in a comment; and `PlaylistFilterTests` carried a dead
+# `using Tf2DemoSalvage.Viewer3D` when `PlaylistFilter` lives in `Scene`.
+run Tf2DemoSalvage.Rendering.Tests rendering 515
+run Tf2DemoSalvage.Viewer3D.Tests viewer    101
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."
