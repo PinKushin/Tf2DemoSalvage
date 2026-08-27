@@ -12538,6 +12538,52 @@ expects the far reverse end, while `Transport_HomeWithTheViewportFocused_Returns
 presses the same key with the viewport focused and expects 1×. Same key, two focus states, opposite
 correct outcomes — the first goes red the moment the guard stops working.
 
+#### Type-ahead, and the panel that could never hold focus
+
+**Added on the owner's push-back, and the push-back was the finding.** The first version excluded
+list type-ahead as "a bigger behaviour change than a guard should make" — while the identical
+argument had just been accepted for the search box. They named it:
+
+> *"I think if someone has selected the search bar they probably dont want the cam to move, so yea
+> fix that"*
+>
+> *"whaT IS THIs if not that?"*
+
+It is the same case. Someone working in the playlist does not want the camera flying either.
+
+**Making the change exposed something older and worse: `_viewport` was a plain `Panel`, and a
+`Panel` cannot take focus.** `TabStop = true` was already set on it and did nothing — WinForms gates
+focus on `ControlStyles.Selectable`, which `Panel` clears. The file even said so beside the wheel
+handler, as a workaround rather than as a problem: *"A Panel does not take focus, so its own wheel
+event may never fire"*.
+
+So focus never described what the user was doing. Clicking the 3D view left focus on the playlist,
+and the window's idea of "the focused control" was a list while somebody flew a camera across a map.
+
+- **B212 is the direct consequence** — `ProcessCmdKey` reached over whatever held focus, because
+  nothing else could hold it.
+- **B216 is where it became load-bearing.** A guard that asks what the focused widget uses is only
+  meaningful if focus tracks intent. Type-ahead against a permanently focused playlist swallowed
+  `SPACE` and every letter **globally**: the camera stopped switching and `w`/`a`/`s`/`d` stopped
+  flying. Four UI tests said so at once.
+
+`ViewportPanel` sets `Selectable`, the scene takes focus on mouse-down, and the form opens with the
+viewport active. The four tests recovered immediately, which is what confirmed the diagnosis.
+
+**Two things about how this was found are worth keeping.** The owner's first guess was that they had
+been typing during the run — plausible, since a person at the keyboard breaks a UI suite exactly this
+way, and it would have been an easy explanation to accept. The evidence pointed elsewhere: the test's
+own **control** arm, which focuses the viewport where no guard applies, failed too. Without that arm
+the failure was indistinguishable from a real defect, and the same control later showed that a
+*modified* keystroke cannot be driven from this harness at all — neither
+`Keyboard.TypeSimultaneously` nor an explicit `Press`/`Release` produced a combination
+`ProcessCmdKey` ever saw. That is unsolved and recorded in `ViewerApplication`; the command-modifier
+flag keeps unit coverage meanwhile.
+
+And the type-ahead test was written into `ShellUiTests` first, where it could never pass: that
+fixture opens no demo, so there is no recorded camera to switch to. It lives in `FirstPersonUiTests`
+now, whose whole file is its control.
+
 #### `HOME` → 1×, the first binding added through B214's mechanism
 
 Agreed weeks ago and deliberately not built, because it would have been a fifteenth literal to

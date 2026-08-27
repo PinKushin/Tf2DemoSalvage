@@ -46,16 +46,49 @@ public sealed class WidgetKeysTests
     }
 
     [Test]
-    public void Keeps_AList_TakesTheNavigationKeysAndNothingElse()
+    public void Keeps_AList_TakesTheNavigationKeys()
     {
         WidgetKeys.Keeps(FocusedWidget.List, "UPARROW").ShouldBeTrue();
         WidgetKeys.Keeps(FocusedWidget.List, "PGDN").ShouldBeTrue();
         WidgetKeys.Keeps(FocusedWidget.List, "HOME").ShouldBeTrue();
+    }
 
-        // **Type-ahead is deliberately absent.** A real list selects by typed letters, so a strict
-        // reading would keep every letter — and that would stop w/a/s/d flying whenever the playlist
-        // had focus. Recorded as a decision rather than left ambiguous; see `WidgetKeys`.
-        WidgetKeys.Keeps(FocusedWidget.List, "w").ShouldBeFalse();
+    [Test]
+    public void Keeps_AListAndATypedCharacter_IsTrueForTypeAhead()
+    {
+        // **This asserted the OPPOSITE until the owner pushed back**, and the reversal is the point.
+        // A real list selects by typed characters, so the playlist uses letters exactly as the search
+        // box does. It was filed as too big a change to make in a guard — while the identical
+        // argument had just been accepted for the search box, which the owner named:
+        // *"whaT IS THIs if not that?"*
+        //
+        // The cost is real and is the same cost: w/a/s/d do not fly while the playlist has focus.
+        WidgetKeys.Keeps(FocusedWidget.List, "w").ShouldBeTrue();
+        WidgetKeys.Keeps(FocusedWidget.List, "1").ShouldBeTrue();
+        WidgetKeys.Keeps(FocusedWidget.List, "SPACE").ShouldBeTrue("a name can contain a space");
+        WidgetKeys.Keeps(FocusedWidget.List, "'").ShouldBeTrue();
+
+        // Named keys are not typed characters, and a list has no use for them.
+        WidgetKeys.Keeps(FocusedWidget.List, "F5").ShouldBeFalse();
+        WidgetKeys.Keeps(FocusedWidget.List, "ESCAPE").ShouldBeFalse();
+    }
+
+    [Test]
+    public void Keeps_AnythingWithControlOrAltHeld_IsFalse()
+    {
+        // **The case that makes type-ahead safe.** The key name reaching this method is the BARE key
+        // — a toolkit masks the modifiers off — so `CTRL+r` and `r` are spelled the same, and a list
+        // keeping `r` would swallow reset-camera. Menu shortcuts survive the guard on their own; the
+        // hand-written bindings do not, so this is the only thing protecting them.
+        WidgetKeys.Keeps(FocusedWidget.List, "r", withCommandModifier: true).ShouldBeFalse();
+        WidgetKeys.Keeps(FocusedWidget.Slider, "HOME", withCommandModifier: true).ShouldBeFalse();
+        WidgetKeys.Keeps(FocusedWidget.Text, "o", withCommandModifier: true).ShouldBeFalse();
+
+        // And the control: the same keys without the modifier ARE kept, so this test is about the
+        // modifier rather than about those keys being uninteresting.
+        WidgetKeys.Keeps(FocusedWidget.List, "r").ShouldBeTrue();
+        WidgetKeys.Keeps(FocusedWidget.Slider, "HOME").ShouldBeTrue();
+        WidgetKeys.Keeps(FocusedWidget.Text, "o").ShouldBeTrue();
     }
 
     [Test]

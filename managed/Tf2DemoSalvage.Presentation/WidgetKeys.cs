@@ -53,10 +53,22 @@ public enum FocusedWidget
 /// **Text keeps everything, and that is not laziness.** Any printable character is content while
 /// somebody is typing, and so are the navigation keys; there is no subset to carve out.
 ///
-/// **Type-ahead is deliberately NOT here.** Real list controls select by typed letters, so a strict
-/// reading would have `List` keep every letter — which would stop `w`/`a`/`s`/`d` flying the camera
-/// whenever the playlist had focus. That is a bigger behaviour change than this guard is for, and it
-/// is a question for the owner rather than a detail to decide in passing.
+/// **Type-ahead IS here, and leaving it out was an inconsistency the owner caught.** Real list
+/// controls select by typed characters, so a focused list uses letters exactly as a text field does.
+/// This was first filed as "a bigger behaviour change than a guard should make", which did not
+/// survive the reply: they had just approved the identical argument for the search box — *"if someone
+/// has selected the search bar they probably dont want the cam to move"* — and then asked of the
+/// type-ahead paragraph, *"whaT IS THIs if not that?"*
+///
+/// It is the same case. Someone working in the playlist does not want the camera flying either, and
+/// the cost — `w`/`a`/`s`/`d` not flying while the list has focus — is the cost already accepted for
+/// the search box.
+///
+/// **A key held with `CTRL` or `ALT` is a command, never content.** That is what keeps `CTRL+r`
+/// reaching reset-camera while the playlist has focus, since nothing else would: menu shortcuts
+/// survive this guard on their own (returning early still runs the toolkit's own shortcut pass), but
+/// the hand-written bindings in `ProcessCmdKey` do not. `SHIFT` is deliberately NOT in that set — it
+/// modifies content, giving a capital letter and extending a selection.
 /// </remarks>
 public static class WidgetKeys
 {
@@ -87,26 +99,42 @@ public static class WidgetKeys
             "HOME", "END", "PGUP", "PGDN",
         };
 
+    /// <summary>Whether a key names a printable character rather than a named key.</summary>
+    /// <remarks>
+    /// **A one-character name IS the character**, which is how Source spells them: `w`, `1`, `'`,
+    /// `[`. Everything else is a word — `HOME`, `F5`, `PGDN`, `MOUSE1`, `CTRL` — so the test needs no
+    /// table and no toolkit. `SPACE` is the one printable character with a word for a name.
+    /// </remarks>
+    private static bool IsTyped(string keyName) =>
+        keyName.Length == 1 || keyName.Equals("SPACE", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Whether the focused widget uses this key itself.</summary>
     /// <param name="widget">What has focus.</param>
     /// <param name="keyName">The key's Source name, such as <c>HOME</c> or <c>w</c>.</param>
+    /// <param name="withCommandModifier">Whether <c>CTRL</c> or <c>ALT</c> is held.</param>
     /// <returns>True when the widget must be allowed to handle it.</returns>
     /// <remarks>
     /// **A blank name keeps nothing**, so an unmapped key from some future toolkit falls through to
     /// the shortcuts rather than silently disabling them.
+    ///
+    /// **Nor does anything keep a `CTRL` or `ALT` combination**, because that is a command in every
+    /// toolkit there is. `SHIFT` is excluded from that rule on purpose: it makes a capital letter and
+    /// extends a selection, so it belongs to the widget.
     /// </remarks>
-    public static bool Keeps(FocusedWidget widget, string? keyName)
+    public static bool Keeps(FocusedWidget widget, string? keyName, bool withCommandModifier = false)
     {
-        if (string.IsNullOrWhiteSpace(keyName))
+        if (string.IsNullOrWhiteSpace(keyName) || withCommandModifier)
         {
             return false;
         }
 
+        string key = keyName.Trim();
+
         return widget switch
         {
             FocusedWidget.Text => true,
-            FocusedWidget.Slider => SliderKeys.Contains(keyName.Trim()),
-            FocusedWidget.List => ListKeys.Contains(keyName.Trim()),
+            FocusedWidget.Slider => SliderKeys.Contains(key),
+            FocusedWidget.List => ListKeys.Contains(key) || IsTyped(key),
             _ => false,
         };
     }

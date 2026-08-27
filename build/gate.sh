@@ -380,7 +380,10 @@ run Tf2DemoSalvage.Audio.Tests    audio     161
 # ten-line MainForm.FocusKind adapter, not the key rules. Sabotage-verified by dropping HOME from the
 # slider set: one test reddened, and it exposed that an eighth assertion compared two calls that move
 # together and so could never fail. That one now asserts a value.
-run Tf2DemoSalvage.Presentation.Tests presentation 389
+# 389 -> 391 same day: list type-ahead (B216). One test asserts a focused list keeps typed
+# characters, replacing one that asserted the opposite; one asserts nothing keeps a CTRL/ALT
+# combination, which is what stops the playlist swallowing Ctrl+R.
+run Tf2DemoSalvage.Presentation.Tests presentation 391
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.

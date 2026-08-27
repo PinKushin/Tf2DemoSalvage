@@ -477,10 +477,35 @@ internal sealed partial class ViewerApplication : IDisposable
             button);
     }
 
+    // **A `PressKey(modifier, key)` overload was here on 2026-08-26 and is gone** (B216). It was
+    // written to press `Ctrl+R` at the form, and it did not work: neither
+    // `Keyboard.TypeSimultaneously(CONTROL, KEY_R)` nor an explicit `Press`/`Type`/`Release` produced
+    // a keystroke `ProcessCmdKey` ever saw as `Keys.Control | Keys.R`.
+    //
+    // **The reason it is recorded rather than deleted quietly is that the failure was diagnosable
+    // only because the test had a control.** Pressing the same combination at the VIEWPORT — where
+    // no guard is involved — failed identically, which is what distinguished "the harness cannot do
+    // this" from "the code under test is broken". Without that arm it read as a real defect.
+    //
+    // Driving a modified shortcut from a UI test here is therefore unsolved. Single keys work, so
+    // `ShellUiTests` uses `SPACE` for the same question, and the command-modifier flag keeps unit
+    // coverage in `WidgetKeysTests`.
+
     /// <summary>Presses a key at the viewer, refusing to press it anywhere else.</summary>
     /// <param name="key">The key to type.</param>
     /// <exception cref="InvalidOperationException">The viewer would not come to the foreground.</exception>
     public void PressKey(VirtualKeyShort key)
+    {
+        Ready(key);
+
+        Keyboard.Type(key);
+
+        Settled(key);
+    }
+
+    /// <summary>Brings the viewer forward, or refuses to press anything.</summary>
+    /// <param name="key">The key about to be pressed, for the message.</param>
+    private void Ready(VirtualKeyShort key)
     {
         Window.SetForeground();
 
@@ -495,13 +520,15 @@ internal sealed partial class ViewerApplication : IDisposable
                 $"Refusing to press {key}: the viewer did not come to the foreground, so the " +
                 "keystroke would be delivered to whatever window is in front of it.");
         }
+    }
 
-        Keyboard.Type(key);
-
-        // Checked again afterwards, because focus can be taken between the check and the press and
-        // that is precisely the race worth knowing about. It reports rather than throws: the key
-        // has already gone somewhere by this point, and the test's own assertions will say whether
-        // it arrived.
+    /// <summary>Reports if focus was lost around a press, rather than throwing.</summary>
+    /// <param name="key">The key that was pressed, for the message.</param>
+    private void Settled(VirtualKeyShort key)
+    {
+        // Checked afterwards, because focus can be taken between the check and the press and that is
+        // precisely the race worth knowing about. It reports rather than throws: the key has already
+        // gone somewhere by this point, and the test's own assertions will say whether it arrived.
         if (!HasFocus())
         {
             Log($"WARNING: focus was lost around the {key} press; it may not have reached the viewer");

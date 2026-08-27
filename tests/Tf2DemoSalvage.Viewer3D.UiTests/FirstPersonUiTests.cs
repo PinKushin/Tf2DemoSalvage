@@ -103,6 +103,43 @@ public sealed class FirstPersonUiTests
     }
 
     [Test]
+    public void FirstPerson_SwitchCameraModeWhileThePlaylistHasFocus_DoesNothing()
+    {
+        // **The behaviour the owner asked for, at the level where wiring fails** (B216). A list
+        // selects by typed characters, so the playlist uses `SPACE` and every letter exactly as the
+        // search box does. Leaving that out was an inconsistency they named: having just accepted
+        // *"if someone has selected the search bar they probably dont want the cam to move"*, they
+        // asked of the type-ahead paragraph, *"whaT IS THIs if not that?"*
+        //
+        // **The control for this test is the whole rest of the file**, which presses the same key
+        // with the viewport focused and requires it TO work. Without that, "nothing happened" would
+        // also be satisfied by a viewer that had stopped switching cameras altogether.
+        //
+        // **Restored in a `finally`, and the first version was not.** The fixture is shared: a
+        // failure that left the playlist focused took four other tests down with it, every one
+        // reporting a subject that was perfectly fine
+        // (`docs/memory/cancelling-sabotages-mean-coupled-tests.md`).
+        try
+        {
+            Viewer.Find(MainForm.PlaylistId).Focus();
+
+            int before = Viewer.Count(FollowingRecorded);
+
+            PressSwitchCameraMode();
+
+            Retry.WhileFalse(
+                () => Viewer.Count(FollowingRecorded) > before,
+                TimeSpan.FromSeconds(3)).Result
+                .ShouldBeFalse(
+                    "the playlist keeps Space for type-ahead, so the camera must not switch");
+        }
+        finally
+        {
+            Viewer.Find("Viewport").Focus();
+        }
+    }
+
+    [Test]
     public void FirstPerson_PressingSwitchCameraModeTwice_ReturnsToTheOverheadView()
     {
         // **A mode, not a one-way door.** The map view is what works on every demo, so leaving has
