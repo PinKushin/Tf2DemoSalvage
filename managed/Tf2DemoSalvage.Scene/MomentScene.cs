@@ -90,14 +90,17 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// that builds the renderables list is told about levels by the same walk that tells everything
     /// else. Ours already took `SetupRenderInfo_t`'s shape; this is the other half of it.
     ///
-    /// **`Uploaded` is the load-bearing reset.** It records that THIS level's geometry reached the
-    /// GPU; carried into the next one it says the new map is already uploaded, and nothing draws.
+    /// **`Uploaded` used to be reset here and no longer exists** (B219). It recorded that THIS
+    /// level's geometry had reached the GPU, which is a belief about the other side of the boundary
+    /// — carried into the next map it said the new one was already uploaded and nothing drew (B148).
+    /// The device answers `HasModels` from its own packed set now, so there is nothing to carry and
+    /// nothing to reset.
+    ///
     /// The lighting goes back to <see cref="LevelLighting.Unlit"/> rather than null for the reason
     /// D83 gives — a null object that reports itself beats a null that throws somewhere later.
     /// </remarks>
     public void LevelShutdownPreEntity()
     {
-        Uploaded = false;
         Lighting = LevelLighting.Unlit(_render);
 
         _drawn.Clear();
@@ -166,14 +169,15 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// <summary>The camera the viewmodel pass draws with, or null when it draws none.</summary>
     public FreeCamera? ViewmodelCamera { get; private set; }
 
-    /// <summary>Whether the packed set has ever been uploaded to a device.</summary>
-    /// <remarks>
-    /// **Reset by the caller when the device's world is cleared**, because the packed set outlives
-    /// it. After a demo switch the set already holds what the new demo needs and does not grow — but
-    /// the GPU buffer it was uploaded into is gone, so `grew` alone leaves every model posed against
-    /// geometry the renderer does not have (B148).
-    /// </remarks>
-    public bool Uploaded { get; set; }
+    // **`Uploaded` was here and is gone** (B219). It said whether the packed set had reached a
+    // device, and callers had to reset it whenever the device's world was cleared — a belief about
+    // the other side of a boundary, kept in sync by hand. B148 added it for the map-change path;
+    // the category-view toggle never paired with it and emptied the map of models; and
+    // `WorldPresenter`'s failed-upload path could not pair with it at all, because it cannot reach
+    // this class.
+    //
+    // `Pack` asks `IModelUpload.HasModels` instead, which the device answers from its own packed
+    // set. One source of truth, and no call site left to forget.
 
     /// <summary>Rebuilds the scene for one moment.</summary>
     /// <param name="players">Everyone the timeline says is present.</param>
@@ -291,11 +295,6 @@ public sealed class MomentScene : IGameSystemPerFrame
         // across demos, so after a switch it already holds what the new demo needs and does not grow
         // — but the GPU buffer it was uploaded into is gone. Every posed model then took the "posed
         // before any geometry was uploaded" branch, 440,412 times in one five-minute run.
-        if (!grew && Uploaded)
-        {
-            return;
-        }
-
         if (Upload is not { } upload)
         {
             // **Reported once, because forgetting this draws NOTHING and says nothing** (B193). The
@@ -320,7 +319,17 @@ public sealed class MomentScene : IGameSystemPerFrame
             return;
         }
 
-        Uploaded = true;
+        // **Asked, not remembered** (B148, B219). "Has the set grown" is this side's business and
+        // "is the geometry still on the device" is the other side's, and a bool here could only ever
+        // be a belief about the second. Three callers of `ClearWorld` proved it: one was paired with
+        // a reset, one was not and emptied the map of models until a restart, and the third cannot
+        // reach this class to be paired at all.
+        //
+        // The device answers from `_packedModels`, so nothing can forget to say so.
+        if (!grew && upload.HasModels)
+        {
+            return;
+        }
 
         long uploadedAt = Stopwatch.GetTimestamp();
 

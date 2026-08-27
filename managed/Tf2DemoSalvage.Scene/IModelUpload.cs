@@ -25,4 +25,21 @@ public interface IModelUpload
     /// gets bigger — which is why the caller only calls it when the set actually grew.
     /// </remarks>
     public void UploadModels(EntityModelSet models);
+
+    /// <summary>Whether the last upload is still there to draw with.</summary>
+    /// <remarks>
+    /// **The scene used to REMEMBER this, and the memory kept going stale** (B148, B219). It held a
+    /// bool saying "I have uploaded", which is a belief about the other side of the boundary — and
+    /// anything that discarded the geometry made the belief wrong without touching it.
+    ///
+    /// Three callers of <c>ClearWorld</c> proved that. A map change was paired with a reset; the
+    /// category-view toggle was not, and every model on the map vanished until the viewer was
+    /// restarted; the failed-upload path in <see cref="WorldPresenter"/> was not either, and could
+    /// not be, because it cannot reach the scene to tell it.
+    ///
+    /// **So the question is asked rather than remembered.** The side that owns the geometry is the
+    /// side that knows whether it still has it, and a caller cannot forget to answer honestly. That
+    /// removes the pairing entirely rather than adding a fourth one.
+    /// </remarks>
+    public bool HasModels { get; }
 }
