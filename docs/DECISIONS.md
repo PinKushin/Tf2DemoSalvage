@@ -5838,3 +5838,42 @@ implementation detail to pick.** The audit found the divergence correctly and th
 against the wrong reference — with a citation, which would have made it look settled. Ask which
 mechanism, then cite it. Same family as
 `docs/memory/name-the-reading-you-picked.md`.
+
+---
+
+## D103 — HDR lighting is planned work, not a bug fix; LDR stays until it lands
+
+**Owner-set, 2026-08-27**, on being shown that TF2 ships HDR on by default: *"i think most comp
+players run ldr so i didnt know that tf2 shipped with it on be default, we will need to implement
+that, but its roadmap so write it down"*.
+
+### What was found
+
+Every compiled map carries **both** lighting compiles, and this project reads the LDR one with no
+branch — `BspAmbientLight.Read` takes `LUMP_LEAF_AMBIENT_LIGHTING` (56) and its index (52), and
+`BspLightmaps` takes `LUMP_LIGHTING` (8). The HDR pair (53, 55, 51) is never touched. Measured on
+three maps spanning the era axis, both compiles are present at effectively the same size, and
+`cp_granary`'s are byte-identical (`LightingLumps_AcrossTheEraAxis_AreReported`).
+
+**The LDR reader and the missing tone map are consistent with each other, which is why neither is a
+defect.** `FinalOutput` (`common_ps_fxc.h:345`) scales by `LINEAR_LIGHT_SCALE` before `SRGBOutput`,
+but `viewrender.cpp:2214` sets that scale only under `HDR_TYPE_INTEGER`; under `HDR_TYPE_NONE`
+Source does no tone mapping and overbright light clips. **That is exactly what this renderer does**,
+so as an LDR renderer it is already at parity, and bolting a tone mapper onto the LDR path would
+match neither engine mode.
+
+### The decision
+
+**Implementing HDR is a roadmap item, and it is a fork rather than a patch.** It means reading the
+HDR lumps, and then the tone mapping that HDR obliges — including autoexposure, which is what makes
+walking from shade into sun settle rather than stay blown out. Half of it is worse than neither.
+
+**LDR is not a wrong choice in the meantime, and the owner's reason is the interesting part**: the
+audience this viewer is for largely runs LDR anyway. So the current state is what a competitive
+player's own client looks like, and the gap is against Valve's *default* rather than against what
+these demos were watched in.
+
+**This was not filed as a B-number**, because it is not a defect. It went to the roadmap, and the
+correction that put it there is worth keeping: it arrived while investigating B170 and was briefly
+treated as a candidate fix for it. It is not one — see B170, where only the weapon washes out while
+the arms beside it are lit by the same cube, the same sun and the same tone-map-less output.
