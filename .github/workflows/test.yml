@@ -378,7 +378,7 @@ jobs:
         # gain work added more, and the exact post-merge figure needs a green run to read. Tighten it
         # once there is one.
         run: |
-          ./build/assert-test-count.sh '**/audio.trx' 161 Audio
+          ./build/assert-test-count.sh '**/audio.trx' 170 Audio
           ./build/assert-test-count.sh '**/fonts.trx' 7 Fonts
           ./build/assert-test-count.sh '**/viewer.trx' 101 Viewer
           ./build/assert-test-count.sh '**/rendering.trx' 515 Rendering
