@@ -12141,7 +12141,24 @@ viewer applies the competitive range as though it were the only one.
 Belongs with B165 and D78: these are Valve cvars with Valve names, so they arrive through the config
 rather than as viewer settings invented here.
 
-### B165 — the view keys are constants in menu items, not binds — OPEN
+### B165 — the view keys are constants in menu items, not binds — FIXED 2026-08-26 by B214
+
+**Closed by B214/D101**, which this entry predates and describes exactly. Every `ShortcutKeys` in
+the view now resolves through `KeyBindings`; a grep for a live `ShortcutKeys = Keys.` literal
+returns **zero**, and the only two textual matches left are comments recording the collisions this
+entry is about.
+
+**Its central complaint is answered by construction.** `Keys.F11` appeared twice — full screen and
+the leaf-box view — and WinForms silently gave the key to the later registration. There is no
+`Keys.F11` anywhere in the view now, and duplicate defaults are refused by
+`DefaultBindingConformanceTests` rather than found by eye.
+
+**Recorded because it was found stale rather than fixed-and-closed**, which is worth a moment: it
+sat OPEN for hours after the work that closed it, and was only noticed while listing what to do
+next. A register nobody sweeps grows entries that describe the past. Worth checking the other open
+items against the code before planning from them.
+
+### B165 (original entry)
 
 D78 is the direction; this is the work. Every debug view, lighting mode, wireframe, reflection,
 surface-colour, full-screen and capture key is a literal `ShortcutKeys = Keys.Fn` in `MainForm`,
