@@ -162,3 +162,4 @@
 - [Portable half and adapter half](portable-half-and-adapter-half.md) — view rules in net10.0; only a tiny adapter names the toolkit.
 - [A Panel cannot hold focus](a-panel-cannot-hold-focus.md) — TabStop does nothing; focus never described what the user was doing.
 - [A negative retry is a sleep](a-negative-retry-is-a-sleep.md) — waiting for what must not happen always burns the full window.
+- [vrad key arithmetic is not the lump](vrad-key-arithmetic-is-not-the-lump.md) — measure the compiled map; the compiler's source predicts, it does not report.
