@@ -164,3 +164,4 @@
 - [A negative retry is a sleep](a-negative-retry-is-a-sleep.md) — waiting for what must not happen always burns the full window.
 - [vrad key arithmetic is not the lump](vrad-key-arithmetic-is-not-the-lump.md) — measure the compiled map; the compiler's source predicts, it does not report.
 - [A replace-all is a claim about every site](replace-all-is-a-claim-about-every-site.md) — it matches a PATTERN, not every place that must change.
+- [LINQ is a test tool](linq-is-a-test-tool.md) — never on a hot path; off one, only if it earns its cost.
