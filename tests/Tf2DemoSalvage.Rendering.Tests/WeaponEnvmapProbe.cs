@@ -89,15 +89,33 @@ public sealed class WeaponEnvmapProbe
             $"materials/models/weapons/c_models/{name}.vmt",
         ];
 
+        // **Every candidate that resolves, not the first.** Taking the first reported
+        // `c_items/c_scattergun.vmt` — which exists and is NOT the material the renderer loads —
+        // and so reported the scattergun as declaring no `$envmap` at all, the exact opposite of
+        // the truth. A probe that stops at the first hit is asserting that the first hit is the
+        // right one, which is a guess wearing a measurement's clothes.
+        (string Path, string Text)? found = null;
+
         foreach (string path in candidates)
         {
-            if (archives.Read(path) is { } bytes)
+            if (archives.Read(path) is not { } bytes)
             {
-                return (path, Encoding.UTF8.GetString(bytes));
+                continue;
             }
+
+            string text = Encoding.UTF8.GetString(bytes);
+
+            TestContext.Out.WriteLine($"--- resolved {path}");
+
+            foreach (string line in Interesting(text))
+            {
+                TestContext.Out.WriteLine($"      {line}");
+            }
+
+            found ??= (path, text);
         }
 
-        return null;
+        return found;
     }
 
     /// <summary>
