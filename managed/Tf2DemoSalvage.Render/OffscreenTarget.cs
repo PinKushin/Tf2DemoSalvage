@@ -222,6 +222,10 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// The debug views to apply — <c>mat_drawflat</c> and its neighbours. Passing these at all is
     /// what makes B187 testable: a posed model was previously always drawn with them off.
     /// </param>
+    /// <param name="phong">
+    /// Valve's <c>mat_phong</c>, default 1. Present so a test can remove the specular term and
+    /// measure what is left, which is the manipulation B170 turns on.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The model path is not the world path and the difference has hidden a defect.** Every
@@ -240,7 +244,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         bool bothSides = false,
         SunLight? sun = null,
         Fullbright fullbright = Fullbright.Off,
-        DebugModes debug = default)
+        DebugModes debug = default,
+        bool phong = true)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -279,7 +284,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         // That is the same omission `Device3D.DrawViewmodels` had, and it is the reason the defect
         // could sit in the viewer with a full offscreen render suite in place: the harness reproduced
         // the bug rather than exposing it.
-        _world.SetCamera(_device, _context, camera, surfaceColours: false, specular: true, fullbright, debug);
+        _world.SetCamera(
+            _device, _context, camera, surfaceColours: false, specular: true, fullbright, debug, phong);
 
         Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
 

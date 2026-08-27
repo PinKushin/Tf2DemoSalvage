@@ -84,6 +84,71 @@ public sealed class PhongRenderTests
             "a specular highlight is strongest when the light lies along the reflected view");
     }
 
+    /// <summary>Whether <c>mat_phong 0</c> actually removes the highlight.</summary>
+    /// <remarks>
+    /// **The instrument B170 needed, and the owner asked for it by name**: *"another test might just
+    /// be to turn phong off, it is a setting which can be turned off"*. It is a manipulation rather
+    /// than a measurement — the cheapest way to decide whether phong is what washes out a modern
+    /// weapon is to remove it and look.
+    ///
+    /// `mat_phong` is a real convar, default **1**, read from the game's own `cvarlist.log`:
+    /// <c>mat_phong : 1 : :</c>. This viewer had `mat_specular` (cubemap reflections) and no
+    /// equivalent for phong at all, so the experiment could not be run.
+    ///
+    /// **A BYSTANDER carries half the claim.** `mat_phong 0` must remove the highlight from a
+    /// material that asks for phong and do nothing whatever to one that does not. Asserting only the
+    /// first would pass against a switch that dimmed the entire renderer, which is a different and
+    /// much worse bug wearing the same reading.
+    ///
+    /// **The swing is not asserted to reach zero**, and the test above this one records why: N·L
+    /// changes between the two light directions, so the diffuse legitimately moves. Measured
+    /// 2026-08-27, the phong material's centre pixel went from `(116, 118, 122)` to `(28, 29, 33)`
+    /// against a `(3, 3, 3)` baseline — so the specular was roughly three quarters of everything
+    /// that surface was showing.
+    /// </remarks>
+    [Test]
+    public void PhongRender_WithPhongOff_LeavesNoHighlight()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        if (Assets is not { } assets ||
+            Phonged(assets) is not { } lit ||
+            Matte(assets) is not { } dull)
+        {
+            Assert.Ignore("the map or the game is not installed, or the pair does not exist");
+            return;
+        }
+
+        int phongedOn = Swing(target, assets, lit);
+        int phongedOff = Swing(target, assets, lit, phong: false);
+
+        int matteOn = Swing(target, assets, dull);
+        int matteOff = Swing(target, assets, dull, phong: false);
+
+        TestContext.Out.WriteLine(
+            $"swing with phong on {phongedOn}, off {phongedOff}; " +
+            $"matte bystander on {matteOn}, off {matteOff}");
+
+        // The control: the highlight has to be there before its removal means anything.
+        phongedOn.ShouldBeGreaterThan(
+            0, "the highlight must be present with mat_phong 1 before its removal can be measured");
+
+        phongedOff.ShouldBeLessThan(
+            phongedOn, "mat_phong 0 must remove the specular term from a material that asks for it");
+
+        // **The bystander, predicted exactly rather than loosely.** A material with no `$phong` has
+        // no specular to remove, so the switch must leave it bit-for-bit alone — which is what
+        // separates "removed the highlight" from "dimmed everything".
+        matteOff.ShouldBe(
+            matteOn, "mat_phong must not touch a material that never asked for phong");
+    }
+
     [Test]
     public void PhongRender_AMaterialWithoutPhong_DoesNotMoveWithTheLight()
     {
@@ -367,10 +432,10 @@ public sealed class PhongRenderTests
                 assets.Textures[index.Value] is not null);
 
     /// <summary>How much a material's centre pixel changes between the two light directions.</summary>
-    private static int Swing(OffscreenTarget target, MapAssets assets, int material)
+    private static int Swing(OffscreenTarget target, MapAssets assets, int material, bool phong = true)
     {
-        (int R, int G, int B) facing = Draw(target, assets, material, (0f, 1f, 0f));
-        (int R, int G, int B) across = Draw(target, assets, material, (0f, 0f, -1f));
+        (int R, int G, int B) facing = Draw(target, assets, material, (0f, 1f, 0f), phong: phong);
+        (int R, int G, int B) across = Draw(target, assets, material, (0f, 0f, -1f), phong: phong);
 
         return Math.Abs(
             (facing.R + facing.G + facing.B) - (across.R + across.G + across.B));
@@ -387,7 +452,8 @@ public sealed class PhongRenderTests
         MapAssets assets,
         int material,
         (float X, float Y, float Z)? travelling,
-        (float X, float Y, float Z)? facing = null)
+        (float X, float Y, float Z)? facing = null,
+        bool phong = true)
     {
         (float X, float Y, float Z) normal = facing ?? (0f, -1f, 0f);
 
@@ -441,7 +507,8 @@ public sealed class PhongRenderTests
             // flattens it toward one.
             sun: travelling is { } direction
                 ? new SunLight(1f, 1f, 1f, direction.X, direction.Y, direction.Z)
-                : null);
+                : null,
+            phong: phong);
 
         return target.PixelAt(32, 32);
     }

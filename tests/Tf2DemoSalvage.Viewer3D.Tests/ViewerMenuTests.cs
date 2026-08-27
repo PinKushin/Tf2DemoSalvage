@@ -62,15 +62,20 @@ public sealed class ViewerMenuTests
     [Test]
     public void ViewMenu_AfterTheMove_HasEveryItemItHadBefore()
     {
-        // **An exact count, not a floor.** The View menu is where all twelve toggles live, and this
-        // is the one assertion that fails if the move dropped one and nothing else noticed. Twelve
-        // was measured from the code being moved, not chosen.
+        // **An exact count, not a floor.** The View menu is where the toggles live, and this is the
+        // one assertion that fails if the move dropped one and nothing else noticed. Twelve was
+        // measured from the code being moved, not chosen.
+        //
+        // **Thirteen since 2026-08-27**, when `mat_phong` was added beside `mat_specular` — a real
+        // Valve convar this viewer had no equivalent for, which is why B170 could not be tested by
+        // the one manipulation that would settle it. The count RISING for a named reason is the
+        // outcome this test is for; a fall, or a rise nobody can name, is the defect it guards.
         using MainForm form = new();
 
         ToolStripMenuItem view = form.MainMenuStrip!.Items.OfType<ToolStripMenuItem>()
             .Single(item => item.Name == MainForm.ViewMenuId);
 
-        view.DropDownItems.Count.ShouldBe(12);
+        view.DropDownItems.Count.ShouldBe(13);
     }
 
     [Test]

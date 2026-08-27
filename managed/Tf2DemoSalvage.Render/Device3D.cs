@@ -564,7 +564,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             _worldCamera?.Colours ?? false,
             _specular,
             _fullbright,
-            _debug);
+            _debug,
+            _phong);
         _context.OMSetDepthStencilState(_depthOn, 0);
 
         // **No depth clear, which is the engine's arrangement.** Source compresses the viewmodel
@@ -670,7 +671,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             restore.Colours,
             _specular,
             _fullbright,
-            _debug);
+            _debug,
+            _phong);
     }
 
     /// <summary>Gives the HUD its glyph atlas, replacing whichever one it had.</summary>
@@ -1030,7 +1032,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         _world.DrawEntities = _drawEntities;
 
         _world.SetCamera(
-            _device, _context, matrix, surfaceColours, _specular, _fullbright, _debug);
+            _device, _context, matrix, surfaceColours, _specular, _fullbright, _debug, _phong);
 
         // Remembered so the viewmodel pass can put it back. The world's camera is set on a view
         // CHANGE rather than per frame, so anything that overwrites it has to restore it or the
@@ -1086,6 +1088,35 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     }
 
     private bool _specular = true;
+
+    /// <summary>Whether materials declaring <c>$phong</c> get their highlight — <c>mat_phong</c>.</summary>
+    /// <remarks>
+    /// **Valve's convar, default 1**, read from the game's own shipped list: <c>mat_phong : 1 : :</c>.
+    /// It carries no flags and no help text there, which is why the description here is this
+    /// project's own rather than a quotation.
+    ///
+    /// **The switch exists because the term is large and additive.** `$phongboost` is described by
+    /// Valve as an "overbrightening factor (specular mask channel should be authored to account for
+    /// this)", so a material pairs a big boost with a small mask — and anything that reads the mask
+    /// wrong lands the boost raw. Measured on one `cp_process_final` material, the highlight was
+    /// roughly three quarters of the surface's whole brightness, so "is phong doing this" is a
+    /// question worth being able to answer by looking (B170).
+    ///
+    /// Re-sent immediately for the same reason <see cref="Specular"/> is: this is a shader constant
+    /// the world camera carries, and the camera is set on a view CHANGE rather than per frame.
+    /// </remarks>
+    public bool Phong
+    {
+        get => _phong;
+
+        set
+        {
+            _phong = value;
+            ReapplyCamera();
+        }
+    }
+
+    private bool _phong = true;
 
     /// <summary>Which <c>mat_fullbright</c> substitution the world draws with.</summary>
     /// <remarks>

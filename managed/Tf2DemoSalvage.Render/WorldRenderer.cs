@@ -606,10 +606,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // whatever was highest, which is why the owner's verdict was that it "never worked in
             // the first place".
             //
-            // `surfaceColours.y` is written zero and read by nothing. The slot stays so the constant
-            // buffer's register layout does not shift, and it is still WRITTEN rather than skipped:
-            // the tail of a mapped buffer holds whatever the last frame put there
-            // (`docs/memory/padding-is-not-zero.md`).
+            // `surfaceColours.y` is `mat_phong` now (B170). It was reserved and read by nothing when
+            // the height cut went, and it is the right home for a material-feature switch because
+            // this register already holds `mat_specular` and `mat_fullbright`. It is still always
+            // WRITTEN rather than skipped: the tail of a mapped buffer holds whatever the last frame
+            // put there (`docs/memory/padding-is-not-zero.md`), and a component that is sometimes
+            // not written is a switch that sometimes turns itself on.
 
             // **Multiplied for UnLitTwoTexture, mixed by vertex alpha for everything else.** Valve's
             // shader is `baseColor * baseColor2 * g_DiffuseModulation`, and a capture point's beam
@@ -995,7 +997,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // model in this renderer — so a highlight appears where the sun reaches and nowhere
             // else. That is a smaller effect than TF2's, and it is the honest one to draw with what
             // is decoded: a fabricated light would put highlights where no light is.
-            if (phongControl.z > 0.5f && sunColour.w > 0.5f && eyePosition.w > 0.5f)
+            // `surfaceColours.y` is mat_phong, and it gates the whole term rather than scaling it:
+            // Valve's switch removes the feature, it does not attenuate it.
+            if (surfaceColours.y > 0.5f &&
+                phongControl.z > 0.5f && sunColour.w > 0.5f && eyePosition.w > 0.5f)
             {
                 float3 toEye = normalize(eyePosition.xyz - input.wpos);
                 float3 phongNormal = normalize(input.nrm);
@@ -2695,6 +2700,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// Valve's per-surface debug visualisations — <c>mat_drawflat</c>, <c>mat_luxels</c> and
     /// <c>mat_normalmaps</c>. Packed into one shader register, as Valve packs its own.
     /// </param>
+    /// <param name="phong">
+    /// Valve's <c>mat_phong</c>, default 1 — whether materials declaring <c>$phong</c> get their
+    /// specular highlight at all. The same kind of switch as <paramref name="specular"/>: a
+    /// material feature turned off wholesale, not a debug visualisation.
+    /// </param>
     /// <exception cref="ArgumentException"><paramref name="matrix"/> is not sixteen floats.</exception>
     /// <remarks>
     /// **This is what a resize costs now.** The geometry is uploaded in world coordinates and never
@@ -2709,7 +2719,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         bool surfaceColours = false,
         bool specular = true,
         Fullbright fullbright = Fullbright.Off,
-        DebugModes debug = default)
+        DebugModes debug = default,
+        bool phong = true)
     {
         ArgumentNullException.ThrowIfNull(matrix);
 
@@ -2751,8 +2762,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
             .. matrix,
             surfaceColours ? 1f : 0f,
 
-            // Reserved, written zero. Was the height cut (B213).
-            0f,
+            // **`mat_phong`, which took the slot the height cut left** (B213 reserved it, B170 used
+            // it). It sits beside `mat_specular` because it is the same kind of switch — a material
+            // feature turned off wholesale, not a debug view — and the register was already the one
+            // holding those.
+            phong ? 1f : 0f,
             specular ? 1f : 0f,
             (float)fullbright,
             eye.X, eye.Y, eye.Z, hasEye,

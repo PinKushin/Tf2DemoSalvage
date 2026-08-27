@@ -101,6 +101,9 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>Automation id of the reflections toggle — Valve's <c>mat_specular</c>.</summary>
     public const string SpecularItemId = "SpecularMenuItem";
 
+    /// <summary>Automation id of the highlights toggle — Valve's <c>mat_phong</c>.</summary>
+    public const string PhongItemId = "PhongMenuItem";
+
     /// <summary>Automation id prefix of the lighting submenu — Valve's <c>mat_fullbright</c>.</summary>
     /// <remarks>
     /// Each item's id is this plus its <see cref="Fullbright"/> value, so automation can name a
@@ -1013,6 +1016,7 @@ internal class MainForm : Form, IFrameSteps
                 SetDrawEntities: SetDrawEntities,
                 SetDebugMode: SetDebugMode,
                 SetSpecular: SetSpecular,
+                SetPhong: SetPhong,
                 Screenshot: CaptureViewportToFile),
             _settings,
 
@@ -2521,6 +2525,17 @@ internal class MainForm : Form, IFrameSteps
     internal void SetSpecular(bool on) =>
         SetRenderToggle("mat_specular", on, static (device, value) => device.Specular = value);
 
+    /// <summary>Valve's <c>mat_phong</c>.</summary>
+    /// <param name="on">Whether materials asking for <c>$phong</c> get their highlight.</param>
+    /// <remarks>
+    /// **A repaint, like `mat_specular`** — a shader constant on the world camera, no geometry
+    /// touched. Added for B170, where the question "is the highlight what washes out a modern
+    /// weapon" had no instrument: this viewer had `mat_specular` for cubemap reflections and
+    /// nothing at all for phong, so the one manipulation that would settle it could not be made.
+    /// </remarks>
+    internal void SetPhong(bool on) =>
+        SetRenderToggle("mat_phong", on, static (device, value) => device.Phong = value);
+
     /// <summary>Turns one of Valve's per-surface debug views on or off.</summary>
     /// <param name="apply">Which flag the menu item sets, supplied by the item itself.</param>
     /// <param name="on">Whether to turn it on.</param>
@@ -2803,6 +2818,13 @@ internal class MainForm : Form, IFrameSteps
                 _viewport.ClientSize.Height,
                 _loggers);
             _device.VerticalSync = _settings.VerticalSync;
+
+            // **`mat_phong` from the config, applied where `mat_vsync` is and for the same reason.**
+            // `SetRenderToggle` no-ops while there is no device, so a config read before this point
+            // reaches nothing — and `Device3D._phong` defaults to ON, so `mat_phong 0` would be
+            // silently dropped rather than visibly failing. That is the null-object shape recorded
+            // in `docs/memory/a-null-object-default-hides-a-missed-wiring.md`.
+            _device.Phong = _settings.Phong;
 
             // **Where packed geometry goes, and forgetting it draws NOTHING** (B193). Without this
             // the scene packs every model, poses it, transforms it correctly and submits it against
