@@ -2,6 +2,7 @@ using System.IO;
 
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
+using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
 
@@ -45,7 +46,7 @@ public sealed class ViewmodelDebugViewRenderTests
     {
         get
         {
-            if (Tf2Install.Folder is not { } tf ||
+            if (GameInstall.Root is not { } tf ||
                 !File.Exists(Path.Combine(tf, "maps", "cp_process_final.bsp")))
             {
                 return null;

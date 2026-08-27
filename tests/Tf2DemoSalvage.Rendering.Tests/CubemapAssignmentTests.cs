@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
+using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
 
@@ -267,7 +268,7 @@ public sealed class CubemapAssignmentTests
     /// <summary>The reference map, loaded through the ordinary path, or skips.</summary>
     private static (MapAssets Assets, PakFile Pak, GameArchives Archives, byte[] Map) LoadTheMap()
     {
-        if (Tf2Install.Folder is not { } game)
+        if (GameInstall.Root is not { } game)
         {
             Assert.Ignore("Team Fortress 2 is not installed; set TF2_FOLDER to run this.");
 

@@ -5,6 +5,7 @@ using System.Linq;
 
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
+using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
 
@@ -171,7 +172,7 @@ public sealed class SkinnedModelCubemapTests
     }
 
     private static MapAssets? Assets =>
-        Tf2Install.Folder is { } tf && File.Exists(Path.Combine(tf, "maps", "cp_process_final.bsp"))
+        GameInstall.Root is { } tf && File.Exists(Path.Combine(tf, "maps", "cp_process_final.bsp"))
             ? MapCache.Load()
             : null;
 
