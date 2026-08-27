@@ -321,7 +321,7 @@ run Tf2DemoSalvage.Scene.Tests    scene     197
 # 161: SoundCacheTests (10), out of MainForm.Sample and the three fields beside it. The engine keeps
 # its sample cache behind IEngineSound (IEngineSound.h:89-91) and game code asks it, so a window
 # owning one was ours alone — and none of it had a test.
-run Tf2DemoSalvage.Audio.Tests    audio     170
+run Tf2DemoSalvage.Audio.Tests    audio     180
 
 # The presenter suite (D62). Sixteen tests, ~24 ms, no window and no desktop lock — which is the
 # whole point: this logic lived in MainForm and could only be reached by driving a real form, so
