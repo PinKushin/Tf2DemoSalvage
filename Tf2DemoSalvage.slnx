@@ -24,6 +24,7 @@
     <Project Path="tests/Tf2DemoSalvage.Fuzz/Tf2DemoSalvage.Fuzz.csproj" />
     <Project Path="tests/Tf2DemoSalvage.Logging.Tests/Tf2DemoSalvage.Logging.Tests.csproj" />
     <Project Path="tests/Tf2DemoSalvage.Presentation.Tests/Tf2DemoSalvage.Presentation.Tests.csproj" />
+    <Project Path="tests/Tf2DemoSalvage.Rendering.Tests/Tf2DemoSalvage.Rendering.Tests.csproj" />
     <Project Path="tests/Tf2DemoSalvage.Scene.Tests/Tf2DemoSalvage.Scene.Tests.csproj" />
     <Project Path="tests/Tf2DemoSalvage.SdkReference/Tf2DemoSalvage.SdkReference.csproj" />
     <Project Path="tests/Tf2DemoSalvage.Viewer3D.Tests/Tf2DemoSalvage.Viewer3D.Tests.csproj" />

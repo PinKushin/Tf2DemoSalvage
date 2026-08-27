@@ -620,7 +620,15 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     113
 # config), one says that where we speak TF2's command we start on TF2's key, and one says every
 # default resolves to a real key. The third caught a live defect on its first run -- Enum.TryParse
 # accepts a numeric string, so "1" resolved to Keys.LButton.
-run Tf2DemoSalvage.Viewer3D.Tests viewer    616
+# **616 -> 116 on 2026-08-26, and this is a SPLIT rather than a loss** (B184). 92 of the 113 files
+# here referenced nothing Windows-only and were pinned to `net10.0-windows` by the project file
+# alone; they now live in `Tf2DemoSalvage.Rendering.Tests` on plain net10.0. The arithmetic is the
+# check that nothing went missing: 500 + 116 = 616, which is exactly what this project ran before the move.
+#
+# What stays is what genuinely needs a Form or a device: MainForm, the menu, the playlist filter,
+# the binding conformance suite, FreeFlight, PngWriter, full screen.
+run Tf2DemoSalvage.Rendering.Tests rendering 500
+run Tf2DemoSalvage.Viewer3D.Tests viewer    116
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."

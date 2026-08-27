@@ -232,6 +232,18 @@ public sealed class FirstPersonUiTests
         // `FirstPerson_TheViewmodel_IsNotDrawnInTheFreeCamera` is the other half, and together they
         // say the viewmodel appears when the view calls for it and not otherwise — which neither
         // said alone.
+        //
+        // **The guard came back after CI went red** (2026-08-26). Extracting this from
+        // `FirstPerson_Capture` left `RequireTheGame` behind in the original, so on the runner —
+        // which has no TF2 — it waited fifteen seconds for a game asset that cannot exist and failed
+        // the whole workflow. Its siblings all skip there, which is the tell: three `Skipped` lines
+        // and one `Failed` in the same log.
+        //
+        // This is not gating a failure away. A viewmodel IS a game asset, so with no install there
+        // is nothing to draw and nothing to assert — the distinction
+        // `docs/memory/ci-is-the-machine-without-tf2.md` exists to keep.
+        ViewerSession.RequireTheGame();
+
         int before = Viewer.Count("viewmodel pass: drawing");
 
         PressSwitchCameraMode();

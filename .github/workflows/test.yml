@@ -314,6 +314,13 @@ jobs:
         # panel gets a window handle.
         run: dotnet test tests/Tf2DemoSalvage.Viewer3D.Tests -c Release --logger 'trx;LogFileName=viewer.trx'
 
+      - name: Rendering
+        # The drawn scene's own suite, split out of Viewer3D.Tests by B184. Plain net10.0, so it
+        # needs no Windows at all — it is here beside the viewer only because this job already has
+        # the corpus and the SDK it reads. It can move to the Linux job whenever that is convenient,
+        # which is the entire point of freeing it from the Windows TFM.
+        run: dotnet test tests/Tf2DemoSalvage.Rendering.Tests -c Release --logger 'trx;LogFileName=rendering.trx'
+
       - name: Audio
         run: dotnet test tests/Tf2DemoSalvage.Audio.Tests -c Release --logger 'trx;LogFileName=audio.trx'
 
@@ -373,7 +380,8 @@ jobs:
         run: |
           ./build/assert-test-count.sh '**/audio.trx' 161 Audio
           ./build/assert-test-count.sh '**/fonts.trx' 7 Fonts
-          ./build/assert-test-count.sh '**/viewer.trx' 616 Viewer
+          ./build/assert-test-count.sh '**/viewer.trx' 116 Viewer
+          ./build/assert-test-count.sh '**/rendering.trx' 500 Rendering
           ./build/assert-test-count.sh '**/viewer-ui.trx' 14 ViewerUi
           ./build/assert-test-count.sh '**/corpus.trx' 113 Corpus
 
