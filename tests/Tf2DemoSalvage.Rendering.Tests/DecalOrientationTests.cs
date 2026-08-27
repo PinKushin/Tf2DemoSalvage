@@ -115,7 +115,6 @@ public sealed class DecalOrientationTests
             LightmapAtlas.Pack([]),
             [],
             null,
-            false,
             [CaptureZone()]);
 
         world.Decals.Count.ShouldBe(1, "the overlay lies flat on the floor, so it should be placed");

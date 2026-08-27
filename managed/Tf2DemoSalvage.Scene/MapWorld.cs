@@ -52,7 +52,6 @@ public static class MapWorldBuilder
     /// <param name="props">The map's placed models, in world space.</param>
     /// <param name="area">Ground-plane area to keep, or null for all of it.</param>
     /// <param name="overlays">The map decals, or null to draw none.</param>
-    /// <param name="categoryColours">Flat colours by surface kind instead of the map's own light.</param>
     /// <param name="models">The map's models, so entity brushwork can be counted apart from the world.</param>
     /// <param name="loggers">
     /// Where the build reports what it made and dropped, or <c>null</c> for nowhere. A factory
@@ -75,7 +74,6 @@ public static class MapWorldBuilder
         LightmapAtlas atlas,
         IReadOnlyList<PropVertex> props,
         MapBounds? area,
-        bool categoryColours = false,
         IReadOnlyList<BspOverlay>? overlays = null,
         IReadOnlyList<BspModel>? models = null,
         ILoggerFactory? loggers = null)
@@ -262,11 +260,10 @@ public static class MapWorldBuilder
 
                 foreach (SurfaceVertex corner in subdivided)
                 {
-                    (float red, float green, float blue) = categoryColours
-                        ? CategoryColour(SurfaceCategory.Terrain)
-                        : (1f, 1f, 1f);
-
-                    Append(vertices, corner, rectangle, lightStep, red, green, blue);
+                    // **White, always** (B219). The category's colour is chosen at draw time from
+                    // `WorldBatch.Category` now, so nothing here depends on which view is on and
+                    // switching views rebuilds nothing.
+                    Append(vertices, corner, rectangle, lightStep, 1f, 1f, 1f);
                 }
 
                 if (subdivided.Count > 0)
@@ -281,9 +278,8 @@ public static class MapWorldBuilder
             // A fan from the first corner: faces out of a BSP are convex by construction.
             IReadOnlyList<SurfaceVertex> corners = surface.Vertices;
 
-            (float brushRed, float brushGreen, float brushBlue) = categoryColours
-                ? CategoryColour(SurfaceCategory.Brush)
-                : (1f, 1f, 1f);
+            // White, always — the batch carries the category and the renderer picks its colour.
+            (float brushRed, float brushGreen, float brushBlue) = (1f, 1f, 1f);
 
             for (int index = 1; index + 1 < corners.Count; index++)
             {
@@ -305,7 +301,7 @@ public static class MapWorldBuilder
         Dictionary<int, List<WorldVertex>> propsByMaterial = [];
 
         (int propTriangles, float furthestPropX, float furthestPropY) =
-            AppendProps(props, propsByMaterial, area, categoryColours);
+            AppendProps(props, propsByMaterial, area);
 
         // **How many of those faces belong to a moving entity rather than to the world.** A door,
         // a lift and a payload cart are each their own BSP model, and their faces sit in the same
@@ -394,7 +390,7 @@ public static class MapWorldBuilder
 
         List<WorldBatch> decals = AppendDecals(
             factory.CreateLogger("map"),
-            all, overlays, materials, surfaces, atlas, area, categoryColours);
+            all, overlays, materials, surfaces, atlas, area);
 
         // **After the decals in the buffer as well as in the pass list**, so the three runs read in
         // the order they are drawn. Nothing requires it — a batch names its own range — but a vertex
@@ -445,12 +441,10 @@ public static class MapWorldBuilder
         IReadOnlyList<BspMaterial> materials,
         IReadOnlyList<BspSurface> surfaces,
         LightmapAtlas atlas,
-        MapBounds? area,
-        bool categoryColours)
+        MapBounds? area)
     {
-        (float red, float green, float blue) = categoryColours
-            ? CategoryColour(SurfaceCategory.Overlay)
-            : (1f, 1f, 1f);
+        // White, always — an overlay's batch is tagged `Overlay` and the renderer colours it.
+        (float red, float green, float blue) = (1f, 1f, 1f);
 
         List<WorldBatch> decals = [];
 
@@ -690,8 +684,7 @@ public static class MapWorldBuilder
     private static (int Triangles, float FurthestX, float FurthestY) AppendProps(
         IReadOnlyList<PropVertex> props,
         Dictionary<int, List<WorldVertex>> byMaterial,
-        MapBounds? area,
-        bool categoryColours)
+        MapBounds? area)
     {
         // **Counted on the way OUT, because the count on the way in cannot see a cull.** The world
         // log reported `props.Count / 3` for months, which is what this method was HANDED — so
@@ -740,13 +733,11 @@ public static class MapWorldBuilder
             {
                 PropVertex vertex = props[corner + offset];
 
-                SurfaceCategory category = vertex.MaterialIndex < 0
-                    ? SurfaceCategory.Missing
-                    : SurfaceCategory.Prop;
-
-                (float red, float green, float blue) = categoryColours
-                    ? CategoryColour(category)
-                    : (vertex.Red, vertex.Green, vertex.Blue);
+                // **A prop keeps its own baked lighting, always** (B219). This slot is a static
+                // prop's `.vhv` vertex lighting, and the category view used to overwrite it — which
+                // is exactly why switching the view had to rebuild. The category now rides on the
+                // batch instead, so the two no longer compete for the same three floats.
+                (float red, float green, float blue) = (vertex.Red, vertex.Green, vertex.Blue);
 
                 Append(
                     vertices,
@@ -911,34 +902,11 @@ public static class MapWorldBuilder
             "toolsinvisibledisplacement", StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>Flat colours naming what a surface IS, for the diagnostic view.</summary>
-    /// <remarks>
-    /// **Answers in one glance what a textured picture hides.** Several defects this session looked
-    /// like art direction: terrain that was not drawn, a material dropped by a category rule, props
-    /// standing in for holes. "Is anything here at all, and what kind of thing is it" is a different
-    /// question from "does this look right", and it needs a different picture.
-    /// </remarks>
-    private static (float Red, float Green, float Blue) CategoryColour(SurfaceCategory category) =>
-        category switch
-        {
-            SurfaceCategory.Terrain => (0.25f, 0.85f, 0.35f),
-            SurfaceCategory.Prop => (1f, 0.6f, 0.15f),
-            // Violet, chosen to sit away from all four of the others rather than to look nice: an
-            // overlay lies ON brushwork and next to props, so it has to be told from grey-blue and
-            // orange at a glance and at a distance.
-            SurfaceCategory.Overlay => (0.62f, 0.4f, 0.92f),
-            // **White, so Valve's chequer shows in its own colours.** The renderer binds the
-            // magenta-and-black missing-material chequer under this category instead of the
-            // measurement grid, and a tint would only muddy a pattern that is already the most
-            // recognisable "this is broken" signal in Source. White multiplies to no change.
-            //
-            // This is what the collision with Hammer's default resolved to. Magenta belongs to
-            // Hammer's uncoloured entity; an unresolved material is a CHEQUER rather than a colour,
-            // so the two never needed the same hue — they are told apart by pattern, and both are
-            // Valve's rather than one being ours.
-            SurfaceCategory.Missing => (1f, 1f, 1f),
-            _ => (0.55f, 0.6f, 0.72f),
-        };
+    // **`CategoryColour` moved to `WorldRenderer` on 2026-08-27** (B219). The colours are unchanged
+    // and their reasoning travelled with them — including why `Missing` is white, so Valve's
+    // magenta-and-black chequer shows in its own colours rather than being muddied by a tint. What
+    // changed is WHEN they are chosen: at draw time from the batch's category, rather than baked
+    // into vertices at build time, which is what made switching the view a rebuild.
 
     /// <summary>A surface's material, or -1 when it names one the map does not have.</summary>
     private static int materialIndex(BspSurface surface) => surface.MaterialIndex;

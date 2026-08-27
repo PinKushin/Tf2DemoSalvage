@@ -30,7 +30,6 @@ public sealed class LoadedMap
         MapAssets? assets,
         LevelLighting lighting,
         GameContent game,
-        bool colourByClass,
         string? problem)
     {
         Outline = outline;
@@ -39,11 +38,17 @@ public sealed class LoadedMap
         Lighting = lighting;
         Problem = problem;
         _game = game;
-        _colourByClass = colourByClass;
     }
 
     private readonly GameContent _game;
-    private readonly bool _colourByClass;
+
+    // **`_colourByClass` went on 2026-08-27** (B219). It survived only to reach `MapWorldBuilder`,
+    // which baked a flat colour per surface kind into every vertex — so the category view could not
+    // be switched without rebuilding the map. The batch carries its category now and the renderer
+    // picks the colour, so the world build no longer cares which view is on.
+    //
+    // `Read` still takes the flag, because brush ENTITY tints are baked separately and have not
+    // moved yet.
 
     /// <summary>The play area's shape, for framing a camera on it.</summary>
     public MapOutline Outline { get; }
@@ -114,7 +119,7 @@ public sealed class LoadedMap
 
         LevelLighting lighting = LevelLighting.From(level, renderLog);
 
-        LoadedMap map = new(outline, level, null, lighting, game, colourByClass, null);
+        LoadedMap map = new(outline, level, null, lighting, game, null);
 
         // **The textured world is its own failure, and losing it costs the textures rather than the
         // map.** The outline still draws and the demo still plays.
@@ -161,7 +166,7 @@ public sealed class LoadedMap
 
             Report(level, assets, textureQuality, assetLog);
 
-            return new LoadedMap(outline, level, assets, lighting, game, colourByClass, null);
+            return new LoadedMap(outline, level, assets, lighting, game, null);
         }
         catch (Exception failure) when (failure is IOException or InvalidDataException)
         {
@@ -173,7 +178,6 @@ public sealed class LoadedMap
                 null,
                 lighting,
                 game,
-                colourByClass,
                 "Map content unavailable: " + failure.Message);
         }
     }
@@ -227,7 +231,6 @@ public sealed class LoadedMap
             assets.Lightmaps,
             assets.Props,
             area: null,
-            _colourByClass,
             Level.Overlays,
             Level.BrushModels,
             loggers);
