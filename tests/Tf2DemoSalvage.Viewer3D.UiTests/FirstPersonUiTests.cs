@@ -124,14 +124,28 @@ public sealed class FirstPersonUiTests
             Viewer.Find(MainForm.PlaylistId).Focus();
 
             int before = Viewer.Count(FollowingRecorded);
+            int frames = Viewer.Count("viewmodel pass skipped");
 
             PressSwitchCameraMode();
 
+            // **Synchronised on a frame rather than on a clock**, which is the rule and also three
+            // seconds cheaper. This waited out a fixed three-second window for something that must
+            // not happen — a wait that pays its full cost on every green run, and which "the viewer
+            // has frozen" satisfies just as well as "the key was correctly ignored".
+            //
+            // `viewmodel pass skipped` is written once per frame while the camera is NOT
+            // first-person, so waiting for it to advance proves the app processed the press and is
+            // still drawing the free camera. Then the negative means something.
             Retry.WhileFalse(
-                () => Viewer.Count(FollowingRecorded) > before,
-                TimeSpan.FromSeconds(3)).Result
-                .ShouldBeFalse(
-                    "the playlist keeps Space for type-ahead, so the camera must not switch");
+                () => Viewer.Count("viewmodel pass skipped") > frames,
+                TimeSpan.FromSeconds(10),
+                throwOnTimeout: true,
+                timeoutMessage:
+                    "No free-camera frame was drawn after the press, so this test cannot tell a "
+                    + "correctly ignored key from a viewer that stopped rendering.");
+
+            Viewer.Count(FollowingRecorded).ShouldBe(
+                before, "the playlist keeps Space for type-ahead, so the camera must not switch");
         }
         finally
         {
@@ -167,7 +181,92 @@ public sealed class FirstPersonUiTests
     }
 
     [Test]
-    public void FirstPerson_Capture_WritesAPictureForSomebodyToLookAt()
+    public void FirstPerson_TheViewmodel_IsNotDrawnInTheFreeCamera()
+    {
+        // **The negative nobody was asserting**, and it exists because a dead wait was found where
+        // this belongs. `FirstPerson_Capture` waited ten seconds for a viewmodel to appear *before*
+        // switching to first person — a condition that can never be true there — on a log line the
+        // viewer does not write. It cost half the suite's runtime and checked nothing.
+        //
+        // The owner named both the symptom and the fix: *"the stalls are not when the app in in
+        // first person"*, and *"that test either needs to be changed to actually check something
+        // that isnt being checked anywher else, or ripped out and we can replace it with a test
+        // that actually tests something novel"*. Every other viewmodel test in this file asserts it
+        // DOES draw; none asserted it stops.
+        //
+        // **The control is `skipped`, and without it this test is worthless.** "No new viewmodel
+        // draws" is also satisfied by a viewer that has stopped rendering, has crashed, or never got
+        // to the pass at all. `viewmodel pass skipped: ... camera False` is written once per frame
+        // by the pass itself, so waiting for it to advance proves three things at once: frames are
+        // flowing, the pass ran, and the camera is genuinely not first-person.
+        //
+        // **Synchronised on that rather than on a clock**, so it costs a frame instead of a timeout.
+        const string Skipped = "viewmodel pass skipped";
+        const string Drawing = "viewmodel pass: drawing";
+
+        int drawnBefore = Viewer.Count(Drawing);
+        int skippedBefore = Viewer.Count(Skipped);
+
+        Retry.WhileFalse(
+            () => Viewer.Count(Skipped) > skippedBefore,
+            TimeSpan.FromSeconds(10),
+            throwOnTimeout: true,
+            timeoutMessage:
+                "The viewmodel pass never reported skipping a frame, so either nothing is being "
+                + "drawn or the viewer is already in first person — and this test cannot measure "
+                + "either way.");
+
+        Viewer.Count(Drawing).ShouldBe(
+            drawnBefore,
+            "the viewmodel must not be drawn while the free camera is looking at the map");
+    }
+
+    [Test]
+    public void FirstPerson_TheViewmodel_IsDrawnAfterSwitchingToFirstPerson()
+    {
+        // **The positive half of the pair**, extracted from the old capture test (2026-08-26). It was
+        // the one genuinely novel assertion buried in a test that otherwise duplicated
+        // `ViewportPictureUiTests` and took two screenshots nobody looked at.
+        //
+        // It needs no screenshot at all: the pass reports what it drew, so ask it.
+        // `FirstPerson_TheViewmodel_IsNotDrawnInTheFreeCamera` is the other half, and together they
+        // say the viewmodel appears when the view calls for it and not otherwise — which neither
+        // said alone.
+        int before = Viewer.Count("viewmodel pass: drawing");
+
+        PressSwitchCameraMode();
+
+        try
+        {
+            Retry.WhileFalse(
+                () => Viewer.Count(FollowingRecorded) > 0,
+                TimeSpan.FromSeconds(5),
+                throwOnTimeout: true,
+                timeoutMessage: "Switching camera mode did not enter the first-person view.");
+
+            // **Drawn, not merely resolved.** This used to wait on the model LOOKUP, excused by a
+            // claim that a 2013 recording names `v_` models the current install no longer ships. The
+            // claim is false — `v_` models ship in the VPKs and render here — and waiting on the
+            // weaker condition is what let the old test pass with nothing in the hands.
+            Retry.WhileFalse(
+                () => Viewer.Count("viewmodel pass: drawing") > before,
+                TimeSpan.FromSeconds(15),
+                throwOnTimeout: true,
+                timeoutMessage: "The viewmodel never reached the screen in first person.");
+
+            Viewer.Count("viewmodel pass: drawing").ShouldBeGreaterThan(
+                before, "the weapon in hand must be drawn once the view is through the player's eyes");
+        }
+        finally
+        {
+            // Back to the free camera: the fixture is shared, and the negative test above measures
+            // exactly this state.
+            PressSwitchCameraMode();
+        }
+    }
+
+    [Test]
+    public void FirstPerson_TheCapturedFrame_IsAViewRatherThanASurface()
     {
         // **A viewmodel is a game asset, so with no game there is nothing to wait for.** Without
         // this the test waits fifteen seconds for `models/weapons/v_*.mdl` to be drawn, times out,
@@ -175,57 +274,36 @@ public sealed class FirstPersonUiTests
         // install, presented as a rendering defect. That is what has kept CI red.
         ViewerSession.RequireTheGame();
 
-        // **This asserts almost nothing, and that is a gap rather than a principle.** The comment
-        // here used to say whether the view looks RIGHT is "not answerable by an assertion". That
-        // is too strong, and the owner corrected it: "we can use golden image comparison, or we can
-        // check pixels colors and or contrast, although that can be flakey".
+        // **One subject: is the captured frame a VIEW or a flat surface.** Everything else this test
+        // used to carry has moved out, and the reason is the owner's, 2026-08-26:
         //
-        // Three separate claims were being run together:
+        // > *"tests cant have good names if they are testing more than one thing, wtf kind of test
+        // > setup is that"*
         //
-        //   - A specific visual property IS assertable now, with no reference image. "The wall must
-        //     not show through an opaque prop" caught B154; "each pass draws something, and not the
-        //     same something" caught a mis-wired r_drawworld. Neither needed a person.
-        //   - Open-ended "does it look right" needs a person exactly ONCE, to bless a reference.
-        //     After that it is a golden comparison and every later change is assertable.
-        //   - Flake is a property of the SETUP, not of the technique. Fixed viewport, fixed tick,
-        //     fixed device and the render is deterministic — which is how the offscreen tests in
-        //     Viewer3D.Tests already work at 64x64 from a fixed matrix.
+        // It was `FirstPerson_Capture_WritesAPictureForSomebodyToLookAt` and did three unrelated
+        // things: took a free-camera screenshot, took a first-person screenshot, and checked a file
+        // appeared, a viewmodel drew, and the frame had structure. The name described none of them,
+        // and that is precisely how a ten-second wait on a log line the viewer never writes survived
+        // in the middle of it — nobody reading the name had a reason to look.
         //
-        // **What this test's weakness actually cost.** The viewmodel pass draws nothing at all
-        // (B160) — c_* models go to the world pass and appear at the eye — and this test rendered
-        // that picture, wrote it out, and passed, because the only thing it checks is that a file
-        // appeared. One mechanical assertion would have caught it: the viewmodel pass draws more
-        // than zero instances when the first-person view is on. No judgement, no reference image.
+        // What went where:
         //
-        // It does check ONE thing, which is why it is an ordinary test rather than explicit: that
-        // the capture path works at all. A screenshot that silently fails to write is the same
-        // silent fallback this project bans everywhere else, and it cost a capture run that
-        // reported success and produced nothing.
+        //   - "a screenshot gets written" was already `ViewportPictureUiTests`. Deleted, not moved.
+        //   - "the viewmodel draws in first person" is now its own test above, and needs no capture.
+        //   - "the viewmodel does NOT draw in the free camera" is new — the negative nobody asserted,
+        //     which is what the dead wait had been groping at.
+        //   - the colour-count check stayed here, and it is the only one that needs a picture.
         //
-        // Through the harness rather than SendKeys, because a synthesized keystroke goes to
-        // whatever window has focus — which on a shared desktop is somebody else's work.
+        // **The measurement, kept because it was measured rather than chosen.** The wall this suite
+        // used to photograph holds 18 distinct colours and the map view holds 146, so the threshold
+        // sits between them with room either side. Brightness could not separate them — 93 per cent
+        // of the map capture's pixels are lit, and planks are lit too.
         //
-        // **This used to jump to the END, and that is where the wall came from.** The justification
-        // was that TF2 no longer ships the `v_` viewmodels a 2013 recording names, so only the demo's
-        // last stretch — where a `c_` model appears — could draw anything. That claim is false: `v_`
-        // models ship inside the VPKs and this project renders them, which every off-hand watch in
-        // `z1800` demonstrates. The end tick was therefore chosen to satisfy a constraint that did
-        // not exist, with no regard for what was in front of the camera.
-        //
-        // The session now opens at a measured tick (`ViewerSession.OpeningTick`) where the recorder
-        // is out on the map holding a rocket launcher, so there is nothing to jump to.
-        Retry.WhileFalse(
-            () => Viewer.Count("viewmodel models/weapons/") > 0,
-            TimeSpan.FromSeconds(10));
-
-        // **F5, which is TF2's screenshot key** (B214). This was F12 until the default moved —
-        // TF2 gives F12 to `replay_togglereplaytips` and Steam's overlay takes it too, while our F5
-        // was a debug view, so the two were swapped against the game.
-        Viewer.PressKey(VirtualKeyShort.F5);
-
-        Retry.WhileFalse(
-            () => Viewer.Count("wrote ") > 0, TimeSpan.FromSeconds(10));
-
+        // **The session opens at a measured tick** (`ViewerSession.OpeningTick`) where the recorder
+        // is out on the map holding a rocket launcher. It used to jump to the END instead, on the
+        // false premise that TF2 no longer ships the `v_` viewmodels a 2013 recording names — they
+        // ship inside the VPKs and render here — and that end tick is where the photographed WALL
+        // came from, which is the defect this colour count now catches.
         PressSwitchCameraMode();
 
         Retry.WhileFalse(
@@ -234,37 +312,23 @@ public sealed class FirstPersonUiTests
             throwOnTimeout: true,
             timeoutMessage: "Switching camera mode did not enter the first-person view, so there is nothing to capture.");
 
-        // **Wait for the viewmodel to be DRAWN, not merely resolved.** This waited on the lookup
-        // instead, excused by the claim that a 2013 recording names `v_` models the current install
-        // no longer ships — so "a capture with empty hands is still the right capture". The claim is
-        // false: `v_` models ship in the VPKs and render here. Waiting on the weaker condition is
-        // what let this test photograph a frame with nothing in the hands and call it a success.
-        Retry.WhileFalse(
-            () => Viewer.Count("viewmodel pass: drawing") > 0,
-            TimeSpan.FromSeconds(15),
-            throwOnTimeout: true,
-            timeoutMessage: "The viewmodel never reached the screen, so the capture would show none.");
+        // (No viewmodel wait. Whether the weapon is drawn is
+        // `FirstPerson_TheViewmodel_IsDrawnAfterSwitchingToFirstPerson`'s subject, and this test
+        // does not care — a frame is a view or a wall regardless of what is in the hands.)
 
-        // **F5, which is TF2's screenshot key** (B214). This was F12 until the default moved —
-        // TF2 gives F12 to `replay_togglereplaytips` and Steam's overlay takes it too, while our F5
-        // was a debug view, so the two were swapped against the game.
+        // **One capture, taken because `ReportStructure` below needs a frame to count colours in.**
+        // F5 is TF2's screenshot key (B214) — it was F12 until the default moved, which TF2 gives to
+        // replay tips and Steam's overlay claims as well.
         Viewer.PressKey(VirtualKeyShort.F5);
 
-        // The only assertion: that a capture was actually taken. Without it a failure to press the
-        // key would look like a successful run that produced no evidence.
+        // Waited on so the file exists before it is read. **Not asserted here**: that a screenshot
+        // gets written is `ViewportPictureUiTests`'s subject, and duplicating it would mean two
+        // tests reddening for one defect while this one's real subject went unreported.
         Retry.WhileFalse(
-            () => Viewer.Count("wrote ") > 1,
+            () => Viewer.Count("wrote ") > 0,
             TimeSpan.FromSeconds(10),
             throwOnTimeout: true,
-            timeoutMessage: "No screenshot was written for the first-person view.");
-
-        Viewer.Count("wrote ").ShouldBeGreaterThan(1);
-
-        // **The viewmodel is the subject, so its absence is a failure rather than a shrug.** This
-        // test is named for capturing the first-person view and the owner's point was blunt: the
-        // frame being checked had no viewmodel in it. The pass reports what it drew, so ask.
-        Viewer.Count("viewmodel pass: drawing").ShouldBeGreaterThan(
-            0, "the viewmodel never reached the screen, so the capture shows the wrong thing");
+            timeoutMessage: "No screenshot was written, so there is no frame to measure.");
 
         // **And that the frame is a view rather than a surface.** Measured before it was asserted:
         // the wall this used to photograph holds 18 distinct colours and the map view holds 146, so
@@ -273,6 +337,10 @@ public sealed class FirstPersonUiTests
         ReportStructure().ShouldBeGreaterThan(
             FlatFrameColours,
             "the capture is nearly one colour, which is what a wall in front of the camera looks like");
+
+        // Back to the free camera, because the fixture is shared and two other tests measure that
+        // state directly.
+        PressSwitchCameraMode();
     }
 
     /// <summary>Below this, a frame is one surface rather than a view.</summary>
@@ -408,14 +476,30 @@ public sealed class FirstPersonUiTests
         EnsureFreeCamera();
 
         int before = Viewer.Count(Spectated);
+        int frames = Viewer.Count("viewmodel pass skipped");
 
         Viewer.Click(MainForm.ViewportId, MouseButton.Left);
 
-        // No wait-for-change to do here: the claim is that nothing happens, so the only honest
-        // instrument is to give it the same window the positive test gets and then look.
+        // **Synchronised on a frame, not on a clock** (2026-08-26). This gave the viewer a flat
+        // two-second window and then looked, under a comment claiming there was nothing to wait for:
+        // *"the claim is that nothing happens, so the only honest instrument is to give it the same
+        // window the positive test gets"*. There IS something to wait for — evidence that the app
+        // processed the click and carried on — and a fixed window is both slower and weaker, since
+        // "the viewer froze" satisfies it exactly as well as "the click was correctly ignored".
+        //
+        // The owner noticed the cost from outside, watching the suite: *"it sits on the free cam and
+        // i dont see antyhing happen for a little while"*. Three negative tests were each paying a
+        // full fixed window on every green run.
+        //
+        // `viewmodel pass skipped` is written once per frame while the camera is not first-person,
+        // so its advancing proves the viewer is alive, still in the free camera, and past the click.
         Retry.WhileFalse(
-            () => Viewer.Count(Spectated) > before,
-            TimeSpan.FromSeconds(2));
+            () => Viewer.Count("viewmodel pass skipped") > frames,
+            TimeSpan.FromSeconds(10),
+            throwOnTimeout: true,
+            timeoutMessage:
+                "No free-camera frame was drawn after the click, so this test cannot tell a "
+                + "correctly ignored click from a viewer that stopped rendering.");
 
         Viewer.Count(Spectated).ShouldBe(before, "the free camera does not spectate anybody");
     }

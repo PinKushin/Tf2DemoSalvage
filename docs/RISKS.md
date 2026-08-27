@@ -12538,6 +12538,58 @@ expects the far reverse end, while `Transport_HomeWithTheViewportFocused_Returns
 presses the same key with the viewport focused and expects 1×. Same key, two focus states, opposite
 correct outcomes — the first goes red the moment the guard stops working.
 
+#### The UI suite went 22s to 9s, and the stall was three disguised sleeps
+
+**The owner timed it by watching, not by reading a number:** *"it sits on the free cam and i dont see
+antyhing happen for a little while"*. Two causes, both invisible in a green run.
+
+**One dead wait, worth half the suite.** `FirstPerson_Capture` waited ten seconds on
+`"viewmodel models/weapons/"` — a string the viewer never writes, since the line is
+`viewmodel prop 'models/weapons/…'`. No `throwOnTimeout`, so it rode the full window and continued.
+Correcting the string made it fail honestly, which exposed a second fault underneath: the wait sat
+**before** `PressSwitchCameraMode`, where no viewmodel can be drawn. It was never a check, only a
+cost.
+
+**That very nearly became a false bug report.** The dead wait plus twenty-two `viewmodel pass
+skipped: … instances 0` lines read as "the viewmodel never draws", and an assertion was about to be
+written to make that loud. The owner stopped it — *"viewmodels do draw on this demo, and its a era
+specifmine pov"* — and they were right; the same log carries
+`viewmodel pass: drawing 1 at v_rocketlauncher_soldier`. The `skipped` lines are simply the frames
+where first person is off. The instrument was wrong, not the renderer.
+
+**Three negative tests were sleeps in a costume**, which is the reusable part:
+
+```csharp
+Retry.WhileFalse(() => Count(Spectated) > before, TimeSpan.FromSeconds(2));
+Count(Spectated).ShouldBe(before, "the free camera does not spectate anybody");
+```
+
+A retry whose condition must **never** become true always runs the full window. It contains no
+`Thread.Sleep`, so it passes the no-sleep rule by inspection while doing exactly what that rule
+bans — and it is *weaker* than synchronising, because "the app froze" satisfies it as well as "the
+input was correctly ignored". Each now waits for `viewmodel pass skipped` to advance, proving the
+viewer is alive and past the input, then asserts the negative. See
+`docs/memory/a-negative-retry-is-a-sleep.md`.
+
+#### One test doing three things is how all of it hid
+
+**The owner named the root cause:** *"tests cant have good names if they are testing more than one
+thing, wtf kind of test setup is that"*.
+
+`FirstPerson_Capture_WritesAPictureForSomebodyToLookAt` took two screenshots and checked that a file
+appeared, that a viewmodel drew, and that the frame had structure. Its name described none of them,
+so nobody reading it had a reason to look inside — which is exactly where a ten-second no-op sat.
+Split:
+
+| was | now |
+|---|---|
+| "a screenshot gets written" | **deleted** — already `ViewportPictureUiTests`' subject |
+| "the viewmodel draws in first person" | `FirstPerson_TheViewmodel_IsDrawnAfterSwitchingToFirstPerson`, and it needs no capture |
+| *(nothing asserted this)* | `FirstPerson_TheViewmodel_IsNotDrawnInTheFreeCamera` — **new**, the negative the dead wait had been groping at |
+| "the frame is a view, not a wall" | `FirstPerson_TheCapturedFrame_IsAViewRatherThanASurface`, the only one that still needs a picture |
+
+25 tests where there were 23, every one under 1.04 seconds.
+
 #### Type-ahead, and the panel that could never hold focus
 
 **Added on the owner's push-back, and the push-back was the finding.** The first version excluded
