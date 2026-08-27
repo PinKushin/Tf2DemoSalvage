@@ -150,6 +150,10 @@ public static class MapWorldBuilder
         // dictionary keeps the grouping O(n) rather than sorting thirteen thousand faces.
         Dictionary<int, List<WorldVertex>> byMaterial = [];
 
+        // **Terrain kept apart so a batch carries one category** (B219). See the comment at the
+        // lookup below for why a shared dictionary stopped working.
+        Dictionary<int, List<WorldVertex>> terrainByMaterial = [];
+
         foreach (BspSurface surface in surfaces)
         {
             // **No normal cull, and its removal is the point.** This used to discard every face
@@ -225,10 +229,19 @@ public static class MapWorldBuilder
                 ? atlas.Rectangles[surface.FaceIndex]
                 : default;
 
-            if (!byMaterial.TryGetValue(surface.MaterialIndex, out List<WorldVertex>? vertices))
+            // **Terrain and brushwork are grouped apart so a batch belongs to ONE category**
+            // (B219). They shared a dictionary until 2026-08-27, so a material used by both
+            // produced a single run spanning the two — which is fine while the category rides in
+            // the vertex colour and impossible once it is a property of the batch. The cost is a
+            // second run for any material used both ways; the gain is that switching the category
+            // view stops rebuilding every vertex in the map.
+            Dictionary<int, List<WorldVertex>> group =
+                surface.IsDisplacement ? terrainByMaterial : byMaterial;
+
+            if (!group.TryGetValue(surface.MaterialIndex, out List<WorldVertex>? vertices))
             {
                 vertices = [];
-                byMaterial[surface.MaterialIndex] = vertices;
+                group[surface.MaterialIndex] = vertices;
             }
 
             // **A displacement is not its face.** Its real surface is a heightfield subdividing
@@ -352,7 +365,30 @@ public static class MapWorldBuilder
                 continue;
             }
 
-            batches.Add(new WorldBatch(group.Key, all.Count, group.Value.Count));
+            batches.Add(new WorldBatch(
+                group.Key,
+                all.Count,
+                group.Value.Count,
+                Category: group.Key < 0 ? SurfaceCategory.Missing : SurfaceCategory.Brush));
+
+            all.AddRange(group.Value);
+        }
+
+        // **Terrain's own runs, tagged as terrain** (B219). Grouped separately above so that this
+        // tag is true of every triangle in the batch rather than of most of them.
+        foreach (KeyValuePair<int, List<WorldVertex>> group in terrainByMaterial)
+        {
+            if (group.Value.Count == 0)
+            {
+                continue;
+            }
+
+            batches.Add(new WorldBatch(
+                group.Key,
+                all.Count,
+                group.Value.Count,
+                Category: group.Key < 0 ? SurfaceCategory.Missing : SurfaceCategory.Terrain));
+
             all.AddRange(group.Value);
         }
 
@@ -373,7 +409,12 @@ public static class MapWorldBuilder
                 continue;
             }
 
-            propBatches.Add(new WorldBatch(group.Key, all.Count, group.Value.Count));
+            propBatches.Add(new WorldBatch(
+                group.Key,
+                all.Count,
+                group.Value.Count,
+                Category: group.Key < 0 ? SurfaceCategory.Missing : SurfaceCategory.Prop));
+
             all.AddRange(group.Value);
         }
 
@@ -593,7 +634,11 @@ public static class MapWorldBuilder
 
         foreach (KeyValuePair<int, List<WorldVertex>> group in byMaterial)
         {
-            decals.Add(new WorldBatch(group.Key, all.Count, group.Value.Count));
+            decals.Add(new WorldBatch(
+                group.Key,
+                all.Count,
+                group.Value.Count,
+                Category: SurfaceCategory.Overlay));
             all.AddRange(group.Value);
         }
 
@@ -894,33 +939,6 @@ public static class MapWorldBuilder
             SurfaceCategory.Missing => (1f, 1f, 1f),
             _ => (0.55f, 0.6f, 0.72f),
         };
-
-    /// <summary>What a drawn surface is, for the diagnostic view.</summary>
-    private enum SurfaceCategory
-    {
-        /// <summary>Ordinary world brushwork.</summary>
-        Brush,
-
-        /// <summary>A displacement's subdivided terrain.</summary>
-        Terrain,
-
-        /// <summary>A placed model.</summary>
-        Prop,
-
-        /// <summary>An overlay fragment — a marking clipped to the surface it lies on.</summary>
-        /// <remarks>
-        /// **Added because its absence was read as an answer.** Overlay fragments carried no vertex
-        /// colour, so they took the default of white — which is not a category colour but the lack
-        /// of one, and there was no legend entry saying so. During the B154 hunt that white was
-        /// read first as "an uncoloured surface" and then as the sign being investigated, and it
-        /// was neither. A diagnostic view that omits a category cannot answer "is anything here"
-        /// for that category, which is the one question it exists to answer.
-        /// </remarks>
-        Overlay,
-
-        /// <summary>Anything whose material could not be resolved.</summary>
-        Missing,
-    }
 
     /// <summary>A surface's material, or -1 when it names one the map does not have.</summary>
     private static int materialIndex(BspSurface surface) => surface.MaterialIndex;
