@@ -208,6 +208,65 @@ public sealed class MapCrcVariantSearchDiagnostic
             });
         }
 
+        // **The FILE minus the entity range, which is not the same as concatenating lumps.** A BSP
+        // has padding between lumps; a lump walk skips it and a "whole file, but skip these bytes"
+        // implementation keeps it. Both descriptions read as "all lumps except entities" in prose.
+        yield return ("whole file, skipping the entity byte range", static (crc, file, header) =>
+        {
+            BspLump entities = header.Lump(0);
+
+            if (entities.Offset <= 0 || entities.Length <= 0 ||
+                (long)entities.Offset + entities.Length > file.Length)
+            {
+                return false;
+            }
+
+            crc.Append(file.AsSpan(0, entities.Offset));
+            crc.Append(file.AsSpan(entities.Offset + entities.Length));
+
+            return true;
+        });
+
+        yield return ("whole file, entity range ZEROED in place", static (crc, file, header) =>
+        {
+            BspLump entities = header.Lump(0);
+
+            if (entities.Offset <= 0 || entities.Length <= 0 ||
+                (long)entities.Offset + entities.Length > file.Length)
+            {
+                return false;
+            }
+
+            byte[] blanked = (byte[])file.Clone();
+
+            Array.Clear(blanked, entities.Offset, entities.Length);
+
+            crc.Append(blanked);
+
+            return true;
+        });
+
+        // Each lump on its own: if the answer is one lump's CRC, that says the engine checksums
+        // something far narrower than any description suggests.
+        for (int only = 0; only < BspHeader.LumpCount; only++)
+        {
+            int single = only;
+
+            yield return ($"lump {single} alone", (crc, file, header) =>
+            {
+                BspLump at = header.Lump(single);
+
+                if (at.Length <= 0)
+                {
+                    return false;
+                }
+
+                Feed(crc, file, at);
+
+                return true;
+            });
+        }
+
         yield return ("the file after the header", static (crc, file, _) =>
         {
             if (file.Length <= BspHeader.SizeBytes)

@@ -93,29 +93,70 @@ Against a known answer (`0x534EEB7C`) and a known input:
 
 None reproduces it.
 
-### Why the published description is not enough
+### The algorithm, from the 2007 engine itself
 
-*"A concatenation of all lumps in the BSP except for the entities lump"* is what the community
-libraries implement and what this project implemented. It is confirmed correct for the MODERN hash.
-It does not reproduce a 2007 CRC.
+Decompiled from `F:\tf2-builds\tf2-2007\Team Fortress 2\bin\engine.dll` (October 2007), anchored on
+the strings the client prints when the check fails. Ghidra's headless scripting is broken on this
+JDK — Felix aborts in `handleJavaVersionChange` — so this was done with radare2.
 
-**And the citation this project used may be the wrong function entirely.** `CRC_MapFile`
-(`utils/common/bsplib.cpp:3774`) has exactly one caller in the published tree — `SwapBSPFile`, the
-Xbox 360 conversion tool. It is not shown being used by a server. The engine's own checksum lives in
-`engine/checksum_engine.cpp`, which is not in `source-sdk-2013`; the leaked 2007 tree that carries it
-is DMCA'd off GitHub (HTTP 451) and was not pursued.
+The trail: `"Couldn't CRC map %s, disconnecting"` is referenced by `fcn.100c5cc0`, which calls
+`fcn.10012c60` for the real check. `fcn.100217c0`, which looks like a CRC from the error message, is
+not one — it is `IBaseFileSystem::Open` (vtable index 2) followed by `Size(FileHandle_t)` (index 7),
+returning −1 when the open fails.
 
-*Evidence class: measured exhaustively over a bounded hypothesis space; the remaining space is
-unbounded without the engine's own code.*
+`fcn.10012c60` reads `0x40C` = 1036 bytes — exactly `sizeof(dheader_t)` — refuses any BSP version
+outside 19–20, and then:
+
+```
+xor ebx, ebx                  ; lump index 0
+lea edi, [header.lumps]
+loop:
+  test ebx, ebx
+  je   next                   ; skip index 0 — ENTITIES EXCLUDED
+  mov  edx, [edi]             ; lump.fileofs
+  add  edx, [base]            ; + Tell(handle), taken at open
+  Seek(handle, edx, FILESYSTEM_SEEK_HEAD)
+  mov  esi, [edi+4]           ; lump.filelen
+  test esi, esi / jle next    ; skip empty lumps
+  read in 0x400 chunks -> CRC32_ProcessBuffer(&crc, buf, n)
+next:
+  add ebx, 1 ; add edi, 0x10  ; 16 bytes per lump_t
+  cmp ebx, 0x40               ; ALL 64 LUMPS
+```
+
+**This is exactly what this project implements**, and the published prose description is right after
+all: every lump but the entities, index order, raw bytes, skip-empty. The chunking into 1024-byte
+reads cannot change a CRC.
+
+**One term is new and does not apply here:** `add edx, [base]`, where `base` is `Tell(handle)` taken
+immediately after opening and before the header read. That is non-zero only when the map is being
+read from inside an archive — a `.gcf` or `.vpk` — where the handle starts partway into a larger
+file. Every `cp_granary.bsp` under `F:\tf2-builds` is loose, so `Tell` is 0.
+
+*Evidence class: decompiled from the era binary. Carried back as this description; no decompiler
+output was placed in the repository.*
+
+**So the implementation is confirmed and the mismatch is about WHICH FILE**, not how it is hashed.
+That is a different open question from the one this section originally recorded, and a narrower one.
+
+### A note on the citation
+
+`CRC_MapFile` (`utils/common/bsplib.cpp:3774`) has exactly one caller in the published tree —
+`SwapBSPFile`, the Xbox 360 conversion tool. It is never shown being used by a server, so citing it
+for the network checksum was a guess that happened to describe the right algorithm. The engine's own
+`checksum_engine.cpp` is not in `source-sdk-2013`; the leaked 2007 tree carrying it is DMCA'd off
+GitHub (HTTP 451) and was not pursued — which is a second, independent reason decompiler output
+stays out of this repository, beyond the size rule that is the main one.
 
 ### Where this leaves the feature
 
-**The modern path is done and verified** — which is the era where a mismatch actually bit (a 2017
-badlands demo on a 2026 map). The old era already pairs with its maps by construction: the era
-specimens have their own client beside them, so the map to load is known without a checksum.
+**The modern path is done and verified.** The old-era algorithm is now confirmed correct against the
+era binary, and the open question is narrower than it was: which file a 2007 demo was actually
+recorded against, given that none of the three `cp_granary.bsp` copies on disk reproduces its number.
 
-So the CRC is a confirmation this project would like and does not need, and the MD5 is the one that
-does the work.
+The failure is systematic — all four era demos, against every `.bsp` in every build — which argues
+against a one-off map swap and for something shared: the archives having been repacked after
+recording, or the client having loaded the map from somewhere other than `tf/maps` at the time.
 
 ## Why this matters beyond the check
 
