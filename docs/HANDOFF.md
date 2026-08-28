@@ -1,174 +1,139 @@
-# Handoff — the convar audit, and what comes next
+# Handoff — culling, the map checksum, and what comes next
 
-Written 2026-08-27 at the end of a very long session. **Supersedes the previous handoff**, which
-covered the `MainForm` thin-view refactor — that work is merged and done.
+Written 2026-08-28 at the end of a very long session. **Supersedes the previous handoff**, which
+covered the convar audit, local lights and the skip helper — all merged and done.
 
 **Everything is on `main`, pushed, gate green.** No branch is waiting, nothing is half-applied, and
-no viewer process is left running.
-
-Gate green across twelve assemblies, D1..D109 each used once.
+no viewer process is left running. Decompiler project and scripts are on `D:`, outside every repo.
 
 | project | floor | | project | floor |
 |---|---:|---|---|---:|
-| core | 1512 | | content | 713 |
-| cli | 74 | | corpus | 113 |
-| audio | 183 | | rendering | 538 |
-| presentation | 391 | | viewer | 101 |
+| core | 1539 | | content | 744 |
+| cli | 74 | | corpus | 129 |
+| audio | 183 | | rendering | 656 |
+| presentation | 396 | | viewer | 101 |
 | scene | 202 | | logging | 17 |
 | animation | 41 | | fonts | 7 |
 
-Plus 20 UI, run separately under `run-exclusive.ps1`.
+Plus 27 UI, run separately under `run-exclusive.ps1`. `build/gate.sh` holds the authoritative floors
+and prints them beside what it measured.
 
-## The order of work, set by the owner
+```bash
+TF2DEMOSALVAGE_GCOR_ONLY=1 bash build/gate.sh
+```
 
-> *"i think the next step in the naked convars, then the local lights. interp is a much bigger thing
-> than you realize i think."*
+```bash
+pwsh ../run-exclusive.ps1 dotnet test tests/Tf2DemoSalvage.Viewer3D.UiTests
+```
 
-…and then, after asking whether separating the conformance tests gains anything: *"ok write the
-helper into the handoff, that will be done first."* So the shared skip helper below comes ahead of
-all three.
+---
 
-### 0. ~~The shared skip helper~~ — **DONE 2026-08-27, D109**
+## The next task, set by the owner
 
-`Skip.Because` / `Skip.Unless` in `Tf2DemoSalvage.SdkReference`, with `GameInstall.Require`,
-`GameInstall.RequireFile` and `SourceSdk.Require` on top. **All ninety-four private install gates are
-routed through it**; `Rendering.Tests.Tf2Install` and the UI suite's copy are deleted. Full account in
-D109.
+> *"i guess we should go 2 pass models now"*
 
-**Two things it turned up that were not the point of the task**, and are worth carrying:
+**Two-pass models** — `RENDER_FLAGS_TWOPASS`. A renderable with that flag and alpha 255 is added to
+BOTH the opaque list and the translucent one (`clientleafsystem.cpp:1699`), so it draws twice: solid
+parts in the opaque pass, blended parts after. This project has no two-pass concept and draws every
+model once. Found by audit pass 2 and recorded in `docs/findings/42`.
 
-- **Forty of the ninety-four were pinned to one machine** — a bare `"F:/SteamLibrary/…"` with no
-  `TF2_FOLDER` override and no fallback. On any other computer they fail the `File.Exists` beside
-  them and take the skip branch, so they stop measuring and report as skips. Only counting the
-  locators could have found that.
-- **`SdkReference` was already the test-support project** the handoff asked for. It holds
-  `GameInstall`, six suites referenced it, and the plan above did not know. Its name is now half a
-  misnomer; renaming it is a tidy-up nobody needs yet.
+Start with the conformance test and its citation, before any code — `docs/CONFORMANCE.md`, and the
+standing rule in `CLAUDE.md`.
 
-D105 is still open and still unhurried. It no longer has a prerequisite.
+### After that, in the owner's stated order of interest
 
-### 1. The naked convars — D106
+- **Static-prop culling.** The largest remaining performance gap: static props are drawn whole every
+  frame, never culled. `BspStaticProps.ReadPayload` already *reads and discards* the per-prop leaf
+  array, with a comment saying it "matters for a renderer that culls by PVS and not for one drawing
+  the map" — written before we were such a renderer. The door was left open deliberately.
+- **Era rendering**, now that the per-era SDK headers are local (below).
+- **Ragdolls.** The owner corrected an earlier assessment that this was uncertain: *"the data for the
+  ragdolls is available in the sdk, source physics is deterministic so it wont be hard to implement,
+  just very large."* Same kind of work as everything else — read Valve, transcribe — only bigger.
 
-**Twenty values are baked as constants that Valve declares as ConVars.** They are listed in
-`docs/CVAR-COVERAGE.md` with their flags and defaults. D106 is the rule: *nothing is hardcoded that
-Valve does not hardcode*, and the justification is the era axis this project already serves — a
-default that moved between TF2 builds is already wrong for part of a corpus spanning 2007 to 2026.
+---
 
-Three homes for a value, and the distinction is the work:
+## What landed today
 
-1. **The watcher's config** — 42 names are read this way today.
-2. **The demo** — ten of the twenty are replicated (`"rep"`), and `NET_SetConVar` **is already
-   decoded and round-trips**. Nothing consumes it. `cl_interp` arrives separately, in `userinfo`.
-3. **Valve's declared default** — the fallback, and the form D106 is mostly about. "Declared", not
-   baked: a name and a default, not a `const float`.
+### Culling, D110–D112
 
-**Start with `cl_forwardspeed`.** It is flagged `"sv"`, `"cheat"`, `"rep"` despite the `cl_` prefix —
-server-controlled and replicated — and the free camera's walk speed is derived from it as a constant
-(B215). It is the smallest complete instance of the whole shape: read the replicated value, fall back
-to the declared default.
+Valve's opaque draw order, view frustum, and world visibility. Details in `docs/findings/42`
+(the three-pass Valve audit) and `docs/DECISIONS.md` D110–D112.
 
-**The one real exemption** is a value Valve itself hardcodes — `MAX_EDICTS`, a struct's field order,
-the overbright factor of two. The test is what Valve wrote, never whether the number moves.
+- `OpaqueBuckets` — biggest bucket first, thresholds 200/80/30 from `DetectBucketedRenderGroup`.
+- `ViewFrustum` — `GeneratePerspectiveFrustum` and `R_CullBox`, six planes, normals inward.
+- `WorldVisibility` / `VisibleWorld` / `WorldCulling` — PVS plus per-node and per-leaf frustum,
+  front to back, gathered into merged `WorldBatch` runs.
+- `ModelInstance.WorldBounds` — the box already placed, computed scene-side, because only the scene
+  knows what places a model.
 
-### 2. Local lights for models — and B170 with it
+**Four defects shipped and were caught, three of them by the owner looking at the screen.** All four
+were the same shape: a correct function called with the wrong argument, at the wrong point, or on the
+wrong entity. None was wrong arithmetic. The full list is in `docs/findings/42`; the ones most worth
+remembering are that displacements are named by NO leaf (finding 41) and that a skinned model leaves
+its matrix at identity.
 
-B170 (washed-out viewmodels) is **parked on this**, deliberately. The chain is measured end to end in
-`docs/RISKS.md`: the ambient cube is healthy (0.2344) and reaches the instance intact, our output is
-arithmetically correct for its inputs, and `sun none` means the viewmodel receives **no phong at
-all** indoors because our phong is gated on the sun.
+**Performance:** 274 fps before any culling, 149 with a per-frame recompute, **300 now**. The cull is
+recomputed only when the camera actually changes. Watch for this shape: per-frame drawing time was
+unchanged throughout, because the cost sat in `SetCamera`, which the drawing timer does not measure.
+The UI suite's duration was the only instrument that saw it.
 
-Valve sums the specular term over the light cache's `locallight[]` as well. This project folds local
-lights into the ambient cube, where they can light a diffuse but can never make a highlight. That the
-missing term *is* phong from local lights is **inference from a screenshot and is marked as such** —
-three confident conclusions already died in that entry, and the honest next step is the experiment:
-drive the viewmodel's phong from something other than the sun and see whether it comes to look like
-TF2's.
+### The map checksum, D113
 
-Measured comparison to work against, same room, `mat_hdr_level 0`: TF2's weapon metal reads 81–108
-with specular off; ours reads 11–28.
+`BspMapChecksum.Matches(file, recorded)` answers "is this the map this demo was recorded on" for both
+eras. Four bytes compare a **complemented** CRC32; sixteen compare an MD5. Callers do not branch.
 
-### 3. Interpolation — bigger than this session understood
+Confirmed against four era demos and their own clients' maps, a modern demo, and two negative
+controls. Full account in `docs/findings/43`.
 
-> *"interp is a much bigger thing than you realize i think."*
+**This is not yet wired into the viewer.** The pieces exist and are tested; nothing warns at load
+yet. That is the remaining half of D113 and it is small: compute, compare, log loudly on a mismatch.
 
-**Recorded as a warning rather than a plan.** This session found the pieces and did not scope the
-work: `cl_interp` in `userinfo`, and the server's `sv_client_max_interp_ratio`, `sv_mincmdrate`,
-`sv_minupdaterate` clamps in `net_setconvar` — a real match server sends all of them. The naive
-reading is "read both halves and interpolate accordingly". The owner's flag says that reading is too
-small, and whoever picks this up should get the scope from him before designing anything.
+---
 
-`demo_interpolateview`, `demo_legacy_rollback`, `demo_avellimit` and `demo_interplimit` are in the
-same conversation and are unimplemented.
+## Things that cost hours today — read before repeating them
 
-## Deprioritised, with the reason
+- **Use `cp_process_f12` for anything the owner will look at.** A badlands demo neither of us knew
+  cost most of a night: three defects investigated as regressions, one of which was never code at
+  all. `docs/memory/the-f12-demo-is-the-parity-reference.md` now states this as a trigger on
+  BOOTING, not on comparing.
+- **A demo's map name does not identify the map.** That was the "never code at all" one.
+- **When a correct algorithm keeps giving a wrong answer, suspect the input and the identity of what
+  you are measuring.** Two faults at once — wrong field and a missing complement — defeated every
+  single-variable search for a day. The owner supplied the rule;
+  `docs/memory/suspect-the-input-not-the-algorithm.md`.
+- **A coverage test can only find what its denominator enumerates.** The ground vanished while the
+  suite was green because the denominator was the leaves.
+- **Check era stability before assuming an era difference.** `CRC_MapFile` is byte-identical between
+  `orangebox` and `source-sdk-2013`; one `cmp` would have saved a day.
 
-**D105 — conformance tests in their own project.** The owner: *"im not super worried about the
-conformance tests as long as there are plenty of them."* The decision stands as written and is not
-urgent. Six suites landed in `Rendering.Tests` today; that is untidy rather than broken, and the
-count floors keep it honest either way.
+## Where things are
 
-**But D105's stated reason is the weakest of the real ones**, and that is worth correcting here so
-nobody executes it for the wrong motive. It says their subject is Valve's behaviour rather than one
-of our assemblies — true, and purely conceptual; it would have prevented nothing. The two arguments
-that actually earn a split are:
+| what | where |
+|---|---|
+| TF2, period clients | `F:\SteamLibrary\...\Team Fortress 2`, `F:\tf2-builds\tf2-{2007,2008,2011,2013}` |
+| SDK, 2013 snapshot + **shaders** | `F:\src\source-sdk-2013` |
+| SDK, **per-era headers**, 27 branches | `F:\src\hl2sdk` (on `orangebox`; `git checkout <era>`) |
+| decompiler project and scripts | `D:\ghidra-proj`, `D:\ghidra_12.1.2_PUBLIC` — never in a repo |
 
-1. **Refactor safety.** A conformance test asserts what VALVE does. Sitting among unit tests it is
-   one more red thing during a sweep, and the tempting fix is to update it to match the new
-   behaviour — exactly backwards. A separate assembly makes editing one a visible, deliberate act.
-2. **The install dependency becomes a project fact** rather than something every author reimplements
-   per file. That is the one that has already cost two red CI runs — and D109 has now taken all of
-   it without moving anything, so what a project split would add here is only that a NEW file cannot
-   reintroduce a private gate. That is worth something and it is not urgent.
+**Ghidra headless scripting is broken on this JDK** — Felix aborts in `handleJavaVersionChange`.
+**radare2 works** and did today's decompilation:
 
-The count floors already cover the "tests go missing" worry, so that is not a reason.
+```bash
+r2 -q -A -c "s 0x100217c0; af; pdf" engine.dll
+```
 
-## Landed this session
+**No SDK ships engine source**, in any branch or year. An engine-behaviour question is a decompiler
+question; do not go looking for a fourth SDK.
 
-**Fixed:** B187 (debug views never reached the viewmodel pass — a call with too few arguments, every
-remaining one optional) · B219 (surface colours discarded every model's geometry; closed twice, once
-by pairing the reset and then by removing the rebuild) · skinned models chose the cubemap nearest the
-**map origin**, because their matrix is identity and their placement is in their bones · B220 (the
-trace printed `svc_setconvar;` with no payload).
+## Open, not forgotten
 
-**Built:** `mat_phong`, Valve's convar, importable from a config and on the View menu · the category
-view **repaints** instead of rebuilding, so it is instant and B219's class is gone ·
-`IModelUpload.HasModels`, replacing a belief the scene held about the device with a question it asks ·
-a hard guard on material-buffer width · D104's cvar inventory, with the denominator generated from
-the game's own `cvarlist.log`.
-
-**Decisions:** D103 (HDR is roadmap, not a fix) · D104 (the inventory) · D105 (conformance project) ·
-D106 (nothing hardcoded that Valve does not) · D107 (LINQ off hot paths) · **D108 — the frame budget
-is one millisecond and TF2 meets it**, which is the standard the rest are measured against.
-
-## Things this session got wrong, worth not repeating
-
-**Four B170 hypotheses died, three of them argued confidently.** Every one shared a shape: the test
-built the condition where a correct renderer and a broken one agree. Four separate offscreen tests
-translated their model through the model matrix, so `matrix[12..14]` was right by construction — and
-the bug was precisely that a skinned model's matrix is identity. The instrument that worked was one
-`LogInformation` inside the pass already identified as the only untested surface.
-
-**A replace-all matched two of three sites** and shipped a constant buffer four floats short, which
-`WriteDiscard` turned into a different picture every frame. `SetMaterial` now throws on a length
-mismatch; see `docs/memory/replace-all-is-a-claim-about-every-site.md`.
-
-**A second mechanism was invented where a tested one existed** — an `EntityModelSet.Forget()` with its
-own flag and four tests, before noticing `MomentScene.Uploaded` had done that job since B148. Backed
-out entirely.
-
-**Two owner corrections are recorded as corrections**, not absorbed silently: D106's justification is
-the era axis already in the corpus rather than hypothetical cross-game support, and D107 was written
-as an outright ban that also argued against the two-standard position the owner actually holds.
-
-## Standing facts worth carrying
-
-- `bash build/gate.sh` with `TF2DEMOSALVAGE_GCOR_ONLY=1` for the merge gate; the UI suite runs
-  separately inside `run-exclusive.ps1`.
-- **CI is the machine without TF2** and is the only place the no-install path runs. A test that needs
-  the game must `Assert.Ignore`, never assert.
-- Both `build/gate.sh` and `.github/workflows/test.yml` carry duplicate exact floors. Move both.
-- The corpus has **no mod demos**. A vanilla competitive server already sends 40 convars without
-  touching movement; DM and MGE should replay correctly today and jump and surf should not be
-  assumed to. One demo of each, in lcor, would make that testable.
-- POV demos **do** carry `net_setconvar` (32–40 values on real match demos), so an empty result means
-  the server changed nothing.
+- Two-pass models — **next**.
+- Static props never culled — largest perf gap.
+- Wiring the map-checksum warning into the viewer.
+- Ragdoll bounds and origin — approximated, not matched.
+- Detail props — not drawn at all.
+- The 32-bit `svc_ServerInfo` field this project calls `MapCrc` is **not** the map checksum and
+  remains unidentified. It is `0xFFFFFFFF` in every modern demo.
+- Pre-packing period maps (D113 step 2) — less urgent now that the checksum can detect a mismatch,
+  and the era specimens already sit beside their own clients.
