@@ -1656,9 +1656,11 @@ public sealed class EntityModelSet
     private (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) WorldBoxFor(
         SceneProp prop)
     {
-        StudioBox local = _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? sized)
-            ? sized.RenderBoundsFor(prop.Pose.Sequence)
-            : default;
+        StudioBox local = Scaled(
+            _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? sized)
+                ? sized.RenderBoundsFor(prop.Pose.Sequence)
+                : default,
+            prop.Pose.Scale);
 
         if (prop.AttachedTo is { } wearer &&
             _propsByEntity.TryGetValue(wearer, out SceneProp parent))
@@ -1675,14 +1677,51 @@ public sealed class EntityModelSet
         return Placed(prop, local);
     }
 
+    /// <summary>The render bounds grown by the model's scale, as the last two lines of
+    /// <c>C_BaseAnimating::GetRenderBounds</c> do.</summary>
+    /// <param name="local">The box the header and sequence produced.</param>
+    /// <param name="scale">The entity's <c>m_flModelScale</c>.</param>
+    /// <returns>The scaled box.</returns>
+    /// <remarks>
+    /// **Valve's own last step, and skipping it was a live defect.**
+    ///
+    /// <code>
+    /// // Scale this up depending on if our model is currently scaling
+    /// const float flScale = GetModelScale();
+    /// theMaxs *= flScale;
+    /// theMins *= flScale;
+    /// </code>
+    ///
+    /// Scale is decoded, interpolated and applied when this project DRAWS a model — so a scaled
+    /// model was being drawn at its real size and culled by a box at its authored one. A giant
+    /// draws far outside a box a tenth its size and vanishes at the edge of the screen.
+    ///
+    /// **Both corners are multiplied, not just the extent**, so a box that is not centred on its
+    /// origin moves as well as growing. That is Valve's arithmetic and it is the correct one: the
+    /// model's geometry scales about its origin, so its bounds must too.
+    /// </remarks>
+    private static StudioBox Scaled(StudioBox local, float scale) =>
+
+        // The shortcut is for the overwhelmingly common case and nothing else; a scale that is not
+        // exactly one simply takes the multiply, which for 1.0 would be an identity anyway. The
+        // analyzer's usual objection — that float equality is a trap — does not apply to a branch
+        // whose two sides compute the same answer.
+        Math.Abs(scale - 1f) < float.Epsilon
+            ? local
+            : new StudioBox(
+                local.MinX * scale, local.MinY * scale, local.MinZ * scale,
+                local.MaxX * scale, local.MaxY * scale, local.MaxZ * scale);
+
     /// <summary>One entity's own placed box, ignoring anything it may be attached to.</summary>
     private (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) Placed(
         SceneProp prop) =>
         Placed(
             prop,
-            _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? sized)
-                ? sized.RenderBoundsFor(prop.Pose.Sequence)
-                : default);
+            Scaled(
+                _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? sized)
+                    ? sized.RenderBoundsFor(prop.Pose.Sequence)
+                    : default,
+                prop.Pose.Scale));
 
     private static (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) Placed(
         SceneProp prop, StudioBox local) =>
