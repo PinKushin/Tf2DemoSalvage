@@ -40,10 +40,10 @@ namespace Tf2DemoSalvage.Scene;
 /// The direct lights near this model, at most four, which the ambient cube no longer carries
 /// (B170). Empty rather than null where none reach it.
 /// </param>
-/// <param name="Bounds">
-/// The engine's render bounds for this model in the sequence it is playing, model space. The
-/// renderer places them with <see cref="Matrix"/> and buckets by the result, which is how Valve
-/// decides what to draw first.
+/// <param name="WorldBounds">
+/// The box the engine would cull and bucket this model by, already in world space —
+/// <c>CalcRenderableWorldSpaceAABB</c>. Placed here rather than by the renderer because only this
+/// side knows what places a given model.
 /// </param>
 public readonly record struct ModelInstance(
     string ModelPath,
@@ -91,10 +91,18 @@ public readonly record struct ModelInstance(
     // are the same instruction to the renderer, and a nullable would invite a third reading.
     IReadOnlyList<LocalLight>? Locals = null,
 
-    // **What the engine sizes this model by**, so the draw can order biggest first. Model space:
-    // the renderer applies the matrix, because a rotated box encloses differently and the answer
-    // has to come from the world box rather than this one.
-    StudioBox Bounds = default);
+    // **The box the engine culls and buckets this model by, ALREADY PLACED** — the answer
+    // `CalcRenderableWorldSpaceAABB` gives. World space, not model space, and computed here rather
+    // than by the renderer because only this side knows how a model is placed: a baked prop by its
+    // pose, a skinned one by its bones, and a bone-merged one by its WEARER's box (Valve's
+    // `IsFollowingEntity` rule, `clientleafsystem.cpp:344`).
+    //
+    // **It was a model-space box until 2026-08-28, and the renderer placed it with the matrix.**
+    // That is only correct for a baked prop, and it shipped two defects in one evening: skinned
+    // players and brush entities both leave the matrix somewhere that is not where they are, so
+    // both were culled against the map origin. Handing the renderer a finished box removes the
+    // question rather than answering it again downstream.
+    (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) WorldBounds = default);
 
 /// <summary>
 /// The models a demo's entities wear, packed once and posed by the GPU.
@@ -1619,15 +1627,69 @@ public sealed class EntityModelSet
                 // The lamps near this model, which its cube no longer carries (B170).
                 Locals: locals,
 
-                // The box the engine would draw this model by, for the size bucket.
-                Bounds: _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? sized)
-                    ? sized.RenderBoundsFor(prop.Pose.Sequence)
-                    : default));
+                // The placed box the engine culls and buckets by — CalcRenderableWorldSpaceAABB.
+                WorldBounds: WorldBoxFor(prop)));
         }
 
         _tally.Report();
     }
 
+
+    /// <summary>The box the engine would cull this model by, placed — <c>CalcRenderableWorldSpaceAABB</c>.</summary>
+    /// <param name="prop">The entity being drawn.</param>
+    /// <returns>Its world-space box, or an empty one when the model carries no bounds.</returns>
+    /// <remarks>
+    /// **`DefaultRenderBoundsWorldspace` (`clientleafsystem.cpp:342`), both of its branches.** A
+    /// bone-merged entity is culled by its WEARER's box bloated by its own reach; everything else by
+    /// its own bounds placed at its render origin and angles.
+    ///
+    /// **`IsFollowingEntity` is `EF_BONEMERGE &amp;&amp; MOVETYPE_NONE &amp;&amp; GetMoveParent()`**
+    /// (`c_baseentity.cpp:3176`), and `GetFollowedEntity` is then just the move parent. This project
+    /// records that relation as `SceneProp.AttachedTo`, so the test here is whether the wearer is
+    /// known and drawable.
+    ///
+    /// **Valve recurses** — a parent that is itself following resolves through
+    /// `CalcRenderableWorldSpaceAABB_Fast`, which calls itself. One level is taken here because
+    /// nothing in TF2 merges onto a merged item, and a cycle in demo data would otherwise hang the
+    /// viewer; a wearer that is itself worn falls back to its own placed box.
+    /// </remarks>
+    private (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) WorldBoxFor(
+        SceneProp prop)
+    {
+        StudioBox local = _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? sized)
+            ? sized.RenderBoundsFor(prop.Pose.Sequence)
+            : default;
+
+        if (prop.AttachedTo is { } wearer &&
+            _propsByEntity.TryGetValue(wearer, out SceneProp parent))
+        {
+            return WorldSpaceBounds.Following(
+                Placed(parent),
+                local,
+
+                // GetLocalOrigin: a merged item's own pose, which is (0,0,0) by construction for
+                // almost all of them and is used only to grow the bloat when it is not.
+                (prop.Pose.X, prop.Pose.Y, prop.Pose.Z));
+        }
+
+        return Placed(prop, local);
+    }
+
+    /// <summary>One entity's own placed box, ignoring anything it may be attached to.</summary>
+    private (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) Placed(
+        SceneProp prop) =>
+        Placed(
+            prop,
+            _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? sized)
+                ? sized.RenderBoundsFor(prop.Pose.Sequence)
+                : default);
+
+    private static (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) Placed(
+        SceneProp prop, StudioBox local) =>
+        WorldSpaceBounds.Placed(
+            local,
+            (prop.Pose.X, prop.Pose.Y, prop.Pose.Z),
+            (prop.Pose.Pitch, prop.Pose.Yaw, prop.Pose.Roll));
 
     /// <summary>A value for each pose parameter the model declares, in its own order.</summary>
     /// <remarks>

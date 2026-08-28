@@ -1167,14 +1167,33 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         // **The world's own cull, from the same camera and in the same call.** Null when the map
         // carried no visibility data, which the renderer reads as "draw the batches you already
         // had" — see WorldRenderer.VisibleBatches for why that is not the same as an empty list.
-        if (_world is not null)
+        //
+        // **Only when the view actually MOVED, and skipping this cost 40% of the frame rate.**
+        // `MainForm.PlaceCamera` uploads the camera every frame whether or not it changed, so the
+        // first version of this walked the whole BSP and every face span sixty times a second to
+        // produce the same answer. Measured on the UI suite: 274 frames a second before, 149 after,
+        // with per-frame DRAWING time unchanged at ~1 ms — the cost was entirely in this call and
+        // therefore invisible to the drawing timer.
+        //
+        // The engine builds its world lists once per view for exactly this reason; a view that has
+        // not changed has the same lists. `FreeCamera` is a class without value equality, so the
+        // comparison is on the values the answer depends on and nothing else.
+        (( float X, float Y, float Z) Origin, (float Pitch, float Yaw, float Roll) Angles, float Fov, float Near, float Far,
+         float Aspect) view =
+            ((camera.Origin.X, camera.Origin.Y, camera.Origin.Z),
+             camera.Angles, camera.FieldOfView, camera.NearZ, camera.FarZ, camera.Aspect);
+
+        if (_world is not null && (_culledFor != view || _world.VisibleBatches is null))
         {
+            _culledFor = view;
+
             _world.VisibleBatches = _culling?.Batches(
                 camera.Origin.X, camera.Origin.Y, camera.Origin.Z, _frustum);
 
             ReportWorldCull();
         }
     }
+
 
     /// <summary>Sets the view the world is drawn through, without a cull volume.</summary>
     /// <param name="matrix">Sixteen floats, row major.</param>
@@ -1522,6 +1541,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// </remarks>
     private ViewFrustum _frustum;
 
+    /// <summary>The view the current visible set was computed for, so a still camera pays nothing.</summary>
+    private ((float X, float Y, float Z) Origin, (float Pitch, float Yaw, float Roll) Angles,
+             float Fov, float Near, float Far, float Aspect)? _culledFor;
+
     /// <summary>Whether the opaque draw order has been reported.</summary>
     private bool _reportedDrawOrder;
 
@@ -1629,14 +1652,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     private bool Culled(ModelInstance instance)
     {
         // A model with no bounds is drawn rather than point-tested — see
-        // WorldSpaceBounds.IsDegenerate for what that cost.
-        if (!_frustum.IsBuilt || WorldSpaceBounds.IsDegenerate(instance.Bounds))
+        // WorldSpaceBounds.IsPlaced for what that cost.
+        if (!_frustum.IsBuilt || !WorldSpaceBounds.IsPlaced(instance.WorldBounds))
         {
             return false;
         }
 
         (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) box =
-            WorldSpaceBounds.Of(instance.Bounds, instance.Matrix, instance.Origin);
+            instance.WorldBounds;
 
         return _frustum.Cull(box.MinX, box.MinY, box.MinZ, box.MaxX, box.MaxY, box.MaxZ);
     }
@@ -1657,7 +1680,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     ///   mean an unbuilt frustum, which is the state a caller reaches by setting the camera through
     ///   the float-matrix overload — legal, and indistinguishable from "everything is on screen"
     ///   without this line.
-    /// * The bucket spread says whether <see cref="ModelInstance.Bounds"/> arrived. A zero-sized box
+    /// * The bucket spread says whether <see cref="ModelInstance.WorldBounds"/> arrived. A zero box
     ///   buckets as the smallest, so an unset one reads as `0/0/0/N` — and would also be culled by
     ///   nothing, since a degenerate box straddles every plane it touches.
     /// * The kept count being ZERO on a map with models is the frustum pointing the wrong way, which
@@ -1681,7 +1704,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         foreach (ModelInstance instance in ordered)
         {
             perBucket[OpaqueBuckets.BucketFor(
-                WorldSpaceBounds.LongestAxis(instance.Bounds, instance.Matrix))]++;
+                WorldSpaceBounds.LongestAxisOf(instance.WorldBounds))]++;
         }
 
         _render.LogInformation(
@@ -1709,13 +1732,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             }
 
             (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) box =
-                WorldSpaceBounds.Of(instance.Bounds, instance.Matrix, instance.Origin);
+                instance.WorldBounds;
 
             _render.LogInformation(
-                "  culled {Model}: local box {Local}, world box {World}",
+                "  culled {Model}: world box {World}",
                 instance.ModelPath,
-                $"({instance.Bounds.MinX:0},{instance.Bounds.MinY:0},{instance.Bounds.MinZ:0})"
-                + $"..({instance.Bounds.MaxX:0},{instance.Bounds.MaxY:0},{instance.Bounds.MaxZ:0})",
                 $"({box.MinX:0},{box.MinY:0},{box.MinZ:0})..({box.MaxX:0},{box.MaxY:0},{box.MaxZ:0})");
 
             kept.Add(instance.ModelPath);

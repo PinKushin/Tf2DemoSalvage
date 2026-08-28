@@ -1,8 +1,9 @@
 using System;
 
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.Content.Bsp;
 
-namespace Tf2DemoSalvage.Render;
+namespace Tf2DemoSalvage.Scene;
 
 /// <summary>
 /// A model's bounds once its placement is applied — Valve's <c>TransformAABB</c>.
@@ -50,6 +51,104 @@ public static class WorldSpaceBounds
     public static float LongestAxis(StudioBox local, float[] matrix) =>
         LongestAxisOf(Of(local, matrix));
 
+    /// <summary>A renderable's world box when it is not attached to anything.</summary>
+    /// <param name="local">Its model-space render bounds.</param>
+    /// <param name="origin">Where it stands — <c>GetRenderOrigin</c>.</param>
+    /// <param name="angles">How it is turned, in degrees — <c>GetRenderAngles</c>.</param>
+    /// <returns>The enclosing world-space box.</returns>
+    /// <remarks>
+    /// **`DefaultRenderBoundsWorldspace`'s second half** (`clientleafsystem.cpp:371`), which is what
+    /// the engine culls an ordinary entity by:
+    ///
+    /// <code>
+    /// pRenderable->GetRenderBounds( mins, maxs );
+    /// const QAngle&amp; angles = pRenderable->GetRenderAngles();
+    /// const Vector&amp; origin = pRenderable->GetRenderOrigin();
+    /// if (angles == vec3_angle) { VectorAdd( mins, origin, absMins ); VectorAdd( maxs, origin, absMaxs ); }
+    /// else { AngleMatrix( angles, origin, boxToWorld ); TransformAABB( boxToWorld, mins, maxs, absMins, absMaxs ); }
+    /// </code>
+    ///
+    /// **The box is built from the ORIGIN and ANGLES, never from a render matrix.** That is the
+    /// distinction this project got wrong twice: a skinned model leaves its matrix at identity and
+    /// is placed by its bones, and a brush submodel is compiled about its own origin — so a matrix
+    /// translation is the model's position only for a baked prop.
+    ///
+    /// **The unrotated fast path is Valve's and is kept**, because it is not merely an optimisation:
+    /// `TransformAABB` on an identity rotation still runs six `DotProductAbs` calls, and taking the
+    /// cheap branch is what the engine does for every static prop placed at zero angles.
+    /// </remarks>
+    public static (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) Placed(
+        StudioBox local,
+        (float X, float Y, float Z) origin,
+        (float Pitch, float Yaw, float Roll) angles)
+    {
+        if (angles.Pitch == 0f && angles.Yaw == 0f && angles.Roll == 0f)
+        {
+            return (
+                local.MinX + origin.X, local.MinY + origin.Y, local.MinZ + origin.Z,
+                local.MaxX + origin.X, local.MaxY + origin.Y, local.MaxZ + origin.Z);
+        }
+
+        return Of(
+            local,
+            new PropTransform(
+                origin.X, origin.Y, origin.Z,
+                angles.Pitch, angles.Yaw, angles.Roll, 1f).ToMatrix());
+    }
+
+    /// <summary>A bone-merged renderable's world box: its parent's, bloated.</summary>
+    /// <param name="parent">The wearer's already-placed world box.</param>
+    /// <param name="local">The worn item's own model-space render bounds.</param>
+    /// <param name="localOrigin">Its position relative to its parent — <c>GetLocalOrigin</c>.</param>
+    /// <returns>The parent's box grown by the item's reach, on every face.</returns>
+    /// <remarks>
+    /// **`DefaultRenderBoundsWorldspace`'s first half, and the bug it exists to fix is named in
+    /// Valve's own comment** (`clientleafsystem.cpp:344`):
+    ///
+    /// > *"Tracker 37433: This fixes a bug where if the stunstick is being wielded by a combine
+    /// > soldier, the fact that the stick was attached to the soldier's hand would move it such that
+    /// > it would get frustum culled near the edge of the screen."*
+    ///
+    /// <code>
+    /// CalcRenderableWorldSpaceAABB_Fast( pParent, absMins, absMaxs );
+    /// pEnt->GetRenderBounds( vAddMins, vAddMaxs );
+    /// float radius = pEnt->GetLocalOrigin().Length();
+    /// float flBloatSize = MAX( vAddMins.Length(), vAddMaxs.Length() );
+    /// flBloatSize = MAX(flBloatSize, radius);
+    /// absMins -= Vector( flBloatSize, flBloatSize, flBloatSize );
+    /// absMaxs += Vector( flBloatSize, flBloatSize, flBloatSize );
+    /// </code>
+    ///
+    /// **A following entity does not get its own box at all.** It gets the parent's, grown
+    /// isotropically by the largest of three lengths — its mins corner, its maxs corner, and its own
+    /// local origin — on Valve's stated assumption that it "can be at any point and at any angle
+    /// within the parent's world space bounds". In TF2 that is every hat, cosmetic and weapon.
+    ///
+    /// **Vector LENGTHS, not extents.** `vAddMins.Length()` is the distance from the model's origin
+    /// to its minimum CORNER, not the box's width — so a box reaching 20 units on each axis bloats
+    /// by 34.6, not 20. Reading it as an extent under-grows the box, which is the failure this rule
+    /// exists to prevent.
+    /// </remarks>
+    public static (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) Following(
+        (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) parent,
+        StudioBox local,
+        (float X, float Y, float Z) localOrigin)
+    {
+        static float Length(float x, float y, float z) => MathF.Sqrt((x * x) + (y * y) + (z * z));
+
+        float radius = Length(localOrigin.X, localOrigin.Y, localOrigin.Z);
+
+        float bloat = MathF.Max(
+            MathF.Max(
+                Length(local.MinX, local.MinY, local.MinZ),
+                Length(local.MaxX, local.MaxY, local.MaxZ)),
+            radius);
+
+        return (
+            parent.MinX - bloat, parent.MinY - bloat, parent.MinZ - bloat,
+            parent.MaxX + bloat, parent.MaxY + bloat, parent.MaxZ + bloat);
+    }
+
     /// <summary>Whether a box has no volume, and so says nothing about where its model is.</summary>
     /// <param name="local">The model-space render bounds.</param>
     /// <returns>True when the box is empty or inverted.</returns>
@@ -67,6 +166,22 @@ public static class WorldSpaceBounds
     /// </remarks>
     public static bool IsDegenerate(StudioBox local) =>
         local.MaxX <= local.MinX || local.MaxY <= local.MinY || local.MaxZ <= local.MinZ;
+
+    /// <summary>Whether a placed box has volume, and so can be culled against.</summary>
+    /// <param name="box">A world-space box.</param>
+    /// <returns>True when it encloses something.</returns>
+    /// <remarks>
+    /// **An empty box must never cull, and this project shipped the failure twice in one evening.**
+    /// A model with no render bounds collapses to a point, and a point test against the frustum
+    /// answers a question about that point rather than about the model — for a brush submodel
+    /// compiled about its own origin, a question about the map centre. Doors and lifts flickered;
+    /// players appeared out of nowhere.
+    ///
+    /// The conservative direction is the only defensible one: drawn is slow, missing is a hole.
+    /// </remarks>
+    public static bool IsPlaced(
+        (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) box) =>
+        box.MaxX > box.MinX && box.MaxY > box.MinY && box.MaxZ > box.MinZ;
 
     /// <summary>Where a placed model's box really is, matrix or bones.</summary>
     /// <param name="local">The model-space render bounds.</param>

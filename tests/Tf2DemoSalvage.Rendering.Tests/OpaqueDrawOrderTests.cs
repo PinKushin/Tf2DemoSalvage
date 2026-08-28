@@ -22,9 +22,15 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// </remarks>
 public sealed class OpaqueDrawOrderTests
 {
-    /// <summary>A cube of a given side, centred on the origin.</summary>
-    private static StudioBox Cube(float side) =>
-        new(-side / 2f, -side / 2f, -side / 2f, side / 2f, side / 2f, side / 2f);
+    /// <summary>A world-space cube of a given side, centred on a point.</summary>
+    /// <remarks>
+    /// **Placed rather than model-space, because `ModelInstance.WorldBounds` is now the finished
+    /// box.** The scene applies Valve's placement rules — pose, bones, or a wearer's box — and hands
+    /// the renderer an answer; these tests therefore state positions directly instead of building a
+    /// matrix to imply one.
+    /// </remarks>
+    private static (float, float, float, float, float, float) Cube(float side, float x = 0f) =>
+        (x - (side / 2f), -side / 2f, -side / 2f, x + (side / 2f), side / 2f, side / 2f);
 
     private static float[] Identity() =>
     [
@@ -35,7 +41,7 @@ public sealed class OpaqueDrawOrderTests
     ];
 
     private static ModelInstance Sized(string name, float side) =>
-        new(name, Identity(), null, null, Bounds: Cube(side));
+        new(name, Identity(), null, null, WorldBounds: Cube(side));
 
     /// <summary>That the biggest bucket is drawn first and the smallest last.</summary>
     /// <remarks>
@@ -91,40 +97,34 @@ public sealed class OpaqueDrawOrderTests
             .ShouldBe(names);
     }
 
-    /// <summary>That a model's placement decides its bucket, not the box it was authored with.</summary>
+    /// <summary>That two instances of one model bucket by their own placed size.</summary>
     /// <remarks>
-    /// **The whole reason bounds are transformed per instance rather than measured once at pack
-    /// time.** Two instances of ONE model — same box, same path — take different buckets because one
-    /// is scaled up. A packed-once implementation gives them the same bucket and this is the only
-    /// test here that can tell the difference.
+    /// **The whole reason the box is per instance rather than per model.** Two instances of ONE
+    /// model — same path — take different buckets because the scene placed them at different sizes.
+    /// A packed-once implementation gives them the same bucket and this is the only case here that
+    /// can tell the difference.
     ///
-    /// A 60-unit cube is "crate" (bucket 2); tripled it spans 180, still short of the 200 that would
-    /// make it a tree, so it is "player" (bucket 1) and is drawn first.
+    /// A 60-unit cube is "crate" (bucket 2); at 180 it is still short of the 200 that would make it
+    /// a tree, so it is "player" (bucket 1) and is drawn first.
     /// </remarks>
     [Test]
-    public void InDrawOrder_ForOneModelAtTwoScales_BucketsThemApart()
+    public void InDrawOrder_ForOneModelAtTwoSizes_BucketsThemApart()
     {
-        float[] tripled = Identity();
-
-        tripled[0] = 3f;
-        tripled[5] = 3f;
-        tripled[10] = 3f;
-
         ModelInstance[] scene =
         [
-            new("crate", Identity(), null, null, Bounds: Cube(60f)),
-            new("crate", tripled, null, null, Bounds: Cube(60f)),
+            new("crate", Identity(), null, null, WorldBounds: Cube(60f)),
+            new("crate", Identity(), null, null, WorldBounds: Cube(180f)),
         ];
 
         OpaqueBuckets.InDrawOrder(scene)
-            .Select(instance => instance.Matrix[0])
-            .ShouldBe([3f, 1f]);
+            .Select(instance => instance.WorldBounds.MaxX)
+            .ShouldBe([90f, 30f]);
     }
 
     /// <summary>That a scene whose bounds were never filled in is left exactly as it came.</summary>
     /// <remarks>
     /// **This documents the no-op, which is the failure mode worth naming.** An unset
-    /// <see cref="ModelInstance.Bounds"/> is a zero-sized box, so every model lands in the smallest
+    /// <see cref="ModelInstance.WorldBounds"/> is a zero box, so every model lands in the smallest
     /// bucket and the sort returns the input order — green, silent, and drawing in exactly the order
     /// it did before. Nothing in this file could catch that, which is why
     /// <see cref="ModelBoundsWiringTests"/> asserts on a model loaded the way the viewer loads one.
@@ -198,7 +198,7 @@ public sealed class OpaqueDrawOrderTests
     [Test]
     public void InDrawOrder_ForAModelWithBoundsBehindTheCamera_StillDropsIt()
     {
-        ModelInstance[] scene = [new("solid", Identity(), null, null, Bounds: Cube(50f))];
+        ModelInstance[] scene = [new("solid", Identity(), null, null, WorldBounds: Cube(50f))];
 
         OpaqueBuckets.InDrawOrder(scene, LookingAwayFromTheOrigin()).ShouldBeEmpty();
     }
@@ -245,14 +245,8 @@ public sealed class OpaqueDrawOrderTests
             aspect: 1f);
 
     /// <summary>A crate-sized model standing at a given distance along +X.</summary>
-    private static ModelInstance Placed(string name, float x)
-    {
-        float[] matrix = Identity();
-
-        matrix[12] = x;
-
-        return new ModelInstance(name, matrix, null, null, Bounds: Cube(50f));
-    }
+    private static ModelInstance Placed(string name, float x) =>
+        new(name, Identity(), null, null, WorldBounds: Cube(50f, x));
 
     [Test]
     public void InDrawOrder_ForNull_Throws()
