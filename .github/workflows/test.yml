@@ -162,7 +162,10 @@ jobs:
           # .trx total.
           # 673 -> 686: 13 more (StudioIkChainTests 7, StudioBoneControllerTests 5, one capacity
           # guard). All but one IK test build their own bytes and run anywhere.
-          ./build/assert-test-count.sh '**/content.trx' 740 Content
+          # 740 -> 744: four map-checksum conformance tests added 2026-08-28. Three read the SDK and
+          # Assert.Ignore without it — which a .trx total still counts — and the fourth is a CRC
+          # check vector that needs nothing at all.
+          ./build/assert-test-count.sh '**/content.trx' 744 Content
           ./build/assert-test-count.sh '**/presentation.trx' 396 Presentation
           ./build/assert-test-count.sh '**/logging.trx' 17 Logging
           # 10 is MEASURED locally and safe on a runner without the SDK, because a .trx total counts

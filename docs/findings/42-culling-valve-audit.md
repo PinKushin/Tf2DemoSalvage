@@ -227,7 +227,13 @@ where all four of this work's defects lived.
 
 ## Still open
 
-- **Ragdoll bounds and origin** — approximated, not matched, because no ragdoll extent exists here.
+- **Ragdoll bounds and origin** — approximated, not matched. **The reasoning first recorded here was
+  wrong and the owner corrected it.** This said the ragdoll extent "does not exist here" and that the
+  job was therefore a design decision rather than a transcription. It is not: *"the data for the
+  ragdolls is available in the sdk, source physics is deterministic so it wont be hard to implement,
+  just very large."* So it is the same kind of work as everything else in this audit — read Valve,
+  transcribe it — and its size is the only thing that defers it. Recorded because a wrong reason for
+  parking something is how it stays parked for the wrong reason.
 - **Two-pass models** (`RENDER_FLAGS_TWOPASS`) — drawn once, not twice.
 - **Detail props** — not drawn.
 - **Static props are never culled** — the largest remaining performance gap.

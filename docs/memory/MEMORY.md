@@ -141,3 +141,4 @@
 - [The denominator decides what can be lost](the-denominator-decides-what-can-be-lost.md) — a coverage test cannot miss what it never enumerates.
 - [An empty box must never cull](an-empty-box-must-never-cull.md) — a zero bound is a point test at the map origin.
 - [A demo names a map version](a-demo-names-a-map-version.md) — svc_ServerInfo carries the CRC; a mismatched .bsp imitates rendering bugs.
+- [Suspect the input, not the algorithm](suspect-the-input-not-the-algorithm.md) — a correct algorithm failing means the wrong field, file, or transform.
