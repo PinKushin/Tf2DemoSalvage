@@ -105,6 +105,67 @@ public sealed class WorldSpaceBoundsTests
         Should.Throw<ArgumentException>(() => WorldSpaceBounds.LongestAxis(Long, new float[9]));
     }
 
+    /// <summary>That the placed box lands where the matrix puts it.</summary>
+    /// <remarks>
+    /// **Nothing asserted this until the cull needed it, and nothing COULD.** `fDimension` is a
+    /// difference of two corners, so the centre cancels out of it — every test above stays green
+    /// against an implementation that ignores the translation entirely. A cull does not cancel it:
+    /// a box reported at the origin while the model stands four thousand units away is culled
+    /// exactly when the camera is looking somewhere else, which reads as models flickering in and
+    /// out rather than as a transform bug.
+    ///
+    /// The box spans −50..50 in X about a centre of 4000, so 3950..4050.
+    /// </remarks>
+    [Test]
+    public void Of_ForABoxMovedFarFromTheOrigin_IsCentredWhereTheMatrixPutsIt()
+    {
+        float[] moved = Identity();
+
+        moved[12] = 4000f;
+        moved[13] = -2500f;
+        moved[14] = 900f;
+
+        (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) box =
+            WorldSpaceBounds.Of(Long, moved);
+
+        box.MinX.ShouldBe(3950f, 0.001);
+        box.MaxX.ShouldBe(4050f, 0.001);
+        box.MinY.ShouldBe(-2505f, 0.001);
+        box.MaxY.ShouldBe(-2495f, 0.001);
+        box.MinZ.ShouldBe(890f, 0.001);
+        box.MaxZ.ShouldBe(910f, 0.001);
+    }
+
+    /// <summary>That a box whose own centre is offset is placed by that centre too.</summary>
+    /// <remarks>
+    /// **The control that separates "reads the translation" from "reads the centre".** Every box
+    /// above is centred on its own origin, so `worldCentre = VectorTransform(localCentre)` reduces
+    /// to the translation alone and an implementation that ignored `localCentre` would pass. A
+    /// model's render bounds are routinely NOT centred — the scout's hull runs −19.27 to 6.60 in X.
+    ///
+    /// Here the local box spans 100..300 in X, centre 200, so rotating ninety degrees about Z sends
+    /// that centre to (0, 200) and the box to −10..10 by 100..300.
+    /// </remarks>
+    [Test]
+    public void Of_ForABoxOffsetFromItsOwnOrigin_CarriesThatOffsetThroughTheRotation()
+    {
+        StudioBox offset = new(100f, -10f, -10f, 300f, 10f, 10f);
+
+        (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) box =
+            WorldSpaceBounds.Of(offset, RotationAboutZ(90f));
+
+        box.MinX.ShouldBe(-10f, 0.001);
+        box.MaxX.ShouldBe(10f, 0.001);
+        box.MinY.ShouldBe(100f, 0.001);
+        box.MaxY.ShouldBe(300f, 0.001);
+    }
+
+    [Test]
+    public void Of_ForAMatrixOfTheWrongLength_Throws()
+    {
+        Should.Throw<ArgumentException>(() => WorldSpaceBounds.Of(Long, new float[9]));
+    }
+
     private static float[] Identity() =>
     [
         1f, 0f, 0f, 0f,

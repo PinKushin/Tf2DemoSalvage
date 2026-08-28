@@ -187,35 +187,75 @@ public sealed class FreeCamera
             Aspect = aspect,
         };
 
-    /// <summary>The view-projection the shader wants, row-major, translation in the last row.</summary>
-    /// <returns>Sixteen floats for the camera constant buffer.</returns>
-    public float[] ToMatrix()
+    /// <summary>This camera's axes, as <c>AngleVectors</c> builds them.</summary>
+    /// <returns>Forward, right and up — Valve's three, in Valve's order.</returns>
+    /// <remarks>
+    /// **Extracted so the view matrix and the view frustum cannot disagree about where the camera
+    /// points.** They are two readings of one thing, and this project has already shipped the
+    /// failure that comes of computing a camera twice: a build-time shortcut assumed a top-down
+    /// view and broke the free camera the moment it moved. A frustum derived from its own copy of
+    /// this arithmetic would cull against a camera nobody is looking through, and the symptom —
+    /// geometry vanishing near the edge of the screen — reads as a culling bug rather than as a
+    /// second camera.
+    ///
+    /// **RIGHT rather than left, which is what `AngleVectors` returns.** `ToMatrix` needs left,
+    /// because `VMatrix::GetBasisVectors` hands out forward/left/up, and negates it there; the
+    /// frustum builder wants right and gets it unchanged. Transcribing the second vector under the
+    /// name "left" produces a camera correct in every respect except that the world is mirrored,
+    /// which looks fine until something has writing on it.
+    ///
+    /// Yaw about Z, then pitch about Y, then roll about X — at zero angles forward runs down +X,
+    /// left down +Y and up down +Z.
+    /// </remarks>
+    public ((float X, float Y, float Z) Forward,
+            (float X, float Y, float Z) Right,
+            (float X, float Y, float Z) Up) Basis()
     {
-        // **The basis, as AngleVectors builds it**: forward down +X, left down +Y, up down +Z at
-        // zero angles. Valve applies yaw about Z, then pitch about Y, then roll about X.
         (float sinPitch, float cosPitch) = MathF.SinCos(Angles.Pitch * (MathF.PI / 180f));
         (float sinYaw, float cosYaw) = MathF.SinCos(Angles.Yaw * (MathF.PI / 180f));
         (float sinRoll, float cosRoll) = MathF.SinCos(Angles.Roll * (MathF.PI / 180f));
 
-        (float X, float Y, float Z) forward =
-            (cosPitch * cosYaw, cosPitch * sinYaw, -sinPitch);
+        return (
+            (cosPitch * cosYaw, cosPitch * sinYaw, -sinPitch),
+            ((-sinRoll * sinPitch * cosYaw) + (-cosRoll * -sinYaw),
+             (-sinRoll * sinPitch * sinYaw) + (-cosRoll * cosYaw),
+             -sinRoll * cosPitch),
+            ((cosRoll * sinPitch * cosYaw) + (-sinRoll * -sinYaw),
+             (cosRoll * sinPitch * sinYaw) + (-sinRoll * cosYaw),
+             cosRoll * cosPitch));
+    }
 
-        // **AngleVectors returns RIGHT, and the basis this feeds wants LEFT.** VMatrix's
-        // GetBasisVectors — which is what BuildWorldToShadowMatrix reads — gives forward, left and
-        // up, and left is right negated. Transcribing AngleVectors' second vector under the name
-        // "left" produces a camera that is correct in every respect except that the world is
-        // mirrored, which is the sort of wrong that looks fine until something has writing on it.
-        (float X, float Y, float Z) right = (
-            (-sinRoll * sinPitch * cosYaw) + (-cosRoll * -sinYaw),
-            (-sinRoll * sinPitch * sinYaw) + (-cosRoll * cosYaw),
-            -sinRoll * cosPitch);
+    /// <summary>The volume this camera can see, for culling what is outside it.</summary>
+    /// <returns>Six planes with their normals pointing inward.</returns>
+    /// <remarks>
+    /// **The same numbers <see cref="ToMatrix"/> projects with**, which is the point of it living
+    /// here: origin, basis, near, far, field of view and aspect are read once from one camera. A
+    /// frustum assembled by the renderer from whatever it happened to know would be a second
+    /// camera, and the two would drift silently.
+    ///
+    /// **<see cref="FieldOfView"/> is the HORIZONTAL angle**, as `ToMatrix` treats it — it derives
+    /// `width` from it and `height` from the aspect ratio — so the vertical one comes from Valve's
+    /// `CalcFovY` rather than from a second reading of the settings.
+    /// </remarks>
+    public ViewFrustum Frustum()
+    {
+        ((float X, float Y, float Z) forward,
+         (float X, float Y, float Z) right,
+         (float X, float Y, float Z) up) = Basis();
+
+        return ViewFrustum.PerspectiveFromAspect(
+            (Origin.X, Origin.Y, Origin.Z), forward, right, up, NearZ, FarZ, FieldOfView, Aspect);
+    }
+
+    /// <summary>The view-projection the shader wants, row-major, translation in the last row.</summary>
+    /// <returns>Sixteen floats for the camera constant buffer.</returns>
+    public float[] ToMatrix()
+    {
+        ((float X, float Y, float Z) forward,
+         (float X, float Y, float Z) right,
+         (float X, float Y, float Z) up) = Basis();
 
         (float X, float Y, float Z) left = (-right.X, -right.Y, -right.Z);
-
-        (float X, float Y, float Z) up = (
-            (cosRoll * sinPitch * cosYaw) + (-sinRoll * -sinYaw),
-            (cosRoll * sinPitch * sinYaw) + (-sinRoll * cosYaw),
-            cosRoll * cosPitch);
 
         // The flip: camera X is the world's LEFT, camera Y is the world's UP, camera Z is the
         // world's FORWARD. Valve's own comment on this is "Bizarre vector flip inherited from

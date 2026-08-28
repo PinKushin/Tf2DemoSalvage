@@ -6304,3 +6304,61 @@ worse failure is quieter still — an unset `ModelInstance.Bounds` is a zero box
 buckets as the smallest and the sort returns its input unchanged. `Device3D` now writes one census
 line per device (`opaque draw order: 49 models, buckets 1/6/0/42`) and a UI test asserts the spread
 covers more than one bucket, which is the observation that distinguishes the two.
+
+## D111 — One camera produces both the projection and the cull volume
+
+**Owner-set, 2026-08-27**, as the next step after D110:
+
+> *"ok go for it"*
+
+— on culling, which had been parked behind getting the draw order right:
+
+> *"i want valve parity here before we worry about culling"*
+
+**What the engine does**, read before anything was written and pinned by
+`ViewFrustumConformanceTests`:
+
+- `GeneratePerspectiveFrustum` (`mathlib_base.cpp:3923`) builds six planes with their normals
+  pointing INWARD. Each side plane is `right + tan(fovX/2)·forward` and that vector reflected
+  through `−2·right`, normalised, with `normal · origin` as its distance — so every side plane
+  passes through the eye. The depth planes are `forward` and `−forward` offset by
+  `flIntercept = origin · forward`.
+- `R_CullBox` (`:3973`) drops a box that is wholly behind any ONE of the six —
+  `BoxOnPlaneSide(...) == 2`. A box that straddles survives, which is what makes a cull safe: it
+  can fail to remove something, never remove something it should have kept.
+- `CClientLeafSystem::CollateRenderablesInLeaf` (`clientleafsystem.cpp:1647`) computes the
+  world-space AABB, culls, and only then decides the render group and size bucket. This project
+  therefore culls inside `OpaqueBuckets.InDrawOrder`, from the same box the bucket is chosen by.
+
+**The design decision worth recording is where the camera comes from.** `Device3D.SetCamera` now
+takes the `FreeCamera` itself rather than its matrix, and derives both the projection and the
+frustum from it; `MainForm.ViewMatrix()` is `ViewCameraNow().ToMatrix()`, so "which camera" is
+answered once. Deriving them separately is the failure this project has already shipped a version of
+— a build-time top-down culling shortcut that broke the free camera the moment it moved — and the
+symptom of getting it wrong here is worse than slow: a frustum describing a camera nobody is looking
+through removes exactly the geometry in front of the viewer, in first person only.
+
+The float-matrix overload survives for the viewmodel pass, which sets a camera of its own. It leaves
+the frustum alone rather than clearing it or inventing one from the matrix, because inverting a
+matrix back into six planes would be the second derivation this whole arrangement exists to prevent.
+
+**Two findings from reading, neither of which changed the code but both of which nearly did.**
+
+`GeneratePerspectiveFrustum` passes `PLANE_ANYZ` (5) for all six planes, and `BoxOnPlaneSide`'s
+axial fast path is gated on `type < 3`. So **the fast path never runs for a view frustum** — it
+exists for BSP planes. That also disposes of a disagreement inside Valve's own function: the axial
+path answers 2 for a box whose maximum lies exactly ON the plane where the general path answers 3,
+and only the general path can run here.
+
+`BoxOnPlaneSide`'s eight-case `switch (p->signbits)` is an unroll: each case differs only in which
+of `emins`/`emaxs` supplies each component, chosen by the sign of that component of the normal, and
+the three products are summed in the same order. Written here as a select on the sign — the same
+arithmetic on the same operands, not an approximation. Recorded because "do not simplify Valve"
+applies and this is the sort of thing that should be argued in the open rather than assumed
+equivalent.
+
+**Measured on a real demo: 45 of 49 opaque models kept.** Modest, and expected to be — 49 models is
+not where a frame goes. The world is still drawn in full, batched by material across the whole map
+with no leaf or cluster association, so PVS and per-leaf frustum culling of world surfaces is the
+next and much larger piece. This one is the foundation it needs: the frustum, the box, and the
+camera that produces both.

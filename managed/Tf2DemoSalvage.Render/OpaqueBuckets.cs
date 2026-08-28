@@ -69,7 +69,8 @@ public static class OpaqueBuckets
 
     /// <summary>The order the engine would draw these instances in.</summary>
     /// <param name="instances">What is to be drawn, in whatever order the scene produced.</param>
-    /// <returns>The same instances, biggest bucket first.</returns>
+    /// <param name="frustum">The view volume; an unbuilt one culls nothing.</param>
+    /// <returns>What survives the cull, biggest bucket first.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="instances"/> is null.</exception>
     /// <remarks>
     /// **`DrawOpaqueRenderables`' own order**, minus a distinction this renderer does not have.
@@ -86,45 +87,56 @@ public static class OpaqueBuckets
     /// scene produced, which for identical models means they stay adjacent — that is what makes a
     /// redundant-material check worth having later. An unstable sort would scatter them and the
     /// binds would come back.
+    ///
+    /// **The cull happens BEFORE the bucketing, which is the engine's order.**
+    /// `CollateRenderablesInLeaf` computes the world-space AABB, drops the renderable with
+    /// `engine->CullBox`, and only then asks what render group it belongs to. Bucketing first would
+    /// sort objects that are never drawn — and the box is computed once here and used for both,
+    /// which is the arrangement that makes doing it in Valve's order free.
     /// </remarks>
-    public static IReadOnlyList<ModelInstance> InDrawOrder(IReadOnlyList<ModelInstance> instances)
+    public static IReadOnlyList<ModelInstance> InDrawOrder(
+        IReadOnlyList<ModelInstance> instances, ViewFrustum frustum = default)
     {
         ArgumentNullException.ThrowIfNull(instances);
-
-        if (instances.Count < 2)
-        {
-            return instances;
-        }
 
         // **Keyed once rather than inside the comparison.** A comparison sort calls its key
         // function O(n log n) times, and each call here transforms a box by a matrix; computing it
         // per instance first is the difference between hundreds of transforms a frame and
         // thousands. Valve pays none of this — its buckets are filled as renderables are collated,
         // so the sort is a bucket append rather than a comparison at all.
-        (int Bucket, int Order, ModelInstance Instance)[] keyed =
-            new (int, int, ModelInstance)[instances.Count];
+        List<(int Bucket, int Order, ModelInstance Instance)> keyed = new(instances.Count);
 
         for (int at = 0; at < instances.Count; at++)
         {
             ModelInstance instance = instances[at];
 
-            keyed[at] = (
-                BucketFor(WorldSpaceBounds.LongestAxis(instance.Bounds, instance.Matrix)),
+            (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) box =
+                WorldSpaceBounds.Of(instance.Bounds, instance.Matrix);
+
+            if (frustum.Cull(box.MinX, box.MinY, box.MinZ, box.MaxX, box.MaxY, box.MaxZ))
+            {
+                continue;
+            }
+
+            keyed.Add((
+                BucketFor(WorldSpaceBounds.LongestAxisOf(box)),
                 at,
-                instance);
+                instance));
         }
 
+        (int Bucket, int Order, ModelInstance Instance)[] survivors = [.. keyed];
+
         Array.Sort(
-            keyed,
+            survivors,
             static (left, right) => left.Bucket != right.Bucket
                 ? left.Bucket.CompareTo(right.Bucket)
                 : left.Order.CompareTo(right.Order));
 
-        ModelInstance[] ordered = new ModelInstance[keyed.Length];
+        ModelInstance[] ordered = new ModelInstance[survivors.Length];
 
-        for (int at = 0; at < keyed.Length; at++)
+        for (int at = 0; at < survivors.Length; at++)
         {
-            ordered[at] = keyed[at].Instance;
+            ordered[at] = survivors[at].Instance;
         }
 
         return ordered;

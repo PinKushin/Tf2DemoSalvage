@@ -1,5 +1,7 @@
 using System;
+using System.Globalization;
 using System.Linq;
+using System.Text.RegularExpressions;
 
 using FlaUI.Core.Tools;
 
@@ -182,5 +184,50 @@ public sealed class WiringUiTests
             1,
             $"every opaque model fell in one bucket ({counts}), which is what an unset "
             + "ModelInstance.Bounds looks like");
+    }
+
+    [Test]
+    public void TheOpaqueModels_BeforeBeingDrawn_HadTheOnesOutsideTheViewRemoved()
+    {
+        // **The same B193 shape as its neighbour above, for the cull rather than the sort.** A
+        // frustum that is never built culls nothing and reports no error: the picture is identical,
+        // every test stays green, and the only evidence is that the two counts on this line agree.
+        //
+        // **Measured, not assumed: 45 of 49 on this demo at this moment.** Four of the map's models
+        // are behind the camera or past its edges. The assertion is the inequality rather than the
+        // numbers, because the scene may legitimately gain or lose models — but if it ever reaches
+        // equality, either the cull stopped running or a camera change put the whole map on screen,
+        // and both are worth a red test.
+        //
+        // Needs the game for the same reason as the bucket check: with no TF2 there are no models.
+        ViewerSession.RequireTheGame();
+
+        Retry.WhileFalse(
+            () => Viewer.LastLine("opaque draw order:") is not null,
+            TimeSpan.FromSeconds(15),
+            throwOnTimeout: true,
+            timeoutMessage: "The draw loop never reported what it kept.");
+
+        string line = Viewer.LastLine("opaque draw order:")
+            .ShouldNotBeNull("the retry above should have waited for this");
+
+        // `opaque draw order: 45 of 49 models kept, buckets 1/6/0/38`
+        Match counted = Regex.Match(
+            line,
+            @"opaque draw order: (\d+) of (\d+) models kept",
+            RegexOptions.None,
+            TimeSpan.FromSeconds(5));
+
+        counted.Success.ShouldBeTrue($"the census line should carry both counts: {line}");
+
+        int kept = int.Parse(counted.Groups[1].Value, CultureInfo.InvariantCulture);
+        int offered = int.Parse(counted.Groups[2].Value, CultureInfo.InvariantCulture);
+
+        kept.ShouldBeLessThan(
+            offered,
+            $"nothing was culled ({line}), which is what an unbuilt view frustum looks like");
+
+        kept.ShouldBeGreaterThan(
+            0, "everything was culled, so the frustum is pointing away from the map");
     }
 }

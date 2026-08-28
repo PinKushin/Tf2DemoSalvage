@@ -1733,8 +1733,17 @@ internal class MainForm : Form, IFrameSteps
     /// recorded view runs out before the first packet, and a spectated player can leave — and a
     /// black screen would read as a rendering fault rather than as the end of the material.
     /// </remarks>
-    private float[] ViewMatrix() =>
-        ViewCamera.Matrix(_firstPerson, FirstPersonCamera(), FreeLookCamera());
+    private float[] ViewMatrix() => ViewCameraNow().ToMatrix();
+
+    /// <summary>The camera this frame is seen through, whichever mode is on.</summary>
+    /// <returns>The first-person camera when there is one and the mode asks for it, else the free one.</returns>
+    /// <remarks>
+    /// **One answer to "which camera", because two things now derive from it** — the projection and
+    /// the view frustum the draw culls against. A frustum built from the free camera while the
+    /// picture is drawn through a player's eyes would cull the geometry the viewer is looking at.
+    /// </remarks>
+    private FreeCamera ViewCameraNow() =>
+        ViewCamera.Active(_firstPerson, FirstPersonCamera(), FreeLookCamera());
 
     /// <summary>The leaf outline to draw over the world, when that overlay is switched on.</summary>
     /// <returns>World-space segments, or nothing when the mode is off or there is no leaf.</returns>
@@ -3314,7 +3323,10 @@ internal class MainForm : Form, IFrameSteps
             return;
         }
 
-        _device.SetCamera(ViewMatrix(), _menu.SurfaceColours.Checked);
+        // **The camera itself rather than its matrix**, so the projection and the cull volume are
+        // derived from one thing. `SetCamera(float[])` still exists for the viewmodel pass, which
+        // has a camera of its own and no business culling against the world's.
+        _device.SetCamera(ViewCameraNow(), _menu.SurfaceColours.Checked);
     }
 
     // **`ReportSlowFrame` was here until 2026-08-25** (B188, D90). It is `StallReport.Frame`, and

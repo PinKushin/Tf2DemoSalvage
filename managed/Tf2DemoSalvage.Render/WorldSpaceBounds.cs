@@ -42,18 +42,35 @@ public static class WorldSpaceBounds
     /// <exception cref="ArgumentNullException"><paramref name="matrix"/> is null.</exception>
     /// <exception cref="ArgumentException"><paramref name="matrix"/> is not sixteen floats.</exception>
     /// <remarks>
-    /// **Only the extents are needed, so the centre is not computed.** `fDimension` is
-    /// `MAX(MAX(|dims.x|, |dims.y|), |dims.z|)` of `absMaxs - absMins`, and that difference is
-    /// exactly twice the world extents — the centre cancels. Valve computes the full box because
-    /// the caller also culls and places with it; here the only consumer is the size bucket.
+    /// **A convenience over <see cref="Of"/>, which is where the arithmetic lives.** Both answers
+    /// come from one box because the engine computes one box: `CollateRenderablesInLeaf` culls with
+    /// it and then buckets with it, and computing it twice would be two chances to disagree about
+    /// where a model is.
+    /// </remarks>
+    public static float LongestAxis(StudioBox local, float[] matrix) =>
+        LongestAxisOf(Of(local, matrix));
+
+    /// <summary>The world-space box a placed model occupies — Valve's <c>TransformAABB</c>.</summary>
+    /// <param name="local">The model-space render bounds.</param>
+    /// <param name="matrix">The instance's model matrix: row-vector, translation in the last row.</param>
+    /// <returns>The enclosing axis-aligned box, in world coordinates.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="matrix"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="matrix"/> is not sixteen floats.</exception>
+    /// <remarks>
+    /// **The centre is computed here where the older `LongestAxis` skipped it**, because a cull
+    /// needs to know WHERE the box is and a size bucket only needs how big. `fDimension` is a
+    /// difference of two corners, so the centre cancels out of it — which made dropping the centre
+    /// safe for bucketing and would make it silently wrong for culling.
     ///
     /// **The convention crossing is the hazard.** This project's matrices are row-vector with the
     /// translation in the last ROW, so the coefficients producing output x are the first COLUMN —
-    /// `m[0]`, `m[4]`, `m[8]` — where Valve's `matrix3x4_t` has them as a row. Getting it the other
-    /// way round transposes the rotation, which for a symmetric box is invisible and for anything
-    /// else is a plausible wrong number. See `docs/memory/two-matrix-conventions-on-purpose.md`.
+    /// `m[0]`, `m[4]`, `m[8]` — where Valve's `matrix3x4_t` has them as a row, and the translation
+    /// is `m[12..14]` rather than `m[0][3]`. Getting it the other way round transposes the rotation,
+    /// which for a symmetric box is invisible and for anything else is a plausible wrong number. See
+    /// `docs/memory/two-matrix-conventions-on-purpose.md`.
     /// </remarks>
-    public static float LongestAxis(StudioBox local, float[] matrix)
+    public static (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) Of(
+        StudioBox local, float[] matrix)
     {
         ArgumentNullException.ThrowIfNull(matrix);
 
@@ -62,17 +79,47 @@ public static class WorldSpaceBounds
             throw new ArgumentException("A model matrix is sixteen floats.", nameof(matrix));
         }
 
-        float extentX = (local.MaxX - local.MinX) * 0.5f;
-        float extentY = (local.MaxY - local.MinY) * 0.5f;
-        float extentZ = (local.MaxZ - local.MinZ) * 0.5f;
+        float centreX = (local.MinX + local.MaxX) * 0.5f;
+        float centreY = (local.MinY + local.MaxY) * 0.5f;
+        float centreZ = (local.MinZ + local.MaxZ) * 0.5f;
 
+        float extentX = local.MaxX - centreX;
+        float extentY = local.MaxY - centreY;
+        float extentZ = local.MaxZ - centreZ;
+
+        // VectorTransform: the local centre placed by the matrix, translation included.
+        float worldCentreX =
+            (centreX * matrix[0]) + (centreY * matrix[4]) + (centreZ * matrix[8]) + matrix[12];
+        float worldCentreY =
+            (centreX * matrix[1]) + (centreY * matrix[5]) + (centreZ * matrix[9]) + matrix[13];
+        float worldCentreZ =
+            (centreX * matrix[2]) + (centreY * matrix[6]) + (centreZ * matrix[10]) + matrix[14];
+
+        // DotProductAbs, per output axis.
         float worldX = Abs(extentX, matrix[0]) + Abs(extentY, matrix[4]) + Abs(extentZ, matrix[8]);
         float worldY = Abs(extentX, matrix[1]) + Abs(extentY, matrix[5]) + Abs(extentZ, matrix[9]);
         float worldZ = Abs(extentX, matrix[2]) + Abs(extentY, matrix[6]) + Abs(extentZ, matrix[10]);
 
-        // Twice, because an extent is a half-size and fDimension is the full span.
-        return 2f * Math.Max(Math.Max(worldX, worldY), worldZ);
+        return (
+            worldCentreX - worldX, worldCentreY - worldY, worldCentreZ - worldZ,
+            worldCentreX + worldX, worldCentreY + worldY, worldCentreZ + worldZ);
     }
+
+    /// <summary>The longest span of an already-placed box — Valve's <c>fDimension</c>.</summary>
+    /// <param name="box">A world-space box, as <see cref="Of"/> returns.</param>
+    /// <returns>The longest of its three spans.</returns>
+    /// <remarks>
+    /// `DetectBucketedRenderGroup` takes `absMaxs - absMins` and then
+    /// `MAX(MAX(|dims.x|, |dims.y|), |dims.z|)`. The absolute values are Valve's and are inert for a
+    /// well-formed box, whose maximum is never below its minimum; kept because dropping them would
+    /// make a degenerate box report a negative size and bucket as the smallest rather than being
+    /// obviously wrong.
+    /// </remarks>
+    public static float LongestAxisOf(
+        (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) box) =>
+        Math.Max(
+            Math.Max(Math.Abs(box.MaxX - box.MinX), Math.Abs(box.MaxY - box.MinY)),
+            Math.Abs(box.MaxZ - box.MinZ));
 
     private static float Abs(float extent, float coefficient) => Math.Abs(extent * coefficient);
 }
