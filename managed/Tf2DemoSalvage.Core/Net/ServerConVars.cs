@@ -39,21 +39,40 @@ namespace Tf2DemoSalvage.Core.Net;
 /// </remarks>
 public sealed class ServerConVars
 {
-    private readonly Dictionary<string, string> _replicated = new(StringComparer.Ordinal);
-
-    /// <summary>Parsed values, so a per-frame reader pays a lookup rather than a parse.</summary>
+    /// <summary>One server's settings, complete and never edited after it is published.</summary>
+    /// <param name="Text">What the server sent, verbatim.</param>
+    /// <param name="Numbers">
+    /// The same values parsed, with null for a name whose value is not a number. Null is kept rather
+    /// than the entry being omitted, because "sent, and not numeric" must reach
+    /// <see cref="Number"/> as an error — omitting it would silently fall through to Valve's
+    /// default and report a mod's unparseable value as vanilla.
+    /// </param>
     /// <remarks>
-    /// **This is what Valve's `ConVar` already is.** `FullNoClipMove` calls
-    /// `sv_maxspeed.GetFloat()` on every move, which reads a float the ConVar cached when its value
-    /// was set — the engine parses on assignment, not on use. Reading per frame is therefore parity
-    /// rather than waste, and the cache is what makes the two the same shape.
-    ///
-    /// Cleared on <see cref="Apply"/> rather than updated, because a message carries a handful of
-    /// names and rebuilding a handful of floats lazily is cheaper than reasoning about which
-    /// entries a partial invalidation may have missed. It happens at signon and on a change, not
-    /// per frame.
+    /// **Read-only types rather than `Dictionary`, so the fault that caused this class to be
+    /// rewritten cannot be reintroduced without a compile error.** The whole defect was one
+    /// assignment on the read path; typed this way, that assignment does not build. A convention
+    /// would not have caught it — the previous version was written by someone who knew the rule.
     /// </remarks>
-    private readonly Dictionary<string, float> _numbers = new(StringComparer.Ordinal);
+    private sealed record Settings(
+        IReadOnlyDictionary<string, string> Text,
+        IReadOnlyDictionary<string, float?> Numbers);
+
+    /// <summary>The settings in force, replaced wholesale on <see cref="Apply"/>.</summary>
+    /// <remarks>
+    /// **A published snapshot rather than a mutable map, because the readers are on another
+    /// thread.** The demo is decoded off the UI thread and `svc_SetConVar` arrives with it, while
+    /// the free camera reads `sv_maxspeed` every frame on the UI thread. A `Dictionary` written
+    /// in place while another thread reads it is undefined, and it does not fail politely: measured
+    /// 2026-08-27, the viewer suite threw *"Operations that change non-concurrent collections must
+    /// have exclusive access … corrupted its state"* out of a per-frame speed lookup.
+    ///
+    /// Swapping a whole immutable snapshot means a reader sees either the settings before a message
+    /// or the settings after it, never a half-applied mixture, with no lock on the read path at all.
+    /// `Apply` allocates; it runs at signon and on a change, not per frame.
+    /// </remarks>
+    private volatile Settings _state = new(
+        new Dictionary<string, string>(StringComparer.Ordinal),
+        new Dictionary<string, float?>(StringComparer.Ordinal));
 
     /// <summary>Applies one <c>svc_SetConVar</c>, as the client would at signon or mid-match.</summary>
     /// <param name="message">The decoded message.</param>
@@ -61,17 +80,37 @@ public sealed class ServerConVars
     /// **Later wins**, which is the engine's own behaviour rather than a convenience: a second
     /// message for a name is sent exactly when the value has moved, so keeping the first would show
     /// the wrong half of the demo.
+    ///
+    /// **The parse happens here, which is where Valve's happens.** `ConVar::InternalSetValue`
+    /// converts to a float on assignment and stashes it in `m_fValue`, so `sv_maxspeed.GetFloat()`
+    /// in `FullNoClipMove` reads a field rather than parsing per move. An earlier version of this
+    /// class memoised lazily on the read instead — same answers, but a write on the read path, which
+    /// is both a departure from the engine's shape and the race described on <see cref="_state"/>.
     /// </remarks>
     public void Apply(SetConVarMessage message)
     {
         ArgumentNullException.ThrowIfNull(message);
 
+        Settings current = _state;
+
+        Dictionary<string, string> text = new(current.Text, StringComparer.Ordinal);
+        Dictionary<string, float?> numbers = new(current.Numbers, StringComparer.Ordinal);
+
         foreach (KeyValuePair<string, string> variable in message.Variables)
         {
-            _replicated[variable.Key] = variable.Value;
+            text[variable.Key] = variable.Value;
+
+            numbers[variable.Key] = float.TryParse(
+                variable.Value,
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture,
+                out float parsed)
+                ? parsed
+                : null;
         }
 
-        _numbers.Clear();
+        // Published only once both maps are complete, so no reader can see one without the other.
+        _state = new Settings(text, numbers);
     }
 
     /// <summary>The value in force, as text.</summary>
@@ -89,7 +128,7 @@ public sealed class ServerConVars
     {
         ArgumentNullException.ThrowIfNull(name);
 
-        if (_replicated.TryGetValue(name, out string? sent))
+        if (_state.Text.TryGetValue(name, out string? sent))
         {
             return sent;
         }
@@ -111,25 +150,17 @@ public sealed class ServerConVars
     {
         ArgumentNullException.ThrowIfNull(name);
 
-        if (_numbers.TryGetValue(name, out float cached))
-        {
-            return cached;
-        }
-
         // Asked first so an undeclared name fails as "nobody declared this" rather than as a parse
         // error about the value a server happened to send for it.
         EngineConVar declared = EngineConVars.ByName(name);
 
-        string inForce = _replicated.TryGetValue(name, out string? sent) ? sent : declared.Default;
-
-        if (!float.TryParse(inForce, NumberStyles.Float, CultureInfo.InvariantCulture, out float value))
+        if (!_state.Numbers.TryGetValue(name, out float? sent))
         {
-            throw new FormatException($"the server set {name} to '{inForce}', which is not a number");
+            return declared.Number;
         }
 
-        _numbers[name] = value;
-
-        return value;
+        return sent ?? throw new FormatException(
+            $"the server set {name} to '{Value(name)}', which is not a number");
     }
 
     /// <summary>Which declared ConVars this server actually moved off Valve's default.</summary>
@@ -148,10 +179,11 @@ public sealed class ServerConVars
         get
         {
             List<string> moved = [];
+            Settings current = _state;
 
             foreach (EngineConVar declared in EngineConVars.All)
             {
-                if (_replicated.TryGetValue(declared.Name, out string? sent) &&
+                if (current.Text.TryGetValue(declared.Name, out string? sent) &&
                     !string.Equals(sent, declared.Default, StringComparison.Ordinal))
                 {
                     moved.Add(declared.Name);

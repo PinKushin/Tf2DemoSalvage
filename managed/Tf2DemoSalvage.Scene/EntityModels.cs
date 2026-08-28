@@ -40,6 +40,11 @@ namespace Tf2DemoSalvage.Scene;
 /// The direct lights near this model, at most four, which the ambient cube no longer carries
 /// (B170). Empty rather than null where none reach it.
 /// </param>
+/// <param name="Bounds">
+/// The engine's render bounds for this model in the sequence it is playing, model space. The
+/// renderer places them with <see cref="Matrix"/> and buckets by the result, which is how Valve
+/// decides what to draw first.
+/// </param>
 public readonly record struct ModelInstance(
     string ModelPath,
     float[] Matrix,
@@ -84,7 +89,12 @@ public readonly record struct ModelInstance(
     //
     // Empty rather than null, because "no lamp near enough" and "this model takes no local lights"
     // are the same instruction to the renderer, and a nullable would invite a third reading.
-    IReadOnlyList<LocalLight>? Locals = null);
+    IReadOnlyList<LocalLight>? Locals = null,
+
+    // **What the engine sizes this model by**, so the draw can order biggest first. Model space:
+    // the renderer applies the matrix, because a rotated box encloses differently and the answer
+    // has to come from the world box rather than this one.
+    StudioBox Bounds = default);
 
 /// <summary>
 /// The models a demo's entities wear, packed once and posed by the GPU.
@@ -1607,7 +1617,12 @@ public sealed class EntityModelSet
                 Tint: EntityTint(prop.ModelPath),
 
                 // The lamps near this model, which its cube no longer carries (B170).
-                Locals: locals));
+                Locals: locals,
+
+                // The box the engine would draw this model by, for the size bucket.
+                Bounds: _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? sized)
+                    ? sized.RenderBoundsFor(prop.Pose.Sequence)
+                    : default));
         }
 
         _tally.Report();

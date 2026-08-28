@@ -135,3 +135,5 @@
 - [vrad key arithmetic is not the lump](vrad-key-arithmetic-is-not-the-lump.md) — measure the compiled map; the compiler's source predicts, it does not report.
 - [LINQ is a test tool](linq-is-a-test-tool.md) — never on a hot path; off one, only if it earns its cost.
 - [Extraction without adoption is not DRY](extraction-without-adoption-is-not-dry.md) — the duplicate count went 73 → 94 AFTER the helper existed.
+- [A stability test needs seventeen items](a-stability-test-needs-seventeen-items.md) — introsort's short runs are stable by accident.
+- [A lazy cache makes reading a write](a-lazy-cache-makes-reading-a-write.md) — parse on assignment and publish a snapshot, as Valve does.

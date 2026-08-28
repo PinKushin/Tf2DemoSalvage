@@ -1056,7 +1056,13 @@ public static class PropModels
                     // Read for every model rather than only for wearers: which models get worn is
                     // not known here, and a table of a few dozen entries costs nothing next to the
                     // geometry beside it.
-                    StudioAttachment.Read(modelFile)));
+                    StudioAttachment.Read(modelFile),
+
+                    // **Valve's own render bounds, per sequence** — see ModelFrames. One pass over
+                    // the sequence list while the file is open, rather than the vertex extent that
+                    // was nearly substituted for it.
+                    ReadBoundsBySequence(modelFile, sequenceAnimation.Count),
+                    StudioBounds.RenderBounds(modelFile, sequence: -1)));
         }
         catch (InvalidDataException failure)
         {
@@ -1065,6 +1071,30 @@ public static class PropModels
             props.LogWarning(failure, "reading {Path}", path);
             return null;
         }
+    }
+
+    /// <summary>Every sequence's render bounds, computed once while the file is open.</summary>
+    /// <remarks>
+    /// **The union is per sequence and cannot be collapsed to one box**, because that is what makes
+    /// a running player bounded differently from a crouched one — `GetRenderBounds` folds
+    /// `seqdesc.bbmin`/`bbmax` into the header's box for whichever sequence is playing.
+    /// </remarks>
+    private static StudioBox[] ReadBoundsBySequence(
+        ReadOnlyMemory<byte> file, int sequences)
+    {
+        if (sequences <= 0)
+        {
+            return [];
+        }
+
+        StudioBox[] boxes = new StudioBox[sequences];
+
+        for (int sequence = 0; sequence < sequences; sequence++)
+        {
+            boxes[sequence] = StudioBounds.RenderBounds(file, sequence);
+        }
+
+        return boxes;
     }
 
     /// <summary>Where a model wants its light sampled, in its own space.</summary>
@@ -1760,6 +1790,14 @@ public static class PropModels
     /// The named points other entities hang from, in the model's own order. Indexed ONE-based by
     /// <c>m_iParentAttachment</c>, because the engine stores them that way.
     /// </param>
+    /// <param name="BoundsBySequence">
+    /// The engine's render bounds per sequence, model space — the authored box unioned with each
+    /// sequence's own, as <c>GetRenderBounds</c> builds it.
+    /// </param>
+    /// <param name="HeaderBounds">
+    /// The header's box with no sequence unioned in, for a model with none and for an index
+    /// nothing knows about.
+    /// </param>
     /// <remarks>
     /// **The indirection is the point.** A demo networks a SEQUENCE and a CYCLE; the geometry is
     /// per ANIMATION and per FRAME. Collapsing the two would draw whatever animation happened to
@@ -1779,8 +1817,33 @@ public static class PropModels
         // canteen, a spellbook and a spy's sapper share no bone name with their wearer and hang
         // from one of these instead. Kept on the WEARER's model, because m_iParentAttachment indexes
         // the parent's table — the spellbook itself declares none at all, while a scout declares 29.
-        IReadOnlyList<StudioAttachment>? Attachments = null)
+        IReadOnlyList<StudioAttachment>? Attachments = null,
+
+        // **The box the engine would draw this model by, per sequence** — `GetRenderBounds`, which
+        // takes the authored clipping box or the movement hull and unions the playing sequence's
+        // own. Precomputed here because the `.mdl` bytes are in hand exactly once, at load, and
+        // keeping them alive per model to ask again later would cost far more than a box each.
+        //
+        // Indexed by sequence; <see cref="HeaderBounds"/> is what a sequence outside the list gets.
+        IReadOnlyList<StudioBox>? BoundsBySequence = null,
+
+        // The header's own box, with no sequence unioned in — the answer for a model with no
+        // sequences and the fallback for a sequence index nothing knows about.
+        StudioBox HeaderBounds = default)
     {
+        /// <summary>The render bounds for one sequence, in model space.</summary>
+        /// <param name="sequence">Which sequence is playing.</param>
+        /// <returns>The box, falling back to <see cref="HeaderBounds"/>.</returns>
+        /// <remarks>
+        /// **The fallback is the header's box rather than an empty one.** An empty box would union
+        /// to nothing and bucket the model as the smallest, drawing a building last; the header's
+        /// box is what the engine uses when a model has no sequence to add.
+        /// </remarks>
+        public StudioBox RenderBoundsFor(int sequence) =>
+            BoundsBySequence is { } boxes && sequence >= 0 && sequence < boxes.Count
+                ? boxes[sequence]
+                : HeaderBounds;
+
         /// <summary>Whether this model is posed on the GPU rather than having its frames baked.</summary>
         /// <remarks>
         /// **The bake budget decides this, not a list of paths.** A model whose animations fit the
