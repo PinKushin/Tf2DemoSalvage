@@ -14,7 +14,7 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// hand-built boxes and passes whether or not a real model ever reaches it. Between them sits the
 /// join that has failed three times in this project — decoded, retained, and read by nothing.
 ///
-/// The failure would be silent and specific: an unset <see cref="ModelInstance.Bounds"/> is a
+/// The failure would be silent and specific: an unset <see cref="ModelInstance.WorldBounds"/> is a
 /// zero-sized box, every model buckets as the smallest, and the sort returns the input order. The
 /// picture is unchanged, the suite is green, and the draw order is exactly what it was before the
 /// work was done.
@@ -116,13 +116,16 @@ public sealed class ModelBoundsWiringTests
                 [false, false],
                 BoundsBySequence: [standing, crouching]);
 
+        // Placed away from the origin so the assertion also pins that the box was PLACED, not just
+        // selected: an implementation that picked the right sequence and forgot the pose would
+        // answer the crouching box at zero.
         SceneProp[] props =
         [
             new(
                 1,
                 "models/player/scout.mdl",
                 SceneModelKind.Studio,
-                new ScenePose { Scale = 1f, Sequence = 1 },
+                new ScenePose { X = 700f, Y = -300f, Z = 64f, Scale = 1f, Sequence = 1 },
                 null),
         ];
 
@@ -133,6 +136,9 @@ public sealed class ModelBoundsWiringTests
         models.Instances(props, instances);
 
         instances.Count.ShouldBe(1);
-        instances[0].Bounds.ShouldBe(crouching);
+
+        // The crouching box (-10..10, -10..10, 0..40) at (700, -300, 64), unrotated — Valve's
+        // `angles == vec3_angle` fast path, a plain add.
+        instances[0].WorldBounds.ShouldBe((690f, -310f, 64f, 710f, -290f, 104f));
     }
 }

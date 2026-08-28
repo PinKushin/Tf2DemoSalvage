@@ -111,12 +111,12 @@ public static class OpaqueBuckets
             ModelInstance instance = instances[at];
 
             (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) box =
-                WorldSpaceBounds.Of(instance.Bounds, instance.Matrix, instance.Origin);
+                instance.WorldBounds;
 
-            // **A model with no bounds is drawn, never culled.** A zero box is a POINT at the
-            // matrix's translation, and testing that point answers a question about the map origin
-            // rather than about the model — see WorldSpaceBounds.IsDegenerate.
-            if (!WorldSpaceBounds.IsDegenerate(instance.Bounds) &&
+            // **A model with no bounds is drawn, never culled.** An empty box says nothing about
+            // where its model is, and testing one is a coin toss — see
+            // `WorldSpaceBounds.IsPlaced`.
+            if (WorldSpaceBounds.IsPlaced(box) &&
                 frustum.Cull(box.MinX, box.MinY, box.MinZ, box.MaxX, box.MaxY, box.MaxZ))
             {
                 continue;
