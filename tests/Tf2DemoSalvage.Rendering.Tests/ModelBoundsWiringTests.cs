@@ -141,4 +141,61 @@ public sealed class ModelBoundsWiringTests
         // `angles == vec3_angle` fast path, a plain add.
         instances[0].WorldBounds.ShouldBe((690f, -310f, 64f, 710f, -290f, 104f));
     }
+
+    /// <summary>That a scaled model gets a scaled cull box.</summary>
+    /// <remarks>
+    /// **`C_BaseAnimating::GetRenderBounds` ends with two lines this project did not have:**
+    ///
+    /// <code>
+    /// const float flScale = GetModelScale();
+    /// theMaxs *= flScale;
+    /// theMins *= flScale;
+    /// </code>
+    ///
+    /// Scale is decoded, interpolated and applied when a model is DRAWN here, so a scaled model was
+    /// drawn at its real size and culled by a box at its authored one — a giant reaching well
+    /// outside a box a fraction of its size, and vanishing at the edge of the screen.
+    ///
+    /// **Both corners scale, not just the extent.** The standing box `0..80` in Z at scale three is
+    /// `0..240`, and a box that did not start at zero would move as well as grow — which is right,
+    /// because the geometry scales about the model's origin.
+    ///
+    /// The control is the same model at scale one, so this cannot pass by scaling nothing.
+    /// </remarks>
+    [TestCase(1f, 80f)]
+    [TestCase(3f, 240f)]
+    public void Bounds_ForAScaledModel_AreScaledToMatch(float scale, float expectedTop)
+    {
+        StudioBox standing = new(-10f, -10f, 0f, 10f, 10f, 80f);
+
+        PropModels.ModelFrames Frames(string path) =>
+            new(
+                [[
+                    new PropVertex(0f, 0f, 0f, 0f, 0f, 0),
+                    new PropVertex(1f, 0f, 0f, 1f, 0f, 0),
+                    new PropVertex(1f, 1f, 0f, 1f, 1f, 0),
+                ]],
+                new Dictionary<int, (int, int, float)>(),
+                [0],
+                [false],
+                BoundsBySequence: [standing]);
+
+        SceneProp[] props =
+        [
+            new(
+                1,
+                "models/player/heavy.mdl",
+                SceneModelKind.Studio,
+                new ScenePose { Scale = scale, Sequence = 0 },
+                null),
+        ];
+
+        EntityModelSet models = new();
+        List<ModelInstance> instances = [];
+
+        models.Add(props, Frames);
+        models.Instances(props, instances);
+
+        instances[0].WorldBounds.MaxZ.ShouldBe(expectedTop, 0.001);
+    }
 }
