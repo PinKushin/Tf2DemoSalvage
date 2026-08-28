@@ -478,7 +478,9 @@ run Tf2DemoSalvage.Presentation.Tests presentation 396
 # never measured: BspVertexNormalsTests added FOUR tests to 707, and the commit that raised it
 # (bb8af0d) verified Viewer and Scene and not Content. A floor is the CURRENT count, so inventing
 # one makes the gate permanently red - which the ratchet then reports as missing tests.
-run Tf2DemoSalvage.Content.Tests  content   713
+# 727: LocalLightConformanceTests (6), which writes down how the engine sums local lights before
+# anything here passed one, and LocalLightSelectionTests (8) on the selection a shader would take.
+run Tf2DemoSalvage.Content.Tests  content   727
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
