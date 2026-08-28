@@ -71,9 +71,10 @@ public sealed class BrushLightingWiringTests
         throw new KeyNotFoundException(path);
     }
 
-    private static AmbientCube Cube(float x, float y, float z) =>
-        new((0.5f, 0.5f, 0.5f), (0.5f, 0.5f, 0.5f), (0.5f, 0.5f, 0.5f),
-            (0.5f, 0.5f, 0.5f), (0.5f, 0.5f, 0.5f), (0.5f, 0.5f, 0.5f));
+    private static PointLighting Cube(float x, float y, float z) =>
+        PointLighting.Bounce(
+            new((0.5f, 0.5f, 0.5f), (0.5f, 0.5f, 0.5f), (0.5f, 0.5f, 0.5f),
+                (0.5f, 0.5f, 0.5f), (0.5f, 0.5f, 0.5f), (0.5f, 0.5f, 0.5f)));
 
     private static SunLight? Sun(float x, float y, float z) =>
         new(1f, 1f, 1f, 0f, 0f, -1f);

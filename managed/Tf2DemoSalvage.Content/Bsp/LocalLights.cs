@@ -33,6 +33,58 @@ namespace Tf2DemoSalvage.Content.Bsp;
 /// * a spotlight's cone is zeroed OUTSIDE <c>phiDot</c> after the exponent is applied, deliberately,
 ///   "to mask out any invalid results from pow function".
 /// </remarks>
+/// <summary>One world light as the shader needs it, ready to be attenuated and shaded.</summary>
+/// <param name="X">Where the light is, world space.</param>
+/// <param name="Y">Where the light is.</param>
+/// <param name="Z">Where the light is.</param>
+/// <param name="Red">Its intensity, linear and in the ambient cube's scale.</param>
+/// <param name="Green">Its intensity.</param>
+/// <param name="Blue">Its intensity.</param>
+/// <param name="Constant">The <c>a0</c> of <c>a0 + a1·d + a2·d²</c>, already normalised.</param>
+/// <param name="Linear">The <c>a1</c>.</param>
+/// <param name="Quadratic">The <c>a2</c>.</param>
+/// <param name="Range">Beyond this the light is cut off; zero means no cutoff.</param>
+/// <remarks>
+/// **The attenuation terms are normalised on the way out**, so a consumer never has to know about
+/// vrad's all-zero rule. A light with all three below `EQUAL_EPSILON` leaves here with
+/// <c>Constant = 1</c>, which is what vrad writes and what stops a reciprocal running to infinity —
+/// a mistake this project made once and measured as a luminance of ∞ at four capture points.
+///
+/// **No light TYPE**, because only the kinds that attenuate reach here. The sun is directional and
+/// travels its own path; `emit_surface` is resolved into the lightmaps and the leaf cube at compile
+/// time. <see cref="LocalLights.IsLocal"/> is where that is decided and why.
+/// </remarks>
+public readonly record struct LocalLight(
+    float X, float Y, float Z,
+    float Red, float Green, float Blue,
+    float Constant, float Linear, float Quadratic,
+    float Range);
+
+/// <summary>Everything lighting a point: the bounce cube, and the direct lights near it.</summary>
+/// <param name="Cube">The leaf's ambient cube — bounce, plus the dim surface lights vrad folded in.</param>
+/// <param name="Locals">Up to four direct lights, strongest first.</param>
+/// <remarks>
+/// **One type rather than a second delegate beside the first.** Five call sites take a
+/// <c>Func&lt;float, float, float, AmbientCube&gt;</c>; adding local lights as a fourth parallel
+/// delegate would have made a smell worse, and the two halves are answers to one question anyway —
+/// the engine adds them together and each light belongs to exactly one of them.
+///
+/// **The array is allocated only where lights are found**, and <c>ModelLighting</c> caches
+/// the whole result on the sampled position, so a model that has not moved re-samples nothing. A
+/// scene where two dozen players are moving allocates two dozen four-element arrays a frame, which
+/// is far below the frame budget; a static scene allocates none.
+/// </remarks>
+public readonly record struct PointLighting(AmbientCube Cube, IReadOnlyList<LocalLight> Locals)
+{
+    /// <summary>A point with no lighting information at all.</summary>
+    public static PointLighting None => new(default, []);
+
+    /// <summary>Just a cube, for a caller with no world lights to offer.</summary>
+    /// <param name="cube">The bounce term.</param>
+    /// <returns>That cube with no direct lights.</returns>
+    public static PointLighting Bounce(AmbientCube cube) => new(cube, []);
+}
+
 public static class LocalLights
 {
     /// <summary>How many lights the engine carries as true local lights.</summary>
@@ -109,6 +161,92 @@ public static class LocalLights
         // disagree about direction and a single ranking has to serve all of them.
         Span<int> chosen = stackalloc int[MaximumLocalLights];
         Span<float> strengths = stackalloc float[MaximumLocalLights];
+
+        int count = Choose(lights, x, y, z, chosen, strengths);
+
+        if (count == 0)
+        {
+            return cube;
+        }
+
+        return new AmbientCube(
+            Face(cube.PositiveX, lights, chosen, count, x, y, z, 1f, 0f, 0f),
+            Face(cube.NegativeX, lights, chosen, count, x, y, z, -1f, 0f, 0f),
+            Face(cube.PositiveY, lights, chosen, count, x, y, z, 0f, 1f, 0f),
+            Face(cube.NegativeY, lights, chosen, count, x, y, z, 0f, -1f, 0f),
+            Face(cube.PositiveZ, lights, chosen, count, x, y, z, 0f, 0f, 1f),
+            Face(cube.NegativeZ, lights, chosen, count, x, y, z, 0f, 0f, -1f));
+    }
+
+    /// <summary>The strongest lights at a point, as the engine's <c>locallight[]</c> would hold.</summary>
+    /// <param name="lights">Every world light the map carries.</param>
+    /// <param name="x">World position being lit.</param>
+    /// <param name="y">World position being lit.</param>
+    /// <param name="z">World position being lit.</param>
+    /// <param name="into">Where to put them; at most <see cref="MaximumLocalLights"/> are written.</param>
+    /// <returns>How many were written.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="lights"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="into"/> is too short.</exception>
+    /// <remarks>
+    /// **The same selection <see cref="AddTo"/> makes, extracted so the two cannot disagree.** A
+    /// caller passing these to a shader and a caller folding them into a cube must be talking about
+    /// the same four lights, or a model would take one set of lights in its diffuse and another in
+    /// its highlight.
+    ///
+    /// **These are ADDED to the cube, never blended with it**, and each light belongs to exactly one
+    /// of the two — `PixelShaderDoLightingLinear` accumulates `linearColor += ambient` and then
+    /// `+=` each light. So a caller that passes these on must NOT also call <see cref="AddTo"/>:
+    /// see `LocalLightConformanceTests`, which exists to make that mistake fail rather than merely
+    /// look like a lighting change.
+    ///
+    /// **There is no double-count with the baked cube either**, and that was checked rather than
+    /// assumed. vrad's `ComputeAmbientFromSphericalSamples` builds a leaf cube from rays cast at
+    /// surfaces — bounce — plus `AddEmitSurfaceLights`, and Valve's comment there says why only
+    /// those: *"there are a ton of them and they are often so dim that they get filtered out by
+    /// r_worldlightmin"*. Point and spot lamps are not in the lump; they are meant to arrive at
+    /// runtime, which is what this returns them for.
+    /// </remarks>
+    public static int Strongest(
+        IReadOnlyList<BspWorldLight> lights, float x, float y, float z, Span<LocalLight> into)
+    {
+        ArgumentNullException.ThrowIfNull(lights);
+
+        if (into.Length < MaximumLocalLights)
+        {
+            throw new ArgumentException(
+                $"Room for {MaximumLocalLights} lights is needed.", nameof(into));
+        }
+
+        Span<int> chosen = stackalloc int[MaximumLocalLights];
+        Span<float> strengths = stackalloc float[MaximumLocalLights];
+
+        int count = Choose(lights, x, y, z, chosen, strengths);
+
+        for (int slot = 0; slot < count; slot++)
+        {
+            BspWorldLight light = lights[chosen[slot]];
+
+            (float constant, float linear, float quadratic) = Normalised(light);
+
+            into[slot] = new LocalLight(
+                light.Origin.X, light.Origin.Y, light.Origin.Z,
+                light.Intensity.Red * IntensityScale,
+                light.Intensity.Green * IntensityScale,
+                light.Intensity.Blue * IntensityScale,
+                constant, linear, quadratic,
+                light.Radius);
+        }
+
+        return count;
+    }
+
+    /// <summary>Ranks the local lights at a point and keeps the strongest few.</summary>
+    private static int Choose(
+        IReadOnlyList<BspWorldLight> lights,
+        float x, float y, float z,
+        Span<int> chosen,
+        Span<float> strengths)
+    {
         int count = 0;
 
         for (int index = 0; index < lights.Count; index++)
@@ -135,18 +273,22 @@ public static class LocalLights
             Insert(chosen, strengths, ref count, index, strength);
         }
 
-        if (count == 0)
+        return count;
+    }
+
+    /// <summary>vrad's all-zero rule, applied once so no caller has to know it.</summary>
+    private static (float Constant, float Linear, float Quadratic) Normalised(BspWorldLight light)
+    {
+        float constant = light.ConstantAttenuation;
+
+        if (constant < AttenuationEpsilon &&
+            light.LinearAttenuation < AttenuationEpsilon &&
+            light.QuadraticAttenuation < AttenuationEpsilon)
         {
-            return cube;
+            constant = 1f;
         }
 
-        return new AmbientCube(
-            Face(cube.PositiveX, lights, chosen, count, x, y, z, 1f, 0f, 0f),
-            Face(cube.NegativeX, lights, chosen, count, x, y, z, -1f, 0f, 0f),
-            Face(cube.PositiveY, lights, chosen, count, x, y, z, 0f, 1f, 0f),
-            Face(cube.NegativeY, lights, chosen, count, x, y, z, 0f, -1f, 0f),
-            Face(cube.PositiveZ, lights, chosen, count, x, y, z, 0f, 0f, 1f),
-            Face(cube.NegativeZ, lights, chosen, count, x, y, z, 0f, 0f, -1f));
+        return (constant, light.LinearAttenuation, light.QuadraticAttenuation);
     }
 
     /// <summary>Whether a light casts direct light from a position.</summary>

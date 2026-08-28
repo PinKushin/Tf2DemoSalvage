@@ -147,6 +147,11 @@ public sealed class LevelLighting
         // so a cube carrying a nearby lamp's light is the shape the engine itself produces for
         // every light past the nearest four. Without this a prop out of daylight is lit by the
         // bounce alone, which is why anything indoors read as though it were in shade (B95).
+        //
+        // **Kept for callers that want one number**, and NOT what a model is drawn with any more —
+        // see LightingAt, which hands the nearest four to the shader instead so they can shade
+        // against a normal. A caller must take one or the other: the engine adds the cube and the
+        // local lights, so a light in both is counted twice.
         AmbientCube lit = LocalLights.AddTo(bounced, _worldLights, x, y, z);
 
         // **The two terms reported apart, because one number cannot say which is missing.** Every
@@ -158,6 +163,77 @@ public sealed class LevelLighting
         ReportLightTerms(bounced, lit, x, y, z);
 
         return lit;
+    }
+
+    /// <summary>The bounce cube and the direct lights at a point, as the engine keeps them.</summary>
+    /// <param name="x">World position.</param>
+    /// <param name="y">World position.</param>
+    /// <param name="z">World position.</param>
+    /// <returns>The cube without direct light folded in, and the nearest lights beside it.</returns>
+    /// <remarks>
+    /// **This is what a model is drawn with, and <see cref="ComputeLighting"/> is not.** The cube
+    /// here is vrad's own: `ComputeAmbientFromSphericalSamples` builds it from rays cast at
+    /// surfaces — bounce — plus the dim `emit_surface` lights, and Valve's comment there says why
+    /// only those. Point and spot lamps are absent from the lump because they are meant to arrive
+    /// at runtime, which is what the second half of this is.
+    ///
+    /// **The difference is not brightness, it is direction.** A lamp folded into a cube arrives
+    /// from all six faces at once, so a model takes no N·L falloff from it and can cast no
+    /// highlight from it — which is why our phong is gated on the sun and why a weapon indoors has
+    /// no specular term at all (B170).
+    ///
+    /// **Nothing here folds anything in**, deliberately. `PixelShaderDoLightingLinear` accumulates
+    /// the cube and then each light, so a light appearing in both would be counted twice — and that
+    /// mistake reads as a lighting change rather than as a bug.
+    /// </remarks>
+    public PointLighting LightingAt(float x, float y, float z)
+    {
+        if (_leaves is not { } tree || _ambient.Count == 0)
+        {
+            return PointLighting.None;
+        }
+
+        int leaf = tree.LeafAt(x, y, z);
+
+        AmbientCube bounced = leaf >= 0 && leaf < _ambient.Count
+            ? _ambient[leaf].At(x, y, z)
+            : default;
+
+        if (_worldLights.Count == 0)
+        {
+            return PointLighting.Bounce(bounced);
+        }
+
+        LocalLight[] nearest = new LocalLight[LocalLights.MaximumLocalLights];
+
+        int found = LocalLights.Strongest(_worldLights, x, y, z, nearest);
+
+        if (found == 0)
+        {
+            return PointLighting.Bounce(bounced);
+        }
+
+        // Trimmed rather than passed with a count, so a consumer cannot read past what was found —
+        // the shader takes a live flag per slot and this keeps the two saying the same thing.
+        Array.Resize(ref nearest, found);
+
+        // **Reported from what is already in hand.** `ComputeLighting`'s ReportLightTerms compares
+        // the cube against the folded one, which would mean computing the fold here purely to log
+        // it — the expensive-argument case CA1873 exists for. What matters on this path is a
+        // different question anyway: how many lights were chosen and how near the strongest is,
+        // because "no lamp near enough" and "lamps chosen that contribute nothing" look identical
+        // in a single brightness figure.
+        if (_render.IsEnabled(LogLevel.Debug))
+        {
+            _render.LogDebug(
+                "local lights at ({X}, {Y}, {Z}): {Count} chosen, strongest at ({LX}, {LY}, {LZ}) " +
+                "intensity {Intensity}",
+                x, y, z, found,
+                nearest[0].X, nearest[0].Y, nearest[0].Z,
+                Math.Max(nearest[0].Red, Math.Max(nearest[0].Green, nearest[0].Blue)));
+        }
+
+        return new PointLighting(bounced, nearest);
     }
 
     /// <summary>The sun reaching a world position, or null when it does not.</summary>

@@ -160,7 +160,7 @@ public sealed class LoadedMap
                     // **The light cache, for props whose baked lighting is absent or refused**
                     // (B123). Usable here because the level was read above, before any asset is
                     // loaded — the ordering is what makes this a delegate rather than a second pass.
-                    lighting.ComputeLighting,
+                    lighting.LightingAt,
 
                     // **Passed explicitly, and forgetting it is silent (D83).** The parameter
                     // defaults to a null logger so tests need not supply one, which means an

@@ -646,7 +646,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 // and its translation reads (0, 0, 0) — every weapon reflected the cubemap nearest
                 // the MAP ORIGIN, thousands of units from the player, at whatever brightness that
                 // cube happened to hold. This is where it stands instead.
-                origin: instance.Origin);
+                origin: instance.Origin,
+
+                // **The lamps near the weapon**, which is the whole point for a viewmodel: it sits
+                // at the player's eye, the position in the scene most reliably under whatever light
+                // the player is walking beneath (B170).
+                locals: instance.Locals);
         }
 
         // **Both of the pass's changes are put back, and forgetting the camera was a real defect.**
@@ -875,7 +880,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                         origin: instance.Origin,
 
                         // Valve's class colour for a brush entity, in the category view (B219).
-                        tint: instance.Tint);
+                        tint: instance.Tint,
+
+                        // The lamps near this model, which its ambient cube no longer carries.
+                        locals: instance.Locals);
                 }
 
                 // **The see-through parts of models, after every solid one.** A hologram, a glass
@@ -914,7 +922,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                         origin: instance.Origin,
 
                         // Valve's class colour for a brush entity, in the category view (B219).
-                        tint: instance.Tint);
+                        tint: instance.Tint,
+
+                        // The lamps near this model, which its ambient cube no longer carries.
+                        locals: instance.Locals);
                 }
 
                 WorldRenderer.ResetBlend(_context);

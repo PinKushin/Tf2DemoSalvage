@@ -152,7 +152,7 @@ public static class PropModels
         MaterialTable materialTable,
         Func<string, ResolvedMaterial?> load,
         ICollection<string>? refusedLighting = null,
-        Func<float, float, float, AmbientCube>? lightAt = null,
+        Func<float, float, float, PointLighting>? lightAt = null,
         ILogger? props = null)
     {
         ArgumentNullException.ThrowIfNull(pak);
@@ -268,8 +268,13 @@ public static class PropModels
             //
             // Only when there is nothing baked to use. A prop with valid vertex lighting keeps it:
             // that is higher quality than a cube, which is why the compiler wrote it.
+            // **The cube alone here, and the local lights are dropped deliberately.** This bakes a
+            // static prop's light into its VERTEX COLOURS, one sample per prop — there is no normal
+            // to shade a local light against at this point and no per-draw constant to carry one in.
+            // A prop lit this way therefore keeps the flat-cube behaviour it has always had; the
+            // per-light path is for the models drawn through the shader.
             AmbientCube? cube = lighting.Colours is null
-                ? lightAt?.Invoke(placement.X, placement.Y, placement.Z)
+                ? lightAt?.Invoke(placement.X, placement.Y, placement.Z).Cube
                 : null;
 
             for (int at = 0; at < model.Corners.Count; at++)

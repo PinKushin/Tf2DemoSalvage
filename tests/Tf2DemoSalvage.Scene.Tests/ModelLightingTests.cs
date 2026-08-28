@@ -155,16 +155,16 @@ public sealed class ModelLightingTests
         /// they are unused parameters and S1172 objects — correctly, since a reader cannot tell
         /// from the signature that they are ignored on purpose.
         /// </remarks>
-        public Func<float, float, float, AmbientCube> At => (_, _, _) =>
+        public Func<float, float, float, PointLighting> At => (_, _, _) =>
         {
             Calls++;
-            return Lit;
+            return PointLighting.Bounce(Lit);
         };
     }
 
-    private static AmbientCube Bright(float x, float y, float z) => Lit;
+    private static PointLighting Bright(float x, float y, float z) => PointLighting.Bounce(Lit);
 
-    private static AmbientCube Dark(float x, float y, float z) => default;
+    private static PointLighting Dark(float x, float y, float z) => PointLighting.None;
 
     private static readonly AmbientCube Lit = new()
     {

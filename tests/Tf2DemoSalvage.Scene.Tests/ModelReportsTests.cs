@@ -69,7 +69,7 @@ public sealed class ModelReportsTests
 
         reports.Lit(
             Prop(entity: 3, kind: SceneModelKind.Brush),
-            new ModelLight(null, null, 0f, 0f, 0f),
+            new ModelLight(null, null, 0f, 0f, 0f, []),
             skin: 0);
 
         log.Count("lightmapped").ShouldBe(1);
@@ -163,7 +163,7 @@ public sealed class ModelReportsTests
         reports.FirstTime("models/x.mdl#skin").ShouldBeTrue();
     }
 
-    private static ModelLight Light() => new(default(AmbientCube), null, 0f, 0f, 0f);
+    private static ModelLight Light() => new(default(AmbientCube), null, 0f, 0f, 0f, []);
 
     private static SceneProp Prop(
         int entity, SceneModelKind kind = SceneModelKind.Studio, float z = 0f) =>

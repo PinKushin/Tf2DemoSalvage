@@ -36,6 +36,10 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="Tint">
 /// Valve's colour for a brush entity's class, applied in the category view only (B219, B156).
 /// </param>
+/// <param name="Locals">
+/// The direct lights near this model, at most four, which the ambient cube no longer carries
+/// (B170). Empty rather than null where none reach it.
+/// </param>
 public readonly record struct ModelInstance(
     string ModelPath,
     float[] Matrix,
@@ -71,7 +75,16 @@ public readonly record struct ModelInstance(
     // a brush entity, and null carries its own meaning here: the map may not name the model, the
     // class may state no colour, or the FGDs may not be readable at all. A default at any of those
     // points would report "Valve says grey" where the truth is "nobody said".
-    (float Red, float Green, float Blue)? Tint = null);
+    (float Red, float Green, float Blue)? Tint = null,
+
+    // **The direct lights near this model, which the cube above no longer carries** (B170).
+    // `PixelShaderDoLightingLinear` adds an ambient cube and up to four local lights, each shaded
+    // against the surface normal — so a lamp reaching a model through this list gives it shape and
+    // a highlight, where the same lamp folded into the cube gives it neither.
+    //
+    // Empty rather than null, because "no lamp near enough" and "this model takes no local lights"
+    // are the same instruction to the renderer, and a nullable would invite a third reading.
+    IReadOnlyList<LocalLight>? Locals = null);
 
 /// <summary>
 /// The models a demo's entities wear, packed once and posed by the GPU.
@@ -1317,7 +1330,7 @@ public sealed class EntityModelSet
     public void Instances(
         IReadOnlyList<SceneProp> props,
         ICollection<ModelInstance> into,
-        Func<float, float, float, AmbientCube>? lightAt = null,
+        Func<float, float, float, PointLighting>? lightAt = null,
         Func<float, float, float, SunLight?>? sunAt = null,
         double seconds = 0d)
     {
@@ -1391,6 +1404,7 @@ public sealed class EntityModelSet
 
             AmbientCube? light = lit.Light;
             SunLight? sun = lit.Sun;
+            IReadOnlyList<LocalLight> locals = lit.Locals;
 
             // **The point the cube was sampled at, carried so the RENDERER can choose a cubemap
             // from it** (B170). `ModelLighting.For` already resolved where this model is — via the
@@ -1537,7 +1551,16 @@ public sealed class EntityModelSet
                     // in a column arrived at by subtraction.
                     long wornAt = System.Diagnostics.Stopwatch.GetTimestamp();
 
-                    light = lightAt is null ? default : lightAt(at.X, at.Y, at.Z);
+                    PointLighting worn =
+                        lightAt is null ? PointLighting.None : lightAt(at.X, at.Y, at.Z);
+
+                    light = worn.Cube;
+
+                    // **The local lights follow to the same place, for the same reason.** A worn
+                    // item takes its wearer's cube because its own pose is the origin; taking its
+                    // wearer's lamps and not its wearer's cube would light a hat by one and shade
+                    // it by the other.
+                    locals = worn.Locals;
 
                     // **And the reflection follows the light to the same place.** A merged item's
                     // own pose is (0,0,0) by construction — the comment above says why — so its
@@ -1581,7 +1604,10 @@ public sealed class EntityModelSet
                 Origin: origin,
 
                 // Only a brush entity has one; everything else answers null (B219).
-                Tint: EntityTint(prop.ModelPath)));
+                Tint: EntityTint(prop.ModelPath),
+
+                // The lamps near this model, which its cube no longer carries (B170).
+                Locals: locals));
         }
 
         _tally.Report();

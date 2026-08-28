@@ -34,7 +34,7 @@ public sealed class LightingCacheTests
 
         public int SunCalls { get; private set; }
 
-        public AmbientCube Light(float x, float y, float z)
+        public PointLighting Light(float x, float y, float z)
         {
             AmbientCalls++;
 
@@ -42,9 +42,9 @@ public sealed class LightingCacheTests
             // be caught by the value rather than only by the call count.
             float shade = (x + y + z) / 1000f;
 
-            return new AmbientCube(
+            return PointLighting.Bounce(new AmbientCube(
                 (shade, shade, shade), (shade, shade, shade), (shade, shade, shade),
-                (shade, shade, shade), (shade, shade, shade), (shade, shade, shade));
+                (shade, shade, shade), (shade, shade, shade), (shade, shade, shade)));
         }
 
         public SunLight? Sun(float x, float y, float z)
