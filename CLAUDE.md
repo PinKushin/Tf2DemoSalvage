@@ -63,17 +63,17 @@ bash build/gate.sh
 pwsh run-exclusive.ps1 dotnet test tests/Tf2DemoSalvage.Viewer3D.UiTests
 ```
 
-The UI phase goes inside `run-exclusive.ps1`, since it takes the desktop. Green as of 2026-08-26:
-**3,711 across eleven assemblies**, plus 20 UI.
+The UI phase goes inside `run-exclusive.ps1`, since it takes the desktop. Green as of 2026-08-27:
+**3,986 across twelve assemblies**, plus 26 UI.
 
 | assembly | count | | assembly | count |
 |---|---|---|---|---|
-| core | 1,503 | | content | 711 |
-| cli | 74 | | corpus | 113 |
-| audio | 161 | | viewer | 602 |
-| presentation | 292 | | logging | 17 |
-| scene | 190 | | fonts | 7 |
-| animation | 41 | | | |
+| core | 1,539 | | content | 740 |
+| cli | 74 | | corpus | 117 |
+| audio | 183 | | rendering | 569 |
+| presentation | 396 | | viewer | 101 |
+| scene | 202 | | logging | 17 |
+| animation | 41 | | fonts | 7 |
 
 **Do not copy these numbers into a floor.** `build/gate.sh` holds the authoritative ones and prints
 them beside what it measured; this table is a snapshot for orientation and will drift.

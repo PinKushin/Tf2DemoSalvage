@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Tf2DemoSalvage.Render;
 
@@ -64,5 +65,68 @@ public static class OpaqueBuckets
         }
 
         return longestAxis >= Thresholds[2] ? 2 : 3;
+    }
+
+    /// <summary>The order the engine would draw these instances in.</summary>
+    /// <param name="instances">What is to be drawn, in whatever order the scene produced.</param>
+    /// <returns>The same instances, biggest bucket first.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="instances"/> is null.</exception>
+    /// <remarks>
+    /// **`DrawOpaqueRenderables`' own order**, minus a distinction this renderer does not have.
+    /// Valve draws brush models first, then walks the buckets from biggest to smallest, drawing
+    /// opaque ENTITIES then STATIC PROPS within each. This project has no static-prop render group
+    /// — a map's props arrive as ordinary model instances — so the inner split has nothing to sort
+    /// on and the bucket order is the whole of it.
+    ///
+    /// **The brush pass is already separate here**, which is why it is not in this list: brush
+    /// entities are drawn by the world path with the map's own geometry, not through the model
+    /// loop, so they precede every model without anything having to arrange it.
+    ///
+    /// **A STABLE sort, and that is load-bearing.** Two models in one bucket keep the order the
+    /// scene produced, which for identical models means they stay adjacent — that is what makes a
+    /// redundant-material check worth having later. An unstable sort would scatter them and the
+    /// binds would come back.
+    /// </remarks>
+    public static IReadOnlyList<ModelInstance> InDrawOrder(IReadOnlyList<ModelInstance> instances)
+    {
+        ArgumentNullException.ThrowIfNull(instances);
+
+        if (instances.Count < 2)
+        {
+            return instances;
+        }
+
+        // **Keyed once rather than inside the comparison.** A comparison sort calls its key
+        // function O(n log n) times, and each call here transforms a box by a matrix; computing it
+        // per instance first is the difference between hundreds of transforms a frame and
+        // thousands. Valve pays none of this — its buckets are filled as renderables are collated,
+        // so the sort is a bucket append rather than a comparison at all.
+        (int Bucket, int Order, ModelInstance Instance)[] keyed =
+            new (int, int, ModelInstance)[instances.Count];
+
+        for (int at = 0; at < instances.Count; at++)
+        {
+            ModelInstance instance = instances[at];
+
+            keyed[at] = (
+                BucketFor(WorldSpaceBounds.LongestAxis(instance.Bounds, instance.Matrix)),
+                at,
+                instance);
+        }
+
+        Array.Sort(
+            keyed,
+            static (left, right) => left.Bucket != right.Bucket
+                ? left.Bucket.CompareTo(right.Bucket)
+                : left.Order.CompareTo(right.Order));
+
+        ModelInstance[] ordered = new ModelInstance[keyed.Length];
+
+        for (int at = 0; at < keyed.Length; at++)
+        {
+            ordered[at] = keyed[at].Instance;
+        }
+
+        return ordered;
     }
 }

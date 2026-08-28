@@ -6237,3 +6237,70 @@ number would have meant a test had quietly stopped running.
 
 What is left is unrelated to this: the tests that build a *synthetic* Steam layout under a temp root
 (`MapLocatorTests`, `MapProviderTests`) keep their paths, because that layout is their subject.
+
+## D110 — Opaque models draw biggest first, by the world box, per instance
+
+**Owner-set, 2026-08-27**, and set twice — once to ask for the engine's behaviour and once to stop a
+shortcut being taken inside it.
+
+The first, on finding that this project sorted its world by material and its models not at all:
+
+> *"why dont we sort like valve does?"*
+
+and, on being offered culling instead:
+
+> *"i want valve parity here before we worry about culling"*
+
+The second is the one worth keeping. Having read `DrawOpaqueRenderables`, I proposed most of it and
+then quietly proposed less:
+
+> *"I realize computing a true world-space bbox per instance per frame is heavy, so the simplest
+> faithful approach is to compute each model's model-space bounding box once at pack time and use
+> its largest axis as `fDimension`, since Valve's models are mostly unscaled…"*
+
+> *"what does valve do, do not simplify valve unless i give you permission and you explain why"*
+
+— and then, on the SDK sources for the parts I had not read:
+
+> *"then read them, and implement them"*
+
+**What Valve does.** `CRendering3dView::DrawOpaqueRenderables` draws brush models first, then walks
+four size buckets from largest to smallest under its own comment, *"Draw static props + opaque
+entities from the biggest bucket to the smallest"*. The thresholds are `DetectBucketedRenderGroup`'s
+and carry Valve's names for the sizes: `200.f // tree size`, `80.f // player size`,
+`30.f // crate size`. The measure is `CalcRenderableWorldSpaceAABB` → `TransformAABB` — the box the
+model occupies **after** its transform — and the box itself is `C_BaseAnimating::GetRenderBounds`,
+which takes the authored clipping box or the movement hull and unions in the playing sequence's own
+box. It is occlusion bought with a sort: a large object drawn early fills the depth buffer, so what
+is behind it fails the depth test before its pixels are shaded.
+
+**Why the shortcut was wrong, and it is not the reason I gave for it.** I justified it with "models
+are mostly unscaled", which is true and irrelevant: rotation alone changes the world extent.
+Working the arithmetic afterwards also corrected a claim I had *already committed* — a comment
+saying a long prop turned forty-five degrees "buckets larger". It buckets **smaller**. A 100 × 10
+box at forty-five degrees has world spans of 77.8 on both X and Y, down from 100; a **cube** at the
+same angle grows by √2. The direction depends on the shape, so no single sentence about rotation is
+true, and a packed-once extent is wrong in both directions rather than merely conservative.
+
+**On tolerances**, asked while I was pinning the scout's hull to a tenth of a unit:
+
+> *"are we dropping the .027? that can be a problem, stacking tolerances and shit"*
+
+Right, and it exposed three of my own tests that could not fail. `StudioBoundsTests` now asserts all
+six of the hull's floats exactly and carries no tolerance at all — a four-byte misread lands on a
+neighbouring float of similar magnitude, which is precisely what slack forgives.
+
+**Where the sort lives, and where it does not.** At the opaque draw loop, not at the scene build:
+the translucent pass reads the same list and must stay back-to-front by distance, because blending
+is order-dependent. Brush models are already drawn by the world path ahead of every model, so
+Valve's brush-first step needs nothing arranged. The inner static-props-after-entities split has no
+counterpart here — a map's props arrive as ordinary model instances — so the bucket order is the
+whole of it.
+
+**The sort had no test at its call site, and that was measured rather than assumed.** With
+`OpaqueBuckets.InDrawOrder` deleted from `Device3D`, **all 566 rendering tests stayed green**: the
+sort changes a frame rate, not a picture, so neither a unit test nor a screenshot can see it. The
+worse failure is quieter still — an unset `ModelInstance.Bounds` is a zero box, so every model
+buckets as the smallest and the sort returns its input unchanged. `Device3D` now writes one census
+line per device (`opaque draw order: 49 models, buckets 1/6/0/42`) and a UI test asserts the spread
+covers more than one bucket, which is the observation that distinguishes the two.

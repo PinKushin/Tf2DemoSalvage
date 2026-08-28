@@ -851,7 +851,21 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
                 ReportRepeatedModels(models);
 
-                foreach (ModelInstance instance in models ?? [])
+                // **Biggest first, which is what the engine does and why it does it.**
+                // `DrawOpaqueRenderables` walks its size buckets from huge down to crate-sized
+                // (`viewrender.cpp:4188`), so a large object fills the depth buffer early and
+                // everything behind it fails the depth test before its pixels are shaded. It is
+                // occlusion bought with a sort, which is why it belongs before any culling work
+                // rather than after it.
+                //
+                // **Opaque only.** The translucent pass below must stay back-to-front by distance —
+                // blending is order-dependent, and a size sort there would put a window in front of
+                // what should show through it.
+                IReadOnlyList<ModelInstance> opaque = OpaqueBuckets.InDrawOrder(models ?? []);
+
+                ReportDrawOrder(opaque);
+
+                foreach (ModelInstance instance in opaque)
                 {
                     if (instance.Bones is { Count: > 0 } bones)
                     {
@@ -1419,6 +1433,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// <summary>Whether the repeated-model census has been written.</summary>
     private bool _reportedRepeats;
 
+    /// <summary>Whether the opaque draw order has been reported.</summary>
+    private bool _reportedDrawOrder;
+
     /// <summary>Whether the viewmodel pass has said where it thinks the eye is (B170).</summary>
     private bool _reportedViewmodelEye;
 
@@ -1457,6 +1474,48 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 group.Count(),
                 string.Join(", ", group.Select(instance => instance.Body).Order()));
         }
+    }
+
+    /// <summary>Writes, once, how the opaque models were spread across Valve's size buckets.</summary>
+    /// <param name="ordered">The instances as they are about to be drawn.</param>
+    /// <remarks>
+    /// **Because the sort is otherwise invisible, and an invisible sort is one that can quietly stop
+    /// happening.** Measured before this line existed: removing
+    /// <see cref="OpaqueBuckets.InDrawOrder"/> from the draw loop left all 566 rendering tests
+    /// green. The sort's effect is a frame rate, not a picture, so nothing that looks at the output
+    /// can see it either.
+    ///
+    /// **A count per bucket rather than a boolean, because the interesting failure is not "the sort
+    /// is gone".** It is <see cref="ModelInstance.Bounds"/> arriving unset: a zero-sized box buckets
+    /// as the smallest, so every model lands in bucket 3, the sort returns its input, and everything
+    /// downstream is exactly as it was. That reads here as `0/0/0/N`, which is a distinguishable
+    /// observation rather than a missing line — see
+    /// `docs/memory/log-what-is-about-to-be-drawn.md`.
+    ///
+    /// One line per device, like the repeated-model census beside it: this is a wiring check, and a
+    /// per-frame version would be tens of thousands of lines saying the same thing.
+    /// </remarks>
+    private void ReportDrawOrder(IReadOnlyList<ModelInstance> ordered)
+    {
+        if (_reportedDrawOrder || ordered.Count == 0)
+        {
+            return;
+        }
+
+        _reportedDrawOrder = true;
+
+        int[] perBucket = new int[OpaqueBuckets.Count];
+
+        foreach (ModelInstance instance in ordered)
+        {
+            perBucket[OpaqueBuckets.BucketFor(
+                WorldSpaceBounds.LongestAxis(instance.Bounds, instance.Matrix))]++;
+        }
+
+        _render.LogInformation(
+            "opaque draw order: {Models} models, buckets {Buckets}",
+            ordered.Count,
+            string.Join('/', perBucket));
     }
 
     /// <inheritdoc />

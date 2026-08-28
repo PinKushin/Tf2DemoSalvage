@@ -127,7 +127,7 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # 1538: InterpolationConVarConformanceTests (5) and SoundConVarConformanceTests (4), completing the
 # twenty of D104. The interp suite writes the engine's formula down and implements none of it; the
 # sound suite records that cvarlist.log disagrees with the binary about snd_gain_min.
-run Tf2DemoSalvage.Core.Tests     core     1538
+run Tf2DemoSalvage.Core.Tests     core     1539
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
@@ -665,7 +665,7 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     117
 # garbage the material buffer produced when a replace-all grew two of three arrays.
 # 553: OpaqueDrawOrderConformanceTests, which writes down Valve's opaque ordering — brush models
 # first, then biggest size bucket to smallest — before anything here sorts.
-run Tf2DemoSalvage.Rendering.Tests rendering 553
+run Tf2DemoSalvage.Rendering.Tests rendering 569
 run Tf2DemoSalvage.Viewer3D.Tests viewer    101
 
 echo

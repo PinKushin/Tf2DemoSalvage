@@ -1,5 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 
 using Tf2DemoSalvage.Core.Net;
 
@@ -191,6 +194,89 @@ public sealed class ServerConVarsTests
         server.Apply(Message(("sv_maxspeed", "320")));
 
         server.Changed.ShouldBeEmpty();
+    }
+
+    /// <summary>That reading a value while a message arrives does not corrupt the settings.</summary>
+    /// <remarks>
+    /// **A real defect the gate caught, 2026-08-27, in production rather than in a test.** The
+    /// viewer decodes a demo off the UI thread, so `svc_SetConVar` is applied from there, while the
+    /// free camera reads `sv_maxspeed` every frame on the UI thread. `Number` used to memoise its
+    /// parse into a plain `Dictionary`, which made the READ a write:
+    ///
+    /// <code>
+    /// System.InvalidOperationException : Operations that change non-concurrent collections must
+    /// have exclusive access. A concurrent update was performed on this collection and corrupted
+    /// its state.
+    /// </code>
+    ///
+    /// out of `FreeFlightPath.SpeedPerSecond` in `Movement_Forward_TravelsSpeedTimesDuration` — a
+    /// test with nothing to do with threading, which is how this class of fault surfaces.
+    ///
+    /// **The fix is structural, so this test is one-sided by design.** Settings are published as a
+    /// whole immutable snapshot and readers never write, so there is no interleaving that can fail;
+    /// against the old code the same loop throws. A pass is not a probabilistic pass, it is the
+    /// absence of any mutation to race with.
+    ///
+    /// **Measured in both directions rather than assumed.** With the lazy memoisation restored
+    /// exactly as it was, this failed three runs out of three with the exception quoted above; with
+    /// the snapshot in place it passed four out of four. That asymmetry is what makes it a test
+    /// rather than a hope.
+    ///
+    /// **The size of the condition was chosen by measurement too, and the first attempt was too
+    /// small to see anything.** A single reader over 20,000 iterations could not distinguish the
+    /// broken code from the fixed — four readers over 200,000 can. The assertion was never the
+    /// problem; the condition was.
+    ///
+    /// **Both halves of the answer are asserted, not just the absence of a throw.** A reader must
+    /// see either the value before a message or the value after it — never a half-applied mixture
+    /// and never a torn parse — so every observation is required to be one of the two.
+    /// </remarks>
+    [Test]
+    public void Number_WhileAMessageIsBeingApplied_IsAlwaysOneOfTheTwoValues()
+    {
+        const int Readers = 4;
+        const int Iterations = 200_000;
+
+        ServerConVars server = new();
+
+        HashSet<float>[] seen = [.. Enumerable.Range(0, Readers).Select(_ => new HashSet<float>())];
+
+        using Barrier start = new(Readers + 1);
+
+        // Tasks rather than raw threads, so a fault is captured and rethrown here instead of
+        // terminating the test host — and so no `catch` is needed to observe one.
+        Task writer = Task.Run(() =>
+        {
+            start.SignalAndWait();
+
+            for (int at = 0; at < Iterations; at++)
+            {
+                server.Apply(Message(("sv_maxspeed", at % 2 == 0 ? "320" : "520")));
+            }
+        });
+
+        Task[] readers =
+        [
+            .. Enumerable.Range(0, Readers).Select(which => Task.Run(() =>
+            {
+                start.SignalAndWait();
+
+                for (int at = 0; at < Iterations; at++)
+                {
+                    seen[which].Add(server.Number("sv_maxspeed"));
+                }
+            })),
+        ];
+
+        Task.WaitAll([writer, .. readers]);
+
+        // 320 is the default and the even value, so a reader may legitimately never observe 520 if
+        // it outruns the writer. What none may observe is a third number.
+        foreach (HashSet<float> observed in seen)
+        {
+            observed.ShouldBeSubsetOf([320f, 520f]);
+            observed.ShouldNotBeEmpty();
+        }
     }
 
     private static SetConVarMessage Message(params (string Name, string Value)[] pairs)

@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 
 using FlaUI.Core.Tools;
 
@@ -138,5 +139,48 @@ public sealed class WiringUiTests
         // and per-change diagnostics were moved off `Information` when B191 turned out to be one log
         // line taking a machine-wide lock.
         Viewer.Count("entity models:").ShouldBeGreaterThan(0);
+    }
+
+    [Test]
+    public void TheOpaqueModels_BeforeBeingDrawn_WereSpreadAcrossMoreThanOneSizeBucket()
+    {
+        // **The B193 shape again, and measured rather than suspected.** With
+        // `OpaqueBuckets.InDrawOrder` deleted from the draw loop, all 566 rendering tests stayed
+        // green — the sort has no picture to change, only a frame rate, so neither a unit test nor a
+        // screenshot can see it.
+        //
+        // **The line's VALUE is the assertion, not its presence**, because the failure worth
+        // catching is not the sort going missing. It is `ModelInstance.Bounds` arriving unset: a
+        // zero box buckets as the smallest, so every model lands in bucket 3, the sort returns its
+        // input unchanged, and the log still says `opaque draw order`. That reads as `0/0/0/N` — a
+        // spread of exactly one — which is why this counts populated buckets rather than lines.
+        //
+        // Needs the game: without TF2 the models have no `.mdl` to take bounds from, and this would
+        // then report a missing install as broken wiring. Same reasoning as the appearance check
+        // above.
+        ViewerSession.RequireTheGame();
+
+        Retry.WhileFalse(
+            () => Viewer.LastLine("opaque draw order:") is not null,
+            TimeSpan.FromSeconds(15),
+            throwOnTimeout: true,
+            timeoutMessage:
+                "The draw loop never reported its bucket spread, so either no opaque model reached "
+                + "the device or the sort is no longer being applied to them.");
+
+        string line = Viewer.LastLine("opaque draw order:")
+            .ShouldNotBeNull("the retry above should have waited for this");
+
+        // `... buckets 3/14/62/8` — the counts are the tail of the line, after the last space.
+        string counts = line[(line.LastIndexOf(' ') + 1)..];
+
+        int populated = counts
+            .Split('/')
+            .Count(bucket => int.TryParse(bucket, out int models) && models > 0);
+
+        populated.ShouldBeGreaterThan(
+            1,
+            $"every opaque model fell in one bucket ({counts}), which is what an unset "
+            + "ModelInstance.Bounds looks like");
     }
 }

@@ -143,7 +143,9 @@ jobs:
           # a runner without the game executes every one of them exactly as this machine does.
           # 1512 -> 1529: D106's convar declarations and resolver. The SDK-reading case skips on a
           # runner rather than failing, and a skip still counts toward the trx total.
-          ./build/assert-test-count.sh '**/core.trx' 1538 Core
+          # 1538 -> 1539: one test added on 2026-08-27 (ServerConVars concurrency regression). It
+          # spawns its own tasks and reads no game files, so it runs identically on a runner.
+          ./build/assert-test-count.sh '**/core.trx' 1539 Core
           ./build/assert-test-count.sh '**/cli.trx' 74 Cli
           # 628 -> 645 is ARITHMETIC, not a measurement: 17 tests were added to Content on
           # 2026-08-24 (SchemeFont 6, GlyphAtlas 11), all self-contained, so every one of them
