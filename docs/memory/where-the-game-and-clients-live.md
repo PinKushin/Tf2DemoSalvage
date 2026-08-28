@@ -60,7 +60,9 @@ and *"the decomp paths were supposed to be added to memory"*.
 
 **The binaries are ALSO on F: as ordinary game installs** — `F:\tf2-builds\{tf2-2007,tf2-2008,tf2-2011,tf2-2013,probe-2011,probe-2013}`, each with `bin\engine.dll` and most with `bin\shaderapidx9.dll`. Those are the source material; `D:\ghidra-proj\bin` holds the copies that were imported and analysed.
 
-**Note what is NOT imported: `shaderapidx9.dll`.** So a rendering-state question needs a fresh import before it can be asked. The existing project is aimed at the demo format, not the renderer.
+**The renderer IS imported now, and this entry used to say it was not.** `D:\ghidra-proj\bin` holds `shaderapi-live-x86.dll` and `materialsystem-live-x86.dll`, with their own project at `D:\ghidra-proj\tf2shaderapi.gpr` — so a rendering-state question can be asked without a fresh import. The old text said "note what is NOT imported: `shaderapidx9.dll`, so a rendering-state question needs a fresh import first", which was true when written and was still being read as current on 2026-08-27, when it nearly stopped a question about redundant state binds from being asked at all.
+
+**Same shape as the decompilation-does-not-exist claim above**, one level down: a fact about what had been done was carried as a fact about what could be done. `ls D:\ghidra-proj\bin` is the check, and it takes a second — see [[an-impossibility-claim-expires]].
 
 **Decompile the LIVE client by default; reach for a period build only when the question is about
 that era.** Owner's direction, 2026-08-21: *"you shoiuld probably use the modern client for most

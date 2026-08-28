@@ -24,6 +24,30 @@ internal static class StudioLayout
     /// <summary>Byte offset of <c>name</c> in <c>studiohdr_t</c>: 64 bytes of model name.</summary>
     public const int HeaderNameOffset = 12;
 
+    /// <summary>Byte offset of <c>hull_min</c>: the movement hull's lower corner.</summary>
+    /// <remarks>
+    /// **The header carries TWO boxes and they are not interchangeable.** Valve names them in
+    /// `studio.h`: `hull_min`/`hull_max` is the *"ideal movement hull size"* and
+    /// `view_bbmin`/`view_bbmax` the *"clipping bounding box"*.
+    /// <c>C_BaseAnimating::GetRenderBounds</c> prefers the clipping box when the modeller authored
+    /// one and falls back to the hull, so a reader that takes either alone is right on some models
+    /// and wrong on others.
+    ///
+    /// After `id`, `version`, `checksum`, `name[64]`, `length`, `eyeposition` and `illumposition`:
+    /// 12 + 64 + 4 + 12 + 12 = 104. Cross-checked against <see cref="HeaderBoneCountOffset"/>,
+    /// which has decoded correctly for months and sits four Vectors and an `int flags` later.
+    /// </remarks>
+    public const int HeaderHullMinOffset = 104;
+
+    /// <summary>Byte offset of <c>hull_max</c>.</summary>
+    public const int HeaderHullMaxOffset = 116;
+
+    /// <summary>Byte offset of <c>view_bbmin</c>: the clipping box, when one was authored.</summary>
+    public const int HeaderViewBoundsMinOffset = 128;
+
+    /// <summary>Byte offset of <c>view_bbmax</c>.</summary>
+    public const int HeaderViewBoundsMaxOffset = 140;
+
     /// <summary>Byte offset of <c>numbones</c>.</summary>
     public const int HeaderBoneCountOffset = 156;
 
@@ -305,6 +329,22 @@ internal static class StudioLayout
     /// even though it names it.
     /// </remarks>
     public const int SequenceActivityWeightOffset = 20;
+
+    /// <summary>Byte offset of <c>bbmin</c> within a sequence: its own bounding box.</summary>
+    /// <remarks>
+    /// **The per-sequence box is what makes render bounds change as a model animates.**
+    /// `GetRenderBounds` unions it into the header's box — `VectorMin( seqdesc.bbmin, theMins,
+    /// theMins )` — so a running player is bounded differently from a crouched one, and a single
+    /// number cached per model cannot say so.
+    ///
+    /// Eight ints in — `baseptr`, `szlabelindex`, `szactivitynameindex`, `flags`, `activity`,
+    /// `actweight`, `numevents`, `eventindex` — which puts it at 32, immediately before
+    /// `numblends`.
+    /// </remarks>
+    public const int SequenceBoundsMinOffset = 32;
+
+    /// <summary>Byte offset of <c>bbmax</c> within a sequence.</summary>
+    public const int SequenceBoundsMaxOffset = 44;
 
     /// <summary>Byte offset of <c>animindexindex</c>: the animation grid for this sequence.</summary>
     public const int SequenceAnimationIndexOffset = 60;
