@@ -702,6 +702,31 @@ public sealed class DemoTimeline
     /// </remarks>
     public ServerConVars ServerConVars { get; private init; } = new();
 
+    /// <summary>The checksum of the map this was recorded on, when the demo said.</summary>
+    /// <remarks>
+    /// **`svc_ServerInfo`'s `mapCRC`, which identifies the map's VERSION where its name does not.**
+    /// `cp_badlands` in 2017 is not `cp_badlands` in 2026, and the viewer loads by name out of
+    /// whatever TF2 install is present — so an old demo is drawn against geometry it was never
+    /// recorded on, and every consequence looks like a rendering defect. Three were investigated as
+    /// such before the owner identified the real cause (D113, finding 41).
+    ///
+    /// **Null when the demo carried no `svc_ServerInfo`**, which is a real case for a truncated or
+    /// hand-authored file — and distinguishable from "the CRCs differ", which is the point of it
+    /// being nullable rather than zero.
+    /// </remarks>
+    public uint? MapCrc { get; private init; }
+
+    /// <summary>The map hash <c>svc_ServerInfo</c> carries beside the checksum, when it has one.</summary>
+    /// <remarks>
+    /// **The instrument for modern demos, because the CRC is dead in them.** Measured across gcor:
+    /// 2007 through 2011 carry a real `mapCRC` — and the 2008 and 2011 POV/STV pairs each agree with
+    /// themselves, so the field is genuine — while 2013 onward and `z1800` all carry `0xFFFFFFFF`,
+    /// the CRC32 init value. Valve stopped computing it somewhere between 2011 and 2013.
+    ///
+    /// So a version check needs both: the CRC for the old era, this for the new one.
+    /// </remarks>
+    public IReadOnlyList<byte>? MapHash { get; private init; }
+
     /// <summary>Builds a timeline directly from tracks, for tests that need an exact motion.</summary>
     /// <param name="tracks">The entity tracks the timeline should answer from.</param>
     /// <returns>A timeline with no frames and these tracks.</returns>
@@ -823,6 +848,8 @@ public sealed class DemoTimeline
         List<ScenePropTrack> playerTracks = [];
         List<(int Tick, RecordedView View)> recordedViews = [];
         int? recorderSlot = null;
+        uint? mapCrc = null;
+        IReadOnlyList<byte>? mapHash = null;
 
         // **What the server had its replicated ConVars set to** (D106). Built here rather than by
         // a caller because the values arrive as messages in this stream and nowhere else, and the
@@ -879,6 +906,15 @@ public sealed class DemoTimeline
                     // rather than like a defect.
                     case ServerInfoMessage server when server.IntervalPerTick > 0f:
                         interval = server.IntervalPerTick;
+
+                        // **Which map, and WHICH VERSION of it.** The name alone does not identify
+                        // a map — `cp_badlands` in 2017 is not `cp_badlands` in 2026 — and the CRC
+                        // is what the engine uses to tell a client its `.bsp` is the wrong one.
+                        // Decoded since the container work and compared against nothing until
+                        // D113, which cost an evening of chasing rendering defects that were a
+                        // mismatched map (finding 41).
+                        mapCrc = server.MapCrc;
+                        mapHash = server.MapHash;
 
                         // **Which entity the recording was made from**, named by the demo rather
                         // than inferred. A first-person camera needs the recorder's class for the
@@ -1319,6 +1355,8 @@ public sealed class DemoTimeline
             IntervalPerTick = interval,
             RecorderEntityIndex = recorderSlot is { } recorded ? recorded + 1 : null,
             ServerConVars = serverConVars,
+            MapCrc = mapCrc,
+            MapHash = mapHash,
         };
     }
 

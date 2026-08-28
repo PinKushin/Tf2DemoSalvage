@@ -27,4 +27,17 @@
     <ProjectReference Include="..\Tf2DemoSalvage.Core\Tf2DemoSalvage.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!--
+      For the map checksum. Valve's CRC32 is the ordinary reflected CRC-32/ISO-HDLC - established
+      from checksum_crc.cpp rather than assumed, and asserted by BspMapCrcConformanceTests - so this
+      is a standard algorithm rather than a Valve variant, and reimplementing its 256-entry table
+      here would be a second thing to get wrong for no gain.
+
+      Already a pinned version in Directory.Packages.props and already referenced by
+      Corpus.Tests, so this adds a reference rather than a dependency.
+    -->
+    <PackageReference Include="System.IO.Hashing" />
+  </ItemGroup>
+
 </Project>

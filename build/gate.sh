@@ -482,7 +482,7 @@ run Tf2DemoSalvage.Presentation.Tests presentation 396
 # anything here passed one, and LocalLightSelectionTests (8) on the selection a shader would take.
 # 740: StudioBoundsConformanceTests (4) pinning the header's bounds offsets against studio.h, and
 # StudioBoundsTests (9) reading them off the real scout — including one [Explicit] probe.
-run Tf2DemoSalvage.Content.Tests  content   740
+run Tf2DemoSalvage.Content.Tests  content   744
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
@@ -511,7 +511,7 @@ run Tf2DemoSalvage.Content.Tests  content   740
 # 117: CorpusServerConVarTests, the assertion that a real demo's replicated ConVars reach the
 # timeline. All four run on committed gcor demos, so they hold under TF2DEMOSALVAGE_GCOR_ONLY and
 # in CI rather than skipping there and testing nothing.
-run Tf2DemoSalvage.Corpus.Tests   corpus     117
+run Tf2DemoSalvage.Corpus.Tests   corpus     126
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that
