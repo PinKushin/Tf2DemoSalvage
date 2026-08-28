@@ -119,6 +119,23 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // direction from the eye to this point, mirrored about the normal, so the pixel shader
             // needs the point rather than only its depth.
             float3 wpos : TEXCOORD8;
+
+            // **Each local light's attenuation, computed per VERTEX as the engine computes it.**
+            // `VertexAttenInternal` (common_vs_fxc.h:762) runs in Valve's vertex shader and the
+            // result is interpolated across the triangle; only the light DIRECTION and the N·L are
+            // per pixel, in `PixelShaderDoGeneralDiffuseLight`. Four lights fit one float4, so
+            // matching that split costs a single interpolant.
+            //
+            // **It is also the cheaper half, which is why it is not a trade.** The maths is the
+            // same either way — a length, a dot and a reciprocal per light — but here it runs once
+            // per vertex instead of once per covered pixel, which on an ordinary model is around
+            // twenty times fewer, and it removes a per-pixel branch with it.
+            //
+            // The visible difference is that interpolation is LINEAR and attenuation is a curve, so
+            // a large triangle near a lamp shades slightly flat across its middle. That is what
+            // TF2 looks like, and a smoother result here would be this renderer diverging from the
+            // game it is reproducing.
+            float4 lampAtten : TEXCOORD10;
         };
 
         cbuffer Camera : register(b0)
@@ -229,9 +246,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // shape and a highlight; the same lamp folded into the cube gives it neither, which is
             // the whole of B170's missing term.
             //
-            // xyz is where the light is, world space. w is 1 when the slot holds a light and 0 when
-            // it does not — read as a flag rather than as a count, because a count in a constant
-            // buffer is one more thing that can disagree with the data beside it.
+            // xyz is where the light is, world space. w is unused — it held a per-slot "is this
+            // live" flag until the shader was made to match Valve's, which uses a COUNT and nested
+            // ifs instead. Left rather than repacked: the layout test pins the buffer's size, and
+            // shuffling fields to reclaim four floats is how the material buffer got its strobe.
             float4 localLightPosition[4];
 
             // rgb is the light's own intensity, linear and in the ambient cube's scale. w is the
@@ -242,6 +260,16 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // xyz is Valve's attenuation denominator, `a0 + a1*d + a2*d^2`, already carrying vrad's
             // all-zero rule so a light with no terms arrives as a constant one rather than as a
             // division by nothing.
+            //
+            // **[0].w is how many lights this draw has**, which is Valve's `nNumLights`. They get it
+            // as a compile-time `NUM_LIGHTS` and build a shader permutation per count; this renderer
+            // has no permutation system, so it arrives as a constant and the ifs are dynamic. That
+            // is the one place this departs, and it is a departure in MECHANISM rather than in
+            // result — the same lights contribute the same amounts either way.
+            //
+            // Packed into a spare channel rather than given a float4 of its own, which is Valve's
+            // own idiom: `PixelShaderDoLightingLinear` unpacks its fourth light out of the .w
+            // channels of the first three for exactly this reason.
             float4 localLightFalloff[4];
         };
 
@@ -523,6 +551,38 @@ internal sealed unsafe class WorldRenderer : IDisposable
             return moved;
         }
 
+        // **One local light's attenuation at a world point — Valve's VertexAttenInternal.**
+        // `common_vs_fxc.h:762`, minus the spot cone and the directional bypass: the sun travels
+        // its own path here and a spotlight's cone is not decoded yet, so both would be dead code
+        // pretending to be parity.
+        //
+        // Returns zero for a light beyond its range. Valve does not cull in the shader at all,
+        // because `LightDesc_t::ComputeLightAtPoints` culled on the CPU before the light was
+        // chosen — this project culls there too, at the model's sample point, so this is the same
+        // test applied where a large model can extend past it. Every light on cp_process carries a
+        // range of zero, which means no cutoff, so it is inert on that map either way.
+        float LampAttenuation(int lamp, float3 world)
+        {
+            float3 toLamp = localLightPosition[lamp].xyz - world;
+            float distanceSquared = dot(toLamp, toLamp);
+
+            // **Clamped, not offset**: MaxSIMD( Four_Ones, dist2 ) in lightdesc.cpp. The ambient
+            // reconstruction uses 1 / (dist + 1) and the two are easy to conflate.
+            distanceSquared = max(1.0f, distanceSquared);
+
+            // Strictly less than, and a range of zero means no cutoff at all — which is what every
+            // light on cp_process carries, so reading zero as a real radius extinguishes the map.
+            if (localLightColour[lamp].w != 0.0f && distanceSquared >= localLightColour[lamp].w)
+            {
+                return 0.0f;
+            }
+
+            // `1 / dot( atten.xyz, vDist )` where vDist is dst(dist2, 1/dist) = (1, d, d²).
+            return 1.0f / dot(
+                localLightFalloff[lamp].xyz,
+                float3(1.0f, sqrt(distanceSquared), distanceSquared));
+        }
+
         VsOut VsMain(VsIn input)
         {
             VsOut output;
@@ -555,6 +615,46 @@ internal sealed unsafe class WorldRenderer : IDisposable
             float4 world = mul(float4(posed, 1.0f), model);
             output.pos = mul(world, viewProjection);
             output.wpos = world.xyz;
+
+            // **Valve's own shape, transcribed from `cloak_vs20.fxc:105`:**
+            //
+            //     o.lightAtten = float4(0,0,0,0);
+            //     #if ( NUM_LIGHTS > 0 )
+            //         o.lightAtten.x = GetVertexAttenForLight( worldPos, 0, false );
+            //     #endif
+            //     ... and so on to .w
+            //
+            // Written out by swizzle with a literal light number, never a loop over an index. This
+            // was written as a loop first and it does not compile — `output.lampAtten[i]` indexes a
+            // vector by a variable, which HLSL cannot use as an l-value (X3500), and the early-out
+            // inside stops the forced unroll (X3511). Reading Valve's shader first would have
+            // skipped that entirely, which is the whole argument for reading it first.
+            //
+            // The count is dynamic here where theirs is a compile-time permutation; see the
+            // `localLightFalloff` comment for why, and for what that does and does not change.
+            float lamps = localLightFalloff[0].w;
+
+            output.lampAtten = float4(0.0f, 0.0f, 0.0f, 0.0f);
+
+            if (lamps > 0.5f)
+            {
+                output.lampAtten.x = LampAttenuation(0, world.xyz);
+
+                if (lamps > 1.5f)
+                {
+                    output.lampAtten.y = LampAttenuation(1, world.xyz);
+
+                    if (lamps > 2.5f)
+                    {
+                        output.lampAtten.z = LampAttenuation(2, world.xyz);
+
+                        if (lamps > 3.5f)
+                        {
+                            output.lampAtten.w = LampAttenuation(3, world.xyz);
+                        }
+                    }
+                }
+            }
             // **Both coordinate sets, from one incoming pair, exactly as the engine builds them.**
             // The coordinate is extended to a float4 with w = 1 so the transform's fourth column
             // translates — that is what a scrolling material writes into, and with an identity
@@ -616,6 +716,37 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // weights come to a third for a normal straight out of the surface, so without it the
             // wall ripples with light rather than with shape.
             return mixed / total;
+        }
+
+        // **One local light's diffuse contribution — Valve's PixelShaderDoGeneralDiffuseLight.**
+        // `common_vertexlitgeneric_dx9.h:124`: normalise the direction here, take the DiffuseTerm
+        // against the normal, and multiply by the attenuation the vertex shader handed over.
+        //
+        // Zero attenuation covers both an empty slot and a light culled by range, so this tests one
+        // number rather than re-reading the flag and the cutoff.
+        float3 LampDiffuse(int lamp, float attenuation, float3 wpos, float3 normal)
+        {
+            if (attenuation <= 0.0f)
+            {
+                return float3(0.0f, 0.0f, 0.0f);
+            }
+
+            float towards = dot(normal, normalize(localLightPosition[lamp].xyz - wpos));
+
+            // The same DiffuseTerm the sun takes, so a half-Lambert material shades both the same
+            // way — Valve applies it inside DoLightInternal for every light, warp included.
+            bool warping = phongFresnel.w > 0.5f;
+            float wrapped = saturate(towards * 0.5f + 0.5f);
+
+            float falloff = combine.y > 0.5f
+                ? (warping ? wrapped : wrapped * wrapped)
+                : saturate(towards);
+
+            float3 direct = warping
+                ? 2.0f * lightWarp.Sample(clampSampler, float2(falloff, 0.5f)).rgb
+                : float3(falloff, falloff, falloff);
+
+            return localLightColour[lamp].rgb * attenuation * direct;
         }
 
         float4 PsMain(VsOut input) : SV_TARGET
@@ -886,54 +1017,37 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 // and then up to four of these, so a light is in exactly one of the two and never
                 // both; `LevelLighting.LightingAt` is what keeps that true on the way in.
                 //
-                // Per pixel rather than per vertex, which is where this DIVERGES from Valve: the
-                // engine computes attenuation in `VertexAttenInternal` and interpolates it, because
-                // SM2.0 had nowhere else to put it. Doing it here needs no new interpolants and no
-                // vertex format change, and the two agree except across a triangle large enough for
-                // the reciprocal to bend inside it — which a model's triangles are not.
-                for (int lamp = 0; lamp < 4; lamp++)
+                // **The split is Valve's**: attenuation came from the vertex shader and was
+                // interpolated (`VertexAttenInternal`), and only the direction and the N·L are per
+                // pixel — `PixelShaderDoGeneralDiffuseLight` normalises `vPosition - worldPos` here
+                // and multiplies by the attenuation it was handed.
+                // **`PixelShaderDoLightingLinear`'s own nesting**, which tests a COUNT rather than
+                // a flag per light and so skips the whole tail in one branch:
+                //
+                //     if ( nNumLights > 0 ) { ... lightAtten.x ... cLightInfo[0] ...
+                //         if ( nNumLights > 1 ) { ... lightAtten.y ... } }
+                //
+                // Explicit swizzles and literal light numbers throughout, as they have them.
+                float lamps = localLightFalloff[0].w;
+
+                if (lamps > 0.5f)
                 {
-                    if (localLightPosition[lamp].w < 0.5f)
+                    light += LampDiffuse(0, input.lampAtten.x, input.wpos, input.nrm);
+
+                    if (lamps > 1.5f)
                     {
-                        continue;
+                        light += LampDiffuse(1, input.lampAtten.y, input.wpos, input.nrm);
+
+                        if (lamps > 2.5f)
+                        {
+                            light += LampDiffuse(2, input.lampAtten.z, input.wpos, input.nrm);
+
+                            if (lamps > 3.5f)
+                            {
+                                light += LampDiffuse(3, input.lampAtten.w, input.wpos, input.nrm);
+                            }
+                        }
                     }
-
-                    float3 toLamp = localLightPosition[lamp].xyz - input.wpos;
-                    float distanceSquared = dot(toLamp, toLamp);
-
-                    // **Clamped, not offset**: MaxSIMD( Four_Ones, dist2 ) in lightdesc.cpp. The
-                    // ambient reconstruction uses 1 / (dist + 1) and the two are easy to conflate.
-                    distanceSquared = max(1.0f, distanceSquared);
-
-                    // Strictly less than, and a range of zero means no cutoff at all.
-                    if (localLightColour[lamp].w != 0.0f &&
-                        distanceSquared >= localLightColour[lamp].w)
-                    {
-                        continue;
-                    }
-
-                    float distance = sqrt(distanceSquared);
-
-                    // Valve's denominator, `1 / dot(atten.xyz, (1, d, d^2))`.
-                    float attenuation = 1.0f / dot(
-                        localLightFalloff[lamp].xyz, float3(1.0f, distance, distanceSquared));
-
-                    float towardsLamp = dot(input.nrm, toLamp / distance);
-
-                    // The same DiffuseTerm the sun takes, so a half-Lambert material shades both
-                    // the same way — Valve applies it inside DoLightInternal for every light.
-                    float lampWrapped = saturate(towardsLamp * 0.5f + 0.5f);
-                    bool lampWarping = phongFresnel.w > 0.5f;
-
-                    float lampFalloff = combine.y > 0.5f
-                        ? (lampWarping ? lampWrapped : lampWrapped * lampWrapped)
-                        : saturate(towardsLamp);
-
-                    float3 lampDirect = lampWarping
-                        ? 2.0f * lightWarp.Sample(clampSampler, float2(lampFalloff, 0.5f)).rgb
-                        : float3(lampFalloff, lampFalloff, lampFalloff);
-
-                    light += localLightColour[lamp].rgb * attenuation * lampDirect;
                 }
             }
 
@@ -3123,6 +3237,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
         {
             int lamps = Math.Min(locals.Count, LocalLightSlots);
 
+            // **Valve's `nNumLights`, in a spare channel.** The shader nests its ifs on this rather
+            // than testing a flag per light, so it is what decides whether a slot is read at all —
+            // and writing it AFTER the slots would be the kind of ordering nobody can see. Written
+            // first, deliberately.
+            contents[LocalLightBase + (LocalLightSlots * 8) + 3] = lamps;
+
             for (int slot = 0; slot < lamps; slot++)
             {
                 LocalLight lamp = locals[slot];
@@ -3134,7 +3254,6 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 contents[position] = lamp.X;
                 contents[position + 1] = lamp.Y;
                 contents[position + 2] = lamp.Z;
-                contents[position + 3] = 1f;
 
                 contents[colour] = lamp.Red;
                 contents[colour + 1] = lamp.Green;
