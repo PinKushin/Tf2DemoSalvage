@@ -1,6 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
+using Microsoft.Extensions.Logging;
+
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
 
 namespace Tf2DemoSalvage.Scene;
@@ -68,6 +72,8 @@ public static class BrushModels
     /// own colour for the entity's class here; everything else leaves it white, which multiplies to
     /// no change.
     /// </param>
+    /// <param name="render">Where the per-submodel census goes, or null for no census.</param>
+    /// <param name="materialName">Turns a material index into its map texture name, for that census.</param>
     /// <returns>Geometry keyed by <c>*N</c>, ready to be looked up by an entity's model name.</returns>
     /// <remarks>
     /// Index 0 is skipped rather than included, because the world is drawn by the static path and
@@ -77,7 +83,9 @@ public static class BrushModels
         IReadOnlyList<BspModel> models,
         IReadOnlyList<BspSurface> surfaces,
         LightmapAtlas atlas,
-        Func<int, (float Red, float Green, float Blue)?>? tintFor = null)
+        Func<int, (float Red, float Green, float Blue)?>? tintFor = null,
+        ILogger? render = null,
+        Func<int, string>? materialName = null)
     {
         ArgumentNullException.ThrowIfNull(models);
         ArgumentNullException.ThrowIfNull(surfaces);
@@ -144,8 +152,55 @@ public static class BrushModels
                 continue;
             }
 
+            // **What this submodel is actually painted with**, because a brush entity's materials
+            // are the one thing about it nothing else reports. The owner saw badlands roller doors
+            // drawing as concrete and no log anywhere could say whether the geometry carried the
+            // grate material or a different one — which is the whole question.
+            if (render is not null)
+            {
+                HashSet<int> used = [];
+
+                foreach (PropVertex corner in corners)
+                {
+                    used.Add(corner.MaterialIndex);
+                }
+
+                // **Debug rather than Information: this is one line per submodel and badlands has
+                // 138.** It answers a question nobody asks until something is wrong, which is
+                // exactly what the level is for — and B191 is this project's reminder that a log
+                // line on a hot path is not free.
+                render.LogDebug(
+                    "brush model *{Index}: {Faces} faces, {Corners} corners, box {Min} to {Max}, "
+                    + "materials {Materials}",
+                    index,
+                    model.FaceCount,
+                    corners.Count,
+                    $"({model.Minimum.X:0},{model.Minimum.Y:0},{model.Minimum.Z:0})",
+                    $"({model.Maximum.X:0},{model.Maximum.Y:0},{model.Maximum.Z:0})",
+                    string.Join(
+                        ", ",
+                        used.Order().Select(at => materialName is null ? at.ToString(
+                            System.Globalization.CultureInfo.InvariantCulture) : materialName(at))));
+            }
+
+            // **The submodel's own box, and leaving it out is what made every door vanish.** A brush
+            // entity had no render bounds at all, so `RenderBoundsFor` answered the default — a
+            // ZERO-sized box — and the frustum cull then tested a single POINT at the matrix's
+            // translation. A submodel is compiled about its own origin, so that point is nowhere
+            // near the door: it popped in and out as the map origin drifted through the frustum,
+            // showing the wall behind it. Found by the owner watching a roller door open.
+            //
+            // `dmodel_t` carries mins and maxs and the reader already keeps them, so this is the
+            // box the engine itself would cull by.
             built[SubmodelPrefix + index.ToString(System.Globalization.CultureInfo.InvariantCulture)] =
-                new PropModels.ModelFrames([corners], new Dictionary<int, (int, int, float)>(), [], []);
+                new PropModels.ModelFrames(
+                    [corners],
+                    new Dictionary<int, (int, int, float)>(),
+                    [],
+                    [],
+                    HeaderBounds: new StudioBox(
+                        model.Minimum.X, model.Minimum.Y, model.Minimum.Z,
+                        model.Maximum.X, model.Maximum.Y, model.Maximum.Z));
         }
 
         return built;

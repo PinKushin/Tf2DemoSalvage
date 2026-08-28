@@ -6362,3 +6362,64 @@ not where a frame goes. The world is still drawn in full, batched by material ac
 with no leaf or cluster association, so PVS and per-leaf frustum culling of world surfaces is the
 next and much larger piece. This one is the foundation it needs: the frustum, the box, and the
 camera that produces both.
+
+## D112 — The world is culled by leaf, and by box for what leaves cannot reach
+
+**Owner-set, 2026-08-28.** Offered a measurement of a full-bore STV demo before restructuring the
+world batching, the owner declined it and said why:
+
+> *"shouldnt need to measure the stv but if you want to then go for it, following valve should do
+> enough we dont need the stv measure. because no matter what the measure we are going to do it
+> valves way anyway lol"*
+
+**A measurement that cannot change the decision is not worth taking**, and that is the general rule
+this records. It does not retire *read the source before measuring our data* — it sharpens it: the
+question was never "is the world the bottleneck", it was "what does the engine do", and only the
+source answers that.
+
+**What was built.** `WorldVisibility` walks the BSP from the eye — PVS first, then each node's and
+leaf's own cull box — and returns the visible leaves front to back, which is `WorldListInfo_t`'s
+leaf list (`public/ivrenderview.h:87`). `VisibleWorld` turns those leaves into drawable runs through
+the LEAFFACES lump, stamping each face with a frame number so a surface listed by two leaves is
+drawn once. Runs merge where they are adjacent in the buffer, so the output is the same
+`WorldBatch` shape the renderer already consumed.
+
+**Then the owner looked at the screen and the ground was missing.**
+
+> *"the map is culling all the ground, you have this extreamly wrong"*
+
+Every automated check was green. Measured after the fact: **not one displacement face is named by
+any leaf** — 12,306 of 12,306 brush spans reachable, 0 of 60 terrain spans on cp_process, and 1,191
+terrain spans on badlands. `vbsp`'s `EmitLeaf` builds a leaf's face list from its portals and its
+detail faces, and a displacement is neither. Full write-up in `docs/findings/41`.
+
+**The test could not have caught it, and that is the lesson worth keeping.** Its denominator was the
+leaves: *for each face named by a visible leaf, is it drawn?* A face no leaf names is outside that
+question, so the ground could vanish entirely with the suite green — and the control it did have,
+`checkedFaces > 0`, passed on twelve thousand brush faces. The replacement takes **the spans** as its
+denominator and requires that anything dropped is either leaf-named or provably outside the frustum,
+with two controls: that orphaned surfaces exist, and that one was drawn.
+
+So every span carries the world box of the triangles actually written for it, and spans no leaf names
+are culled by that box against the **frustum only, never the PVS** — a surface the tree cannot place
+is one whose potential visibility nothing knows.
+
+**A second defect found on the way, and it was mine.** `BrushModels` built its `ModelFrames` with no
+render bounds at all, so every brush entity carried a zero box — which `TransformAABB` collapses to a
+single POINT at the matrix's translation, i.e. the map origin for a submodel compiled about its own.
+Doors, lifts and payload carts were culled by a point test that had nothing to do with where they
+were. Fixed twice over: `dmodel_t`'s own mins and maxs are used, and a degenerate box now refuses to
+cull at all.
+
+**One thing this did NOT explain, and the record should say so.** The owner also reported badlands
+roller doors drawing as concrete, and pushed back on the diagnosis:
+
+> *"there really shouldnt have been concrete behind, because the doors are not against walls"*
+
+> *"you measure and reason, but you cant reason properly without measurements"*
+
+Right on both counts. Logged rather than argued: the door is `door_slide_large_dynamic.mdl`, a studio
+prop and not brushwork at all; it is drawn every frame, one batch, material 480
+`models/props_gameplay/door_slide`; and the only model culled in the entire frame is a UI prop 14,000
+units away at the map corner. **So this work is not the cause**, and the appearance is something else
+— still open.

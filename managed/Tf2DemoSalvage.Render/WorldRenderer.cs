@@ -1707,6 +1707,28 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
     private IReadOnlyList<WorldBatch> _batches = [];
 
+    /// <summary>The world runs this view can see, or null to draw every one.</summary>
+    /// <remarks>
+    /// **Null and empty mean different things here, and conflating them is a black screen.** Null is
+    /// "nobody culled" — no map visibility, or a camera set through the matrix overload — and falls
+    /// back to the batches built at load. Empty is "this eye sees no world", which is a real answer
+    /// for a camera pointed into the void.
+    ///
+    /// Set on a view change, like the camera, because it is a function of the camera.
+    ///
+    /// **The OPAQUE world pass only.** The translucent runs are depth-sorted once at upload and the
+    /// additive ones walk the full list; both therefore keep drawing everything. That is the
+    /// conservative direction — more work, never a missing surface — and culling them properly means
+    /// re-sorting by depth per view, which is its own piece of work.
+    /// </remarks>
+    public IReadOnlyList<WorldBatch>? VisibleBatches { get; set; }
+
+    /// <summary>What the world pass will actually draw.</summary>
+    private IReadOnlyList<WorldBatch> Drawn => VisibleBatches ?? _batches;
+
+    /// <summary>How many world batches were uploaded, for the cull's report to compare against.</summary>
+    public int BatchCount => _batches.Count;
+
     /// <summary>Where this reports what it drew, and what it silently could not.</summary>
     /// <remarks>
     /// **Two categories rather than one, because this writes to two areas (D83).** Most of what it
@@ -2826,7 +2848,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // `DrawOpaqueRenderables` runs at all.
         if (DrawWorld)
         {
-            DrawOpaqueBatches(context, _batches);
+            // **The visible runs when a cull produced some, else everything.** Decals are not
+            // culled with them: an overlay fragment is clipped to the surface it marks and is not
+            // named by any leaf's face list, so leaving them whole is the conservative direction.
+            DrawOpaqueBatches(context, Drawn);
             DrawDecals(context);
         }
 

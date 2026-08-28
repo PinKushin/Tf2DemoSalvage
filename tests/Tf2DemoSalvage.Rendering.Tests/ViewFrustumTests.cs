@@ -234,6 +234,37 @@ public sealed class ViewFrustumTests
         Cull(none, At(-100f, 0f, 0f)).ShouldBeFalse();
     }
 
+    /// <summary>That a basis with a zero vector in it is refused, not absorbed.</summary>
+    /// <remarks>
+    /// **Written after a degenerate basis cost a wrong diagnosis.** A test helper built `right` as
+    /// `(towards.Y, −towards.X, 0)` — zero for a camera looking straight down — and the resulting
+    /// frustum reported an empty world with no error anywhere. `SidePlane` leaves a zero normal
+    /// alone rather than dividing by nothing, so the planes were merely wrong rather than NaN, and
+    /// the search went looking for a fault in the BSP walk.
+    ///
+    /// All three vectors are checked, because any one of them can be the zero.
+    /// </remarks>
+    [TestCase(0)]
+    [TestCase(1)]
+    [TestCase(2)]
+    public void Perspective_WithADegenerateBasisVector_Throws(int which)
+    {
+        (float X, float Y, float Z)[] basis =
+            [(1f, 0f, 0f), (0f, -1f, 0f), (0f, 0f, 1f)];
+
+        basis[which] = (0f, 0f, 0f);
+
+        Should.Throw<ArgumentException>(() => ViewFrustum.PerspectiveFromAspect(
+            origin: (0f, 0f, 0f),
+            forward: basis[0],
+            right: basis[1],
+            up: basis[2],
+            nearZ: 7f,
+            farZ: 1000f,
+            fovX: 90f,
+            aspect: 1f));
+    }
+
     [Test]
     public void Plane_ForAFrustumNeverBuilt_Throws()
     {
