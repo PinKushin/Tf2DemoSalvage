@@ -45,6 +45,10 @@ namespace Tf2DemoSalvage.Scene;
 /// <c>CalcRenderableWorldSpaceAABB</c>. Placed here rather than by the renderer because only this
 /// side knows what places a given model.
 /// </param>
+/// <param name="TwoPass">
+/// Whether the model declares <c>$mostlyopaque</c>, so the engine would draw its solid parts in the
+/// opaque pass and its blended parts in the translucent one.
+/// </param>
 public readonly record struct ModelInstance(
     string ModelPath,
     float[] Matrix,
@@ -102,7 +106,15 @@ public readonly record struct ModelInstance(
     // players and brush entities both leave the matrix somewhere that is not where they are, so
     // both were culled against the map origin. Handing the renderer a finished box removes the
     // question rather than answering it again downstream.
-    (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) WorldBounds = default);
+    (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) WorldBounds = default,
+
+    // **Whether the model carries STUDIOHDR_FLAGS_TRANSLUCENT_TWOPASS**, which is the only thing
+    // that entitles it to be drawn in both passes — `C_BaseEntity::IsTwoPass` forwards straight to
+    // `modelinfo->IsTranslucentTwoPass`, so it is a property of the MODEL and nothing else.
+    //
+    // Whether it is DRAWN twice is a further question, and the renderer asks it: the entity must
+    // also be translucent and at full alpha. See `RenderGroups`.
+    bool TwoPass = false);
 
 /// <summary>
 /// The models a demo's entities wear, packed once and posed by the GPU.
@@ -1600,6 +1612,11 @@ public sealed class EntityModelSet
                 }
             }
 
+            // **Hoisted out of the argument list**, because two arguments now want it: the body
+            // parts and the two-pass flag are both facts about the MODEL rather than the entity.
+            // Looking it up twice would be two dictionary probes per model per frame for one answer.
+            _ = _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? parts);
+
             into.Add(new ModelInstance(
                 prop.ModelPath,
                 transform.ToMatrix(),
@@ -1614,9 +1631,7 @@ public sealed class EntityModelSet
                 blend,
                 bones,
                 SkinSwap(prop.ModelPath, skin),
-                _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? parts)
-                    ? parts.BodyParts
-                    : null,
+                parts?.BodyParts,
                 prop.Pose.Body,
                 Mirrored: false,
                 Origin: origin,
@@ -1628,7 +1643,12 @@ public sealed class EntityModelSet
                 Locals: locals,
 
                 // The placed box the engine culls and buckets by — CalcRenderableWorldSpaceAABB.
-                WorldBounds: WorldBoxFor(prop)));
+                WorldBounds: WorldBoxFor(prop),
+
+                // **$mostlyopaque, off the model's own header.** A model this side never loaded
+                // answers false, which is the engine's answer for a model with no flag — and the
+                // conservative one, since it draws the model in one pass rather than two.
+                TwoPass: parts?.TwoPass ?? false));
         }
 
         _tally.Report();

@@ -635,7 +635,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 instance.Blend,
                 instance.Bones?.Count ?? 0,
                 instance.SkinSwap,
-                blended: false,
+
+                // **Whole, because a viewmodel is drawn in one pass here.** This filtered to opaque
+                // materials only, so a weapon's blended parts — a scope lens, a glow, a cloaked
+                // spy's own hands — were dropped and nothing said so. Valve keeps two viewmodel
+                // lists (`viewrender.cpp:1150` draws the translucent one with STUDIO_TRANSPARENCY);
+                // this project has one, and drawing the whole model in it loses nothing where
+                // filtering lost the blended half outright.
+                ModelPass.EntireModel,
                 instance.BodyParts,
                 instance.Body,
                 // Culled normally, per material, like everything else. Drawing both sides was tried
@@ -868,6 +875,18 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
                 foreach (ModelInstance instance in opaque)
                 {
+                    // **Which lists this model joins, and whether it is split** — Valve's
+                    // GetRenderGroup and CollateRenderablesInLeaf, in RenderGroups. A model with no
+                    // blended material joins this list alone and draws WHOLE; one with blended
+                    // materials joins this list only if it declared $mostlyopaque, and then only its
+                    // solid half is drawn here.
+                    (bool joinsOpaque, _, bool twoPass) = Classify(instance);
+
+                    if (!joinsOpaque)
+                    {
+                        continue;
+                    }
+
                     if (instance.Bones is { Count: > 0 } bones)
                     {
                         _world.SetBones(_context, bones);
@@ -885,7 +904,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                         instance.Blend,
                         instance.Bones?.Count ?? 0,
                         instance.SkinSwap,
-                        blended: false,
+                        twoPass ? ModelPass.OpaqueOnly : ModelPass.EntireModel,
                         instance.BodyParts,
                         instance.Body,
                         instance.Mirrored,
@@ -922,6 +941,16 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                         continue;
                     }
 
+                    // **The other half of the same decision.** A model with no blended material is
+                    // absent from this pass entirely — it was drawn whole above — where before every
+                    // model was walked here and filtered batch by batch to nothing.
+                    (_, bool joinsTranslucent, bool twoPass) = Classify(instance);
+
+                    if (!joinsTranslucent)
+                    {
+                        continue;
+                    }
+
                     if (instance.Bones is { Count: > 0 } bones)
                     {
                         _world.SetBones(_context, bones);
@@ -937,7 +966,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                         instance.Blend,
                         instance.Bones?.Count ?? 0,
                         instance.SkinSwap,
-                        blended: true,
+                        twoPass ? ModelPass.TranslucentOnly : ModelPass.EntireModel,
                         instance.BodyParts,
                         instance.Body,
                         instance.Mirrored,
@@ -1662,6 +1691,48 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             instance.WorldBounds;
 
         return _frustum.Cull(box.MinX, box.MinY, box.MinZ, box.MaxX, box.MaxY, box.MaxZ);
+    }
+
+    /// <summary>Which render lists a model joins, and whether it is drawn in halves.</summary>
+    /// <param name="instance">The model about to be drawn.</param>
+    /// <returns>Whether it joins the opaque pass, the translucent pass, and whether it is split.</returns>
+    /// <remarks>
+    /// **<c>GetRenderGroup</c> then <c>SetRenderGroup</c> then <c>CollateRenderablesInLeaf</c>**, in
+    /// that order and with those responsibilities — see <see cref="RenderGroups"/>, which is where
+    /// the transcription and its citations live. Nothing is decided here; this is the wiring that
+    /// asks.
+    ///
+    /// **What it replaced was every model drawn twice**, once filtered to its opaque materials and
+    /// once to its blended ones, with nothing asking whether the engine would have split it. A
+    /// model with no blended material was still walked in the translucent pass, batch by batch, to
+    /// draw nothing.
+    ///
+    /// **The alpha is <see cref="RenderGroups.FullyOpaque"/> because nothing decodes it yet.**
+    /// <c>m_clrRender</c> and <c>m_nRenderFX</c> are not read from the demo — <c>ComputeFxBlend</c>
+    /// is a 210-line time-based switch over the render-FX kinds — so no entity here can be faded,
+    /// cloaked or pulsing. That is a real gap and it is named rather than assumed: a fading two-pass
+    /// model should stop being split, and until the alpha arrives none can fade. See RISKS.
+    /// </remarks>
+    private (bool Opaque, bool Translucent, bool TwoPass) Classify(ModelInstance instance)
+    {
+        if (_world is null)
+        {
+            return (true, false, false);
+        }
+
+        bool translucent = _world.IsTranslucent(
+            _world.ModelBatches(instance.ModelPath, instance.Frame),
+            instance.SkinSwap,
+            instance.BodyParts,
+            instance.Body);
+
+        (RenderGroup stored, bool twoPass) =
+            RenderGroups.Store(RenderGroups.For(translucent, instance.TwoPass));
+
+        (bool opaque, bool blended) =
+            RenderGroups.Lists(stored, twoPass, RenderGroups.FullyOpaque);
+
+        return (opaque, blended, twoPass);
     }
 
     /// <summary>Writes, once, what the cull kept and how it spread across Valve's size buckets.</summary>

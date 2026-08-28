@@ -165,7 +165,10 @@ jobs:
           # 740 -> 744: four map-checksum conformance tests added 2026-08-28. Three read the SDK and
           # Assert.Ignore without it — which a .trx total still counts — and the fourth is a CRC
           # check vector that needs nothing at all.
-          ./build/assert-test-count.sh '**/content.trx' 744 Content
+          # 744 -> 749 on 2026-08-28: StudioHeaderFlagsConformanceTests (4) and
+          # StudioModelFlagCensus (1, Explicit). Two of the four need TF2 installed and Assert.Ignore
+          # here, which the .trx total still counts.
+          ./build/assert-test-count.sh '**/content.trx' 749 Content
           ./build/assert-test-count.sh '**/presentation.trx' 396 Presentation
           ./build/assert-test-count.sh '**/logging.trx' 17 Logging
           # 10 is MEASURED locally and safe on a runner without the SDK, because a .trx total counts
@@ -173,7 +176,9 @@ jobs:
           # and still appear in the total. That is the same reason Content's 645 holds while it
           # executes a fraction of its cases here.
           ./build/assert-test-count.sh '**/animation.trx' 41 Animation
-          ./build/assert-test-count.sh '**/scene.trx' 202 Scene
+          # 202 -> 203 on 2026-08-28: the two-pass wiring case in EntityModelsTests, which builds its
+          # own geometry and needs no install.
+          ./build/assert-test-count.sh '**/scene.trx' 203 Scene
 
       # **Coverage, gated PER ASSEMBLY rather than per report.** A Cobertura file's root line-rate
       # averages every assembly the run loaded, including ones the suite never touches — measured
@@ -390,7 +395,15 @@ jobs:
           ./build/assert-test-count.sh '**/audio.trx' 183 Audio
           ./build/assert-test-count.sh '**/fonts.trx' 7 Fonts
           ./build/assert-test-count.sh '**/viewer.trx' 101 Viewer
-          ./build/assert-test-count.sh '**/rendering.trx' 553 Rendering
+          # 553 -> 582 on 2026-08-28: TwoPassConformanceTests (28) and TwoPassWiringTests (1).
+          #
+          # **This floor has drifted from the local gate's and the delta is all that was raised.**
+          # `build/gate.sh` measured 656 here before this change and this file said 553 — a gap of
+          # 103 that predates it and that nobody reconciled. Raising by the measured delta keeps
+          # whatever margin the gap represents; setting it to the local number would either be a
+          # silent tightening or a red CI, and neither is a thing to do in passing. Filed rather
+          # than fixed here.
+          ./build/assert-test-count.sh '**/rendering.trx' 582 Rendering
           ./build/assert-test-count.sh '**/viewer-ui.trx' 14 ViewerUi
           ./build/assert-test-count.sh '**/corpus.trx' 117 Corpus
 

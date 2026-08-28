@@ -1062,7 +1062,12 @@ public static class PropModels
                     // the sequence list while the file is open, rather than the vertex extent that
                     // was nearly substituted for it.
                     ReadBoundsBySequence(modelFile, sequenceAnimation.Count),
-                    StudioBounds.RenderBounds(modelFile, sequence: -1)));
+                    StudioBounds.RenderBounds(modelFile, sequence: -1),
+
+                    // **The one thing that entitles a model to be drawn twice.** Without it a model
+                    // with any translucent material belongs wholly to the translucent pass — see
+                    // RenderGroups, which is where the consequence is spelled out.
+                    model.IsTranslucentTwoPass));
         }
         catch (InvalidDataException failure)
         {
@@ -1798,6 +1803,10 @@ public static class PropModels
     /// The header's box with no sequence unioned in, for a model with none and for an index
     /// nothing knows about.
     /// </param>
+    /// <param name="TwoPass">
+    /// Whether the model declares <c>$mostlyopaque</c> — <c>STUDIOHDR_FLAGS_TRANSLUCENT_TWOPASS</c>
+    /// — which is the only thing that entitles it to be drawn in both passes.
+    /// </param>
     /// <remarks>
     /// **The indirection is the point.** A demo networks a SEQUENCE and a CYCLE; the geometry is
     /// per ANIMATION and per FRAME. Collapsing the two would draw whatever animation happened to
@@ -1829,7 +1838,17 @@ public static class PropModels
 
         // The header's own box, with no sequence unioned in — the answer for a model with no
         // sequences and the fallback for a sequence index nothing knows about.
-        StudioBox HeaderBounds = default)
+        StudioBox HeaderBounds = default,
+
+        // **Whether the model asked to be drawn twice** — STUDIOHDR_FLAGS_TRANSLUCENT_TWOPASS,
+        // authored as `$mostlyopaque`. Carried on the model rather than looked up per frame because
+        // it is a fact about the file, and the file is open exactly once.
+        //
+        // `false` here means "one pass", which is the engine's answer for the overwhelming majority
+        // of models — so a model whose flag went unread draws its translucent parts unsorted with
+        // its solid ones rather than drawing nothing. Visible, not silent, which is why the default
+        // is tolerable; `TwoPassWiringTests` is what proves production sets it.
+        bool TwoPass = false)
     {
         /// <summary>The render bounds for one sequence, in model space.</summary>
         /// <param name="sequence">Which sequence is playing.</param>

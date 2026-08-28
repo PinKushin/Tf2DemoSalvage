@@ -211,7 +211,46 @@ public sealed class EntityModelsTests
     /// One baked frame, which is what a model that does not animate has. The frame machinery is
     /// exercised against real models in the content tests; here it should stay out of the way.
     /// </remarks>
-    private static PropModels.ModelFrames? OneTriangle(string path) =>
+    /// <summary>That an instance carries the two-pass flag its MODEL declared.</summary>
+    /// <remarks>
+    /// **The join, which neither side's tests can see.** `StudioModel` reads the flag out of a real
+    /// `.mdl` and passes whether or not anything carries it forward; `RenderGroups` decides from a
+    /// boolean and passes whether or not that boolean ever came from a file. Between them is this
+    /// assignment, and an assignment that was never written is exactly the shape of no-op this
+    /// project has shipped three times with a green suite — see
+    /// `docs/memory/output-level-assertion-or-it-is-not-done.md`.
+    ///
+    /// **The control is the second prop**, packed by the same call from a model that declares
+    /// nothing. Without it, an implementation that hardcoded `TwoPass: true` would pass — and a
+    /// hardcoded `false` is the more likely mistake, since it is the parameter's default.
+    /// </remarks>
+    [Test]
+    public void Instances_AModelDeclaringMostlyOpaque_CarryTheTwoPassFlag()
+    {
+        EntityModelSet models = new();
+        List<ModelInstance> instances = [];
+
+        SceneProp[] props =
+        [
+            Prop("models/props/glass.mdl", x: 10f, entity: 1),
+            Prop("models/props/crate.mdl", x: 20f, entity: 2),
+        ];
+
+        models.Add(
+            props,
+            path => path.Contains("glass", StringComparison.Ordinal)
+                ? OneTriangle(path) with { TwoPass = true }
+                : OneTriangle(path));
+
+        models.Instances(props, instances);
+
+        instances.Count.ShouldBe(2);
+
+        instances[0].TwoPass.ShouldBeTrue("the glass model declared $mostlyopaque");
+        instances[1].TwoPass.ShouldBeFalse("the crate declared nothing");
+    }
+
+    private static PropModels.ModelFrames OneTriangle(string path) =>
         new(
             [
                 new PropVertex[]

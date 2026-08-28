@@ -210,7 +210,7 @@ public sealed class StudioTrianglesTests
     [Test]
     public void Read_SomethingThatIsNotAnIndexFile_Fails()
     {
-        StudioModelInfo model = new("x", 0, [], [], [], []);
+        StudioModelInfo model = new("x", 0, [], [], [], [], 0);
 
         Should.Throw<InvalidDataException>(() => StudioTriangles.Read(new byte[64], model));
     }
