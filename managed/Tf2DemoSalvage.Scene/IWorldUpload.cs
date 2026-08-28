@@ -33,6 +33,16 @@ public interface IWorldUpload
     /// <param name="world">The batched vertices.</param>
     public void UploadWorldGeometry(MapWorld world);
 
+    /// <summary>Gives the renderer this map's visibility, or takes it away.</summary>
+    /// <param name="culling">The map's culling, or null for a map that cannot be culled.</param>
+    /// <remarks>
+    /// **Beside the geometry rather than beside the camera, because it belongs to the MAP.** Pairing
+    /// one map's face spans with another map's vertex buffer produces runs at plausible offsets into
+    /// the wrong geometry — a scrambled map rather than an error — so this is set and cleared in the
+    /// same breath as the upload it describes.
+    /// </remarks>
+    public void SetWorldCulling(WorldCulling? culling);
+
     /// <summary>Points the world at a camera.</summary>
     /// <param name="matrix">The view-projection, row major, sixteen floats.</param>
     /// <param name="surfaceColours">Whether to draw the surface-category view.</param>

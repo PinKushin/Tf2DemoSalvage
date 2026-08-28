@@ -16,6 +16,9 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="BrushModelClasses">Which submodel index belongs to which entity class.</param>
 /// <param name="Leaves">The BSP tree, for finding which leaf a point is in.</param>
 /// <param name="Visibility">The PVS, for restricting soundscape selection (B177).</param>
+/// <param name="LeafFaces">
+/// Which faces each leaf touches — the indirection that turns a visible leaf into surfaces to draw.
+/// </param>
 /// <param name="Entities">The entity lump, already parsed.</param>
 /// <param name="Surfaces">The world faces.</param>
 /// <param name="Ambient">Per-leaf ambient samples, which light anything that moves.</param>
@@ -58,6 +61,7 @@ public sealed record MapLevel(
     IReadOnlyDictionary<int, string> BrushModelClasses,
     BspLeafTree? Leaves,
     BspVisibility? Visibility,
+    BspLeafFaces? LeafFaces,
     IReadOnlyList<BspEntity> Entities,
     IReadOnlyList<BspSurface> Surfaces,
     IReadOnlyList<AmbientSamples> Ambient,
@@ -65,6 +69,35 @@ public sealed record MapLevel(
     BspWorldLight? Sun,
     VertexNormals Normals)
 {
+    /// <summary>How to decide what of this map's world to draw, or null when it cannot be decided.</summary>
+    /// <param name="spans">Where each face's triangles are, from the world build.</param>
+    /// <returns>The map's culling, or null when a lump it needs is missing.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="spans"/> is null.</exception>
+    /// <remarks>
+    /// **Null rather than a culling object that culls nothing**, so the renderer's fallback is one
+    /// decision made in one place. A map with no tree, no leaf-face lump, or a world build that
+    /// recorded no spans cannot be culled at all, and drawing every batch is the correct answer for
+    /// each of them.
+    ///
+    /// **A missing PVS is NOT one of those cases.** `BspVisibility.None` is a legitimate input:
+    /// visibility falls back to the frustum alone, which still removes most of a map. Refusing to
+    /// cull a map compiled without `vvis` would give up the larger half of the saving over the
+    /// smaller.
+    /// </remarks>
+    public WorldCulling? Culling(IReadOnlyList<WorldFaceSpan> spans)
+    {
+        ArgumentNullException.ThrowIfNull(spans);
+
+        if (Leaves is not { } tree || LeafFaces is not { } faces)
+        {
+            return null;
+        }
+
+        WorldCulling culling = new(tree, Visibility ?? BspVisibility.None, faces, spans);
+
+        return culling.CanCull ? culling : null;
+    }
+
     /// <summary>Reads every lump the viewer keeps, once.</summary>
     /// <param name="bytes">The whole BSP.</param>
     /// <param name="assets">Where lump failures are reported.</param>
@@ -93,6 +126,7 @@ public sealed record MapLevel(
         IReadOnlyList<BspModel>? brushModels = null;
         BspLeafTree? leaves = null;
         BspVisibility? visibility = null;
+        BspLeafFaces? leafFaces = null;
         IReadOnlyList<BspEntity> entities = [];
         Dictionary<int, string> classes = [];
 
@@ -113,6 +147,12 @@ public sealed record MapLevel(
             // times for values that cannot change.
             leaves = BspLeafTree.Read(bytes);
             visibility = BspVisibility.Read(bytes);
+
+            // **And the leaf-face lump beside them, which is what turns visibility into drawing.**
+            // A leaf carries a range into this array and each entry names a face; without it a leaf
+            // knows where it is and nothing about what is drawn there. Read with the tree because
+            // it is useless without one.
+            leafFaces = BspLeafFaces.Read(bytes);
 
             // **Which submodel belongs to which class.** A brush entity names its geometry as `*N`,
             // so this is the join between the models lump — which carries faces and nothing else —
@@ -170,6 +210,7 @@ public sealed record MapLevel(
             classes,
             leaves,
             visibility,
+            leafFaces,
             entities,
             surfaces,
             ambient,

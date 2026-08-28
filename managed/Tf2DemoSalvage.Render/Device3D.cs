@@ -1113,6 +1113,34 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             _device, world.Vertices, world.Batches, world.Decals, world.Props);
     }
 
+    /// <summary>How this map decides what of the world to draw, or null to draw all of it.</summary>
+    private WorldCulling? _culling;
+
+    /// <summary>Gives the device the map's visibility, or takes it away.</summary>
+    /// <param name="culling">The map's culling, or null for a map that cannot be culled.</param>
+    /// <exception cref="ObjectDisposedException">The device has been disposed.</exception>
+    /// <remarks>
+    /// **Set beside the geometry it culls, because the two describe one map.** A stale culling
+    /// object paired with a new map's vertex buffer would name face spans that belong to somewhere
+    /// else entirely — runs at plausible offsets into the wrong geometry, which draws a scrambled
+    /// map rather than failing.
+    ///
+    /// **The visible runs are dropped here rather than recomputed**, so a map change cannot leave
+    /// the previous map's runs standing until the camera next moves.
+    /// </remarks>
+    public void SetWorldCulling(WorldCulling? culling)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        _culling = culling;
+        _reportedWorldCull = false;
+
+        if (_world is not null)
+        {
+            _world.VisibleBatches = null;
+        }
+    }
+
     /// <summary>Sets the view the world is drawn through, and the volume it culls against.</summary>
     /// <param name="camera">The camera the frame is seen through.</param>
     /// <param name="surfaceColours">Whether to draw flat category colours instead of textures.</param>
@@ -1135,6 +1163,17 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         _frustum = camera.Frustum();
 
         SetCamera(camera.ToMatrix(), surfaceColours);
+
+        // **The world's own cull, from the same camera and in the same call.** Null when the map
+        // carried no visibility data, which the renderer reads as "draw the batches you already
+        // had" — see WorldRenderer.VisibleBatches for why that is not the same as an empty list.
+        if (_world is not null)
+        {
+            _world.VisibleBatches = _culling?.Batches(
+                camera.Origin.X, camera.Origin.Y, camera.Origin.Z, _frustum);
+
+            ReportWorldCull();
+        }
     }
 
     /// <summary>Sets the view the world is drawn through, without a cull volume.</summary>
@@ -1485,6 +1524,58 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// <summary>Whether the opaque draw order has been reported.</summary>
     private bool _reportedDrawOrder;
 
+    /// <summary>Whether the world cull has said what it kept, for this map.</summary>
+    private bool _reportedWorldCull;
+
+    /// <summary>Writes, once per map, how much of the world this eye can see.</summary>
+    /// <remarks>
+    /// **The world cull is even less visible than the model cull, and that is saying something.**
+    /// It changes no pixel: the surfaces it removes are ones the depth buffer or the back-face test
+    /// would have discarded anyway. Its entire effect is work not done, so nothing that looks at the
+    /// output — a screenshot, a pixel assertion, a unit test — can tell whether it ran.
+    ///
+    /// **The three numbers separate the three ways it can quietly do nothing.** A map with no
+    /// visibility data reports that in words rather than looking like a cull that kept everything; a
+    /// leaf count equal to the map's total means the frustum or the PVS is inert; and runs equal to
+    /// the uploaded batch count means the gather kept every face.
+    /// </remarks>
+    private void ReportWorldCull()
+    {
+        if (_reportedWorldCull || _world is null)
+        {
+            return;
+        }
+
+        if (_culling is null || !_culling.CanCull)
+        {
+            _reportedWorldCull = true;
+
+            _render.LogInformation(
+                "world cull: not available for this map, drawing every batch");
+
+            return;
+        }
+
+        if (_world.VisibleBatches is not { } visible)
+        {
+            return;
+        }
+
+        _reportedWorldCull = true;
+
+        _render.LogInformation(
+            "world cull: {Leaves} of {TotalLeaves} leaves, {Corners} of {TotalCorners} corners, "
+            + "{Runs} runs against {Batches} batches, {Unreachable} spans have no leaf and are "
+            + "boxed instead",
+            _culling.LeafCount,
+            _culling.TotalLeaves,
+            _culling.Corners.Drawn,
+            _culling.Corners.Total,
+            visible.Count,
+            _world.BatchCount,
+            _culling.UnreachableSpans);
+    }
+
     /// <summary>Whether the viewmodel pass has said where it thinks the eye is (B170).</summary>
     private bool _reportedViewmodelEye;
 
@@ -1536,7 +1627,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// </remarks>
     private bool Culled(ModelInstance instance)
     {
-        if (!_frustum.IsBuilt)
+        // A model with no bounds is drawn rather than point-tested — see
+        // WorldSpaceBounds.IsDegenerate for what that cost.
+        if (!_frustum.IsBuilt || WorldSpaceBounds.IsDegenerate(instance.Bounds))
         {
             return false;
         }
@@ -1595,6 +1688,37 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             ordered.Count,
             offered.Count,
             string.Join('/', perBucket));
+
+        // **Which models were dropped, by name and by box.** A count says the cull ran; it cannot
+        // say whether it ate something it should not have. The owner watched badlands roller doors
+        // show the wall behind them, and no log anywhere could answer "was the door culled" — which
+        // is the first question and was unanswerable.
+        HashSet<string> kept = [];
+
+        foreach (ModelInstance instance in ordered)
+        {
+            kept.Add(instance.ModelPath);
+        }
+
+        foreach (ModelInstance instance in offered)
+        {
+            if (kept.Contains(instance.ModelPath))
+            {
+                continue;
+            }
+
+            (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) box =
+                WorldSpaceBounds.Of(instance.Bounds, instance.Matrix);
+
+            _render.LogInformation(
+                "  culled {Model}: local box {Local}, world box {World}",
+                instance.ModelPath,
+                $"({instance.Bounds.MinX:0},{instance.Bounds.MinY:0},{instance.Bounds.MinZ:0})"
+                + $"..({instance.Bounds.MaxX:0},{instance.Bounds.MaxY:0},{instance.Bounds.MaxZ:0})",
+                $"({box.MinX:0},{box.MinY:0},{box.MinZ:0})..({box.MaxX:0},{box.MaxY:0},{box.MaxZ:0})");
+
+            kept.Add(instance.ModelPath);
+        }
     }
 
     /// <inheritdoc />

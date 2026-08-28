@@ -138,3 +138,5 @@
 - [A stability test needs seventeen items](a-stability-test-needs-seventeen-items.md) — introsort's short runs are stable by accident.
 - [A lazy cache makes reading a write](a-lazy-cache-makes-reading-a-write.md) — parse on assignment and publish a snapshot, as Valve does.
 - [One camera or the cull lies](one-camera-or-the-cull-lies.md) — pass the camera, never a second derivation of it.
+- [The denominator decides what can be lost](the-denominator-decides-what-can-be-lost.md) — a coverage test cannot miss what it never enumerates.
+- [An empty box must never cull](an-empty-box-must-never-cull.md) — a zero bound is a point test at the map origin.

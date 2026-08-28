@@ -81,6 +81,12 @@ public sealed class WorldPresenterTests
 
         public void UploadWorldGeometry(MapWorld world) => Calls.Add("geometry");
 
+        // **Recorded with whether it was given anything**, so a test can tell "the presenter set
+        // culling" from "the presenter cleared it" — the two are different outcomes and the fake
+        // conflating them would make the ordering assertions below blind to which happened.
+        public void SetWorldCulling(WorldCulling? culling) =>
+            Calls.Add(culling is null ? "no-culling" : "culling");
+
         public void SetCamera(float[] matrix, bool surfaceColours = false) =>
             Calls.Add("camera");
 

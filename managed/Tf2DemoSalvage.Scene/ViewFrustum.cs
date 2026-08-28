@@ -185,6 +185,21 @@ public readonly record struct ViewFrustum
         float fovX,
         float fovY)
     {
+        // **A degenerate basis is refused rather than absorbed, and this guard was earned.** A test
+        // helper built `right` as `(towards.Y, -towards.X, 0)`, which is the zero vector for a
+        // camera looking straight down. Nothing threw: `SidePlane` leaves a zero normal alone rather
+        // than dividing by nothing, so two of the six planes silently became something else and the
+        // frustum reported an empty world. The hunt went looking for a fault in the BSP walk.
+        //
+        // Cheap, because this runs on a view change rather than per frame — and the alternative is
+        // a frustum that means something other than what its caller asked for.
+        if (Dot(forward, forward) < 0.5f || Dot(right, right) < 0.5f || Dot(up, up) < 0.5f)
+        {
+            throw new ArgumentException(
+                "A view frustum needs three unit basis vectors; one of these is degenerate.",
+                nameof(forward));
+        }
+
         // The eye's own projection along the view direction, which both depth planes are offset by.
         float intercept = Dot(origin, forward);
 

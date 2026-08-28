@@ -20,11 +20,65 @@ namespace Tf2DemoSalvage.Scene;
 /// depth buffer before the overlay pass, and any bias on that pass then let a stripe paint over a
 /// pipe standing in front of the wall (B135).
 /// </param>
+/// <param name="FaceSpans">
+/// Where each world face's triangles ended up in <see cref="Vertices"/>, in buffer order. This is
+/// what makes per-frame visibility possible: a leaf names faces, and this says which vertices a
+/// face owns. Empty for a build that was not asked to record them.
+/// </param>
 public readonly record struct MapWorld(
     IReadOnlyList<WorldVertex> Vertices,
     IReadOnlyList<WorldBatch> Batches,
     IReadOnlyList<WorldBatch> Decals,
-    IReadOnlyList<WorldBatch> Props);
+    IReadOnlyList<WorldBatch> Props,
+    IReadOnlyList<WorldFaceSpan> FaceSpans = null!)
+{
+    /// <summary>Where each world face's triangles are, or an empty list.</summary>
+    /// <remarks>
+    /// **Defaulted to empty rather than left null**, because every consumer would otherwise repeat
+    /// the same null check and one of them would forget. A map built without spans simply cannot be
+    /// culled by leaf, and the caller that wants to say so is the renderer, once.
+    /// </remarks>
+    public IReadOnlyList<WorldFaceSpan> FaceSpans { get; init; } = FaceSpans ?? [];
+}
+
+/// <summary>Which vertices one BSP face contributed, and to which batch.</summary>
+/// <param name="Face">The face's index in the FACES lump — what a leaf's face list names.</param>
+/// <param name="FirstVertex">Where its triangles start in the world vertex buffer.</param>
+/// <param name="VertexCount">How many corners it contributed.</param>
+/// <param name="MaterialIndex">The material its batch binds.</param>
+/// <param name="Category">What kind of surface it is, for the category view.</param>
+/// <param name="Min">The world-space box its triangles occupy, low corner.</param>
+/// <param name="Max">The world-space box its triangles occupy, high corner.</param>
+/// <remarks>
+/// **One span per face, and that is a property of the build rather than an assumption.** A face is
+/// grouped by material and its triangles are appended in one go, so its vertices are contiguous and
+/// it belongs to exactly one batch. A face listed by three leaves still has one span; the leaves
+/// are three routes to the same triangles.
+///
+/// **Spans come out in buffer order, which is what makes the per-frame merge cheap.** Because the
+/// build appends one material group at a time, walking spans in order walks materials in order too
+/// — so gathering the visible ones yields runs that are already grouped by material, and adjacent
+/// survivors can be merged into a single draw without sorting anything.
+///
+/// **The box is here because not every face is reachable through a leaf, and DISPLACEMENTS are
+/// not.** Measured on cp_process: all 12,306 brush spans are named by some leaf and not one of the
+/// 60 terrain spans is — `EmitLeaf` builds a leaf's face list from its PORTALS plus detail faces,
+/// and a displacement is neither. The engine builds displacement bounds at load and inserts them
+/// into the tree itself; `ddispinfo_t` carries no box, so this one is computed from the triangles as
+/// they are written.
+///
+/// **The owner found that by looking at the screen** — the ground was missing — while every
+/// automated check passed, because the coverage test's denominator was the leaves and a face no leaf
+/// names could not be counted as lost.
+/// </remarks>
+public readonly record struct WorldFaceSpan(
+    int Face,
+    int FirstVertex,
+    int VertexCount,
+    int MaterialIndex,
+    SurfaceCategory Category,
+    (float X, float Y, float Z) Min = default,
+    (float X, float Y, float Z) Max = default);
 
 /// <summary>
 /// Turns a map's surfaces into batched, projected triangles.
@@ -44,6 +98,19 @@ public readonly record struct MapWorld(
 /// </remarks>
 public static class MapWorldBuilder
 {
+    /// <summary>A face's span before the groups are concatenated, so its start is group-relative.</summary>
+    /// <param name="Face">The face's index in the FACES lump.</param>
+    /// <param name="Start">Where its triangles begin inside its own material group.</param>
+    /// <param name="Count">How many corners it contributed.</param>
+    /// <param name="Min">The world box those corners occupy, low corner.</param>
+    /// <param name="Max">The world box those corners occupy, high corner.</param>
+    private readonly record struct PendingSpan(
+        int Face,
+        int Start,
+        int Count,
+        (float X, float Y, float Z) Min,
+        (float X, float Y, float Z) Max);
+
     /// <summary>Builds the drawable world.</summary>
     /// <param name="terrain">The map's displacement lumps, or null when it has none.</param>
     /// <param name="surfaces">The map's surfaces.</param>
@@ -152,6 +219,45 @@ public static class MapWorldBuilder
         // lookup below for why a shared dictionary stopped working.
         Dictionary<int, List<WorldVertex>> terrainByMaterial = [];
 
+        // **Where each face's triangles land, recorded as they are written rather than derived
+        // afterwards.** Positions here are relative to the face's own material group; the group's
+        // base in the final buffer is not known until the groups are concatenated below, so the
+        // spans are rebased there. Deriving them later would mean replaying the same skips and
+        // subdivisions and getting one of them subtly different.
+        Dictionary<(bool Terrain, int Material), List<PendingSpan>> spans = [];
+
+        // **The box is measured from the vertices just written, not from the surface's own
+        // corners.** A displacement's real extent is its subdivided heightfield, which rises and
+        // falls well outside the flat quad it was built from — culling a hillside by its base quad
+        // would drop it whenever the camera saw only its peak.
+        void Span(
+            bool terrain, int material, int face, List<WorldVertex> written, int start, int count)
+        {
+            if (count <= 0)
+            {
+                return;
+            }
+
+            (float X, float Y, float Z) min = (float.MaxValue, float.MaxValue, float.MaxValue);
+            (float X, float Y, float Z) max = (float.MinValue, float.MinValue, float.MinValue);
+
+            for (int at = start; at < start + count; at++)
+            {
+                WorldVertex corner = written[at];
+
+                min = (Math.Min(min.X, corner.X), Math.Min(min.Y, corner.Y), Math.Min(min.Z, corner.Depth));
+                max = (Math.Max(max.X, corner.X), Math.Max(max.Y, corner.Y), Math.Max(max.Z, corner.Depth));
+            }
+
+            if (!spans.TryGetValue((terrain, material), out List<PendingSpan>? within))
+            {
+                within = [];
+                spans[(terrain, material)] = within;
+            }
+
+            within.Add(new PendingSpan(face, start, count, min, max));
+        }
+
         foreach (BspSurface surface in surfaces)
         {
             // **No normal cull, and its removal is the point.** This used to discard every face
@@ -250,6 +356,10 @@ public static class MapWorldBuilder
                 missingMaterials++;
             }
 
+            // Where this face's triangles begin inside its material group, for the span recorded
+            // once the appends below are done.
+            int startInGroup = vertices.Count;
+
             if (surface.IsDisplacement)
             {
                 terrainFaces++;
@@ -268,8 +378,21 @@ public static class MapWorldBuilder
 
                 if (subdivided.Count > 0)
                 {
+                    Span(
+                        terrain: true,
+                        surface.MaterialIndex,
+                        surface.FaceIndex,
+                        vertices,
+                        startInGroup,
+                        vertices.Count - startInGroup);
+
                     continue;
                 }
+
+                // **A displacement whose heightfield would not read falls through to its quad**, and
+                // the quad goes into the TERRAIN group because that is the dictionary already
+                // chosen above. Recording the span against the wrong group would put it at an
+                // offset inside a batch it is not in.
             }
 
             Built(surface.MaterialIndex, SurfaceCategory.Brush);
@@ -287,6 +410,14 @@ public static class MapWorldBuilder
                 Append(vertices, corners[index], rectangle, lightStep, brushRed, brushGreen, brushBlue);
                 Append(vertices, corners[index + 1], rectangle, lightStep, brushRed, brushGreen, brushBlue);
             }
+
+            Span(
+                surface.IsDisplacement,
+                surface.MaterialIndex,
+                surface.FaceIndex,
+                vertices,
+                startInGroup,
+                vertices.Count - startInGroup);
         }
 
         // **Props go in their OWN batches, because the engine draws them after the overlays
@@ -353,6 +484,28 @@ public static class MapWorldBuilder
 
         List<WorldVertex> all = [];
         List<WorldBatch> batches = [];
+        List<WorldFaceSpan> faceSpans = [];
+
+        // Rebases one group's spans onto the position the group just took in the shared buffer.
+        void Rebase(bool terrain, int material, int baseVertex, SurfaceCategory category)
+        {
+            if (!spans.TryGetValue((terrain, material), out List<PendingSpan>? within))
+            {
+                return;
+            }
+
+            foreach (PendingSpan pending in within)
+            {
+                faceSpans.Add(new WorldFaceSpan(
+                    pending.Face,
+                    baseVertex + pending.Start,
+                    pending.Count,
+                    material,
+                    category,
+                    pending.Min,
+                    pending.Max));
+            }
+        }
 
         foreach (KeyValuePair<int, List<WorldVertex>> group in byMaterial)
         {
@@ -361,11 +514,12 @@ public static class MapWorldBuilder
                 continue;
             }
 
-            batches.Add(new WorldBatch(
-                group.Key,
-                all.Count,
-                group.Value.Count,
-                Category: group.Key < 0 ? SurfaceCategory.Missing : SurfaceCategory.Brush));
+            SurfaceCategory category =
+                group.Key < 0 ? SurfaceCategory.Missing : SurfaceCategory.Brush;
+
+            batches.Add(new WorldBatch(group.Key, all.Count, group.Value.Count, Category: category));
+
+            Rebase(terrain: false, group.Key, all.Count, category);
 
             all.AddRange(group.Value);
         }
@@ -379,11 +533,12 @@ public static class MapWorldBuilder
                 continue;
             }
 
-            batches.Add(new WorldBatch(
-                group.Key,
-                all.Count,
-                group.Value.Count,
-                Category: group.Key < 0 ? SurfaceCategory.Missing : SurfaceCategory.Terrain));
+            SurfaceCategory category =
+                group.Key < 0 ? SurfaceCategory.Missing : SurfaceCategory.Terrain;
+
+            batches.Add(new WorldBatch(group.Key, all.Count, group.Value.Count, Category: category));
+
+            Rebase(terrain: true, group.Key, all.Count, category);
 
             all.AddRange(group.Value);
         }
@@ -414,7 +569,11 @@ public static class MapWorldBuilder
             all.AddRange(group.Value);
         }
 
-        return new MapWorld(all, batches, decals, propBatches);
+        // **Spans cover the world's own surfaces only** — not decals and not static props. Overlay
+        // fragments are clipped to the surfaces they mark and props are placed models, so neither is
+        // named by a leaf's face list; both keep being drawn whole for now, which is the
+        // conservative direction.
+        return new MapWorld(all, batches, decals, propBatches, faceSpans);
     }
 
     /// <summary>Turns each overlay into a quad lit by the face it is pinned to.</summary>

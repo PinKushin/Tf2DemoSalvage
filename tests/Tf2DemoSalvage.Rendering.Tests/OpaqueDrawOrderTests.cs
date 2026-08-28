@@ -168,6 +168,53 @@ public sealed class OpaqueDrawOrderTests
             .ShouldBe(["ahead"]);
     }
 
+    /// <summary>That a model with no bounds is drawn wherever it stands.</summary>
+    /// <remarks>
+    /// **Every brush entity in every map had this, and it is why doors vanished.** `BrushModels`
+    /// built its `ModelFrames` with no render bounds, so `RenderBoundsFor` answered the default — a
+    /// zero box — and `TransformAABB` turned that into a single POINT at the matrix's translation.
+    /// A submodel is compiled about its own origin, so the point sat at the map centre and the cull
+    /// answered a question about the map origin rather than about the door. The owner watched a
+    /// roller door on badlands flicker between its grate and the concrete behind it.
+    ///
+    /// The model below is at the map origin with no bounds while the camera looks the other way:
+    /// point-tested it is culled, and it must not be.
+    /// </remarks>
+    [Test]
+    public void InDrawOrder_ForAModelWithNoBounds_DrawsItRatherThanPointTestingIt()
+    {
+        ModelInstance[] scene = [new("boundless", Identity(), null, null)];
+
+        OpaqueBuckets.InDrawOrder(scene, LookingAwayFromTheOrigin())
+            .Select(instance => instance.ModelPath)
+            .ShouldBe(["boundless"]);
+    }
+
+    /// <summary>That a model WITH bounds in the same place is still culled.</summary>
+    /// <remarks>
+    /// The partner: without it, "no bounds are drawn" is satisfied by a cull that never culls
+    /// anything at the origin at all.
+    /// </remarks>
+    [Test]
+    public void InDrawOrder_ForAModelWithBoundsBehindTheCamera_StillDropsIt()
+    {
+        ModelInstance[] scene = [new("solid", Identity(), null, null, Bounds: Cube(50f))];
+
+        OpaqueBuckets.InDrawOrder(scene, LookingAwayFromTheOrigin()).ShouldBeEmpty();
+    }
+
+    /// <summary>A camera 200 units along +X looking further along it, so the origin is behind.</summary>
+    private static ViewFrustum LookingAwayFromTheOrigin() =>
+        ViewFrustum.PerspectiveFromAspect(
+            origin: (200f, 0f, 0f),
+            forward: (1f, 0f, 0f),
+            right: (0f, -1f, 0f),
+            up: (0f, 0f, 1f),
+            nearZ: 7f,
+            farZ: 1000f,
+            fovX: 90f,
+            aspect: 1f);
+
     /// <summary>That an unbuilt frustum culls nothing, so the sort alone still works.</summary>
     /// <remarks>
     /// The control for the case above: the same two models, no frustum, both drawn. Without it,

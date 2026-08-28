@@ -124,6 +124,10 @@ public sealed class LoadedMap
 
         // **The textured world is its own failure, and losing it costs the textures rather than the
         // map.** The outline still draws and the demo still plays.
+        // The map's texture names, so the brush-model census below can say what a door is painted
+        // with rather than which index it holds.
+        string[] brushMaterialNames = BspMaterials.ReadNames(bytes);
+
         try
         {
             MapAssets assets;
@@ -155,7 +159,14 @@ public sealed class LoadedMap
                         // **No tint baked in any more** (B219). Valve's per-class brush entity
                         // colours travel on the instance now, so the geometry is the same whichever
                         // view is on and switching costs a constant write instead of a rebuild.
-                        null),
+                        null,
+                        renderLog,
+
+                        // The map's own texture names, read once here, so the log says
+                        // "metal/grate" rather than "47".
+                        at => at >= 0 && at < brushMaterialNames.Length
+                            ? brushMaterialNames[at]
+                            : at.ToString(CultureInfo.InvariantCulture)),
 
                     // **The light cache, for props whose baked lighting is absent or refused**
                     // (B123). Usable here because the level was read above, before any asset is

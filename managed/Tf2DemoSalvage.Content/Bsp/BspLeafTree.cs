@@ -34,6 +34,38 @@ namespace Tf2DemoSalvage.Content.Bsp;
 /// This exists to light models: an entity is lit from the ambient cube of the leaf it stands in
 /// (see <see cref="BspAmbientLight"/>), and finding that leaf is this walk.
 /// </remarks>
+/// <summary>One interior node of the tree, as the file holds it.</summary>
+/// <param name="Front">Child on the plane's front side; negative means the leaf <c>−child − 1</c>.</param>
+/// <param name="Back">Child on the plane's back side, encoded the same way.</param>
+/// <param name="Min">The node's cull box, low corner.</param>
+/// <param name="Max">The node's cull box, high corner.</param>
+/// <param name="NormalX">The splitting plane's normal.</param>
+/// <param name="NormalY">The splitting plane's normal.</param>
+/// <param name="NormalZ">The splitting plane's normal.</param>
+/// <param name="Distance">The splitting plane's distance along that normal.</param>
+/// <remarks>
+/// **`dnode_t`, resolved through its plane so a walker needs one lookup rather than two.** The file
+/// stores `planenum` and the walker would otherwise index the PLANES lump itself, which is a second
+/// place to get a stride wrong.
+///
+/// **The child encoding is Valve's and is easy to get subtly wrong**: *"negative numbers are
+/// -(leafs+1), not nodes"*. So child 0 of a node is leaf 0 encoded as −1, and a reader treating
+/// negative as "no child" silently loses the first leaf of the map.
+///
+/// **Nodes carry a cull box like leaves do** — `short mins[3]` at offset 12, marked *"for frustom
+/// culling"* in Valve's own spelling. That box is what makes a tree walk worth more than a scan of
+/// every leaf: one test rejects a whole subtree.
+/// </remarks>
+public readonly record struct BspNode(
+    int Front,
+    int Back,
+    (float X, float Y, float Z) Min,
+    (float X, float Y, float Z) Max,
+    float NormalX,
+    float NormalY,
+    float NormalZ,
+    float Distance);
+
 public sealed class BspLeafTree
 {
     /// <summary><c>CONTENTS_SOLID</c> from <c>bspflags.h</c>: "an eye is never valid in a solid".</summary>
@@ -335,6 +367,100 @@ public sealed class BspLeafTree
         return (
             (Read(leaves, at + 8), Read(leaves, at + 10), Read(leaves, at + 12)),
             (Read(leaves, at + 14), Read(leaves, at + 16), Read(leaves, at + 18)));
+    }
+
+    /// <summary>How many interior nodes the tree has.</summary>
+    public int NodeCount => _nodes.Length / NodeStride;
+
+    /// <summary>One node, with its splitting plane already resolved.</summary>
+    /// <param name="node">The node index; the root is zero.</param>
+    /// <returns>The node, or null when it or its plane is out of range.</returns>
+    /// <remarks>
+    /// **Null rather than a throw for a malformed tree**, matching every other reader here: a
+    /// walker that stops descending draws less of the map, where a throw loses all of it.
+    /// </remarks>
+    public BspNode? Node(int node)
+    {
+        if (node < 0)
+        {
+            return null;
+        }
+
+        ReadOnlySpan<byte> nodes = _nodes.Span;
+        int at = node * NodeStride;
+
+        if (at + NodeStride > nodes.Length)
+        {
+            return null;
+        }
+
+        ReadOnlySpan<byte> planes = _planes.Span;
+        int planeAt = BinaryPrimitives.ReadInt32LittleEndian(nodes[at..]) * PlaneStride;
+
+        if (planeAt < 0 || planeAt + PlaneStride > planes.Length)
+        {
+            return null;
+        }
+
+        static float Short(ReadOnlySpan<byte> from, int offset) =>
+            BinaryPrimitives.ReadInt16LittleEndian(from[offset..]);
+
+        return new BspNode(
+            BinaryPrimitives.ReadInt32LittleEndian(nodes[(at + 4)..]),
+            BinaryPrimitives.ReadInt32LittleEndian(nodes[(at + 8)..]),
+            (Short(nodes, at + 12), Short(nodes, at + 14), Short(nodes, at + 16)),
+            (Short(nodes, at + 18), Short(nodes, at + 20), Short(nodes, at + 22)),
+            BinaryPrimitives.ReadSingleLittleEndian(planes[planeAt..]),
+            BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 4)..]),
+            BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 8)..]),
+            BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 12)..]));
+    }
+
+    /// <summary>How many leaves the map has.</summary>
+    /// <remarks>
+    /// **From the lump's length rather than from a count in the file**, because the BSP does not
+    /// carry one: `dheader_t` records each lump's byte length and the reader divides. That is why
+    /// the stride has to be right — a version-0 map read at stride 32 reports 1.75 times as many
+    /// leaves as it has, every one of them misaligned, and nothing says so.
+    /// </remarks>
+    public int LeafCount => _leaves.Length / _leafStride;
+
+    /// <summary>Which faces a leaf touches, as a range into the LEAFFACES lump.</summary>
+    /// <param name="leaf">The leaf index.</param>
+    /// <returns>Where its face list starts and how long it is; an empty range for no such leaf.</returns>
+    /// <remarks>
+    /// **`firstleafface` and `numleaffaces`, offsets 20 and 22**, and like the bounds above they sit
+    /// at the same place in both versions of the struct — version 0's `CompressedLightCube` is
+    /// appended after every field this reader touches.
+    ///
+    /// **A face is listed by EVERY leaf it touches, so these ranges overlap.** A surface spanning a
+    /// doorway appears in the leaves on both sides, which is what makes the list usable for
+    /// visibility and what makes a naive gather draw it twice. Valve's answer is a per-frame
+    /// stamp on the surface — `R_BuildWorldLists` marks a surface as it adds it and skips it
+    /// afterwards — rather than a smarter data structure.
+    ///
+    /// **Unsigned, and that matters at TF2's scale.** Both fields are `unsigned short`, so a map may
+    /// legitimately reference face lists past 32,767; reading them signed turns the second half of a
+    /// large map's leaves into negative offsets.
+    /// </remarks>
+    public (int First, int Count) LeafFaces(int leaf)
+    {
+        if (leaf < 0)
+        {
+            return (0, 0);
+        }
+
+        ReadOnlySpan<byte> leaves = _leaves.Span;
+        int at = leaf * _leafStride;
+
+        if (at < 0 || at + _leafStride > leaves.Length)
+        {
+            return (0, 0);
+        }
+
+        return (
+            BinaryPrimitives.ReadUInt16LittleEndian(leaves[(at + 20)..]),
+            BinaryPrimitives.ReadUInt16LittleEndian(leaves[(at + 22)..]));
     }
 
     /// <summary>Which leaf contains a point.</summary>

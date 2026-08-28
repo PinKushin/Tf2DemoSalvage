@@ -50,6 +50,24 @@ public static class WorldSpaceBounds
     public static float LongestAxis(StudioBox local, float[] matrix) =>
         LongestAxisOf(Of(local, matrix));
 
+    /// <summary>Whether a box has no volume, and so says nothing about where its model is.</summary>
+    /// <param name="local">The model-space render bounds.</param>
+    /// <returns>True when the box is empty or inverted.</returns>
+    /// <remarks>
+    /// **A model with no bounds must never be culled, and forgetting that cost every brush entity.**
+    /// A zero-sized box transforms to a single POINT at the matrix's translation, and a point test
+    /// against the frustum is a coin toss that has nothing to do with where the geometry is: a
+    /// submodel compiled about its own origin puts that point at the map centre. Doors, lifts and
+    /// gates popped in and out as the map origin drifted through the view.
+    ///
+    /// **The conservative rule this project applies everywhere else** — never cull what cannot be
+    /// proved invisible — and the one place it was not applied is the one place it was needed. Kept
+    /// as a guard even though `BrushModels` now supplies real bounds, because the next model source
+    /// that forgets them should be slow rather than invisible.
+    /// </remarks>
+    public static bool IsDegenerate(StudioBox local) =>
+        local.MaxX <= local.MinX || local.MaxY <= local.MinY || local.MaxZ <= local.MinZ;
+
     /// <summary>The world-space box a placed model occupies — Valve's <c>TransformAABB</c>.</summary>
     /// <param name="local">The model-space render bounds.</param>
     /// <param name="matrix">The instance's model matrix: row-vector, translation in the last row.</param>

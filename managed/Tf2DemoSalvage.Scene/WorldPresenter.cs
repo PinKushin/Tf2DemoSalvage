@@ -161,6 +161,22 @@ public sealed class WorldPresenter(ILogger render)
 
             upload.UploadWorldGeometry(built);
 
+            // **Set from the same `built`, in the same breath as the upload.** The spans describe
+            // offsets into the vertex buffer that was just handed over; taking them from anywhere
+            // else — an earlier build, another map — would name runs at plausible positions in the
+            // wrong geometry.
+            WorldCulling? culling = level.Level.Culling(built.FaceSpans);
+
+            upload.SetWorldCulling(culling);
+
+            render.LogInformation(
+                "{Message}",
+                culling is null
+                    ? "world culling unavailable: this map carries no leaf faces or no tree"
+                    : string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"world culling ready over {built.FaceSpans.Count} face spans"));
+
             return new WorldUpload(Uploaded: true, Problem: null);
         }
         catch (Exception failure) when (
