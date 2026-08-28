@@ -10,13 +10,18 @@ namespace Tf2DemoSalvage.Core.Net;
 /// <param name="Default">Valve's default, as the STRING the declaration carries.</param>
 /// <param name="Replicated">Whether <c>FCVAR_REPLICATED</c> is set — a server may enforce it.</param>
 /// <param name="Cheat">Whether <c>FCVAR_CHEAT</c> is set — a player cannot change it themselves.</param>
+/// <param name="UserInfo">
+/// Whether <c>FCVAR_USERINFO</c> is set — the RECORDER's value travels in the <c>userinfo</c> string
+/// table, so a demo carries it even though no server sent it.
+/// </param>
 /// <remarks>
 /// **The default is a string because Valve's is a string.** `ConVar( "sv_maxspeed", "320", … )`
 /// takes a literal, and the engine parses it on demand — so a declaration that stored `320f` would
 /// have made a decision the engine leaves open, and would be unable to carry `sv_downloadurl`.
 /// <see cref="Number"/> is the parse, at the point of use.
 /// </remarks>
-public sealed record EngineConVar(string Name, string Default, bool Replicated, bool Cheat)
+public sealed record EngineConVar(
+    string Name, string Default, bool Replicated, bool Cheat, bool UserInfo = false)
 {
     /// <summary>The default as a number, for the ones that are numbers.</summary>
     /// <exception cref="FormatException">The default is not numeric, so a caller asked wrongly.</exception>
@@ -91,6 +96,40 @@ public static class EngineConVars
         new("sv_specspeed", "3", Replicated: true, Cheat: false),
         new("sv_specaccelerate", "5", Replicated: true, Cheat: false),
         new("sv_specnoclip", "1", Replicated: true, Cheat: false),
+
+        // **The interpolation set, and the effective amount is none of them on its own.**
+        // `GetClientInterpAmount()` in src/game/client/cdll_bounded_cvars.cpp:126 is
+        // `MAX( cl_interp, cl_interp_ratio / cl_updaterate )`, and each half is separately clamped
+        // by the server's two ratio bounds. Declared together because a reader that takes one and
+        // not the others gets a plausible number and the wrong one — see
+        // InterpolationConVarConformanceTests, which writes the formula down without implementing
+        // it. Nothing consumes these yet, deliberately.
+        new("cl_interp", "0.1", Replicated: false, Cheat: false, UserInfo: true),
+        new("cl_interp_ratio", "2.0", Replicated: false, Cheat: false, UserInfo: true),
+        new("cl_updaterate", "20", Replicated: false, Cheat: false, UserInfo: true),
+        new("sv_client_min_interp_ratio", "1", Replicated: true, Cheat: false),
+        new("sv_client_max_interp_ratio", "5", Replicated: true, Cheat: false),
+
+        // **The sound curve's parameters** (`SoundGain`). All four read out of `engine.dll`'s own
+        // ConVar registrations, which is the only source that has them: the engine-side sound
+        // cvars are absent from the whole SDK checkout.
+        new("snd_refdist", "36", Replicated: false, Cheat: true),
+        new("snd_refdb", "60", Replicated: false, Cheat: true),
+        new("snd_gain", "1", Replicated: false, Cheat: true),
+        new("snd_gain_min", "0.01", Replicated: false, Cheat: true),
+
+        // Replicated, declared, and read by nothing yet — the shape is the point (D106).
+        // `sv_downloadurl` is the one with a use waiting: a demo that carries it names where its
+        // own map came from, which `MapDownloader` currently substitutes a public mirror for.
+        new("sv_cheats", "0", Replicated: true, Cheat: false),
+        new("host_timescale", "1", Replicated: true, Cheat: false),
+        new("sv_downloadurl", "0", Replicated: true, Cheat: false),
+
+        // Client-only: the watcher's, so the source is their config and the fallback is this.
+        // src/game/client/vgui_fpspanel.cpp:28, clientleafsystem.cpp:32, c_baseplayer.cpp:118.
+        new("cl_showpos", "0", Replicated: false, Cheat: false),
+        new("cl_drawleaf", "-1", Replicated: false, Cheat: true),
+        new("cl_first_person_uses_world_model", "0", Replicated: false, Cheat: false),
     ];
 
     private static readonly Dictionary<string, EngineConVar> ByEngineName =

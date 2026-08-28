@@ -78,7 +78,7 @@
 - [A neutral default must be neutral](a-neutral-default-must-be-neutral.md) — `_white` is the magenta chequer.
 - [The client builds what the demo omits](the-client-builds-what-the-demo-omits.md) — item index plus items_game.txt rebuilds it.
 - [Two matrix conventions, on purpose](two-matrix-conventions-on-purpose.md) — bones stay Valve column-vector; cross over once.
-- [A default is not a constant](a-default-is-not-a-constant.md) — grep for `ConVar` first; and how to read a closed engine cvar's default and flags.
+- [A default is not a constant](a-default-is-not-a-constant.md) — grep for `ConVar` first; registration beats cvarlist.log, which prints the value in force.
 - [A launch notification is not an exit](a-launch-notification-is-not-an-exit.md) — ask Get-Process; a growing log is not a crash.
 - [Where the game and clients live](where-the-game-and-clients-live.md) — TF2, the period clients and the SDK are on `F:`; the decompilation on `D:`.
 - [The viewer suite wants the GPU](the-viewer-suite-wants-the-gpu.md) — real D3D devices; exclusive fullscreen may abort it.

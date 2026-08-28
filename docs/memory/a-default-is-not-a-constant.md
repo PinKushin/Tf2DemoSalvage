@@ -1,6 +1,6 @@
 ---
 name: a-default-is-not-a-constant
-description: A number in Valve's source is usually a ConVar default, not a constant — and how to read a closed engine cvar's real default and flags out of the binary.
+description: A number in Valve's source is usually a ConVar default, not a constant — and how to read a closed engine cvar's real default out of the binary, since cvarlist.log can disagree.
 metadata:
   type: feedback
 ---
@@ -94,6 +94,27 @@ beside its name in the pool; those coincided for these three and do not in gener
 counterexample above is `"50"`, sitting next to a convar that does not use it. **Use the
 registration method; treat adjacency as a hint to confirm, never as the answer.**
 
+**A second, cleaner counterexample, measured 2026-08-27.** The four sound convar names are pooled
+consecutively with **no literal between any of them**:
+
+```
+3320988  "60" snd_refdb
+3321004  snd_foliage_db_loss
+3321020  snd_gain
+3321036  snd_gain_max
+3321052  snd_gain_min
+```
+
+`snd_refdist` and `snd_refdb` do have their defaults four bytes before their names, which is why
+adjacency answered them. `snd_gain_min`'s default is at `0x102E9E18` — a different section, three
+hundred kilobytes away, reachable only by following the pointer. Reading backwards from that name
+finds `snd_gain_max`, not a number.
+
+**And the pools have different deltas, which is the trap under the trap.** File offset to virtual
+address is constant *within* a section and not across them: the names here map with `0x10001800`
+while the default strings map with `0x10001A00`. Calibrate on a known pair before trusting an
+address — `snd_mixahead`/`"0.1"` served here, exactly as `snd_refdist` 36 served for the direction.
+
 Its cautions still hold and are worth keeping:
 
 - **Confirm the direction with a known value before trusting an unknown one.** Both readings are
@@ -106,10 +127,21 @@ Its cautions still hold and are worth keeping:
   `docs/findings/31-game-audio.md`, where several plausible dB falloff formulas fit these two
   constants and disagree by several dB at ordinary range.
 
-**Cheaper than either, when it applies:** the game ships `tf/cvarlist.log`, a plain-text dump of
-3,668 convars with defaults, flags and help strings — see [[nothing-is-closed]]. It is a dump rather
-than a declaration, so an `FCVAR_ARCHIVE` convar the user has changed can be captured as if it were
-the default; cross-check against a registration where one exists.
+**Cheaper than either, when it applies — and it is a cross-check, never the authority.** The game
+ships `tf/cvarlist.log`, a plain-text dump of 3,668 convars with values, flags and help strings —
+see [[nothing-is-closed]].
+
+**It prints the value IN FORCE, and that is not always the default even for a convar nobody could
+have changed.** Measured 2026-08-27: the dump says `snd_gain_min : 0`; the registration's default
+pointer resolves to the literal `"0.01"`. That convar is `FCVAR_CHEAT` and **not** archived, so
+"the user cannot have set it and it does not persist" looked like proof the dump was the default —
+and it is not, because engine code may set a convar at startup whatever its flags say.
+
+So the rule is **registration first, dump as a cross-check, adjacency never.** The dump is still
+worth reading: it agreed with the registration on `snd_refdist`, `snd_refdb`, `snd_gain`,
+`cl_updaterate` and all eight movement convars, and it is the only source for anything whose
+registration cannot be located. But a number that only the dump supports is provisional, and a
+disagreement is settled by the binary.
 
 **Where Ghidra is still right:** `D:\ghidra-proj` holds analysed imports of the 2007, 2008 and live
 engines and clients, plus `FindSoundGainCurve.java`, which documents the same

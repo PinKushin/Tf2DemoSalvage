@@ -124,7 +124,10 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # Raised to 1529 on 2026-08-27: MovementConVarConformanceTests (6) and ServerConVarsTests (11),
 # D106's declarations and the resolver that reads a demo's replicated values. Neither touches the
 # filesystem beyond the SDK and cvarlist.log, which the SDK test skips without.
-run Tf2DemoSalvage.Core.Tests     core     1529
+# 1538: InterpolationConVarConformanceTests (5) and SoundConVarConformanceTests (4), completing the
+# twenty of D104. The interp suite writes the engine's formula down and implements none of it; the
+# sound suite records that cvarlist.log disagrees with the binary about snd_gain_min.
+run Tf2DemoSalvage.Core.Tests     core     1538
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
