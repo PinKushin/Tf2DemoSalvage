@@ -13455,7 +13455,7 @@ battery burnt for a window nobody is looking at.
 the standing rule is that a divergence is asked, not assumed. `FramePacer` is where either would go:
 it already owns the budget and the sleep-or-spin threshold, so neither needs the window reopened.
 
-### B218 — the viewmodel pass has no translucent draw at all — OPEN, found while narrowing B170
+### B218 — the viewmodel pass has no translucent draw at all — HALF FIXED 2026-08-28, still OPEN on ordering
 
 **Found by reading `CViewRender::DrawViewModels` rather than by a symptom**, which is the order
 `CLAUDE.md` asks for: the SDK was opened to ask whether the engine lights a viewmodel specially (it
@@ -13490,6 +13490,21 @@ candidates to look at are a cloaked spy's own viewmodel and any weapon with a gl
 **Ordering matters if this is fixed**, and the engine states it: opaque first, translucent second,
 with `STUDIO_TRANSPARENCY`. Both lists sit inside the same depth-range hack, so the near-tenth
 compression applies to both.
+
+**Half of this closed on 2026-08-28 as a side effect of D114, and the half that closed is the one
+with the symptom.** The viewmodel loop now passes `ModelPass.EntireModel` rather than the old
+`blended: false`, so a weapon's translucent batches are drawn instead of being filtered away — and
+the blend state that makes them look right is now chosen per material rather than per pass, which is
+what makes drawing them in a single loop legitimate at all.
+
+**What is still open is the ORDERING, and it is not cosmetic when there are two viewmodels.** Valve
+collates two lists and draws them in sequence; this draws each model whole, batch by batch, so with
+a weapon *and* a pair of hands (`docs/memory/a-player-has-two-viewmodels.md`) a translucent batch of
+the first can precede an opaque batch of the second. One viewmodel is unaffected — the batches of a
+single model are the same set either way.
+
+**Not verified by looking yet.** The change is measured only by the suite; whether a scope lens or a
+cloaked spy's hands now render correctly is a question for someone with the viewer open.
 
 ### B219 — surface colours unloads every model and nothing ever puts them back — FIXED 2026-08-27
 
@@ -13817,3 +13832,41 @@ message exist and learn nothing from it.
 and never reaching the output somebody reads. `docs/memory/output-level-assertion-or-it-is-not-done.md`
 is the standing rule, and the assertion this needs is one that reads a traced line rather than one
 that checks the parser.
+
+### B221 — no entity can fade, because `m_clrRender` and `m_nRenderMode` are never decoded — OPEN, found while implementing D114
+
+**Named rather than discovered.** Transcribing `C_BaseEntity::GetRenderGroup` for two-pass drawing
+made the missing inputs explicit: the engine's grouping reads `GetFxBlend()` and `m_nRenderMode`, and
+this project decodes neither. `EntityState` names `m_nModelIndex`, `m_nBody`, `m_nSkin` and a dozen
+more; `m_clrRender`, `m_nRenderFX` and `m_nRenderMode` are absent from the whole repository.
+
+**What it costs, precisely, so nobody has to re-derive it:**
+
+- **Nothing can be partly transparent.** `nFXBlend != 255` is one of the two doors into
+  `RENDER_GROUP_TRANSLUCENT_ENTITY`, so an entity whose model is entirely opaque can never be
+  translucent here. A cloaked spy, a fading ragdoll, a respawn-room ghost and a dying pickup all draw
+  at full opacity.
+- **`kRenderEnvironmental` never fires**, so nothing lands in `RENDER_GROUP_OTHER` — Valve's *"won't
+  get drawn"* group. Anything the engine would hide this way is drawn.
+- **A two-pass model can never lose its split by fading**, which is the specific interaction
+  `CollateRenderablesInLeaf` re-tests the alpha for (`:1701`).
+- **Alpha zero never skips.** `if ( nAlpha == 0 ) continue;` (`:1631`) can never be reached, so an
+  entity the engine treats as invisible is drawn.
+
+**The code paths exist and are covered.** `RenderGroups.For` and `.Lists` take `alpha` and
+`renderMode` as parameters and `TwoPassConformanceTests` exercises every branch of both; production
+passes `FullyOpaque` and `Normal` at one call site, `Device3D.Classify`. So wiring this up is a
+change at that call site plus a decoder, not a redesign — which is why the parameters were written
+now rather than assumed away.
+
+**The size of the decoder is the reason it was not done here.** `m_clrRender` and `m_nRenderMode` are
+plain networked fields, but `GetFxBlend()` returns `m_nRenderFXBlend`, which `ComputeFxBlend`
+(`c_baseentity.cpp:3343`) computes through a ~210-line switch over `RenderFx_t` — pulse, fade, glow,
+solid, distort, each time-based and several of them **stateful** (`kRenderFxFadeSlow` decrements
+`m_clrRender->a` on the entity every frame). That is not a field read; it is a subsystem, and it
+wants its own conformance suite.
+
+**Do not implement the fields without the switch, or half of it.** A decoder that reads
+`m_clrRender->a` and ignores `m_nRenderFX` gives the right answer only for `kRenderFxNone` and a
+confidently wrong one for every effect — which is the failure mode that looks like a rendering bug
+rather than a missing feature.

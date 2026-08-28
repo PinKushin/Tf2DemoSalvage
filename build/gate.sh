@@ -288,7 +288,11 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 # Tf2ConfigFiles.DefaultGameFolder looks under Program Files while this machine keeps TF2 on another
 # drive. The code was right and the test was measuring the ENVIRONMENT — pointing it at a better
 # path would have hidden that rather than fixed it.
-run Tf2DemoSalvage.Scene.Tests    scene     202
+# 202 -> 203 on 2026-08-28: EntityModelsTests gains the two-pass wiring case. It is the join between
+# a flag read out of a `.mdl` and a renderer that decides from a boolean, and neither side's tests
+# can see it — the assignment being absent is the shape of no-op this project has shipped three
+# times green.
+run Tf2DemoSalvage.Scene.Tests    scene     203
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -482,7 +486,11 @@ run Tf2DemoSalvage.Presentation.Tests presentation 396
 # anything here passed one, and LocalLightSelectionTests (8) on the selection a shader would take.
 # 740: StudioBoundsConformanceTests (4) pinning the header's bounds offsets against studio.h, and
 # StudioBoundsTests (9) reading them off the real scout — including one [Explicit] probe.
-run Tf2DemoSalvage.Content.Tests  content   744
+# 744 -> 749 on 2026-08-28: StudioHeaderFlagsConformanceTests (4) pins `studiohdr_t.flags` — the one
+# header word this reader stepped over for months while `StudioLayout` described it in prose — plus
+# StudioModelFlagCensus (1, Explicit), which measured the denominator this whole change needed:
+# 88 of 14,109 shipped models carry STUDIOHDR_FLAGS_TRANSLUCENT_TWOPASS.
+run Tf2DemoSalvage.Content.Tests  content   749
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
@@ -665,7 +673,11 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     129
 # garbage the material buffer produced when a replace-all grew two of three arrays.
 # 553: OpaqueDrawOrderConformanceTests, which writes down Valve's opaque ordering — brush models
 # first, then biggest size bucket to smallest — before anything here sorts.
-run Tf2DemoSalvage.Rendering.Tests rendering 656
+# 656 -> 685 on 2026-08-28: TwoPassConformanceTests (28) and TwoPassWiringTests (1). The conformance
+# suite is nine SDK citations plus nineteen cases over RenderGroups; the wiring test is the one that
+# can fail when the loader drops the flag, and it does — verified by manipulation, sniper against
+# scout as its control.
+run Tf2DemoSalvage.Rendering.Tests rendering 685
 run Tf2DemoSalvage.Viewer3D.Tests viewer    101
 
 echo

@@ -205,6 +205,15 @@ without it. An entry with no "what you would see" is not ready to be worked on.
 | skin families | `pSkinref(skin * numskinref + material)` | team colours are a skin family, not a tint |
 | bodygroups | `shared/animation.cpp:876` | `(body / base) % nummodels`, selected per entity at draw |
 | bone merge | `bone_merge_cache.cpp:122` | matched **by name**; unmatched bones walk their own hierarchy |
+| `$mostlyopaque` / two-pass | `clientleafsystem.cpp:1701`, `studio.h:2035` | the flag decides; **88 of 14,109 shipped models carry it** (D114) |
+| render groups | `c_baseentity.cpp:5677` | `GetRenderGroup` transcribed, minus the alpha and render-mode inputs — see B221 |
+
+**`TwoPassConformanceTests` (`Rendering.Tests`) and `StudioHeaderFlagsConformanceTests`
+(`Content.Tests`) are the suites for those last two rows**, and they are worth reading as an example
+of the shape this document keeps asking for: nine assertions quoting the SDK, nineteen cases over
+this project's own transcription, and a wiring test with a control — `models/player/sniper.mdl`
+against `models/player/scout.mdl`, alike in every way except the flag in the file. All four
+sabotages predicted before they were run, and each failed exactly the case predicted.
 
 ## Not implemented, ordered by what it costs
 

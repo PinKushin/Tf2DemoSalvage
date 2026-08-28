@@ -48,6 +48,19 @@ internal static class StudioLayout
     /// <summary>Byte offset of <c>view_bbmax</c>.</summary>
     public const int HeaderViewBoundsMaxOffset = 140;
 
+    /// <summary>Byte offset of <c>flags</c>: the <c>STUDIOHDR_FLAGS_*</c> word.</summary>
+    /// <remarks>
+    /// **Described here in prose for months before anything read it.** The note on
+    /// <see cref="HeaderBoneCountOffset"/> below already said "flags sits between view_bbmax and
+    /// numbones", which is how a field can be simultaneously documented and unimplemented — see
+    /// `docs/memory/write-can-destroy-what-you-did-not-read.md`.
+    ///
+    /// Bracketed by two numbers that were established independently: <c>view_bbmax</c> at 140 is
+    /// load-bearing in the render-bounds path, and <c>numbones</c> at 156 has decoded correctly
+    /// since this reader was written. See <see cref="StudioModelFlags"/> for what the bits mean.
+    /// </remarks>
+    public const int HeaderFlagsOffset = 152;
+
     /// <summary>Byte offset of <c>numbones</c>.</summary>
     public const int HeaderBoneCountOffset = 156;
 

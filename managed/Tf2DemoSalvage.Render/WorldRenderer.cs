@@ -4417,7 +4417,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <param name="blend">How far toward the next baked animation frame, from nought to one.</param>
     /// <param name="bones">How many bones skin this draw, or zero for a baked model.</param>
     /// <param name="skin">Which material replaces which for a team colour; null for the model's own.</param>
-    /// <param name="blended">Draw the blended materials rather than the opaque ones.</param>
+    /// <param name="pass">
+    /// Which half of the model to draw, or all of it — <c>STUDIORENDER_DRAW_*</c>. The default is
+    /// Valve's: a model is drawn whole unless something says it is two-pass.
+    /// </param>
     /// <param name="bodyParts">The model's body parts, for reading the body number.</param>
     /// <param name="body">Which alternative each part shows, packed as m_nBody.</param>
     /// <param name="mirrored">
@@ -4459,7 +4462,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         float blend = 0f,
         int bones = 0,
         IReadOnlyDictionary<int, int>? skin = null,
-        bool blended = false,
+        ModelPass pass = ModelPass.EntireModel,
         IReadOnlyList<(int Base, int Count)>? bodyParts = null,
         int body = 0,
         bool mirrored = false,
@@ -4602,7 +4605,17 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 _translucent.Contains(material) ||
                 _modulate.ContainsKey(material);
 
-            if (wantsBlending != blended)
+            // **And which HALF is drawn is now the caller's to say, because most models have no
+            // halves.** This used to filter unconditionally, which is `STUDIORENDER_DRAW_OPAQUE_ONLY`
+            // and `_TRANSLUCENT_ONLY` applied to every model in the scene — correct machinery
+            // pointed at everything. `EntireModel` is Valve's default and what a model without
+            // `$mostlyopaque` gets; see `RenderGroups` for who decides.
+            if (pass is ModelPass.OpaqueOnly && wantsBlending)
+            {
+                continue;
+            }
+
+            if (pass is ModelPass.TranslucentOnly && !wantsBlending)
             {
                 continue;
             }
@@ -4617,24 +4630,36 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 continue;
             }
 
-            if (blended)
+            // **Chosen per MATERIAL rather than per pass, which is the engine's arrangement and the
+            // other half of B135.** A shader in Source declares `EnableBlending` in its own
+            // SHADOW_STATE block, so the material system sets it on bind and no pass inherits
+            // anything — `SetMaterial` below already does exactly this for the DEPTH state, for
+            // reasons its comment spells out at length. Blending was still per pass, which worked
+            // only because each pass happened to hold materials of one kind.
+            //
+            // `EntireModel` is what broke that: one draw now carries a model's solid and blended
+            // meshes together, so "the pass knows" is no longer true of anything. Set unconditionally
+            // — including the null state that means ordinary painting — so an opaque batch cannot
+            // inherit the blend of whatever drew before it.
+            //
+            // Per batch, because a model can carry every kind at once: additive ADDS light to what
+            // is behind it, which is what a hologram does; modulate multiplies it; alpha blends.
+            ComPtr<ID3D11BlendState> blending = default;
+
+            if (_modulate.TryGetValue(material, out bool twice))
             {
-                // Per batch, because a model can carry both kinds: additive ADDS light to what is
-                // behind it, which is what a hologram does, and alpha blends against it.
-                // Three kinds now, chosen per batch: add, multiply, or blend by alpha.
-                ComPtr<ID3D11BlendState> blending = _addBlend;
-
-                if (_modulate.TryGetValue(material, out bool twice))
-                {
-                    blending = twice ? _modulateTwiceBlend : _modulateBlend;
-                }
-                else if (!_additive.Contains(material))
-                {
-                    blending = _alphaBlend;
-                }
-
-                context.OMSetBlendState(blending, blendFactor, 0xFFFFFFFF);
+                blending = twice ? _modulateTwiceBlend : _modulateBlend;
             }
+            else if (_additive.Contains(material))
+            {
+                blending = _addBlend;
+            }
+            else if (_translucent.Contains(material))
+            {
+                blending = _alphaBlend;
+            }
+
+            context.OMSetBlendState(blending, blendFactor, 0xFFFFFFFF);
 
 
             ComPtr<ID3D11ShaderResourceView> texture =
@@ -4745,6 +4770,64 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
     /// <summary>Whether a batch is the alternative its body part shows.</summary>
     /// <remarks>GetBodygroup, shared/animation.cpp:876, applied to a packed run.</remarks>
+    /// <summary>Whether any material this model currently shows is blended.</summary>
+    /// <param name="batches">
+    /// The model's runs, as <see cref="ModelBatches(string, int)"/> returns them.
+    /// </param>
+    /// <param name="skin">Which material replaces which for its team, or null for its own.</param>
+    /// <param name="bodyParts">The model's body parts, for reading the body number.</param>
+    /// <param name="body">The entity's <c>m_nBody</c>.</param>
+    /// <returns>Whether the engine would call this model translucent.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="batches"/> is null.</exception>
+    /// <remarks>
+    /// **<c>IVModelInfo::IsTranslucent</c>, and the answer is ANY rather than ALL.** The evidence is
+    /// <c>STUDIOHDR_FLAGS_FORCE_OPAQUE</c>, whose whole job is to override this answer for a model
+    /// that *"[has] translucent parts … but we're not going to sort it"*. A flag that suppresses an
+    /// answer would be pointless if the answer were "every material".
+    ///
+    /// **Skin and body are parameters because Valve's are.**
+    /// <c>RecomputeTranslucency( model, nSkin, nBody, pClientRenderable, … )</c>
+    /// (<c>ivmodelinfo.h:125</c>) takes both, so translucency is a property of the materials a model
+    /// is CURRENTLY showing, not of every material in its file. A hidden bodygroup with a glass
+    /// visor must not drag the whole model into the translucent pass while it is hidden.
+    ///
+    /// **Walked per model per frame rather than cached, deliberately.** Valve caches and recomputes
+    /// on change; the equivalent here would key on the model, the skin table's identity and the body
+    /// number, which is a dictionary probe to save a walk of a few dozen hash lookups. Measure
+    /// before adding it — a per-frame recompute in `SetCamera` was the last real cost in this
+    /// renderer, and it was found by the UI suite's duration rather than by reasoning about it.
+    /// </remarks>
+    public bool IsTranslucent(
+        IReadOnlyList<WorldBatch> batches,
+        IReadOnlyDictionary<int, int>? skin = null,
+        IReadOnlyList<(int Base, int Count)>? bodyParts = null,
+        int body = 0)
+    {
+        ArgumentNullException.ThrowIfNull(batches);
+
+        foreach (WorldBatch batch in batches)
+        {
+            if (bodyParts is { Count: > 0 } &&
+                !Shows(bodyParts, batch.BodyPart, batch.BodyModel, body))
+            {
+                continue;
+            }
+
+            int material = skin is not null && skin.TryGetValue(batch.MaterialIndex, out int swapped)
+                ? swapped
+                : batch.MaterialIndex;
+
+            if (_additive.Contains(material) ||
+                _translucent.Contains(material) ||
+                _modulate.ContainsKey(material))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>How a material was classified, for the log.</summary>
     /// <param name="material">Its index in the uploaded table.</param>
     /// <returns>"additive", "translucent" or "opaque".</returns>

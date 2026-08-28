@@ -36,6 +36,9 @@ public readonly record struct StudioMesh(
 /// <param name="BodyParts">
 /// Each body part's place value and how many alternatives it offers, for reading <c>m_nBody</c>.
 /// </param>
+/// <param name="Flags">
+/// The header's <c>STUDIOHDR_FLAGS_*</c> word — see <see cref="StudioModelFlags"/>.
+/// </param>
 /// <remarks>
 /// **Every alternative is read and none is chosen here.** The choice is per ENTITY — three capture
 /// points share one model and show three different signs — so it belongs at draw time, and
@@ -53,8 +56,21 @@ public sealed record StudioModelInfo(
     IReadOnlyList<string> Materials,
     IReadOnlyList<string> MaterialFolders,
     IReadOnlyList<StudioMesh> Meshes,
-    IReadOnlyList<(int Base, int Count)> BodyParts)
+    IReadOnlyList<(int Base, int Count)> BodyParts,
+    int Flags)
 {
+    /// <summary>Whether the model asks to be drawn in two passes — <c>$mostlyopaque</c>.</summary>
+    /// <remarks>
+    /// <c>IVModelInfo::IsTranslucentTwoPass</c>, which <c>C_BaseEntity::IsTwoPass</c> forwards to
+    /// verbatim (<c>c_baseentity.cpp:1831</c>). It is a property of the MODEL alone; whether the
+    /// entity is drawn translucent at all is a separate question its render mode and alpha answer.
+    /// </remarks>
+    public bool IsTranslucentTwoPass =>
+        (Flags & StudioModelFlags.TranslucentTwoPass) != 0;
+
+    /// <summary>Whether the model was compiled <c>$staticprop</c>: no bones, no transforms.</summary>
+    public bool IsStaticProp => (Flags & StudioModelFlags.StaticProp) != 0;
+
     /// <summary>Whether a mesh is the one its body part shows for a given body number.</summary>
     /// <param name="mesh">The mesh, carrying the part and alternative it belongs to.</param>
     /// <param name="body">The entity's <c>m_nBody</c>.</param>
@@ -268,7 +284,12 @@ public static class StudioModel
             ReadMaterials(bytes),
             ReadFolders(bytes),
             meshes,
-            parts);
+            parts,
+
+            // **Last in the parameter list on purpose.** `Checksum` is the only other int here, so
+            // placing this beside it would let a transposition compile silently; separated by four
+            // list parameters, it cannot.
+            BinaryPrimitives.ReadInt32LittleEndian(bytes[HeaderFlagsOffset..]));
     }
 
     private static List<string> ReadMaterials(ReadOnlySpan<byte> file)

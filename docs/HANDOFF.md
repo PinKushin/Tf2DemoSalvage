@@ -32,13 +32,24 @@ pwsh ../run-exclusive.ps1 dotnet test tests/Tf2DemoSalvage.Viewer3D.UiTests
 
 > *"i guess we should go 2 pass models now"*
 
-**Two-pass models** — `RENDER_FLAGS_TWOPASS`. A renderable with that flag and alpha 255 is added to
-BOTH the opaque list and the translucent one (`clientleafsystem.cpp:1699`), so it draws twice: solid
-parts in the opaque pass, blended parts after. This project has no two-pass concept and draws every
-model once. Found by audit pass 2 and recorded in `docs/findings/42`.
+**DONE 2026-08-28 — and the paragraph below was wrong, which is why it is kept.** It read:
 
-Start with the conformance test and its citation, before any code — `docs/CONFORMANCE.md`, and the
-standing rule in `CLAUDE.md`.
+> *"This project has no two-pass concept and draws every model once."*
+
+Both halves are false. `Device3D` drew every model **twice**, and `WorldRenderer.DrawModel` filtered
+each pass by material — which is `STUDIORENDER_DRAW_OPAQUE_ONLY` / `_TRANSLUCENT_ONLY`, already
+implemented. The divergence ran the other way: the renderer split **every** model, where the engine
+splits only those declaring `$mostlyopaque` — **88 of 14,109**.
+
+The owner's read on how that happened:
+
+> *"handoff was probably wrong, that previous session didnt really research and look into the 2 pass
+> much that im aware"*
+
+**The lesson is that a gap can be filed backwards.** "We do not do X" and "we do X unconditionally"
+produce the same next task, and only one of them is a starting point that leads anywhere. The
+paragraph was written from the SDK without reading the renderer. See D114 and
+`docs/findings/44-what-makes-a-model-two-pass.md`.
 
 ### After that, in the owner's stated order of interest
 
@@ -128,8 +139,9 @@ question; do not go looking for a fourth SDK.
 
 ## Open, not forgotten
 
-- Two-pass models — **next**.
-- Static props never culled — largest perf gap.
+- Static props never culled — largest perf gap, and now **next**.
+- `m_clrRender` / `m_nRenderFX` / `m_nRenderMode` are not decoded, so nothing can fade — B221.
+- Viewmodel two-list ordering — B218, half closed by D114.
 - Wiring the map-checksum warning into the viewer.
 - Ragdoll bounds and origin — approximated, not matched.
 - Detail props — not drawn at all.

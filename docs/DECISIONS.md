@@ -6484,3 +6484,53 @@ regressions from the culling work — roller doors as grey rock, players appeari
 the doors flickering — and the culling work caused none of them. Without (1), every future visual
 report on an old demo carries the same ambiguity, and the only instrument that can resolve it is the
 owner's memory of one particular map.
+
+## D114 — Two-pass drawing is honoured, not applied; the model decides
+
+**Made 2026-08-28**, on the owner's *"ok now go on with the 2 pass"*, and it turned out to be a
+correction rather than an addition.
+
+**What was there.** `Device3D` drew every model twice — once filtered to its opaque materials, once
+to its blended ones. That filter is `STUDIORENDER_DRAW_OPAQUE_ONLY` / `_TRANSLUCENT_ONLY`
+(`istudiorender.h:101`), correctly implemented and attached to nothing that decided which models
+deserved it. The previous handoff had recorded the opposite — *"no two-pass concept and draws every
+model once"* — which is a gap filed backwards, and the owner's read on why is worth keeping:
+
+> *"handoff was probably wrong, that previous session didnt really research and look into the 2 pass
+> much that im aware"*
+
+**What the engine does**, in three steps kept apart here because they are kept apart there:
+`GetRenderGroup` classifies (`c_baseentity.cpp:5677`), the leaf system stores — rewriting
+`RENDER_GROUP_TWOPASS` into translucent plus a flag (`clientleafsystem.cpp:713`) — and
+`CollateRenderablesInLeaf` emits list entries, re-testing the alpha (`:1701`). Two-pass is reachable
+**only** from translucent, and only a model carrying `STUDIOHDR_FLAGS_TRANSLUCENT_TWOPASS` —
+`$mostlyopaque` in the QC — can be promoted to it.
+
+**The decision: honour the flag, and accept the worse picture where it is absent.** A model with
+blended materials and no `$mostlyopaque` now draws wholly in the translucent pass, solid meshes
+included, late and in distance order. Splitting it looks tidier. Under D89 that is not a trade
+available to us, and it is not one Valve overlooked: `$mostlyopaque` **is** the mechanism for opting
+into the tidier picture. A renderer that splits everything has decided that all 14,109 shipped models
+are `$mostlyopaque`, including the 14,021 whose authors did not say so.
+
+**Measured before deciding, not after.** `StudioModelFlagCensus` over TF2's own archives: **88 of
+14,109 models carry the flag, 0.62%** — but they include `models/player/sniper.mdl`,
+`c_flamethrower`, `c_syringegun` and `c_proto_medigun`, so this is visible in ordinary matches rather
+than in a corner.
+
+**Three consequences that are departures from what was there, each deliberate:**
+
+1. **`ModelPass` replaces `bool blended`**, with `EntireModel` as the default — Valve's
+   `STUDIORENDER_DRAW_ENTIRE_MODEL`, which is literally zero. The missing third value is the whole
+   correction.
+2. **Blend state moved from per-pass to per-material**, completing B135's arrangement. It had to:
+   one `EntireModel` draw now carries a model's solid and blended meshes together, so "the pass
+   knows what kind of material this is" stopped being true of anything.
+3. **The viewmodel pass draws whole models** instead of filtering to opaque, which addresses the
+   symptom of B218. Valve's two-list ordering is still not modelled and B218 stays open for that.
+
+**What is deferred and named rather than assumed.** `nAlpha` and `m_nRenderMode` are parameters of
+the transcription, and every caller passes their neutral values because nothing decodes
+`m_clrRender`, `m_nRenderFX` or `m_nRenderMode`. `ComputeFxBlend` is a ~210-line time-based switch
+and is its own task. Both code paths exist and are tested; neither can fire until the properties are
+read. Full account in `docs/findings/44-what-makes-a-model-two-pass.md`.
