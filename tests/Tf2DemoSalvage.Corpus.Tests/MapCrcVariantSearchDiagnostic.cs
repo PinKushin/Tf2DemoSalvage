@@ -5,6 +5,7 @@ using System.IO.Hashing;
 using System.Buffers.Binary;
 
 using Tf2DemoSalvage.Content.Bsp;
+using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Core.Tests;
 
@@ -46,10 +47,26 @@ public sealed class MapCrcVariantSearchDiagnostic
 
         byte[] file = File.ReadAllBytes(Map);
 
-        uint wanted = TimelineCache.For(Corpus.Demo("tf2-2007-build3258-pov-cp_granary"))
-            .MapCrc.ShouldNotBeNull("the 2007 demo carries a checksum");
+        DemoTimeline demo = TimelineCache.For(Corpus.Demo("tf2-2007-build3258-pov-cp_granary"));
 
-        Console.WriteLine($"looking for {wanted:X8} in {Path.GetFileName(Map)}");
+        uint wanted = demo.MapCrc.ShouldNotBeNull("the 2007 demo carries a checksum");
+
+        // **The OTHER four bytes, because it might be the real one.** On old protocols
+        // `svc_ServerInfo` carries both a 32-bit field this project calls `mapCrc` AND a four-byte
+        // one it calls `mapHash`, and the tick interval decoding as 0.015 proves both are read at
+        // the right offsets. Which of the two the engine compares against a map is an assumption
+        // that has never been checked — so search for both.
+        uint alternate = 0;
+
+        if (demo.MapHash is { Count: 4 } hash)
+        {
+            alternate = ((uint)hash[3] << 24) | ((uint)hash[2] << 16) |
+                        ((uint)hash[1] << 8) | hash[0];
+
+            Console.WriteLine($"the other four bytes, little-endian: {alternate:X8}");
+        }
+
+        Console.WriteLine($"looking for {wanted:X8} or {alternate:X8} in {Path.GetFileName(Map)}");
         Console.WriteLine();
 
         BspHeader header = BspHeader.Parse(file);
@@ -79,7 +96,32 @@ public sealed class MapCrcVariantSearchDiagnostic
 
             uint got = BinaryPrimitives.ReadUInt32LittleEndian(crc.GetCurrentHash());
 
-            Console.WriteLine($"  {got:X8}  {(got == wanted ? "*** MATCH *** " : string.Empty)}{name}");
+            // **The engine never calls CRC32_Final.** Decompiled from the 2007 engine: the
+            // accumulator goes straight from CRC32_ProcessBuffer into the comparison with the
+            // server's value, with no `*pulCRC ^= CRC32_XOR_VALUE`. A standard CRC-32 applies that
+            // final inversion, so the engine's number is the complement of ours.
+            uint unfinalised = ~got;
+
+            string verdict = string.Empty;
+
+            if (got == wanted)
+            {
+                verdict = "*** MATCH (mapCrc field) *** ";
+            }
+            else if (unfinalised == wanted)
+            {
+                verdict = "*** MATCH (mapCrc field, un-finalised) *** ";
+            }
+            else if (got == alternate)
+            {
+                verdict = "*** MATCH (the OTHER four bytes) *** ";
+            }
+            else if (unfinalised == alternate)
+            {
+                verdict = "*** MATCH (the OTHER four bytes, un-finalised) *** ";
+            }
+
+            Console.WriteLine($"  {got:X8} / ~{unfinalised:X8}  {verdict}{name}");
         }
 
         Console.WriteLine();

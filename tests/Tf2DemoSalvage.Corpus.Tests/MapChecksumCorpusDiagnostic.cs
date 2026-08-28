@@ -54,6 +54,15 @@ public sealed class MapChecksumCorpusDiagnostic
             // the instrument for modern demos.
             string hash = MapHashOf(path);
 
+            // **The alignment check.** If `svc_ServerInfo`'s fields are being read at the right bit
+            // positions, the tick interval is 0.015 for TF2. Garbage here means the CRC and hash
+            // above are at the wrong offsets and neither is what the server sent.
+            DemoTimeline timeline = TimelineCache.For(path);
+
+            Console.WriteLine(
+                $"    interval {timeline.IntervalPerTick:0.######}  " +
+                $"{(Math.Abs(timeline.IntervalPerTick - 0.015f) < 0.0005f ? "SANE" : "*** SUSPECT ***")}");
+
             Console.WriteLine(
                 $"{Path.GetFileName(path),-56} " +
                 $"{crc?.ToString("X8", System.Globalization.CultureInfo.InvariantCulture) ?? "-",-10} " +

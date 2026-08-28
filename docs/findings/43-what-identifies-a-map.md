@@ -64,7 +64,58 @@ three facts in `tier1/checksum_crc.cpp`: init and xor are both `0xFFFFFFFF`, the
 `table[b ^ (byte)crc] ^ (crc >> 8)`, and `pulCRCTable[1]` is `0x77073096`, the reflected polynomial
 `0xEDB88320`. So a standard library computes it, and the check value for `123456789` is `0xCBF43926`.
 
-## The old-era CRC is UNSOLVED
+## The old-era CRC: two faults at once
+
+**Solved.** All four era demos match their own client's map exactly — 2007 granary, 2008 granary,
+2009 badlands, 2011 viaduct. Two things were wrong simultaneously, which is why changing one variable
+at a time never produced a hit.
+
+### Fault one: the wrong field
+
+On old protocols `svc_ServerInfo` carries BOTH a 32-bit field and a four-byte one. This project
+called the first `mapCrc` and the second `mapHash`, and chased the first for a day.
+
+**The map checksum is the second.** The 2007 granary demo's four bytes are `BC0A65F1`; the 32-bit
+field is `534EEB7C` and remains unidentified. In modern demos that same 32-bit field is consistently
+`0xFFFFFFFF` while the checksum field grows to sixteen bytes of MD5.
+
+The decoder said so itself, in a comment nobody re-read:
+
+> *"the older branch is written from the reference implementation and has no specimen to verify it
+> against, so it is flagged rather than trusted"*
+
+It was flagged as unverified and then treated as fact. **The alignment is not in doubt** — every era
+demo decodes `IntervalPerTick` as exactly 0.015, and that field sits after both reads.
+
+### Fault two: no CRC32_Final
+
+`CRC32_Init` sets `0xFFFFFFFF` and `CRC32_ProcessBuffer` accumulates, but the engine never calls
+`CRC32_Final`. The accumulator goes straight into the comparison:
+
+```
+mov ecx, [server crc from svc_ServerInfo]
+cmp ecx, dword [our accumulator]
+je  ok
+```
+
+A standard CRC-32 closes with `^= 0xFFFFFFFF`. The engine's number is therefore the **complement**
+of a conventional CRC32 — `~0E9AF543 = F1650ABC`, which is exactly what the 2007 demo carries.
+
+### What was NOT wrong
+
+The byte selection, from the first attempt: every lump but the entities, index order, raw bytes,
+skip empty. Two wrong write-ups were committed before this was found — that the archived clients'
+maps had been repacked, and that the selection must be wrong. The owner killed the first
+(*"i recorded it with that client so it has to be the same map"*) and the decompilation killed the
+second.
+
+**The lesson is about search shape rather than about CRCs.** Every hypothesis tested one variable
+while holding the others; with two faults present, no single-variable test could ever succeed, and
+each failure was read as evidence against the variable being tested. What broke it was widening the
+target — searching for the *other field* as well — which cost one line and had been available from
+the start.
+
+## Superseded: what this section said while it was UNSOLVED
 
 The obvious next test — a 2007 demo against the 2007 client's own `cp_granary.bsp` — fails. So does
 every other pairing: across every `.bsp` under `F:\tf2-builds`, **zero of four** era checksums

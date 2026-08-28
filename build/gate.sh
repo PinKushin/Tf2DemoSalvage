@@ -511,7 +511,7 @@ run Tf2DemoSalvage.Content.Tests  content   744
 # 117: CorpusServerConVarTests, the assertion that a real demo's replicated ConVars reach the
 # timeline. All four run on committed gcor demos, so they hold under TF2DEMOSALVAGE_GCOR_ONLY and
 # in CI rather than skipping there and testing nothing.
-run Tf2DemoSalvage.Corpus.Tests   corpus     126
+run Tf2DemoSalvage.Corpus.Tests   corpus     129
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that

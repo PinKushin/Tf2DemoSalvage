@@ -28,8 +28,33 @@ public sealed class PeriodMapChecksumTests
     /// <summary>Where the period clients live — see `docs/memory/where-the-game-and-clients-live.md`.</summary>
     private const string Builds = @"F:\tf2-builds";
 
-    private static string MapIn(string build, string map) =>
-        Path.Combine(Builds, build, "Team Fortress 2", "tf", "maps", map + ".bsp");
+    /// <summary>A period build's map, whichever layout the archive used.</summary>
+    /// <remarks>
+    /// **The builds are not laid out alike and two tests skipped silently because of it.** 2007
+    /// unpacks to `tf2-2007\Team Fortress 2\tf\maps`, 2008 to `tf2-2008\tf\maps`, and 2013 to
+    /// `tf2-2013\TF2\tf\maps`. A single hard-coded shape reports the difference as "this build is
+    /// not on this machine", which is the wrong answer to a question nobody asked.
+    /// </remarks>
+    private static string MapIn(string build, string map)
+    {
+        string root = Path.Combine(Builds, build);
+
+        if (!Directory.Exists(root))
+        {
+            return Path.Combine(root, "maps", map + ".bsp");
+        }
+
+        foreach (string candidate in Directory.EnumerateFiles(
+            root, map + ".bsp", SearchOption.AllDirectories))
+        {
+            if (candidate.Contains(Path.Combine("tf", "maps"), StringComparison.OrdinalIgnoreCase))
+            {
+                return candidate;
+            }
+        }
+
+        return Path.Combine(root, "maps", map + ".bsp");
+    }
 
     /// <summary>That an era demo carries a real checksum at all, which is what the CRC path needs.</summary>
     /// <remarks>
@@ -52,20 +77,72 @@ public sealed class PeriodMapChecksumTests
     /// `PeriodMapChecksumDiagnostic` reports the pairing attempt without pretending it is a
     /// verdict on this code.
     /// </remarks>
-    [TestCase("tf2-2007-build3258-pov-cp_granary")]
-    [TestCase("tf2-2008-build3420-pov-cp_granary")]
-    [TestCase("tf2-2008-build3420-stv-cp_granary")]
-    public void MapCrc_ForAnEraDemo_IsARealChecksumRatherThanTheInitValue(string demoName)
+    [TestCase("tf2-2007", "tf2-2007-build3258-pov-cp_granary", "cp_granary")]
+    [TestCase("tf2-2008", "tf2-2008-build3420-pov-cp_granary", "cp_granary")]
+    [TestCase("tf2-2008", "tf2-2008-build3420-stv-cp_granary", "cp_granary")]
+    public void Matches_ForAnEraDemoAndItsOwnClientsMap_IsTrue(
+        string build, string demoName, string map)
     {
+        string path = MapIn(build, map);
+
+        if (!File.Exists(path))
+        {
+            Assert.Ignore($"{build} is not extracted on this machine.");
+            return;
+        }
+
         DemoTimeline timeline = TimelineCache.For(Corpus.Demo(demoName));
 
-        uint recorded = timeline.MapCrc.ShouldNotBeNull("an era demo carries a map checksum");
+        BspMapChecksum.Matches(File.ReadAllBytes(path), timeline.MapHash).ShouldBe(
+            true,
+            $"{demoName} was recorded on {build}'s {map}, so the checksums must agree");
+    }
 
-        recorded.ShouldNotBe(
-            0xFFFFFFFFu,
-            "a demo of this era predates Valve dropping the CRC, so the field is populated");
+    /// <summary>That the modern map of the same name does NOT match.</summary>
+    /// <remarks>
+    /// **The detection this exists for, on a real pair.** `cp_granary` is still shipped and it is
+    /// not the same map; if the checksum could not tell the 2007 file from the 2026 one it could not
+    /// have told anyone that a 2017 badlands demo was drawn against a 2026 badlands.
+    /// </remarks>
+    [Test]
+    public void Matches_ForAnEraDemoAndTheModernMapOfTheSameName_IsFalse()
+    {
+        string modern = Path.Combine(
+            SdkReference.GameInstall.Require(), "maps", "cp_granary.bsp");
 
-        recorded.ShouldNotBe(0u, "and it is not an empty one either");
+        if (!File.Exists(modern))
+        {
+            Assert.Ignore("cp_granary.bsp is not in the live install.");
+            return;
+        }
+
+        DemoTimeline timeline =
+            TimelineCache.For(Corpus.Demo("tf2-2007-build3258-pov-cp_granary"));
+
+        BspMapChecksum.Matches(File.ReadAllBytes(modern), timeline.MapHash).ShouldBe(
+            false, "today's cp_granary is not the map this 2007 demo was recorded on");
+    }
+
+    /// <summary>That a modern demo matches its own map through the same one call.</summary>
+    /// <remarks>
+    /// **The era split handled behind one question.** This demo carries a sixteen-byte MD5 and the
+    /// three above carry four-byte CRCs; the caller passes what the demo said and does not branch.
+    /// </remarks>
+    [Test]
+    public void Matches_ForAModernDemoAndItsMap_IsTrue()
+    {
+        string map = Path.Combine(
+            SdkReference.GameInstall.Require(), "maps", "cp_process_f12.bsp");
+
+        if (!File.Exists(map))
+        {
+            Assert.Ignore("cp_process_f12.bsp is not in this TF2 install.");
+            return;
+        }
+
+        DemoTimeline timeline = TimelineCache.For(Corpus.Demo("cp_process_f12"));
+
+        BspMapChecksum.Matches(File.ReadAllBytes(map), timeline.MapHash).ShouldBe(true);
     }
 
     /// <summary>That the modern map of the same name does NOT match — the whole point.</summary>

@@ -47,8 +47,17 @@ public sealed class PeriodMapChecksumDiagnostic
                 continue;
             }
 
-            if (crc is { } value && value != 0xFFFFFFFF)
+            // **The four-byte field, complemented — which is what the engine actually compares.**
+            // Established by decompiling the 2007 engine and confirmed against its own map: the map
+            // checksum is the field this project called `mapHash` on old protocols, and the engine
+            // never applies CRC32_Final, so its number is the complement of a standard CRC32.
+            _ = crc;
+
+            if (TimelineCache.For(path).MapHash is { Count: 4 } hash)
             {
+                uint value = ~(((uint)hash[3] << 24) | ((uint)hash[2] << 16) |
+                               ((uint)hash[1] << 8) | hash[0]);
+
                 wanted[value] = Path.GetFileName(path);
             }
         }

@@ -90,6 +90,66 @@ public static class BspMapChecksum
             md5.Hash ?? []);
     }
 
+    /// <summary>Whether a map file is the one a demo was recorded on.</summary>
+    /// <param name="file">The map's bytes.</param>
+    /// <param name="recorded">The checksum <c>svc_ServerInfo</c> carried — four bytes or sixteen.</param>
+    /// <returns>True or false, or null when the demo carried nothing comparable.</returns>
+    /// <exception cref="InvalidDataException">The header will not parse.</exception>
+    /// <remarks>
+    /// **One question, because the caller should not have to know which era it is in.** A demo from
+    /// 2007 carries a four-byte CRC and one from 2013 carries a sixteen-byte MD5; both live in the
+    /// same `svc_ServerInfo` field and their length says which.
+    ///
+    /// **The CRC is COMPLEMENTED, and that is the engine's doing rather than a quirk of ours.**
+    /// Decompiled from the 2007 `engine.dll`: `CRC32_Init` sets `0xFFFFFFFF`,
+    /// `CRC32_ProcessBuffer` accumulates, and the accumulator goes straight into
+    /// `cmp ecx, [crc]` against the server's value — there is no `CRC32_Final`, so the engine never
+    /// applies the closing `^= 0xFFFFFFFF` that a standard CRC-32 ends with. Its number is the
+    /// complement of a conventional one.
+    ///
+    /// **Confirmed against four era demos and their own clients' maps** — 2007 granary, 2008
+    /// granary, 2009 badlands, 2011 viaduct — every one an exact match. Before that was found, two
+    /// separate wrong conclusions were written up: that the archived clients' maps had been
+    /// repacked, and that the algorithm's byte selection was wrong. Neither was true; the selection
+    /// was right from the start and the two faults were the wrong FIELD and the missing complement,
+    /// which is why changing one variable at a time never produced a match.
+    ///
+    /// **Null rather than false when there is nothing to compare**, because "this demo does not say"
+    /// and "this is the wrong map" call for opposite responses from a caller.
+    /// </remarks>
+    public static bool? Matches(ReadOnlyMemory<byte> file, IReadOnlyList<byte>? recorded)
+    {
+        if (recorded is not { Count: > 0 } checksum)
+        {
+            return null;
+        }
+
+        (uint crc, byte[] md5) = OfMap(file);
+
+        if (checksum.Count == sizeof(uint))
+        {
+            uint wanted = ((uint)checksum[3] << 24) | ((uint)checksum[2] << 16) |
+                          ((uint)checksum[1] << 8) | checksum[0];
+
+            return ~crc == wanted;
+        }
+
+        if (checksum.Count != md5.Length)
+        {
+            return null;
+        }
+
+        for (int at = 0; at < md5.Length; at++)
+        {
+            if (md5[at] != checksum[at])
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     /// <summary>The byte ranges both checksums cover, in the order they cover them.</summary>
     /// <param name="file">The map's bytes.</param>
     /// <returns>One range per hashed lump.</returns>
