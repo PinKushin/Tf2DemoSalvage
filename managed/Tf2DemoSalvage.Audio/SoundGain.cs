@@ -1,5 +1,7 @@
 using System;
 
+using Tf2DemoSalvage.Core.Net;
+
 namespace Tf2DemoSalvage.Audio;
 
 /// <summary>How loud a sound is at a distance, and how it splits across a stereo pair.</summary>
@@ -36,30 +38,37 @@ public static class SoundGain
 {
     /// <summary>Reference distance: inside this, a sound plays at full volume.</summary>
     /// <remarks>
-    /// `snd_refdist`, recovered from `engine.dll` at 36 units by reading the default string beside
-    /// its name (`docs/memory/a-convar-default-sits-beside-its-name.md`). Not in the SDK — the
-    /// engine-side sound cvars are absent from the whole checkout.
+    /// **`snd_refdist`, 36 units — a DECLARATION now rather than a constant** (D106). Not in the
+    /// SDK: the engine-side sound cvars are absent from the whole checkout, so the value comes from
+    /// `engine.dll`'s own ConVar registration. `SoundConVarConformanceTests` holds the provenance.
     /// </remarks>
-    public const float ReferenceDistance = 36f;
+    public static float ReferenceDistance => EngineConVars.ByName("snd_refdist").Number;
 
     /// <summary>Reference level in decibels.</summary>
     /// <remarks>
-    /// `snd_refdb`, recovered the same way, at 60. **Carried but not yet used by
-    /// <see cref="AtDistance"/>**, and that is deliberate rather than an oversight: how the engine
-    /// combines it with the soundlevel is exactly the unknown, and inventing a combination would
-    /// produce numbers that look authoritative. Declared here so the value is not lost and so the
-    /// gap is visible at the point it will be filled.
+    /// `snd_refdb`, 60. **Carried but not yet used by <see cref="AtDistance"/>**, and that is
+    /// deliberate rather than an oversight: how the engine combines it with the soundlevel is
+    /// exactly the unknown, and inventing a combination would produce numbers that look
+    /// authoritative. Declared so the value is not lost and the gap is visible where it will be
+    /// filled.
     /// </remarks>
-    public const float ReferenceDecibels = 60f;
+    public static float ReferenceDecibels => EngineConVars.ByName("snd_refdb").Number;
 
     /// <summary>Below this gain the engine stops, rather than continuing the curve down.</summary>
     /// <remarks>
-    /// `snd_gain_min`, default 0.01, read from `engine.dll` beside its name. The decompiled
-    /// `SND_GetGain` tests the computed gain against it and, when it falls below, replaces it with
-    /// a taper that reaches zero — so this is a real floor and not a clamp invented to stop a
-    /// division running away.
+    /// `snd_gain_min`, 0.01. The decompiled `SND_GetGain` tests the computed gain against it and,
+    /// when it falls below, replaces it with a taper that reaches zero — so this is a real floor and
+    /// not a clamp invented to stop a division running away.
+    ///
+    /// **The provenance was wrong and the number was right.** This said the value came from reading
+    /// the default string beside the name in `engine.dll`. That trick works for `snd_refdist` and
+    /// `snd_refdb`, whose defaults happen to be pooled immediately before their names, and it cannot
+    /// work here: the four sound names are packed consecutively with no literal between them and
+    /// this one's default lives in a different section. Re-read on 2026-08-27 from the ConVar
+    /// registration itself, which is authoritative — and which also settles a disagreement with
+    /// `tf/cvarlist.log`, where the dump prints `0`. See `SoundConVarConformanceTests`.
     /// </remarks>
-    public const float MinimumGain = 0.01f;
+    public static float MinimumGain => EngineConVars.ByName("snd_gain_min").Number;
 
     /// <summary>Gain for a sound at a distance, 0 to 1.</summary>
     /// <param name="soundLevel">The <c>soundlevel_t</c> from the sound event or its script.</param>

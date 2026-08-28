@@ -187,9 +187,65 @@ that the values actually reach the timeline on a real demo.
 |---|---|
 | `sv_maxspeed`, `sv_specspeed`, `sv_specaccelerate`, `sv_specnoclip` | **declared and read from the demo** |
 | `cl_forwardspeed`, `cl_backspeed`, `cl_sidespeed`, `cl_upspeed` | **declared and read from the demo** |
-| `sv_cheats`, `sv_downloadurl`, `host_timescale` | still baked; replicated, so the same shape applies |
-| `cl_interp` | still baked; `userinfo`, which is a different reader |
-| `cl_showpos`, `cl_drawleaf`, `cl_first_person_uses_world_model`, `snd_gain`, `snd_gain_min`, `snd_refdb`, `snd_refdist` | still baked; client-only, so the config is the missing source |
+| `snd_refdist`, `snd_refdb`, `snd_gain`, `snd_gain_min` | **declared**; `SoundGain` reads the declarations |
+| `sv_cheats`, `host_timescale`, `sv_downloadurl` | **declared**, read by nothing — see below |
+| `cl_showpos`, `cl_drawleaf`, `cl_first_person_uses_world_model` | **declared**, read by nothing — see below |
+| `cl_interp` | **declared** with its whole family; deliberately not consumed — see below |
+
+**All twenty are declared as of 2026-08-27.** Eight are consumed; the rest divide into two honest
+categories rather than one.
+
+**Six were never baked at all.** `sv_cheats`, `host_timescale`, `sv_downloadurl`, `cl_showpos`,
+`cl_drawleaf` and `cl_first_person_uses_world_model` appear in this project only in comments citing
+the engine — no number was ever copied in, so there was nothing for D106 to fix. Declaring them is
+still worth it: they are the registry the next reader consults instead of typing a value, and the
+conformance suites check each against Valve so a declaration cannot rot unnoticed. The one with a use
+waiting is `sv_downloadurl` — a demo that carries it names where its own map came from, which
+`MapDownloader` currently substitutes a public mirror for.
+
+**`cl_interp` is declared and deliberately not consumed**, and the reason is the finding below.
+
+### `cl_interp` is not the interpolation amount, and that is the whole of why interp is big
+
+`GetClientInterpAmount()` — `src/game/client/cdll_bounded_cvars.cpp:126`:
+
+```cpp
+return MAX( cl_interp->GetFloat(), cl_interp_ratio->GetFloat() / cl_updaterate->GetFloat() );
+```
+
+Neither operand is the value the player typed. Both are `ConVar_ServerBounded`:
+
+- `cl_interp_ratio.GetFloat()` = `clamp( base, sv_client_min_interp_ratio, sv_client_max_interp_ratio )`,
+  skipped entirely when the minimum is −1;
+- `cl_interp.GetFloat()` = `MAX( base, sv_client_min_interp_ratio / cl_updaterate )`.
+
+**So reproducing what the recorder saw needs five values from two places** — `cl_interp`,
+`cl_interp_ratio` and `cl_updaterate` from their `userinfo`, and the server's two ratio bounds from
+`net_setconvar`. All five are declared; `InterpolationConVarConformanceTests` pins the formula
+against the SDK and implements none of it.
+
+**The practical consequence, worth stating plainly:** the popular `cl_interp 0` config does not mean
+zero delay. A server running `sv_client_min_interp_ratio 1` raises it to `1 / cl_updaterate`, so a
+viewer reading the userinfo value literally would draw the wrong instant on exactly the demos most
+worth watching.
+
+**This project draws seven ticks behind, flat** (`ScenePropTrack`), whose own comment already calls
+the tick-rather-than-seconds form a known simplification. Left alone on purpose: changing it changes
+what every track samples and halves the delay on a 33-tick server, which is a visual change the owner
+asked to scope himself.
+
+### One number in this project was wrong, and D106 is what found it
+
+`SoundGain.MinimumGain` was `0.01f`, sourced by reading the string beside `snd_gain_min` in
+`engine.dll`. **The value is right and the method could not have produced it** — the four sound
+convar names are pooled consecutively with no literal between them, and this one's default sits in a
+different section. Re-read from the ConVar registration, which is authoritative.
+
+The registration also disagrees with `tf/cvarlist.log`, which prints `snd_gain_min : 0`. The dump
+reports the value **in force**, not the registered default, and that is true even for a convar that
+is cheat-protected and unarchived — engine code can set one at startup whatever its flags say. The
+order is **registration first, dump as a cross-check, adjacency never**;
+`SoundConVarConformanceTests` asserts the disagreement so it cannot quietly heal or spread.
 
 **The free camera was the first because it was the smallest complete instance.** Its speed is
 `sv_maxspeed * sv_specspeed` (B215) and both are replicated, so it exercises the declaration, the
