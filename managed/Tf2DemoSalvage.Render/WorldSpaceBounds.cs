@@ -42,7 +42,7 @@ public static class WorldSpaceBounds
     /// <exception cref="ArgumentNullException"><paramref name="matrix"/> is null.</exception>
     /// <exception cref="ArgumentException"><paramref name="matrix"/> is not sixteen floats.</exception>
     /// <remarks>
-    /// **A convenience over <see cref="Of"/>, which is where the arithmetic lives.** Both answers
+    /// **A convenience over <see cref="Of(StudioBox, float[])"/>, where the arithmetic lives.** Both answers
     /// come from one box because the engine computes one box: `CollateRenderablesInLeaf` culls with
     /// it and then buckets with it, and computing it twice would be two chances to disagree about
     /// where a model is.
@@ -67,6 +67,53 @@ public static class WorldSpaceBounds
     /// </remarks>
     public static bool IsDegenerate(StudioBox local) =>
         local.MaxX <= local.MinX || local.MaxY <= local.MinY || local.MaxZ <= local.MinZ;
+
+    /// <summary>Where a placed model's box really is, matrix or bones.</summary>
+    /// <param name="local">The model-space render bounds.</param>
+    /// <param name="matrix">The instance's model matrix.</param>
+    /// <param name="origin">Where the model stands, when its matrix cannot say.</param>
+    /// <returns>The enclosing world box.</returns>
+    /// <remarks>
+    /// **A SKINNED model's matrix is the identity, and culling by it puts every player at the map
+    /// origin.** `ModelInstance.Origin` exists for exactly this and says so: *"A baked model is put
+    /// in the world by its matrix; a SKINNED one is put there by its bones and leaves the matrix at
+    /// identity, so `Matrix`'s translation reads as the map origin."* The first version of the cull
+    /// read the matrix and ignored it, so players appeared and vanished as the MAP ORIGIN crossed
+    /// the frustum — which the owner saw as characters showing up out of nowhere.
+    ///
+    /// **The rotation still comes from the matrix**, which for a skinned model is the identity and
+    /// therefore harmless; only the placement is taken from the origin. That keeps one path for both
+    /// kinds rather than branching on which sort of model this is.
+    /// </remarks>
+    public static (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) Of(
+        StudioBox local, float[] matrix, (float X, float Y, float Z)? origin)
+    {
+        (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) box =
+            Of(local, matrix);
+
+        if (origin is not { } stands)
+        {
+            return box;
+        }
+
+        // The matrix already contributed a translation; replace it with the real one by shifting
+        // the box from where the matrix put its centre to where the model actually stands.
+        float centreX = (box.MinX + box.MaxX) * 0.5f;
+        float centreY = (box.MinY + box.MaxY) * 0.5f;
+        float centreZ = (box.MinZ + box.MaxZ) * 0.5f;
+
+        float localCentreX = ((local.MinX + local.MaxX) * 0.5f) + stands.X;
+        float localCentreY = ((local.MinY + local.MaxY) * 0.5f) + stands.Y;
+        float localCentreZ = ((local.MinZ + local.MaxZ) * 0.5f) + stands.Z;
+
+        float shiftX = localCentreX - centreX;
+        float shiftY = localCentreY - centreY;
+        float shiftZ = localCentreZ - centreZ;
+
+        return (
+            box.MinX + shiftX, box.MinY + shiftY, box.MinZ + shiftZ,
+            box.MaxX + shiftX, box.MaxY + shiftY, box.MaxZ + shiftZ);
+    }
 
     /// <summary>The world-space box a placed model occupies — Valve's <c>TransformAABB</c>.</summary>
     /// <param name="local">The model-space render bounds.</param>
@@ -124,7 +171,7 @@ public static class WorldSpaceBounds
     }
 
     /// <summary>The longest span of an already-placed box — Valve's <c>fDimension</c>.</summary>
-    /// <param name="box">A world-space box, as <see cref="Of"/> returns.</param>
+    /// <param name="box">A world-space box, as <see cref="Of(StudioBox, float[])"/> returns.</param>
     /// <returns>The longest of its three spans.</returns>
     /// <remarks>
     /// `DetectBucketedRenderGroup` takes `absMaxs - absMins` and then

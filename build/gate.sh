@@ -665,7 +665,7 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     117
 # garbage the material buffer produced when a replace-all grew two of three arrays.
 # 553: OpaqueDrawOrderConformanceTests, which writes down Valve's opaque ordering — brush models
 # first, then biggest size bucket to smallest — before anything here sorts.
-run Tf2DemoSalvage.Rendering.Tests rendering 642
+run Tf2DemoSalvage.Rendering.Tests rendering 645
 run Tf2DemoSalvage.Viewer3D.Tests viewer    101
 
 echo

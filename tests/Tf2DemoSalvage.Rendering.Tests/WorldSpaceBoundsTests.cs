@@ -166,6 +166,66 @@ public sealed class WorldSpaceBoundsTests
         Should.Throw<ArgumentException>(() => WorldSpaceBounds.Of(Long, new float[9]));
     }
 
+    /// <summary>That a skinned model's box goes where its bones put it, not where its matrix does.</summary>
+    /// <remarks>
+    /// **Valve asks the RENDERABLE where it is, never the render matrix.**
+    /// `CalcRenderableWorldSpaceAABB` uses `GetRenderOrigin()`; this project read the matrix's
+    /// translation instead, which is correct only for a baked prop. A skinned model — every player —
+    /// is placed by its BONES and leaves the matrix at identity, so its box landed at the map
+    /// origin and players appeared and vanished as that point crossed the frustum. The owner saw
+    /// characters showing up out of nowhere.
+    ///
+    /// `ModelInstance.Origin` exists for exactly this and its comment says so. The box below is the
+    /// scout's own hull at a player-sized position, through an identity matrix.
+    /// </remarks>
+    [Test]
+    public void Of_ForASkinnedModelWithAnIdentityMatrix_IsPlacedByItsOrigin()
+    {
+        StudioBox hull = new(-19.27f, -16.55f, -3.51f, 6.60f, 16.55f, 83.03f);
+
+        (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) box =
+            WorldSpaceBounds.Of(hull, Identity(), (1200f, -800f, 64f));
+
+        box.MinX.ShouldBe(1200f - 19.27f, 0.01);
+        box.MaxX.ShouldBe(1200f + 6.60f, 0.01);
+        box.MinY.ShouldBe(-800f - 16.55f, 0.01);
+        box.MinZ.ShouldBe(64f - 3.51f, 0.01);
+        box.MaxZ.ShouldBe(64f + 83.03f, 0.01);
+    }
+
+    /// <summary>That a baked model with no origin is still placed by its matrix.</summary>
+    /// <remarks>
+    /// The partner, and without it "use the origin" is satisfied by ignoring the matrix entirely —
+    /// which would put every static prop at the world origin instead.
+    /// </remarks>
+    [Test]
+    public void Of_WithNoOrigin_IsStillPlacedByTheMatrix()
+    {
+        float[] moved = Identity();
+
+        moved[12] = 4000f;
+
+        WorldSpaceBounds.Of(Long, moved, null).MinX.ShouldBe(3950f, 0.001);
+    }
+
+    /// <summary>That a rotated skinned model keeps its rotation and takes only its position.</summary>
+    /// <remarks>
+    /// **Rotation from the matrix, placement from the origin**, so one path serves both kinds. A
+    /// quarter turn about Z makes the 100-long box span 100 in Y, and the origin decides where that
+    /// span sits — 950 to 1050 about a centre of 1000.
+    /// </remarks>
+    [Test]
+    public void Of_ForARotatedModelWithAnOrigin_KeepsTheRotationAndTakesThePosition()
+    {
+        (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) box =
+            WorldSpaceBounds.Of(Long, RotationAboutZ(90f), (0f, 1000f, 0f));
+
+        box.MinY.ShouldBe(950f, 0.01);
+        box.MaxY.ShouldBe(1050f, 0.01);
+        box.MinX.ShouldBe(-5f, 0.01);
+        box.MaxX.ShouldBe(5f, 0.01);
+    }
+
     private static float[] Identity() =>
     [
         1f, 0f, 0f, 0f,

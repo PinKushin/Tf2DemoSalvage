@@ -111,7 +111,7 @@ public static class OpaqueBuckets
             ModelInstance instance = instances[at];
 
             (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) box =
-                WorldSpaceBounds.Of(instance.Bounds, instance.Matrix);
+                WorldSpaceBounds.Of(instance.Bounds, instance.Matrix, instance.Origin);
 
             // **A model with no bounds is drawn, never culled.** A zero box is a POINT at the
             // matrix's translation, and testing that point answers a question about the map origin

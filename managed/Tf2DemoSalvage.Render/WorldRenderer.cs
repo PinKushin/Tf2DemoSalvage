@@ -4769,6 +4769,32 @@ internal sealed unsafe class WorldRenderer : IDisposable
         return _translucent.Contains(material) ? "translucent" : "opaque";
     }
 
+    /// <summary>Whether a material has a real texture, or falls back to the chequer.</summary>
+    /// <param name="material">The material index a batch binds.</param>
+    /// <returns>A short description of what will actually be sampled.</returns>
+    /// <remarks>
+    /// **The fact the per-model census was missing, and its absence cost three wrong diagnoses.**
+    /// That census reported which material index a model binds and whether the material is opaque —
+    /// both of which were correct for a door drawing as grey rock. What it never said is whether the
+    /// index resolves to a TEXTURE, and `_white` is not white: it is the grey chequer this project
+    /// uses for a missing one. A model falling back to it looks like untextured stone, which is
+    /// exactly what the owner reported and what "material 480, opaque" cannot distinguish.
+    /// </remarks>
+    internal string DescribeTexture(int material)
+    {
+        if (material < 0)
+        {
+            return "no-material";
+        }
+
+        if (material >= _textures.Count)
+        {
+            return $"past-the-table({_textures.Count})";
+        }
+
+        return _textures[material].Handle is null ? "CHEQUER" : "textured";
+    }
+
     /// <summary>Which faces to cull for one batch of a model.</summary>
     /// <param name="mirrored">Whether the model is drawn mirrored, as a viewmodel is.</param>
     /// <param name="noCull">Whether the material set <c>$nocull</c>.</param>

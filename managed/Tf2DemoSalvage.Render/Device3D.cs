@@ -1493,6 +1493,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                         WorldRenderer.Shows(parts, batch.BodyPart, batch.BodyModel, instance.Body))
                     .Select(batch =>
                         $"{batch.MaterialIndex}:{_world.DescribeMaterial(batch.MaterialIndex)}" +
+                        $"/{_world.DescribeTexture(batch.MaterialIndex)}" +
                         $"@{batch.FirstVertex}+{batch.VertexCount}"));
 
         _render.LogInformation(
@@ -1635,7 +1636,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         }
 
         (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) box =
-            WorldSpaceBounds.Of(instance.Bounds, instance.Matrix);
+            WorldSpaceBounds.Of(instance.Bounds, instance.Matrix, instance.Origin);
 
         return _frustum.Cull(box.MinX, box.MinY, box.MinZ, box.MaxX, box.MaxY, box.MaxZ);
     }
@@ -1708,7 +1709,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             }
 
             (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) box =
-                WorldSpaceBounds.Of(instance.Bounds, instance.Matrix);
+                WorldSpaceBounds.Of(instance.Bounds, instance.Matrix, instance.Origin);
 
             _render.LogInformation(
                 "  culled {Model}: local box {Local}, world box {World}",
