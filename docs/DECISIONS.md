@@ -6423,3 +6423,64 @@ prop and not brushwork at all; it is drawn every frame, one batch, material 480
 `models/props_gameplay/door_slide`; and the only model culled in the entire frame is a UI prop 14,000
 units away at the map corner. **So this work is not the cause**, and the appearance is something else
 — still open.
+
+**Closed the next morning, and the answer was neither.** The owner:
+
+> *"the bugs are probably from a mismatched map version, so it is something we have to figure out,
+> but not a regression, just something to document and fix."*
+
+The demo was recorded on a 2017 `cp_badlands.bsp`; the viewer loaded the 2026 one out of the current
+TF2 install. Different geometry under the same name — which is why `cp_process_f12` is clean, its
+`.bsp` having been put in the install deliberately to match. See D113.
+
+## D113 — A demo names a map VERSION, and we already receive the checksum
+
+**Owner-set, 2026-08-28.** After an evening of chasing three wrong diagnoses on a badlands demo whose
+map did not match its recording:
+
+> *"we are going to need to compare valve maps by some sort of hash or something, and either pre pack
+> the old maps, or find a place we can download them from."*
+
+> *"i think pre packing is going to be the easier option, we just need to find a client from each
+> year to have enough old map files to work i think."*
+
+> *"and that will be easier than trying to pragmatically patch the map files i think."*
+
+**The hash does not need inventing, and neither does the expected value.** `CRC_MapFile`
+(`utils/common/bsplib.cpp:3774`) is published in full:
+
+```c
+// CRC across all lumps except for the Entities lump
+for ( int l = 0; l < HEADER_LUMPS; ++l )
+{
+    if (l == LUMP_ENTITIES) continue;
+    ... CRC32_ProcessBuffer over that lump's raw bytes ...
+}
+```
+
+CRC32 over every lump but entities, in header order, on the bytes as they sit on disk — compressed
+lumps included, since nothing is decompressed first. The entity lump is excluded on purpose so a
+server that edits entities still matches its clients, which is exactly the tolerance a version check
+wants.
+
+**And the demo carries the answer.** `svc_ServerInfo` has `mapCRC`; this project has decoded it since
+the container work as `ServerInfoMessage.MapCrc`, whose own doc comment reads *"used by the client to
+detect a mismatched map"*. It has never been compared against anything. That is the same shape as
+`NET_SetConVar` under D106 — decoded correctly, and ignored.
+
+**So the work splits in three, and only the first is small:**
+
+1. **Detect.** Compute `CRC_MapFile` over the loaded `.bsp` and compare it to the demo's `MapCrc`.
+   A mismatch is reported, loudly, at load — because every defect it causes looks like a rendering
+   bug and costs an evening each.
+2. **Source.** Pre-pack period maps rather than patching. The owner's reasoning is that a client from
+   each year yields enough map files to cover the corpus, and that this is easier than transforming
+   a modern `.bsp` into an old one. Recorded as his call; the alternative was not costed.
+3. **Select.** Load the map whose CRC matches the demo, falling back to the installed one with the
+   warning from (1).
+
+**Why this is worth doing before more rendering work.** Three defects were investigated as
+regressions from the culling work — roller doors as grey rock, players appearing from nowhere, and
+the doors flickering — and the culling work caused none of them. Without (1), every future visual
+report on an old demo carries the same ambiguity, and the only instrument that can resolve it is the
+owner's memory of one particular map.

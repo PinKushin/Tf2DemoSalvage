@@ -8,6 +8,26 @@ metadata:
   modified: 2026-08-26T03:43:52.579Z
 ---
 
+## This was broken a second time, and the trigger is BOOTING, not comparing
+
+**2026-08-28.** Asked to boot the viewer so the owner could look at new culling work, I picked
+`20171113_2240_cp_badlands_red_blu.dem` — a file neither of us had ever examined — because the map
+name matched something he had mentioned. He then reported roller doors drawing as grey rock. I
+diagnosed it as a culling regression twice, was corrected twice, wrote a log to settle it, and only
+after switching to f12 did he say: *"yea this is showing everything fine. so its poreexisting not a
+regressions, and another example of why you use the FUCKING RIGHT REFERENCE"*.
+
+**Everything below already said this**, including a measured precedent of the identical mistake. The
+document did not fail; the trigger did. So state it as a trigger rather than as advice:
+
+> **Any launch the owner is going to LOOK at uses f12, unless he named a different demo in that
+> message.** Not "when comparing" — when booting. By the time a comparison is recognised as one, the
+> wrong subject is already on screen.
+
+The tell that it has happened again: the owner describing a defect in terms you cannot place — "the
+roller doors", "the gates" — on a map whose normal neither of you knows. That is not a bug report
+yet; it is a request to load f12.
+
 ## The rule is HOLD THE SUBJECT, not "always f12"
 
 The owner, clarifying:

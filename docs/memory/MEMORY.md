@@ -140,3 +140,4 @@
 - [One camera or the cull lies](one-camera-or-the-cull-lies.md) — pass the camera, never a second derivation of it.
 - [The denominator decides what can be lost](the-denominator-decides-what-can-be-lost.md) — a coverage test cannot miss what it never enumerates.
 - [An empty box must never cull](an-empty-box-must-never-cull.md) — a zero bound is a point test at the map origin.
+- [A demo names a map version](a-demo-names-a-map-version.md) — svc_ServerInfo carries the CRC; a mismatched .bsp imitates rendering bugs.
