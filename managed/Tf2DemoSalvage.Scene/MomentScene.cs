@@ -228,7 +228,7 @@ public sealed class MomentScene : IGameSystemPerFrame
         EntityModelSet.PoseCounters before = _models.Counters;
 
         _models.Instances(
-            _drawn, _instances, Lighting.ComputeLighting, Lighting.SunAt, info.Seconds);
+            _drawn, _instances, Lighting.LightingAt, Lighting.SunAt, info.Seconds);
 
         EntityModelSet.PoseCounters pose = _models.Counters.Since(before);
 
@@ -544,7 +544,7 @@ public sealed class MomentScene : IGameSystemPerFrame
         _models.Instances(
             scene.Props,
             _viewmodelInstances,
-            Lighting.ComputeLighting,
+            Lighting.LightingAt,
             Lighting.SunAt,
             info.Seconds);
 

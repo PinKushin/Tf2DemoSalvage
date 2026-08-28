@@ -539,7 +539,7 @@ public sealed class MapAssets
         IReadOnlyCollection<string>? entityModels = null,
         IReadOnlyCollection<string>? wornModels = null,
         Func<LightmapAtlas, IReadOnlyDictionary<string, PropModels.ModelFrames>>? brushModels = null,
-        Func<float, float, float, AmbientCube>? lightAt = null,
+        Func<float, float, float, PointLighting>? lightAt = null,
         ILoggerFactory? loggers = null)
     {
         ArgumentNullException.ThrowIfNull(archives);

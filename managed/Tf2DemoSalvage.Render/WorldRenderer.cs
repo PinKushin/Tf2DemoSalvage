@@ -221,6 +221,28 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // paths share one shader because the alternative is two that agree until one gains a
             // feature.
             float4 skinning;
+
+            // **The direct lights near this model, at most four** — the engine's `locallight[]`.
+            // `PixelShaderDoLightingLinear` adds an ambient cube and then up to four of these, each
+            // shaded against the surface normal, and `PixelShaderDoSpecularLight` runs once per
+            // light with that light's attenuation. So a lamp reaching a model this way gives it
+            // shape and a highlight; the same lamp folded into the cube gives it neither, which is
+            // the whole of B170's missing term.
+            //
+            // xyz is where the light is, world space. w is 1 when the slot holds a light and 0 when
+            // it does not — read as a flag rather than as a count, because a count in a constant
+            // buffer is one more thing that can disagree with the data beside it.
+            float4 localLightPosition[4];
+
+            // rgb is the light's own intensity, linear and in the ambient cube's scale. w is the
+            // cutoff range, squared, or zero for no cutoff at all — which is what every light on
+            // cp_process carries, so reading zero as a real radius extinguishes the map.
+            float4 localLightColour[4];
+
+            // xyz is Valve's attenuation denominator, `a0 + a1*d + a2*d^2`, already carrying vrad's
+            // all-zero rule so a light with no terms arrives as a constant one rather than as a
+            // division by nothing.
+            float4 localLightFalloff[4];
         };
 
         // **Per material rather than per frame.** A detail texture's scale, strength and combine
@@ -857,6 +879,61 @@ internal sealed unsafe class WorldRenderer : IDisposable
                         : float3(falloff, falloff, falloff);
 
                     light += sunColour.rgb * direct;
+                }
+
+                // **And the lamps, each shaded against the normal and added** — the other half of
+                // what the engine gives a model. `PixelShaderDoLightingLinear` accumulates the cube
+                // and then up to four of these, so a light is in exactly one of the two and never
+                // both; `LevelLighting.LightingAt` is what keeps that true on the way in.
+                //
+                // Per pixel rather than per vertex, which is where this DIVERGES from Valve: the
+                // engine computes attenuation in `VertexAttenInternal` and interpolates it, because
+                // SM2.0 had nowhere else to put it. Doing it here needs no new interpolants and no
+                // vertex format change, and the two agree except across a triangle large enough for
+                // the reciprocal to bend inside it — which a model's triangles are not.
+                for (int lamp = 0; lamp < 4; lamp++)
+                {
+                    if (localLightPosition[lamp].w < 0.5f)
+                    {
+                        continue;
+                    }
+
+                    float3 toLamp = localLightPosition[lamp].xyz - input.wpos;
+                    float distanceSquared = dot(toLamp, toLamp);
+
+                    // **Clamped, not offset**: MaxSIMD( Four_Ones, dist2 ) in lightdesc.cpp. The
+                    // ambient reconstruction uses 1 / (dist + 1) and the two are easy to conflate.
+                    distanceSquared = max(1.0f, distanceSquared);
+
+                    // Strictly less than, and a range of zero means no cutoff at all.
+                    if (localLightColour[lamp].w != 0.0f &&
+                        distanceSquared >= localLightColour[lamp].w)
+                    {
+                        continue;
+                    }
+
+                    float distance = sqrt(distanceSquared);
+
+                    // Valve's denominator, `1 / dot(atten.xyz, (1, d, d^2))`.
+                    float attenuation = 1.0f / dot(
+                        localLightFalloff[lamp].xyz, float3(1.0f, distance, distanceSquared));
+
+                    float towardsLamp = dot(input.nrm, toLamp / distance);
+
+                    // The same DiffuseTerm the sun takes, so a half-Lambert material shades both
+                    // the same way — Valve applies it inside DoLightInternal for every light.
+                    float lampWrapped = saturate(towardsLamp * 0.5f + 0.5f);
+                    bool lampWarping = phongFresnel.w > 0.5f;
+
+                    float lampFalloff = combine.y > 0.5f
+                        ? (lampWarping ? lampWrapped : lampWrapped * lampWrapped)
+                        : saturate(towardsLamp);
+
+                    float3 lampDirect = lampWarping
+                        ? 2.0f * lightWarp.Sample(clampSampler, float2(lampFalloff, 0.5f)).rgb
+                        : float3(lampFalloff, lampFalloff, lampFalloff);
+
+                    light += localLightColour[lamp].rgb * attenuation * lampDirect;
                 }
             }
 
@@ -2958,6 +3035,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <param name="blend">How far toward the next baked animation frame, from nought to one.</param>
     /// <param name="sun">The sun reaching this model, or null when it stands in shade.</param>
     /// <param name="bones">How many bones skin this draw, or zero for a baked model.</param>
+    /// <param name="locals">
+    /// The direct lights near this model, at most four. Null or empty where none reach it, which
+    /// the shader reads as "no lamp" rather than as a black one at the origin.
+    /// </param>
     /// <exception cref="ArgumentException"><paramref name="matrix"/> is not sixteen floats.</exception>
     /// <remarks>
     /// **Valve's arrangement, and the reason it matters here.**
@@ -2976,7 +3057,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         AmbientCube? light = null,
         SunLight? sun = null,
         float blend = 0f,
-        int bones = 0)
+        int bones = 0,
+        IReadOnlyList<LocalLight>? locals = null)
     {
         ArgumentNullException.ThrowIfNull(matrix);
 
@@ -3028,6 +3110,47 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // skeleton was last uploaded.
         contents[52] = bones;
 
+        // **The lamps near this model.** Written into three parallel float4 arrays because that is
+        // what the constant buffer holds; the slot's own w flag says whether it is live, and every
+        // slot past what was supplied stays zero, which reads as "no light" rather than as a black
+        // one at the origin.
+        //
+        // 56 is where the fixed part ends: sixteen for the matrix, twenty-four for the cube, and
+        // four each for the sun, its direction, the frame blend and the skinning switch.
+        const int LocalLightBase = 56;
+
+        if (locals is { Count: > 0 })
+        {
+            int lamps = Math.Min(locals.Count, LocalLightSlots);
+
+            for (int slot = 0; slot < lamps; slot++)
+            {
+                LocalLight lamp = locals[slot];
+
+                int position = LocalLightBase + (slot * 4);
+                int colour = LocalLightBase + (LocalLightSlots * 4) + (slot * 4);
+                int falloff = LocalLightBase + (LocalLightSlots * 8) + (slot * 4);
+
+                contents[position] = lamp.X;
+                contents[position + 1] = lamp.Y;
+                contents[position + 2] = lamp.Z;
+                contents[position + 3] = 1f;
+
+                contents[colour] = lamp.Red;
+                contents[colour + 1] = lamp.Green;
+                contents[colour + 2] = lamp.Blue;
+
+                // Squared here rather than in the shader, which would do it per pixel to reach the
+                // same number — and zero stays zero, which is the "no cutoff" every light on
+                // cp_process actually carries.
+                contents[colour + 3] = lamp.Range * lamp.Range;
+
+                contents[falloff] = lamp.Constant;
+                contents[falloff + 1] = lamp.Linear;
+                contents[falloff + 2] = lamp.Quadratic;
+            }
+        }
+
         MappedSubresource mapped = default;
 
         SilkMarshal.ThrowHResult(context.Map(_model, 0, Map.WriteDiscard, 0, ref mapped));
@@ -3053,8 +3176,20 @@ internal sealed unsafe class WorldRenderer : IDisposable
         context.PSSetConstantBuffers(2, 1, ref _model);
     }
 
-    /// <summary>Floats in the model constant buffer: a matrix, six cube faces, and the sun.</summary>
-    private const int ModelConstants = 16 + (6 * 4) + 4 + 4 + 4 + 4;
+    /// <summary>Floats in the model constant buffer: a matrix, six cube faces, the sun, four lamps.</summary>
+    /// <remarks>
+    /// **This number and the <c>cbuffer Model</c> above must agree, and nothing at runtime can
+    /// check it.** A buffer smaller than the declared struct leaves D3D reading past it; larger
+    /// and the tail is ignored. `ModelConstantsMatchTheShader` counts the float4s in the HLSL and
+    /// asserts they come to this, which is a generated denominator rather than a number somebody
+    /// remembers to update — the same instrument the material buffer needed after a replace-all
+    /// grew two of three arrays and turned the scene into a strobe.
+    /// </remarks>
+    private const int ModelConstants =
+        16 + (6 * 4) + 4 + 4 + 4 + 4 + (LocalLightSlots * 4 * 3);
+
+    /// <summary>How many local lights a model draw carries, matching the engine's four.</summary>
+    private const int LocalLightSlots = 4;
 
     /// <summary>Floats in the camera buffer: the matrix, the view switches, and the eye.</summary>
     /// <remarks>
@@ -4160,6 +4295,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// Valve's colour for a brush entity's class, applied in the category view only (B219, B156).
     /// Null for anything that is not a brush entity.
     /// </param>
+    /// <param name="locals">
+    /// The direct lights near this model, at most four (B170). Empty where none reach it.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **One matrix and one draw per entity, which is the engine's shape.** The vertices were
@@ -4183,7 +4321,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         bool mirrored = false,
         bool bothSides = false,
         (float X, float Y, float Z)? origin = null,
-        (float Red, float Green, float Blue)? tint = null)
+        (float Red, float Green, float Blue)? tint = null,
+        IReadOnlyList<LocalLight>? locals = null)
     {
         ArgumentNullException.ThrowIfNull(matrix);
         ArgumentNullException.ThrowIfNull(batches);
@@ -4227,7 +4366,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // too. It buys the buffer never being rebuilt, which was 200 ms a time.
         context.IASetVertexBuffers(0, 1, ref vertexBuffer, in stride, in offset);
 
-        SetModel(context, matrix, light, sun, blend, bones);
+        SetModel(context, matrix, light, sun, blend, bones, locals);
 
         // **Which of the map's cubemaps this model reflects, chosen once for the whole model.** A
         // model's material says the literal `env_cubemap`, which VertexLitGeneric keeps to runtime

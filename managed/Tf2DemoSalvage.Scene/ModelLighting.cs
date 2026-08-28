@@ -15,8 +15,18 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="X">Where it was sampled, which a worn item borrows from its wearer.</param>
 /// <param name="Y">Where it was sampled.</param>
 /// <param name="Z">Where it was sampled.</param>
+/// <param name="Locals">
+/// The nearest direct lights, at most <see cref="LocalLights.MaximumLocalLights"/>. Empty for a
+/// brush entity, whose light is already in its lightmap, and empty where the map has no lamps near
+/// enough to matter.
+/// </param>
 public readonly record struct ModelLight(
-    AmbientCube? Light, SunLight? Sun, float X, float Y, float Z);
+    AmbientCube? Light,
+    SunLight? Sun,
+    float X,
+    float Y,
+    float Z,
+    IReadOnlyList<LocalLight> Locals);
 
 /// <summary>
 /// The ambient cube and sun each model is drawn with, cached on the point it was sampled at.
@@ -58,7 +68,7 @@ public sealed class ModelLighting
     /// without ever refreshing.
     /// </remarks>
     private readonly record struct LitAt(
-        int X, int Y, int Z, AmbientCube Light, SunLight? Sun);
+        int X, int Y, int Z, AmbientCube Light, SunLight? Sun, IReadOnlyList<LocalLight> Locals);
 
     private readonly Dictionary<int, LitAt> _lit = [];
 
@@ -96,7 +106,7 @@ public sealed class ModelLighting
     /// </remarks>
     public ModelLight For(
         SceneProp prop,
-        Func<float, float, float, AmbientCube>? lightAt,
+        Func<float, float, float, PointLighting>? lightAt,
         Func<float, float, float, SunLight?>? sunAt)
     {
         ScenePose pose = prop.Pose;
@@ -112,7 +122,7 @@ public sealed class ModelLighting
         // corridor. Null is what LightmappedGeneric means: the light is already in the atlas.
         if (prop.Kind == SceneModelKind.Brush)
         {
-            return new ModelLight(null, null, x, y, z);
+            return new ModelLight(null, null, x, y, z, []);
         }
 
         // Compared as bits rather than as floats, which is what "the identical point" means and is
@@ -125,28 +135,31 @@ public sealed class ModelLighting
 
         AmbientCube? light;
         SunLight? sun;
+        IReadOnlyList<LocalLight> locals;
 
         if (_lit.TryGetValue(prop.EntityIndex, out LitAt cached) &&
             cached.X == bitsX && cached.Y == bitsY && cached.Z == bitsZ)
         {
             light = cached.Light;
             sun = cached.Sun;
+            locals = cached.Locals;
         }
         else
         {
-            AmbientCube sampled = lightAt is null ? default : lightAt(x, y, z);
+            PointLighting sampled = lightAt is null ? PointLighting.None : lightAt(x, y, z);
 
-            light = sampled;
+            light = sampled.Cube;
             sun = sunAt?.Invoke(x, y, z);
+            locals = sampled.Locals;
 
-            _lit[prop.EntityIndex] = new LitAt(bitsX, bitsY, bitsZ, sampled, sun);
+            _lit[prop.EntityIndex] = new LitAt(bitsX, bitsY, bitsZ, sampled.Cube, sun, locals);
         }
 
         Ticks += Stopwatch.GetTimestamp() - started;
 
         Report(prop, lightAt, light);
 
-        return new ModelLight(light, sun, x, y, z);
+        return new ModelLight(light, sun, x, y, z, locals);
     }
 
     /// <summary>Says once per model when it is drawn with no light at all.</summary>
@@ -161,7 +174,7 @@ public sealed class ModelLighting
     /// go and look at the spot.
     /// </remarks>
     private void Report(
-        SceneProp prop, Func<float, float, float, AmbientCube>? lightAt, AmbientCube? light)
+        SceneProp prop, Func<float, float, float, PointLighting>? lightAt, AmbientCube? light)
     {
         if (lightAt is null || light is not { } cube || !IsUnlit(cube) ||
             !_reportedDark.Add(prop.ModelPath))

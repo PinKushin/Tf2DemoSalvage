@@ -658,7 +658,10 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     117
 # `C:\Program Files (x86)\Steam` and `Program` is a Viewer3D type; `SkinOverrideConformanceTests`
 # named `MainForm` only in a comment; and `PlaylistFilterTests` carried a dead
 # `using Tf2DemoSalvage.Viewer3D` when `PlaylistFilter` lives in `Scene`.
-run Tf2DemoSalvage.Rendering.Tests rendering 538
+# 540: ModelConstantLayoutTests, which counts the float4s the shader declares and asserts they come
+# to ModelConstants. Nothing at runtime can check that pair, and a disagreement is the strobing
+# garbage the material buffer produced when a replace-all grew two of three arrays.
+run Tf2DemoSalvage.Rendering.Tests rendering 540
 run Tf2DemoSalvage.Viewer3D.Tests viewer    101
 
 echo

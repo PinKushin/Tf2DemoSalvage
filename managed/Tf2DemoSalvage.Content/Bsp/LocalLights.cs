@@ -60,6 +60,31 @@ public readonly record struct LocalLight(
     float Constant, float Linear, float Quadratic,
     float Range);
 
+/// <summary>Everything lighting a point: the bounce cube, and the direct lights near it.</summary>
+/// <param name="Cube">The leaf's ambient cube — bounce, plus the dim surface lights vrad folded in.</param>
+/// <param name="Locals">Up to four direct lights, strongest first.</param>
+/// <remarks>
+/// **One type rather than a second delegate beside the first.** Five call sites take a
+/// <c>Func&lt;float, float, float, AmbientCube&gt;</c>; adding local lights as a fourth parallel
+/// delegate would have made a smell worse, and the two halves are answers to one question anyway —
+/// the engine adds them together and each light belongs to exactly one of them.
+///
+/// **The array is allocated only where lights are found**, and <c>ModelLighting</c> caches
+/// the whole result on the sampled position, so a model that has not moved re-samples nothing. A
+/// scene where two dozen players are moving allocates two dozen four-element arrays a frame, which
+/// is far below the frame budget; a static scene allocates none.
+/// </remarks>
+public readonly record struct PointLighting(AmbientCube Cube, IReadOnlyList<LocalLight> Locals)
+{
+    /// <summary>A point with no lighting information at all.</summary>
+    public static PointLighting None => new(default, []);
+
+    /// <summary>Just a cube, for a caller with no world lights to offer.</summary>
+    /// <param name="cube">The bounce term.</param>
+    /// <returns>That cube with no direct lights.</returns>
+    public static PointLighting Bounce(AmbientCube cube) => new(cube, []);
+}
+
 public static class LocalLights
 {
     /// <summary>How many lights the engine carries as true local lights.</summary>
