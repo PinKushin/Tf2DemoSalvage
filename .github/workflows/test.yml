@@ -160,7 +160,7 @@ jobs:
           # .trx total.
           # 673 -> 686: 13 more (StudioIkChainTests 7, StudioBoneControllerTests 5, one capacity
           # guard). All but one IK test build their own bytes and run anywhere.
-          ./build/assert-test-count.sh '**/content.trx' 727 Content
+          ./build/assert-test-count.sh '**/content.trx' 740 Content
           ./build/assert-test-count.sh '**/presentation.trx' 396 Presentation
           ./build/assert-test-count.sh '**/logging.trx' 17 Logging
           # 10 is MEASURED locally and safe on a runner without the SDK, because a .trx total counts
@@ -385,7 +385,7 @@ jobs:
           ./build/assert-test-count.sh '**/audio.trx' 183 Audio
           ./build/assert-test-count.sh '**/fonts.trx' 7 Fonts
           ./build/assert-test-count.sh '**/viewer.trx' 101 Viewer
-          ./build/assert-test-count.sh '**/rendering.trx' 540 Rendering
+          ./build/assert-test-count.sh '**/rendering.trx' 553 Rendering
           ./build/assert-test-count.sh '**/viewer-ui.trx' 14 ViewerUi
           ./build/assert-test-count.sh '**/corpus.trx' 117 Corpus
 

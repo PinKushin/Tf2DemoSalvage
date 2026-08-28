@@ -480,7 +480,9 @@ run Tf2DemoSalvage.Presentation.Tests presentation 396
 # one makes the gate permanently red - which the ratchet then reports as missing tests.
 # 727: LocalLightConformanceTests (6), which writes down how the engine sums local lights before
 # anything here passed one, and LocalLightSelectionTests (8) on the selection a shader would take.
-run Tf2DemoSalvage.Content.Tests  content   727
+# 740: StudioBoundsConformanceTests (4) pinning the header's bounds offsets against studio.h, and
+# StudioBoundsTests (9) reading them off the real scout — including one [Explicit] probe.
+run Tf2DemoSalvage.Content.Tests  content   740
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
@@ -661,7 +663,9 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     117
 # 540: ModelConstantLayoutTests, which counts the float4s the shader declares and asserts they come
 # to ModelConstants. Nothing at runtime can check that pair, and a disagreement is the strobing
 # garbage the material buffer produced when a replace-all grew two of three arrays.
-run Tf2DemoSalvage.Rendering.Tests rendering 540
+# 553: OpaqueDrawOrderConformanceTests, which writes down Valve's opaque ordering — brush models
+# first, then biggest size bucket to smallest — before anything here sorts.
+run Tf2DemoSalvage.Rendering.Tests rendering 553
 run Tf2DemoSalvage.Viewer3D.Tests viewer    101
 
 echo
