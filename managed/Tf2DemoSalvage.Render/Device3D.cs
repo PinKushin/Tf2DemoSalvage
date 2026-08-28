@@ -482,6 +482,63 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// </remarks>
     private void DrawViewmodels(IReadOnlyList<ModelInstance>? viewmodels, float[]? camera)
     {
+        // **Every transition, never a sample — and the difference is the whole point.** The rate
+        // limited lines below report the viewmodel pass once a second, which cannot see an event
+        // shorter than a second. The symptom this was added for is a weapon that vanishes for a few
+        // FRAMES while a sticky charges, so a one-second sample reports "drawing 2" on both sides of
+        // the gap and the gap itself never happened as far as the log is concerned.
+        //
+        // A change-triggered line has no such blind spot and no spam problem either: it is silent
+        // while the state holds and writes exactly one line per flip, however brief. That is the
+        // right shape for any state whose CHANGES are the signal.
+        //
+        // Information, not Debug, because the previous version of this was invisible without
+        // `developer 1` — which is how a blind instrument stays blind.
+        int drawing = _world is null || camera is null ? -1 : viewmodels?.Count ?? 0;
+
+        if (drawing != _viewmodelsDrawn)
+        {
+            if (_viewmodelTransitions++ < ViewmodelTransitionReports)
+            {
+                _render.LogInformation(
+                    "{Message}",
+                    $"viewmodel pass {(_viewmodelsDrawn < 0 ? "start" : "changed")}: " +
+                    $"{Describe(_viewmodelsDrawn)} -> {Describe(drawing)}" +
+                    $"{(_viewmodelTransitions == ViewmodelTransitionReports ? " — further transitions not logged" : string.Empty)}");
+            }
+
+            _viewmodelsDrawn = drawing;
+        }
+
+        // **Is the camera itself usable?** The owner reports that during a dropout the ARMS vanish
+        // too, not only the weapon — so the whole pass produces nothing while this instrument
+        // happily reports two models drawn with a camera present. A count and a null check cannot
+        // see a camera whose MATRIX is degenerate: one NaN anywhere in it sends every vertex of
+        // every model to nowhere the rasteriser will accept, which is exactly "the pass ran and
+        // nothing appeared".
+        //
+        // Checked here rather than assumed, because "camera is not null" and "camera describes a
+        // view" are different claims and only the first was ever tested.
+        if (camera is not null)
+        {
+            bool sane = true;
+
+            foreach (float value in camera)
+            {
+                sane &= float.IsFinite(value);
+            }
+
+            if (!sane != _viewmodelCameraBroken)
+            {
+                _viewmodelCameraBroken = !sane;
+
+                _render.LogWarning(
+                    "{Message}",
+                    $"viewmodel camera matrix {(sane ? "RECOVERED" : "went NON-FINITE")}: " +
+                    string.Join(", ", camera.Select(each => each.ToString("0.###", CultureInfo.InvariantCulture))));
+            }
+        }
+
         if (_world is null || viewmodels is not { Count: > 0 } || camera is null)
         {
             // **Which of the three, because they are different faults.** No renderer, nothing to
@@ -620,6 +677,22 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
         foreach (ModelInstance instance in viewmodels)
         {
+            // **Is the model collapsed rather than absent?** The pass draws it every frame and it is
+            // still not on screen, so the remaining candidates are all about the POSE — and a
+            // skinned model whose bones go degenerate occupies no pixels while reporting a perfectly
+            // ordinary draw. The launcher is five bones merged onto the arms and only four of them
+            // match by name, which is exactly the shape that produces one unset matrix.
+            //
+            // Transition-logged, like the pass count above, because the event is a few frames long:
+            // a sample would sit on either side of it and see nothing.
+            //
+            // **The arms are passed as the reference, because "is it posed" was the wrong
+            // question.** A weapon can have perfectly valid, non-collapsed bones and still be four
+            // thousand units from the hands — which is a viewmodel that is simply not on screen, and
+            // reads on screen as no viewmodel at all. Measured on the Iron Bomber, whose bones came
+            // back `0 of 4 degenerate, span 31.11` and centred 4,400 units from the arms.
+            ReportBonesIfDegenerate(instance, viewmodels[0]);
+
             if (instance.Bones is { Count: > 0 } bones)
             {
                 _world.SetBones(_context, bones);
@@ -1726,14 +1799,250 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             instance.BodyParts,
             instance.Body);
 
-        (RenderGroup stored, bool twoPass) =
-            RenderGroups.Store(RenderGroups.For(translucent, instance.TwoPass));
+        RenderGroup requested = RenderGroups.For(translucent, instance.TwoPass);
+
+        (RenderGroup stored, bool twoPass) = RenderGroups.Store(requested);
 
         (bool opaque, bool blended) =
             RenderGroups.Lists(stored, twoPass, RenderGroups.FullyOpaque);
 
+        // **Logged when it CHANGES, not once per model, and the difference is the whole point.**
+        // The symptom this was added for is a weapon that draws sometimes and not others, reported
+        // around the moments a weapon's animation changes — so the question is not "what group is
+        // this model in" but "did it move". A once-per-model line answers the first and is blind to
+        // the second; a per-frame line buries it at sixty a second.
+        //
+        // The frame is carried because it is the input that varies: `Classify` resolves batches
+        // through `ModelBatches(path, frame)`, so a model whose frame selects different batches can
+        // legitimately classify differently from one frame to the next.
+        _classified.TryGetValue(
+            instance.ModelPath,
+            out (RenderGroup Group, bool Opaque, bool Translucent, int Reported) was);
+
+        bool moved = was.Group != requested || was.Opaque != opaque || was.Translucent != blended;
+
+        // **Capped, because an unbounded log is its own defect.** A model that alternates every
+        // frame is exactly the case worth seeing and exactly the case that would write sixty lines a
+        // second; the first few carry the whole finding and the rest are weight. The cap is per
+        // MODEL, so a second model flipping is still reported.
+        if (moved && was.Reported < ChangeReports && _classified.ContainsKey(instance.ModelPath))
+        {
+            _render.LogWarning(
+                "{Message}",
+                $"{System.IO.Path.GetFileNameWithoutExtension(instance.ModelPath)} changed render " +
+                $"group: {was.Group} (opaque {was.Opaque}, translucent {was.Translucent}) -> " +
+                $"{requested} (opaque {opaque}, translucent {blended}) at frame {instance.Frame}" +
+                $"{(was.Reported + 1 == ChangeReports ? " — further changes to this model not logged" : string.Empty)}");
+        }
+
+        _classified[instance.ModelPath] =
+            (requested, opaque, blended, moved ? was.Reported + 1 : was.Reported);
+
         return (opaque, blended, twoPass);
     }
+
+    /// <summary>How many group changes to report per model before falling silent.</summary>
+    private const int ChangeReports = 8;
+
+    /// <summary>How many viewmodel-pass transitions to report before falling silent.</summary>
+    /// <remarks>
+    /// **Generous, because a transition log is bounded by the signal rather than by the clock.** A
+    /// stable pass writes nothing at all; only a flicker writes, and a flicker is what is being
+    /// hunted. Two hundred is enough to cover a whole rollout and still bound a pathological case.
+    /// </remarks>
+    private const int ViewmodelTransitionReports = 200;
+
+    /// <summary>How many viewmodels the last frame drew: −1 for no pass at all.</summary>
+    private int _viewmodelsDrawn = -2;
+
+    /// <summary>Whether the viewmodel camera's matrix was last seen non-finite.</summary>
+    private bool _viewmodelCameraBroken;
+
+    /// <summary>How many transitions have been reported.</summary>
+    private int _viewmodelTransitions;
+
+    /// <summary>Reports a viewmodel whose bones stop describing a pose, and when they recover.</summary>
+    /// <param name="instance">The viewmodel about to be drawn.</param>
+    /// <param name="arms">The first viewmodel prop, which the weapon is merged onto.</param>
+    /// <remarks>
+    /// **Three ways a bone can fail to place anything, and they are not the same fault.** A matrix of
+    /// all zeros collapses its vertices onto the model origin; a non-finite one sends them nowhere
+    /// the rasteriser will accept; and a zero-length basis flattens the model into a plane. All
+    /// three draw perfectly and cover no pixels, which is indistinguishable on screen from a model
+    /// that was never submitted — the difference this whole search has turned on.
+    ///
+    /// **Reported on CHANGE only.** A weapon that is fine for a minute and wrong for four frames
+    /// writes two lines; a weapon that is always wrong writes one. Neither writes per frame.
+    /// </remarks>
+    private void ReportBonesIfDegenerate(ModelInstance instance, ModelInstance arms)
+    {
+        int bad = 0;
+
+        // The span the bones cover, which is what says whether the model has any SIZE. A matrix can
+        // be finite and non-zero and still collapse its vertices, so "not degenerate" is not the
+        // same claim as "occupies space" — the first version of this checked only the first and is
+        // why a confirmed reproduction came back clean.
+        float minX = float.MaxValue, minY = float.MaxValue, minZ = float.MaxValue;
+        float maxX = float.MinValue, maxY = float.MinValue, maxZ = float.MinValue;
+
+        if (instance.Bones is { Count: > 0 } bones)
+        {
+            foreach (float[] bone in bones)
+            {
+                bool finite = true;
+                bool anySet = false;
+
+                foreach (float value in bone)
+                {
+                    finite &= float.IsFinite(value);
+                    anySet |= value != 0f;
+                }
+
+                // **A basis row of zero length flattens the model onto a plane or a point**, and
+                // every value in it is a perfectly ordinary finite number. Rows 0, 1 and 2 of a
+                // 3x4 row-major matrix are the axes; index 3, 7, 11 are the translation.
+                bool collapsed = false;
+
+                if (finite && bone.Length >= 12)
+                {
+                    for (int row = 0; row < 3; row++)
+                    {
+                        float a = bone[(row * 4) + 0];
+                        float b = bone[(row * 4) + 1];
+                        float c = bone[(row * 4) + 2];
+
+                        collapsed |= (a * a) + (b * b) + (c * c) < 1e-8f;
+                    }
+                }
+
+                if (!finite || !anySet || collapsed)
+                {
+                    bad++;
+                }
+
+                if (finite && bone.Length >= 12)
+                {
+                    minX = MathF.Min(minX, bone[3]);
+                    maxX = MathF.Max(maxX, bone[3]);
+                    minY = MathF.Min(minY, bone[7]);
+                    maxY = MathF.Max(maxY, bone[7]);
+                    minZ = MathF.Min(minZ, bone[11]);
+                    maxZ = MathF.Max(maxZ, bone[11]);
+                }
+            }
+        }
+
+        // **Bucketed rather than reported raw, because a viewmodel's bones move every frame.** What
+        // is wanted is not the number but whether it left the band a drawable weapon lives in: a
+        // span of nought is a model collapsed to a point, and a huge one is a model whose bones have
+        // been scattered. Anything between is ordinary and says nothing.
+        float span = maxX < minX
+            ? 0f
+            : MathF.Max(maxX - minX, MathF.Max(maxY - minY, maxZ - minZ));
+
+        string band = span switch
+        {
+            < 0.01f => "COLLAPSED",
+            > 4096f => "SCATTERED",
+            _ => "normal",
+        };
+
+        (float X, float Y, float Z) centre =
+            ((minX + maxX) / 2f, (minY + maxY) / 2f, (minZ + maxZ) / 2f);
+
+        // **How far the weapon is from the hands, which is the question that matters.** A viewmodel
+        // weapon is merged onto the arms, so it lives within a few tens of units of them. A hundred
+        // is generous — a weapon further away than the arms are long is not on screen, whatever its
+        // bones look like in isolation.
+        //
+        // The arms are their own reference and always read `here`, which is the control: if that
+        // ever says `AWAY`, the fault is in the measurement rather than in the weapon.
+        string place = "here";
+
+        if (!string.Equals(instance.ModelPath, arms.ModelPath, StringComparison.Ordinal) &&
+            Centre(arms) is { } where)
+        {
+            float dx = centre.X - where.X;
+            float dy = centre.Y - where.Y;
+            float dz = centre.Z - where.Z;
+
+            place = MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz)) > 100f ? "AWAY" : "here";
+        }
+
+        _boneState.TryGetValue(instance.ModelPath, out (int Bad, string Band, string Place) was);
+
+        if (bad == was.Bad && band == (was.Band ?? string.Empty) &&
+            place == (was.Place ?? string.Empty))
+        {
+            return;
+        }
+
+        _boneState[instance.ModelPath] = (bad, band, place);
+
+        if (_boneReports++ >= ViewmodelTransitionReports)
+        {
+            return;
+        }
+
+        _render.LogWarning(
+            "{Message}",
+            $"{System.IO.Path.GetFileNameWithoutExtension(instance.ModelPath)} bones changed: " +
+            $"{was.Bad} degenerate -> {bad} of {instance.Bones?.Count ?? 0}, " +
+            $"span {span:0.##} ({was.Band ?? "(first)"} -> {band}), " +
+            $"placement {was.Place ?? "(first)"} -> {place}, " +
+            $"centre ({centre.X:0.#}, {centre.Y:0.#}, {centre.Z:0.#}), " +
+            $"frame {instance.Frame}");
+    }
+
+    /// <summary>The centre of a model's posed bones, or null when it has none.</summary>
+    private static (float X, float Y, float Z)? Centre(ModelInstance instance)
+    {
+        if (instance.Bones is not { Count: > 0 } bones)
+        {
+            return null;
+        }
+
+        float minX = float.MaxValue, minY = float.MaxValue, minZ = float.MaxValue;
+        float maxX = float.MinValue, maxY = float.MinValue, maxZ = float.MinValue;
+
+        foreach (float[] bone in bones)
+        {
+            if (bone.Length < 12 || !float.IsFinite(bone[3]))
+            {
+                continue;
+            }
+
+            minX = MathF.Min(minX, bone[3]);
+            maxX = MathF.Max(maxX, bone[3]);
+            minY = MathF.Min(minY, bone[7]);
+            maxY = MathF.Max(maxY, bone[7]);
+            minZ = MathF.Min(minZ, bone[11]);
+            maxZ = MathF.Max(maxZ, bone[11]);
+        }
+
+        return maxX < minX
+            ? null
+            : ((minX + maxX) / 2f, (minY + maxY) / 2f, (minZ + maxZ) / 2f);
+    }
+
+    /// <summary>Each viewmodel's last reported bone state: degenerate count, span band, placement.</summary>
+    private readonly Dictionary<string, (int Bad, string Band, string Place)> _boneState = [];
+
+    /// <summary>How many bone reports have been written.</summary>
+    private int _boneReports;
+
+    /// <summary>How a viewmodel count reads in the log.</summary>
+    private static string Describe(int drawing) => drawing switch
+    {
+        -2 => "(first frame)",
+        -1 => "NO PASS (no world or no first-person camera)",
+        0 => "NOTHING (the scene supplied no viewmodel)",
+        _ => $"{drawing} drawn",
+    };
+
+    /// <summary>The last render group each model classified into, to report a change.</summary>
+    private readonly Dictionary<string, (RenderGroup Group, bool Opaque, bool Translucent, int Reported)>
+        _classified = [];
 
     /// <summary>Writes, once, what the cull kept and how it spread across Valve's size buckets.</summary>
     /// <param name="offered">Every instance the scene produced, before culling.</param>

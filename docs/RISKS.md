@@ -13870,3 +13870,74 @@ wants its own conformance suite.
 `m_clrRender->a` and ignores `m_nRenderFX` gives the right answer only for `kRenderFxNone` and a
 confidently wrong one for every effect — which is the failure mode that looks like a rendering bug
 rather than a missing feature.
+
+### B222 — a held weapon's viewmodel vanishes for 60 ms to 4.6 s; its bones coincide — OPEN, mechanism partly measured
+
+**Reported by the owner 2026-08-28**, watching `cp_process_f12`: *"the sticky launcher sometimes
+doesnt draw"*, and later *"tf2 never has a period you dont see any viewmodel at all really,
+expecailly not at 75 viewmodel fov"* — so any gap at all is a defect, not a tolerance question.
+
+**PRE-EXISTING, and settled by a CONTROL rather than by argument.** It surfaced during the two-pass
+work (D114) and looked like a regression from it. The pre-change tree (`3c4eb64`) was built in a
+scratch worktree and run on the same demo: **the dropout still happens.** That is the whole of the
+authorship question, and it took one launch — against an evening of reasoning that reached the same
+answer three times and was not entitled to it.
+
+**Run the control EARLY.** Every argument offered before it — that no bone, animation, merge or pose
+file was touched; that a point-sized model is invisible under any pass — was true, and none of it was
+evidence about the symptom. The owner asked for the control and it ended the question immediately.
+
+**The single most useful observation came from looking, not from the log:** *"the arms are not being
+drawn either during the dropout, its not just the weapon"*. The whole viewmodel PASS goes blank. So
+every measurement of `c_stickybomb_launcher` — its bones, its sequence table, its merge, its posed
+size — was measuring the wrong subject, and the ones that came back clean were clean because there
+was nothing wrong with that model.
+
+**What is established:**
+
+- The viewmodel pass draws its models **every frame** while the weapon is invisible. A
+  transition-logged pass count never leaves `2 drawn`, and `drew NOTHING` never fires. So the model
+  is submitted and drawn.
+- Its bone matrices are **individually valid** — finite, non-zero, and with a proper rotation basis
+  — while every bone **translation coincides**. Bone-translation span drops from ~0.5–5 units to
+  0.01 and returns.
+- Durations measured: 17 ms, ~60 ms (repeatedly), and once **4.6 seconds** (17:46:51.956 →
+  17:46:56.563).
+- It is **not** the `SetupBones` failure path. That calls `ShrinkToNothing`, which zeroes the merged
+  matrices — the degeneracy count would be non-zero, and it is always 0 — and its caller correctly
+  declines to draw (`EntityModels.cs:1485`).
+
+**Two things that looked like the cause and are NOT, both recorded because each cost time:**
+
+1. **The weapon switch.** The demoman switches to his Iron Bomber (`c_quadball`, item 1151,
+   `tf_weapon_grenadelauncher`, slot primary) for 33–119 ticks and back; `m_hActiveWeapon` genuinely
+   moves 359 → 357 → 359, so the viewer is right about which weapon is active. An early claim that
+   the Iron Bomber was posed 4,400 units from the hands was an **artefact of the measurement**: its
+   bone centre was compared against the arms' centre logged three seconds earlier, during which the
+   player crossed the map. Measured against the arms in the SAME frame it reads `here`, and the
+   owner confirmed by looking: *"the quadball is loading right, i see it"*.
+2. **`ACT_VM_PULLBACK`.** Charging a sticky calls `SendWeaponAnim( ACT_VM_PULLBACK )` and sets
+   `m_iWeaponMode = TF_WEAPON_PRIMARY_MODE` (`tf_weapon_pipebomblauncher.cpp:204-209`), which is an
+   elegant fit for "the primary is drawn during a charge" — and this project reads
+   `m_iWeaponMode` **nowhere**. Checked before it was asserted.
+
+**What is suspected and NOT proven:** something in the pose build leaves bone positions coincident
+while orientations survive. That is what an unapplied bind pose looks like, but nothing has been
+measured at that layer yet.
+
+**The instrument itself is a proxy and should be replaced before more weight is put on it.**
+Bone-translation span stands in for "does the model have size", and vertices are placed by bone
+ROTATIONS and bind-pose offsets — so bones half a unit apart can still draw a metre-long weapon.
+Normal spans measured across weapons: crossbow 0.16, sticky launcher 0.53 (and 4.7, 5.4, 75.4 at
+other moments), ubersaw 0. What supports the reading is the TIMING — collapses land when the owner
+reports the weapon gone, repeatedly — not the number. **Measure the posed vertex extent instead.**
+
+**`c_ubersaw` reports `span 0` from its first frame and never recovers**, which would make it a
+deterministic subject rather than an intermittent one. **This is NOT visually confirmed**: the owner
+*"havent been watching the medic"* and suspects he has seen it drawn. So it may be ordinary for a
+three-bone melee weapon, and treating it as the same defect is a guess.
+
+**Instruments added for this and kept** (`Device3D`): the viewmodel pass count, the per-model bone
+degeneracy/span/placement report, and `WorldRenderer`'s "drew NOTHING in the {pass} pass", plus
+`MomentScene`'s held-weapon change line naming `m_hActiveWeapon`, class and item. All are
+transition-logged rather than sampled — see the memory this produced.

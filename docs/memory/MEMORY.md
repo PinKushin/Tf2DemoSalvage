@@ -143,3 +143,6 @@
 - [A demo names a map version](a-demo-names-a-map-version.md) — svc_ServerInfo carries the CRC; a mismatched .bsp imitates rendering bugs.
 - [Suspect the input, not the algorithm](suspect-the-input-not-the-algorithm.md) — a correct algorithm failing means the wrong field, file, or transform.
 - [A gap can be filed backwards](a-gap-can-be-filed-backwards.md) — "we do not do X" and "we do X everywhere" set the same task.
+- [Log the event, not a sample of it](log-the-event-not-a-sample-of-it.md) — four ways a diagnostic went blind; transition logs, not samples.
+- [Run the control before arguing](run-the-control-before-arguing.md) — one launch settles authorship that correct reasoning cannot.
+- [State the assumptions the owner can falsify](state-the-assumptions-the-owner-can-falsify.md) — he is looking at it; say what you assume about the symptom.

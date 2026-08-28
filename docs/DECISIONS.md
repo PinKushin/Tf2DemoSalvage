@@ -6534,3 +6534,33 @@ the transcription, and every caller passes their neutral values because nothing 
 `m_clrRender`, `m_nRenderFX` or `m_nRenderMode`. `ComputeFxBlend` is a ~210-line time-based switch
 and is its own task. Both code paths exist and are tested; neither can fire until the properties are
 read. Full account in `docs/findings/44-what-makes-a-model-two-pass.md`.
+
+## D115 — A bug hunt states its assumptions before it measures
+
+**Owner-set, 2026-08-28**, after an evening spent measuring the wrong subject:
+
+> *"lets make a method when we a bug fixing that you ask me about any assumptions you are making,
+> like the hands still showing, because if i knew you were only checking the weapon and not the whole
+> viewmodel as i know it, i could have told you much sooner"*
+
+**What happened.** The report was *"the sticky launcher sometimes doesnt draw"*. It was taken
+literally, and every instrument was aimed at that one model — bones, sequence table, bone merge,
+posed vertex extent, material classification, render group. Four mechanisms were proposed and each
+was killed by measurement. Hours in, the owner mentioned that the **arms were missing too**: the
+whole viewmodel pass was blanking, and every clean result had been clean because that model was never
+at fault.
+
+**The rule.** Before instrumenting a defect, write down what is being assumed about the symptom and
+ask. For anything visual, at minimum: what else is missing, what the full extent is, which words of
+the report are being taken literally, and what is assumed to be held constant. Then say what a CLEAN
+result from each instrument would mean, because a silent instrument and a healthy subject produce
+identical output.
+
+**Why it belongs in the project rather than only in the assistant's memory.** The asymmetry is
+structural and permanent: the owner is looking at a running program and the assistant is reading a
+log. It is the same principle as the standing rule that a UI claim which cannot be verified by
+looking is a question rather than a statement — moved one step earlier, to the framing of the hunt
+instead of its conclusion. See `docs/memory/state-the-assumptions-the-owner-can-falsify.md`, and
+its sibling rule in `docs/memory/run-the-control-before-arguing.md`, which came out of the same
+evening: when a symptom appears right after a change, build the pre-change tree and run it rather
+than arguing about whether the change could have caused it.

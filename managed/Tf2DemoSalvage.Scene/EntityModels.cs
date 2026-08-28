@@ -742,6 +742,150 @@ public sealed class EntityModelSet
     /// <summary>Each entity's skinning matrices, reused between frames.</summary>
     private readonly Dictionary<int, float[][]> _skinning = [];
 
+    /// <summary>Reports a viewmodel whose posed VERTICES stop covering any space.</summary>
+    /// <param name="modelPath">Which model.</param>
+    /// <param name="bones">Its skinning matrices this frame.</param>
+    /// <remarks>
+    /// **The real measurement, replacing a proxy that had no established meaning** (B222). The first
+    /// attempt measured the span of the skinning matrices' translation columns — but a skinning
+    /// matrix is <c>Concatenate(boneToWorld, poseToBone)</c>, so its translation is not the bone's
+    /// world position and the span of those columns is a mixture of placement and bind offset. It
+    /// correlated with the defect by timing and could not be interpreted.
+    ///
+    /// This applies the matrices to the model's own corners exactly as the GPU will, and measures
+    /// the box they land in. That is the quantity the symptom is about: a model covering no space
+    /// draws nothing, whatever its matrices look like individually.
+    ///
+    /// **Sampled every sixteenth corner**, because this runs per frame for the viewmodel rather than
+    /// once per model. A collapse is a property of the whole set, so a sixteenth of it is ample —
+    /// and the alternative is walking twenty thousand corners a frame to answer a yes/no.
+    ///
+    /// **Transition-logged**, like every other instrument this hunt produced: the event lasts 60 ms
+    /// and a sampled line cannot see it. See `docs/memory/log-the-event-not-a-sample-of-it.md`.
+    /// </remarks>
+    private void ReportPosedSize(string modelPath, IReadOnlyList<float[]> bones)
+    {
+        if (!_raw.TryGetValue(modelPath, out IReadOnlyList<PropVertex>? corners) ||
+            corners.Count == 0)
+        {
+            return;
+        }
+
+        float minX = float.MaxValue, minY = float.MaxValue, minZ = float.MaxValue;
+        float maxX = float.MinValue, maxY = float.MinValue, maxZ = float.MinValue;
+
+        for (int at = 0; at < corners.Count; at += 16)
+        {
+            PropVertex corner = corners[at];
+
+            float total = corner.Weights.First + corner.Weights.Second + corner.Weights.Third;
+
+            if (total <= 0f)
+            {
+                continue;
+            }
+
+            Span<byte> which = [corner.Bones.First, corner.Bones.Second, corner.Bones.Third];
+            Span<float> howMuch =
+                [corner.Weights.First, corner.Weights.Second, corner.Weights.Third];
+
+            float x = 0f, y = 0f, z = 0f;
+
+            for (int slot = 0; slot < 3; slot++)
+            {
+                if (howMuch[slot] <= 0f || which[slot] >= bones.Count)
+                {
+                    continue;
+                }
+
+                float[] m = bones[which[slot]];
+                float share = howMuch[slot] / total;
+
+                x += share * ((m[0] * corner.X) + (m[1] * corner.Y) + (m[2] * corner.Z) + m[3]);
+                y += share * ((m[4] * corner.X) + (m[5] * corner.Y) + (m[6] * corner.Z) + m[7]);
+                z += share * ((m[8] * corner.X) + (m[9] * corner.Y) + (m[10] * corner.Z) + m[11]);
+            }
+
+            minX = MathF.Min(minX, x);
+            minY = MathF.Min(minY, y);
+            minZ = MathF.Min(minZ, z);
+            maxX = MathF.Max(maxX, x);
+            maxY = MathF.Max(maxY, y);
+            maxZ = MathF.Max(maxZ, z);
+        }
+
+        if (maxX < minX)
+        {
+            return;
+        }
+
+        float size = MathF.Max(maxX - minX, MathF.Max(maxY - minY, maxZ - minZ));
+
+        // A weapon is tens of units long. Under one unit it is not on screen as anything.
+        string band = size < 1f ? "NO SIZE" : "drawable";
+
+        (float X, float Y, float Z) centre =
+            ((minX + maxX) / 2f, (minY + maxY) / 2f, (minZ + maxZ) / 2f);
+
+        // **Where it is relative to the HANDS, from the same posed vertices.** Size alone answered
+        // its question — every viewmodel stays a healthy 28 to 65 units across, including while the
+        // weapon is invisible — so what is left is placement, and this is the only measurement of it
+        // that means anything: both centres come from real corners under the real matrices, taken in
+        // the SAME frame. An earlier attempt compared two centres three seconds apart and reported a
+        // 4,400-unit error that did not exist (B222).
+        if (modelPath.Contains("_arms", StringComparison.OrdinalIgnoreCase))
+        {
+            _armsCentre = centre;
+        }
+
+        string place = "arms";
+
+        if (_armsCentre is { } hands &&
+            !modelPath.Contains("_arms", StringComparison.OrdinalIgnoreCase))
+        {
+            float dx = centre.X - hands.X;
+            float dy = centre.Y - hands.Y;
+            float dz = centre.Z - hands.Z;
+
+            // **Bucketed to five units, not thresholded at a hundred.** The first version asked
+            // "is it further than 100 units from the hands" and answered no throughout, which is
+            // true and useless: a weapon fifty units from the eye is entirely off screen and reads
+            // as "with the hands". A weapon sits within tens of units of the eye, so the bucket has
+            // to be of that order for movement to appear at all. Same mistake as the one-second
+            // sample and the hundred-unit threshold before it — a resolution chosen without asking
+            // what size of effect had to be visible.
+            float away = MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
+
+            place = $"{(int)(away / 5f) * 5}-{((int)(away / 5f) * 5) + 5}u from hands";
+        }
+
+        _posedSize.TryGetValue(modelPath, out string? was);
+
+        if ($"{band}/{place}" == was)
+        {
+            return;
+        }
+
+        _posedSize[modelPath] = $"{band}/{place}";
+
+        _props.LogWarning(
+            "{Message}",
+            $"{System.IO.Path.GetFileNameWithoutExtension(modelPath)} posed size changed: " +
+            $"{was ?? "(first)"} -> {band}/{place}, {size:0.##} units across, " +
+            $"at ({centre.X:0.#}, {centre.Y:0.#}, {centre.Z:0.#})");
+    }
+
+    /// <summary>Whether each viewmodel's posed vertices last covered any space, and where.</summary>
+    private readonly Dictionary<string, string> _posedSize = [];
+
+    /// <summary>Where the arms were posed this frame, as the weapon's reference.</summary>
+    /// <remarks>
+    /// The props are built arms first, so this is set before any weapon consults it. Null until the
+    /// first arms model is posed, which is the state where a weapon has nothing to be measured
+    /// against and is reported as being with the hands rather than guessed at.
+    /// </remarks>
+    private (float X, float Y, float Z)? _armsCentre;
+
     /// <summary>Measures a skinned model with its pose applied on the processor.</summary>
     private void ReportPosedExtents(
         string modelPath, IReadOnlyList<float[]> bones, string? label = null)
@@ -1495,6 +1639,14 @@ public sealed class EntityModelSet
                 bones = Skinning(prop.EntityIndex, skinned.Bones, animating.Bones);
 
                 SkinTicks += System.Diagnostics.Stopwatch.GetTimestamp() - skinAt;
+
+                // **Only the viewmodel, because only it is measured every frame** (B222). The
+                // viewmodel entities carry their own indices, so this cannot pick up a world prop
+                // and pay for two hundred of them.
+                if (prop.EntityIndex >= ViewmodelScene.ArmsEntityIndex)
+                {
+                    ReportPosedSize(prop.ModelPath, bones);
+                }
 
                 // **The bones are already in world space**, so the model matrix must not place the
                 // model a second time (finding 35 section 7a). This is where the merged item's

@@ -4570,6 +4570,15 @@ internal sealed unsafe class WorldRenderer : IDisposable
             }
         }
 
+        // **A ledger of why each batch did or did not draw, counted on the way OUT** (B?). The
+        // symptom this exists for is "the weapon sometimes is not there", and the three candidate
+        // causes are indistinguishable from the picture: the pass filter kept nothing, the body
+        // number selected nothing, or there was nothing offered in the first place. Counting only
+        // the survivors would report "0 drawn" for all three.
+        int kept = 0;
+        int filteredByPass = 0;
+        int filteredByBody = 0;
+
         foreach (WorldBatch batch in batches)
         {
             // **A skin is one lookup at draw time, which is how the engine does it.** Valve resolve
@@ -4612,11 +4621,13 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // `$mostlyopaque` gets; see `RenderGroups` for who decides.
             if (pass is ModelPass.OpaqueOnly && wantsBlending)
             {
+                filteredByPass++;
                 continue;
             }
 
             if (pass is ModelPass.TranslucentOnly && !wantsBlending)
             {
+                filteredByPass++;
                 continue;
             }
 
@@ -4627,8 +4638,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
             if (bodyParts is { Count: > 0 } &&
                 !Shows(bodyParts, batch.BodyPart, batch.BodyModel, body))
             {
+                filteredByBody++;
                 continue;
             }
+
+            kept++;
 
             // **Chosen per MATERIAL rather than per pass, which is the engine's arrangement and the
             // other half of B135.** A shader in Source declares `EnableBlending` in its own
@@ -4740,7 +4754,14 @@ internal sealed unsafe class WorldRenderer : IDisposable
                                     ? swap
                                     : each.MaterialIndex;
 
-                                return $"{drawn}" +
+                                // **The classification, because its absence made an ASSUMPTION
+                                // load-bearing.** This line named the material indices and nothing
+                                // else, so "are the arms opaque?" was answered from the material's
+                                // NAME — `demoman_hands` sounds opaque — rather than from the table
+                                // that decides which pass it draws in. That is the difference
+                                // between a measurement and a guess, and the guess was steering a
+                                // regression hunt.
+                                return $"{drawn}:{DescribeMaterial(drawn)}" +
                                     $"{(drawn != each.MaterialIndex ? $"(from {each.MaterialIndex})" : string.Empty)}" +
                                     $"{(drawn >= 0 && _usesLocalCubemap.Contains(drawn) ? " REFLECTS-LOCAL" : string.Empty)}";
                             })
@@ -4766,7 +4787,34 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
             context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
         }
+
+        // **A model asked to draw that drew nothing, said once per model and pass.** This is the
+        // instrument for "the weapon is sometimes not there" — a symptom that looks identical
+        // whether the pass filter kept nothing, the body number selected nothing, or the frame
+        // offered nothing, and which no component test can see, because every component did exactly
+        // what it was told.
+        //
+        // **Warning, not Debug.** A model the renderer was told to draw and did not draw is a defect
+        // in something; only which thing is open. The offered count is included because "nothing
+        // offered" is a different fault from "all filtered", and the guard at the top of this method
+        // already returns early for a model with no batches at all — so reaching here with zero kept
+        // means the filtering did it.
+        //
+        // Once per (model, pass), because the condition is frame-dependent: unguarded it would
+        // repeat sixty times a second, and guarding on the model alone would hide whichever pass is
+        // the one that matters.
+        if (kept == 0 && _reportedEmptyDraw.Add((modelPath, pass)))
+        {
+            _render.LogWarning(
+                "{Message}",
+                $"{System.IO.Path.GetFileNameWithoutExtension(modelPath)} drew NOTHING in the " +
+                $"{pass} pass: {batches.Count} batches offered, {filteredByPass} filtered by the " +
+                $"pass, {filteredByBody} by body {body}");
+        }
     }
+
+    /// <summary>Which models have already reported drawing nothing, per pass.</summary>
+    private readonly HashSet<(string Model, ModelPass Pass)> _reportedEmptyDraw = [];
 
     /// <summary>Whether a batch is the alternative its body part shows.</summary>
     /// <remarks>GetBodygroup, shared/animation.cpp:876, applied to a packed run.</remarks>

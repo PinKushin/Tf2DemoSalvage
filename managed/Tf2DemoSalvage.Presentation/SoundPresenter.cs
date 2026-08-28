@@ -55,6 +55,40 @@ public sealed class SoundPresenter(
     Func<string, SoundSample?> sample,
     ILogger audio) : IGameSystem
 {
+    /// <summary>How many sounds actually reached the output.</summary>
+    private int _submitted;
+
+    /// <summary>How many one-shots were dropped for coming out silent.</summary>
+    private int _silenced;
+
+    /// <summary>How many reports have been written, to bound them.</summary>
+    private int _audioReports;
+
+    /// <summary>Says what the sound path is actually DOING, at widening intervals.</summary>
+    /// <remarks>
+    /// **The one number that distinguishes "no sound" from "a healthy sound system".** Reported at
+    /// 1, 10, 100, 1000 … so a run that submits nothing says so immediately and a run that works
+    /// says it once and then goes quiet. Both counts, because "submitted 0, silenced 4,000" and
+    /// "submitted 0, silenced 0" are completely different faults — a wrong gain curve against
+    /// nothing being scheduled at all — and the log could previously tell them apart not at all.
+    /// </remarks>
+    private void ReportAudioOutput()
+    {
+        int total = _submitted + _silenced;
+
+        // 1, 10, 100, 1000, ... — dense where a fault shows and silent once it is working.
+        if (total <= 0 || total % (int)Math.Pow(10, Math.Min(4, _audioReports)) != 0)
+        {
+            return;
+        }
+
+        _audioReports++;
+
+        audio.LogInformation(
+            "{Message}",
+            $"sound output: {_submitted} submitted, {_silenced} dropped for zero gain");
+    }
+
     /// <inheritdoc/>
     public string Name => "soundemitter";
 
@@ -269,6 +303,18 @@ public sealed class SoundPresenter(
         // sound never exists to be turned up when the listener walks over.
         if (gain <= 0f && !opened.Loops)
         {
+            // **The audio subsystem had no output-level instrument at all**, which is why "we lost
+            // sound at some point in the past 2 days" could not be placed. Every audio line in a run
+            // is setup — output opened, N sounds on the timeline, N precached — and all of those are
+            // CAPABILITIES. None of them says a sound was ever submitted, so total silence and a
+            // healthy subsystem produce identical logs. See
+            // `docs/memory/measure-the-output-not-the-capability.md`, which this is a textbook case
+            // of and which was written about a different subsystem.
+            //
+            // This is the drop that can silence everything: a one-shot whose gain came out zero is
+            // discarded here, so a wrong gain curve removes nearly all sound and reports nothing.
+            _silenced++;
+            ReportAudioOutput();
             return;
         }
 
@@ -277,6 +323,9 @@ public sealed class SoundPresenter(
         // **Pan and gain go separately.** The pan is baked into the samples and fixed for the life
         // of the sound; the gain is a scalar on the source and is what SetGain moves as the listener
         // travels (B169).
+        _submitted++;
+        ReportAudioOutput();
+
         output.Play(
             opened,
             left,

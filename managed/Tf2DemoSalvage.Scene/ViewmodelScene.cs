@@ -100,6 +100,16 @@ public sealed class ViewmodelScene
     /// <summary>The off hand, which is a separate viewmodel slot the engine also carries.</summary>
     public const int OffHandEntityIndex = 4098;
 
+    /// <summary>The sequence a weapon attached to the hands plays: its own first, never the arms'.</summary>
+    /// <remarks>
+    /// **Zero because the engine never sets one** — see the citation where this is used.
+    /// `C_ViewmodelAttachmentModel` is created, parented and skinned, and no code path calls
+    /// `SetSequence` on it; its pose comes from merging onto the viewmodel's bones. A named constant
+    /// rather than a bare `0` so the next reader finds the reasoning instead of assuming a
+    /// placeholder.
+    /// </remarks>
+    public const int AttachmentSequence = 0;
+
     private (string Model, int Demo, int Played) _reported = (string.Empty, -1, -1);
 
     /// <summary>Builds the first-person scene for one tick.</summary>
@@ -157,11 +167,29 @@ public sealed class ViewmodelScene
         // one-model scheme and leaves the weapon undrawn.
         if (AttachesToHands(weapon.ModelPath, hands) && heldWeapon is { Length: > 0 } held)
         {
+            // **The weapon does NOT take the arms' sequence, and TF2 is explicit about it** (B222).
+            // A `c_` weapon is a `C_ViewmodelAttachmentModel` parented to the viewmodel, and nothing
+            // in the engine ever calls `SetSequence` on it: it is created, parented, skinned, and
+            // then posed entirely through the bone merge. Its own blending is
+            //
+            //   BaseClass::StandardBlendingRules( ... );          // its OWN default animation
+            //   m_hOuter->ViewModelAttachmentBlending( ... );     // empty for all but two weapons
+            //
+            // (`econ_entity.cpp:890`, and the hook is `{}` at `econ_entity.h:125` — only the grenade
+            // launcher's barrel and the minigun's spin override it).
+            //
+            // **Handing it the ARMS' sequence index is meaningless and sometimes harmful.** The two
+            // models have unrelated sequence tables: `c_demo_arms` merges 74 sequences while
+            // `c_stickybomb_launcher` carries exactly one, `idle`. So the moment the arms move to
+            // anything but sequence 0 — which is what charging a sticky does, via
+            // `SendWeaponAnim( ACT_VM_PULLBACK )` at `tf_weapon_pipebomblauncher.cpp:209` — the
+            // weapon is asked for a sequence it does not have. Sequence zero is what the engine
+            // leaves it on, and the merge is what actually places it.
             props.Add(new SceneProp(
                 WeaponEntityIndex,
                 held,
                 SceneModelKind.Studio,
-                at.PoseFor(weapon.Sequence, weapon.PlaybackRate),
+                at.PoseFor(AttachmentSequence, weapon.PlaybackRate),
                 AttachedTo: ArmsEntityIndex));
         }
 

@@ -77,10 +77,11 @@ public sealed class StudioModelFlagCensus
             {
                 twoPass++;
 
-                if (twoPassNames.Count < 60)
-                {
-                    twoPassNames.Add(path);
-                }
+                // **All of them, not a sample.** The first version printed sixty and the question
+                // that mattered — "is the sticky launcher one of these?" — fell off the end of the
+                // list. A census that truncates cannot answer a question about a specific member,
+                // which is most of what a census gets asked.
+                twoPassNames.Add(path);
             }
 
             if ((flags & StudioModelFlags.ForceOpaque) != 0)
@@ -103,7 +104,7 @@ public sealed class StudioModelFlagCensus
             $"  STATIC_PROP          {staticProp,6:N0}  ({(double)staticProp / read:P2})");
 
         TestContext.Out.WriteLine();
-        TestContext.Out.WriteLine("two-pass models (first 60):");
+        TestContext.Out.WriteLine("two-pass models, every one:");
 
         foreach (string name in twoPassNames)
         {

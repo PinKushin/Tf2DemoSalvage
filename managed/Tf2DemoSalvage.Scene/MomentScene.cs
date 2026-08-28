@@ -157,6 +157,9 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// </remarks>
     public WeaponModels Weapons { get; set; } = WeaponModels.None(NullLogger.Instance);
 
+    /// <summary>The weapon model the follower last held, so a change can be reported once.</summary>
+    private string? _lastWeaponModel;
+
     /// <summary>What this moment draws, after every visibility rule.</summary>
     public IReadOnlyList<SceneProp> Drawn => _drawn;
 
@@ -487,6 +490,33 @@ public sealed class MomentScene : IGameSystemPerFrame
                 $"sun {(Lighting.SunAt(camera.Origin.X, camera.Origin.Y, camera.Origin.Z) is null ? "none" : "reaching")}");
         }
 
+        string? weaponModel = held is { } holder ? Weapons.For(holder) : null;
+
+        // **Which weapon the follower is holding, reported when it CHANGES.** Measured 2026-08-28: a
+        // demoman's sticky launcher vanishes for a few frames at a time and the viewmodel pass keeps
+        // reporting "2 drawn" throughout — because the second prop has silently become his PRIMARY
+        // (the Iron Bomber, `c_quadball`), not because anything stopped being drawn. `MomentScene`
+        // already warned about this exact trap eight lines below: *"the count says two and cannot
+        // say two of WHAT."*
+        //
+        // **Three fields, because they split the fault three ways and nothing else can.**
+        // `m_hActiveWeapon` naming the wrong entity is a decode question; the right entity with the
+        // wrong class is an entity-table question; the right class resolving to the wrong model is a
+        // schema question. One line distinguishes all three, and without it the only visible symptom
+        // is a weapon that is sometimes absent.
+        if (!string.Equals(weaponModel, _lastWeaponModel, StringComparison.Ordinal))
+        {
+            _render.LogWarning(
+                "{Message}",
+                $"held weapon changed at tick {info.CurrentTick}: " +
+                $"{_lastWeaponModel ?? "(none)"} -> {weaponModel ?? "(none)"}, " +
+                $"m_hActiveWeapon {held?.ActiveWeapon?.ToString(CultureInfo.InvariantCulture) ?? "(none)"}, " +
+                $"class {held?.WeaponClass ?? "(none)"}, " +
+                $"item {held?.WeaponItem?.ToString(CultureInfo.InvariantCulture) ?? "(none)"}");
+
+            _lastWeaponModel = weaponModel;
+        }
+
         ViewmodelSceneResult scene = _viewmodels.Build(
             source,
             info.CurrentTick,
@@ -499,7 +529,7 @@ public sealed class MomentScene : IGameSystemPerFrame
                 camera.Angles.Yaw,
                 camera.Angles.Roll),
             hands,
-            held is { } holder ? Weapons.For(holder) : null);
+            weaponModel);
 
         if (scene.Props.Count == 0)
         {
