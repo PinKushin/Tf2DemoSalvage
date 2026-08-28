@@ -46,10 +46,30 @@ public static class ViewCamera
     /// complements — `CameraMode` has had two members since D49 — so "which mode" and "is there an
     /// eye" were the only questions ever being asked.
     /// </remarks>
-    public static float[] Matrix(bool firstPerson, FreeCamera? eye, FreeCamera free)
+    public static float[] Matrix(bool firstPerson, FreeCamera? eye, FreeCamera free) =>
+        Active(firstPerson, eye, free).ToMatrix();
+
+    /// <summary>Which camera the frame is actually seen through.</summary>
+    /// <param name="firstPerson">Whether the view is through a player's eyes.</param>
+    /// <param name="eye">That player's camera, or null when nobody's eyes are available.</param>
+    /// <param name="free">The free camera, which is what everything else falls back to.</param>
+    /// <returns>The camera to project, cull and measure with.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="free"/> is null.</exception>
+    /// <remarks>
+    /// **Extracted so the projection and the view frustum cannot come from different cameras.**
+    /// <see cref="Matrix"/> used to make this choice inline, which was fine while a matrix was the
+    /// only thing derived from it. Now that a cull is derived too, "which camera" has to be one
+    /// answer given once — a frustum built from the free camera while the picture is drawn through
+    /// a player's eyes culls the geometry the viewer is looking at, and the symptom is the world
+    /// disappearing in first person only.
+    ///
+    /// This project has shipped the neighbouring version of that mistake: a build-time shortcut
+    /// that assumed a top-down camera, which broke the moment the free camera moved.
+    /// </remarks>
+    public static FreeCamera Active(bool firstPerson, FreeCamera? eye, FreeCamera free)
     {
         ArgumentNullException.ThrowIfNull(free);
 
-        return firstPerson && eye is { } through ? through.ToMatrix() : free.ToMatrix();
+        return firstPerson && eye is { } through ? through : free;
     }
 }

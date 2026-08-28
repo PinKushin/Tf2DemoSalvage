@@ -137,3 +137,4 @@
 - [Extraction without adoption is not DRY](extraction-without-adoption-is-not-dry.md) — the duplicate count went 73 → 94 AFTER the helper existed.
 - [A stability test needs seventeen items](a-stability-test-needs-seventeen-items.md) — introsort's short runs are stable by accident.
 - [A lazy cache makes reading a write](a-lazy-cache-makes-reading-a-write.md) — parse on assignment and publish a snapshot, as Valve does.
+- [One camera or the cull lies](one-camera-or-the-cull-lies.md) — pass the camera, never a second derivation of it.

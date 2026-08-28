@@ -144,17 +144,67 @@ public sealed class OpaqueDrawOrderTests
             .ShouldBe(["first", "second", "third"]);
     }
 
-    /// <summary>That a scene of one model is returned without being copied.</summary>
+    /// <summary>That a model outside the view is dropped before it is bucketed.</summary>
     /// <remarks>
-    /// Reference equality, because the shortcut's only purpose is to avoid the allocation — an
-    /// implementation that sorted anyway would still pass a sequence comparison.
+    /// **This replaced a shortcut that returned a one-model list unchanged.** That was correct while
+    /// this method only sorted — one item is already in order — and became wrong the moment it also
+    /// culled, because a single model can be off screen. The old test asserted reference equality,
+    /// so it would have kept passing against an implementation that skipped the cull for small
+    /// scenes, which is exactly the sort of special case that survives because nothing exercises it.
+    ///
+    /// The frustum looks down +X from the origin; the two models sit 200 units ahead and behind.
     /// </remarks>
     [Test]
-    public void InDrawOrder_ForASingleModel_ReturnsTheSameList()
+    public void InDrawOrder_WithAModelBehindTheCamera_DropsIt()
     {
-        IReadOnlyList<ModelInstance> scene = [Sized("only", 100f)];
+        ModelInstance[] scene =
+        [
+            Placed("ahead", 200f),
+            Placed("behind", -200f),
+        ];
 
-        OpaqueBuckets.InDrawOrder(scene).ShouldBeSameAs(scene);
+        OpaqueBuckets.InDrawOrder(scene, Looking())
+            .Select(instance => instance.ModelPath)
+            .ShouldBe(["ahead"]);
+    }
+
+    /// <summary>That an unbuilt frustum culls nothing, so the sort alone still works.</summary>
+    /// <remarks>
+    /// The control for the case above: the same two models, no frustum, both drawn. Without it,
+    /// "the cull works" and "the list was emptied for some other reason" look identical.
+    /// </remarks>
+    [Test]
+    public void InDrawOrder_WithNoFrustum_KeepsWhatIsBehindTheCamera()
+    {
+        ModelInstance[] scene =
+        [
+            Placed("ahead", 200f),
+            Placed("behind", -200f),
+        ];
+
+        OpaqueBuckets.InDrawOrder(scene).Count.ShouldBe(2);
+    }
+
+    /// <summary>A camera at the origin looking down +X.</summary>
+    private static ViewFrustum Looking() =>
+        ViewFrustum.PerspectiveFromAspect(
+            origin: (0f, 0f, 0f),
+            forward: (1f, 0f, 0f),
+            right: (0f, -1f, 0f),
+            up: (0f, 0f, 1f),
+            nearZ: 7f,
+            farZ: 1000f,
+            fovX: 90f,
+            aspect: 1f);
+
+    /// <summary>A crate-sized model standing at a given distance along +X.</summary>
+    private static ModelInstance Placed(string name, float x)
+    {
+        float[] matrix = Identity();
+
+        matrix[12] = x;
+
+        return new ModelInstance(name, matrix, null, null, Bounds: Cube(50f));
     }
 
     [Test]

@@ -861,9 +861,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 // **Opaque only.** The translucent pass below must stay back-to-front by distance —
                 // blending is order-dependent, and a size sort there would put a window in front of
                 // what should show through it.
-                IReadOnlyList<ModelInstance> opaque = OpaqueBuckets.InDrawOrder(models ?? []);
+                IReadOnlyList<ModelInstance> opaque =
+                    OpaqueBuckets.InDrawOrder(models ?? [], _frustum);
 
-                ReportDrawOrder(opaque);
+                ReportDrawOrder(models, opaque);
 
                 foreach (ModelInstance instance in opaque)
                 {
@@ -911,6 +912,16 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
                 foreach (ModelInstance instance in models ?? [])
                 {
+                    // **Culled too, but NOT reordered.** The engine culls in the leaf system before
+                    // it splits opaque from translucent, so both passes see the same visible set;
+                    // what differs is the order, and this one must stay as the scene produced it
+                    // because blending is order-dependent. Running the opaque list through here
+                    // would put a window in front of what should show through it.
+                    if (Culled(instance))
+                    {
+                        continue;
+                    }
+
                     if (instance.Bones is { Count: > 0 } bones)
                     {
                         _world.SetBones(_context, bones);
@@ -1102,13 +1113,43 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             _device, world.Vertices, world.Batches, world.Decals, world.Props);
     }
 
-    /// <summary>Sets the view the world is drawn through.</summary>
+    /// <summary>Sets the view the world is drawn through, and the volume it culls against.</summary>
+    /// <param name="camera">The camera the frame is seen through.</param>
+    /// <param name="surfaceColours">Whether to draw flat category colours instead of textures.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="camera"/> is null.</exception>
+    /// <exception cref="ObjectDisposedException">The device has been disposed.</exception>
+    /// <remarks>
+    /// **The projection and the cull come from one camera, on purpose.** Deriving them separately
+    /// invites the two to disagree, and a frustum that describes a camera nobody is looking through
+    /// removes exactly the geometry in front of the viewer — which reads as a rendering fault
+    /// rather than as a stale camera. Taking the camera itself makes the pair a single decision.
+    ///
+    /// **Set on a view CHANGE rather than per frame**, like the matrix it replaces: the frustum is
+    /// a function of the camera and nothing else, so recomputing it while nothing moved would be
+    /// six planes of arithmetic for the same six planes.
+    /// </remarks>
+    public void SetCamera(FreeCamera camera, bool surfaceColours = false)
+    {
+        ArgumentNullException.ThrowIfNull(camera);
+
+        _frustum = camera.Frustum();
+
+        SetCamera(camera.ToMatrix(), surfaceColours);
+    }
+
+    /// <summary>Sets the view the world is drawn through, without a cull volume.</summary>
     /// <param name="matrix">Sixteen floats, row major.</param>
     /// <param name="surfaceColours">Whether to draw flat category colours instead of textures.</param>
     /// <exception cref="ObjectDisposedException">The device has been disposed.</exception>
     /// <remarks>
     /// **The resize path, now.** Geometry is uploaded in world coordinates and stays; a viewport
     /// change rewrites one 64-byte buffer instead of rebuilding every vertex.
+    ///
+    /// **This overload leaves the frustum alone rather than clearing or inventing one.** A matrix
+    /// can be decomposed back into six planes, and doing so would be a SECOND derivation of the
+    /// camera — the thing <see cref="SetCamera(FreeCamera, bool)"/> exists to prevent. A caller
+    /// that only ever uses this overload culls nothing, which is slower and never wrong; the
+    /// viewmodel pass, which sets a camera of its own and restores the world's, relies on that.
     /// </remarks>
     public void SetCamera(float[] matrix, bool surfaceColours = false)
     {
@@ -1433,6 +1474,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// <summary>Whether the repeated-model census has been written.</summary>
     private bool _reportedRepeats;
 
+    /// <summary>The volume the draw culls against, or an unbuilt one that culls nothing.</summary>
+    /// <remarks>
+    /// **Unbuilt until a camera arrives, and unbuilt draws everything.** The safe direction: a
+    /// viewer drawing more than it needs is slow, and one drawing nothing is a black screen that
+    /// reads as a much deeper fault.
+    /// </remarks>
+    private ViewFrustum _frustum;
+
     /// <summary>Whether the opaque draw order has been reported.</summary>
     private bool _reportedDrawOrder;
 
@@ -1476,28 +1525,57 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         }
     }
 
-    /// <summary>Writes, once, how the opaque models were spread across Valve's size buckets.</summary>
-    /// <param name="ordered">The instances as they are about to be drawn.</param>
+    /// <summary>Whether this instance lies entirely outside the view.</summary>
+    /// <param name="instance">The model about to be drawn.</param>
+    /// <returns>True when nothing of it can be seen.</returns>
     /// <remarks>
-    /// **Because the sort is otherwise invisible, and an invisible sort is one that can quietly stop
-    /// happening.** Measured before this line existed: removing
+    /// **The same box the size bucket uses**, because the engine computes one box and does both
+    /// with it. The opaque path gets this inside <see cref="OpaqueBuckets.InDrawOrder"/>, which
+    /// culls and buckets in one pass; the translucent path has no sort to hang it on and calls it
+    /// directly.
+    /// </remarks>
+    private bool Culled(ModelInstance instance)
+    {
+        if (!_frustum.IsBuilt)
+        {
+            return false;
+        }
+
+        (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) box =
+            WorldSpaceBounds.Of(instance.Bounds, instance.Matrix);
+
+        return _frustum.Cull(box.MinX, box.MinY, box.MinZ, box.MaxX, box.MaxY, box.MaxZ);
+    }
+
+    /// <summary>Writes, once, what the cull kept and how it spread across Valve's size buckets.</summary>
+    /// <param name="offered">Every instance the scene produced, before culling.</param>
+    /// <param name="ordered">What survived, in the order it is about to be drawn.</param>
+    /// <remarks>
+    /// **Because neither the sort nor the cull is visible in the picture, and an invisible step is
+    /// one that can quietly stop happening.** Measured before this line existed: removing
     /// <see cref="OpaqueBuckets.InDrawOrder"/> from the draw loop left all 566 rendering tests
-    /// green. The sort's effect is a frame rate, not a picture, so nothing that looks at the output
-    /// can see it either.
+    /// green. Both steps change a frame rate rather than an image, so nothing that looks at the
+    /// output can see them either.
     ///
-    /// **A count per bucket rather than a boolean, because the interesting failure is not "the sort
-    /// is gone".** It is <see cref="ModelInstance.Bounds"/> arriving unset: a zero-sized box buckets
-    /// as the smallest, so every model lands in bucket 3, the sort returns its input, and everything
-    /// downstream is exactly as it was. That reads here as `0/0/0/N`, which is a distinguishable
-    /// observation rather than a missing line — see
-    /// `docs/memory/log-what-is-about-to-be-drawn.md`.
+    /// **Three numbers, each distinguishing a different silent failure.**
+    ///
+    /// * The offered count against the kept count says whether the cull ran at all. Equal counts
+    ///   mean an unbuilt frustum, which is the state a caller reaches by setting the camera through
+    ///   the float-matrix overload — legal, and indistinguishable from "everything is on screen"
+    ///   without this line.
+    /// * The bucket spread says whether <see cref="ModelInstance.Bounds"/> arrived. A zero-sized box
+    ///   buckets as the smallest, so an unset one reads as `0/0/0/N` — and would also be culled by
+    ///   nothing, since a degenerate box straddles every plane it touches.
+    /// * The kept count being ZERO on a map with models is the frustum pointing the wrong way, which
+    ///   is the failure that produces a black screen.
     ///
     /// One line per device, like the repeated-model census beside it: this is a wiring check, and a
     /// per-frame version would be tens of thousands of lines saying the same thing.
     /// </remarks>
-    private void ReportDrawOrder(IReadOnlyList<ModelInstance> ordered)
+    private void ReportDrawOrder(
+        IReadOnlyList<ModelInstance>? offered, IReadOnlyList<ModelInstance> ordered)
     {
-        if (_reportedDrawOrder || ordered.Count == 0)
+        if (_reportedDrawOrder || offered is not { Count: > 0 })
         {
             return;
         }
@@ -1513,8 +1591,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         }
 
         _render.LogInformation(
-            "opaque draw order: {Models} models, buckets {Buckets}",
+            "opaque draw order: {Kept} of {Offered} models kept, buckets {Buckets}",
             ordered.Count,
+            offered.Count,
             string.Join('/', perBucket));
     }
 
