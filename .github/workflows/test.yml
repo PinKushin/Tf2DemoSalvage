@@ -176,7 +176,7 @@ jobs:
           # total, so the floor holds on the machine without TF2.
           ./build/assert-test-count.sh '**/content.trx' 785 Content
           # 396 -> 402 on 2026-08-28: ViewCameraModeTests (6), for the third camera mode.
-          ./build/assert-test-count.sh '**/presentation.trx' 404 Presentation
+          ./build/assert-test-count.sh '**/presentation.trx' 412 Presentation
           ./build/assert-test-count.sh '**/logging.trx' 17 Logging
           # 10 is MEASURED locally and safe on a runner without the SDK, because a .trx total counts
           # skipped tests: the two conformance cases Assert.Ignore where source-sdk-2013 is absent

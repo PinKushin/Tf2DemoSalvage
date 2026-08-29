@@ -6731,3 +6731,39 @@ and immediately after:
 So it is recorded as a proposal with the owner's own caveat attached, not as a decision. The
 trade-off is real in both directions and is written up in `docs/RISKS.md` under B224 rather than
 settled here.
+
+## D120 — A parsed option that nothing reads is a defect, not a pending question
+
+**The owner, 2026-08-29**, catching this being written up as a question rather than fixed:
+
+> *"if you found a divergence you fix it"*
+
+> *"you had just found a divergence from valve, and was about to ignore it it looked like or try to
+> rationalize it away, no you fix it"*
+
+**What was found.** `--look` and `--zoom` were parsed into `LaunchOptions`, and `grep` for their
+fields outside that file returned nothing at all. They had been accepted and silently dropped since
+D98 removed the orthographic camera they were written for.
+
+**What was about to happen.** The findings were correct, the measurement was correct, and the next
+step was going to be *asking* whether to implement them, delete them or make them warn — on the
+grounds that D98 had deliberately left the question open and that removing options is a visible
+product change. That reasoning is not absurd, which is what makes this worth writing down: the
+failure mode is not laziness, it is treating a defect as a decision because a previous note framed
+it as one.
+
+**The rule.** A found divergence gets fixed in the same session it is found. Escalate when the fix
+needs something only the owner has — a preference between two defensible behaviours, a piece of the
+world nobody here can see — not when it needs a decision you are able to make. "There is a recorded
+note saying this was left open" is evidence about the past, not permission to leave it open again.
+
+**And check whether the question is actually open before treating it as one.** It was not here. D98
+asked what `--look` should mean for a camera placed in the world; `OverheadPlacement` is the map
+view's own successor, so the answer was already sitting in the codebase and the options simply
+reshape what it frames. **A design question that has been open a while is worth re-asking against
+the code as it is now** — the thing that made it hard may have been built since
+(`docs/memory/an-impossibility-claim-expires.md` is the same shape).
+
+**Related:** D117 says implement the feature rather than documenting the omission; this is D117 for
+the case where the omission was documented by someone else, earlier, and the note reads as a
+standing decision.

@@ -14097,3 +14097,102 @@ together.
 **Measurement to take before deciding**: what the mode transitions actually cost. The UI suite is
 about 12 seconds for 29 tests, so the ceiling on the whole saving may be small enough to settle this
 without building anything — and that number has not been taken.
+
+### B225 — a viewmodel is drawn while the recorder is a spectator — OPEN, owner-observed 2026-08-29
+
+**Found because autoplay started working.** The viewer had never run a demo forward without someone
+holding a key, so this whole span of `tf2-2013-build1729296-pov-cp_badlands` had never been drawn.
+The owner, watching the first autoplaying run:
+
+> *"the playing revealed a bug, i think i went spectator in this demo and we are either drawing
+> viewmodels for spectators if that spec use to be a player, or the free cam which a player is put
+> into after death, because when a player goes spec, after playing, they get put into the ingame
+> free cam and the pov demo actually records what cam i looked at and what i was looking at, so it
+> follows whatever cam i picked."*
+
+**Two candidate mechanisms, and they are distinguishable.** Both end with a weapon drawn over a view
+that is not a player's eyes:
+
+1. **A spectator who was previously a player** keeps a stale `m_hActiveWeapon`, and nothing here
+   asks whether the followed entity is still ON a playing team.
+2. **The post-death free camera.** TF2 puts a dead or spectating player into a roaming camera, and a
+   POV demo records which camera was chosen and where it looked. If this viewer treats that recorded
+   view as "first person on a player", it will draw that player's viewmodel into a camera that is
+   not attached to him.
+
+**Why it is a divergence rather than a preference.** `CViewRender::ShouldDrawViewModel`
+(`viewrender.cpp:974`) refuses whenever `C_BasePlayer::ShouldDrawLocalPlayer()` is true, and a
+spectator in `OBS_MODE_ROAMING` is exactly that case — the engine cannot draw a viewmodel there.
+D116 is the same shape found from the other side: the camera guarantees an invariant that
+`ShouldDrawViewModel` then relies on, and half a mechanism is not parity.
+
+**Note the overlap with what was already fixed and do not assume it covers this.** `SpectatorView.
+Effective` already downgrades first person to third when the target is DEAD (`m_lifeState`), which
+is `CalcInEyeCamView`'s rule. Going to spectator is not the same state as being dead: a spectator is
+alive-or-absent on team 1, and the life-state test says nothing about him. So the existing guard can
+be working perfectly while this bug is in full view, which is why it was not caught by it.
+
+**Where to start**, in order, because the cheap check comes first:
+
+- **Read `m_iTeam` on the followed entity across the span.** Team 1 is spectator. If the recorder
+  switches to it, mechanism 1 is live and the fix is a team term beside the life-state one — in
+  `SpectatorView.Effective`, where the camera decides, NOT in the viewmodel pass (D116).
+- **Read `m_iObserverMode` and `m_hObserverTarget`.** These are the engine's own answer and this
+  project decodes neither; `shareddefs.h` enumerates `OBS_MODE_*`. If they are present on the wire,
+  they settle the question outright and replace the inference above.
+- Reproduce with `--autoplay --first-person --tick 1900` and watch for `viewmodel pass: drawing`
+  surviving past the point the owner went to spectator.
+
+**Not investigated at all yet** — recorded the moment it was seen, on the owner's instruction to note
+it and carry on with the launch options.
+
+### B226 — `--look` and `--zoom` were parsed and consumed by nothing — FIXED 2026-08-29
+
+**Found while auditing the launch options after B223, and nearly filed as a question instead of a
+defect.** The owner stopped that:
+
+> *"you had just found a divergence from valve, and was about to ignore it it looked like or try to
+> rationalize it away, no you fix it"*
+
+**The measurement.** `grep -rn "LookAt\|\.Zoom" managed/` outside `LaunchOptions.cs` returns
+**nothing**. Both options were accepted, stored in the record, logged as read, and then dropped —
+which is exactly B223's shape arriving through a different door: an option that appears to work and
+does not.
+
+**Why it had been left.** D98 removed the orthographic camera the two were written for and kept the
+fields with an accurate note: what they should mean for a camera *placed in the world* was *"a
+question for whoever reimplements them, and inventing an answer here would be the guess this project
+keeps paying for."* That caution is right about inventing NEW behaviour and wrong about the outcome
+it produced — D117 is the standing rule, and a stated omission is not a discharged one.
+
+**The answer needed no invention, which is the part worth keeping.** `OverheadPlacement` is the map
+view's *successor* — same requirement, one projection instead of two — so "centre on this point" and
+"magnify" already have meanings, and both are expressed by reshaping the rectangle handed to
+`OverheadPlacement.For`. Nothing about the placement itself changed: the 512-unit clearance, the
+89-degree pitch and the fit-the-tighter-axis arithmetic are all still `For`'s.
+
+**Measured end to end on `cp_badlands`**, which is the only instrument that can see `MainForm`
+assigning the properties at all:
+
+```
+free camera placed overhead at (0,0,4864) pitch 89, framing 8192 x 9728
+free camera placed overhead at (2000,-1500,1216) pitch 89, framing 2048 x 2432 of a map measuring 8192 x 9728
+```
+
+Quarter the extent, quarter the height, centred on the look point.
+
+**Two smaller faults fell out of doing it, both of the same family:**
+
+- **The placement log reported the MAP's size, not what was framed.** With `--zoom 4` it read
+  "framing 8192 x 9728" while the camera sat framing 2048 x 2432 — a line contradicting the origin
+  printed beside it. Now it reports what was framed, and names the map only when the two differ.
+- **`MainForm` declared a second `CameraVariable` that nothing read.** `FreeCameraController` owns
+  the real one. Two declarations of one name with no way to notice them drifting; the dead copy's
+  doc comment was accurate, which is what made it look alive.
+
+**A first attempt at the zoom test failed at 512 against a predicted 500, and that was the TEST
+being wrong, not the fix.** `ClearanceAboveGeometry` is 512 and the zoomed camera had dropped below
+it, so the clamp correctly held it up. The condition was too small for the effect to be visible —
+"effect size below resolution" from the testing standards. Fixed by enlarging the map, never by
+loosening the assertion, and the precondition now checks BOTH cameras clear the floor rather than
+only the wide one.
