@@ -541,7 +541,16 @@ run Tf2DemoSalvage.Presentation.Tests presentation 413
 # 778 -> 785 on 2026-08-29: BspTraceMaskConformanceTests (7). The sweep tested CONTENTS_SOLID only,
 # so a camera slid through glass, grates and the brushes of doors and lifts. MASK_SOLID is what
 # CalcChaseCamView traces with.
-run Tf2DemoSalvage.Content.Tests  content   785
+# 785 -> 795 on 2026-08-29: DisplacementSweepConformanceTests, the first half of displacement
+# collision. Every fraction in it was worked out by hand from `dispcoll_common.cpp` BEFORE the code
+# existed — 0.46984375 for a box dropped on a flat triangle, 0.38977903 on a slope — so the numbers
+# are a prediction the implementation cannot have shaped.
+#
+# Two of the ten exist because a sabotage SURVIVED. Disabling the nine edge planes outright left all
+# eight original cases green: the "misses beside the triangle" case sat outside the triangle's
+# AXIS-ALIGNED bounds, so the axis planes rejected it and the edge planes never spoke. A case inside
+# the bounds and beyond the hypotenuse is what measures them, with its mirror just inside as control.
+run Tf2DemoSalvage.Content.Tests  content   795
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
