@@ -67,30 +67,45 @@ public sealed class WeaponModels
     /// <c>docs/memory/nullable-pattern-on-a-struct-is-dead-code.md</c> records, where a guard
     /// compiles and can never fire.
     /// </remarks>
-    public string? For(ScenePlayer holder)
+    public string? For(ScenePlayer holder) =>
+        For(holder.WeaponItem, holder.WeaponClass, holder.PlayerClass);
+
+    /// <summary>The display model for a weapon named by its item, its class, or both.</summary>
+    /// <param name="weaponItem">The item definition index, when the weapon carries one.</param>
+    /// <param name="weaponClass">Its entity class, for the stock route.</param>
+    /// <param name="forClass">Which player class is holding it; models differ per class.</param>
+    /// <returns>The display model, or <c>null</c> when neither route names one.</returns>
+    /// <remarks>
+    /// **Split out so the VIEWMODEL can ask about its own weapon** (B222). `DT_BaseViewModel`
+    /// networks `m_hWeapon`, which is the engine's answer to what is in this hand; the player's
+    /// `m_hActiveWeapon` is a reconstruction of the same thing and can disagree with it. Both routes
+    /// end here, because the model itself comes from the item schema either way —
+    /// `pItem->GetPlayerDisplayModel( iClass, team )`, `econ_entity.cpp:1167`.
+    /// </remarks>
+    public string? For(int? weaponItem, string? weaponClass, int? forClass)
     {
         if (Schema() is not { } schema)
         {
             return null;
         }
 
-        int playerClass = holder.PlayerClass ?? 0;
+        int playerClass = forClass ?? 0;
 
         // **The item first, because it is what the player actually equipped.** The class route only
         // knows the stock version, so preferring it would draw a stock rocket launcher for every
         // unusual and reskin in the game.
-        if (holder.WeaponItem is { } item &&
+        if (weaponItem is { } item &&
             schema.ModelFor(item, playerClass) is { Length: > 0 } named)
         {
             return named;
         }
 
-        if (holder.WeaponClass is not { } weaponClass)
+        if (weaponClass is null)
         {
             return null;
         }
 
-        foreach (string candidate in WeaponScriptName.Candidates(weaponClass, holder.PlayerClass))
+        foreach (string candidate in WeaponScriptName.Candidates(weaponClass, forClass))
         {
             if (schema.ModelForClass(candidate, playerClass) is { Length: > 0 } stock)
             {
@@ -113,7 +128,7 @@ public sealed class WeaponModels
     /// **Distinct PAIRS rather than distinct players**, so a whole match resolves to a few dozen
     /// models rather than one lookup per player per frame.
     ///
-    /// Shares <see cref="For"/> with the draw path deliberately: the set decides which models are
+    /// Shares <see cref="For(ScenePlayer)"/> with the draw path deliberately: the set decides which models are
     /// packed and the draw path decides which is shown, so a disagreement between them is a weapon
     /// that resolves and cannot be drawn.
     /// </remarks>

@@ -1,151 +1,120 @@
-# Handoff — culling, the map checksum, and what comes next
+# Handoff — two-pass models, and a viewmodel bug narrowed to one bone
 
-Written 2026-08-28 at the end of a very long session. **Supersedes the previous handoff**, which
-covered the convar audit, local lights and the skip helper — all merged and done.
+Written 2026-08-28, late. **Supersedes the previous handoff.**
 
-**Everything is on `main`, pushed, gate green.** No branch is waiting, nothing is half-applied, and
-no viewer process is left running. Decompiler project and scripts are on `D:`, outside every repo.
+## Read this first
 
-| project | floor | | project | floor |
-|---|---:|---|---|---:|
-| core | 1539 | | content | 744 |
-| cli | 74 | | corpus | 129 |
-| audio | 183 | | rendering | 656 |
-| presentation | 396 | | viewer | 101 |
-| scene | 202 | | logging | 17 |
-| animation | 41 | | fonts | 7 |
+The demoman's sticky launcher "disappears" during a sticky charge on `cp_process_f12`. It does not
+disappear. **It is deformed** — its visible geometry is stretched to nearly four times its size by
+one bone, and at that size it does not read as a weapon.
 
-Plus 27 UI, run separately under `run-exclusive.ps1`. `build/gate.sh` holds the authoritative floors
-and prints them beside what it measured.
+**The bug is in the ARMS' animation, and it is one bone.**
 
-```bash
-TF2DEMOSALVAGE_GCOR_ONLY=1 bash build/gate.sh
+```
+c_demo_arms.mdl, read from the file:
+  [16] vm_weapon_bone    parent 6  flags 0x40200  rest (0, 0, 0)
+  [17] vm_weapon_bone_1  parent 6  flags 0x40200  rest (0, 0, 0)
+  separation in the REST pose: 0 units
+
+c_demo_arms, measured in the viewer:
+  bone 16 at (656.4, 1469.4, 651.4)
+  bone 17 at (583.0, 1463.9, 596.5)      ~92 units apart
 ```
 
-```bash
-pwsh ../run-exclusive.ps1 dotnet test tests/Tf2DemoSalvage.Viewer3D.UiTests
-```
+Two bones with the **same parent** and an **identical rest transform** must move together. Ours
+diverge by 92 units under animation. The weapon merges onto both, so 45 of its visible vertices go
+with bone 17 and the model tears.
 
----
+**Next step:** in `SkeletonPose.Build`, compare what the arms' current sequence writes for bone 16
+against bone 17 — the `_overrideOf` / `animated` path. Find why one moves and the other does not.
 
-## The next task, set by the owner
+## What is already ruled out — do not re-litigate
 
-> *"i guess we should go 2 pass models now"*
+Each of these was killed by measurement, and several cost hours:
 
-**DONE 2026-08-28 — and the paragraph below was wrong, which is why it is kept.** It read:
+| candidate | how it died |
+|---|---|
+| the two-pass work (D114) | the **pre-change tree still drops out** — control run in a scratch worktree |
+| the weapon switch to his primary | `m_hActiveWeapon` really does move; the Iron Bomber renders correctly |
+| `m_iWeaponMode = TF_WEAPON_PRIMARY_MODE` on charge | we read that field nowhere |
+| the player being dead | a red herring; one event, generalised badly. Dropouts are 60 ms–4.6 s, a respawn is 23 s |
+| `EF_NODRAW` / `IsOnScreen` | removing the flag changed nothing |
+| the attachment's sequence | changed, reverted, re-applied; still drops |
+| bone collapse ("span" proxy) | false-positived on the **ubersaw**, which draws perfectly |
+| the camera | matrix finite throughout; a broken projection cannot select one weapon |
+| occlusion / depth range | not occluded, and `Viewport near` already matches `DepthRange(0, 0.1)` |
+| the bone MERGE | copies faithfully; our loop and name matching are byte-for-byte Valve's |
+| the MODEL | the file says the two bones are coincident |
+| a stale parent | detector silent — **but never sabotage-verified** |
+| procedural bones (B182) | both bones report `proc 0` |
 
-> *"This project has no two-pass concept and draws every model once."*
+## Valve citations earned tonight — these are solid
 
-Both halves are false. `Device3D` drew every model **twice**, and `WorldRenderer.DrawModel` filtered
-each pass by material — which is `STUDIORENDER_DRAW_OPAQUE_ONLY` / `_TRANSLUCENT_ONLY`, already
-implemented. The divergence ran the other way: the renderer split **every** model, where the engine
-splits only those declaring `$mostlyopaque` — **88 of 14,109**.
+- **Valve merges the viewmodel weapon.** `C_ViewmodelAttachmentModel::InitializeAsClientEntity` adds
+  `EF_BONEMERGE` and `EF_BONEMERGE_FASTCULL` (`econ_entity.cpp:848`).
+- **The attachment lives `EF_NODRAW`** and is made visible only for the instant the viewmodel draws
+  it — same function, and its comment says so.
+- **Its model comes from the item schema**, `pItem->GetPlayerDisplayModel( iClass, team )`
+  (`econ_entity.cpp:1167`) — NOT from the weapon entity's model index. Trying the latter drew no
+  weapon at all.
+- **Nothing ever calls `SetSequence` on the attachment.** It keeps its own sequence and the merge
+  places it; its blending hook is `{}` for every weapon but two (`econ_entity.h:125`).
+- **On a demo, viewmodel visibility is purely the camera.** `C_BaseViewModel::ShouldDraw`
+  (`c_baseviewmodel.cpp:277`) returns `IN_EYE && target == owner` under HLTV; the branch that reads
+  `EF_NODRAW` is unreachable during playback.
+- **A dead spectated player is shown in third person** and never reaches `CalcViewModelView`
+  (`hltvcamera.cpp:307`).
+- **`DT_BaseViewModel` networks `m_hWeapon`** (`baseviewmodel_shared.cpp:567`) — the engine asks the
+  viewmodel what it holds; we ask the player and reconstruct. Decoded now, logged beside our answer,
+  not yet deciding.
 
-The owner's read on how that happened:
+## Remaining viewmodel parity gaps
 
-> *"handoff was probably wrong, that previous session didnt really research and look into the 2 pass
-> much that im aware"*
+`m_fEffects`, `m_nBody`/`m_nSkin` on the viewmodel, `m_nAnimationParity` /
+`m_nNewSequenceParity`, `m_flPoseParameter[]`, `CalcViewModelLag` / `AddViewmodelBob`, and the
+dead → third-person camera (half done: no viewmodel, still first person).
 
-**The lesson is that a gap can be filed backwards.** "We do not do X" and "we do X unconditionally"
-produce the same next task, and only one of them is a starting point that leads anywhere. The
-paragraph was written from the SDK without reading the renderer. See D114 and
-`docs/findings/44-what-makes-a-model-two-pass.md`.
+## The instruments, all `LogDebug` behind `developer 1`
 
-### After that, in the owner's stated order of interest
+Run the viewer with `+developer 1` — the owner's standing instruction, and none of these cost
+anything without it. **None of them is capped by a report count** (see below).
 
-- **Static-prop culling.** The largest remaining performance gap: static props are drawn whole every
-  frame, never culled. `BspStaticProps.ReadPayload` already *reads and discards* the per-prop leaf
-  array, with a comment saying it "matters for a renderer that culls by PVS and not for one drawing
-  the map" — written before we were such a renderer. The door was left open deliberately.
-- **Era rendering**, now that the per-era SDK headers are local (below).
-- **Ragdolls.** The owner corrected an earlier assessment that this was uncertain: *"the data for the
-  ragdolls is available in the sdk, source physics is deterministic so it wont be hard to implement,
-  just very large."* Same kind of work as everything else — read Valve, transcribe — only bigger.
+- `Device3D` — viewmodel pass transitions, per-model bone degeneracy/span/placement, camera matrix
+  finiteness, render-group changes.
+- `WorldRenderer` — "drew NOTHING in the {pass} pass", and per-model submission changes with body,
+  skin and resolved materials.
+- `EntityModels.ReportPosedSize` — the posed VERTEX extent of a viewmodel, body-filtered, with
+  per-bone vertex centroids when it stretches. **This is the one that found the bug.**
+- `BoneMergeCache` — the pairing with UNMATCHED bones named, and a per-bone copy report that fires
+  when the copied bones spread past 50 units.
+- `SkeletonPose` — "STALE PARENT", a bone built on a parent the mask skipped.
+- `SoundPresenter` — sound submitted vs dropped for zero gain (the audio path had no output-level
+  instrument at all).
 
----
+## What this session got wrong, because it will save the next one hours
 
-## What landed today
+**Nine instruments were built that could not see what they were aimed at.** In order: a one-second
+sample for a 60 ms event; a bone-degeneracy test blind to a collapsed basis; a COUNT of viewmodel
+props where identity was needed (the file warns about this eight lines away); a distance computed
+between two timestamps three seconds apart; a 100-unit threshold for a 20-unit effect; a global
+report budget spent by two animating props before the subject spoke; a posed-size walk that measured
+hidden bodygroups; a merge report capped at 24 copies, all from startup; and a span proxy that
+false-positived on a working weapon.
 
-### Culling, D110–D112
+The owner, twice: *"OMG STOP CAPPING YOUR FUCKING TESTS AND LOGS"* and *"you should have learned your
+lesson when you had the second wait"*. He is right. **`developer 1` is the control; a count cap is
+unrelated to the event and can only ever be luck.** Bound a diagnostic by the SIGNAL — a transition,
+a threshold on the symptom — never by a number.
 
-Valve's opaque draw order, view frustum, and world visibility. Details in `docs/findings/42`
-(the three-pass Valve audit) and `docs/DECISIONS.md` D110–D112.
+Two process rules the owner set, now D115 and memories:
 
-- `OpaqueBuckets` — biggest bucket first, thresholds 200/80/30 from `DetectBucketedRenderGroup`.
-- `ViewFrustum` — `GeneratePerspectiveFrustum` and `R_CullBox`, six planes, normals inward.
-- `WorldVisibility` / `VisibleWorld` / `WorldCulling` — PVS plus per-node and per-leaf frustum,
-  front to back, gathered into merged `WorldBatch` runs.
-- `ModelInstance.WorldBounds` — the box already placed, computed scene-side, because only the scene
-  knows what places a model.
-
-**Four defects shipped and were caught, three of them by the owner looking at the screen.** All four
-were the same shape: a correct function called with the wrong argument, at the wrong point, or on the
-wrong entity. None was wrong arithmetic. The full list is in `docs/findings/42`; the ones most worth
-remembering are that displacements are named by NO leaf (finding 41) and that a skinned model leaves
-its matrix at identity.
-
-**Performance:** 274 fps before any culling, 149 with a per-frame recompute, **300 now**. The cull is
-recomputed only when the camera actually changes. Watch for this shape: per-frame drawing time was
-unchanged throughout, because the cost sat in `SetCamera`, which the drawing timer does not measure.
-The UI suite's duration was the only instrument that saw it.
-
-### The map checksum, D113
-
-`BspMapChecksum.Matches(file, recorded)` answers "is this the map this demo was recorded on" for both
-eras. Four bytes compare a **complemented** CRC32; sixteen compare an MD5. Callers do not branch.
-
-Confirmed against four era demos and their own clients' maps, a modern demo, and two negative
-controls. Full account in `docs/findings/43`.
-
-**This is not yet wired into the viewer.** The pieces exist and are tested; nothing warns at load
-yet. That is the remaining half of D113 and it is small: compute, compare, log loudly on a mismatch.
-
----
-
-## Things that cost hours today — read before repeating them
-
-- **Use `cp_process_f12` for anything the owner will look at.** A badlands demo neither of us knew
-  cost most of a night: three defects investigated as regressions, one of which was never code at
-  all. `docs/memory/the-f12-demo-is-the-parity-reference.md` now states this as a trigger on
-  BOOTING, not on comparing.
-- **A demo's map name does not identify the map.** That was the "never code at all" one.
-- **When a correct algorithm keeps giving a wrong answer, suspect the input and the identity of what
-  you are measuring.** Two faults at once — wrong field and a missing complement — defeated every
-  single-variable search for a day. The owner supplied the rule;
-  `docs/memory/suspect-the-input-not-the-algorithm.md`.
-- **A coverage test can only find what its denominator enumerates.** The ground vanished while the
-  suite was green because the denominator was the leaves.
-- **Check era stability before assuming an era difference.** `CRC_MapFile` is byte-identical between
-  `orangebox` and `source-sdk-2013`; one `cmp` would have saved a day.
+- **State the assumptions he can falsify before instrumenting.** "The sticky launcher doesn't draw"
+  was taken literally for hours; one sentence — the arms are there too — retired four mechanisms.
+- **Run the control before arguing about authorship.** Three correct arguments that the change was
+  not mine were not evidence. The control took one launch.
 
 ## Where things are
 
-| what | where |
-|---|---|
-| TF2, period clients | `F:\SteamLibrary\...\Team Fortress 2`, `F:\tf2-builds\tf2-{2007,2008,2011,2013}` |
-| SDK, 2013 snapshot + **shaders** | `F:\src\source-sdk-2013` |
-| SDK, **per-era headers**, 27 branches | `F:\src\hl2sdk` (on `orangebox`; `git checkout <era>`) |
-| decompiler project and scripts | `D:\ghidra-proj`, `D:\ghidra_12.1.2_PUBLIC` — never in a repo |
-
-**Ghidra headless scripting is broken on this JDK** — Felix aborts in `handleJavaVersionChange`.
-**radare2 works** and did today's decompilation:
-
-```bash
-r2 -q -A -c "s 0x100217c0; af; pdf" engine.dll
-```
-
-**No SDK ships engine source**, in any branch or year. An engine-behaviour question is a decompiler
-question; do not go looking for a fourth SDK.
-
-## Open, not forgotten
-
-- Static props never culled — largest perf gap, and now **next**.
-- `m_clrRender` / `m_nRenderFX` / `m_nRenderMode` are not decoded, so nothing can fade — B221.
-- Viewmodel two-list ordering — B218, half closed by D114.
-- Wiring the map-checksum warning into the viewer.
-- Ragdoll bounds and origin — approximated, not matched.
-- Detail props — not drawn at all.
-- The 32-bit `svc_ServerInfo` field this project calls `MapCrc` is **not** the map checksum and
-  remains unidentified. It is `0xFFFFFFFF` in every modern demo.
-- Pre-packing period maps (D113 step 2) — less urgent now that the checksum can detect a mismatch,
-  and the era specimens already sit beside their own clients.
+- Branch `fix/viewmodel-dropout`, gate green (D1..D115, all floors), viewer works.
+- `main` has the two-pass work (D114) and the first instrument commit, both green.
+- Everything in `docs/findings/44`, `docs/DECISIONS.md` D114–D115, `docs/RISKS.md` B221–B222.

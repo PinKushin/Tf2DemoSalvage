@@ -104,6 +104,20 @@ public readonly record struct ScenePose
     /// <summary>How far through that animation, from 0 to 1.</summary>
     public float Cycle { get; init; }
 
+    /// <summary>Demo time this animation started, for a prop whose cycle restarts.</summary>
+    /// <remarks>
+    /// **Zero means "measure from demo time", which is what everything except a viewmodel wants.**
+    /// A player's cycle advances continuously and is corrected by what the wire sends; a viewmodel's
+    /// is restarted outright whenever the server hands it an animation, and
+    /// <c>C_BaseViewModel::UpdateAnimationParity</c> does that by setting
+    /// <c>m_flAnimTime = curtime</c> alongside <c>SetCycle( 0 )</c>. This is that
+    /// <c>m_flAnimTime</c>.
+    ///
+    /// Kept as a default of zero so nothing else in the scene changes behaviour: subtracting zero
+    /// from demo time is the free-running clock every other prop already had.
+    /// </remarks>
+    public double AnimationStartSeconds { get; init; }
+
     /// <summary>How fast the entity is moving horizontally, when that was worked out.</summary>
     /// <remarks>
     /// **Only players carry this, and only because nothing else can supply it.** A demo networks
@@ -693,6 +707,12 @@ public sealed class ScenePropTrack
 
             Sequence = from.Sequence,
             Cycle = cycle,
+
+            // **Discrete, and blending it would be meaningless.** It is the instant an animation
+            // restarted, not a quantity — a value part-way between two restarts names a moment
+            // neither animation began at. Taking the earlier keyframe's is the same rule the
+            // sequence itself follows two lines up.
+            AnimationStartSeconds = from.AnimationStartSeconds,
 
             // Discrete, so it takes the earlier keyframe's value rather than being blended.
             // Half-hidden is not a state the engine has.

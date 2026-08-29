@@ -280,6 +280,35 @@ public sealed class SpectatorView
             return null;
         }
 
+        // **A dead spectated player is watched in third person, and this is where the engine says
+        // so** — <c>C_HLTVCamera::CalcInEyeCamView</c> (<c>hltvcamera.cpp:307</c>) opens with it:
+        //
+        //     if ( !pPlayer->IsAlive() )
+        //     {
+        //         // if dead, show from 3rd person
+        //         CalcChaseCamView( eyeOrigin, eyeAngles, fov );
+        //         return;
+        //     }
+        //
+        // **Returning null is how that is said here**, because the caller already falls back to the
+        // free camera when there is no eye — which is our chase camera.
+        //
+        // **It belongs HERE and not on the viewmodel** (B222). This project first implemented it by
+        // emptying the hands while keeping the first-person camera, which is a state the engine
+        // never has: `C_BaseViewModel::ShouldDraw` carries no liveness term at all, only "in eye"
+        // and "belongs to the target". Half the mechanism took the viewmodel off screen and left
+        // the camera in the dead player's skull. The owner's rule, and it is the right one:
+        // *"dont be changing shit to not match valve while trying to fix this"*.
+        //
+        // **Only the SPECTATED path, deliberately.** `CalcInEyeCamView` is `C_HLTVCamera`, which a
+        // point-of-view demo never runs — there the recorded view IS what the player saw, deathcam
+        // included, and refusing it would cut to a free camera on every death. That is an assumption
+        // worth falsifying: if a POV demo should also chase on death, this check moves up.
+        if (!target.IsAlive)
+        {
+            return null;
+        }
+
         // **The heights differ between the two paths and that is Valve's doing** rather than an
         // approximation; see `PlayerEye`.
         return FreeCamera.SpectatingEye(

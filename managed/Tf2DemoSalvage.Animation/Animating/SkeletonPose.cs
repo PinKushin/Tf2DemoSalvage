@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 
+using Microsoft.Extensions.Logging;
+
 using Tf2DemoSalvage.Content.Assets;
 
 namespace Tf2DemoSalvage.Animation.Animating;
@@ -115,6 +117,15 @@ public sealed class SkeletonPose : IBonePose
     /// </remarks>
     public IReadOnlyList<float>? EntityTransform { get; set; }
 
+    /// <summary>Where a bone built on an unbuilt parent is reported, or null for nowhere.</summary>
+    /// <remarks>
+    /// **The one condition that makes a skeleton silently wrong** (B222). A bone whose parent failed
+    /// the mask is concatenated onto a slot nothing wrote, so it inherits a stale transform and
+    /// lands somewhere unrelated to its siblings. Nothing else in the pipeline can see it: the bone
+    /// is finite, non-zero, correctly shaped, and simply in the wrong place.
+    /// </remarks>
+    public ILogger? Log { get; set; }
+
     /// <summary>Scratch space for one bone's local transform, reused across frames.</summary>
     /// <remarks>
     /// Allocated once per entity, per D87. This runs once per bone per entity per frame, and a
@@ -202,6 +213,35 @@ public sealed class SkeletonPose : IBonePose
             {
                 StudioBonePose moved = animated[entry];
 
+                // **An animated bone that has TRAVELLED is the shape of a bad track** (B222).
+                // `c_demo_arms` bones 16 and 17 have the same parent and an identical rest
+                // transform — separation zero in the file — and end up 92 units apart in the
+                // viewer. Animation moves a bone by a few units; ninety is a decoded position that
+                // is wrong, not a pose.
+                //
+                // Reported against the bone's OWN rest position, so the number is the displacement
+                // the animation claims rather than a distance between two bones, which is what
+                // makes it attributable to one track.
+                if (Log is { } moved_log && moved_log.IsEnabled(LogLevel.Debug))
+                {
+                    float dx = moved.Position.X - rest.Position.X;
+                    float dy = moved.Position.Y - rest.Position.Y;
+                    float dz = moved.Position.Z - rest.Position.Z;
+
+                    float travelled = MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
+
+                    if (travelled > 20f)
+                    {
+                        moved_log.LogDebug(
+                            "{Message}",
+                            $"BONE TRAVELLED: {NameOf(bone)}[{bone}] parent {rest.Parent} moved " +
+                            $"{travelled:0.#} units from its rest position by animation — " +
+                            $"rest ({rest.Position.X:0.##}, {rest.Position.Y:0.##}, " +
+                            $"{rest.Position.Z:0.##}) -> ({moved.Position.X:0.##}, " +
+                            $"{moved.Position.Y:0.##}, {moved.Position.Z:0.##})");
+                    }
+                }
+
                 rotation = moved.Rotation;
                 position = moved.Position;
             }
@@ -214,6 +254,28 @@ public sealed class SkeletonPose : IBonePose
 
             if (rest.Parent >= 0 && rest.Parent < bone)
             {
+                // **A bone built on a parent that was never built this pass is built on garbage**
+                // (B222). The loop above skips any bone whose flags miss the mask, and a skipped
+                // bone's slot is never written — so concatenating onto it uses whatever the accessor
+                // happened to hold. The child then lands somewhere unrelated to its siblings and
+                // moves erratically while they move smoothly, which is exactly what `c_demo_arms`
+                // bone 17 (`vm_weapon_bone_1`) does: 92 units from bone 16 on a 30-unit model.
+                //
+                // Reported rather than repaired here, because the fix is a question about the MASK
+                // — Valve's studiomdl marks a parent as used by whatever uses its children, and if
+                // ours does not see that, the mask is what needs widening, not this concatenate.
+                if ((_bones[rest.Parent].Flags & boneMask) == 0 &&
+                    !alreadyWritten.IsMarked(rest.Parent) &&
+                    Log is { } log && log.IsEnabled(LogLevel.Debug))
+                {
+                    log.LogDebug(
+                        "{Message}",
+                        $"STALE PARENT: bone {NameOf(bone)}[{bone}] flags " +
+                        $"0x{_bones[bone].Flags:X} built on parent {NameOf(rest.Parent)}" +
+                        $"[{rest.Parent}] flags 0x{_bones[rest.Parent].Flags:X}, which the mask " +
+                        $"0x{boneMask:X} skipped");
+                }
+
                 StudioBones.Concatenate(into.Bone(rest.Parent), _local[bone], destination);
             }
             else if (EntityTransform is { } placement)

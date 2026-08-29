@@ -13921,9 +13921,77 @@ was nothing wrong with that model.
    elegant fit for "the primary is drawn during a charge" — and this project reads
    `m_iWeaponMode` **nowhere**. Checked before it was asserted.
 
-**What is suspected and NOT proven:** something in the pose build leaves bone positions coincident
-while orientations survive. That is what an unapplied bind pose looks like, but nothing has been
-measured at that layer yet.
+**The signature, corrected after a night of measuring the wrong subject:** during a sticky charge the
+**arms draw and animate correctly** — the owner can see them pull back — and **only the weapon is
+missing**. An earlier report that the arms went too belonged to a different event (a death), and
+carrying it forward sent several hours at the whole viewmodel pass instead of at the weapon.
+
+**Ruled out, each by test rather than by argument:**
+
+| candidate | how it died |
+|---|---|
+| today's two-pass work | the pre-change tree still drops out |
+| the weapon switch to his primary | `m_hActiveWeapon` really does move; the Iron Bomber renders fine |
+| `m_iWeaponMode = TF_WEAPON_PRIMARY_MODE` | we read that field nowhere |
+| bone collapse | the "span" proxy false-positived on the ubersaw, which draws perfectly |
+| the camera | matrix finite throughout; and a broken projection cannot select one weapon |
+| occlusion / depth range | owner: not occluded; and `Viewport near` already matches `DepthRange(0, 0.1)` |
+| `EF_NODRAW` via `IsOnScreen` | removing it changed nothing |
+| the pullback sequence on the attachment | changed and re-changed; still drops |
+| **the player being dead** | **a red herring, and the author's worst call of the night** — one `-> (none)` transition with `lifeState 2` was generalised into a diagnosis while the already-measured dropout durations (60 ms, 4.6 s) made a 23-second respawn impossible. The owner: *"it wasnt a fucking problem"* |
+
+## B222 — where it actually is, as of the end of 2026-08-28
+
+**THE WEAPON IS NOT INVISIBLE. IT IS DEFORMED.** Its visible vertices (hidden bodygroups excluded)
+span up to **108 units on a model 28 units long**, intermittently, and the centre swings 15–70 units
+from the hands. It is drawn every frame with the right batches and vertex count, valid bones and a
+finite camera — and the wrong SHAPE. Every visibility instrument was right to say "healthy"; none of
+them ever asked about shape.
+
+**The bone dragging it is `vm_weapon_bone_1`.** Per-bone vertex centroids on the launcher:
+
+```
+[0] weapon_bone      1175v at (691.5, 1152.9, 650.9)
+[1] weapon_bone_1      62v at (692.6, 1160.3, 655.0)
+[2] vm_weapon_bone     18v at (690.0, 1154.5, 657.2)
+[3] vm_weapon_bone_1   45v at (597.9, 1138.4, 591.2)   <- ~100 units out
+```
+
+**The merge is innocent and so is the model.** The merge copies faithfully — verified at the copy
+site, `COPIED` with correct flags against mask `0x7FF00` — from `c_demo_arms` bones 16 and 17, which
+are themselves ~92 units apart in the viewer.
+
+**And the FILE says they should be coincident.** Read straight out of `c_demo_arms.mdl`
+(`ViewmodelArmsBoneDiagnostic`):
+
+```
+[16] vm_weapon_bone    parent 6  flags 0x40200  rest (0, 0, 0)
+[17] vm_weapon_bone_1  parent 6  flags 0x40200  rest (0, 0, 0)
+separation in the REST pose: 0 units
+```
+
+Same parent, identical rest transform, **zero** separation. So the 92 units is introduced entirely
+by **our animation of the arms**. That is the bug, and it is in the skeleton/animation layer — not
+in the viewmodel system, not in the merge, not in rendering.
+
+**Ruled out at the animation layer already:** it is not a stale parent (a detector for "bone built on
+a parent the mask skipped" is silent — though that detector has NOT been sabotage-verified, and
+tonight's record with silent instruments earns that caution). Neither bone is procedural
+(`proc 0` on both), so B182's unimplemented `STUDIO_PROC_*` rules are not it either.
+
+**The next step is small and named:** two bones with the same parent and the same rest transform
+diverge by 92 units under animation, so the fault is in how one of their animation tracks is
+decoded or applied. Compare what the arms' current sequence writes for bone 16 against bone 17 —
+`SkeletonPose.Build`'s `_overrideOf` / `animated` path — and find why one moves and the other does
+not.
+
+**Everything below this line is the older account and several of its conclusions are superseded.**
+
+**What that leaves, and it is narrow.** The weapon is built, submitted, drawn, correctly sized, and
+bone-merged onto the SAME bones as the arms — so it cannot be positioned anywhere the arms are not,
+or they would vanish together. Arms visible, weapon not. The only property that differs between the
+two models at that point is **which materials each binds**: skin family, body number, and material
+resolution. That is what the submission report was extended to print.
 
 **The instrument itself is a proxy and should be replaced before more weight is put on it.**
 Bone-translation span stands in for "does the model have size", and vertices are placed by bone

@@ -27,13 +27,37 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// because you only ever receive your own. A modern SourceTV recording carries one per player and
 /// names every one. See <c>docs/findings/04-entities.md</c>.
 /// </remarks>
+/// <param name="WeaponItem">
+/// The item definition index of the weapon this viewmodel is showing, found through
+/// <c>DT_BaseViewModel.m_hWeapon</c> — the engine's own answer to "what is in this hand", where the
+/// player's <c>m_hActiveWeapon</c> is a reconstruction of it. Null when the viewmodel names no
+/// weapon or the recording never sent the handle.
+/// </param>
+/// <param name="WeaponClassName">
+/// That weapon's entity class, for the stock-model route when it carries no item.
+/// </param>
+/// <param name="AnimationParity">
+/// <c>m_nAnimationParity</c>, three bits, bumped by <c>SendViewModelMatchingSequence</c> every time
+/// the server hands the viewmodel an animation — including the one already playing, which is the
+/// case <see cref="Sequence"/> cannot express. Carried on the record so its value equality registers
+/// a re-fire as a change; without it, firing twice records nothing and the animation never replays.
+/// </param>
+/// <param name="AnimationStartTick">
+/// The tick the current animation restarted on, derived from <see cref="AnimationParity"/>. The
+/// cycle is measured from here, which is <c>UpdateAnimationParity</c>'s <c>m_flAnimTime = curtime</c>
+/// beside its <c>SetCycle( 0 )</c>.
+/// </param>
 public readonly record struct SceneViewmodel(
     string ModelPath,
     int Sequence,
     float PlaybackRate,
     int? OwnerEntityIndex,
     int? Slot,
-    bool Drawn = true)
+    bool Drawn = true,
+    int? WeaponItem = null,
+    string? WeaponClassName = null,
+    int AnimationParity = 0,
+    int AnimationStartTick = 0)
 {
     /// <summary>The slot TF2 puts the weapon in the player's hands in.</summary>
     public const int MainHand = 0;
@@ -84,5 +108,43 @@ public readonly record struct SceneViewmodel(
     /// A model path is still required, because index 0 means "no model" and a viewmodel sitting
     /// unused sends exactly that — 24 of them in the same sample.
     /// </remarks>
+    /// <summary>Whether a demo viewer draws this viewmodel — <c>C_BaseViewModel::ShouldDraw</c>.</summary>
+    /// <remarks>
+    /// **On a demo, Valve's test has nothing to do with the entity's effects** (B222).
+    /// <c>c_baseviewmodel.cpp:277</c>:
+    ///
+    /// <code>
+    /// bool C_BaseViewModel::ShouldDraw()
+    /// {
+    ///     if ( engine->IsHLTV() )
+    ///     {
+    ///         return ( HLTVCamera()->GetMode() == OBS_MODE_IN_EYE &amp;&amp;
+    ///                  HLTVCamera()->GetPrimaryTarget() == GetOwner() );
+    ///     }
+    ///     …
+    ///     return BaseClass::ShouldDraw();
+    /// }
+    /// </code>
+    ///
+    /// Two conditions, both about the CAMERA: first person, and this viewmodel belongs to whoever
+    /// is being watched. <c>BaseClass::ShouldDraw()</c> — the one that consults <c>EF_NODRAW</c> —
+    /// is reachable only for a live client, never during playback.
+    ///
+    /// **This used to require <c>Drawn</c> as well as a model**, where <c>Drawn</c> is
+    /// the effects flag. That is a condition this project invented for the demo path and the engine
+    /// deliberately bypasses, so any moment the server marked the viewmodel <c>EF_NODRAW</c> —
+    /// which TF2 would still draw through — took the whole viewmodel off screen here. The owner
+    /// put it as a question the SDK then answered outright: *"why tf should we ever no draw the
+    /// viewmodel, im pretty sure valve doesnt"*.
+    ///
+    /// **The model check stays**, and it is not the same claim. A viewmodel with no model index is
+    /// holding nothing — an unused off hand sends exactly that, all 22 of z1800's — so it has
+    /// nothing to draw rather than being hidden. The owner match is applied by the lookup that
+    /// calls this, which is the other half of Valve's test.
+    /// </remarks>
+    /// **REVERTED 2026-08-28 pending the rebuild.** Dropping <c>Drawn</c> did not fix the reported
+    /// dropout, and it was one of several unverified edits in one evening. The citation above is
+    /// real and this change should be made again deliberately — with a test that shows what a
+    /// viewmodel marked <c>EF_NODRAW</c> does on a demo — rather than carried along untested.
     public bool IsOnScreen => Drawn && ModelPath.Length > 0;
 }

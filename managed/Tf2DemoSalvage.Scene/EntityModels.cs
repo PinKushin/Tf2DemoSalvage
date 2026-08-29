@@ -437,7 +437,14 @@ public sealed class EntityModelSet
             // runs its own in C_BaseAnimating::FrameAdvance and treats any sent cycle as a
             // correction; a player's is never sent at all, so replaying it holds one frame of a
             // real animation — a convincing statue.
-            double advanced = where.Cycle + (seconds * skinned.CyclesPerSecond(sequence));
+            // **A viewmodel measures its cycle from when its animation STARTED, not from demo time.**
+            // `C_BaseViewModel::UpdateAnimationParity` (`c_baseviewmodel.cpp:467`) sets
+            // `SetCycle( 0 )` and `m_flAnimTime = curtime` on a parity change, so a restarted
+            // animation begins at frame zero rather than wherever a free-running clock happens to
+            // be. Everything else leaves `AnimationStartSeconds` at zero and is unaffected.
+            double elapsed = seconds - where.AnimationStartSeconds;
+
+            double advanced = where.Cycle + (elapsed * skinned.CyclesPerSecond(sequence));
             float phase = (float)(advanced - Math.Floor(advanced));
 
             posed.Sequence = sequence;
@@ -745,6 +752,7 @@ public sealed class EntityModelSet
     /// <summary>Reports a viewmodel whose posed VERTICES stop covering any space.</summary>
     /// <param name="modelPath">Which model.</param>
     /// <param name="bones">Its skinning matrices this frame.</param>
+    /// <param name="body">The entity's <c>m_nBody</c>, so hidden bodygroups are not measured.</param>
     /// <remarks>
     /// **The real measurement, replacing a proxy that had no established meaning** (B222). The first
     /// attempt measured the span of the skinning matrices' translation columns — but a skinning
@@ -763,7 +771,7 @@ public sealed class EntityModelSet
     /// **Transition-logged**, like every other instrument this hunt produced: the event lasts 60 ms
     /// and a sampled line cannot see it. See `docs/memory/log-the-event-not-a-sample-of-it.md`.
     /// </remarks>
-    private void ReportPosedSize(string modelPath, IReadOnlyList<float[]> bones)
+    private void ReportPosedSize(string modelPath, IReadOnlyList<float[]> bones, int body)
     {
         if (!_raw.TryGetValue(modelPath, out IReadOnlyList<PropVertex>? corners) ||
             corners.Count == 0)
@@ -771,8 +779,37 @@ public sealed class EntityModelSet
             return;
         }
 
+        // **Hidden bodygroups are excluded, and leaving them in made this instrument lie** (B222).
+        // The first version measured every corner, so a StatTrak module — a bodygroup the entity is
+        // NOT showing, hanging off `c_weapon_stattrack`, which is the one bone that does not merge
+        // onto the arms — drifted with the weapon's own animation and inflated the measured span
+        // from 27 units to 97 on a 28-unit model. That read as the weapon being torn apart when
+        // nothing drawn had moved at all.
+        //
+        // A measurement of geometry the renderer discards is a measurement of nothing, and this one
+        // produced a confident finding before it was caught.
+        IReadOnlyList<(int Base, int Count)>? parts =
+            _frames.TryGetValue(modelPath, out PropModels.ModelFrames? frames)
+                ? frames.BodyParts
+                : null;
+
         float minX = float.MaxValue, minY = float.MaxValue, minZ = float.MaxValue;
         float maxX = float.MinValue, maxY = float.MinValue, maxZ = float.MinValue;
+
+        // **Where each BONE's own vertices end up, so the outlier can be named rather than
+        // inferred** (B222). The span alone says the model is stretched; it cannot say which bone is
+        // dragging it. Accumulated per bone over the vertices that are weighted mostly to it — the
+        // one whose centroid sits far from the others is the bone that is not following the rest,
+        // and that is the last hop between "the weapon is the wrong shape" and a cause.
+        Span<float> boneX = stackalloc float[MaximumReportedBones];
+        Span<float> boneY = stackalloc float[MaximumReportedBones];
+        Span<float> boneZ = stackalloc float[MaximumReportedBones];
+        Span<int> boneCount = stackalloc int[MaximumReportedBones];
+
+        boneX.Clear();
+        boneY.Clear();
+        boneZ.Clear();
+        boneCount.Clear();
 
         for (int at = 0; at < corners.Count; at += 16)
         {
@@ -780,7 +817,7 @@ public sealed class EntityModelSet
 
             float total = corner.Weights.First + corner.Weights.Second + corner.Weights.Third;
 
-            if (total <= 0f)
+            if (total <= 0f || !Shows(parts, corner.BodyPart, corner.BodyModel, body))
             {
                 continue;
             }
@@ -812,6 +849,30 @@ public sealed class EntityModelSet
             maxX = MathF.Max(maxX, x);
             maxY = MathF.Max(maxY, y);
             maxZ = MathF.Max(maxZ, z);
+
+            // Attributed to the bone carrying the most of this vertex, which is the one that
+            // decides where it lands.
+            int dominant = corner.Bones.First;
+            float heaviest = corner.Weights.First;
+
+            if (corner.Weights.Second > heaviest)
+            {
+                dominant = corner.Bones.Second;
+                heaviest = corner.Weights.Second;
+            }
+
+            if (corner.Weights.Third > heaviest)
+            {
+                dominant = corner.Bones.Third;
+            }
+
+            if (dominant < MaximumReportedBones)
+            {
+                boneX[dominant] += x;
+                boneY[dominant] += y;
+                boneZ[dominant] += z;
+                boneCount[dominant]++;
+            }
         }
 
         if (maxX < minX)
@@ -838,7 +899,26 @@ public sealed class EntityModelSet
             _armsCentre = centre;
         }
 
+        // **Where the ARMS are relative to the EYE, which nothing has measured.** Every placement
+        // number so far has been the weapon's distance from the arms, and the arms reported only
+        // "arms" — so a pose that carries the whole viewmodel behind the near plane keeps its size,
+        // keeps its shape, keeps the weapon correctly attached to it, and blanks both models with
+        // every instrument silent. That is the shape of the reported defect: sticky-specific (the
+        // charge is what changes the arms' sequence), and both models vanishing together (the weapon
+        // merges onto the arms, so it goes wherever they go).
         string place = "arms";
+
+        if (modelPath.Contains("_arms", StringComparison.OrdinalIgnoreCase) &&
+            ViewmodelEye is { } eye)
+        {
+            float ex = centre.X - eye.X;
+            float ey = centre.Y - eye.Y;
+            float ez = centre.Z - eye.Z;
+
+            float fromEye = MathF.Sqrt((ex * ex) + (ey * ey) + (ez * ez));
+
+            place = $"{(int)(fromEye / 5f) * 5}-{((int)(fromEye / 5f) * 5) + 5}u from eye";
+        }
 
         if (_armsCentre is { } hands &&
             !modelPath.Contains("_arms", StringComparison.OrdinalIgnoreCase))
@@ -868,15 +948,78 @@ public sealed class EntityModelSet
 
         _posedSize[modelPath] = $"{band}/{place}";
 
-        _props.LogWarning(
+        // **The per-bone centroids, printed when the model is stretched.** A sticky launcher is 28
+        // units long; past 40 it is being pulled apart, and this says by which bone. Their names
+        // come from the `bone merge` line, which prints `name[index]`.
+        string spread = string.Empty;
+
+        // 35 rather than 40, so the ARMS report too. Their normal span is around 28 and they have
+        // been measured at 49 to 55 — which was read as ordinary variation all evening and may be
+        // the same stretch, less obvious only because far fewer of their vertices ride the bone
+        // that is out of place.
+        if (size > 35f)
+        {
+            List<string> where = [];
+
+            for (int bone = 0; bone < MaximumReportedBones; bone++)
+            {
+                if (boneCount[bone] == 0)
+                {
+                    continue;
+                }
+
+                where.Add(
+                    $"[{bone}] {boneCount[bone]}v at ({boneX[bone] / boneCount[bone]:0.#}, " +
+                    $"{boneY[bone] / boneCount[bone]:0.#}, {boneZ[bone] / boneCount[bone]:0.#})");
+            }
+
+            spread = $" bones: {string.Join("; ", where)}";
+        }
+
+        _props.LogDebug(
             "{Message}",
             $"{System.IO.Path.GetFileNameWithoutExtension(modelPath)} posed size changed: " +
             $"{was ?? "(first)"} -> {band}/{place}, {size:0.##} units across, " +
-            $"at ({centre.X:0.#}, {centre.Y:0.#}, {centre.Z:0.#})");
+            $"at ({centre.X:0.#}, {centre.Y:0.#}, {centre.Z:0.#}){spread}");
+    }
+
+    /// <summary>How many bones the stretch report will attribute vertices to.</summary>
+    /// <remarks>
+    /// A viewmodel weapon has a handful — the sticky launcher has five. Bounded so the accumulators
+    /// can sit on the stack and a player-sized skeleton cannot be walked here by accident.
+    /// </remarks>
+    private const int MaximumReportedBones = 16;
+
+    /// <summary>Whether a corner's body part is the alternative this entity shows.</summary>
+    /// <remarks>
+    /// <c>GetBodygroup</c>, <c>shared/animation.cpp:876</c> — a part's choice is the body number
+    /// divided by that part's base, modulo how many alternatives it has. Same arithmetic the
+    /// renderer applies to batches; applied here so a diagnostic measures what is DRAWN.
+    /// </remarks>
+    private static bool Shows(
+        IReadOnlyList<(int Base, int Count)>? parts, int bodyPart, int bodyModel, int body)
+    {
+        if (parts is not { Count: > 0 } || bodyPart < 0 || bodyPart >= parts.Count)
+        {
+            return bodyModel == 0;
+        }
+
+        (int place, int count) = parts[bodyPart];
+
+        return place <= 0 || count <= 0
+            ? bodyModel == 0
+            : bodyModel == (body / place) % count;
     }
 
     /// <summary>Whether each viewmodel's posed vertices last covered any space, and where.</summary>
     private readonly Dictionary<string, string> _posedSize = [];
+
+    /// <summary>Where the first-person eye is, so a viewmodel can be measured against it (B222).</summary>
+    /// <remarks>
+    /// Set by the caller that knows the camera, before the viewmodel props are instanced. Null for
+    /// every world pass, which is what keeps this out of the two hundred props a frame.
+    /// </remarks>
+    public (float X, float Y, float Z)? ViewmodelEye { get; set; }
 
     /// <summary>Where the arms were posed this frame, as the weapon's reference.</summary>
     /// <remarks>
@@ -1643,9 +1786,15 @@ public sealed class EntityModelSet
                 // **Only the viewmodel, because only it is measured every frame** (B222). The
                 // viewmodel entities carry their own indices, so this cannot pick up a world prop
                 // and pay for two hundred of them.
-                if (prop.EntityIndex >= ViewmodelScene.ArmsEntityIndex)
+                // **Guarded on the WORK, not just the write.** This walks a sixteenth of the model's
+                // corners every frame and applies three matrices to each; a production run must not
+                // pay for a diagnostic. Same rule as B191/CA1873 elsewhere in this file — and the
+                // owner's, stated plainly: *"logs cannot live in the production app or it will slow
+                // it down too much"*.
+                if (prop.EntityIndex >= ViewmodelScene.ArmsEntityIndex &&
+                    _props.IsEnabled(LogLevel.Debug))
                 {
-                    ReportPosedSize(prop.ModelPath, bones);
+                    ReportPosedSize(prop.ModelPath, bones, prop.Pose.Body);
                 }
 
                 // **The bones are already in world space**, so the model matrix must not place the

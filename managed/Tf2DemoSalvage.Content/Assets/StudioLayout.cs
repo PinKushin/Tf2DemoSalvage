@@ -470,7 +470,34 @@ internal static class StudioLayout
     public const int AnimationBlockOffset = 52;
 
     /// <summary>Byte offset of <c>animindex</c>: where the compressed tracks start.</summary>
+    /// <remarks>
+    /// **Valve's comment on the field is "non-zero when anim data isn't in sections"**, so this
+    /// alone does not locate the data — see <see cref="AnimationSectionFramesOffset"/>.
+    /// </remarks>
     public const int AnimationDataOffset = 56;
+
+    /// <summary>Byte offset of <c>sectionindex</c>: the per-section table of animation data.</summary>
+    /// <remarks>
+    /// Entries are <c>mstudioanimsections_t</c> — <c>animblock</c> then <c>animindex</c>, eight
+    /// bytes — indexed by section.
+    /// </remarks>
+    public const int AnimationSectionIndexOffset = 80;
+
+    /// <summary>Byte offset of <c>sectionframes</c>: frames per section, or zero when unsectioned.</summary>
+    /// <remarks>
+    /// **A long animation is split into sections and each one restarts its frame numbering**
+    /// (<c>mstudioanimdesc_t::pAnim</c>, <c>studio.cpp</c>). Ignoring it does not fail loudly: the
+    /// run-length walk simply runs off the end of section zero and keeps reading, which repeats a
+    /// stale value for most frames and lands on stray bytes for a few. That reads as an animation
+    /// with occasional one-frame spikes, and it is what B222 turned out to be.
+    /// </remarks>
+    public const int AnimationSectionFramesOffset = 84;
+
+    /// <summary>Bytes per <c>mstudioanimsections_t</c>: <c>animblock</c> and <c>animindex</c>.</summary>
+    public const int AnimationSectionStride = 8;
+
+    /// <summary>Byte offset of <c>animindex</c> within an <c>mstudioanimsections_t</c>.</summary>
+    public const int AnimationSectionDataOffset = 4;
 
     /// <summary>Bytes per <c>mstudiotexture_t</c>: a material reference, not pixels.</summary>
     public const int TextureStride = 64;

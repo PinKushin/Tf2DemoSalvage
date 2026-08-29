@@ -127,7 +127,11 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # 1538: InterpolationConVarConformanceTests (5) and SoundConVarConformanceTests (4), completing the
 # twenty of D104. The interp suite writes the engine's formula down and implements none of it; the
 # sound suite records that cvarlist.log disagrees with the binary about snd_gain_min.
-run Tf2DemoSalvage.Core.Tests     core     1539
+# 1539 -> 1544 on 2026-08-28: ViewmodelAnimationParityConformanceTests (5), which writes down
+# C_BaseViewModel::UpdateAnimationParity before implementing it. m_nAnimationParity is how the engine
+# says "play that again" when the sequence number cannot change; without it a repeated shot recorded
+# no timeline entry at all and played no animation.
+run Tf2DemoSalvage.Core.Tests     core     1544
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
@@ -490,7 +494,12 @@ run Tf2DemoSalvage.Presentation.Tests presentation 396
 # header word this reader stepped over for months while `StudioLayout` described it in prose — plus
 # StudioModelFlagCensus (1, Explicit), which measured the denominator this whole change needed:
 # 88 of 14,109 shipped models carry STUDIOHDR_FLAGS_TRANSLUCENT_TWOPASS.
-run Tf2DemoSalvage.Content.Tests  content   749
+# 749 -> 766 on 2026-08-28: StudioAnimationSectionConformanceTests (7) against
+# mstudioanimdesc_t::pAnim, StudioAnimationContinuityTests (1) which is the only test that can fail
+# when animation sections are ignored, and the diagnostics that found it (Explicit).
+# Sections are why the demoman's sticky launcher tore: every frame was read out of section zero, so
+# the run-length walk ran off the end and kept reading. vm_weapon_bone_1 landed 219 units from rest.
+run Tf2DemoSalvage.Content.Tests  content   766
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
@@ -519,7 +528,10 @@ run Tf2DemoSalvage.Content.Tests  content   749
 # 117: CorpusServerConVarTests, the assertion that a real demo's replicated ConVars reach the
 # timeline. All four run on committed gcor demos, so they hold under TF2DEMOSALVAGE_GCOR_ONLY and
 # in CI rather than skipping there and testing nothing.
-run Tf2DemoSalvage.Corpus.Tests   corpus     129
+# 130: ViewmodelAnimationParityCorpusTests, which asserts m_nAnimationParity reaches the scene from
+# a real demo AND changes there. The unit suite cannot fail if the field never arrives — a wrong
+# property name reads as a constant zero and every other test still passes.
+run Tf2DemoSalvage.Corpus.Tests   corpus     130
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that

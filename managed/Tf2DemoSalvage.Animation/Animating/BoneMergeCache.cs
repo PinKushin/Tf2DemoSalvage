@@ -152,14 +152,35 @@ public sealed class BoneMergeCache
             return;
         }
 
+        if (!_log.IsEnabled(LogLevel.Debug))
+        {
+            return;
+        }
+
         string matched = pairs.Count == 0
             ? "nothing"
             : string.Join(", ", pairs.Take(6).Select(pair => _worn.NameOf(pair.Mine)));
 
-        _log.LogInformation(
+        // **The bones that did NOT match, which is the half that was never named** (B222). A merged
+        // item's unmatched bones keep whatever its own animation produced while the matched ones
+        // follow the wearer, so a single unmatched bone is what tears a model between two poses —
+        // measured on `c_stickybomb_launcher`, whose posed vertices reach 97 units across a model
+        // that is 28 units long. The count said "4 of 5" and nothing said WHICH one, which is the
+        // difference between a number and a lead.
+        HashSet<int> paired = [.. pairs.Select(pair => pair.Mine)];
+
+        string unmatched = string.Join(
+            ", ",
+            Enumerable.Range(0, _worn.BoneCount)
+                .Where(bone => !paired.Contains(bone))
+                .Take(8)
+                .Select(bone => $"{_worn.NameOf(bone)}[{bone}]"));
+
+        _log.LogDebug(
             "{Message}",
             $"bone merge: {pairs.Count} of {_worn.BoneCount} bones matched onto a " +
             $"{wearer.BoneCount}-bone wearer; matched {matched}; " +
+            $"UNMATCHED {(unmatched.Length == 0 ? "none" : unmatched)}; " +
             $"wearer setup mask 0x{FollowBoneSetupMask:X}");
     }
 
@@ -200,9 +221,49 @@ public sealed class BoneMergeCache
         ArgumentNullException.ThrowIfNull(into);
         ArgumentNullException.ThrowIfNull(marked);
 
+        // **Fires when the copied bones are SPREAD, not on the first few frames** (B222). The first
+        // version reported the first twenty-four copies, which are all from startup — every one of
+        // them healthy, while the defect happens seconds later. That is the third capped instrument
+        // this hunt has produced whose budget was spent before the interesting moment: a report
+        // bounded by COUNT cannot see an event chosen by TIME.
+        //
+        // The condition is the symptom itself: a weapon's bones sit within a few tens of units of
+        // each other, so a spread past fifty means one of them is not where the others are — which
+        // is exactly what drags its vertices across the view.
+        float spread = SpreadOf(wearerBones, boneMask);
+
+        // **No count cap.** Three instruments tonight were bounded by a report count and every one
+        // spent its budget on startup frames before the defect happened. `developer 1` is the
+        // control; a diagnostic that silently stops reporting is worse than a large log, because a
+        // large log can be searched and a silent one reads as "nothing happened".
+        bool report = _log is not null && _log.IsEnabled(LogLevel.Debug) && spread > 50f;
+
         foreach ((int mine, int theirs) in _merged)
         {
-            if ((_worn.FlagsOf(mine) & boneMask) == 0)
+            // **Valve's own mask test, and it is the reason a merged bone can still be wrong**
+            // (B222). `CBoneMergeCache::MergeMatchingBones` (`bone_merge_cache.cpp:163`) skips any
+            // bone whose flags do not intersect the requested mask, and a skipped bone keeps
+            // whatever the WORN model's own animation gave it — model space, nowhere near the
+            // wearer. So "matched" in the pairing report and "copied" this frame are different
+            // claims, and only the second decides where the geometry lands.
+            //
+            // Measured on `c_stickybomb_launcher`: bone 3, `vm_weapon_bone_1`, carries 45 visible
+            // vertices and sits about a hundred units from the other three. This line says whether
+            // it was copied at all.
+            bool copied = (_worn.FlagsOf(mine) & boneMask) != 0;
+
+            if (report)
+            {
+                ReadOnlySpan<float> source = wearerBones.Bone(theirs);
+
+                _log!.LogDebug(
+                    "{Message}",
+                    $"merge {_worn.NameOf(mine)}[{mine}] flags 0x{_worn.FlagsOf(mine):X} vs mask " +
+                    $"0x{boneMask:X} -> {(copied ? "COPIED" : "SKIPPED")} from wearer bone " +
+                    $"{theirs} at ({source[3]:0.#}, {source[7]:0.#}, {source[11]:0.#})");
+            }
+
+            if (!copied)
             {
                 continue;
             }
@@ -211,6 +272,40 @@ public sealed class BoneMergeCache
             marked.Mark(mine);
         }
     }
+
+    /// <summary>How far apart the bones this merge would write are, in world units.</summary>
+    /// <remarks>
+    /// Measured over the WEARER's bones that this pairing copies from, which is where the merged
+    /// item's geometry will land. A weapon's are within tens of units of each other; a large spread
+    /// means one is somewhere the others are not.
+    /// </remarks>
+    private float SpreadOf(BoneAccessor wearerBones, int boneMask)
+    {
+        float minX = float.MaxValue, minY = float.MaxValue, minZ = float.MaxValue;
+        float maxX = float.MinValue, maxY = float.MinValue, maxZ = float.MinValue;
+
+        foreach ((int mine, int theirs) in _merged)
+        {
+            if ((_worn.FlagsOf(mine) & boneMask) == 0)
+            {
+                continue;
+            }
+
+            ReadOnlySpan<float> bone = wearerBones.Bone(theirs);
+
+            minX = MathF.Min(minX, bone[3]);
+            maxX = MathF.Max(maxX, bone[3]);
+            minY = MathF.Min(minY, bone[7]);
+            maxY = MathF.Max(maxY, bone[7]);
+            minZ = MathF.Min(minZ, bone[11]);
+            maxZ = MathF.Max(maxZ, bone[11]);
+        }
+
+        return maxX < minX
+            ? 0f
+            : MathF.Max(maxX - minX, MathF.Max(maxY - minY, maxZ - minZ));
+    }
+
 
     /// <summary>Collapses every merged bone to nothing, for a wearer that could not be built.</summary>
     /// <param name="into">The worn model's array.</param>

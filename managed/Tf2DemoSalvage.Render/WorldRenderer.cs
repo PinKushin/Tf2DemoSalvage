@@ -4576,6 +4576,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // number selected nothing, or there was nothing offered in the first place. Counting only
         // the survivors would report "0 drawn" for all three.
         int kept = 0;
+        int drawn = 0;
         int filteredByPass = 0;
         int filteredByBody = 0;
 
@@ -4785,8 +4786,61 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // material did not resolve. A brush entity adds its class colour on top (B219).
             SetMaterial(context, material, batch.Category, tint);
 
+            drawn += batch.VertexCount;
+
             context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
         }
+
+        // **What was actually SUBMITTED, reported when it changes** (B222). `kept` counts batches
+        // that survived the filters and says nothing about their size — a batch of zero vertices is
+        // "kept" and draws nothing at all, so every claim tonight that "the batches really are being
+        // drawn" rested on a counter that could not tell those apart. This is the vertex total, and
+        // it is the last thing between the scene's numbers, which all measure healthy, and the
+        // picture, which is missing.
+        //
+        // Signature rather than a count, because the interesting change may be WHICH materials are
+        // bound rather than how many corners went in.
+        // **Capped PER MODEL, not globally, and the first version got that wrong in a way that
+        // wasted a reproduction.** A global budget of 200 was consumed entirely by
+        // `cappoint_hologram` (120) and `demo_scotchbonnet` (80) — two animating props that change
+        // their submission constantly — before the viewmodel, the only subject this was built for,
+        // reported anything at all. This method runs for every one of 250 props a frame, so a
+        // shared budget is a budget the noisiest model spends.
+        //
+        // Same shape as every other blind instrument tonight: the resolution was chosen without
+        // asking what had to remain visible through it.
+        _reportedDraw.TryGetValue(modelPath, out (int Kept, int Drawn, int Reports) last);
+
+        // **Guarded on the work.** The message below joins and de-duplicates a description of every
+        // batch, which is real allocation on a path that runs for 250 props a frame. A diagnostic
+        // must cost nothing when nobody is reading it.
+        if (last.Reports > 0 && (last.Kept != kept || last.Drawn != drawn) &&
+            _render.IsEnabled(LogLevel.Debug))
+        {
+            // **Skin and body are printed because they are what is LEFT.** During a sticky charge
+            // the weapon is built, submitted, drawn, correctly sized, and merged onto the same
+            // bones as the arms — so it cannot be somewhere the arms are not, or they would vanish
+            // together. The arms are visible and the weapon is not, and the only thing that differs
+            // between the two models at that point is which materials each binds. Skin family, body
+            // number, and the resolved material indices are the whole of that.
+            _render.LogDebug(
+                "{Message}",
+                $"{System.IO.Path.GetFileNameWithoutExtension(modelPath)} submitted: " +
+                $"{last.Kept} batches/{last.Drawn} vertices -> {kept} batches/{drawn} vertices " +
+                $"in the {pass} pass, body {body}, " +
+                $"skin {(skin is null ? "own" : $"{skin.Count} swaps")}, " +
+                $"materials [{string.Join(", ", batches.Select(each =>
+                    skin is not null && skin.TryGetValue(each.MaterialIndex, out int swap)
+                        ? $"{swap}<-{each.MaterialIndex}:{DescribeMaterial(swap)}"
+                        : $"{each.MaterialIndex}:{DescribeMaterial(each.MaterialIndex)}").Distinct())}]");
+        }
+
+        _reportedDraw[modelPath] = (
+            kept,
+            drawn,
+            last.Kept != kept || last.Drawn != drawn || last.Reports == 0
+                ? last.Reports + 1
+                : last.Reports);
 
         // **A model asked to draw that drew nothing, said once per model and pass.** This is the
         // instrument for "the weapon is sometimes not there" — a symptom that looks identical
@@ -4805,7 +4859,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // the one that matters.
         if (kept == 0 && _reportedEmptyDraw.Add((modelPath, pass)))
         {
-            _render.LogWarning(
+            _render.LogDebug(
                 "{Message}",
                 $"{System.IO.Path.GetFileNameWithoutExtension(modelPath)} drew NOTHING in the " +
                 $"{pass} pass: {batches.Count} batches offered, {filteredByPass} filtered by the " +
@@ -4815,6 +4869,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
     /// <summary>Which models have already reported drawing nothing, per pass.</summary>
     private readonly HashSet<(string Model, ModelPass Pass)> _reportedEmptyDraw = [];
+
+    /// <summary>What each model last submitted, and how many changes it has reported.</summary>
+    private readonly Dictionary<string, (int Kept, int Drawn, int Reports)> _reportedDraw = [];
+
 
     /// <summary>Whether a batch is the alternative its body part shows.</summary>
     /// <remarks>GetBodygroup, shared/animation.cpp:876, applied to a packed run.</remarks>

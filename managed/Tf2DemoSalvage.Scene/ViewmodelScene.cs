@@ -137,13 +137,17 @@ public sealed class ViewmodelScene
     /// do. The owner's rule: *"we shouldnt be forcing any sequence only stuff from the demo or how
     /// valve does it"*. The engine agrees; nothing in its viewmodel path picks an idle.
     /// </remarks>
+    /// <param name="seconds">Demo time now, which the animation's own clock is measured back from.</param>
+    /// <param name="intervalPerTick">Seconds per tick, for turning the restart tick into a time.</param>
     public ViewmodelSceneResult Build(
         IViewmodelSource viewmodels,
         int tick,
         int follower,
         ViewmodelPlacement at,
         string? hands,
-        string? heldWeapon)
+        string? heldWeapon,
+        double seconds = 0d,
+        float intervalPerTick = 0f)
     {
         ArgumentNullException.ThrowIfNull(viewmodels);
 
@@ -152,19 +156,38 @@ public sealed class ViewmodelScene
             return new ViewmodelSceneResult([], Changed(string.Empty, -1, -1));
         }
 
+        // **Now, less however long ago the animation restarted** — expressed as elapsed TICKS rather
+        // than by rebuilding demo time from the tick, so it holds whatever the caller's clock is.
+        // `m_nAnimationParity` is what says it restarted at all; see `ViewmodelAnimation.RestartAt`.
+        double started = seconds - ((tick - weapon.AnimationStartTick) * intervalPerTick);
+
         List<SceneProp> props =
         [
             new SceneProp(
                 ArmsEntityIndex,
                 weapon.ModelPath,
                 SceneModelKind.Studio,
-                at.PoseFor(weapon.Sequence, weapon.PlaybackRate)),
+                at.PoseFor(weapon.Sequence, weapon.PlaybackRate, started)),
         ];
 
         // **The comparison is a PATH comparison and the separators differ.** A model named in the
         // class schema and one that arrived over the wire disagree on slashes, so comparing them
         // raw answers "these are different models" for the same file — which silently selects the
         // one-model scheme and leaves the weapon undrawn.
+        // **The model comes from the ITEM SCHEMA, and that is Valve's own source.** The attachment
+        // is built as
+        //
+        //     pEnt->InitializeAsClientEntity(
+        //         pItem->GetPlayerDisplayModel( iClass, pOwner->GetTeamNumber() ), … )
+        //
+        // (`econ_entity.cpp:1167`), and `GetPlayerDisplayModel` is `model_player` out of
+        // `items_game.txt` — exactly what `WeaponModels.For` resolves. An attempt on 2026-08-28 to
+        // "fix parity" by taking the weapon entity's own `m_nModelIndex` through
+        // `DT_BaseViewModel.m_hWeapon` was WRONG and stopped the weapon drawing at all: `m_hWeapon`
+        // names which weapon, and the model still comes from the item. Reverted the same evening.
+        //
+        // The lesson is the one the owner had already given: check the SDK before swapping a hop,
+        // rather than inferring the hop from a memory and measuring afterwards.
         if (AttachesToHands(weapon.ModelPath, hands) && heldWeapon is { Length: > 0 } held)
         {
             // **The weapon does NOT take the arms' sequence, and TF2 is explicit about it** (B222).
@@ -185,11 +208,22 @@ public sealed class ViewmodelScene
             // `SendWeaponAnim( ACT_VM_PULLBACK )` at `tf_weapon_pipebomblauncher.cpp:209` — the
             // weapon is asked for a sequence it does not have. Sequence zero is what the engine
             // leaves it on, and the merge is what actually places it.
+            //
+            // **Re-applied as parity, and now judged on its own** (B222). Handing the weapon the
+            // ARMS' sequence index is wrong under any reading: the two models have unrelated
+            // sequence tables — `c_demo_arms` merges 74, `c_stickybomb_launcher` carries one — so
+            // every index above zero asks the weapon for something it does not have. The engine
+            // never does this; the attachment keeps its own sequence and the merge places it.
+            //
+            // It matters most during a sticky charge, which is the one action that moves the arms
+            // off sequence zero for a sustained period: `SendWeaponAnim( ACT_VM_PULLBACK )` →
+            // `SendViewModelMatchingSequence` → `SetSequence`, `SetCycle(0)`
+            // (`baseviewmodel_shared.cpp:357`). That is exactly when the weapon disappears.
             props.Add(new SceneProp(
                 WeaponEntityIndex,
                 held,
                 SceneModelKind.Studio,
-                at.PoseFor(AttachmentSequence, weapon.PlaybackRate),
+                at.PoseFor(AttachmentSequence, weapon.PlaybackRate, started),
                 AttachedTo: ArmsEntityIndex));
         }
 
@@ -198,11 +232,17 @@ public sealed class ViewmodelScene
         // weapon rather than instead of it.
         if (viewmodels.OffHandAt(tick, follower) is { } offHand)
         {
+            // **Its own parity, not the main hand's.** The off hand is a separate viewmodel entity
+            // with its own `m_nAnimationParity`, so a spy's watch restarts when the watch restarts —
+            // borrowing the weapon's start would tie two independent animations together.
+            double offHandStarted =
+                seconds - ((tick - offHand.AnimationStartTick) * intervalPerTick);
+
             props.Add(new SceneProp(
                 OffHandEntityIndex,
                 offHand.ModelPath,
                 SceneModelKind.Studio,
-                at.PoseFor(offHand.Sequence, offHand.PlaybackRate)));
+                at.PoseFor(offHand.Sequence, offHand.PlaybackRate, offHandStarted)));
         }
 
         return new ViewmodelSceneResult(
@@ -273,7 +313,11 @@ public readonly record struct ViewmodelPlacement(
     /// <param name="sequence">What the demo says the weapon is playing.</param>
     /// <param name="playbackRate">How fast, as the wire sent it.</param>
     /// <returns>The pose.</returns>
-    public ScenePose PoseFor(int sequence, float playbackRate) =>
+    /// <param name="animationStartSeconds">
+    /// Demo time the animation restarted, from <c>m_nAnimationParity</c>; the cycle is measured from
+    /// here rather than from demo time, as <c>m_flAnimTime</c> is.
+    /// </param>
+    public ScenePose PoseFor(int sequence, float playbackRate, double animationStartSeconds = 0d) =>
         new()
         {
             X = X,
@@ -284,5 +328,6 @@ public readonly record struct ViewmodelPlacement(
             Roll = Roll,
             Sequence = sequence,
             PlaybackRate = playbackRate,
+            AnimationStartSeconds = animationStartSeconds,
         };
 }
