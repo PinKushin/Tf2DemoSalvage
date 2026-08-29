@@ -69,6 +69,47 @@ public sealed record MapLevel(
     BspWorldLight? Sun,
     VertexNormals Normals)
 {
+    /// <summary>The map's terrain, as something a swept box can be stopped by.</summary>
+    /// <remarks>
+    /// **Built once, when the map is read, which is what <c>CDispCollTree</c> does.** The engine
+    /// builds every displacement's collision tree at load; deferring it would turn the first sweep
+    /// into a parse on a path the render loop calls every frame
+    /// (`docs/memory/a-lazy-cache-makes-reading-a-write.md`).
+    ///
+    /// Empty when the map has no terrain or its faces would not read — which makes
+    /// <see cref="Sweep"/> a single expression rather than a null check at every call site.
+    /// </remarks>
+    public DisplacementCollision Displacements { get; } =
+        Terrain is { } ground ? DisplacementCollision.From(Surfaces, ground) : DisplacementCollision.Empty;
+
+    /// <summary>How far a box may travel through this map before something solid stops it.</summary>
+    /// <param name="from">Where the box's centre starts.</param>
+    /// <param name="to">Where it would end unobstructed.</param>
+    /// <param name="halfExtent">Half the box's width, on every axis.</param>
+    /// <returns>The fraction of the way it got, 1 when nothing stopped it.</returns>
+    /// <remarks>
+    /// **Both halves of the world, in one place, because they are two lumps and one question.**
+    /// Brushes come from the BSP tree and terrain does not appear in it at all (B227), so a caller
+    /// asking only one of them gets an answer that is right about half the map. The chase camera
+    /// asked only about brushes until 2026-08-29, and passed through every hillside in the game.
+    ///
+    /// **The smaller fraction wins**, which is what makes the two independent: neither trace needs
+    /// to know about the other, and adding a third kind of geometry later is another term here
+    /// rather than a change to either.
+    /// </remarks>
+    public float Sweep(
+        (float X, float Y, float Z) from, (float X, float Y, float Z) to, float halfExtent)
+    {
+        float brushes = Leaves is { } tree
+            ? tree.Sweep(from.X, from.Y, from.Z, to.X, to.Y, to.Z, halfExtent)
+            : 1f;
+
+        float terrain = Displacements.Sweep(
+            from.X, from.Y, from.Z, to.X, to.Y, to.Z, halfExtent);
+
+        return MathF.Min(brushes, terrain);
+    }
+
     /// <summary>How to decide what of this map's world to draw, or null when it cannot be decided.</summary>
     /// <param name="spans">Where each face's triangles are, from the world build.</param>
     /// <returns>The map's culling, or null when a lump it needs is missing.</returns>

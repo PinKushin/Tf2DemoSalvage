@@ -550,7 +550,11 @@ run Tf2DemoSalvage.Presentation.Tests presentation 413
 # eight original cases green: the "misses beside the triangle" case sat outside the triangle's
 # AXIS-ALIGNED bounds, so the axis planes rejected it and the edge planes never spoke. A case inside
 # the bounds and beyond the hypotenuse is what measures them, with its mirror just inside as control.
-run Tf2DemoSalvage.Content.Tests  content   795
+# 795 -> 800: LeafDisplacementReachTests (1) and DisplacementCollisionTests (4). The first is a
+# MEASUREMENT that reversed the plan — leaffaces reach none of cp_badlands' 1191 displacement faces
+# while reaching all 12,654 flat ones, so terrain is narrowed by bounds, not by leaf. The second is
+# a differential against a brute force over every triangle on the map.
+run Tf2DemoSalvage.Content.Tests  content   800
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
@@ -746,7 +750,14 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     136
 # suite is nine SDK citations plus nineteen cases over RenderGroups; the wiring test is the one that
 # can fail when the loader drops the flag, and it does — verified by manipulation, sniper against
 # scout as its control.
-run Tf2DemoSalvage.Rendering.Tests rendering 685
+# 685 -> 687 on 2026-08-29: MapLevelSweepTests (B227). The only level that can catch a world sweep
+# which asks the BSP tree and nothing else — which is what shipped, so the chase camera passed
+# through every hillside in TF2 while the primitive's and the whole-map set's own suites stayed
+# green. Its condition is SEARCHED for, not assumed: the space just above a displacement vertex is
+# usually inside the brush the terrain was carved from, so the brush trace correctly reports
+# startsolid there and the column proves nothing. It finds one where brushes are clear and terrain
+# is not — (2048, 0, 258.6), terrain 0.689 against brushes 1.0.
+run Tf2DemoSalvage.Rendering.Tests rendering 687
 # 101 -> 103 on 2026-08-29: LaunchOptionWiringTests (B223, D118). Two tests, and they cost about
 # seventeen seconds EACH, because each builds a real MainForm and loads a corpus demo — which reads
 # cp_badlands.bsp when Team Fortress 2 is installed. That is the most expensive pair in this file
