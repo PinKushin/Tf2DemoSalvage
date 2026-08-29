@@ -69,12 +69,22 @@ public sealed class ThirdPersonUiTests
         // viewmodel is correct — sampling from before the switch would measure that instead.
         int drewOnArrival = Viewer.Count("viewmodel pass: drawing");
 
-        // Long enough for many frames to pass. A single frame proves nothing: the pass runs every
-        // frame, so the claim is that it keeps refusing, not that it refused once.
-        Retry.WhileTrue(
-            () => Viewer.Count("viewmodel pass: drawing") == drewOnArrival,
-            TimeSpan.FromSeconds(2),
-            throwOnTimeout: false);
+        // **Synchronised on frames HAPPENING, not on a count failing to change.** The claim is that
+        // the pass keeps refusing, so it needs several frames to have gone by — and the viewer says
+        // when they have: the skip line is written every time the pass declines. Waiting for the
+        // drawing count to stay put would be a negative retry, which cannot succeed early and
+        // therefore always costs its whole timeout.
+        // **One skip line, not two, and the difference is a whole rate-limit interval.** That line
+        // is deliberately throttled — a pass that declines every frame would otherwise write it a
+        // hundred times a second — so each one waited for costs the throttle, not a frame. One is
+        // the evidence the assertion needs: the pass ran after arriving here, and declined.
+        int skips = Viewer.Count("viewmodel pass skipped");
+
+        Retry.WhileFalse(
+            () => Viewer.Count("viewmodel pass skipped") > skips,
+            TimeSpan.FromSeconds(5),
+            throwOnTimeout: true,
+            timeoutMessage: "The viewmodel pass never reported skipping, so nothing was observed.");
 
         Viewer.Count("viewmodel pass: drawing").ShouldBe(
             drewOnArrival,
@@ -90,22 +100,45 @@ public sealed class ThirdPersonUiTests
     /// </remarks>
     private static void Reach()
     {
-        for (int press = 0; press < 3; press++)
+        // Against a baseline for the same reason the teardown in `FirstPersonUiTests` is: these
+        // counts accumulate for the life of the shared viewer.
+        int free = Viewer.Count(BackToFree);
+
+        for (int press = 0; press < 3 && Viewer.Count(BackToFree) == free; press++)
         {
-            int free = Viewer.Count(BackToFree);
-
-            ViewerSession.PressSwitchCameraMode();
-
-            if (Retry.WhileFalse(
-                    () => Viewer.Count(BackToFree) > free,
-                    TimeSpan.FromSeconds(3),
-                    throwOnTimeout: false).Success)
-            {
-                break;
-            }
+            Switch();
         }
 
-        ViewerSession.PressSwitchCameraMode();
-        ViewerSession.PressSwitchCameraMode();
+        Switch();
+        Switch();
     }
+
+    /// <summary>Presses the camera-mode key and waits for the viewer to say it moved.</summary>
+    /// <remarks>
+    /// **Waits on ANY mode transition, never on a particular one, and that is not a detail.** Every
+    /// press logs exactly one of three lines, so their sum always rises — a condition that arrives
+    /// in milliseconds. Waiting for a SPECIFIC line instead means two presses in three are waiting
+    /// for something that will not happen, and each burns the whole timeout: a negative retry is a
+    /// sleep wearing a synchronisation's clothes
+    /// (`docs/memory/a-negative-retry-is-a-sleep.md`). That mistake cost this suite about forty
+    /// seconds a run and the owner noticed it before the tests did.
+    /// </remarks>
+    private static void Switch()
+    {
+        int before = Transitions();
+
+        ViewerSession.PressSwitchCameraMode();
+
+        Retry.WhileFalse(
+            () => Transitions() > before,
+            TimeSpan.FromSeconds(5),
+            throwOnTimeout: true,
+            timeoutMessage: "Pressing the camera-mode key logged no mode change at all.");
+    }
+
+    /// <summary>How many camera-mode changes the viewer has announced.</summary>
+    private static int Transitions() =>
+        Viewer.Count(FirstPerson) + Viewer.Count(ThirdPerson) + Viewer.Count(BackToFree);
+
+    private const string FirstPerson = "first person on,";
 }

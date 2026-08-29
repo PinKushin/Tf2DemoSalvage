@@ -57,6 +57,10 @@ public sealed class FirstPersonUiTests
     /// </remarks>
     private static void PressSwitchCameraMode() => ViewerSession.PressSwitchCameraMode();
 
+    /// <summary>How many camera-mode changes the viewer has announced, across all three modes.</summary>
+    private static int Transitions() =>
+        Viewer.Count(FollowingRecorded) + Viewer.Count("third person on,") + Viewer.Count(BackToMap);
+
     /// <summary>What the viewer logs when the recorded camera is being followed.</summary>
     private const string FollowingRecorded = "first person on, following the recording's own camera";
 
@@ -87,19 +91,28 @@ public sealed class FirstPersonUiTests
         // grew. Watching for the one line that only appears on arriving at Free needs no guess, and
         // terminates from any starting mode — three presses from Free, two from first person, one
         // from third.
-        for (int press = 0; press < 3; press++)
+        // **Each press waits for ANY mode change, never for a particular one.** Every press logs
+        // exactly one of three lines, so their sum always rises and the wait ends in milliseconds.
+        // Waiting for the free-camera line specifically means two presses in three wait for
+        // something that will not happen and burn the whole timeout — a negative retry is a sleep
+        // (`docs/memory/a-negative-retry-is-a-sleep.md`), and with one of these per test it cost
+        // this suite most of its runtime.
+        // **Against a baseline, not against zero.** These counts accumulate for the life of the
+        // shared viewer, so `== 0` is true only until the first teardown ever runs and false
+        // afterwards — the loop would stop pressing and every later test would inherit whatever
+        // mode the previous one left.
+        int free = Viewer.Count(BackToMap);
+
+        for (int press = 0; press < 3 && Viewer.Count(BackToMap) == free; press++)
         {
-            int free = Viewer.Count(BackToMap);
+            int before = Transitions();
 
             PressSwitchCameraMode();
 
-            if (Retry.WhileFalse(
-                    () => Viewer.Count(BackToMap) > free,
-                    TimeSpan.FromSeconds(3),
-                    throwOnTimeout: false).Success)
-            {
-                break;
-            }
+            Retry.WhileFalse(
+                () => Transitions() > before,
+                TimeSpan.FromSeconds(5),
+                throwOnTimeout: false);
         }
     }
 
