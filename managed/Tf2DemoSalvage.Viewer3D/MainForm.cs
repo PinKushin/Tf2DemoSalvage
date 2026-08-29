@@ -1834,11 +1834,27 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private bool EnterCamera(CameraMode mode)
     {
+        CameraMode leftFrom = _cameraMode;
+
         if (mode == CameraMode.Free)
         {
             _cameraMode = CameraMode.Free;
             _world.Invalidate();
             _viewport.Invalidate();
+
+            // **Leaving has to say so, and this line was missing.** Every other mode change is
+            // logged, so a silent one is invisible to anything reading the log — including the UI
+            // suite, which waits for it to know the camera came back. The cycle reached Free
+            // correctly and appeared to skip straight past it, which reads as a broken cycle rather
+            // than as a missing sentence.
+            //
+            // Named for the mode being LEFT, since "first person off" is untrue when the camera was
+            // chasing; the shared tail is what a reader waits on.
+            _renderLog.LogInformation(
+                "{Message}",
+                leftFrom == CameraMode.ThirdPerson
+                    ? "third person off, back to the free camera"
+                    : "first person off, back to the free camera");
 
             return true;
         }
@@ -1857,10 +1873,37 @@ internal class MainForm : Form, IFrameSteps
         _world.Invalidate();
         _viewport.Invalidate();
 
-        _renderLog.LogInformation("{Message}", entry.Message);
+        // **Third person says so in its own words.** `Enter`'s message is about acquiring a target,
+        // which both player modes share; without a line naming the MODE, a log cannot distinguish
+        // watching through a player's eyes from watching over his shoulder — and those look very
+        // different on screen while producing identical target messages.
+        _renderLog.LogInformation(
+            "{Message}",
+            mode == CameraMode.ThirdPerson
+                ? $"third person on, chasing {entry.Message}"
+                : entry.Message);
 
         return true;
     }
+
+    /// <summary>Moves to the next camera mode, which is what TF2's "Switch Camera Mode" does.</summary>
+    /// <remarks>
+    /// **Three modes, because the engine has three and cycles them.** A TF2 spectator's mode runs
+    /// through `OBS_MODE_IN_EYE`, `OBS_MODE_CHASE` and `OBS_MODE_ROAMING` (`shareddefs.h:490`), and
+    /// `C_HLTVCamera::ToggleChaseAsFirstPerson` (`hltvcamera.cpp:843`) flips between the first two
+    /// directly. This viewer had only two, so third person was unreachable from the key TF2 puts
+    /// the cycle on — the commands `firstperson` and `thirdperson` were the only way in.
+    ///
+    /// Free comes last so the cycle ends where a viewer with no target can always sit, which is the
+    /// same reason D98 makes it the fallback.
+    /// </remarks>
+    private bool CycleCameraMode() =>
+        EnterCamera(_cameraMode switch
+        {
+            CameraMode.Free => CameraMode.FirstPerson,
+            CameraMode.FirstPerson => CameraMode.ThirdPerson,
+            _ => CameraMode.Free,
+        });
 
     private bool ToggleFirstPerson()
     {
@@ -4250,7 +4293,7 @@ internal class MainForm : Form, IFrameSteps
         // **Switch camera mode defaults to Space**, which is what TF2 binds it to.
         if (keyData == KeyNames.Resolve(_bindings.KeyFor(ViewerAction.SwitchCameraMode)))
         {
-            return ToggleFirstPerson();
+            return CycleCameraMode();
         }
 
         // **Source's own `firstperson` and `thirdperson`, so a config reaches them by name.** They

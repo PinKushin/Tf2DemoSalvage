@@ -224,14 +224,28 @@ public sealed class KeyBindings
             // CTRL+key is ours to spend and a pasted config cannot collide with it — the same
             // reasoning the debug views below already use.
             //
-            // **The mnemonics are Valve's own mode names**, not arbitrary picks: `OBS_MODE_IN_EYE`
-            // and `OBS_MODE_CHASE`. A key chosen for a reason survives someone tidying the table.
+            // **NOT `CTRL+c`, which was the first choice and was wrong.** The owner: *"ctrl c is a
+            // bad bind, thats copy, people are going to use it as copy"*. A viewer that steals the
+            // universal copy chord teaches its user that the application is broken, and no mnemonic
+            // is worth that. The same argument rules out v, x, z, s and a.
+            //
+            // **Not a function key either, because every one is already spoken for.** Measured:
+            // TF2's defaults bind F1, F2, F5, F6, F7, F10 and F12; this viewer uses F3, F4, F5, F8,
+            // F9 and F11. Between them that is all twelve.
+            //
+            // **And not `CTRL+3`, though "third person" is the obvious mnemonic.** `CTRL+0`, `1` and
+            // `2` are `mat_fullbright` levels, so a digit next to them reads as a third lighting
+            // mode rather than as a camera.
+            //
+            // What is left is a letter that is free here and carries no destructive meaning
+            // elsewhere: E for the eye (`OBS_MODE_IN_EYE`) and B for behind (`OBS_MODE_CHASE`).
+            // `CTRL+b` is bold in a text editor, and this application edits no text.
             //
             // The commands themselves are `firstperson` and `thirdperson`, which
             // `config_default.cfg` binds to nothing — so a real config reaches them only if its
             // owner chose to, and reading it takes no key from anybody.
             [ViewerAction.FirstPersonView] = "CTRL+e",
-            [ViewerAction.ThirdPersonView] = "CTRL+c",
+            [ViewerAction.ThirdPersonView] = "CTRL+b",
 
             // **`f` and `k` until 2026-08-26, and both were taken by a pasted config** (B214). TF2
             // binds `f` to `+inspect` and `k` to `cl_decline_first_notification` — commands this
