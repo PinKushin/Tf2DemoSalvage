@@ -150,3 +150,4 @@
 - [An environment-only setting is untested](an-environment-only-setting-is-untested.md) — one reference in the whole repo; broke three times.
 - [A shared viewer test restores what it changed](a-shared-viewer-test-restores-what-it-changed.md) — mutate freely, never depend on running last.
 - [Ask whether it still follows the pattern](ask-whether-it-still-follows-the-pattern.md) — "is this still MVP" found the cause a green suite missed.
+- [Ask about the entity you are drawing](ask-about-the-entity-you-are-drawing.md) — the resolver existed; the rule asked its neighbour instead.

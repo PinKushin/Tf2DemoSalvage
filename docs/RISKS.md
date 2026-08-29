@@ -14239,3 +14239,56 @@ MVP"* — found a defect that no test failure, no log line and no measurement ha
 did to the ARCHITECTURE is a different instrument from asking whether it works, and it reached
 something the others could not: the merged fix worked, was verified end to end, and was still
 guarding a hazard rather than removing it.
+
+## B225 — what it actually was: the mode asked about the wrong player
+
+**FIXED 2026-08-29. Neither hypothesis above was right, and both of mine were wrong too.** Recorded
+in full because the wrong turns are the part worth keeping.
+
+**The measurement that killed the first theory.** Implementing `m_iObserverMode` was correct work —
+it is the engine's own test and this project decoded none of it — but it explains none of B225.
+Across three point-of-view demos, samples that are **alive AND observing come to zero**:
+
+```
+tf2-2013-build1729296-pov-cp_badlands: NONE=200, DEATHCAM=48, CHASE=63   [alive AND observing: 0]
+etf2l-12025-pov-2020-07-21: NONE=530, DEATHCAM=83, FREEZECAM=54, FIXED=1810, IN_EYE=337   [0]
+tf2-2026-pub-pov-clean: NONE=2344, DEATHCAM=139, FREEZECAM=240, FIXED=1821, IN_EYE=24, CHASE=411  [0]
+```
+
+Every observing sample is also dead, and the life-state rule already handled dead. Had that column
+not been printed, this would have been reported as a fix on the strength of a green suite and a
+plausible story.
+
+**What it actually was: `Effective` asked `Target(tick)`, which is the wrong person on a POV demo.**
+`Target` is `SpectatorTarget.Choose` — the lowest entity index on a playing team — which is right
+for a SourceTV recording and wrong for a point-of-view one, where the camera is the RECORDER's own
+and the recorder is usually somebody else entirely. So the recorder died, another player was alive,
+`Effective` was told "alive", and the viewer stayed in first person drawing a dead man's weapon.
+
+**`Followed(tick)` had resolved this correctly all along**, and its own remarks say why it exists:
+*"Asked in one place so the two decisions cannot disagree."* The rule simply did not ask it. The fix
+is `Viewed(tick)` — `Followed` resolved to a player — used by both `Effective` and `Chase`. `Chase`
+too, because fixing only the first would drop a POV demo out of the recorder's eyes and land it
+behind a stranger: a new visible defect manufactured by half a fix (D116).
+
+**Measured on the demo the owner was watching**, a thirty-second autoplay run straight through the
+death at tick 2008:
+
+| | viewmodel drawn | pass skipped |
+|---|---|---|
+| before | 30 | 1 |
+| after | 7 | 19 |
+
+**Three things worth carrying:**
+
+- **The log said it plainly and nobody had read it.** One mode line — "first person on" — across a
+  run that crossed a death, with no fall to third person anywhere. A transition that should have
+  happened and did not is invisible unless you go looking for the absence.
+- **A correct measurement can be about the wrong quantity.** The observer-mode distribution is real,
+  useful and now asserted; it was simply not the variable. The control column is what said so.
+- **The bug was only reachable because autoplay started working** (B223). The viewer had never run a
+  demo forward unattended, so this span had never been drawn.
+
+**`m_iObserverMode` is kept and is not consolation.** It is the engine's own first-person test, it
+covers the case liveness cannot — a player who goes to spectator is alive — and no demo in reach
+happens to contain that case today. `CorpusObserverModeTests` will say so when one does.

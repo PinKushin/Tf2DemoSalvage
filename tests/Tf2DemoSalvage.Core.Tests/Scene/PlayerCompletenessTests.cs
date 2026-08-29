@@ -103,6 +103,12 @@ public sealed class PlayerCompletenessTests
         // case and therefore the measurable one.
         Drawn: false,
 
+        // **`OBS_MODE_ROAMING`, which is both non-default AND makes `InFirstPersonView` false** —
+        // this test reads derived properties too, so a mode that left that predicate at its default
+        // would be a value this test could not measure. Roaming is also the one the owner described:
+        // where TF2 puts a player who goes to spectator.
+        ObserverMode: ObserverModes.Roaming,
+
         // A weapon in hand, and its class — the pair that decides which suffix every body activity
         // takes, so losing either draws a medic running like a scout.
         ActiveWeapon: 17,

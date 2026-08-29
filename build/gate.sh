@@ -309,7 +309,12 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 # 215 -> 222 on 2026-08-29: ChaseDirectorConformanceTests (7). The chase camera ignored every
 # parameter the hltv_chase event carries — distance, phi, theta, offset — and the director's second
 # target, each with a comment saying so. D117 is the rule that came out of that.
-run Tf2DemoSalvage.Scene.Tests    scene     222
+# 222 -> 235 on 2026-08-29: ObserverModeConformanceTests (11) writes down
+# `C_BasePlayer::LocalPlayerInFirstPersonView` before anything decoded `m_iObserverMode`, and two
+# cases pin B225's actual mechanism — `Effective` was asking `SpectatorTarget.Choose` about a
+# point-of-view demo, so the mode was decided by the liveness of a player who was not the one being
+# watched. The second of those two is the control, and without it "is ANY player dead" would pass.
+run Tf2DemoSalvage.Scene.Tests    scene     235
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -571,7 +576,10 @@ run Tf2DemoSalvage.Content.Tests  content   785
 # 130 -> 133 on 2026-08-28: LifeStateCorpusDiagnostic (3, Explicit), which measured the liveness of
 # every player across two demos and chose the UI suite's opening tick. Its report is what showed that
 # tick 2500 sat inside a death — the frame that constant was chosen for is a freezecam, not a player.
-run Tf2DemoSalvage.Corpus.Tests   corpus     135
+# 135 -> 136: CorpusObserverModeTests, the level that catches a decode which never populates the
+# field. It also measured the number that killed the first theory: across three POV demos, samples
+# that are alive AND observing come to ZERO, so the observer-mode rule alone explains none of B225.
+run Tf2DemoSalvage.Corpus.Tests   corpus     136
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that

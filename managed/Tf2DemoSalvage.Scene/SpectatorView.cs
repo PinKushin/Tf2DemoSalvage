@@ -120,6 +120,31 @@ public sealed class SpectatorView
             : Target(tick)?.EntityIndex;
     }
 
+    /// <summary>The player whose view is being drawn, as a player rather than an index.</summary>
+    /// <param name="tick">The tick being drawn.</param>
+    /// <returns>The player, or null when nobody is followed or they are absent from the roster.</returns>
+    /// <remarks>
+    /// **<see cref="Followed"/> resolved to a player, and the distinction from <see cref="Target"/>
+    /// is the whole of B225.** `Target` is `SpectatorTarget.Choose` — the lowest entity index on a
+    /// playing team — which is who a SourceTV recording should watch. A POINT-OF-VIEW demo carries
+    /// the recorder's own camera instead, and the recorder is usually somebody else entirely.
+    ///
+    /// Asking `Target` about a POV demo therefore answers about the wrong person. The owner watched
+    /// his own recording play through his death and the viewer stayed in first person drawing his
+    /// weapon, because some other player was alive and that is who was being asked. Measured on that
+    /// demo: a thirty-second run straight through the death at tick 2008 drew the viewmodel 30 times
+    /// and logged one mode line.
+    ///
+    /// **Built on `Followed` rather than repeating its test**, which is the point — its own remarks
+    /// say it is *"asked in one place so the two decisions cannot disagree"*, and a second copy of
+    /// "is there a recorded view" is exactly how they would come to.
+    ///
+    /// Null when the followed entity is not in the roster at this tick, which is ordinary early in
+    /// a recording. Callers treat that as "no opinion" rather than as a refusal.
+    /// </remarks>
+    public ScenePlayer? Viewed(int tick) =>
+        Eyes is { } eyes ? PlayerAt(eyes, tick, Followed(tick)) : null;
+
     /// <summary>The player being spectated at a tick, honouring an override.</summary>
     /// <param name="tick">The tick being drawn.</param>
     /// <returns>The player, or null when nobody can be followed.</returns>
@@ -285,6 +310,23 @@ public sealed class SpectatorView
     /// **Applied whichever way the eye would have been found**, recorded view or spectated target.
     /// A point-of-view demo's recorded view during death IS the death cam, which is third person in
     /// TF2 as well, so treating it as first person is the divergence rather than the fidelity.
+    ///
+    /// **A SECOND rule joins it, from a different system** (B225). The engine's own test for "is
+    /// this view first person" is <c>C_BasePlayer::LocalPlayerInFirstPersonView</c>
+    /// (<c>c_baseplayer.cpp:1919</c>), which allows only <c>OBS_MODE_NONE</c> and
+    /// <c>OBS_MODE_IN_EYE</c> and returns false for everything else — *"Not looking at the local
+    /// player, e.g. in a replay in third person mode or freelook."*
+    ///
+    /// **Both are needed, and neither implies the other.** The HLTV rule above is about a dead
+    /// TARGET; this one is about an OBSERVING one, and a player who goes to spectator is alive by
+    /// <c>m_lifeState</c> — spectating is not dying — so liveness cannot see them at all. That is
+    /// the case the owner found by watching a demo play: TF2 puts a player who goes to spectator
+    /// into <c>OBS_MODE_ROAMING</c>, the point-of-view recording follows whatever camera they chose,
+    /// and this viewer drew their old weapon over it.
+    ///
+    /// Conversely the observer mode cannot replace liveness, because a recording that never sent
+    /// <c>m_iObserverMode</c> reads as <c>OBS_MODE_NONE</c> — absence is the default, not an
+    /// unknown — leaving liveness the only thing that can answer on such a demo.
     /// </remarks>
     public CameraMode Effective(int tick, CameraMode requested)
     {
@@ -293,7 +335,22 @@ public sealed class SpectatorView
             return requested;
         }
 
-        return Target(tick) is { IsAlive: false } ? CameraMode.ThirdPerson : requested;
+        // **`Viewed`, not `Target`, and that swap is B225.** The mode has to be decided by the
+        // person whose eyes are being used. On a point-of-view demo that is the RECORDER, and
+        // `Target` is whoever `SpectatorTarget.Choose` picks — so this rule was reading the liveness
+        // of a different player entirely, and stayed in first person through the recorder's death
+        // because somebody else was still alive.
+        //
+        // **A null keeps the requested mode**, as it always has: there is nobody to ask, and a demo
+        // with no roster is not a reason to force a chase camera that has nothing to chase.
+        if (Viewed(tick) is not { } target)
+        {
+            return requested;
+        }
+
+        return target is { IsAlive: true, InFirstPersonView: true }
+            ? requested
+            : CameraMode.ThirdPerson;
     }
 
     /// <summary>How far a box may travel through the world before something solid stops it.</summary>
@@ -332,7 +389,12 @@ public sealed class SpectatorView
     /// </remarks>
     public FreeCamera? Chase(int tick, float aspect, double seconds)
     {
-        if (Target(tick) is not { } target)
+        // **`Viewed` for the same reason `Effective` uses it, and fixing only one would have been
+        // worse than fixing neither** (B225). `Effective` falls to third person when the person
+        // being watched dies; if this then chased whoever `SpectatorTarget.Choose` picks, a POV
+        // demo would drop out of the recorder's eyes and land behind a stranger. That is a new
+        // visible defect created by half a fix — the shape D116 is about.
+        if (Viewed(tick) is not { } target)
         {
             return null;
         }
