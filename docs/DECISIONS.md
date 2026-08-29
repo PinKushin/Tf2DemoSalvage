@@ -6767,3 +6767,43 @@ the code as it is now** — the thing that made it hard may have been built sinc
 **Related:** D117 says implement the feature rather than documenting the omission; this is D117 for
 the case where the omission was documented by someone else, earlier, and the note reads as a
 standing decision.
+
+## D121 — Valve's way, first time, without proposing alternatives; and audit against the SDK as you go
+
+**The owner, 2026-08-29**, unprompted and in three parts:
+
+> *"remeber to periodically audit against the sdk to make sure you havent strayed"*
+
+> *"no fucking arguing for diversions, just do it fucking valves way the first time"*
+
+> *"like if its something we really cant do or really really doesnt make sense, then ask about it,
+> but 99.9999999% of the time we should be following valve"*
+
+**What this changes, concretely.** D89 already says Valve parity is the first principle and that
+performance never buys a departure. This adds the part that was still being got wrong: the parity
+decision is not a thing to weigh, present options for, or arrive at after a discussion. Read the
+engine, implement what it does, and move on.
+
+**So: no menu.** Offering "Valve's approach, or this simpler one" is itself the diversion, even when
+Valve's is the one recommended — it spends the owner's attention on a choice that was already made,
+and it invites a compromise that D89 forbids anyway. The same goes for building something
+approximate with a note saying Valve does it differently: that is D117's error wearing parity's
+clothes.
+
+**The escape hatch is real but very narrow**, and the owner drew it himself: something we *really
+cannot* do, or that *really really* does not make sense. Those exist — the SDK does not publish
+`cmodel_disp.cpp`, a demo cannot be dated by its protocol, the game folder is the owner's to
+provide. When one is hit, ASK; do not quietly substitute a design. Anything short of that bar is
+implemented Valve's way without a conversation.
+
+**"Periodically audit" is a standing instruction, not a closing step.** Drift is not introduced by a
+decision to depart — it accumulates from small readings that were never checked back against the
+source. So re-read the SDK during a piece of work as well as before it, and especially when
+extending something built earlier: the second caller of a mechanism is where a wrong reading first
+becomes visible.
+
+**Related, and this is the fifth time the same instinct has been corrected.** D89 (performance never
+buys a departure), `docs/memory/an-optimisation-is-not-a-skippable-departure.md`, D116 (half a
+mechanism is not parity), D117 (implement the feature, do not document the omission), D120 (a found
+divergence is fixed, not filed). Each arrived from a different direction — performance, structure,
+scope, process — and this one closes the last of them: the conversation itself.
