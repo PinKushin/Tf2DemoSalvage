@@ -84,6 +84,45 @@ public sealed class LevelSystemsTests
     }
 
     [Test]
+    public void Shutdown_TheSoundSchedule_SurvivesBecauseItBelongsToTheDemo()
+    {
+        // **This is B228, and it silenced the viewer completely.** `SoundPresenter` cleared its
+        // schedule in `LevelShutdownPreEntity`, and `MainForm.Apply` reads the map AFTER
+        // `DemoSystems.Open` has set it — so every load ran `Open` (schedule set), then `LoadMap` →
+        // `ClearMap` → `Shutdown()` (schedule nulled), and `Update` returned at its first guard for
+        // the rest of the session. Measured: 23,772 sounds on the f12 timeline, 542 precached, 110
+        // frames drawn, and not one sound submitted.
+        //
+        // **The lifetime is Valve's answer, not a preference.** `CSoundEmitterSystem` does not
+        // implement `LevelShutdownPreEntity` at all, and its `LevelShutdownPostEntity` clears
+        // `soundemitterbase->ClearSoundOverrides()` — map-scoped SCRIPT data.
+        // `C_SoundscapeSystem::LevelShutdownPreEntity` is literally `{}`, with the voices stopped
+        // post-entity in `OnStopAllSounds()`. Neither clears anything resembling a play queue,
+        // because a live client has none: it receives sounds as events.
+        //
+        // Our schedule is a cursor into one DEMO's sound list. It is demo state, and
+        // `DemoSystems.Open` already owns both ends of it — setting it for a demo that decoded and
+        // nulling it for one that did not.
+        MomentScene moment = Scene();
+        SoundscapeSystem soundscape = Soundscape();
+        SoundPresenter sound = new(soundscape, new ActiveLoops(), _ => null, NullLogger.Instance);
+
+        SoundSchedule schedule = new([]);
+
+        sound.Schedule = schedule;
+
+        new LevelSystems(
+            moment, new EntityModelSet(), new SoundCache(NullLogger.Instance),
+            soundscape, sound, Appearances(), NullLoggerFactory.Instance)
+            .Shutdown();
+
+        sound.Schedule.ShouldBeSameAs(
+            schedule,
+            "reading a map must not throw away the demo's sounds: Apply opens the demo first and "
+            + "loads the map second, so a level teardown that clears this silences the whole run");
+    }
+
+    [Test]
     public void Shutdown_TheGeometrySource_GoesBackToNothing()
     {
         // `EntityModelSet` is not a game system, so it is reset explicitly rather than walked — and

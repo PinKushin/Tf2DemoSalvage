@@ -92,18 +92,33 @@ public sealed class SoundPresenter(
     /// <inheritdoc/>
     public string Name => "soundemitter";
 
-    /// <summary>Drops the schedule, which belongs to the demo that is being closed.</summary>
-    /// <remarks>
-    /// **`IGameSystem` and NOT the per-frame one, which is Valve's split rather than ours.**
-    /// `CSoundEmitterSystem : CBaseGameSystem` (`SoundEmitterSystem.cpp:134`) — deciding what to
-    /// emit is not a per-frame walk; the engine drives it from events. `C_SoundscapeSystem` next
-    /// door IS per-frame, because a soundscape fades and re-chooses on a timer.
-    ///
-    /// **A schedule holds a cursor into one timeline's sound list**, so carrying it across a load
-    /// indexes the previous demo's sounds — replaced rather than kept, and null is the honest value
-    /// when no demo is open.
-    /// </remarks>
-    public void LevelShutdownPreEntity() => Schedule = null;
+    // **`LevelShutdownPreEntity() => Schedule = null` was here, and it silenced the viewer
+    // entirely** — removed 2026-08-29 (B228).
+    //
+    // `MainForm.Apply` opens the demo and THEN reads the map: `DemoSystems.Open` set the schedule,
+    // `LoadMap` called `ClearMap` called `LevelSystems.Shutdown()`, and this nulled it again before
+    // a single frame was drawn. `Update` then returned at its first guard for the rest of the
+    // session. Measured on cp_process_f12: 23,772 sounds on the timeline, 542 precached, 110 frames
+    // drawn, and not one sound submitted.
+    //
+    // **The lifetime is Valve's answer rather than a preference.** `CSoundEmitterSystem` does not
+    // implement `LevelShutdownPreEntity` at all; its `LevelShutdownPostEntity`
+    // (`SoundEmitterSystem.cpp:333`) clears `soundemitterbase->ClearSoundOverrides()`, which is
+    // map-scoped SCRIPT data. `C_SoundscapeSystem::LevelShutdownPreEntity` (`c_soundscape.cpp:120`)
+    // is literally `{}`, and its voices are stopped post-entity by `OnStopAllSounds()`. Neither
+    // clears anything resembling a play queue — a live client has none, because it receives sounds
+    // as events.
+    //
+    // **A schedule is a cursor into one DEMO's sound list**, so its owner is the demo.
+    // `DemoSystems.Open` already holds both ends: it builds one for a timeline that decoded and
+    // nulls it for one that did not. The old note here was right that carrying a schedule across a
+    // load would index the previous demo's sounds — and that is exactly what `Open` prevents, on
+    // the path that actually knows a demo changed.
+    //
+    // **The per-frame split it also documented is unchanged and still Valve's**: deciding what to
+    // emit is `CBaseGameSystem` (`SoundEmitterSystem.cpp:134`), driven from events, while
+    // `C_SoundscapeSystem` next door IS per-frame because a soundscape fades and re-chooses on a
+    // timer.
 
     /// <summary>Below this a loop is treated as silent, for the crossing log only.</summary>
     /// <remarks>

@@ -2552,17 +2552,17 @@ internal class MainForm : Form, IFrameSteps
         _demo = null;
         _timeline = null;
 
-        // **This replaced `_clock = null`, and it is not the same line spelled differently.** The
-        // window's copy of the clock is gone, so the presenter's has to be cleared where the copy
-        // used to be — and this is a MANUAL reset path: `CouldNotOpen` never calls
-        // `DemoSystems.Open`, so nothing else unloads it. Dropping the line instead would have left
-        // the presenter holding the PREVIOUS demo's clock after a failed load.
-        _playback.Load(null);
-
-        // **Through the presenter, like every other transport reset** (D118). `Open` is not called
-        // on this path — a failed load never reaches it — so the length still has to be cleared
-        // here; what changed is that the window no longer reaches past the presenter to do it.
-        _playback.SetDemoLength(0);
+        // **`DemoSystems.Open` with no timeline IS "close the demo", and calling it is what makes
+        // this path complete** (B228). It was three hand-written lines — the clock, the transport
+        // length, and nothing else — while `Open`'s null path clears every source there is: eyes,
+        // viewmodels, moments, the sound schedule, the appearance and the loops in flight.
+        //
+        // That gap mattered as of 2026-08-29. The sound schedule used to be cleared by the LEVEL
+        // teardown, which meant a failed load happened to be covered from the side; removing that
+        // (it silenced every run, B228) leaves this the only place a failed load can let go of the
+        // previous demo's sounds. Two hand-maintained lists of what a demo owns is the shape that
+        // let three sources go missing separately in B193.
+        _demoSystems.Open(_timeline, lastTick: 0, _audio, autoPlay: false, autoPlayReason: string.Empty);
 
         // **The wording is `DemoLoadResult`'s** (B188, D90), which also keeps the status line and
         // the returned message identically worded by construction rather than by `_status.Text`
