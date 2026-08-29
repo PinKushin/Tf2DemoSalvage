@@ -83,6 +83,13 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// spawns a separate <c>CTFRagdoll</c> to be the corpse. A dead player stays in this list as data
 /// for the scoreboard and the kill feed with this false.
 /// </param>
+/// <param name="ObserverMode">
+/// What the player is watching through — <c>m_iObserverMode</c>, <c>shareddefs.h:492</c> — or
+/// <c>null</c> when the recording never said, which means <see cref="ObserverModes.None"/>. It is
+/// the engine's own answer to "is this a first-person view", and the reason it matters here is that
+/// a player who goes to spectator is still ALIVE: liveness cannot distinguish them, and this can.
+/// See <see cref="ScenePlayer.InFirstPersonView"/>.
+/// </param>
 /// <remarks>
 /// **Not everything here is playing.** A spectator and a SourceTV camera are <c>CTFPlayer</c>
 /// entities with real positions that fly around the map, and drawing them puts dots where nobody
@@ -113,7 +120,8 @@ public readonly record struct ScenePlayer(
     int? WaterLevel = null,
     int? ActiveWeapon = null,
     string? WeaponClass = null,
-    int? WeaponItem = null)
+    int? WeaponItem = null,
+    int? ObserverMode = null)
 {
     /// <summary>Whether the player is crouched, when the recording says.</summary>
     /// <remarks>
@@ -157,6 +165,73 @@ public readonly record struct ScenePlayer(
     /// only sends what changed. Reading absence as unknown would hide everyone who has not died.
     /// </remarks>
     public bool IsAlive => LifeState is null or 0;
+
+    /// <summary>Whether the engine would consider this player's view first person.</summary>
+    /// <remarks>
+    /// **<c>C_BasePlayer::LocalPlayerInFirstPersonView</c>, <c>c_baseplayer.cpp:1919</c>:**
+    ///
+    /// <code>
+    ///   int ObserverMode = pLocalPlayer->GetObserverMode();
+    ///   if ( ( ObserverMode == OBS_MODE_NONE ) || ( ObserverMode == OBS_MODE_IN_EYE ) )
+    ///   {
+    ///       return !input->CAM_IsThirdPerson() &amp;&amp; ...;
+    ///   }
+    ///
+    ///   // Not looking at the local player, e.g. in a replay in third person mode or freelook.
+    ///   return false;
+    /// </code>
+    ///
+    /// An allowlist of two, and the SDK's own comment warns against treating the enum as ordered:
+    /// <c>OBS_MODE_POI</c> was inserted at 6 *"due to tons of hard-coded '&lt;ROAMING' enum
+    /// compares"*. So this compares against the two values rather than against a threshold.
+    ///
+    /// **Absent means <see cref="ObserverModes.None"/>**, because zero is the default and a
+    /// delta-compressed format sends only what changed — the same rule as
+    /// <see cref="IsAlive"/>. A recording that never mentions the field is a recording of someone
+    /// who never observed, not an unknown.
+    /// </remarks>
+    public bool InFirstPersonView =>
+        ObserverMode is null or ObserverModes.None or ObserverModes.InEye;
+}
+
+/// <summary>The engine's observer modes, <c>shareddefs.h:492</c>.</summary>
+/// <remarks>
+/// Sent as three bits unsigned (<c>player.cpp:8184</c>), which is exactly enough for 0..7 — every
+/// value the enum defines fits and none is unrepresentable.
+///
+/// **In <c>DT_BasePlayer</c> proper rather than <c>DT_LocalPlayerExclusive</c>**, so it arrives for
+/// every player in any recording, not only for the one holding the camera.
+/// </remarks>
+public static class ObserverModes
+{
+    /// <summary>Not in spectator mode — playing.</summary>
+    public const int None = 0;
+
+    /// <summary>The death cam animation.</summary>
+    public const int DeathCam = 1;
+
+    /// <summary>Zooms to a target and freeze-frames on them.</summary>
+    public const int FreezeCam = 2;
+
+    /// <summary>A fixed camera position.</summary>
+    public const int Fixed = 3;
+
+    /// <summary>Following a player in first person.</summary>
+    public const int InEye = 4;
+
+    /// <summary>Following a player in third person.</summary>
+    public const int Chase = 5;
+
+    /// <summary>A PASSTIME point of interest.</summary>
+    /// <remarks>
+    /// **Inserted in the MIDDLE of the enum**, and the SDK says why: *"added in the middle of the
+    /// enum due to tons of hard-coded '&lt;ROAMING' enum compares"*. Anything here comparing modes
+    /// by ordering rather than by value would be wrong for a reason Valve documented in advance.
+    /// </remarks>
+    public const int PointOfInterest = 6;
+
+    /// <summary>Free roaming — where TF2 puts a player who goes to spectator.</summary>
+    public const int Roaming = 7;
 }
 
 /// <summary>The engine's team numbers.</summary>
@@ -1298,6 +1373,14 @@ public sealed class DemoTimeline
                     // Null on a POV demo for everyone but the recorder, because the send prop is in
                     // DT_LocalPlayerExclusive; a SourceTV recording carries it for every player.
                     Flags: player.Flags(),
+
+                    // **What the engine itself uses to decide whether a view is first person**
+                    // (B225). Unlike `Flags` above, this one is in `DT_BasePlayer` proper, so it
+                    // arrives for everybody in either kind of recording. Without it a player who
+                    // goes to spectator is indistinguishable from one still playing — spectating is
+                    // not dying, so `LifeState` says nothing about it — and the viewer drew their
+                    // last weapon over a free-roaming camera.
+                    ObserverMode: player.ObserverMode(),
 
                     // **EF_NODRAW, which is how the engine hides a corpse.** On death the server
                     // spawns a CTFRagdoll and then turns the player off with

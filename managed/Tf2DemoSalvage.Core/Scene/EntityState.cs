@@ -313,6 +313,9 @@ public sealed class EntityState
     /// <summary>0 alive, 1 dying, 2 dead; see LIFE_ALIVE in const.h.</summary>
     private const string LifeStateProperty = "m_lifeState";
 
+    /// <summary>What the player is watching through; see OBS_MODE_NONE in shareddefs.h.</summary>
+    private const string ObserverModeProperty = "m_iObserverMode";
+
     private const string EyeAnglesPitch = "m_angEyeAngles[0]";
     private const string EyeAnglesYaw = "m_angEyeAngles[1]";
 
@@ -949,6 +952,28 @@ public sealed class EntityState
     /// who had not died yet.
     /// </remarks>
     public int? LifeState() => Integer($"{BasePlayerTable}.{LifeStateProperty}");
+
+    /// <summary>What the player is watching through, when it says.</summary>
+    /// <returns><c>m_iObserverMode</c>, or <c>null</c> when it was never sent.</returns>
+    /// <remarks>
+    /// **<c>DT_BasePlayer</c> proper, not <c>DT_LocalPlayerExclusive</c>** — verified in
+    /// <c>player.cpp:8184</c>, where it sits between <c>m_fFlags</c> and <c>m_hObserverTarget</c>
+    /// and above the <c>"localdata"</c> table. So it arrives for every player in any recording,
+    /// which is what makes it usable on a SourceTV demo as well as a point-of-view one.
+    ///
+    /// Three bits unsigned, which is exactly enough for the eight values <c>shareddefs.h:492</c>
+    /// defines — nothing the enum can hold is unrepresentable on the wire.
+    ///
+    /// **Absent means <c>OBS_MODE_NONE</c>**, because zero is the default and a delta-compressed
+    /// format only sends what changed. A recording that never mentions the field is a recording of
+    /// someone who never observed, not an unknown — the same rule as <see cref="LifeState"/>, and
+    /// the reason a caller must not treat null as "refuse to answer".
+    ///
+    /// The companion field <c>m_hObserverTarget</c> is deliberately NOT read: it is an EHandle, and
+    /// masking one down to its index turns "nobody" into entity 2047, which is a legal index. See
+    /// <c>UnimplementedGameplayEntityConformanceTests</c>, which still records that gap.
+    /// </remarks>
+    public int? ObserverMode() => Integer($"{BasePlayerTable}.{ObserverModeProperty}");
 
     /// <summary>The player's engine flags, when they were sent.</summary>
     /// <returns><c>m_fFlags</c>, or <c>null</c> when it was never sent.</returns>
