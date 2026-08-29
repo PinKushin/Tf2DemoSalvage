@@ -46,6 +46,33 @@ public sealed class ChaseCameraConformanceTests
     private const float Back = ChaseCamera.Distance;
 
     [Test]
+    public void Approach_WhenAWallBlocksCloserThanTheCameraIs_MovesInAtOnce()
+    {
+        // `else { cameraOrigin = trace.endpos; m_flLastDistance = dist; }` — blocking bites the
+        // same frame. A camera that eased inwards would spend that time inside the wall.
+        ChaseCamera.Approach(blockedAt: 30f, lastDistance: 96f, seconds: 1f / 60f)
+            .ShouldBe(30f, 0.01f);
+    }
+
+    [Test]
+    public void Approach_AfterTheWallClears_EasesOutAtThirtyTwoUnitsASecond()
+    {
+        // `m_flLastDistance += gpGlobals->frametime * 32.0f` — half a second from 30 is 30 + 16.
+        ChaseCamera.Approach(blockedAt: ChaseCamera.Distance, lastDistance: 30f, seconds: 0.5f)
+            .ShouldBe(46f, 0.01f);
+    }
+
+    [Test]
+    public void Approach_WithNothingBlocking_StopsAtTheFullDistance()
+    {
+        // **The control, and without it the recovery has no ceiling.** When the trace is clear its
+        // endpos IS the wanted camera position, so `dist` equals m_flDistance and the growth cannot
+        // carry the camera past it however long it runs.
+        ChaseCamera.Approach(blockedAt: ChaseCamera.Distance, lastDistance: 95f, seconds: 10f)
+            .ShouldBe(ChaseCamera.Distance, 0.01f);
+    }
+
+    [Test]
     public void View_ForALivingTarget_LooksFromBehindAtStandingEyeHeight()
     {
         // Yaw 0 faces +x, so the camera sits 96 units behind in −x, level with a 72-unit eye.

@@ -1,3 +1,5 @@
+using System;
+
 using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Scene;
@@ -60,6 +62,44 @@ public static class ChaseCamera
     /// rather than the sky above it.
     /// </remarks>
     public const float DeadPitch = 15f;
+
+    /// <summary>How fast the camera eases back out once a wall stops blocking it.</summary>
+    /// <remarks>
+    /// <c>m_flLastDistance += gpGlobals->frametime * 32.0f</c> (<c>hltvcamera.cpp:227</c>), under
+    /// the comment "grow distance by 32 unit a second". Without it the camera SNAPS back to full
+    /// distance the instant a wall clears, which is the visible half of this mechanism.
+    /// </remarks>
+    public const float RecoveryPerSecond = 32f;
+
+    /// <summary>How far behind the target the camera may sit this frame.</summary>
+    /// <param name="blockedAt">How far the world allows, from the target; <see cref="Distance"/> when clear.</param>
+    /// <param name="lastDistance">What it was allowed last frame — <c>m_flLastDistance</c>.</param>
+    /// <param name="seconds">Time since the previous frame.</param>
+    /// <returns>The distance to use, which is also the next <paramref name="lastDistance"/>.</returns>
+    /// <remarks>
+    /// **The engine moves IN instantly and OUT slowly, and that asymmetry is the whole point.**
+    ///
+    /// <code>
+    ///   m_flLastDistance += gpGlobals->frametime * 32.0f;
+    ///   if ( dist > m_flLastDistance )
+    ///       VectorMA( targetOrigin1, -m_flLastDistance, forward, cameraOrigin );
+    ///   else
+    ///   {
+    ///       cameraOrigin = trace.endpos;
+    ///       m_flLastDistance = dist;
+    ///   }
+    /// </code>
+    ///
+    /// A camera that eased inwards as slowly as it eases out would spend that time inside the wall,
+    /// so blocking has to bite at once. Both branches reduce to taking whichever is smaller, and the
+    /// result becomes the new state either way.
+    ///
+    /// **It stops the camera; it does not hide the wall.** Worth stating because the alternative is
+    /// a real technique in other engines — culling geometry between camera and subject — and it is
+    /// not what Source does here.
+    /// </remarks>
+    public static float Approach(float blockedAt, float lastDistance, float seconds) =>
+        MathF.Min(blockedAt, lastDistance + (RecoveryPerSecond * seconds));
 
     /// <summary>Where the chase camera sits and which way it looks.</summary>
     /// <param name="x">The target's position, which is its feet.</param>
