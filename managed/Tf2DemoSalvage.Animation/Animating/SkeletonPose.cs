@@ -213,6 +213,35 @@ public sealed class SkeletonPose : IBonePose
             {
                 StudioBonePose moved = animated[entry];
 
+                // **An animated bone that has TRAVELLED is the shape of a bad track** (B222).
+                // `c_demo_arms` bones 16 and 17 have the same parent and an identical rest
+                // transform — separation zero in the file — and end up 92 units apart in the
+                // viewer. Animation moves a bone by a few units; ninety is a decoded position that
+                // is wrong, not a pose.
+                //
+                // Reported against the bone's OWN rest position, so the number is the displacement
+                // the animation claims rather than a distance between two bones, which is what
+                // makes it attributable to one track.
+                if (Log is { } moved_log && moved_log.IsEnabled(LogLevel.Debug))
+                {
+                    float dx = moved.Position.X - rest.Position.X;
+                    float dy = moved.Position.Y - rest.Position.Y;
+                    float dz = moved.Position.Z - rest.Position.Z;
+
+                    float travelled = MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
+
+                    if (travelled > 20f)
+                    {
+                        moved_log.LogDebug(
+                            "{Message}",
+                            $"BONE TRAVELLED: {NameOf(bone)}[{bone}] parent {rest.Parent} moved " +
+                            $"{travelled:0.#} units from its rest position by animation — " +
+                            $"rest ({rest.Position.X:0.##}, {rest.Position.Y:0.##}, " +
+                            $"{rest.Position.Z:0.##}) -> ({moved.Position.X:0.##}, " +
+                            $"{moved.Position.Y:0.##}, {moved.Position.Z:0.##})");
+                    }
+                }
+
                 rotation = moved.Rotation;
                 position = moved.Position;
             }

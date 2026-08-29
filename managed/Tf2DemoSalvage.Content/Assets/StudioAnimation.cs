@@ -227,12 +227,45 @@ public static class StudioAnimation
         int block = BinaryPrimitives.ReadInt32LittleEndian(description[AnimationBlockOffset..]);
         int data = BinaryPrimitives.ReadInt32LittleEndian(description[AnimationDataOffset..]);
 
+        int sectionFrames =
+            BinaryPrimitives.ReadInt32LittleEndian(description[AnimationSectionFramesOffset..]);
+
+        int sections = BinaryPrimitives.ReadInt32LittleEndian(
+            description[AnimationSectionIndexOffset..]);
+
+        int wanted = Math.Clamp(frame, 0, frames - 1);
+
+        // **A sectioned animation renumbers its frames per section and keeps its data per section**
+        // (`mstudioanimdesc_t::pAnim`, `public/studio.cpp`). `animindex` is Valve-documented as
+        // "non-zero when anim data isn't in sections", so it does not locate the data on its own.
+        //
+        // Without this the run-length walk reads every frame out of section zero, runs off the end
+        // of it and keeps going — which repeats a stale value for most frames and lands on stray
+        // bytes for a few. That was B222: `vm_weapon_bone_1` 219 units from rest, and the sticky
+        // launcher merged onto it torn across the view.
+        if (sectionFrames > 0 && sections > 0)
+        {
+            (int section, int local) = Section(frames, sectionFrames, wanted);
+
+            int entry = at + sections + (section * AnimationSectionStride);
+
+            if (entry < 0 || entry + AnimationSectionStride > bytes.Length)
+            {
+                return [];
+            }
+
+            block = BinaryPrimitives.ReadInt32LittleEndian(bytes[entry..]);
+            data = BinaryPrimitives.ReadInt32LittleEndian(
+                bytes[(entry + AnimationSectionDataOffset)..]);
+
+            wanted = local;
+        }
+
         if (block != 0 || data == 0 || frames <= 0)
         {
             return [];
         }
 
-        int wanted = Math.Clamp(frame, 0, frames - 1);
         int cursor = at + data;
 
         List<StudioBonePose> poses = [];
@@ -324,6 +357,55 @@ public static class StudioAnimation
         }
 
         return new StudioBonePose(bone, position, rotation);
+    }
+
+    /// <summary>Which section of a long animation holds a frame, and its index within it.</summary>
+    /// <param name="frames">The animation's <c>numframes</c>.</param>
+    /// <param name="sectionFrames">Its <c>sectionframes</c>, or zero when it is not sectioned.</param>
+    /// <param name="frame">The frame wanted, in whole-animation numbering.</param>
+    /// <returns>The section to read, and the frame renumbered within that section.</returns>
+    /// <remarks>
+    /// **Valve's <c>mstudioanimdesc_t::pAnim</c>, <c>public/studio.cpp</c>**, reduced to the
+    /// arithmetic — the engine's version also preloads the next block and blends a stall time for
+    /// data still streaming in, neither of which applies when the whole file is in memory.
+    ///
+    /// <code>
+    ///   if (sectionframes != 0)
+    ///   {
+    ///       if (numframes > sectionframes &amp;&amp; *piFrame == numframes - 1)
+    ///       {
+    ///           // last frame on long anims is stored separately
+    ///           *piFrame = 0;
+    ///           section = (numframes / sectionframes) + 1;
+    ///       }
+    ///       else
+    ///       {
+    ///           section = *piFrame / sectionframes;
+    ///           *piFrame -= section * sectionframes;
+    ///       }
+    ///   }
+    /// </code>
+    ///
+    /// **The trailing-section case is not an optimisation and skipping it misplaces the last frame.**
+    /// A long animation stores its final frame on its own, one past the last regular section, which
+    /// is why the guard is <c>numframes &gt; sectionframes</c>: an animation shorter than one
+    /// section has no separate last frame and must take the ordinary path.
+    /// </remarks>
+    public static (int Section, int Frame) Section(int frames, int sectionFrames, int frame)
+    {
+        if (sectionFrames <= 0)
+        {
+            return (0, frame);
+        }
+
+        if (frames > sectionFrames && frame == frames - 1)
+        {
+            return ((frames / sectionFrames) + 1, 0);
+        }
+
+        int section = frame / sectionFrames;
+
+        return (section, frame - (section * sectionFrames));
     }
 
     /// <summary>Valve's <c>ExtractAnimValue</c>, for one channel at one frame.</summary>
