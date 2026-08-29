@@ -253,6 +253,49 @@ public sealed class SpectatorView
             $"at tick {tick}");
     }
 
+    /// <summary>Which camera mode is actually available, which death can change.</summary>
+    /// <param name="tick">The tick being drawn.</param>
+    /// <param name="requested">The mode the user asked for.</param>
+    /// <returns>The mode to draw through.</returns>
+    /// <remarks>
+    /// **A dead player cannot be watched from inside his own head, and the engine says so outright.**
+    /// <c>C_HLTVCamera::CalcInEyeCamView</c> (<c>hltvcamera.cpp:307</c>):
+    ///
+    /// <code>
+    /// if ( !pPlayer->IsAlive() )
+    /// {
+    ///     // if dead, show from 3rd person
+    ///     CalcChaseCamView( eyeOrigin, eyeAngles, fov );
+    ///     return;
+    /// }
+    /// </code>
+    ///
+    /// **Returned as a MODE rather than as a swapped camera, and that distinction is the whole
+    /// fix.** Handing back the chase camera while the viewer still believed it was in first person
+    /// would draw the weapon over a chase view, because
+    /// <c>CViewRender::ShouldDrawViewModel</c> (<c>viewrender.cpp:974</c>) keys off
+    /// <c>ShouldDrawLocalPlayer()</c> — that is, off the mode. Changing the mode carries both
+    /// consequences the engine has: no viewmodel, and the followed player becomes visible.
+    ///
+    /// **This is what an earlier attempt got wrong** (D116). It implemented the citation above by
+    /// emptying the dead player's hands while leaving the camera in his skull — half of a mechanism
+    /// whose other half had nowhere to go, because there was no third-person mode to fall into. The
+    /// mode existing is what lets this be one line instead of a special case.
+    ///
+    /// **Applied whichever way the eye would have been found**, recorded view or spectated target.
+    /// A point-of-view demo's recorded view during death IS the death cam, which is third person in
+    /// TF2 as well, so treating it as first person is the divergence rather than the fidelity.
+    /// </remarks>
+    public CameraMode Effective(int tick, CameraMode requested)
+    {
+        if (requested != CameraMode.FirstPerson)
+        {
+            return requested;
+        }
+
+        return Target(tick) is { IsAlive: false } ? CameraMode.ThirdPerson : requested;
+    }
+
     /// <summary>The chase camera on whoever is being watched, or null when nobody is.</summary>
     /// <param name="tick">The tick being drawn.</param>
     /// <param name="aspect">The viewport's width over its height.</param>

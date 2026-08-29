@@ -300,7 +300,10 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 # written before the implementation. Third person is not a nicety here — it is the mode the engine
 # falls back to whenever first person is unavailable, and both viewmodel rules this project has been
 # arguing about reduce to "the camera is not in an eye".
-run Tf2DemoSalvage.Scene.Tests    scene     211
+# 211 -> 215 on 2026-08-28: SpectatorEffectiveModeTests (4). A dead target is watched in third
+# person, and the subject is the MODE rather than a swapped camera — which is what makes it a fix
+# rather than a fourth attempt at the same citation (D116).
+run Tf2DemoSalvage.Scene.Tests    scene     215
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

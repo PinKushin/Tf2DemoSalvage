@@ -477,8 +477,23 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private bool _freeLook => _cameraMode == CameraMode.Free;
 
+    /// <summary>The mode actually drawn through, which death can change.</summary>
+    /// <remarks>
+    /// **`_cameraMode` is what the user ASKED for; this is what the engine allows.** A dead target
+    /// cannot be watched from inside his head, so `C_HLTVCamera::CalcInEyeCamView` hands to the
+    /// chase camera — see <c>SpectatorView.Effective</c> for the citation.
+    ///
+    /// **Everything that asks "are we in first person" must ask THIS**, because the answer carries
+    /// more than the camera: the viewmodel is drawn only in first person
+    /// (<c>ShouldDrawViewModel</c>), and the followed player is hidden only in first person. Reading
+    /// the requested mode instead would draw a weapon over a chase view and hide the very player
+    /// the chase camera is pointed at.
+    /// </remarks>
+    private CameraMode _effectiveMode =>
+        _spectator.Effective(_transport.CurrentTick, _cameraMode);
+
     /// <summary>Whether the viewport is drawn through a player's eyes.</summary>
-    private bool _firstPerson => _cameraMode == CameraMode.FirstPerson;
+    private bool _firstPerson => _effectiveMode == CameraMode.FirstPerson;
 
     // **`_freeAngles` is gone entirely as of 2026-08-26** (B206). It was an accessor onto
     // `FreeCameraController.Angles` for the drag and wheel handlers to read and write; both now ask
@@ -1743,7 +1758,7 @@ internal class MainForm : Form, IFrameSteps
     /// picture is drawn through a player's eyes would cull the geometry the viewer is looking at.
     /// </remarks>
     private FreeCamera ViewCameraNow() =>
-        ViewCamera.Active(_cameraMode, FirstPersonCamera(), ChaseCamera(), FreeLookCamera());
+        ViewCamera.Active(_effectiveMode, FirstPersonCamera(), ChaseCamera(), FreeLookCamera());
 
     /// <summary>The camera for the third-person view, or <c>null</c> when there is no target.</summary>
     /// <remarks>
@@ -1840,7 +1855,11 @@ internal class MainForm : Form, IFrameSteps
 
     private bool ToggleFirstPerson()
     {
-        if (_firstPerson)
+        // **The REQUESTED mode, not the effective one.** A dead target is drawn in third person, so
+        // `_firstPerson` reads false while the user is still in the first-person mode — asking that
+        // here would make this key try to ENTER a mode the user is already in, and leaving would
+        // become impossible for the whole of a death.
+        if (_cameraMode == CameraMode.FirstPerson)
         {
             _cameraMode = CameraMode.Free;
             _world.Invalidate();
