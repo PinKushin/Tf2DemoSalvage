@@ -708,6 +708,12 @@ public sealed class ScenePropTrack
             Sequence = from.Sequence,
             Cycle = cycle,
 
+            // **Discrete, and blending it would be meaningless.** It is the instant an animation
+            // restarted, not a quantity — a value part-way between two restarts names a moment
+            // neither animation began at. Taking the earlier keyframe's is the same rule the
+            // sequence itself follows two lines up.
+            AnimationStartSeconds = from.AnimationStartSeconds,
+
             // Discrete, so it takes the earlier keyframe's value rather than being blended.
             // Half-hidden is not a state the engine has.
             Hidden = from.Hidden,

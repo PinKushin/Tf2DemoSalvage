@@ -146,3 +146,4 @@
 - [Log the event, not a sample of it](log-the-event-not-a-sample-of-it.md) — four ways a diagnostic went blind; transition logs, not samples.
 - [Run the control before arguing](run-the-control-before-arguing.md) — one launch settles authorship that correct reasoning cannot.
 - [State the assumptions the owner can falsify](state-the-assumptions-the-owner-can-falsify.md) — he is looking at it; say what you assume about the symptom.
+- [Half a mechanism is not parity](half-a-mechanism-is-not-parity.md) — an invariant one system keeps is another's unstated precondition.

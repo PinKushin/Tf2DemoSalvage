@@ -213,86 +213,12 @@ public static class StudioAnimation
             return [];
         }
 
-        int table = BinaryPrimitives.ReadInt32LittleEndian(bytes[HeaderAnimationIndexOffset..]);
-        int at = table + (animation * AnimationStride);
-
-        if (at < 0 || at + AnimationStride > bytes.Length)
-        {
-            return [];
-        }
-
-        ReadOnlySpan<byte> description = bytes[at..];
-
-        int frames = BinaryPrimitives.ReadInt32LittleEndian(description[AnimationFrameCountOffset..]);
-        int block = BinaryPrimitives.ReadInt32LittleEndian(description[AnimationBlockOffset..]);
-        int data = BinaryPrimitives.ReadInt32LittleEndian(description[AnimationDataOffset..]);
-
-        int sectionFrames =
-            BinaryPrimitives.ReadInt32LittleEndian(description[AnimationSectionFramesOffset..]);
-
-        int sections = BinaryPrimitives.ReadInt32LittleEndian(
-            description[AnimationSectionIndexOffset..]);
-
-        int wanted = Math.Clamp(frame, 0, frames - 1);
-
-        // **A sectioned animation renumbers its frames per section and keeps its data per section**
-        // (`mstudioanimdesc_t::pAnim`, `public/studio.cpp`). `animindex` is Valve-documented as
-        // "non-zero when anim data isn't in sections", so it does not locate the data on its own.
-        //
-        // Without this the run-length walk reads every frame out of section zero, runs off the end
-        // of it and keeps going — which repeats a stale value for most frames and lands on stray
-        // bytes for a few. That was B222: `vm_weapon_bone_1` 219 units from rest, and the sticky
-        // launcher merged onto it torn across the view.
-        if (sectionFrames > 0 && sections > 0)
-        {
-            (int section, int local) = Section(frames, sectionFrames, wanted);
-
-            int entry = at + sections + (section * AnimationSectionStride);
-
-            if (entry < 0 || entry + AnimationSectionStride > bytes.Length)
-            {
-                return [];
-            }
-
-            block = BinaryPrimitives.ReadInt32LittleEndian(bytes[entry..]);
-            data = BinaryPrimitives.ReadInt32LittleEndian(
-                bytes[(entry + AnimationSectionDataOffset)..]);
-
-            wanted = local;
-        }
-
-        if (block != 0 || data == 0 || frames <= 0)
-        {
-            return [];
-        }
-
-        int cursor = at + data;
-
         List<StudioBonePose> poses = [];
 
-        // Bounded by the bone count: the chain is terminated by a zero nextoffset, and a malformed
-        // one would otherwise walk the file for ever.
-        for (int step = 0; step <= bones.Count && cursor > 0 && cursor + 4 <= bytes.Length; step++)
+        foreach ((int bone, int flags, int payload) in
+            Chain(bytes, bones, animation, frame, out int wanted))
         {
-            ReadOnlySpan<byte> entry = bytes[cursor..];
-
-            int bone = entry[0];
-            int flags = entry[1];
-            int next = BinaryPrimitives.ReadInt16LittleEndian(entry[2..]);
-
-            if (bone >= bones.Count)
-            {
-                break;
-            }
-
-            poses.Add(ReadBone(entry[4..], bones[bone], bone, flags, wanted));
-
-            if (next == 0)
-            {
-                break;
-            }
-
-            cursor += next;
+            poses.Add(ReadBone(bytes[payload..], bones[bone], bone, flags, wanted));
         }
 
         return poses;
@@ -357,6 +283,175 @@ public static class StudioAnimation
         }
 
         return new StudioBonePose(bone, position, rotation);
+    }
+
+    /// <summary>How an animation's data is laid out: its frames, and whether it is sectioned.</summary>
+    /// <param name="file">The <c>.mdl</c>'s bytes.</param>
+    /// <param name="animation">Which local animation.</param>
+    /// <returns>Frame count, frames per section (zero when unsectioned), and the section table
+    /// offset, and <c>animblock</c>/<c>animindex</c> as the descriptor states them.</returns>
+    /// <remarks>
+    /// Introspection, like <see cref="Unimplemented"/> and <see cref="Tracks"/>: which layout a
+    /// given animation uses decides where a wrong value could have come from, and inferring it from
+    /// frame counts is guessing.
+    /// </remarks>
+    public static (int Frames, int SectionFrames, int Sections, int Block, int Data) Sectioning(
+        ReadOnlyMemory<byte> file, int animation)
+    {
+        ReadOnlySpan<byte> bytes = file.Span;
+
+        if (animation < 0 || animation >= Count(file))
+        {
+            return (0, 0, 0, 0, 0);
+        }
+
+        int at = BinaryPrimitives.ReadInt32LittleEndian(bytes[HeaderAnimationIndexOffset..]) +
+            (animation * AnimationStride);
+
+        if (at < 0 || at + AnimationStride > bytes.Length)
+        {
+            return (0, 0, 0, 0, 0);
+        }
+
+        ReadOnlySpan<byte> description = bytes[at..];
+
+        return (
+            BinaryPrimitives.ReadInt32LittleEndian(description[AnimationFrameCountOffset..]),
+            BinaryPrimitives.ReadInt32LittleEndian(description[AnimationSectionFramesOffset..]),
+            BinaryPrimitives.ReadInt32LittleEndian(description[AnimationSectionIndexOffset..]),
+            BinaryPrimitives.ReadInt32LittleEndian(description[AnimationBlockOffset..]),
+            BinaryPrimitives.ReadInt32LittleEndian(description[AnimationDataOffset..]));
+    }
+
+    /// <summary>The bone entries of one animation, with where each one's payload starts.</summary>
+    /// <remarks>
+    /// **Extracted so <see cref="Pose"/> and <see cref="Tracks"/> walk the chain once, in one
+    /// place.** The offsets are returned rather than the payload spans because a <c>ReadOnlySpan</c>
+    /// cannot live in a list; the caller slices from them.
+    /// </remarks>
+    private static List<(int Bone, int Flags, int At)> Chain(
+        ReadOnlySpan<byte> bytes,
+        IReadOnlyList<StudioBone> bones,
+        int animation,
+        int frame,
+        out int wanted)
+    {
+        wanted = 0;
+
+        List<(int Bone, int Flags, int At)> chain = [];
+
+        if (animation < 0 || bones.Count == 0)
+        {
+            return chain;
+        }
+
+        int at = BinaryPrimitives.ReadInt32LittleEndian(bytes[HeaderAnimationIndexOffset..]) +
+            (animation * AnimationStride);
+
+        if (at < 0 || at + AnimationStride > bytes.Length)
+        {
+            return chain;
+        }
+
+        ReadOnlySpan<byte> description = bytes[at..];
+
+        int frames = BinaryPrimitives.ReadInt32LittleEndian(description[AnimationFrameCountOffset..]);
+        int block = BinaryPrimitives.ReadInt32LittleEndian(description[AnimationBlockOffset..]);
+        int data = BinaryPrimitives.ReadInt32LittleEndian(description[AnimationDataOffset..]);
+
+        if (frames <= 0)
+        {
+            return chain;
+        }
+
+        int sectionFrames =
+            BinaryPrimitives.ReadInt32LittleEndian(description[AnimationSectionFramesOffset..]);
+
+        int sections =
+            BinaryPrimitives.ReadInt32LittleEndian(description[AnimationSectionIndexOffset..]);
+
+        wanted = Math.Clamp(frame, 0, frames - 1);
+
+        if (sectionFrames > 0 && sections > 0)
+        {
+            (int section, int local) = Section(frames, sectionFrames, wanted);
+
+            int entry = at + sections + (section * AnimationSectionStride);
+
+            if (entry < 0 || entry + AnimationSectionStride > bytes.Length)
+            {
+                return chain;
+            }
+
+            block = BinaryPrimitives.ReadInt32LittleEndian(bytes[entry..]);
+            data = BinaryPrimitives.ReadInt32LittleEndian(
+                bytes[(entry + AnimationSectionDataOffset)..]);
+
+            wanted = local;
+        }
+
+        if (block != 0 || data == 0)
+        {
+            return chain;
+        }
+
+        int cursor = at + data;
+
+        for (int step = 0; step <= bones.Count && cursor > 0 && cursor + 4 <= bytes.Length; step++)
+        {
+            ReadOnlySpan<byte> entry = bytes[cursor..];
+
+            int bone = entry[0];
+            int flags = entry[1];
+            int next = BinaryPrimitives.ReadInt16LittleEndian(entry[2..]);
+
+            if (bone >= bones.Count)
+            {
+                break;
+            }
+
+            chain.Add((bone, flags, cursor + AnimationEntryHeaderBytes));
+
+            if (next == 0)
+            {
+                break;
+            }
+
+            cursor += next;
+        }
+
+        return chain;
+    }
+
+    /// <summary>Bytes of <c>mstudioanim_t</c> before its payload: bone, flags, nextoffset.</summary>
+    private const int AnimationEntryHeaderBytes = 4;
+
+    /// <summary>How each bone's track in an animation is encoded.</summary>
+    /// <param name="file">The <c>.mdl</c>'s bytes.</param>
+    /// <param name="bones">The skeleton the animation is numbered against.</param>
+    /// <param name="animation">Which local animation.</param>
+    /// <param name="frame">Which frame, since a sectioned animation has a chain per section.</param>
+    /// <returns>The bone and its <c>STUDIO_ANIM_*</c> flags, in chain order.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="bones"/> is null.</exception>
+    /// <remarks>
+    /// **Format introspection, for the same reason <see cref="Unimplemented"/> exists**: the question
+    /// "which path does this data actually take" has to be answerable before anyone argues about
+    /// whether that path is right. Five of the six mechanisms here are unverified by any test, so
+    /// knowing that a file never exercises one is worth as much as implementing it.
+    /// </remarks>
+    public static IReadOnlyList<(int Bone, int Flags, int Payload)> Tracks(
+        ReadOnlyMemory<byte> file, IReadOnlyList<StudioBone> bones, int animation, int frame)
+    {
+        ArgumentNullException.ThrowIfNull(bones);
+
+        List<(int Bone, int Flags, int Payload)> tracks = [];
+
+        foreach ((int bone, int flags, int at) in Chain(file.Span, bones, animation, frame, out _))
+        {
+            tracks.Add((bone, flags, at));
+        }
+
+        return tracks;
     }
 
     /// <summary>Which section of a long animation holds a frame, and its index within it.</summary>

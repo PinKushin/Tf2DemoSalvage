@@ -6564,3 +6564,60 @@ instead of its conclusion. See `docs/memory/state-the-assumptions-the-owner-can-
 its sibling rule in `docs/memory/run-the-control-before-arguing.md`, which came out of the same
 evening: when a symptom appears right after a change, build the pre-change tree and run it rather
 than arguing about whether the change could have caused it.
+
+## D116 — An invariant is part of the mechanism; implementing half of one is not parity
+
+**The owner's direction, given twice on 2026-08-28 while the viewmodel was missing:** *"dont be
+changing shit to not match valve while trying to fix this"*, and then the shape of the fix itself —
+*"do not remove alive, implement the rest, and remove it from should draw to actually match valve"*.
+
+Earlier the same evening this project had added a liveness test to the viewmodel: a dead spectated
+player got no viewmodel, cited to `C_HLTVCamera::CalcInEyeCamView` (`hltvcamera.cpp:307`), which
+really does say a dead player is shown in third person. The citation was real. The implementation
+was half of it — the hands were emptied and **the camera was left in the dead player's skull**.
+
+That is a state the engine cannot produce, and the owner is the one who put his finger on why:
+
+> *"i dont think you can force tf2 to spectate a dead player in 1st person like we can force this
+> viewer to do by fucking up and not having everything implemented, so i think maybe if you were
+> able to force tf2 into 1st person view on a dead player the viewmodel might actually show up, its
+> just something thats not possible in tf2"*
+
+**That reading explains a silence in the SDK that had been misread as an omission.**
+`C_BaseViewModel::ShouldDraw` (`c_baseviewmodel.cpp:277`) asks only two things on a demo — is the
+camera in-eye, and is this viewmodel the target's:
+
+```cpp
+if ( engine->IsHLTV() )
+{
+    return ( HLTVCamera()->GetMode() == OBS_MODE_IN_EYE &&
+             HLTVCamera()->GetPrimaryTarget() == GetOwner() );
+}
+```
+
+There is no liveness term, and its absence is not an oversight. The CAMERA maintains an invariant —
+in-eye is never held on a dead target — so `ShouldDraw` can afford not to ask. One system's guarantee
+is another system's unstated precondition.
+
+**So the rule.** When Valve splits a behaviour across two systems, porting one of them and
+open-coding the other's symptom is not parity, however good the citation on the half that landed. It
+breaks the invariant the untouched half relies on, and it does it silently — here it took the
+viewmodel off screen for the whole of every death and was reported for days as "the viewmodel is
+missing".
+
+Implemented as the engine has it: liveness lives in `SpectatorView.Eye`, which returns no eye camera
+for a dead target so the caller falls back to the free camera, and the viewmodel path carries no
+liveness at all.
+
+**One deliberate narrowing, stated so it can be falsified.** The check is on the SPECTATED path only.
+`CalcInEyeCamView` belongs to `C_HLTVCamera`, which a point-of-view demo never runs; there the
+recorded view IS what the player saw, deathcam included, and refusing it would cut to a free camera
+on every death. Whether a POV demo should also chase on death is open — on a live client the POV
+path reaches `BaseClass::ShouldDraw()` instead, which consults `EF_NODRAW`, and TF2 does mark the
+viewmodel `EF_NODRAW` while dead. That is a different route to the same answer and is not
+implemented here.
+
+**Note also what this cost to find.** The regression was bisected to the wrong commit twice: once
+because UI runs were contaminated by the owner typing during them (a UI suite takes the desktop —
+see the machine-lock rule), and once because the diff being read spanned two commits rather than one.
+The measurement that actually settled it was a log line the code already printed.

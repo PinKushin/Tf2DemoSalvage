@@ -1,6 +1,8 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 using Tf2DemoSalvage.Content.Assets;
 
@@ -42,6 +44,12 @@ public sealed class ViewmodelArmsAnimationDiagnostic
 {
     [TestCase("models/weapons/c_models/c_demo_arms.mdl")]
     [TestCase("models/weapons/c_models/c_demo_animations.mdl")]
+
+    // **A `v_` model, which is the whole other scheme and was never measured.** The section fix was
+    // validated entirely against `c_` models; the UI suite's 2013 demo uses `v_models`, where the
+    // networked viewmodel IS the weapon and there is no separate arms model. It stopped drawing.
+    [TestCase("models/weapons/v_models/v_scattergun_scout.mdl")]
+    [TestCase("models/weapons/v_models/v_rocketlauncher_soldier.mdl")]
     public void ReportWeaponRackTravel(string Model)
     {
         if (Read(Model) is not { } bytes)
@@ -73,9 +81,39 @@ public sealed class ViewmodelArmsAnimationDiagnostic
 
         Array.Fill(worstAnimation, -1);
 
+        // **The worst frame-to-frame JUMP, which is a different question from travel from rest.**
+        // Travel says how far a bone gets; a jump says whether it got there continuously. Setting a
+        // bound on the continuity test needs the distribution of jumps across the whole file, not a
+        // number picked to make two cases pass.
+        float[] jump = new float[bones.Count];
+        int[] jumpAnimation = new int[bones.Count];
+        int[] jumpFrame = new int[bones.Count];
+
+        Array.Fill(jumpAnimation, -1);
+
+        Dictionary<int, (float X, float Y, float Z)> previous = [];
+
         for (int animation = 0; animation < animations; animation++)
         {
             int frames = StudioAnimation.Frames(bytes, animation);
+
+            // **How each animation is laid out, and whether Pose can read it at all.** A section's
+            // own `animblock` is what decides that, and the section fix made this reader consult it
+            // for the first time — so an animation whose sections say "the data is elsewhere" now
+            // returns nothing where it used to return section zero's data.
+            (int f, int sf, int si, int blk, int dat) = StudioAnimation.Sectioning(bytes, animation);
+
+            int decoded = StudioAnimation.Pose(bytes, bones, animation, 0).Count;
+
+            if (sf != 0 || blk != 0 || decoded == 0)
+            {
+                TestContext.Out.WriteLine(
+                    $"  LAYOUT animation {animation}: frames {f}, sectionFrames {sf}, " +
+                    $"sectionIndex {si}, animblock {blk}, animindex {dat}, " +
+                    $"decoded {decoded} bones at frame 0");
+            }
+
+            previous.Clear();
 
             for (int frame = 0; frame < frames; frame++)
             {
@@ -100,6 +138,24 @@ public sealed class ViewmodelArmsAnimationDiagnostic
                         worstAnimation[posed.Bone] = animation;
                         worstFrame[posed.Bone] = frame;
                     }
+
+                    if (previous.TryGetValue(posed.Bone, out (float X, float Y, float Z) was))
+                    {
+                        float jx = posed.Position.X - was.X;
+                        float jy = posed.Position.Y - was.Y;
+                        float jz = posed.Position.Z - was.Z;
+
+                        float moved = MathF.Sqrt((jx * jx) + (jy * jy) + (jz * jz));
+
+                        if (moved > jump[posed.Bone])
+                        {
+                            jump[posed.Bone] = moved;
+                            jumpAnimation[posed.Bone] = animation;
+                            jumpFrame[posed.Bone] = frame;
+                        }
+                    }
+
+                    previous[posed.Bone] = posed.Position;
                 }
             }
         }
@@ -118,11 +174,29 @@ public sealed class ViewmodelArmsAnimationDiagnostic
             TestContext.Out.WriteLine(
                 $"  [{bone,2}] {bones[bone].Name,-24} worst {worst[bone],9:0.##} units " +
                 $"in animation {worstAnimation[bone]} frame {worstFrame[bone]} " +
-                $"(posscale {bones[bone].PositionScale.X:0.#####}, " +
-                $"{bones[bone].PositionScale.Y:0.#####}, {bones[bone].PositionScale.Z:0.#####})");
+                // **`rotscale` is the CONTROL for `posscale`.** Every bone of two different models
+                // reported a `posscale` of exactly 1/256, which is either a genuine studiomdl
+                // constant or a reader taking the same bytes twice. The two fields are adjacent in
+                // `mstudiobone_t` (72 and 84), so if the offsets were wrong they would read the same
+                // thing; a rotscale that differs proves they do not.
+                $"(posscale {bones[bone].PositionScale.X:0.######}, " +
+                $"{bones[bone].PositionScale.Y:0.######}, {bones[bone].PositionScale.Z:0.######}" +
+                $" | rotscale {bones[bone].RotationScale.X:0.######}, " +
+                $"{bones[bone].RotationScale.Y:0.######}, {bones[bone].RotationScale.Z:0.######})");
         }
 
         TestContext.Out.WriteLine($"  {reported} bones move more than a unit anywhere in the file");
+
+        TestContext.Out.WriteLine("  --- worst frame-to-frame jump, every bone, descending ---");
+
+        foreach (int bone in Enumerable.Range(0, bones.Count)
+            .Where(each => jumpAnimation[each] >= 0)
+            .OrderByDescending(each => jump[each]))
+        {
+            TestContext.Out.WriteLine(
+                $"  JUMP [{bone,2}] {bones[bone].Name,-24} {jump[bone],8:0.##} units " +
+                $"entering animation {jumpAnimation[bone]} frame {jumpFrame[bone]}");
+        }
     }
 
     /// <summary>Whether a decoded animation is continuous from one frame to the next.</summary>
@@ -140,8 +214,8 @@ public sealed class ViewmodelArmsAnimationDiagnostic
     /// The saturation arithmetic that prompted it: `posscale` reads exactly 1/256 on every bone and
     /// axis, and 32767 × 1/256 = 128.0, which is `bip_wrist_R`'s worst travel to the decimal.
     /// </remarks>
-    [TestCase("models/weapons/c_models/c_demo_animations.mdl", 58, 17)]
-    [TestCase("models/weapons/c_models/c_demo_animations.mdl", 12, 16)]
+    [TestCase("models/weapons/c_models/c_demo_animations.mdl", 41, 15)]
+    [TestCase("models/weapons/c_models/c_demo_animations.mdl", 73, 19)]
     public void ReportFrameContinuity(string model, int animation, int bone)
     {
         if (Read(model) is not { } bytes)
@@ -153,8 +227,95 @@ public sealed class ViewmodelArmsAnimationDiagnostic
         IReadOnlyList<StudioBone> bones = StudioBones.Read(bytes);
         int frames = StudioAnimation.Frames(bytes, animation);
 
+        // **Two mechanisms sit between the tracks and the engine's pose, and neither is implemented**
+        // — `CalcZeroframeData` and `CalcLocalHierarchyAnimation`. A reparented bone would show up
+        // as a localised discontinuity in exactly one bone, which is what the residual looks like,
+        // so the first question is whether these animations use either at all.
+        (int hierarchy, int zeroFrames) = StudioAnimation.Unimplemented(bytes, animation);
+
         TestContext.Out.WriteLine(
-            $"{model} animation {animation}, bone {bone} ({bones[bone].Name}), {frames} frames");
+            $"{model} animation {animation}, bone {bone} ({bones[bone].Name}), {frames} frames, " +
+            $"localHierarchy {hierarchy}, zeroFrames {zeroFrames}");
+
+        // **The chain, as bone indices in the order `Pose` walked them.** Valve does not walk this
+        // chain: `CalcAnimation` (`bone_setup.cpp:1095`) iterates BONES and consumes an entry only
+        // where `panim->bone == i`, so a chain that is not strictly ascending leaves the later bones
+        // on their bind values instead of applying an entry to whatever index it names. Printing the
+        // order says whether these files rely on that.
+        foreach (int at in new[] { 0, frames / 2 })
+        {
+            IReadOnlyList<StudioBonePose> walked = StudioAnimation.Pose(bytes, bones, animation, at);
+
+            TestContext.Out.WriteLine(
+                $"  chain at frame {at}: {walked.Count} entries — " +
+                string.Join(", ", walked.Select(each => each.Bone)));
+        }
+
+        // **Which of the six encodings this bone's track actually uses.** RAWPOS is a Vector48 of
+        // three float16s; ANIMPOS is run-length. DELTA changes what the value MEANS — the position
+        // is an offset rather than a pose, so measuring it against the rest position is nonsense.
+        // Five of the six paths are unverified by any test, so knowing which one is in play decides
+        // where to look.
+        foreach ((int at, int flags, int payload) in StudioAnimation.Tracks(bytes, bones, animation, 0)
+            .Where(each => each.Bone == bone))
+        {
+            TestContext.Out.WriteLine(
+                $"  bone {at} flags 0x{flags:X2}:" +
+                $"{((flags & 0x01) != 0 ? " RAWPOS" : string.Empty)}" +
+                $"{((flags & 0x02) != 0 ? " RAWROT" : string.Empty)}" +
+                $"{((flags & 0x04) != 0 ? " ANIMPOS" : string.Empty)}" +
+                $"{((flags & 0x08) != 0 ? " ANIMROT" : string.Empty)}" +
+                $"{((flags & 0x10) != 0 ? " DELTA" : string.Empty)}" +
+                $"{((flags & 0x20) != 0 ? " RAWROT2" : string.Empty)}");
+
+            // **The raw bytes, because every structural explanation has been eliminated.** For
+            // ANIMPOS|ANIMROT the rotation valueptr sits at the payload and the position valueptr
+            // six bytes later, each three `short` offsets relative to ITSELF. A run-length block
+            // then starts with `valid` and `total` bytes. If those read implausibly — a zero total,
+            // or valid greater than total — the offset is landing somewhere that is not a block,
+            // and that is the fault rather than anything about how it is walked afterwards.
+            int posV = payload + 6;
+
+            for (int channel = 0; channel < 3; channel++)
+            {
+                int offset = BinaryPrimitives.ReadInt16LittleEndian(
+                    bytes.AsSpan()[(posV + (channel * 2))..]);
+
+                string block = offset > 0 && posV + offset + 1 < bytes.Length
+                    ? $"valid {bytes[posV + offset]}, total {bytes[posV + offset + 1]}"
+                    : "(no data)";
+
+                TestContext.Out.WriteLine(
+                    $"    pos channel {channel}: offset {offset,6} -> {block}");
+
+                // **The raw shorts, which settle whether this is our decode or the file.** A block
+                // of `valid` values follows its two-byte header; scaled by `posscale` they are the
+                // positions. If the file itself holds a value that produces a 100-unit excursion
+                // then the excursion is the animation, and no amount of fixing the reader changes
+                // it. If the raw values are smooth and the output is not, the reader is at fault.
+                if (offset > 0 && posV + offset + 1 < bytes.Length)
+                {
+                    int valid = bytes[posV + offset];
+                    List<string> raw = [];
+
+                    for (int cell = 1; cell <= valid && posV + offset + (cell * 2) + 1 < bytes.Length; cell++)
+                    {
+                        short value = BinaryPrimitives.ReadInt16LittleEndian(
+                            bytes.AsSpan()[(posV + offset + (cell * 2))..]);
+
+                        raw.Add($"{value * bones[at].PositionScale.X:0.#}");
+                    }
+
+                    TestContext.Out.WriteLine($"      scaled: {string.Join(" ", raw)}");
+                }
+            }
+        }
+
+        (int f, int sf, int si, int blk, int dat) = StudioAnimation.Sectioning(bytes, animation);
+
+        TestContext.Out.WriteLine(
+            $"  layout: frames {f}, sectionFrames {sf}, sectionIndex {si}, " +
+            $"animblock {blk}, animindex {dat}");
 
         (float X, float Y, float Z)? previous = null;
 

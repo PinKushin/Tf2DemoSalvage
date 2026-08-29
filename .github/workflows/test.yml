@@ -145,7 +145,9 @@ jobs:
           # runner rather than failing, and a skip still counts toward the trx total.
           # 1538 -> 1539: one test added on 2026-08-27 (ServerConVars concurrency regression). It
           # spawns its own tasks and reads no game files, so it runs identically on a runner.
-          ./build/assert-test-count.sh '**/core.trx' 1539 Core
+          # 1539 -> 1544 on 2026-08-28: ViewmodelAnimationParityConformanceTests (5), Valve's
+          # UpdateAnimationParity written down before it was implemented.
+          ./build/assert-test-count.sh '**/core.trx' 1544 Core
           ./build/assert-test-count.sh '**/cli.trx' 74 Cli
           # 628 -> 645 is ARITHMETIC, not a measurement: 17 tests were added to Content on
           # 2026-08-24 (SchemeFont 6, GlyphAtlas 11), all self-contained, so every one of them
@@ -168,7 +170,11 @@ jobs:
           # 744 -> 749 on 2026-08-28: StudioHeaderFlagsConformanceTests (4) and
           # StudioModelFlagCensus (1, Explicit). Two of the four need TF2 installed and Assert.Ignore
           # here, which the .trx total still counts.
-          ./build/assert-test-count.sh '**/content.trx' 749 Content
+          # 749 -> 766 on 2026-08-28: animation sectioning — 7 conformance cases against
+          # mstudioanimdesc_t::pAnim, the continuity assertion, and the diagnostics that found it.
+          # These skip without the game installed, and a skipped test still counts toward the trx
+          # total, so the floor holds on the machine without TF2.
+          ./build/assert-test-count.sh '**/content.trx' 766 Content
           ./build/assert-test-count.sh '**/presentation.trx' 396 Presentation
           ./build/assert-test-count.sh '**/logging.trx' 17 Logging
           # 10 is MEASURED locally and safe on a runner without the SDK, because a .trx total counts
@@ -405,7 +411,9 @@ jobs:
           # than fixed here.
           ./build/assert-test-count.sh '**/rendering.trx' 582 Rendering
           ./build/assert-test-count.sh '**/viewer-ui.trx' 14 ViewerUi
-          ./build/assert-test-count.sh '**/corpus.trx' 117 Corpus
+          # 117 -> 118 on 2026-08-28: ViewmodelAnimationParityCorpusTests, which asserts the parity
+          # counter reaches the scene from a real demo and changes there.
+          ./build/assert-test-count.sh '**/corpus.trx' 118 Corpus
 
       - uses: actions/upload-artifact@v7
         if: failure()

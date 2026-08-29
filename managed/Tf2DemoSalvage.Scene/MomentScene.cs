@@ -587,10 +587,28 @@ public sealed class MomentScene : IGameSystemPerFrame
         // said, which is ordinary for anyone but the followed player in a POV demo — treated as
         // alive, because drawing the viewmodel is the normal case and an absent property means
         // "unchanged" rather than "dead".
+        // **Liveness is the CAMERA's business, not the viewmodel's, and putting it here was wrong.**
+        // `C_BaseViewModel::ShouldDraw` (`c_baseviewmodel.cpp:277`) is the whole of the engine's
+        // test on a demo:
+        //
+        //     if ( engine->IsHLTV() )
+        //     {
+        //         return ( HLTVCamera()->GetMode() == OBS_MODE_IN_EYE &&
+        //                  HLTVCamera()->GetPrimaryTarget() == GetOwner() );
+        //     }
+        //
+        // Two conditions, both about the camera, and no liveness term anywhere. Death is handled one
+        // level up by `C_HLTVCamera::CalcInEyeCamView`, which switches a dead target to the chase
+        // camera — implemented now in `SpectatorView.Eye`, where the citation lives.
+        //
+        // **What this gate did instead**: kept the first-person camera in a dead player's skull and
+        // emptied his hands, which is a state the engine never produces. It took the viewmodel off
+        // screen for the whole of every death and was reported as the viewmodel simply being gone.
+        // Half a mechanism is not parity, and a comment citing Valve does not make it so.
         bool alive = held?.LifeState is null or LifeAlive;
 
-        ViewmodelSceneResult scene = alive
-            ? _viewmodels.Build(
+        ViewmodelSceneResult scene =
+            _viewmodels.Build(
                 source,
                 info.CurrentTick,
                 follower,
@@ -604,14 +622,18 @@ public sealed class MomentScene : IGameSystemPerFrame
                 hands,
                 weaponModel,
                 info.Seconds,
-                info.IntervalPerTick)
-            : new ViewmodelSceneResult([], Changed: false);
+                info.IntervalPerTick);
 
         if (scene.Props.Count == 0)
         {
             // **Not a warning when he is simply dead**, which is a state rather than a fault and
             // lasts for a whole respawn. Warning for every other way of reaching zero props, which
             // are all defects worth seeing.
+            //
+            // **`alive` survives as a diagnostic only.** It no longer decides whether to build the
+            // viewmodel — the camera does that now — but it still separates "he is dead, so of
+            // course there is nothing" from "he is alive and holding nothing", which are different
+            // faults and used to be one silent line.
             if (alive)
             {
                 _render.LogWarning(
