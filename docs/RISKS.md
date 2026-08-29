@@ -14098,7 +14098,7 @@ together.
 about 12 seconds for 29 tests, so the ceiling on the whole saving may be small enough to settle this
 without building anything — and that number has not been taken.
 
-### B225 — a viewmodel is drawn while the recorder is a spectator — OPEN, owner-observed 2026-08-29
+### B225 — a viewmodel is drawn while the recorder is a spectator — FIXED 2026-08-29, but NOT for the reason below
 
 **Found because autoplay started working.** The viewer had never run a demo forward without someone
 holding a key, so this whole span of `tf2-2013-build1729296-pov-cp_badlands` had never been drawn.
