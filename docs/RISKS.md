@@ -9994,7 +9994,7 @@ Worth separating before any work: frame pacing (are we presenting at a steady ra
 interpolation (does the eye move continuously), and animation interpolation (does the viewmodel's
 cycle advance smoothly). Three different causes, one appearance.
 
-### B168 — the audio project is finished and entirely unwired — OPEN
+### B168 — the audio project is finished and entirely unwired — FIXED, confirmed by measurement 2026-08-29
 
 The owner, 2026-08-23: *"i think we still need to wire in the game audio too, we started all that
 before the MVP reform and didnt wire it in because we needed to so the migration first or we would
@@ -14432,3 +14432,41 @@ centroid, which is a shape measurement.
 still jumps 3–9 units between frames on `c_demo_animations`, down from 245. Real motion or a second
 smaller decode fault, undetermined. Everything structural was ruled out — sections, zeroframes, local
 hierarchy, chain order, posscale/rotscale offsets, raw-vs-RLE mixing, encoding flags.
+
+## B168 — closed by measurement, and it had been closed for a while
+
+**2026-08-29.** The entry says the audio project is *"finished and entirely unwired"*. It is wired,
+and the run that proved B228 is the evidence — on `cp_process_f12`:
+
+```
+sound output: 911 submitted, 89 dropped for zero gain
+23 loops started
+44 soundscape placements, 21x Gorge.Outside, 21x Gorge.Inside, 2x tf2.respawn_room
+precached 542 of 543 sounds in 2799 ms
+```
+
+One-shots, loops and the soundscape all reach the output, and `Tf2DemoSalvage.Audio.Tests` is in the
+gate. The wiring landed at some point after the entry was written and nobody came back to the header.
+
+**Note the trap this sat in, because it is the reason it went unnoticed.** For the days B228 was
+live, the viewer really was silent — so anyone glancing at the running program would have concluded
+B168 was still accurate. A stale "OPEN" and a live regression produced the same observation, and
+only the count distinguished them.
+
+---
+
+## The risk log's OPEN markers are not reliable, and three were wrong on one day
+
+**2026-08-29.** B222, B225 and B168 were all fixed and all still said OPEN. Two of them had the
+resolution written up as a new `##` section further down the file while the `###` header a reader
+greps for was left untouched — so the index disagreed with the entry, in the same document.
+
+**Why it matters more here than in most logs:** this file is the project's answer to "what is still
+wrong", and it is read by someone deciding what to work on next. A stale marker does not merely
+mislead, it spends a session re-investigating something already fixed — and the reverse case is
+worse, since a genuinely open entry buried among stale ones stops being believed at all.
+
+**The practice, stated so it can be followed:** when a bug is fixed, **edit the header**. Appending
+a resolution section is good and should continue — the wrong turns are the valuable part — but it is
+not the closure. There are ~46 entries still marked OPEN and no one has reconciled them against the
+code; that pass is worth doing and is not done here.
