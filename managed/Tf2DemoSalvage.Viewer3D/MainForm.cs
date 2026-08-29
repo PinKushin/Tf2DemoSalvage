@@ -1743,7 +1743,16 @@ internal class MainForm : Form, IFrameSteps
     /// picture is drawn through a player's eyes would cull the geometry the viewer is looking at.
     /// </remarks>
     private FreeCamera ViewCameraNow() =>
-        ViewCamera.Active(_firstPerson, FirstPersonCamera(), FreeLookCamera());
+        ViewCamera.Active(_cameraMode, FirstPersonCamera(), ChaseCamera(), FreeLookCamera());
+
+    /// <summary>The camera for the third-person view, or <c>null</c> when there is no target.</summary>
+    /// <remarks>
+    /// Sibling of <see cref="FirstPersonCamera"/>, and it follows the same target for the reason
+    /// recorded on <c>SpectatorView.Chase</c>: `C_HLTVCamera` keeps one target with a mode beside
+    /// it, so two independent choices would let the modes drift apart.
+    /// </remarks>
+    private FreeCamera? ChaseCamera() =>
+        _spectator.Chase(_transport.CurrentTick, Aspect);
 
     /// <summary>The leaf outline to draw over the world, when that overlay is switched on.</summary>
     /// <returns>World-space segments, or nothing when the mode is off or there is no leaf.</returns>
@@ -1788,6 +1797,47 @@ internal class MainForm : Form, IFrameSteps
     /// the reason it can refuse is a real property of the demo rather than a failure — a recording
     /// with nobody in it has no eyes to borrow.
     /// </remarks>
+    /// <summary>Enters a camera mode outright, rather than cycling to it.</summary>
+    /// <param name="mode">The mode wanted.</param>
+    /// <returns>Always true: the key was ours whether or not the mode could be entered.</returns>
+    /// <remarks>
+    /// **Both player modes need a target, and acquiring one is what can fail** — a demo with nobody
+    /// worth following has no eye and nothing to chase. `SpectatorView.Enter` already answers that
+    /// question and says why when the answer is no, so this reuses it rather than asking again.
+    ///
+    /// **Failing to enter leaves the mode alone rather than dropping to Free.** The user asked for a
+    /// view they cannot have; taking away the one they were in as well would be a second surprise.
+    /// </remarks>
+    private bool EnterCamera(CameraMode mode)
+    {
+        if (mode == CameraMode.Free)
+        {
+            _cameraMode = CameraMode.Free;
+            _world.Invalidate();
+            _viewport.Invalidate();
+
+            return true;
+        }
+
+        FirstPersonEntry entry = _spectator.Enter(_transport.CurrentTick, Aspect);
+
+        if (!entry.Entered)
+        {
+            _renderLog.LogWarning("{Message}", entry.Message);
+            _status.Text = entry.Status;
+
+            return true;
+        }
+
+        _cameraMode = mode;
+        _world.Invalidate();
+        _viewport.Invalidate();
+
+        _renderLog.LogInformation("{Message}", entry.Message);
+
+        return true;
+    }
+
     private bool ToggleFirstPerson()
     {
         if (_firstPerson)
@@ -4173,6 +4223,20 @@ internal class MainForm : Form, IFrameSteps
         if (keyData == KeyNames.Resolve(_bindings.KeyFor(ViewerAction.SwitchCameraMode)))
         {
             return ToggleFirstPerson();
+        }
+
+        // **Source's own `firstperson` and `thirdperson`, so a config reaches them by name.** They
+        // ask for a mode outright where `SwitchCameraMode` cycles, which is the same pair of routes
+        // the engine offers: the spectator HUD cycles with `+jump`, and the commands exist for
+        // anyone who wants to land on one directly.
+        if (keyData == KeyNames.Resolve(_bindings.KeyFor(ViewerAction.FirstPersonView)))
+        {
+            return EnterCamera(CameraMode.FirstPerson);
+        }
+
+        if (keyData == KeyNames.Resolve(_bindings.KeyFor(ViewerAction.ThirdPersonView)))
+        {
+            return EnterCamera(CameraMode.ThirdPerson);
         }
 
         // **The first binding added through B214's mechanism rather than as a literal** (B216). It
