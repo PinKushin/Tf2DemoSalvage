@@ -531,7 +531,10 @@ run Tf2DemoSalvage.Content.Tests  content   766
 # 130: ViewmodelAnimationParityCorpusTests, which asserts m_nAnimationParity reaches the scene from
 # a real demo AND changes there. The unit suite cannot fail if the field never arrives — a wrong
 # property name reads as a constant zero and every other test still passes.
-run Tf2DemoSalvage.Corpus.Tests   corpus     130
+# 130 -> 133 on 2026-08-28: LifeStateCorpusDiagnostic (3, Explicit), which measured the liveness of
+# every player across two demos and chose the UI suite's opening tick. Its report is what showed that
+# tick 2500 sat inside a death — the frame that constant was chosen for is a freezecam, not a player.
+run Tf2DemoSalvage.Corpus.Tests   corpus     133
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that

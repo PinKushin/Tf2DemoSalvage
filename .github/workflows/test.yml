@@ -413,7 +413,9 @@ jobs:
           ./build/assert-test-count.sh '**/viewer-ui.trx' 14 ViewerUi
           # 117 -> 118 on 2026-08-28: ViewmodelAnimationParityCorpusTests, which asserts the parity
           # counter reaches the scene from a real demo and changes there.
-          ./build/assert-test-count.sh '**/corpus.trx' 118 Corpus
+          # 118 -> 121 on 2026-08-28: LifeStateCorpusDiagnostic (3), which chose the UI suite's
+          # opening tick. Skipped tests count toward the trx total, so the floor holds here too.
+          ./build/assert-test-count.sh '**/corpus.trx' 121 Corpus
 
       - uses: actions/upload-artifact@v7
         if: failure()
