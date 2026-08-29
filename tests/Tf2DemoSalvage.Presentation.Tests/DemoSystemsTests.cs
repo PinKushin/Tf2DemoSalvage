@@ -59,7 +59,7 @@ public sealed class DemoSystemsTests
         PlaybackPresenter playback = new(new FakePlaybackView(), new StopwatchTime());
 
         Systems(spectator, moment, moments, appearances, sound, playback)
-            .Open(timeline: null, lastTick: 100, audio: null, autoPlay: null, autoPlayName: "X");
+            .Open(timeline: null, lastTick: 100, audio: null, autoPlay: false, autoPlayReason: "X");
 
         playback.HasDemo.ShouldBeFalse("there is no timeline to run a clock over");
         spectator.Eyes.ShouldBeNull();
@@ -78,9 +78,29 @@ public sealed class DemoSystemsTests
         moment.Appearance = new GameAppearance(Classes: null, Roles: null);
 
         Systems(moment: moment)
-            .Open(timeline: null, lastTick: 0, audio: null, autoPlay: null, autoPlayName: "X");
+            .Open(timeline: null, lastTick: 0, audio: null, autoPlay: false, autoPlayReason: "X");
 
         moment.Appearance.ShouldBeSameAs(DemoAppearance.None);
+    }
+
+    [Test]
+    public void Open_WithNoTimeline_StillSizesTheTransport()
+    {
+        // **A demo has a LENGTH even when it has no clock, and this is the case that proves the
+        // length was not folded into `Load`.** A recording whose schema failed to decode returns
+        // from `Open` before any clock is built — but its header still says how many ticks it has,
+        // and its scrub bar has to come alive. Folding the two together would leave exactly those
+        // demos unscrubbable, which is the ordinary case while decoding is still being finished.
+        //
+        // This is also the only level that can reach `Open`'s length at all: `DemoTimeline`'s
+        // constructor is private, so every test in this class passes `timeline: null`. The autoplay
+        // half needs a real demo and lives in `LaunchOptionWiringTests` (B223, D118).
+        FakePlaybackView view = new();
+
+        Systems(playback: new PlaybackPresenter(view, new StopwatchTime()))
+            .Open(timeline: null, lastTick: 4242, audio: null, autoPlay: false, autoPlayReason: "X");
+
+        view.DemoLength.ShouldBe(4242);
     }
 
     [Test]
@@ -97,7 +117,7 @@ public sealed class DemoSystemsTests
             new SpectatorView(NullLogger.Instance), scene, Moments(scene), Appearances(), Sound(),
             new PlaybackPresenter(new FakePlaybackView(), new StopwatchTime()), new ActiveLoops(),
             new StubLoggerFactory(log))
-            .Open(timeline: null, lastTick: 0, audio: null, autoPlay: null, autoPlayName: "X");
+            .Open(timeline: null, lastTick: 0, audio: null, autoPlay: false, autoPlayReason: "X");
 
         log.Count("no audio device, so none will play").ShouldBe(1);
     }

@@ -80,6 +80,22 @@ public interface IPlaybackView
     /// <summary>Displays the current tick.</summary>
     /// <param name="tick">The tick to show.</param>
     public void ShowTick(int tick);
+
+    /// <summary>Sizes and enables the controls for a demo of the given length.</summary>
+    /// <param name="lastTick">Highest tick in the demo; zero means no demo, and disables them.</param>
+    /// <remarks>
+    /// **On the interface since 2026-08-29, because the window calling it directly was a bug** — the
+    /// third time autoplay's ordering has broken (B223, D118). `MainForm.Apply` called
+    /// <c>DemoSystems.Open</c>, which starts playback, and then the transport's own
+    /// <c>SetDemoLength</c>, whose last act is <c>Playing = false</c>. That setter deliberately does
+    /// not raise <see cref="PlayPauseToggled"/>, so nothing logged it and nothing failed: the viewer
+    /// wrote *"playback started at load"* and sat paused for ever.
+    ///
+    /// Resetting playback is part of what this does, so it belongs on the same side of the
+    /// presenter as <see cref="Playing"/> — with one owner deciding the order rather than two
+    /// callers agreeing on it.
+    /// </remarks>
+    public void SetDemoLength(int lastTick);
 }
 
 /// <summary>How much real time has passed, so playback can be tested without waiting.</summary>

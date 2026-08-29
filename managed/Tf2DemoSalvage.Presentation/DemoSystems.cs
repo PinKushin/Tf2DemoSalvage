@@ -86,8 +86,8 @@ public sealed class DemoSystems
     /// <param name="timeline">The decoded demo, or null when it carried no schema.</param>
     /// <param name="lastTick">The demo's final tick, for the clock.</param>
     /// <param name="audio">The output to silence, or null when the machine has no device.</param>
-    /// <param name="autoPlay">The autoplay variable's value, or null when it is unset.</param>
-    /// <param name="autoPlayName">Its name, for the log.</param>
+    /// <param name="autoPlay">Whether playback starts as soon as the clock exists.</param>
+    /// <param name="autoPlayReason">What asked for it, for the log.</param>
     /// <returns>The playback clock, or null when there is no timeline to run one over.</returns>
     /// <remarks>
     /// **Every source is set on BOTH paths, including the null one.** A demo whose schema failed to
@@ -99,7 +99,7 @@ public sealed class DemoSystems
     /// updated; carrying one across a load indexes the previous demo's sounds.
     /// </remarks>
     public void Open(
-        DemoTimeline? timeline, int lastTick, AudioOutput? audio, string? autoPlay, string autoPlayName)
+        DemoTimeline? timeline, int lastTick, AudioOutput? audio, bool autoPlay, string autoPlayReason)
     {
         // **Silenced BEFORE the schedule changes.** Loops in flight belong to the demo being closed;
         // replacing the schedule first leaves them playing over the new one with no owner.
@@ -127,6 +127,22 @@ public sealed class DemoSystems
             "{Message}",
             $"{timeline?.Sounds.Count ?? 0} sounds on the timeline; " +
             (audio is null ? "no audio device, so none will play" : "output is open"));
+
+        // **The transport's length is set HERE, and moving it here is the whole of B223.** It was
+        // the window's job, one line after this call — and because sizing the controls also clears
+        // the playing flag, it silently undid the autoplay below. Nothing logged it: the flag's
+        // setter deliberately does not raise, so the viewer wrote "playback started at load" and
+        // then sat paused for ever, which is exactly what the owner reported.
+        //
+        // **Before the early return, because a demo has a length even when it has no clock.** A
+        // recording whose schema failed to decode still has a tick count in its header, and its
+        // scrub bar has to come alive — that is the ordinary case while decoding is still being
+        // finished, not an edge one.
+        //
+        // This is the same argument the autoplay block below already made about ordering, applied
+        // to the step that was outside the method. The remarks there claimed the shape "removes
+        // rather than documents" the hazard; it removed the half that was inside.
+        _playback.SetDemoLength(lastTick);
 
         if (timeline is not { } demo)
         {
@@ -160,13 +176,16 @@ public sealed class DemoSystems
         // the only way to ask the renderer a question with nobody at the keyboard, otherwise
         // measures an almost empty scene and reports "never drawn" for models that had not appeared.
         //
-        // **The VALUE is passed in rather than read here**, so a test need not set a process-wide
-        // variable, and the one place that reads the environment is the window that owns the process.
-        if (autoPlay is { Length: > 0 })
+        // **A bool rather than the environment variable's VALUE, since 2026-08-29.** It used to take
+        // the string so the window could hand it straight from `Environment`, which read as tidy and
+        // was the reason the feature could not be tested: the only way to exercise it was to set a
+        // process-wide variable for the whole run. `--autoplay` is an option now, so the decision is
+        // made where the command line is read and this is told the answer.
+        if (autoPlay)
         {
             _playback.Play();
 
-            _demoLog.LogInformation("{Message}", $"{autoPlayName} is set; playback started at load");
+            _demoLog.LogInformation("{Message}", $"{autoPlayReason}; playback started at load");
         }
 
         // **Returned the clock until 2026-08-26, and nothing in production used it.** `MainForm`

@@ -18,6 +18,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="Zoom">The overhead camera's zoom.</param>
 /// <param name="SurfaceColours">Whether the capture uses the surface-category view.</param>
 /// <param name="Spectate">Which entity to follow, or null to choose automatically.</param>
+/// <param name="AutoPlay">Whether playback starts as soon as a demo is loaded.</param>
 public readonly record struct LaunchOptions(
     ViewerSettings Settings,
     IReadOnlyList<string> Paths,
@@ -27,7 +28,8 @@ public readonly record struct LaunchOptions(
     (float X, float Y)? LookAt = null,
     float Zoom = 1f,
     bool SurfaceColours = false,
-    int? Spectate = null);
+    int? Spectate = null,
+    bool AutoPlay = false);
 
 /// <summary>Reads the viewer's launch options.</summary>
 /// <remarks>
@@ -100,6 +102,23 @@ public static class LaunchOptionsReader
             if (argument == "--colours")
             {
                 read = read with { SurfaceColours = true };
+                continue;
+            }
+
+            // **An option because it was an environment variable, and that is the whole reason it
+            // had no coverage.** `TF2VIEW_AUTOPLAY` had exactly one reference in the repository —
+            // its own declaration — so nothing set it, nothing asserted it, and its ordering broke
+            // three separate times without a single test going red.
+            //
+            // A process-wide variable also cannot be exercised without setting it for every test in
+            // the run, which is why the one place that read it had to be the window that owns the
+            // process. As an option it is per-launch, and a test can simply pass it.
+            //
+            // The variable still works, because a shell somewhere may already export it; see
+            // `MainForm.AutoPlayVariable`.
+            if (argument == "--autoplay")
+            {
+                read = read with { AutoPlay = true };
                 continue;
             }
 

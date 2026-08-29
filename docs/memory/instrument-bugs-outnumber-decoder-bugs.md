@@ -242,6 +242,38 @@ then reddened **both** tests.
 
 ---
 
+## `a-greedy-match-reads-the-wrong-word` — the log line contained the answer twice
+
+**2026-08-29, checking whether autoplay actually played.** The per-second frame report is one line
+carrying the playback state and, much later in the same line, a garbage-collection summary:
+
+```
+245.5 frames a second, longest 11.85 ms, playing; drawing 147 ms; ... gc 3/0/0 paused 0.5 ms
+```
+
+Both `playing` and `paused` occur in it. A `sed -E 's/.*(paused|playing).*/\1/'` takes the LAST
+occurrence, because the leading `.*` is greedy — so every line reported `paused`, and the conclusion
+drawn was that playback stopped a second after starting and stayed stopped. The fix had in fact
+worked: all 31 reports said `playing`, and the tick advanced 1900 → 3900 in thirty seconds, which is
+66.7 a second and exactly right.
+
+**What makes this its own case rather than a typo.** The wrong reading was *plausible* — it agreed
+with the bug that had just been fixed, and it agreed with the earlier broken run. An instrument that
+confirms what you already believe gets no scrutiny. It was caught only because a separate extraction
+of the same log (`grep -n`, printing whole lines) showed `playing` at timestamps the first
+extraction called `paused`, and two readings of one file cannot both be right.
+
+- **Anchor on the field, not on the value.** `ms, (playing|paused);` is unambiguous where
+  `(playing|paused)` is not. The value is what you are measuring; the surrounding text is what
+  identifies it.
+- **A vocabulary shared between two subsystems on one line is a hazard in the log's design**, not
+  only in the reader. It is a cheap reason to prefer one fact per line.
+- The general form is the first entry in this file, arriving through a different door: **the
+  instrument was not faithful to the variable.** Here it measured a real quantity — GC pause — and
+  reported it as playback state.
+
+---
+
 ## How to apply, across all of it
 
 When a measurement comes out wrong, check what the measurement is actually sensitive to before

@@ -6651,3 +6651,83 @@ like doing" is not, and that is the only case this decision is about.
 never buys a departure from Valve; `docs/memory/an-optimisation-is-not-a-skippable-departure.md` says
 Valve's optimisations earn their place; D116 says implementing half a mechanism is not parity. This
 is the same error arriving as scope rather than as performance or as structure.
+
+## D118 — A setting only an environment variable can reach is a setting nothing tests
+
+**Decided 2026-08-29, while fixing B223.** Autoplay is a launch option — `--autoplay` — and no
+longer only `TF2VIEW_AUTOPLAY`. The variable still works.
+
+**The evidence, and it is arithmetic rather than judgement.** `TF2VIEW_AUTOPLAY` had **exactly one
+reference in the entire repository: its own declaration.** No script set it, no test set it, no CI
+job set it, no document told anyone to. Its ordering requirement then broke three separate times —
+twice recorded in `DemoSystems.Open`'s own remarks, and a third time found only by launching the
+viewer and reading the log.
+
+**Why a variable is untestable in a way an option is not.** A process-wide variable is process-wide:
+a test that sets one sets it for every other test in the run, including the ones that must NOT
+autoplay. The project's own code says so — the comment beside the old call read *"a system that read
+one could not be tested without setting it for the whole run"*, and drew the conclusion that the
+WINDOW should read it. That conclusion is right about where the read belongs and does not address
+that the setting had no coverage at all.
+
+An option is per-launch. `new MainForm("--autoplay", path)` is a complete, isolated arrangement, and
+`LaunchOptionWiringTests` is two lines long because of it.
+
+**The variable is kept rather than replaced.** A shell somewhere may already export it, and dropping
+it would be a regression with no visible symptom — the exact failure mode this decision is about.
+`MainForm` still reads the environment, because a process-wide variable is the business of whatever
+owns the process.
+
+**The general rule.** Before adding a setting reachable only through the environment, ask what test
+will set it. If the answer is "a test would have to change the whole run", it is an option, a
+config command, or an argument — not a variable.
+
+## D119 — A UI test that mutates the shared viewer must restore the state it changed
+
+**The owner, 2026-08-29**, when asked where autoplay should be tested:
+
+> *"problem with the test, if we play other tests will fail, it basically has to be the last test
+> and theres no way to set that, if it was first then it wouldnt be an issue, but last requires you
+> actually set everything to a set order"*
+
+and then, allowing the alternative:
+
+> *"'running it first and then restoring state by pausing and seeking back' is fine to do actually"*
+
+**The constraint.** `ViewerSession` launches ONE viewer for the whole assembly, deliberately —
+launching costs a runtime, a Direct3D device against a real adapter, and a hundred-megabyte map
+read. Anything a test changes is therefore seen by every test after it, and NUnit's ordering across
+fixtures is not something to lean on.
+
+**What was decided.** Mutating shared state is allowed, and restoring it is the test's own
+responsibility. Depending on running last is not.
+
+**Autoplay is nevertheless NOT tested in the UI suite**, and the reason is specific rather than a
+retreat from the above: **the viewer has no seek action a test can drive.** The scrub bar does not
+support the RangeValue pattern, and `ViewerAction` has `PlayPause` and go-to-start but nothing that
+reaches a tick. So "pause and seek back to 1900" is not available to write, and an approximation
+would leave the demo somewhere near 1900 — where "near" crosses the recorder's death at tick 2008
+and silently breaks every viewmodel test after it. The wiring is asserted on a real `MainForm` with
+no window instead, which is where it fails.
+
+If a seek command is ever added — Source's own `demo_gototick` is the obvious spelling — this
+becomes writable and should be written.
+
+**Open, and deliberately not decided here.** The owner also raised sharing setup ACROSS tests by
+leaning on the deterministic run order:
+
+> *"if we look at the order they run, which is actually deterministic, just not set able by us
+> without a lot of work, we could basically use test order to set up the fixture while the tests
+> run. So say you are checking 3 things in the 1st person pov, you only switch to the pov once, for
+> the switch test, then you do the other tests while there, then go back. thats how most places
+> structure their UI tests actually, but it can be flaky at times and requires you to reason about
+> the programs state so you have to make it a finite state machine or you will never reason it."*
+
+and immediately after:
+
+> *"idk if thats what we should do actually, just an idea. we would need to weigh the drawbacks and
+> advantages"*
+
+So it is recorded as a proposal with the owner's own caveat attached, not as a decision. The
+trade-off is real in both directions and is written up in `docs/RISKS.md` under B224 rather than
+settled here.

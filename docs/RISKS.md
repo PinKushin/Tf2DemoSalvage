@@ -14009,3 +14009,91 @@ three-bone melee weapon, and treating it as the same defect is a guess.
 degeneracy/span/placement report, and `WorldRenderer`'s "drew NOTHING in the {pass} pass", plus
 `MomentScene`'s held-weapon change line naming `m_hActiveWeapon`, class and item. All are
 transition-logged rather than sampled — see the memory this produced.
+
+### B223 — autoplay started and was switched off one line later, silently — FIXED 2026-08-29
+
+**The owner, earlier this session:** *"hell most of our launch options, like autoplay and first
+person are not even working right now, we need to fix that too"*, and this handoff repeated that
+claim about both.
+
+**Half of it was wrong, which is worth recording because the wrong half was mine.** `--first-person`
+works, and was measured working on 2026-08-29 in the ordinary no-capture path: `first person on,
+following the recording's own camera`, followed by `viewmodel pass: drawing 1 at
+v_rocketlauncher_soldier` on every subsequent frame. The previous handoff said both options "fail to
+reach the running viewer". That was an inference from one bad invocation, never checked, and it was
+then carried forward as a measured fact.
+
+**Autoplay really was broken, and the mechanism is exact.** `MainForm.Apply` called:
+
+```
+_demoSystems.Open(...)          // starts playback when autoplay is asked for
+_transport.SetDemoLength(...)   // ends with Playing = false
+```
+
+`TransportBar.Playing`'s setter deliberately does not raise `PlayPauseToggled` — raising it would
+re-enter the presenter through the control it had just updated — so nothing observed the change.
+`PlaybackPresenter.Advance` returns immediately on `!_view.Playing`, and the viewer sat paused for
+ever having written *"TF2VIEW_AUTOPLAY is set; playback started at load"*.
+
+**How it was found: a frame report, not a test.** Every per-second render line after the opening
+state read `paused`, forty seconds of them, while the demo log claimed playback had started. Two
+subsystem logs contradicting each other is what named the window between them.
+
+**Why no test caught it, and this is the part worth keeping.** Three levels exist and each was blind
+for a different reason:
+
+- `LaunchOptionsTests` proves the command line is READ. It cannot see whether anything obeys it.
+- `DemoSystemsTests` proves `Open` starts the clock — except **it cannot reach that path at all**,
+  because `DemoTimeline`'s constructor is private, so all three of its cases pass `timeline: null`
+  and return before any clock is built.
+- Nothing exercised a real `MainForm` with a real demo, which is the only place the two calls sit
+  next to each other.
+
+**It is the third time this exact ordering has broken.** The first two are written up in
+`DemoSystems.Open`'s own remarks, which say the shape "removes rather than documents" the hazard. It
+removed the half inside the method; the half outside it was the one that broke.
+
+**The fix is structural, not a reorder.** `SetDemoLength` is on `IPlaybackView` now, and
+`DemoSystems.Open` calls it — before the timeline check, because a demo has a length from its header
+even when its schema fails to decode and its scrub bar still has to work. `MainForm` no longer
+reaches past the presenter to the control, so there is no gap left for a second caller to write
+into. Verified by manipulation: putting a `SetDemoLength` back after the autoplay block reddens
+`LoadDemo_WithAutoplay_LeavesTheTransportPlaying` and leaves its control green.
+
+**And `--autoplay` is an option now** (D118). The variable had exactly one reference in the
+repository — its own declaration — which is why it had no coverage at all.
+
+### B224 — should the UI suite share setup across tests by leaning on run order? — OPEN, undecided
+
+**Raised by the owner, 2026-08-29, and explicitly left open by him:**
+
+> *"we could basically use test order to set up the fixture while the tests run. So say you are
+> checking 3 things in the 1st person pov, you only switch to the pov once, for the switch test,
+> then you do the other tests while there, then go back. thats how most places structure their UI
+> tests actually, but it can be flaky at times and requires you to reason about the programs state
+> so you have to make it a finite state machine or you will never reason it."*
+
+> *"idk if thats what we should do actually, just an idea. we would need to weigh the drawbacks and
+> advantages"*
+
+**For.** The suite already shares one viewer for exactly this reason — launching costs a device and
+a map read — so the principle is settled and only the granularity is in question. Entering first
+person, entering third person and going full screen are each paid per test today; three tests in one
+mode would pay one transition instead of six. It is also, as the owner says, how UI suites are
+usually built.
+
+**Against, and the owner named the cost himself:** every test becomes a transition in a state
+machine, and a test that fails midway leaves the viewer somewhere the next test does not expect —
+so one failure becomes a cascade, and the true cause is the first red rather than the loudest. That
+is the flakiness. It also conflicts with reading a failure in isolation: `--filter` on a single test
+would start it from the wrong state.
+
+**What would have to exist first.** The state would have to be written down as a state machine and
+ASSERTED on entry, not assumed — each test declaring the mode it requires and the harness driving
+the transition, rather than tests being ordered by hand and trusting the order. Without that this is
+ordering dependence with extra steps, which is the shape that makes a suite pass alone and fail
+together.
+
+**Measurement to take before deciding**: what the mode transitions actually cost. The UI suite is
+about 12 seconds for 29 tests, so the ceiling on the whole saving may be small enough to settle this
+without building anything — and that number has not been taken.

@@ -147,3 +147,5 @@
 - [Run the control before arguing](run-the-control-before-arguing.md) — one launch settles authorship that correct reasoning cannot.
 - [State the assumptions the owner can falsify](state-the-assumptions-the-owner-can-falsify.md) — he is looking at it; say what you assume about the symptom.
 - [Half a mechanism is not parity](half-a-mechanism-is-not-parity.md) — an invariant one system keeps is another's unstated precondition.
+- [An environment-only setting is untested](an-environment-only-setting-is-untested.md) — one reference in the whole repo; broke three times.
+- [A shared viewer test restores what it changed](a-shared-viewer-test-restores-what-it-changed.md) — mutate freely, never depend on running last.

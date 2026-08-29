@@ -1108,6 +1108,12 @@ internal class MainForm : Form, IFrameSteps
     /// For measurement runs. A demo's first tick is before the match starts, so a viewer launched
     /// and logged without this one draws a scene with no capture points, no holograms and no
     /// carried weapons in it — and every question about those models comes back "never drawn".
+    ///
+    /// **Prefer `--autoplay`, which does the same thing and can be tested** (D118). This variable
+    /// had exactly one reference in the repository — this declaration — so nothing set it and
+    /// nothing asserted it, and its ordering requirement broke three times unnoticed (B223). It is
+    /// kept because a shell somewhere may already export it, and dropping it would be a regression
+    /// with no visible symptom, which is the same class of fault.
     /// </remarks>
     public const string AutoPlayVariable = "TF2VIEW_AUTOPLAY";
 
@@ -2457,17 +2463,26 @@ internal class MainForm : Form, IFrameSteps
         // with the viewer suite green throughout. `DemoSystems` is the demo mirror of
         // `LevelSystems`: one place to read, and one place a test can reach.
         //
-        // **The environment is read HERE and its VALUE passed in.** A process-wide variable is the
-        // window's business — it owns the process — and a system that read one could not be tested
-        // without setting it for the whole run.
+        // **Two ways to ask for autoplay, and only one of them is testable.** `--autoplay` is the
+        // option (D118); the environment variable predates it and still works, because a shell
+        // somewhere may already export it and silently dropping that would be a regression nobody
+        // could see. The window is still the only place that reads the environment — a process-wide
+        // variable is the business of whatever owns the process.
+        bool autoPlay = _launch.AutoPlay
+            || Environment.GetEnvironmentVariable(AutoPlayVariable) is { Length: > 0 };
+
         _demoSystems.Open(
             _timeline,
             _demo.LastTick,
             _audio,
-            Environment.GetEnvironmentVariable(AutoPlayVariable),
-            AutoPlayVariable);
+            autoPlay,
+            _launch.AutoPlay ? "--autoplay" : $"{AutoPlayVariable} is set");
 
-        _transport.SetDemoLength(_demo.LastTick);
+        // **`_transport.SetDemoLength(_demo.LastTick)` was here, and it was the bug** (B223, D118).
+        // `Open` starts autoplay; this line ran immediately afterwards and its last act is
+        // `Playing = false`, which silently switched playback back off. `DemoSystems.Open` sets the
+        // length itself now, before the clock exists, so there is no longer a gap for a second
+        // caller to write into.
 
         // **The map may already have been read, off the UI thread (B146).** `LoadDemoAsync` does
         // that and passes what it found; the synchronous path passes null and reads it here, which
@@ -2537,7 +2552,10 @@ internal class MainForm : Form, IFrameSteps
         // the presenter holding the PREVIOUS demo's clock after a failed load.
         _playback.Load(null);
 
-        _transport.SetDemoLength(0);
+        // **Through the presenter, like every other transport reset** (D118). `Open` is not called
+        // on this path — a failed load never reaches it — so the length still has to be cleared
+        // here; what changed is that the window no longer reaches past the presenter to do it.
+        _playback.SetDemoLength(0);
 
         // **The wording is `DemoLoadResult`'s** (B188, D90), which also keeps the status line and
         // the returned message identically worded by construction rather than by `_status.Text`
