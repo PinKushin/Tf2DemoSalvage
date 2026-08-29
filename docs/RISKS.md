@@ -3593,7 +3593,7 @@ project does not read `studiohdr_t.bodyparts` at all. The base body then draws i
 and the two z-fight, which speckles. Unmeasured; LOD is the other candidate and neither has been
 ruled out.
 
-## B67 — the posed player skeleton is not upright — OPEN, and it is upstream of B64 and B63
+## B67 — the posed player skeleton is not upright — RESOLVED, see "B67 RESOLVED" below (a substring match on a sequence name)
 
 **Measured, cp_process, soldier at a mid-match tick:**
 
@@ -3870,7 +3870,7 @@ later measurement. What finally worked was comparing a player against a prop thr
 reader, then asking the lookup what it actually returned rather than assuming it returned what was
 asked for.
 
-## B68 — decals hover off the walls at a large offset — OPEN, found by the free camera
+## B68 — decals hover off the walls at a large offset — RESOLVED (reopened once), see "B68 RESOLVED" below
 
 Visible the moment a perspective view existed: cp_process's red wall bands are drawn floating in
 front of the brickwork rather than on it, by enough to read as a separate object. From the top-down
@@ -4054,7 +4054,7 @@ decal path is exonerated. Starting points, none measured:
 The second is the stronger candidate: the bands in question are team-coloured trim, exactly the kind
 of thing mapped as a separate brush entity.
 
-## B71 — brush-model entities are decoded and then skipped, so doors never draw — OPEN
+## B71 — brush-model entities are decoded and then skipped, so doors never draw — RESOLVED, see "B71 RESOLVED" and "B71 — brush entities never move — CLOSED" below
 
 **The owner's observation, and it is exactly right:** the rolling doors were supposed to arrive the
 same way the health and ammo packs did, and they do. Nothing is lost on the wire.
@@ -5596,7 +5596,7 @@ already applied. Had the guess been "fixed" instead of checked, every closed doo
 Evidence class: read from published source (vbsp, bspfile.h, `C_BaseEntity::DrawBrushModel`), and
 measured on the corpus for the counts.
 
-### B94 — a gate travels into the floor instead of up into its frame — OPEN
+### B94 — a gate travels into the floor instead of up into its frame — RESOLVED, see "B94 RESOLVED" below
 
 **The owner's observation, watching cp_process play back**, and the first real defect found by having
 brush entities draw at all: the gates animate, but one of them moves DOWN into the floor rather than
@@ -6009,7 +6009,7 @@ no cap; it simply cannot see the future.
 Evidence class: read from published source (`interpolatedvar.h`), measured on the corpus, confirmed
 on screen by the owner.
 
-### B97 — the free camera moves on key auto-repeat, so it steps instead of flying — OPEN
+### B97 — the free camera moves on key auto-repeat, so it steps instead of flying — RESOLVED, see "B97 RESOLVED" below
 
 **Owner's observation, and it invalidates an instrument.** Camera movement is driven by Windows key
 auto-repeat — "single clicks that repeat, like typing in notepad" — rather than by polling key state
@@ -6063,7 +6063,7 @@ input deterministically and polled global state is not reproducible. So the engi
 message queue, which is what this now does. Raw input is the legitimate step beyond that, and Source
 uses it for the MOUSE (`m_rawinput`), where it bypasses pointer acceleration.
 
-### B98 — flying the camera re-projects the whole map every frame — OPEN, caused by B97
+### B98 — flying the camera re-projects the whole map every frame — RESOLVED, see "B98 RESOLVED" below
 
 **Owner's observation: flight is smooth while the demo is paused and jittery while it plays.** That
 split is the diagnosis. The view matrix upload lives INSIDE `ProjectMap`, so the only way to tell the
@@ -9692,7 +9692,7 @@ every bone matrix at load — possible, and a real change to the animation path,
 ROTATION to mean anything: a symmetric matrix passes under both conventions, which is exactly how
 this class of bug survives a test suite.
 
-## B160 — the viewmodel is drawn at the eye, with no `CalcViewModelView` transform — OPEN
+## B160 — the viewmodel is drawn at the eye, with no `CalcViewModelView` transform — RESOLVED 2026-08-23, see "B160 RESOLVED" below
 
 Reported 2026-08-23, pre-existing: in the first-person view the weapon fills the screen from the
 centre.
@@ -14470,3 +14470,38 @@ worse, since a genuinely open entry buried among stale ones stops being believed
 a resolution section is good and should continue — the wrong turns are the valuable part — but it is
 not the closure. There are ~46 entries still marked OPEN and no one has reconciled them against the
 code; that pass is worth doing and is not done here.
+
+## Reconciliation pass, 2026-08-29 — what the OPEN markers were actually worth
+
+**Done at the owner's direction**, because "what next" is answered from this file and three of the
+four markers checked that morning were wrong.
+
+**Ten entries were closed. Seven of them the file already contradicted itself about**: they carried
+an `OPEN` header AND a later `RESOLVED`/`CLOSED` section written by whoever fixed them —
+**B67, B68, B71, B94, B97, B98, B160**. The resolution was written up every time; the header a
+reader greps for was edited none of the times. B71 had *two* closing sections and still said OPEN at
+the top.
+
+The other three were found by measurement earlier the same day: **B168** (audio wired — 911 sounds
+submitted), **B222** (animation sections, 245.49 → 0.31 units) and **B225** (fixed this session).
+
+**77 distinct entries still say OPEN, and this pass did NOT verify them all.** Saying so is the
+point: a reconciliation that closed entries on weak evidence would be worse than the stale markers,
+because it would retire real defects. What was checked and left open on purpose:
+
+- **B65 — "one player on BLU draws in RED"** looked closed: `PlayerSkin.ForTeam(player.Team)` is
+  wired in `PlayerProps`. It stays open, because the owner reported a **blue medic drawing with a
+  red viewmodel** within the last few days — the same family, and quite possibly the same bug on the
+  viewmodel path. Mechanism present is not symptom gone.
+- **B54 — colour maths in display space** shows no gamma/linear conversion anywhere in `managed/`.
+  Still open, and the grep agrees with the entry.
+
+**Entries where the mechanism now demonstrably RUNS were not closed on that basis alone**, except
+where a log from a real run showed the behaviour: viewmodels drawing, cubemap reflections resolving,
+`WorldPresenter.SetWorldCulling`, `LoadDemoAsync`, `assert-test-count.sh`. Those are noted here
+rather than marked closed, because "the type exists and is called" is exactly the evidence that
+failed three times today.
+
+**The practice this pass exists to establish:** closing a bug means **editing the header**. Appending
+the resolution below it is right and should continue — the wrong turns are the valuable part — but
+it is not the closure, and for seven entries it left the index disagreeing with the file it indexes.
