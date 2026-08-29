@@ -296,13 +296,88 @@ public sealed class SpectatorView
         return Target(tick) is { IsAlive: false } ? CameraMode.ThirdPerson : requested;
     }
 
+    /// <summary>How far a box may travel through the world before something solid stops it.</summary>
+    /// <remarks>
+    /// **Set from the loaded map; null means no world and therefore no clipping.** The same shape as
+    /// <see cref="Eyes"/>: a collaborator supplied from outside so this type stays testable without
+    /// a BSP, and so a viewer with no map open behaves rather than throwing.
+    ///
+    /// Returns the fraction of the way the sweep got, 0 to 1 — <c>BspLeafTree.Sweep</c>.
+    /// </remarks>
+    public Func<(float X, float Y, float Z), (float X, float Y, float Z), float, float>? World { get; set; }
+
+    /// <summary>The chase camera, clipped against the world and eased back out.</summary>
+    /// <param name="tick">The tick being drawn.</param>
+    /// <param name="aspect">The viewport's width over its height.</param>
+    /// <param name="seconds">Time since the previous frame, for the recovery.</param>
+    /// <returns>The camera, or null when there is no target.</returns>
+    /// <remarks>
+    /// **Valve clips the chase camera and grows it back**, and the growth is stateful, which is why
+    /// the distance is remembered here rather than recomputed:
+    ///
+    /// <code>
+    ///   UTIL_TraceHull( targetOrigin1, cameraOrigin, WALL_MIN, WALL_MAX, MASK_SOLID, ... );
+    ///   float dist = VectorLength( trace.endpos - targetOrigin1 );
+    ///   m_flLastDistance += gpGlobals->frametime * 32.0f;
+    ///   if ( dist > m_flLastDistance ) …camera at m_flLastDistance…
+    ///   else { cameraOrigin = trace.endpos; m_flLastDistance = dist; }
+    /// </code>
+    ///
+    /// The arithmetic is <see cref="ChaseCamera.Approach"/>; this supplies the trace and holds
+    /// <c>m_flLastDistance</c>.
+    ///
+    /// **The camera is placed by re-running the placement at the shortened distance**, rather than
+    /// by moving the returned camera: the angles must not change when a wall interrupts, and
+    /// deriving the position twice is how a camera and its frustum come to disagree.
+    /// </remarks>
+    public FreeCamera? Chase(int tick, float aspect, double seconds)
+    {
+        if (Target(tick) is not { } target)
+        {
+            return null;
+        }
+
+        float yaw = target.EyeYaw ?? target.Yaw;
+        bool alive = target.IsAlive;
+        bool ducking = Ducking(target);
+
+        FreeCamera ideal = FreeCamera.Chase(
+            (target.X, target.Y, target.Z), yaw, alive, ducking, aspect);
+
+        if (World is not { } sweep)
+        {
+            return ideal;
+        }
+
+        // The point the camera looks at, which is what the engine traces FROM — the target's eyes,
+        // or the height it looks over a ragdoll from.
+        (float X, float Y, float Z) look =
+            (target.X, target.Y, target.Z + (alive ? PlayerEye.Spectated(ducking) : PlayerEye.DeadChaseTarget));
+
+        float reached = sweep(look, ideal.Origin, ChaseCamera.WallHalfExtent);
+
+        float blockedAt = ChaseCamera.Distance * Math.Clamp(reached, 0f, 1f);
+
+        // **Without a frame clock the recovery cannot run, and running it anyway would RATCHET.**
+        // `Approach` takes the smaller of blocked-and-grown, so with zero elapsed time it is a plain
+        // minimum: the camera would move in at the first wall and never come back out for the rest
+        // of the session. Taking the clip alone is a stated approximation — no easing — where the
+        // ratchet is a defect that would read as the camera slowly strangling itself.
+        _chaseDistance = seconds > 0d
+            ? ChaseCamera.Approach(blockedAt, _chaseDistance, (float)seconds)
+            : blockedAt;
+
+        return FreeCamera.Chase(
+            (target.X, target.Y, target.Z), yaw, alive, ducking, aspect, _chaseDistance);
+    }
+
     /// <summary>The chase camera on whoever is being watched, or null when nobody is.</summary>
     /// <param name="tick">The tick being drawn.</param>
     /// <param name="aspect">The viewport's width over its height.</param>
     /// <returns>The camera, or null when there is no target.</returns>
     /// <remarks>
-    /// **Valve's <c>OBS_MODE_CHASE</c>, and the mode the engine falls back to** — see
-    /// <see cref="CameraMode.ThirdPerson"/> and <see cref="ChaseCamera"/> for the citations.
+    /// **Valve's <c>OBS_MODE_CHASE</c>** — see <see cref="CameraMode.ThirdPerson"/> and
+    /// <see cref="ChaseCamera"/> for the citations.
     ///
     /// **It follows the same target as <see cref="Eye"/>**, deliberately: switching between first
     /// and third person watches the same player, which is what <c>C_HLTVCamera</c> does with one
@@ -312,21 +387,15 @@ public sealed class SpectatorView
     /// **A dead target is fine here** — unlike <see cref="Eye"/>, which refuses one. That asymmetry
     /// IS the engine's: `CalcInEyeCamView` bails to this, so this is where a dead target ends up
     /// rather than somewhere it must be kept out of.
+    ///
+    /// **No elapsed time, so the wall recovery cannot advance.** For a caller that has no frame
+    /// clock the camera is clipped but never eases back out, which is a worse picture than the
+    /// overload that takes one — this exists for tests and for callers that do not draw.
     /// </remarks>
-    public FreeCamera? Chase(int tick, float aspect)
-    {
-        if (Target(tick) is not { } target)
-        {
-            return null;
-        }
+    public FreeCamera? Chase(int tick, float aspect) => Chase(tick, aspect, 0d);
 
-        return FreeCamera.Chase(
-            (target.X, target.Y, target.Z),
-            target.EyeYaw ?? target.Yaw,
-            target.IsAlive,
-            Ducking(target),
-            aspect);
-    }
+    /// <summary>Valve's <c>m_flLastDistance</c>: how far out the camera was allowed last frame.</summary>
+    private float _chaseDistance = ChaseCamera.Distance;
 
     /// <summary>The camera for the first-person view, or null when there is none.</summary>
     /// <param name="tick">The tick being drawn.</param>

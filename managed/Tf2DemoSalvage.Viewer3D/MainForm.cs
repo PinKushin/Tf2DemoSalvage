@@ -1429,6 +1429,15 @@ internal class MainForm : Form, IFrameSteps
             // and the content is a nullable beside them.
             _loaded = map;
 
+            // **The chase camera clips against the world, and this is where it gets one.** Valve
+            // traces a twelve-unit hull from the target to the camera and pulls the camera in to
+            // whatever it hits (`hltvcamera.cpp`, and see `ChaseCamera`). Null until a map is open,
+            // which is why `SpectatorView.World` is nullable rather than assumed.
+            _spectator.World = map.Level.Leaves is { } leaves
+                ? (from, to, extent) =>
+                    leaves.Sweep(from.X, from.Y, from.Z, to.X, to.Y, to.Z, extent)
+                : null;
+
             ProjectMap();
             return !map.Outline.IsEmpty;
         }

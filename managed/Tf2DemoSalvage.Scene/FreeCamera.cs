@@ -193,6 +193,7 @@ public sealed class FreeCamera
     /// <param name="alive">Whether they are alive, which changes the height and the pitch.</param>
     /// <param name="ducking">Whether they are ducking.</param>
     /// <param name="aspect">The viewport's width over its height.</param>
+    /// <param name="distance">How far back to sit; shortened when a wall is in the way.</param>
     /// <returns>The camera.</returns>
     /// <remarks>
     /// **The placement is <see cref="ChaseCamera"/>'s and the citation lives there** —
@@ -205,10 +206,15 @@ public sealed class FreeCamera
     /// with <c>cameraAngles.x = 0</c> before it applies its own offset.
     /// </remarks>
     public static FreeCamera Chase(
-        (float X, float Y, float Z) origin, float eyeYaw, bool alive, bool ducking, float aspect)
+        (float X, float Y, float Z) origin,
+        float eyeYaw,
+        bool alive,
+        bool ducking,
+        float aspect,
+        float distance = ChaseCamera.Distance)
     {
         (float X, float Y, float Z, float Pitch, float Yaw, float Roll) view =
-            ChaseCamera.View(origin.X, origin.Y, origin.Z, eyeYaw, alive, ducking);
+            ChaseCamera.View(origin.X, origin.Y, origin.Z, eyeYaw, alive, ducking, distance);
 
         return new FreeCamera
         {

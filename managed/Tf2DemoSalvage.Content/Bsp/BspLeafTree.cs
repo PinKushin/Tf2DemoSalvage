@@ -463,6 +463,176 @@ public sealed class BspLeafTree
             BinaryPrimitives.ReadUInt16LittleEndian(leaves[(at + 22)..]));
     }
 
+    /// <summary>How far a box may travel between two points before it meets something solid.</summary>
+    /// <param name="fromX">Where the sweep starts, in world units.</param>
+    /// <param name="fromY">Where the sweep starts.</param>
+    /// <param name="fromZ">Where the sweep starts.</param>
+    /// <param name="toX">Where it would end if nothing stopped it.</param>
+    /// <param name="toY">Where it would end.</param>
+    /// <param name="toZ">Where it would end.</param>
+    /// <param name="halfExtent">Half the width of the box being swept; zero for a bare ray.</param>
+    /// <returns>The fraction of the way it got, 0 to 1, where 1 means nothing was in the way.</returns>
+    /// <remarks>
+    /// **A real plane-by-plane clip, unlike <see cref="IsClear"/> and <see cref="SeesSky"/>.** Those
+    /// two SAMPLE the segment at fixed steps and say so in their own remarks, which is why both can
+    /// tunnel through a thin wall and why neither can report a distance. This walks the tree and
+    /// splits the segment against each node's plane, so it finds the first solid surface exactly and
+    /// answers WHERE, not merely whether.
+    ///
+    /// **Valve's <c>CM_RecursiveHullCheck</c> shape**, and the box is handled the way Quake-derived
+    /// code has always handled it: the plane is pushed out by the box's projection onto its normal,
+    /// <c>|halfExtent| · (|nx| + |ny| + |nz|)</c>, so a sweep of a solid box becomes a sweep of a
+    /// point against fattened planes.
+    ///
+    /// **This is an approximation of <c>UTIL_TraceHull</c> and the difference is worth stating.**
+    /// Source's collision is brush-based (<c>LUMP_BRUSHES</c>), and the visual BSP tree this walks
+    /// is not the collision hull — Quake precomputed one hull per box size and Source does not. So a
+    /// corner can be clipped a few units early or late where a brush face and a node plane disagree.
+    /// For placing a camera that is a far smaller error than the alternative, which is no clip at
+    /// all; for anything that must agree with the server, it is not good enough.
+    ///
+    /// **One means clear, and that is also the answer for a map with no tree**, matching the two
+    /// sampled tests above: a viewer that decided everything was blocked would pin every camera to
+    /// its subject, which is a worse failure than occasionally passing through a corner.
+    /// </remarks>
+    public float Sweep(
+        float fromX, float fromY, float fromZ,
+        float toX, float toY, float toZ,
+        float halfExtent)
+    {
+        if (IsEmpty || _leaves.IsEmpty)
+        {
+            return 1f;
+        }
+
+        float hit = 1f;
+
+        Descend(
+            0, 0f, 1f,
+            fromX, fromY, fromZ,
+            toX, toY, toZ,
+            MathF.Abs(halfExtent),
+            ref hit,
+            0);
+
+        return hit;
+    }
+
+    /// <summary>One step of <see cref="Sweep"/>: clip the segment against this node's plane.</summary>
+    /// <remarks>
+    /// **Both sides are visited in near-to-far order**, which is what makes the FIRST solid surface
+    /// the one reported rather than the last. A version that recursed in tree order would find some
+    /// surface and have no way to know whether something nearer had been skipped.
+    ///
+    /// The depth bound is a corruption check, not a feature limit: a malformed tree can otherwise
+    /// recurse until the stack ends, and this project opens files it did not write.
+    /// </remarks>
+    private void Descend(
+        int node, float startFraction, float endFraction,
+        float fromX, float fromY, float fromZ,
+        float toX, float toY, float toZ,
+        float halfExtent,
+        ref float hit,
+        int depth)
+    {
+        if (depth > MaximumTreeDepth || startFraction >= hit)
+        {
+            return;
+        }
+
+        if (node < 0)
+        {
+            int leaf = -node - 1;
+            int at = leaf * LeafStride;
+
+            ReadOnlySpan<byte> leaves = _leaves.Span;
+
+            if (at < 0 || at + 4 > leaves.Length)
+            {
+                return;
+            }
+
+            // **The near end of the span is what is reported**, because the caller wants where the
+            // sweep STOPPED. A solid leaf entered at fraction f means everything past f is inside.
+            if ((BinaryPrimitives.ReadInt32LittleEndian(leaves[at..]) & ContentsSolid) != 0 &&
+                startFraction < hit)
+            {
+                hit = startFraction;
+            }
+
+            return;
+        }
+
+        ReadOnlySpan<byte> nodes = _nodes.Span;
+        ReadOnlySpan<byte> planes = _planes.Span;
+
+        int nodeAt = node * NodeStride;
+
+        if (nodeAt < 0 || nodeAt + NodeStride > nodes.Length)
+        {
+            return;
+        }
+
+        int planeAt = BinaryPrimitives.ReadInt32LittleEndian(nodes[nodeAt..]) * PlaneStride;
+
+        if (planeAt < 0 || planeAt + PlaneStride > planes.Length)
+        {
+            return;
+        }
+
+        float normalX = BinaryPrimitives.ReadSingleLittleEndian(planes[planeAt..]);
+        float normalY = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 4)..]);
+        float normalZ = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 8)..]);
+        float distance = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 12)..]);
+
+        int front = BinaryPrimitives.ReadInt32LittleEndian(nodes[(nodeAt + 4)..]);
+        int back = BinaryPrimitives.ReadInt32LittleEndian(nodes[(nodeAt + 8)..]);
+
+        float startSide = (normalX * fromX) + (normalY * fromY) + (normalZ * fromZ) - distance;
+        float endSide = (normalX * toX) + (normalY * toY) + (normalZ * toZ) - distance;
+
+        // The box's reach along this plane's normal, so a solid box against a plane becomes a point
+        // against a plane pushed out by that much.
+        float offset = halfExtent *
+            (MathF.Abs(normalX) + MathF.Abs(normalY) + MathF.Abs(normalZ));
+
+        if (startSide >= offset && endSide >= offset)
+        {
+            Descend(front, startFraction, endFraction, fromX, fromY, fromZ, toX, toY, toZ, halfExtent, ref hit, depth + 1);
+            return;
+        }
+
+        if (startSide < -offset && endSide < -offset)
+        {
+            Descend(back, startFraction, endFraction, fromX, fromY, fromZ, toX, toY, toZ, halfExtent, ref hit, depth + 1);
+            return;
+        }
+
+        // Straddles the plane. Split at the crossing and take the near half first, so the nearest
+        // solid wins; a denominator of zero means the segment lies in the plane, and halving is the
+        // degenerate-safe answer rather than a division that yields infinity.
+        float span = startSide - endSide;
+
+        float crossing = MathF.Abs(span) < 1e-6f
+            ? 0.5f
+            : Math.Clamp((startSide - offset) / span, 0f, 1f);
+
+        int near = startSide >= endSide ? front : back;
+        int far = startSide >= endSide ? back : front;
+
+        float middle = startFraction + ((endFraction - startFraction) * crossing);
+
+        float midX = fromX + ((toX - fromX) * crossing);
+        float midY = fromY + ((toY - fromY) * crossing);
+        float midZ = fromZ + ((toZ - fromZ) * crossing);
+
+        Descend(near, startFraction, middle, fromX, fromY, fromZ, midX, midY, midZ, halfExtent, ref hit, depth + 1);
+        Descend(far, middle, endFraction, midX, midY, midZ, toX, toY, toZ, halfExtent, ref hit, depth + 1);
+    }
+
+    /// <summary>How deep the tree walk may go before the tree is treated as malformed.</summary>
+    private const int MaximumTreeDepth = 256;
+
     /// <summary>Which leaf contains a point.</summary>
     /// <param name="x">World position.</param>
     /// <param name="y">World position.</param>

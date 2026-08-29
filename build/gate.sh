@@ -510,7 +510,10 @@ run Tf2DemoSalvage.Presentation.Tests presentation 402
 # when animation sections are ignored, and the diagnostics that found it (Explicit).
 # Sections are why the demoman's sticky launcher tore: every frame was read out of section zero, so
 # the run-length walk ran off the end and kept reading. vm_weapon_bone_1 landed 219 units from rest.
-run Tf2DemoSalvage.Content.Tests  content   766
+# 766 -> 774 on 2026-08-28: BspSweepTests (6) for the first real trace this project has had — a
+# plane-by-plane clip that reports a DISTANCE, where IsClear and SeesSky sample and answer a bool.
+# Plus two diagnostics. The chase camera cannot be clipped against the world without it.
+run Tf2DemoSalvage.Content.Tests  content   774
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2

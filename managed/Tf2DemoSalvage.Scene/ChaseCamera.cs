@@ -63,6 +63,15 @@ public static class ChaseCamera
     /// </remarks>
     public const float DeadPitch = 15f;
 
+    /// <summary>Half the width of the box swept against the world: <c>WALL_OFFSET</c>.</summary>
+    /// <remarks>
+    /// <c>#define WALL_OFFSET 6.0f</c> (<c>hltvcamera.cpp:31</c>), which
+    /// <c>WALL_MIN</c>/<c>WALL_MAX</c> turn into a twelve-unit cube for
+    /// <c>UTIL_TraceHull</c>. A bare ray would let the camera's near plane poke through a surface
+    /// the trace called clear.
+    /// </remarks>
+    public const float WallHalfExtent = 6f;
+
     /// <summary>How fast the camera eases back out once a wall stops blocking it.</summary>
     /// <remarks>
     /// <c>m_flLastDistance += gpGlobals->frametime * 32.0f</c> (<c>hltvcamera.cpp:227</c>), under
@@ -110,7 +119,23 @@ public static class ChaseCamera
     /// <param name="ducking">Whether the target is ducking, which lowers the point looked at.</param>
     /// <returns>The camera's origin and angles.</returns>
     public static (float X, float Y, float Z, float Pitch, float Yaw, float Roll) View(
-        float x, float y, float z, float eyeYaw, bool alive, bool ducking)
+        float x, float y, float z, float eyeYaw, bool alive, bool ducking) =>
+        View(x, y, z, eyeYaw, alive, ducking, Distance);
+
+    /// <summary>Where the chase camera sits at a shortened distance.</summary>
+    /// <param name="x">The target's position, which is its feet.</param>
+    /// <param name="y">The target's position.</param>
+    /// <param name="z">The target's position.</param>
+    /// <param name="eyeYaw">The target's own eye yaw.</param>
+    /// <param name="alive">Whether the target is alive.</param>
+    /// <param name="ducking">Whether the target is ducking.</param>
+    /// <param name="distance">
+    /// How far back to sit. <see cref="Distance"/> unless a wall has shortened it, in which case it
+    /// is what <see cref="Approach"/> allows — the angles are unchanged either way, because a wall
+    /// moves the camera without turning it.
+    /// </param>
+    public static (float X, float Y, float Z, float Pitch, float Yaw, float Roll) View(
+        float x, float y, float z, float eyeYaw, bool alive, bool ducking, float distance)
     {
         // **Three heights, and which one applies is decided before any angle is.** A dead target is
         // looked at over its ragdoll rather than through it, so this is not an eye height at all —
@@ -130,9 +155,9 @@ public static class ChaseCamera
         // faces. Negative, so the camera is BEHIND the target; the positive form puts it in front,
         // which frames the world from the wrong side while still tracking the player.
         return (
-            x - (Distance * forward.X),
-            y - (Distance * forward.Y),
-            z + height - (Distance * forward.Z),
+            x - (distance * forward.X),
+            y - (distance * forward.Y),
+            z + height - (distance * forward.Z),
             pitch,
             eyeYaw,
             0f);
