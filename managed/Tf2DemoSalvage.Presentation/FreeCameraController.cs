@@ -32,6 +32,25 @@ public sealed class FreeCameraController(ILogger log)
     /// </remarks>
     public const string CameraVariable = "TF2VIEW_CAMERA";
 
+    /// <summary>Where the overhead placement is centred, or null for the map's own centre.</summary>
+    /// <remarks>
+    /// **`--look x y`, which was accepted and dropped until 2026-08-29** (B226). It centres the
+    /// opening view on a world point instead of on the middle of the map — useful for going
+    /// straight to a chokepoint rather than framing the whole thing.
+    ///
+    /// Only affects the FIRST placement, like everything else here: once the camera has an origin
+    /// it flies normally and nothing re-centres it.
+    /// </remarks>
+    public (float X, float Y)? LookAt { get; set; }
+
+    /// <summary>How much of the map the overhead placement frames; 1 is all of it.</summary>
+    /// <remarks>
+    /// **`--zoom`, dropped the same way and restored with it.** Larger frames less, as zoom means
+    /// everywhere; a non-positive value is ignored rather than obeyed, since zero would divide the
+    /// extent by nothing and a negative one would invert the rectangle.
+    /// </remarks>
+    public float Zoom { get; set; } = 1f;
+
     /// <summary>Degrees the camera turns per pixel dragged.</summary>
     /// <remarks>
     /// A quarter of a degree, so a full turn is about a screen and a half of dragging.
@@ -290,11 +309,18 @@ public sealed class FreeCameraController(ILogger log)
             return;
         }
 
+        // **`--look` and `--zoom` reshape what is framed, rather than moving the camera afterwards**
+        // (B226). Both were parsed and consumed by nothing until 2026-08-29. Applying them here
+        // keeps every other property of the placement — the clearance above geometry, the 89-degree
+        // pitch, the fit-the-tighter-axis arithmetic — because `For` still does all of it; only the
+        // rectangle handed to it changes.
+        MapBounds framed = OverheadPlacement.Framed(map.MainBounds, LookAt, Zoom);
+
         ((float X, float Y, float Z) origin, float pitch, float yaw) = OverheadPlacement.For(
-            map.MainBounds.MinX,
-            map.MainBounds.MinY,
-            map.MainBounds.MaxX,
-            map.MainBounds.MaxY,
+            framed.MinX,
+            framed.MinY,
+            framed.MaxX,
+            framed.MaxY,
             highest,
             fieldOfView: FieldOfView,
             aspect: aspect);
@@ -302,13 +328,29 @@ public sealed class FreeCameraController(ILogger log)
         Origin = origin;
         Angles = (pitch, yaw);
 
+        // **Said "of a map measuring ..." only when the two differ**, so an ordinary launch reads
+        // exactly as it always did and a `--look`/`--zoom` launch says both numbers. A local rather
+        // than a nested `string.Create`: nesting one inside an interpolation turns the outer
+        // argument into a plain concatenated string, which no longer binds to the interpolated
+        // handler overload — CS1620, and the build failure is how that was found.
+        string ofMap = framed.Equals(map.MainBounds)
+            ? string.Empty
+            : string.Create(
+                CultureInfo.InvariantCulture,
+                $" of a map measuring {map.MainBounds.MaxX - map.MainBounds.MinX:0.##} x " +
+                $"{map.MainBounds.MaxY - map.MainBounds.MinY:0.##}");
+
         log.LogInformation(
             "{Message}",
             string.Create(
                 CultureInfo.InvariantCulture,
+                // **Reports what was FRAMED, not what the map measures**, and it reported the map
+                // until 2026-08-29. With `--zoom 4` the line said "framing 8192 x 9728" while the
+                // camera sat at a quarter the height actually framing 2048 x 2432 — a log that
+                // contradicts the placement on its own line, which is worse than no log at all.
                 $"free camera placed overhead at ({origin.X:0.##},{origin.Y:0.##},{origin.Z:0.##}) " +
-                $"pitch {pitch:0.##}, framing {map.MainBounds.MaxX - map.MainBounds.MinX:0.##} x " +
-                $"{map.MainBounds.MaxY - map.MainBounds.MinY:0.##}"));
+                $"pitch {pitch:0.##}, framing {framed.MaxX - framed.MinX:0.##} x " +
+                $"{framed.MaxY - framed.MinY:0.##}{ofMap}"));
     }
 
     /// <summary>Reads a camera placement, or null when the text is not five numbers.</summary>

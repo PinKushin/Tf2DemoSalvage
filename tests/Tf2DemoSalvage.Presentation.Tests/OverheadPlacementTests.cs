@@ -1,6 +1,7 @@
 using System;
 
 using Tf2DemoSalvage.Presentation;
+using Tf2DemoSalvage.Scene;
 
 namespace Tf2DemoSalvage.Presentation.Tests;
 
@@ -140,5 +141,72 @@ public sealed class OverheadPlacementTests
             OverheadPlacement.For(0f, 0f, 0f, 0f, highestGeometry: 0f);
 
         origin.Z.ShouldBe(OverheadPlacement.ClearanceAboveGeometry, 0.01);
+    }
+
+    // **`--look` and `--zoom` were parsed and consumed by NOTHING** until 2026-08-29 (B226). D98
+    // removed the orthographic camera they were written for and kept the fields, filing what they
+    // should mean for a camera placed in the world as "a question for whoever reimplements them".
+    // The answer needs no invention: the overhead placement IS the map view's successor, so `--look`
+    // moves what it is centred on and `--zoom` changes how much of the map it frames. Both are
+    // expressed by reshaping the rectangle handed to `For`, which is why no new placement maths
+    // exists here.
+
+    [Test]
+    public void Framed_WithNoLookAtAndUnitZoom_IsTheMapUnchanged()
+    {
+        // **The control, and it is the one that matters most here.** Every launch that passes
+        // neither option must frame exactly what it framed before; a `Framed` that shifted or
+        // scaled by a hair would change the opening view of every demo and no other test would say
+        // so.
+        MapBounds framed = OverheadPlacement.Framed(
+            new MapBounds(4000f, 2000f, 6000f, 3000f), lookAt: null, zoom: 1f);
+
+        framed.ShouldBe(new MapBounds(4000f, 2000f, 6000f, 3000f));
+    }
+
+    [Test]
+    public void Framed_WithALookAt_RecentresWithoutChangingTheExtent()
+    {
+        // Off-centre bounds, so "moved to the look point" and "left where it was" differ — the same
+        // reason For_AnOffCentreMap_FollowsTheCentreRatherThanTheOrigin exists.
+        MapBounds framed = OverheadPlacement.Framed(
+            new MapBounds(4000f, 2000f, 6000f, 3000f), lookAt: (0f, 0f), zoom: 1f);
+
+        framed.ShouldBe(new MapBounds(-1000f, -500f, 1000f, 500f));
+    }
+
+    [Test]
+    public void Framed_WithZoomTwo_FramesHalfAsMuchAboutTheSameCentre()
+    {
+        // **Higher zoom frames LESS, which is what zoom means everywhere else.** Stated as an exact
+        // rectangle rather than "smaller": a test asserting only that the extent shrank would pass
+        // against a factor of 10 as readily as 2.
+        MapBounds framed = OverheadPlacement.Framed(
+            new MapBounds(-1000f, -1000f, 1000f, 1000f), lookAt: null, zoom: 2f);
+
+        framed.ShouldBe(new MapBounds(-500f, -500f, 500f, 500f));
+    }
+
+    [Test]
+    public void Framed_WithZoomTwoAndALookAt_AppliesBoth()
+    {
+        // Both at once, because each alone cannot see the other being dropped.
+        MapBounds framed = OverheadPlacement.Framed(
+            new MapBounds(-1000f, -1000f, 1000f, 1000f), lookAt: (500f, 200f), zoom: 2f);
+
+        framed.ShouldBe(new MapBounds(0f, -300f, 1000f, 700f));
+    }
+
+    [Test]
+    public void Framed_WithZoomOfZeroOrLess_IsIgnoredRatherThanCollapsingTheMap()
+    {
+        // **A zoom of zero divides the extent by nothing and a negative one turns the rectangle
+        // inside out.** `--zoom 0` is a typo, and the honest answer to a typo here is the map as it
+        // would otherwise be framed — `LaunchOptionsReader` already refuses values that are not
+        // numbers, so this guards the ones that parse and are still nonsense.
+        MapBounds bounds = new(-1000f, -1000f, 1000f, 1000f);
+
+        OverheadPlacement.Framed(bounds, lookAt: null, zoom: 0f).ShouldBe(bounds);
+        OverheadPlacement.Framed(bounds, lookAt: null, zoom: -2f).ShouldBe(bounds);
     }
 }

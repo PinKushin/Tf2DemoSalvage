@@ -1,5 +1,7 @@
 using System;
 
+using Tf2DemoSalvage.Scene;
+
 namespace Tf2DemoSalvage.Presentation;
 
 /// <summary>
@@ -35,6 +37,55 @@ public static class OverheadPlacement
 
     /// <summary>Looking down, one degree short of vertical.</summary>
     public const float OverheadPitch = 89f;
+
+    /// <summary>Reshapes what the overhead camera frames, for <c>--look</c> and <c>--zoom</c>.</summary>
+    /// <param name="bounds">The play area, as the map reports it.</param>
+    /// <param name="lookAt">Where to centre, or null to keep the map's own centre.</param>
+    /// <param name="zoom">How much to magnify; 1 frames the whole area, 2 frames half of it.</param>
+    /// <returns>The rectangle to hand <see cref="For"/>.</returns>
+    /// <remarks>
+    /// **These two options were parsed and consumed by nothing at all** until 2026-08-29 (B226).
+    /// They were written for the orthographic camera D98 removed, and the fields were kept with a
+    /// note calling their meaning for a world-placed camera *"a question for whoever reimplements
+    /// them"*, adding that inventing an answer *"would be the guess this project keeps paying
+    /// for"*. That caution was right about inventing a NEW behaviour and wrong about the outcome:
+    /// an option that is accepted and silently dropped is the same class of defect as B223, where
+    /// autoplay was accepted and silently switched off.
+    ///
+    /// **No invention was needed, which is why this is arithmetic rather than a design.** The
+    /// overhead placement is the map view's successor — same requirement, one projection instead of
+    /// two — so "centre on this point" and "magnify" still mean exactly what they meant, and both
+    /// are expressed by reshaping the rectangle <see cref="For"/> already frames. Nothing about the
+    /// placement itself changes.
+    ///
+    /// **Zoom divides the extent**, so a larger number frames less, as zoom does everywhere. A
+    /// non-positive zoom is ignored rather than obeyed: zero divides the extent by nothing and a
+    /// negative one turns the rectangle inside out, and the honest answer to a typo is the view the
+    /// launch would otherwise have had.
+    /// </remarks>
+    public static MapBounds Framed(MapBounds bounds, (float X, float Y)? lookAt, float zoom)
+    {
+        float halfWidth = (bounds.MaxX - bounds.MinX) / 2f;
+        float halfHeight = (bounds.MaxY - bounds.MinY) / 2f;
+
+        // Guarded rather than clamped to some minimum: an unusable zoom leaves the view alone, so
+        // `--zoom 0` shows the map rather than a degenerate rectangle nobody asked for.
+        if (zoom > 0f)
+        {
+            halfWidth /= zoom;
+            halfHeight /= zoom;
+        }
+
+        (float X, float Y) centre = lookAt ?? (
+            (bounds.MinX + bounds.MaxX) / 2f,
+            (bounds.MinY + bounds.MaxY) / 2f);
+
+        return new MapBounds(
+            centre.X - halfWidth,
+            centre.Y - halfHeight,
+            centre.X + halfWidth,
+            centre.Y + halfHeight);
+    }
 
     /// <summary>Where to place the camera to frame a map from above.</summary>
     /// <param name="minX">Play area's western edge.</param>

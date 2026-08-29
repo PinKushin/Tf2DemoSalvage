@@ -807,6 +807,15 @@ internal class MainForm : Form, IFrameSteps
         _settings = _launch.Settings;
         _spectator.Spectating = _launch.Spectate;
 
+        // **`--look` and `--zoom` were parsed here and read by nobody** (B226). D98 removed the
+        // orthographic camera they were written for and kept the fields with a note saying what
+        // they should mean for a world-placed camera was "a question for whoever reimplements
+        // them". An accepted-and-dropped option is the same defect as B223, and the answer needed
+        // no invention: the overhead placement is the map view's successor, so they reshape what it
+        // frames.
+        _freeCamera.LookAt = _launch.LookAt;
+        _freeCamera.Zoom = _launch.Zoom;
+
         // **This line was MISSING for a day and `--shot` did nothing at all** (B196). `_shotPath`
         // stayed out of the record because taking the shot CONSUMES it, and staying out of the
         // record is exactly how it stopped being assigned: the six `_shot*` fields the parser used
@@ -1117,15 +1126,12 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     public const string AutoPlayVariable = "TF2VIEW_AUTOPLAY";
 
-    /// <summary>
-    /// Places the free camera, as <c>x y z pitch yaw</c> — TF2's own <c>pos</c> and <c>ang</c>.
-    /// </summary>
-    /// <remarks>
-    /// Written to take a `cl_showpos` readout with as little rearranging as possible: TF2 prints
-    /// `pos: x y z` and `ang: pitch yaw roll`, so the five numbers go in that order and roll is
-    /// ignored because this camera has none.
-    /// </remarks>
-    public const string CameraVariable = "TF2VIEW_CAMERA";
+    // **`CameraVariable` was declared HERE as well, and this copy was read by nothing** — removed
+    // 2026-08-29. `FreeCameraController` declares the same name and is the only place that reads
+    // the environment for it, so this was a second answer to one question with no way to notice the
+    // two drifting apart (`docs/memory/one-place-or-it-drifts.md`). Found while auditing every
+    // viewer environment variable after B223; the doc comment it carried was accurate, which is
+    // exactly what made it look alive.
 
     /// <summary>
     /// Applies a window geometry override, so a developer can reproduce CI's tiny screen.

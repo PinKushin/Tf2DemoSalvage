@@ -424,7 +424,11 @@ run Tf2DemoSalvage.Audio.Tests    audio     183
 # 402 -> 404 on 2026-08-29: `--autoplay` becomes a launch option (D118), plus the one case that can
 # reach `Open`'s demo length without a timeline. Autoplay was an environment variable with exactly
 # one reference in the repository — its own declaration — so nothing set it and nothing asserted it.
-run Tf2DemoSalvage.Presentation.Tests presentation 404
+# 404 -> 412 the same day: `--look` and `--zoom` were parsed and consumed by NOTHING (B226). Five
+# cases pin `OverheadPlacement.Framed`'s arithmetic and three pin the controller actually calling
+# it — a split that earned itself immediately, since sabotaging the wiring reddens the second group
+# and leaves the first entirely green.
+run Tf2DemoSalvage.Presentation.Tests presentation 412
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.

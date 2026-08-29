@@ -1,5 +1,8 @@
 using Microsoft.Extensions.Logging.Abstractions;
 
+using Tf2DemoSalvage.Content.Bsp;
+using Tf2DemoSalvage.Scene;
+
 namespace Tf2DemoSalvage.Presentation.Tests;
 
 /// <summary>Turning the free camera, and reading a viewpoint out of the environment.</summary>
@@ -153,6 +156,76 @@ public sealed class FreeCameraControllerTests
         camera.Origin.GetValueOrDefault().X.ShouldBe(100f + FreeCameraController.WheelTravel, 0.01);
         camera.Origin.GetValueOrDefault().Y.ShouldBe(200f, 0.01);
     }
+
+    // **`--look` and `--zoom` reaching the placement, which is the half `Framed`'s own tests cannot
+    // see** (B226). Those pin the arithmetic; these pin that `PlaceOverhead` actually calls it. The
+    // options were parsed and consumed by nothing at all before 2026-08-29, and that gap was
+    // exactly this shape: every piece present, nothing joined up.
+
+    [Test]
+    public void Camera_WithNoLookAtOrZoom_FramesTheMapAsBefore()
+    {
+        // **The control, and the one that protects every existing launch.** A wiring change that
+        // reshaped the default view would alter the opening frame of every demo, and no other test
+        // in this file looks at where the overhead placement lands.
+        FreeCameraController camera = Camera();
+
+        FreeCamera placed = camera.Camera(aspect: 16f / 9f, map: Square(1000f), highest: 0f);
+
+        placed.Origin.X.ShouldBe(0f, 0.01);
+        placed.Origin.Y.ShouldBe(0f, 0.01);
+    }
+
+    [Test]
+    public void Camera_WithALookAt_PlacesItOverThatPointInstead()
+    {
+        FreeCameraController camera = Camera();
+
+        camera.LookAt = (500f, 200f);
+
+        FreeCamera placed = camera.Camera(aspect: 16f / 9f, map: Square(1000f), highest: 0f);
+
+        placed.Origin.X.ShouldBe(500f, 0.01);
+        placed.Origin.Y.ShouldBe(200f, 0.01);
+    }
+
+    [Test]
+    public void Camera_WithZoomTwo_SitsHalfAsFarAbove()
+    {
+        // **An exact ratio rather than "lower".** The framing distance is linear in the extent
+        // framed, so halving the extent halves the height — a prediction, where "closer than
+        // before" would pass against any factor at all including a wrong one.
+        //
+        // **A big map, and the first version used one a quarter the size and failed at 512 against
+        // a predicted 500.** That was not the fix being wrong: `ClearanceAboveGeometry` is 512 and
+        // the ZOOMED camera had dropped below it, so the clamp — correctly — held it up. The
+        // condition was simply too small for the effect to be visible, which is the "effect size
+        // below resolution" case from the testing standards. The answer is a larger map, never a
+        // looser assertion.
+        FreeCamera wide = Camera().Camera(aspect: 16f / 9f, map: Square(4000f), highest: 0f);
+
+        FreeCameraController zoomed = Camera();
+
+        zoomed.Zoom = 2f;
+
+        FreeCamera close = zoomed.Camera(aspect: 16f / 9f, map: Square(4000f), highest: 0f);
+
+        // **BOTH must clear the floor, not just the wide one.** Checking only `wide` is what let
+        // the clamp silently decide the answer above, and a precondition that cannot catch the
+        // thing that actually happened is not a precondition.
+        wide.Origin.Z.ShouldBeGreaterThan(OverheadPlacement.ClearanceAboveGeometry);
+        close.Origin.Z.ShouldBeGreaterThan(OverheadPlacement.ClearanceAboveGeometry);
+        close.Origin.Z.ShouldBe(wide.Origin.Z / 2f, 0.01);
+    }
+
+    /// <summary>A square map centred on the world origin, out to the given half-extent.</summary>
+    private static MapOutline Square(float half) => MapOutline.FromFaces(
+    [
+        new BspFace(
+            [(-half, -half, 0f), (half, -half, 0f), (half, half, 0f), (-half, half, 0f)],
+            (0f, 0f, 1f),
+            SurfaceProperties.None),
+    ]);
 
     private static FreeCameraController Camera() => new(NullLogger.Instance);
 }
