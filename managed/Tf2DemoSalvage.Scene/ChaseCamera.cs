@@ -122,6 +122,86 @@ public static class ChaseCamera
         float x, float y, float z, float eyeYaw, bool alive, bool ducking) =>
         View(x, y, z, eyeYaw, alive, ducking, Distance);
 
+    /// <summary>Where the chase camera sits, with the director's parameters and second target.</summary>
+    /// <param name="x">The target's position, which is its feet.</param>
+    /// <param name="y">The target's position.</param>
+    /// <param name="z">The target's position.</param>
+    /// <param name="eyeYaw">The target's own eye yaw, used when there is no second target.</param>
+    /// <param name="alive">Whether the target is alive.</param>
+    /// <param name="ducking">Whether the target is ducking.</param>
+    /// <param name="settings">The director's distance and angle offsets.</param>
+    /// <param name="lookAt">
+    /// The second target's eye point, or null when the director names none. When present the camera
+    /// looks from the first target TOWARDS this, which is how a chase shot frames two players.
+    /// </param>
+    /// <returns>The camera's origin and angles.</returns>
+    public static (float X, float Y, float Z, float Pitch, float Yaw, float Roll) View(
+        float x, float y, float z, float eyeYaw, bool alive, bool ducking,
+        ChaseSettings settings, (float X, float Y, float Z)? lookAt)
+    {
+        float height = alive ? PlayerEye.Spectated(ducking) : PlayerEye.DeadChaseTarget;
+
+        // The point looked at: the target's eyes, or the height a ragdoll is looked over.
+        (float X, float Y, float Z) at = (x, y, z + height);
+
+        // **A record STRUCT's default does not run its primary constructor's defaults.**
+        // `new ChaseSettings()` and `default` both zero every field, so the declared
+        // `Back = ChaseCamera.Distance` applies only when someone passes arguments by name. A zero
+        // here would put the camera inside the player, and it caught two of these tests.
+        //
+        // Reading zero as "unset" is Valve's own meaning rather than an invented sentinel:
+        // `m_flDistance` is 96 from `Reset` and the `hltv_chase` event only ever overrides it, so a
+        // distance of nothing is a value the engine cannot hold.
+        float back = settings.Back > 0f ? settings.Back : Distance;
+
+        // **`QAngle angleOffset( m_flPhi, m_flTheta, 0 )` — pitch, yaw, roll, in that order.**
+        (float Pitch, float Yaw) offset = (settings.Phi, settings.Theta);
+
+        float pitch;
+        float yaw;
+
+        if (lookAt is { } second)
+        {
+            // `forward = targetOrigin2 - targetOrigin1; VectorAngles( forward, cameraAngles );`
+            // The camera faces from one target towards the other, whichever way either is looking.
+            (pitch, yaw) = Facing(second.X - at.X, second.Y - at.Y, second.Z - at.Z);
+        }
+        else
+        {
+            // `cameraAngles = target1->EyeAngles(); cameraAngles.x = 0; cameraAngles.z = 0;`
+            // The target's yaw only — never their pitch, which is what stops a player looking at
+            // the floor from burying the camera in it.
+            pitch = 0f;
+            yaw = eyeYaw;
+        }
+
+        // `if ( !target1->IsAlive() ) angleOffset.x = 15;` — it REPLACES phi rather than adding to
+        // it, and it runs after the angles are chosen, so it applies to the second-target case too.
+        if (!alive)
+        {
+            offset.Pitch = DeadPitch;
+        }
+
+        pitch += offset.Pitch;
+        yaw += offset.Yaw;
+
+        (float X, float Y, float Z) forward = AngleVectors.Forward(pitch, yaw);
+
+        // `VectorMA( targetOrigin1, -m_flDistance, forward, cameraOrigin )`.
+        //
+        // **`targetOrigin1.z += m_flOffset` happens on the NEXT line in the engine, after this.**
+        // So the offset moves what is looked at — and where the wall trace begins — while leaving
+        // the camera exactly here. Applying it before would look natural and be wrong.
+        return (
+            at.X - (back * forward.X),
+            at.Y - (back * forward.Y),
+            at.Z - (back * forward.Z),
+            pitch,
+            yaw,
+            0f);
+    }
+
+
     /// <summary>Where the chase camera sits at a shortened distance.</summary>
     /// <param name="x">The target's position, which is its feet.</param>
     /// <param name="y">The target's position.</param>
@@ -161,5 +241,28 @@ public static class ChaseCamera
             pitch,
             eyeYaw,
             0f);
+    }
+
+    /// <summary>Valve's <c>VectorAngles</c>: which way a direction points, as pitch and yaw.</summary>
+    /// <remarks>
+    /// **Pitch is NEGATIVE for up**, which is Source's convention throughout and the opposite of
+    /// the intuition that catches everyone once. <c>VectorAngles</c> computes
+    /// <c>-atan2(forward.z, hypot(forward.x, forward.y))</c> for exactly that reason.
+    ///
+    /// A zero-length direction has no angles; this answers level rather than inventing one, which
+    /// is the case a second target standing exactly on the first would otherwise produce.
+    /// </remarks>
+    private static (float Pitch, float Yaw) Facing(float x, float y, float z)
+    {
+        float flat = MathF.Sqrt((x * x) + (y * y));
+
+        const float Degrees = 180f / MathF.PI;
+
+        if (flat < 1e-6f)
+        {
+            return (z > 0f ? -90f : 90f, 0f);
+        }
+
+        return (-MathF.Atan2(z, flat) * Degrees, MathF.Atan2(y, x) * Degrees);
     }
 }

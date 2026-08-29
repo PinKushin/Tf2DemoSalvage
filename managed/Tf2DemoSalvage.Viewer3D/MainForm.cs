@@ -1757,7 +1757,12 @@ internal class MainForm : Form, IFrameSteps
     /// recorded view runs out before the first packet, and a spectated player can leave — and a
     /// black screen would read as a rendering fault rather than as the end of the material.
     /// </remarks>
-    private float[] ViewMatrix() => ViewCameraNow().ToMatrix();
+    /// <remarks>
+    /// **Zero seconds, because projecting the map is not a frame.** It happens on load, on resize
+    /// and when the world asks to be re-projected, so advancing the chase camera's wall recovery
+    /// from here would ease it by an amount that depends on how often the map was invalidated.
+    /// </remarks>
+    private float[] ViewMatrix() => ViewCameraNow(0d).ToMatrix();
 
     /// <summary>The camera this frame is seen through, whichever mode is on.</summary>
     /// <returns>The first-person camera when there is one and the mode asks for it, else the free one.</returns>
@@ -1766,8 +1771,9 @@ internal class MainForm : Form, IFrameSteps
     /// the view frustum the draw culls against. A frustum built from the free camera while the
     /// picture is drawn through a player's eyes would cull the geometry the viewer is looking at.
     /// </remarks>
-    private FreeCamera ViewCameraNow() =>
-        ViewCamera.Active(_effectiveMode, FirstPersonCamera(), ChaseCamera(), FreeLookCamera());
+    private FreeCamera ViewCameraNow(double seconds) =>
+        ViewCamera.Active(
+            _effectiveMode, FirstPersonCamera(), ChaseCamera(seconds), FreeLookCamera());
 
     /// <summary>The camera for the third-person view, or <c>null</c> when there is no target.</summary>
     /// <remarks>
@@ -1775,8 +1781,21 @@ internal class MainForm : Form, IFrameSteps
     /// recorded on <c>SpectatorView.Chase</c>: `C_HLTVCamera` keeps one target with a mode beside
     /// it, so two independent choices would let the modes drift apart.
     /// </remarks>
-    private FreeCamera? ChaseCamera() =>
-        _spectator.Chase(_transport.CurrentTick, Aspect);
+    /// <summary>The camera for the third-person view, or <c>null</c> when there is no target.</summary>
+    /// <param name="seconds">
+    /// Demo time since the last frame, which advances the wall clip's recovery. Zero from anything
+    /// that is not the per-frame view setup, so only the frame advances it.
+    /// </param>
+    /// <remarks>
+    /// Sibling of <see cref="FirstPersonCamera"/>, and it follows the same target for the reason
+    /// recorded on <c>SpectatorView.Chase</c>: `C_HLTVCamera` keeps one target with a mode beside
+    /// it, so two independent choices would let the modes drift apart.
+    /// </remarks>
+    private FreeCamera? ChaseCamera(double seconds) =>
+        _spectator.Chase(_transport.CurrentTick, Aspect, seconds);
+
+    /// <summary>Demo time the last drawn frame covered: zero while paused.</summary>
+    private double _demoFrameSeconds;
 
     /// <summary>The leaf outline to draw over the world, when that overlay is switched on.</summary>
     /// <returns>World-space segments, or nothing when the mode is off or there is no leaf.</returns>
@@ -3447,7 +3466,9 @@ internal class MainForm : Form, IFrameSteps
         // **The camera itself rather than its matrix**, so the projection and the cull volume are
         // derived from one thing. `SetCamera(float[])` still exists for the viewmodel pass, which
         // has a camera of its own and no business culling against the world's.
-        _device.SetCamera(ViewCameraNow(), _menu.SurfaceColours.Checked);
+        // **The one per-frame view setup, so this is what advances the chase camera's recovery** —
+        // `CViewRender::SetUpView` computes the view once and everything downstream reads it.
+        _device.SetCamera(ViewCameraNow(_demoFrameSeconds), _menu.SurfaceColours.Checked);
     }
 
     // **`ReportSlowFrame` was here until 2026-08-25** (B188, D90). It is `StallReport.Frame`, and
@@ -3574,6 +3595,14 @@ internal class MainForm : Form, IFrameSteps
         // **`absoluteframetime`, which is what Valve's own demo camera flies by** — see
         // `CalcDemoViewOverride` (`view.cpp:153`) and `FrameTimingConformanceTests`.
         double seconds = _clock.Drew();
+
+        // **The demo frame time, kept beside the absolute one because the two are not the same
+        // clock and the chase camera needs this one.** Valve flies the demo camera on
+        // absoluteframetime so it works while paused — the comment above — while the chase
+        // recovery is `m_flLastDistance += gpGlobals->frametime * 32.0f` (`hltvcamera.cpp:227`),
+        // and frametime stops when the game does. A paused demo therefore keeps flying and stops
+        // easing, and both halves of that are the engine's rather than a choice made here.
+        _demoFrameSeconds = _transport.Playing ? seconds : 0d;
 
         // Every frame's duration passes through here, so this is where the worst one is noticed —
         // and where the meter takes its reading, rather than starting a second clock (B174).

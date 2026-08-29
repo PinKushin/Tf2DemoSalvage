@@ -72,6 +72,33 @@ public sealed class BspLeafTree
     /// <remarks>Internal so <c>SurfaceFlagTests</c> checks this value rather than a copy of it.</remarks>
     internal const int ContentsSolid = 0x1;
 
+    /// <summary><c>CONTENTS_WINDOW</c>: "translucent, but not watery (glass)".</summary>
+    internal const int ContentsWindow = 0x2;
+
+    /// <summary><c>CONTENTS_GRATE</c>: "Bullets/sight pass through, but solids don't".</summary>
+    internal const int ContentsGrate = 0x8;
+
+    /// <summary><c>CONTENTS_MOVEABLE</c>: brushes belonging to a moving entity.</summary>
+    internal const int ContentsMoveable = 0x4000;
+
+    /// <summary>What a camera collides with — <c>MASK_SOLID</c>, less the bit brushes cannot carry.</summary>
+    /// <remarks>
+    /// <c>MASK_SOLID</c> is
+    /// <c>CONTENTS_SOLID|CONTENTS_MOVEABLE|CONTENTS_WINDOW|CONTENTS_MONSTER|CONTENTS_GRATE</c>
+    /// (<c>bspflags.h:106</c>), and it is what <c>CalcChaseCamView</c> traces with.
+    ///
+    /// **<c>CONTENTS_MONSTER</c> is left out on Valve's own authority**, not as a simplification:
+    /// its declaration says *"should never be on a brush, only in game"* (<c>bspflags.h:71</c>). A
+    /// brush trace therefore cannot meet one, which is why Valve also ships
+    /// <c>MASK_SOLID_BRUSHONLY</c> with exactly these four bits (<c>bspflags.h:132</c>).
+    ///
+    /// **Testing only <c>CONTENTS_SOLID</c> was wrong and this replaces it.** A camera would slide
+    /// through glass and grates — surfaces the engine stops at — and through the brushes of moving
+    /// entities, which on a TF2 map means doors and lifts.
+    /// </remarks>
+    internal const int MaskSolid =
+        ContentsSolid | ContentsMoveable | ContentsWindow | ContentsGrate;
+
     /// <summary>How far to look for the sky before giving up, in world units.</summary>
     /// <remarks>
     /// A TF2 map fits comfortably inside this; a ray that has travelled it without meeting solid
@@ -144,6 +171,29 @@ public sealed class BspLeafTree
         ReadOnlyMemory<byte> planes,
         ReadOnlyMemory<byte> leaves = default) =>
         new(nodes, planes, leaves);
+
+    /// <summary>Builds a tree with collision lumps, for testing the brush sweep.</summary>
+    /// <param name="nodes">The NODES lump.</param>
+    /// <param name="planes">The PLANES lump.</param>
+    /// <param name="leaves">The LEAFS lump.</param>
+    /// <param name="leafBrushes">The LEAFBRUSHES lump.</param>
+    /// <param name="brushes">The BRUSHES lump.</param>
+    /// <param name="brushSides">The BRUSHSIDES lump.</param>
+    /// <returns>The tree.</returns>
+    /// <remarks>
+    /// **Separate because a real map cannot answer a question about ONE brush.** The sweep's
+    /// content mask decides whether glass and grates stop a camera, and a compiled map has thousands
+    /// of brushes with no way to isolate one — so the only way to state the prediction exactly is to
+    /// build a world with a single brush whose contents the test chooses.
+    /// </remarks>
+    public static BspLeafTree FromCollisionLumps(
+        ReadOnlyMemory<byte> nodes,
+        ReadOnlyMemory<byte> planes,
+        ReadOnlyMemory<byte> leaves,
+        ReadOnlyMemory<byte> leafBrushes,
+        ReadOnlyMemory<byte> brushes,
+        ReadOnlyMemory<byte> brushSides) =>
+        new(nodes, planes, leaves, 32, leafBrushes, brushes, brushSides);
 
     /// <summary>Reads the nodes and planes.</summary>
     /// <param name="file">The whole map file.</param>
@@ -778,7 +828,7 @@ public sealed class BspLeafTree
             int sides = BinaryPrimitives.ReadInt32LittleEndian(brushes[(brushAt + 4)..]);
             int contents = BinaryPrimitives.ReadInt32LittleEndian(brushes[(brushAt + 8)..]);
 
-            if ((contents & ContentsSolid) == 0)
+            if ((contents & MaskSolid) == 0)
             {
                 continue;
             }

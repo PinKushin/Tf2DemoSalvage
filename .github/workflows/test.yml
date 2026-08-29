@@ -147,7 +147,7 @@ jobs:
           # spawns its own tasks and reads no game files, so it runs identically on a runner.
           # 1539 -> 1544 on 2026-08-28: ViewmodelAnimationParityConformanceTests (5), Valve's
           # UpdateAnimationParity written down before it was implemented.
-          ./build/assert-test-count.sh '**/core.trx' 1544 Core
+          ./build/assert-test-count.sh '**/core.trx' 1550 Core
           ./build/assert-test-count.sh '**/cli.trx' 74 Cli
           # 628 -> 645 is ARITHMETIC, not a measurement: 17 tests were added to Content on
           # 2026-08-24 (SchemeFont 6, GlyphAtlas 11), all self-contained, so every one of them
@@ -174,7 +174,7 @@ jobs:
           # mstudioanimdesc_t::pAnim, the continuity assertion, and the diagnostics that found it.
           # These skip without the game installed, and a skipped test still counts toward the trx
           # total, so the floor holds on the machine without TF2.
-          ./build/assert-test-count.sh '**/content.trx' 778 Content
+          ./build/assert-test-count.sh '**/content.trx' 785 Content
           # 396 -> 402 on 2026-08-28: ViewCameraModeTests (6), for the third camera mode.
           ./build/assert-test-count.sh '**/presentation.trx' 402 Presentation
           ./build/assert-test-count.sh '**/logging.trx' 17 Logging
@@ -187,7 +187,7 @@ jobs:
           # own geometry and needs no install.
           # 203 -> 208 on 2026-08-28: ChaseCameraConformanceTests (5), Valve's CalcChaseCamView
           # written down before it was implemented.
-          ./build/assert-test-count.sh '**/scene.trx' 215 Scene
+          ./build/assert-test-count.sh '**/scene.trx' 222 Scene
 
       # **Coverage, gated PER ASSEMBLY rather than per report.** A Cobertura file's root line-rate
       # averages every assembly the run loaded, including ones the suite never touches — measured
@@ -418,7 +418,7 @@ jobs:
           # counter reaches the scene from a real demo and changes there.
           # 118 -> 121 on 2026-08-28: LifeStateCorpusDiagnostic (3), which chose the UI suite's
           # opening tick. Skipped tests count toward the trx total, so the floor holds here too.
-          ./build/assert-test-count.sh '**/corpus.trx' 121 Corpus
+          ./build/assert-test-count.sh '**/corpus.trx' 123 Corpus
 
       - uses: actions/upload-artifact@v7
         if: failure()

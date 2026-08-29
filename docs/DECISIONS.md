@@ -6621,3 +6621,33 @@ implemented here.
 because UI runs were contaminated by the owner typing during them (a UI suite takes the desktop —
 see the machine-lock rule), and once because the diff being read spanned two commits rather than one.
 The measurement that actually settled it was a log line the code already printed.
+
+## D117 — Implement the feature; do not omit it and document the omission
+
+**The owner, 2026-08-29**, after being shown a list of things `CalcChaseCamView` does that this
+project's version did not:
+
+> *"do all of it, mask, displacements, target2, phi/theta, all of it, after finishing what you were
+> working on so its not half finished, implement features if you need to, thats kinda the point in
+> doing this, stop taking fucking shortcuts."*
+
+**What this corrects.** The chase camera was landed with five parts of the engine's behaviour left
+out — the secondary target, manual director control, the `hltv_changed` parameters, the full
+`MASK_SOLID` content mask, and displacement collision — each with a comment saying so. Every comment
+was accurate. That is what made the shape hard to see: a stated omission reads as rigour, and a
+list of them reads as a thorough job, while the feature is a fraction of what it says it is.
+
+**The rule.** A gap found while implementing something is work to do, not a note to write. Writing
+the note is right as well — this project's documents exist for that — but it does not discharge the
+work, and "stated rather than buried" is not a substitute for "implemented".
+
+**Where it does NOT apply**, because the distinction matters and this rule could be read to erase
+it: a limitation that is genuinely someone else's to lift stays a note. The UI harness cannot drive
+modifier combos (B216, established with a control); a demo cannot be dated by its protocol; the game
+folder is the owner's to provide. Those are facts about the world. "This is more work than I felt
+like doing" is not, and that is the only case this decision is about.
+
+**Related, and this is the third time the same instinct has been corrected.** D89 says performance
+never buys a departure from Valve; `docs/memory/an-optimisation-is-not-a-skippable-departure.md` says
+Valve's optimisations earn their place; D116 says implementing half a mechanism is not parity. This
+is the same error arriving as scope rather than as performance or as structure.

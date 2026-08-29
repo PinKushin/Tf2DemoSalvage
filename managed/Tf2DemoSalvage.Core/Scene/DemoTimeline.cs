@@ -252,6 +252,52 @@ public sealed class DemoTimeline
     /// </remarks>
     private readonly List<(int Tick, RecordedView View)> _recordedViews = [];
 
+    /// <summary>Every <c>hltv_chase</c> the director sent, in tick order.</summary>
+    private readonly List<(int Tick, DirectorShot Shot)> _director = [];
+
+    /// <summary>Whether the recording carries a director at all.</summary>
+    /// <remarks>
+    /// **False for a point-of-view demo, and that is the normal case rather than a gap.** Only a
+    /// SourceTV recording has a director choosing shots; a POV demo carries the player's own camera
+    /// and never sends <c>hltv_chase</c>.
+    /// </remarks>
+    public bool HasDirector => _director.Count > 0;
+
+    /// <summary>What the director last asked for at or before a tick.</summary>
+    /// <param name="tick">The tick being drawn.</param>
+    /// <returns>The shot, or null when the recording has no director.</returns>
+    /// <remarks>
+    /// **The LAST shot at or before the tick, because a shot persists until the next one.** The
+    /// director sends an event when it changes its mind, not every tick, so anything that sampled
+    /// only the current tick would find a shot on one frame in a hundred and nothing on the rest.
+    /// </remarks>
+    public DirectorShot? DirectorAt(int tick)
+    {
+        if (_director.Count == 0 || tick < _director[0].Tick)
+        {
+            return null;
+        }
+
+        int low = 0;
+        int high = _director.Count - 1;
+
+        while (low < high)
+        {
+            int middle = (low + high + 1) / 2;
+
+            if (_director[middle].Tick <= tick)
+            {
+                low = middle;
+            }
+            else
+            {
+                high = middle - 1;
+            }
+        }
+
+        return _director[low].Shot;
+    }
+
     /// <summary>Each tick a viewmodel was described, and what it said.</summary>
     /// <remarks>
     /// Sampled per tick rather than stored per frame, for the same reason the recorded views are:
@@ -289,8 +335,10 @@ public sealed class DemoTimeline
         List<(int Tick, SceneViewmodel Weapon)>? viewmodels = null,
         List<(int Tick, SceneFog Fog)>? fog = null,
         List<SceneSound>? sounds = null,
-        List<(int Tick, SceneSoundscape Soundscape)>? soundscapes = null)
+        List<(int Tick, SceneSoundscape Soundscape)>? soundscapes = null,
+        List<(int Tick, DirectorShot Shot)>? director = null)
     {
+        _director = director ?? [];
         _soundscapes = soundscapes ?? [];
         _recordedViews = recordedViews ?? [];
         _viewmodels = viewmodels ?? [];
@@ -840,6 +888,10 @@ public sealed class DemoTimeline
         // SceneSoundscape for why a SourceTV demo carries nobody's (B173).
         List<(int Tick, SceneSoundscape Soundscape)> soundscapes = [];
 
+        // Every shot the director called, so the chase camera can be framed as the recording asks
+        // rather than always from C_HLTVCamera::Reset's defaults.
+        List<(int Tick, DirectorShot Shot)> director = [];
+
         // Live tracks by slot, plus every track ever started. A slot is reused when its occupant
         // is destroyed, so the two are not the same list - keeping only the live ones would lose
         // every rocket the moment the next one took its index.
@@ -929,6 +981,15 @@ public sealed class DemoTimeline
                     // project read it correctly, and every reader used a baked constant instead.
                     case SetConVarMessage convars:
                         serverConVars.Apply(convars);
+                        continue;
+
+                    // **The director telling the camera how to frame this shot** — `hltv_chase`,
+                    // which `C_HLTVCamera::FireGameEvent` (`hltvcamera.cpp:776`) reads to set the
+                    // mode, both targets, and every chase parameter. Without it the chase camera
+                    // runs on `Reset`'s defaults for ever, which is what it did until now: a demo
+                    // could ask for a wider shot or a different angle and be ignored.
+                    case GameEventMessage { Name: DirectorShot.ChaseEvent } chase:
+                        director.Add((command.Tick, DirectorShot.From(chase.Values, director.Count > 0 ? director[^1].Shot : null)));
                         continue;
 
                     case CreateStringTableMessage { Name: BaselineBuilder.TableName } create:
@@ -1348,7 +1409,8 @@ public sealed class DemoTimeline
         }
 
         return new DemoTimeline(
-            frames, props, playerTracks, recordedViews, viewmodels, fogSamples, sounds, soundscapes)
+            frames, props, playerTracks, recordedViews, viewmodels, fogSamples, sounds, soundscapes,
+            director)
         {
             FogControllersSeen = fogControllersSeen,
             FogControllerProperties = fogProperties,

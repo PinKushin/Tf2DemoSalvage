@@ -131,7 +131,10 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # C_BaseViewModel::UpdateAnimationParity before implementing it. m_nAnimationParity is how the engine
 # says "play that again" when the sequence number cannot change; without it a repeated shot recorded
 # no timeline entry at all and played no animation.
-run Tf2DemoSalvage.Core.Tests     core     1544
+# 1544 -> 1550 on 2026-08-29: DirectorShotTests (6), which decode hltv_chase from an AUTHORED demo.
+# No demo in the corpus carries the event — measured, not assumed — so the specimen had to be
+# written; see the corpus test that asserts that absence and will go red when it stops being true.
+run Tf2DemoSalvage.Core.Tests     core     1550
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
@@ -303,7 +306,10 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 # 211 -> 215 on 2026-08-28: SpectatorEffectiveModeTests (4). A dead target is watched in third
 # person, and the subject is the MODE rather than a swapped camera — which is what makes it a fix
 # rather than a fourth attempt at the same citation (D116).
-run Tf2DemoSalvage.Scene.Tests    scene     215
+# 215 -> 222 on 2026-08-29: ChaseDirectorConformanceTests (7). The chase camera ignored every
+# parameter the hltv_chase event carries — distance, phi, theta, offset — and the director's second
+# target, each with a comment saying so. D117 is the rule that came out of that.
+run Tf2DemoSalvage.Scene.Tests    scene     222
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -516,7 +522,10 @@ run Tf2DemoSalvage.Presentation.Tests presentation 402
 # 774 -> 778 on 2026-08-29: BspBrushTraceTests (4), which measure the sweep against a REAL map's
 # brushes rather than a hand-built tree. The hand-built cases cannot reach that code at all — they
 # carry no collision lumps, so they exercise the node-plane fallback. Two paths, one method.
-run Tf2DemoSalvage.Content.Tests  content   778
+# 778 -> 785 on 2026-08-29: BspTraceMaskConformanceTests (7). The sweep tested CONTENTS_SOLID only,
+# so a camera slid through glass, grates and the brushes of doors and lifts. MASK_SOLID is what
+# CalcChaseCamView traces with.
+run Tf2DemoSalvage.Content.Tests  content   785
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
@@ -551,7 +560,7 @@ run Tf2DemoSalvage.Content.Tests  content   778
 # 130 -> 133 on 2026-08-28: LifeStateCorpusDiagnostic (3, Explicit), which measured the liveness of
 # every player across two demos and chose the UI suite's opening tick. Its report is what showed that
 # tick 2500 sat inside a death — the frame that constant was chosen for is a freezecam, not a player.
-run Tf2DemoSalvage.Corpus.Tests   corpus     133
+run Tf2DemoSalvage.Corpus.Tests   corpus     135
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that
