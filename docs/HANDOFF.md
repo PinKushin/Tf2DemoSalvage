@@ -1,120 +1,133 @@
-# Handoff — two-pass models, and a viewmodel bug narrowed to one bone
+# Handoff — third person is real; displacement collision is what's left
 
-Written 2026-08-28, late. **Supersedes the previous handoff.**
+Written 2026-08-29. **Supersedes the previous handoff**, whose subject (a viewmodel that vanished)
+is fixed and merged.
+
+Everything below is on `main`, gate green: **4,202 across twelve assemblies, plus 29 UI.**
 
 ## Read this first
 
-The demoman's sticky launcher "disappears" during a sticky charge on `cp_process_f12`. It does not
-disappear. **It is deformed** — its visible geometry is stretched to nearly four times its size by
-one bone, and at that size it does not read as a weapon.
+**The next task is the launch options**, by the owner's sequencing: *"we will do the launch options
+next so you have an easier time testing."* `--first-person` and autoplay both fail to reach the
+running viewer, which means every visual check this session needed a human to drive the window.
+Fixing them is small, and it makes everything after it cheaper to verify.
 
-**The bug is in the ARMS' animation, and it is one bone.**
+**Then displacement collision**, which is the largest single item outstanding. The chase camera's
+wall clip walks BRUSHES only, so terrain is invisible to it: on a map with displacement ground —
+which is most TF2 maps — the camera passes through the hillside behind a player. Its plan is below.
 
-```
-c_demo_arms.mdl, read from the file:
-  [16] vm_weapon_bone    parent 6  flags 0x40200  rest (0, 0, 0)
-  [17] vm_weapon_bone_1  parent 6  flags 0x40200  rest (0, 0, 0)
-  separation in the REST pose: 0 units
+Everything else on the chase camera is done and matches the engine.
 
-c_demo_arms, measured in the viewer:
-  bone 16 at (656.4, 1469.4, 651.4)
-  bone 17 at (583.0, 1463.9, 596.5)      ~92 units apart
-```
+## What this session finished
 
-Two bones with the **same parent** and an **identical rest transform** must move together. Ours
-diverge by 92 units under animation. The weapon merges onto both, so 45 of its visible vertices go
-with bone 17 and the model tears.
-
-**Next step:** in `SkeletonPose.Build`, compare what the arms' current sequence writes for bone 16
-against bone 17 — the `_overrideOf` / `animated` path. Find why one moves and the other does not.
-
-## What is already ruled out — do not re-litigate
-
-Each of these was killed by measurement, and several cost hours:
-
-| candidate | how it died |
+| piece | source |
 |---|---|
-| the two-pass work (D114) | the **pre-change tree still drops out** — control run in a scratch worktree |
-| the weapon switch to his primary | `m_hActiveWeapon` really does move; the Iron Bomber renders correctly |
-| `m_iWeaponMode = TF_WEAPON_PRIMARY_MODE` on charge | we read that field nowhere |
-| the player being dead | a red herring; one event, generalised badly. Dropouts are 60 ms–4.6 s, a respawn is 23 s |
-| `EF_NODRAW` / `IsOnScreen` | removing the flag changed nothing |
-| the attachment's sequence | changed, reverted, re-applied; still drops |
-| bone collapse ("span" proxy) | false-positived on the **ubersaw**, which draws perfectly |
-| the camera | matrix finite throughout; a broken projection cannot select one weapon |
-| occlusion / depth range | not occluded, and `Viewport near` already matches `DepthRange(0, 0.1)` |
-| the bone MERGE | copies faithfully; our loop and name matching are byte-for-byte Valve's |
-| the MODEL | the file says the two bones are coincident |
-| a stale parent | detector silent — **but never sabotage-verified** |
-| procedural bones (B182) | both bones report `proc 0` |
+| animation SECTIONS | `mstudioanimdesc_t::pAnim` — this is what tore the sticky launcher |
+| `m_nAnimationParity` | viewmodel animations restart instead of running off demo time |
+| liveness in the CAMERA | `CalcInEyeCamView`; a dead target changes the MODE, not the viewmodel |
+| `ChaseCamera` | `CalcChaseCamView` — placement, wall recovery, director parameters, second target |
+| `BspLeafTree.Sweep` | `CM_TraceToLeaf` / `CM_ClipBoxToBrush` — the project's first real trace |
+| `MASK_SOLID` | glass, grates and moving brushes stop the camera |
+| `hltv_chase` | the director's shots reach the timeline |
+| `CameraMode.ThirdPerson` | a real third mode, reached by Source's own command names |
 
-## Valve citations earned tonight — these are solid
+## After that: displacement collision
 
-- **Valve merges the viewmodel weapon.** `C_ViewmodelAttachmentModel::InitializeAsClientEntity` adds
-  `EF_BONEMERGE` and `EF_BONEMERGE_FASTCULL` (`econ_entity.cpp:848`).
-- **The attachment lives `EF_NODRAW`** and is made visible only for the instant the viewmodel draws
-  it — same function, and its comment says so.
-- **Its model comes from the item schema**, `pItem->GetPlayerDisplayModel( iClass, team )`
-  (`econ_entity.cpp:1167`) — NOT from the weapon entity's model index. Trying the latter drew no
-  weapon at all.
-- **Nothing ever calls `SetSequence` on the attachment.** It keeps its own sequence and the merge
-  places it; its blending hook is `{}` for every weapon but two (`econ_entity.h:125`).
-- **On a demo, viewmodel visibility is purely the camera.** `C_BaseViewModel::ShouldDraw`
-  (`c_baseviewmodel.cpp:277`) returns `IN_EYE && target == owner` under HLTV; the branch that reads
-  `EF_NODRAW` is unreachable during playback.
-- **A dead spectated player is shown in third person** and never reaches `CalcViewModelView`
-  (`hltvcamera.cpp:307`).
-- **`DT_BaseViewModel` networks `m_hWeapon`** (`baseviewmodel_shared.cpp:567`) — the engine asks the
-  viewmodel what it holds; we ask the player and reconstruct. Decoded now, logged beside our answer,
-  not yet deciding.
+**Geometry already exists.** `BspTerrain.ReadTriangles(BspSurface)` returns a displacement's
+triangles, and `BspDisplacements` reads the lumps. What is missing is the collision maths and the
+narrowing.
 
-## Remaining viewmodel parity gaps
+Three parts, in the order they should be built:
 
-`m_fEffects`, `m_nBody`/`m_nSkin` on the viewmodel, `m_nAnimationParity` /
-`m_nNewSequenceParity`, `m_flPoseParameter[]`, `CalcViewModelLag` / `AddViewmodelBob`, and the
-dead → third-person camera (half done: no viewmodel, still first person).
+1. **The primitive** — `CDispCollTree::SweptAABBTriIntersect` (`public/dispcoll.cpp:869`). A swept
+   SAT: the box's three axial planes, then the triangle plane, then the nine edge cross-product
+   planes. About 400 lines in Valve's version. It returns a fraction exactly as
+   `CM_ClipBoxToBrush` does, so it plugs into `BspLeafTree.Sweep` beside the brush clip.
+2. **The narrowing** — leaf → `LUMP_LEAFFACES` → faces → `dispinfo`, so a trace tests the terrain
+   near it rather than every triangle on the map. `BspLumpIndex.LeafFaces` is already declared.
+3. **The per-displacement AABB tree** Valve walks inside one displacement
+   (`CDispCollTree::AABBTree_*`). Leave this last: it is an optimisation, and correctness without
+   it is testable.
 
-## The instruments, all `LogDebug` behind `developer 1`
+**Fixture, not corpus.** A real map cannot isolate one triangle, so the exact prediction needs a
+hand-built world — the same reason `BspTraceMaskConformanceTests` builds a single brush.
+`BspLeafTree.FromCollisionLumps` is the entry point that exists for this; displacements will need a
+sibling.
 
-Run the viewer with `+developer 1` — the owner's standing instruction, and none of these cost
-anything without it. **None of them is capped by a report count** (see below).
+**The trap that will cost an hour if it is not known**: the sweep's leaf walk splits the segment,
+but the brush clip is handed the WHOLE ray, because `CM_TraceToLeaf` clips the entire trace and the
+tree walk only chooses candidates. Handing a sub-segment to a clip finds no entry — the piece
+already begins inside the surface — and the sweep reports clear. Do the same for displacements.
 
-- `Device3D` — viewmodel pass transitions, per-model bone degeneracy/span/placement, camera matrix
-  finiteness, render-group changes.
-- `WorldRenderer` — "drew NOTHING in the {pass} pass", and per-model submission changes with body,
-  skin and resolved materials.
-- `EntityModels.ReportPosedSize` — the posed VERTEX extent of a viewmodel, body-filtered, with
-  per-bone vertex centroids when it stretches. **This is the one that found the bug.**
-- `BoneMergeCache` — the pairing with UNMATCHED bones named, and a per-bone copy report that fires
-  when the copied bones spread past 50 units.
-- `SkeletonPose` — "STALE PARENT", a bone built on a parent the mask skipped.
-- `SoundPresenter` — sound submitted vs dropped for zero gain (the audio path had no output-level
-  instrument at all).
+## Also open, smaller
 
-## What this session got wrong, because it will save the next one hours
+- **Launch options do not work.** `--first-person` and autoplay were both tried this session and
+  neither reached the running viewer. Never investigated. Probably the smallest useful task here.
+- **A blue medic draws with a red viewmodel.** Reported, untouched.
+- **Audio was lost at some point** in the days before this session. An output-level instrument was
+  added to `SoundPresenter` (submitted vs dropped for zero gain) and has never been read on a run.
+- **`bip_upperArm_L` jumps 3–9 units between frames** in `c_demo_animations`, down from 245 after
+  the section fix. Real motion or a second smaller decode fault — undetermined. Everything
+  structural was ruled out: sections, zeroframes, local hierarchy, chain order, posscale/rotscale
+  offsets, raw-vs-RLE mixing, encoding flags.
+- **`CTRL+b` has no UI coverage.** The harness cannot drive modifier combos (B216, established with
+  a control arm), so the third-person UI tests reach the mode through the SPACE cycle instead. The
+  mode is covered; the binding's resolution is not.
+- **No wall trace for the recovery while the demo is paused** is correct, not a gap — see below.
 
-**Nine instruments were built that could not see what they were aimed at.** In order: a one-second
-sample for a 60 ms event; a bone-degeneracy test blind to a collapsed basis; a COUNT of viewmodel
-props where identity was needed (the file warns about this eight lines away); a distance computed
-between two timestamps three seconds apart; a 100-unit threshold for a 20-unit effect; a global
-report budget spent by two animating props before the subject spoke; a posed-size walk that measured
-hidden bodygroups; a merge report capped at 24 copies, all from startup; and a span proxy that
-false-positived on a working weapon.
+## Things that were measured, so nobody re-measures them
 
-The owner, twice: *"OMG STOP CAPPING YOUR FUCKING TESTS AND LOGS"* and *"you should have learned your
-lesson when you had the second wait"*. He is right. **`developer 1` is the control; a count cap is
-unrelated to the event and can only ever be luck.** Bound a diagnostic by the SIGNAL — a transition,
-a threshold on the symptom — never by a number.
+- **No demo within reach carries `hltv_chase`.** Searched the bytes: the string appears zero times
+  in `cp_process_f12` and the 2013 badlands specimen, while `player_death` appears in both. Every
+  demo here is point-of-view; only a SourceTV broadcast has a director. A corpus test asserts that
+  absence and will go red when it stops being true — that is the moment to point
+  `DirectorShotTests`' authored specimen at real bytes.
+- **`cp_process_f12` entity 1 is dead for the whole demo**, one transition. The badlands recorder is
+  alive 1295 of 2017 samples with seven clean transitions, so `m_lifeState` decodes correctly.
+- **The UI suite opens at tick 1900**, chosen because the recorder is alive there. It was 2500,
+  where he is dead — and the position that constant's comment praised as "out on the map" is the
+  freezecam, not the player. Alive spans: 0–2008, 3208–4944, 6228–7700.
+- **TF2's `config_default.cfg` binds 64 keys** and leaves exactly one letter free: `o`. All twelve
+  function keys are taken between TF2 and this viewer. CTRL combos are the only free space, since
+  Source's bind syntax has no modifiers.
 
-Two process rules the owner set, now D115 and memories:
+## Two rules this session produced
 
-- **State the assumptions he can falsify before instrumenting.** "The sticky launcher doesn't draw"
-  was taken literally for hours; one sentence — the arms are there too — retired four mechanisms.
-- **Run the control before arguing about authorship.** Three correct arguments that the change was
-  not mine were not evidence. The control took one launch.
+- **D116 — an invariant is part of the mechanism.** Porting one half of a behaviour Valve split
+  across two systems breaks the invariant the other half relies on, silently. `ShouldDrawViewModel`
+  has no liveness term because the CAMERA guarantees it never needs one.
+- **D117 — implement the feature; do not omit it and document the omission.** The chase camera
+  shipped with five parts of `CalcChaseCamView` missing, each with an accurate comment. Accurate
+  notes are what made the shape hard to see.
 
-## Where things are
+## How to run the gate
 
-- Branch `fix/viewmodel-dropout`, gate green (D1..D115, all floors), viewer works.
-- `main` has the two-pass work (D114) and the first instrument commit, both green.
-- Everything in `docs/findings/44`, `docs/DECISIONS.md` D114–D115, `docs/RISKS.md` B221–B222.
+```bash
+TF2DEMOSALVAGE_GCOR_ONLY=1 bash build/gate.sh
+```
+
+```bash
+pwsh ../run-exclusive.ps1 dotnet test tests/Tf2DemoSalvage.Viewer3D.UiTests
+```
+
+Two phases, and one `dotnet test` on the solution is not a valid substitute — the UI suite drives a
+real window and must not run beside 4,000 other tests. **Set `MSBUILDDISABLENODEREUSE=1`**: MSBuild's
+node daemons and `VBCSCompiler` outlive the build and accumulate (589 MB found sitting idle this
+session; `dotnet build-server shutdown` reaps them, never `pkill -f`).
+
+**Read the trx total, never the console line.** A direct run printed `Total: 115` while the trx
+recorded `total="133"`. `assert-test-count.sh` reads the trx, and this session wasted several minutes
+chasing a "falling count" that came from believing the console.
+
+## Verification practice that earned its keep tonight
+
+Three defects were found by **sabotage**, not by writing tests:
+
+- Inverting the brush clip's convex test left all four of its tests GREEN — they were counting a
+  fraction of `0` as "the floor is right there", when `0` means startsolid, "the sweep never
+  started". Fixing that one assertion turned three false passes into an honest failure, and every
+  bug after it was found through that failure.
+- Restoring `CONTENTS_SOLID` in place of `MASK_SOLID` reddens exactly three cases — glass, grate,
+  moving brush — which is how the mask tests are known to measure the mask.
+- Disabling the section lookup reddens the continuity tests; one case, animation 76, survived it and
+  was replaced. A case that cannot fail is not a weak test, it is an absent one.
