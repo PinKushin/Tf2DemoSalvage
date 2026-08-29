@@ -296,7 +296,11 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 # a flag read out of a `.mdl` and a renderer that decides from a boolean, and neither side's tests
 # can see it — the assignment being absent is the shape of no-op this project has shipped three
 # times green.
-run Tf2DemoSalvage.Scene.Tests    scene     203
+# 203 -> 208 on 2026-08-28: ChaseCameraConformanceTests (5) against C_HLTVCamera::CalcChaseCamView,
+# written before the implementation. Third person is not a nicety here — it is the mode the engine
+# falls back to whenever first person is unavailable, and both viewmodel rules this project has been
+# arguing about reduce to "the camera is not in an eye".
+run Tf2DemoSalvage.Scene.Tests    scene     208
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
