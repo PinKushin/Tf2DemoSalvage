@@ -174,8 +174,9 @@ jobs:
           # mstudioanimdesc_t::pAnim, the continuity assertion, and the diagnostics that found it.
           # These skip without the game installed, and a skipped test still counts toward the trx
           # total, so the floor holds on the machine without TF2.
-          ./build/assert-test-count.sh '**/content.trx' 766 Content
-          ./build/assert-test-count.sh '**/presentation.trx' 396 Presentation
+          ./build/assert-test-count.sh '**/content.trx' 778 Content
+          # 396 -> 402 on 2026-08-28: ViewCameraModeTests (6), for the third camera mode.
+          ./build/assert-test-count.sh '**/presentation.trx' 402 Presentation
           ./build/assert-test-count.sh '**/logging.trx' 17 Logging
           # 10 is MEASURED locally and safe on a runner without the SDK, because a .trx total counts
           # skipped tests: the two conformance cases Assert.Ignore where source-sdk-2013 is absent
@@ -184,7 +185,9 @@ jobs:
           ./build/assert-test-count.sh '**/animation.trx' 41 Animation
           # 202 -> 203 on 2026-08-28: the two-pass wiring case in EntityModelsTests, which builds its
           # own geometry and needs no install.
-          ./build/assert-test-count.sh '**/scene.trx' 203 Scene
+          # 203 -> 208 on 2026-08-28: ChaseCameraConformanceTests (5), Valve's CalcChaseCamView
+          # written down before it was implemented.
+          ./build/assert-test-count.sh '**/scene.trx' 215 Scene
 
       # **Coverage, gated PER ASSEMBLY rather than per report.** A Cobertura file's root line-rate
       # averages every assembly the run loaded, including ones the suite never touches — measured

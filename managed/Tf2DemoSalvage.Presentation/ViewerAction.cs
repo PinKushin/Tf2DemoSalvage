@@ -27,6 +27,24 @@ public enum ViewerAction
     /// <remarks>TF2 binds this to <c>+jump</c>, and the default here matches.</remarks>
     SwitchCameraMode,
 
+    /// <summary>Watch through the target's eyes — Source's <c>firstperson</c>.</summary>
+    /// <remarks>
+    /// **A real Source command, not a name invented to look like one.** `firstperson` and
+    /// `thirdperson` are the engine's own, which is what lets a pasted config reach them: the same
+    /// argument recorded beside the command table, that using Valve's name is what makes a pasted
+    /// config move our action instead of taking its key away.
+    ///
+    /// **No default key, deliberately.** <c>config_default.cfg</c> binds neither command, so TF2
+    /// players reach third person by typing it or binding it themselves, and inventing a default
+    /// here would take a key TF2 leaves alone. <see cref="SwitchCameraMode"/> on <c>+jump</c>
+    /// already cycles the modes for anyone who wants a key, which is what the spectator HUD offers.
+    /// </remarks>
+    FirstPersonView,
+
+    /// <summary>Watch from behind the target — Source's <c>thirdperson</c>.</summary>
+    /// <remarks>See <see cref="FirstPersonView"/>; the pair is meaningless apart.</remarks>
+    ThirdPersonView,
+
     /// <summary>Put the camera back where it starts — above the map, looking down.</summary>
     ResetCamera,
 
@@ -200,6 +218,35 @@ public sealed class KeyBindings
         {
             [ViewerAction.SwitchCameraMode] = "SPACE",
 
+            // **CTRL combos, because TF2's shipped defaults leave every letter but `o` bound.**
+            // Measured against `tf/cfg/config_default.cfg` rather than assumed: 64 `bind` lines,
+            // and the only free letter is `o`. Source has no modifier combos in its bind syntax, so
+            // CTRL+key is ours to spend and a pasted config cannot collide with it — the same
+            // reasoning the debug views below already use.
+            //
+            // **NOT `CTRL+c`, which was the first choice and was wrong.** The owner: *"ctrl c is a
+            // bad bind, thats copy, people are going to use it as copy"*. A viewer that steals the
+            // universal copy chord teaches its user that the application is broken, and no mnemonic
+            // is worth that. The same argument rules out v, x, z, s and a.
+            //
+            // **Not a function key either, because every one is already spoken for.** Measured:
+            // TF2's defaults bind F1, F2, F5, F6, F7, F10 and F12; this viewer uses F3, F4, F5, F8,
+            // F9 and F11. Between them that is all twelve.
+            //
+            // **And not `CTRL+3`, though "third person" is the obvious mnemonic.** `CTRL+0`, `1` and
+            // `2` are `mat_fullbright` levels, so a digit next to them reads as a third lighting
+            // mode rather than as a camera.
+            //
+            // What is left is a letter that is free here and carries no destructive meaning
+            // elsewhere: E for the eye (`OBS_MODE_IN_EYE`) and B for behind (`OBS_MODE_CHASE`).
+            // `CTRL+b` is bold in a text editor, and this application edits no text.
+            //
+            // The commands themselves are `firstperson` and `thirdperson`, which
+            // `config_default.cfg` binds to nothing — so a real config reaches them only if its
+            // owner chose to, and reading it takes no key from anybody.
+            [ViewerAction.FirstPersonView] = "CTRL+e",
+            [ViewerAction.ThirdPersonView] = "CTRL+b",
+
             // **`f` and `k` until 2026-08-26, and both were taken by a pasted config** (B214). TF2
             // binds `f` to `+inspect` and `k` to `cl_decline_first_notification` — commands this
             // viewer does not implement — so loading a real config removed reset-camera and
@@ -310,6 +357,12 @@ public sealed class KeyBindings
         new Dictionary<ViewerAction, string>
         {
             [ViewerAction.SwitchCameraMode] = "+jump",
+
+            // **Source's own camera commands, and neither is bound by config_default.cfg** — so a
+            // real TF2 config mentions them only if its owner chose to, and reading them takes no
+            // key away from anyone. Verified against the shipped file rather than assumed.
+            [ViewerAction.FirstPersonView] = "firstperson",
+            [ViewerAction.ThirdPersonView] = "thirdperson",
             [ViewerAction.CycleTargetForward] = "+attack",
             [ViewerAction.CycleTargetReverse] = "+attack2",
             [ViewerAction.FlyForward] = "+forward",

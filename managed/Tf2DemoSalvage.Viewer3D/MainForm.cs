@@ -477,8 +477,23 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private bool _freeLook => _cameraMode == CameraMode.Free;
 
+    /// <summary>The mode actually drawn through, which death can change.</summary>
+    /// <remarks>
+    /// **`_cameraMode` is what the user ASKED for; this is what the engine allows.** A dead target
+    /// cannot be watched from inside his head, so `C_HLTVCamera::CalcInEyeCamView` hands to the
+    /// chase camera — see <c>SpectatorView.Effective</c> for the citation.
+    ///
+    /// **Everything that asks "are we in first person" must ask THIS**, because the answer carries
+    /// more than the camera: the viewmodel is drawn only in first person
+    /// (<c>ShouldDrawViewModel</c>), and the followed player is hidden only in first person. Reading
+    /// the requested mode instead would draw a weapon over a chase view and hide the very player
+    /// the chase camera is pointed at.
+    /// </remarks>
+    private CameraMode _effectiveMode =>
+        _spectator.Effective(_transport.CurrentTick, _cameraMode);
+
     /// <summary>Whether the viewport is drawn through a player's eyes.</summary>
-    private bool _firstPerson => _cameraMode == CameraMode.FirstPerson;
+    private bool _firstPerson => _effectiveMode == CameraMode.FirstPerson;
 
     // **`_freeAngles` is gone entirely as of 2026-08-26** (B206). It was an accessor onto
     // `FreeCameraController.Angles` for the drag and wheel handlers to read and write; both now ask
@@ -1414,6 +1429,15 @@ internal class MainForm : Form, IFrameSteps
             // and the content is a nullable beside them.
             _loaded = map;
 
+            // **The chase camera clips against the world, and this is where it gets one.** Valve
+            // traces a twelve-unit hull from the target to the camera and pulls the camera in to
+            // whatever it hits (`hltvcamera.cpp`, and see `ChaseCamera`). Null until a map is open,
+            // which is why `SpectatorView.World` is nullable rather than assumed.
+            _spectator.World = map.Level.Leaves is { } leaves
+                ? (from, to, extent) =>
+                    leaves.Sweep(from.X, from.Y, from.Z, to.X, to.Y, to.Z, extent)
+                : null;
+
             ProjectMap();
             return !map.Outline.IsEmpty;
         }
@@ -1743,7 +1767,16 @@ internal class MainForm : Form, IFrameSteps
     /// picture is drawn through a player's eyes would cull the geometry the viewer is looking at.
     /// </remarks>
     private FreeCamera ViewCameraNow() =>
-        ViewCamera.Active(_firstPerson, FirstPersonCamera(), FreeLookCamera());
+        ViewCamera.Active(_effectiveMode, FirstPersonCamera(), ChaseCamera(), FreeLookCamera());
+
+    /// <summary>The camera for the third-person view, or <c>null</c> when there is no target.</summary>
+    /// <remarks>
+    /// Sibling of <see cref="FirstPersonCamera"/>, and it follows the same target for the reason
+    /// recorded on <c>SpectatorView.Chase</c>: `C_HLTVCamera` keeps one target with a mode beside
+    /// it, so two independent choices would let the modes drift apart.
+    /// </remarks>
+    private FreeCamera? ChaseCamera() =>
+        _spectator.Chase(_transport.CurrentTick, Aspect);
 
     /// <summary>The leaf outline to draw over the world, when that overlay is switched on.</summary>
     /// <returns>World-space segments, or nothing when the mode is off or there is no leaf.</returns>
@@ -1788,9 +1821,97 @@ internal class MainForm : Form, IFrameSteps
     /// the reason it can refuse is a real property of the demo rather than a failure — a recording
     /// with nobody in it has no eyes to borrow.
     /// </remarks>
+    /// <summary>Enters a camera mode outright, rather than cycling to it.</summary>
+    /// <param name="mode">The mode wanted.</param>
+    /// <returns>Always true: the key was ours whether or not the mode could be entered.</returns>
+    /// <remarks>
+    /// **Both player modes need a target, and acquiring one is what can fail** — a demo with nobody
+    /// worth following has no eye and nothing to chase. `SpectatorView.Enter` already answers that
+    /// question and says why when the answer is no, so this reuses it rather than asking again.
+    ///
+    /// **Failing to enter leaves the mode alone rather than dropping to Free.** The user asked for a
+    /// view they cannot have; taking away the one they were in as well would be a second surprise.
+    /// </remarks>
+    private bool EnterCamera(CameraMode mode)
+    {
+        CameraMode leftFrom = _cameraMode;
+
+        if (mode == CameraMode.Free)
+        {
+            _cameraMode = CameraMode.Free;
+            _world.Invalidate();
+            _viewport.Invalidate();
+
+            // **Leaving has to say so, and this line was missing.** Every other mode change is
+            // logged, so a silent one is invisible to anything reading the log — including the UI
+            // suite, which waits for it to know the camera came back. The cycle reached Free
+            // correctly and appeared to skip straight past it, which reads as a broken cycle rather
+            // than as a missing sentence.
+            //
+            // Named for the mode being LEFT, since "first person off" is untrue when the camera was
+            // chasing; the shared tail is what a reader waits on.
+            _renderLog.LogInformation(
+                "{Message}",
+                leftFrom == CameraMode.ThirdPerson
+                    ? "third person off, back to the free camera"
+                    : "first person off, back to the free camera");
+
+            return true;
+        }
+
+        FirstPersonEntry entry = _spectator.Enter(_transport.CurrentTick, Aspect);
+
+        if (!entry.Entered)
+        {
+            _renderLog.LogWarning("{Message}", entry.Message);
+            _status.Text = entry.Status;
+
+            return true;
+        }
+
+        _cameraMode = mode;
+        _world.Invalidate();
+        _viewport.Invalidate();
+
+        // **Third person says so in its own words.** `Enter`'s message is about acquiring a target,
+        // which both player modes share; without a line naming the MODE, a log cannot distinguish
+        // watching through a player's eyes from watching over his shoulder — and those look very
+        // different on screen while producing identical target messages.
+        _renderLog.LogInformation(
+            "{Message}",
+            mode == CameraMode.ThirdPerson
+                ? $"third person on, chasing {entry.Message}"
+                : entry.Message);
+
+        return true;
+    }
+
+    /// <summary>Moves to the next camera mode, which is what TF2's "Switch Camera Mode" does.</summary>
+    /// <remarks>
+    /// **Three modes, because the engine has three and cycles them.** A TF2 spectator's mode runs
+    /// through `OBS_MODE_IN_EYE`, `OBS_MODE_CHASE` and `OBS_MODE_ROAMING` (`shareddefs.h:490`), and
+    /// `C_HLTVCamera::ToggleChaseAsFirstPerson` (`hltvcamera.cpp:843`) flips between the first two
+    /// directly. This viewer had only two, so third person was unreachable from the key TF2 puts
+    /// the cycle on — the commands `firstperson` and `thirdperson` were the only way in.
+    ///
+    /// Free comes last so the cycle ends where a viewer with no target can always sit, which is the
+    /// same reason D98 makes it the fallback.
+    /// </remarks>
+    private bool CycleCameraMode() =>
+        EnterCamera(_cameraMode switch
+        {
+            CameraMode.Free => CameraMode.FirstPerson,
+            CameraMode.FirstPerson => CameraMode.ThirdPerson,
+            _ => CameraMode.Free,
+        });
+
     private bool ToggleFirstPerson()
     {
-        if (_firstPerson)
+        // **The REQUESTED mode, not the effective one.** A dead target is drawn in third person, so
+        // `_firstPerson` reads false while the user is still in the first-person mode — asking that
+        // here would make this key try to ENTER a mode the user is already in, and leaving would
+        // become impossible for the whole of a death.
+        if (_cameraMode == CameraMode.FirstPerson)
         {
             _cameraMode = CameraMode.Free;
             _world.Invalidate();
@@ -4172,7 +4293,21 @@ internal class MainForm : Form, IFrameSteps
         // **Switch camera mode defaults to Space**, which is what TF2 binds it to.
         if (keyData == KeyNames.Resolve(_bindings.KeyFor(ViewerAction.SwitchCameraMode)))
         {
-            return ToggleFirstPerson();
+            return CycleCameraMode();
+        }
+
+        // **Source's own `firstperson` and `thirdperson`, so a config reaches them by name.** They
+        // ask for a mode outright where `SwitchCameraMode` cycles, which is the same pair of routes
+        // the engine offers: the spectator HUD cycles with `+jump`, and the commands exist for
+        // anyone who wants to land on one directly.
+        if (keyData == KeyNames.Resolve(_bindings.KeyFor(ViewerAction.FirstPersonView)))
+        {
+            return EnterCamera(CameraMode.FirstPerson);
+        }
+
+        if (keyData == KeyNames.Resolve(_bindings.KeyFor(ViewerAction.ThirdPersonView)))
+        {
+            return EnterCamera(CameraMode.ThirdPerson);
         }
 
         // **The first binding added through B214's mechanism rather than as a literal** (B216). It

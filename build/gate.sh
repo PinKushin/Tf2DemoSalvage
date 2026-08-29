@@ -296,7 +296,14 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 # a flag read out of a `.mdl` and a renderer that decides from a boolean, and neither side's tests
 # can see it — the assignment being absent is the shape of no-op this project has shipped three
 # times green.
-run Tf2DemoSalvage.Scene.Tests    scene     203
+# 203 -> 208 on 2026-08-28: ChaseCameraConformanceTests (5) against C_HLTVCamera::CalcChaseCamView,
+# written before the implementation. Third person is not a nicety here — it is the mode the engine
+# falls back to whenever first person is unavailable, and both viewmodel rules this project has been
+# arguing about reduce to "the camera is not in an eye".
+# 211 -> 215 on 2026-08-28: SpectatorEffectiveModeTests (4). A dead target is watched in third
+# person, and the subject is the MODE rather than a swapped camera — which is what makes it a fix
+# rather than a fourth attempt at the same citation (D116).
+run Tf2DemoSalvage.Scene.Tests    scene     215
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -404,7 +411,11 @@ run Tf2DemoSalvage.Audio.Tests    audio     183
 # 396: FreeFlightServerSpeedTests, five cases on the free camera flying at the RECORDING server's
 # speeds rather than two constants (D106). Two of them are the wiring — a SetServer with an empty
 # body passes everything else in this project.
-run Tf2DemoSalvage.Presentation.Tests presentation 396
+# 396 -> 402 on 2026-08-28: ViewCameraModeTests (6). ViewCamera.Active could not express three
+# camera modes — its own comment recorded that two arguments sufficed because CameraMode had two
+# members — and picking the wrong camera is the defect that reads as a culling bug rather than as a
+# second camera, so each mode and each fallback is pinned.
+run Tf2DemoSalvage.Presentation.Tests presentation 402
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.
@@ -499,7 +510,13 @@ run Tf2DemoSalvage.Presentation.Tests presentation 396
 # when animation sections are ignored, and the diagnostics that found it (Explicit).
 # Sections are why the demoman's sticky launcher tore: every frame was read out of section zero, so
 # the run-length walk ran off the end and kept reading. vm_weapon_bone_1 landed 219 units from rest.
-run Tf2DemoSalvage.Content.Tests  content   766
+# 766 -> 774 on 2026-08-28: BspSweepTests (6) for the first real trace this project has had — a
+# plane-by-plane clip that reports a DISTANCE, where IsClear and SeesSky sample and answer a bool.
+# Plus two diagnostics. The chase camera cannot be clipped against the world without it.
+# 774 -> 778 on 2026-08-29: BspBrushTraceTests (4), which measure the sweep against a REAL map's
+# brushes rather than a hand-built tree. The hand-built cases cannot reach that code at all — they
+# carry no collision lumps, so they exercise the node-plane fallback. Two paths, one method.
+run Tf2DemoSalvage.Content.Tests  content   778
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2

@@ -60,8 +60,14 @@ public sealed class FirstPersonUiTests
     /// <summary>What the viewer logs when the recorded camera is being followed.</summary>
     private const string FollowingRecorded = "first person on, following the recording's own camera";
 
-    /// <summary>What it logs on the way back out.</summary>
-    private const string BackToMap = "first person off, back to the free camera";
+    /// <summary>What it logs on the way back out, from either player mode.</summary>
+    /// <remarks>
+    /// **The shared tail, not the whole sentence.** Leaving names the mode being left — "first
+    /// person off" or "third person off" — because the first is untrue when the camera was chasing.
+    /// Waiting on the common part asks the question this suite actually has, which is whether the
+    /// camera came back, rather than which mode it came back from.
+    /// </remarks>
+    private const string BackToMap = "back to the free camera";
 
     [TearDown]
     public void ReturnToTheMapView()
@@ -69,13 +75,31 @@ public sealed class FirstPersonUiTests
         // **The mode leaks otherwise**, and the next test in this assembly would run against a
         // camera it did not choose. The bound key is how the viewer itself leaves, so this uses the
         // same route rather than reaching past the UI.
-        if (Viewer.Count(FollowingRecorded) > Viewer.Count(BackToMap))
+        //
+        // **Cycles until free rather than pressing once, because the key now has three stops.**
+        // `SwitchCameraMode` runs Free -> first person -> third person, matching the spectator mode
+        // cycle in `shareddefs.h`. One press used to be the whole way out and is now a step to third
+        // person, which left the following test starting in a mode it did not choose — a shared
+        // fixture turning one behaviour change into several unrelated-looking failures.
+        // **Press until the viewer SAYS it reached free, at most a full lap.** Comparing counts of
+        // two different messages to guess the current mode is what broke when a third mode arrived:
+        // entering third person logs neither of them, so the guess was stale the moment the cycle
+        // grew. Watching for the one line that only appears on arriving at Free needs no guess, and
+        // terminates from any starting mode — three presses from Free, two from first person, one
+        // from third.
+        for (int press = 0; press < 3; press++)
         {
+            int free = Viewer.Count(BackToMap);
+
             PressSwitchCameraMode();
 
-            Retry.WhileFalse(
-                () => Viewer.Count(BackToMap) >= Viewer.Count(FollowingRecorded),
-                TimeSpan.FromSeconds(5));
+            if (Retry.WhileFalse(
+                    () => Viewer.Count(BackToMap) > free,
+                    TimeSpan.FromSeconds(3),
+                    throwOnTimeout: false).Success)
+            {
+                break;
+            }
         }
     }
 
@@ -154,11 +178,16 @@ public sealed class FirstPersonUiTests
     }
 
     [Test]
-    public void FirstPerson_PressingSwitchCameraModeTwice_ReturnsToTheOverheadView()
+    public void FirstPerson_CyclingAllTheWayRound_ReturnsToTheOverheadView()
     {
         // **A mode, not a one-way door.** The map view is what works on every demo, so leaving has
-        // to be as easy as entering — and a toggle that only ever entered would strand somebody on
-        // a camera that cannot see the match.
+        // to be as easy as entering — and a cycle that never came back would strand somebody on a
+        // camera that cannot see the match.
+        //
+        // **Three presses rather than two, and the change is deliberate.** The key now runs
+        // Free -> first person -> third person -> Free, matching the spectator mode cycle in
+        // `shareddefs.h`; it used to be a two-state toggle. Renamed with it, because a test called
+        // `...Twice...` that presses three times is a lie that survives review.
         PressSwitchCameraMode();
 
         Retry.WhileFalse(
@@ -169,13 +198,15 @@ public sealed class FirstPersonUiTests
 
         int before = Viewer.Count(BackToMap);
 
+        // Through third person, then out.
+        PressSwitchCameraMode();
         PressSwitchCameraMode();
 
         Retry.WhileFalse(
             () => Viewer.Count(BackToMap) > before,
             TimeSpan.FromSeconds(5),
             throwOnTimeout: true,
-            timeoutMessage: "A second switch did not return the viewer to the overhead camera.");
+            timeoutMessage: "Cycling right round did not return the viewer to the overhead camera.");
 
         Viewer.Count(BackToMap).ShouldBeGreaterThan(before);
     }
