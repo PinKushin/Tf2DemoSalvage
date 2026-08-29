@@ -516,7 +516,10 @@ run Tf2DemoSalvage.Presentation.Tests presentation 402
 # 774 -> 778 on 2026-08-29: BspBrushTraceTests (4), which measure the sweep against a REAL map's
 # brushes rather than a hand-built tree. The hand-built cases cannot reach that code at all — they
 # carry no collision lumps, so they exercise the node-plane fallback. Two paths, one method.
-run Tf2DemoSalvage.Content.Tests  content   778
+# 778 -> 785 on 2026-08-29: BspTraceMaskConformanceTests (7). The sweep tested CONTENTS_SOLID only,
+# so a camera slid through glass, grates and the brushes of doors and lifts. MASK_SOLID is what
+# CalcChaseCamView traces with.
+run Tf2DemoSalvage.Content.Tests  content   785
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
