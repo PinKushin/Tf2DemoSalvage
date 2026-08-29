@@ -303,7 +303,10 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 # 211 -> 215 on 2026-08-28: SpectatorEffectiveModeTests (4). A dead target is watched in third
 # person, and the subject is the MODE rather than a swapped camera — which is what makes it a fix
 # rather than a fourth attempt at the same citation (D116).
-run Tf2DemoSalvage.Scene.Tests    scene     215
+# 215 -> 222 on 2026-08-29: ChaseDirectorConformanceTests (7). The chase camera ignored every
+# parameter the hltv_chase event carries — distance, phi, theta, offset — and the director's second
+# target, each with a comment saying so. D117 is the rule that came out of that.
+run Tf2DemoSalvage.Scene.Tests    scene     222
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
