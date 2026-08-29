@@ -13871,7 +13871,7 @@ wants its own conformance suite.
 confidently wrong one for every effect — which is the failure mode that looks like a rendering bug
 rather than a missing feature.
 
-### B222 — a held weapon's viewmodel vanishes for 60 ms to 4.6 s; its bones coincide — OPEN, mechanism partly measured
+### B222 — a held weapon's viewmodel vanishes for 60 ms to 4.6 s; its bones coincide — FIXED 2026-08-29 (animation sections)
 
 **Reported by the owner 2026-08-28**, watching `cp_process_f12`: *"the sticky launcher sometimes
 doesnt draw"*, and later *"tf2 never has a period you dont see any viewmodel at all really,
@@ -14407,3 +14407,28 @@ sources go missing separately in B193.
 set `sound.Schedule = null` as a PRECONDITION and never asserted on it — so the schedule was named in
 the test and measured by nobody. The same precondition-equals-assertion shape as the stale clock
 found earlier the same day.
+
+## B222 — closed: the animation was SECTIONED and we read it as one block
+
+**FIXED 2026-08-29.** `vm_weapon_bone_1` was ~100 units from where the file says it should be, and
+the cause was `mstudioanimdesc_t`'s **sections**, which this project did not decode at all.
+
+A studio animation longer than `sectionframes` is stored as a series of blocks — `sectionindex`
+(+80) points at an array of `mstudioanimsections_t` (8 bytes each), and **each section renumbers its
+frames from zero**. Reading `pAnim` as one continuous chain therefore walks off the end of the first
+section's data and interprets whatever follows as more bone tracks. The bones early in the chain
+survive it; the ones late in it get garbage, which is why a single bone appeared to fly away while
+its neighbours looked fine.
+
+**Residual after the fix: 245.49 units → 0.31.** The owner confirmed it on screen.
+
+**Why every instrument said "healthy" is worth keeping.** The weapon was never invisible and was
+never culled — it was drawn every frame, right batches, right vertex count, valid bones, finite
+camera, and the wrong SHAPE. Visibility instruments cannot see shape, so all of them were correct
+and none of them was measuring the variable. The finding that broke it open was a per-bone vertex
+centroid, which is a shape measurement.
+
+**One thing from this entry is NOT closed and should not be swept up with it:** `bip_upperArm_L`
+still jumps 3–9 units between frames on `c_demo_animations`, down from 245. Real motion or a second
+smaller decode fault, undetermined. Everything structural was ruled out — sections, zeroframes, local
+hierarchy, chain order, posscale/rotscale offsets, raw-vs-RLE mixing, encoding flags.
