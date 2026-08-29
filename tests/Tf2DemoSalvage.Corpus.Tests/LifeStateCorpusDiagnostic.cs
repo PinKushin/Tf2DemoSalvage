@@ -29,6 +29,48 @@ namespace Tf2DemoSalvage.Core.Tests;
 [Explicit("Diagnostic: what m_lifeState reads across a demo.")]
 public sealed class LifeStateCorpusDiagnostic
 {
+    /// <summary>Candidate opening ticks for the UI suite: alive, armed, and out on the map.</summary>
+    /// <remarks>
+    /// **`ViewerSession.OpeningTick` is 2500 and the recorder is DEAD there** — the dead span runs
+    /// 2012 to 3208. That is why the first-person suite was anchored on a moment where this viewer
+    /// and TF2 disagree, and it has to move before the POV-death divergence is closed or the test
+    /// breaks for the right reason at the wrong time.
+    ///
+    /// **The tick cannot simply be changed, because 2500 was chosen against criteria.** Its comment
+    /// records them: the recorder out on the map rather than parked at a spawn gate, above the
+    /// ground, sky and buildings in frame, and a viewmodel actually drawing — a frame with many
+    /// times the colour variety of the alternative. A replacement has to meet the same bar AND be
+    /// alive, so this reports all of it per candidate rather than picking on liveness alone.
+    /// </remarks>
+    [TestCase("tf2-2013-build1729296-pov-cp_badlands")]
+    public void ReportCandidateTicks(string demo)
+    {
+        DemoTimeline timeline = TimelineCache.For(Corpus.Demo(demo));
+
+        TestContext.Out.WriteLine($"{demo}: ticks {timeline.FirstTick}..{timeline.LastTick}");
+
+        // Every hundred ticks across the whole demo, so the choice is made from the field rather
+        // than from the first candidate that happens to be alive.
+        for (int tick = timeline.FirstTick; tick <= timeline.LastTick; tick += 100)
+        {
+            ScenePlayer? recorder = timeline.PlayersAt(tick)
+                .Select(each => (ScenePlayer?)each)
+                .FirstOrDefault(each => each!.Value.EntityIndex == 1);
+
+            if (recorder is not { } who)
+            {
+                continue;
+            }
+
+            SceneViewmodel? held = timeline.ViewmodelAt(tick, who.EntityIndex);
+
+            TestContext.Out.WriteLine(
+                $"  tick {tick,5}: life {who.LifeState?.ToString(CultureInfo.InvariantCulture) ?? "unsent",6} " +
+                $"at ({who.X,8:0}, {who.Y,8:0}, {who.Z,6:0}) " +
+                $"viewmodel {(held is { } vm && vm.ModelPath.Length > 0 ? vm.ModelPath : "(none)")}");
+        }
+    }
+
     [TestCase("tf2-2013-build1729296-pov-cp_badlands")]
     [TestCase("cp_process_f12")]
     public void ReportLifeState(string demo)

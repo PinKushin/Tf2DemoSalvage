@@ -108,17 +108,35 @@ internal sealed partial class ViewerSession
     /// recording is a player parked against a spawn gate — which is shut for the whole demo whatever
     /// they did, because brush entities draw at their COMPILED position (B71).
     ///
-    /// **2500 was measured, not guessed**
-    /// (`OffHandProbe.MainHandViewmodel_OnTheUiSuitesDemo_IsReported`). The recorder is at
-    /// (−2521, −2072, 478) holding a rocket launcher: out on the map, above the ground, with sky and
-    /// buildings in frame. Its capture holds many times the colour variety of the spawn-gate frame it
-    /// replaces.
+    /// **2500 was measured, and it measured a corpse.** It was chosen for the frame it produced —
+    /// the recorder reported at (−2521, −2072, 478), "out on the map, above the ground, with sky and
+    /// buildings in frame". He is DEAD there. `m_lifeState` reads 2 from tick 2012 to 3208, and
+    /// through that whole span the position is frozen or alternates between two fixed points:
+    /// (−355, −3635, 68) is where he fell, and (−2521, −2072, 478) and (−337, −3485, 306) are
+    /// observer positions. The frame was rich precisely BECAUSE it was a freezecam looking across
+    /// the map, and the number praised above is the camera rather than the player.
     ///
-    /// The two `c_` ranges are both poor choices for the opposite reason — the pyro never leaves
-    /// spawn (x −608..−279, z 192 throughout) and the sniper settles at (−157, −4260) by tick 7750 and
-    /// does not move again.
+    /// **That is why the first-person suite was anchored on a moment where this viewer and TF2
+    /// disagree** (B222). TF2 cannot show a dead player in first person at all — the camera switches
+    /// to third — so the viewmodel this test waits for is one the engine would never draw. The test
+    /// passed on a divergence.
+    ///
+    /// **1900 is measured the same way and the recorder is alive**: `m_lifeState` 0, at
+    /// (−140, −3435, 242) — elevated, and well clear of the spawn at y ≈ −4500 — holding
+    /// `v_models/v_rocketlauncher_soldier.mdl`, the same viewmodel 2500 named, so nothing keyed to
+    /// that model changes.
+    ///
+    /// **No margin is needed before the death at 2008, because the suite never advances the demo.**
+    /// It opens at a tick and stays there. The owner, on the earlier worry about running into the
+    /// death: *"the demo never runs in the UI suite"*, and *"theres really no scene richness that
+    /// wont be there 100 ticks before or something before I die"* — which is the whole argument for
+    /// simply stepping back to the nearest live tick rather than hunting for another rich frame.
+    ///
+    /// The alive spans, for anyone choosing differently: 0–2008, 3208–4944, 6228–7700. The two `c_`
+    /// ranges are poor for an unrelated reason — the pyro never leaves spawn (x −608..−279, z 192
+    /// throughout) and the sniper settles at (−157, −4260) by tick 7700 and does not move again.
     /// </remarks>
-    public const int OpeningTick = 2500;
+    public const int OpeningTick = 1900;
 
     /// <summary>What the viewer logs when it projects the world through the camera.</summary>
     public const string WorldBuildLine = "building the world";
