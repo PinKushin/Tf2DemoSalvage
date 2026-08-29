@@ -428,7 +428,11 @@ run Tf2DemoSalvage.Audio.Tests    audio     183
 # cases pin `OverheadPlacement.Framed`'s arithmetic and three pin the controller actually calling
 # it — a split that earned itself immediately, since sabotaging the wiring reddens the second group
 # and leaves the first entirely green.
-run Tf2DemoSalvage.Presentation.Tests presentation 412
+# 412 -> 413 the same day again: the clock was the one source `Open` never cleared, reachable only
+# once `SetDemoLength` stopped switching playback off as a side effect. The case that was there
+# asserted `HasDemo` was false on a presenter that had never been loaded — precondition equals
+# assertion — so it could not have caught it.
+run Tf2DemoSalvage.Presentation.Tests presentation 413
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.
@@ -733,7 +737,10 @@ run Tf2DemoSalvage.Rendering.Tests rendering 685
 # launch option reaching a running window. `LaunchOptionsTests` proves the command line is READ, and
 # `DemoSystemsTests` cannot reach the autoplay path at all because `DemoTimeline`'s constructor is
 # private. Autoplay's ordering had broken three times with every suite green.
-run Tf2DemoSalvage.Viewer3D.Tests viewer    103
+# 103 -> 106: TransportBarTests. The control had no tests at all, which is how `SetDemoLength` came
+# to end with `Playing = false` — a decision about playback made inside the View, invisible from
+# `IPlaybackView`, and silent because that setter does not raise. D55's tell, and B223's cause.
+run Tf2DemoSalvage.Viewer3D.Tests viewer    106
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."

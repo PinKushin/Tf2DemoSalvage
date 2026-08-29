@@ -84,6 +84,33 @@ public sealed class DemoSystemsTests
     }
 
     [Test]
+    public void Open_WithNoTimeline_ForgetsThePreviousDemosClock()
+    {
+        // **The clock was the one source `Open` did NOT clear**, and the test above could not see
+        // it: it asserts `HasDemo` is false on a presenter that was never loaded, so the
+        // precondition already equals the assertion — the exact shape that class's own comments
+        // warn about for `appearances.Timeline`. Loading one FIRST is what makes the claim
+        // falsifiable (`docs/memory/set-the-opposite-state-first.md`).
+        //
+        // What it cost: opening a demo whose schema fails to decode, after one that decoded, left
+        // the presenter holding the PREVIOUS demo's clock while every other source was nulled —
+        // `HasDemo` true, `Position` answering from a closed demo. It was masked because
+        // `TransportBar.SetDemoLength` used to switch playback off as a side effect, so nothing
+        // ever advanced that stale clock. Removing that side effect (D55's rule about the View not
+        // deciding business state) is what made this reachable.
+        PlaybackPresenter playback = new(new FakePlaybackView(), new StopwatchTime());
+
+        playback.Load(new PlaybackClock(PlaybackClock.DefaultIntervalPerTick, 1000));
+        playback.HasDemo.ShouldBeTrue("the precondition: there is a demo to forget");
+
+        Systems(playback: playback)
+            .Open(timeline: null, lastTick: 500, audio: null, autoPlay: false, autoPlayReason: "X");
+
+        playback.HasDemo.ShouldBeFalse(
+            "a demo that carried no schema must not leave the previous one's clock loaded");
+    }
+
+    [Test]
     public void Open_WithNoTimeline_StillSizesTheTransport()
     {
         // **A demo has a LENGTH even when it has no clock, and this is the case that proves the

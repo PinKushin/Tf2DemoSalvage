@@ -44,17 +44,17 @@ internal sealed class FakePlaybackView : IPlaybackView
 
     /// <inheritdoc />
     /// <remarks>
-    /// **Clears <see cref="Playing"/>, because the real control does and that is the bug this fake
-    /// has to be able to reproduce** (B223). `TransportBar.SetDemoLength` ends with
-    /// <c>Playing = false</c>; a fake that only recorded the number would let a test pass against
-    /// the exact ordering that shipped — the "wrong instrument" case, where the measurement is not
-    /// faithful to the variable.
+    /// **Records the length and touches nothing else, because that is now all the real control
+    /// does.** This briefly cleared <see cref="Playing"/> to mirror `TransportBar`, which ended
+    /// with <c>Playing = false</c> — and mirroring it was right for exactly as long as it was true.
+    /// The side effect is gone (D55: the View decides nothing about playback), so keeping it here
+    /// would make the fake model a control that no longer exists and hide a presenter that had
+    /// stopped clearing the flag itself.
+    ///
+    /// A fake is only worth having while it agrees with the thing it stands for; the moment the
+    /// real one changes, the fake is the second place that has to change.
     /// </remarks>
-    public void SetDemoLength(int lastTick)
-    {
-        DemoLength = lastTick;
-        Playing = false;
-    }
+    public void SetDemoLength(int lastTick) => DemoLength = lastTick;
 
     /// <summary>Acts as the user dragging the scrubber.</summary>
     public void Scrub(int tick) => Scrubbed?.Invoke(this, new TickEventArgs(tick));

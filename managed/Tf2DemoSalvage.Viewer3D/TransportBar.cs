@@ -326,7 +326,22 @@ internal sealed class TransportBar : UserControl, IPlaybackView
         _scrub.Enabled = playable;
         _speedBar.Enabled = playable;
         _playPause.Enabled = playable;
-        Playing = false;
+
+        // **`Playing = false` was here, and it is the whole cause of B223** — removed 2026-08-29.
+        // Sizing the transport is display; "a new demo is not playing" is a DECISION about
+        // playback, and D55 puts decisions in the presenter: the View's job is *"purely mechanical
+        // translation"*, and the tell it has stopped doing that is a method reasoning about
+        // business state.
+        //
+        // It was invisible as well as misplaced. `Playing`'s setter deliberately does not raise
+        // `PlayPauseToggled`, so this switched playback off without telling anyone — the presenter
+        // started autoplay, the window sized the transport one line later, and the viewer sat
+        // paused for ever writing "playback started at load".
+        //
+        // The first fix moved the sizing inside `DemoSystems.Open` so nothing could run between it
+        // and `Play()`. That closed the hole and left the trapdoor; this removes the trapdoor, so
+        // the call is now safe in any order from anywhere. `PlaybackPresenter.Load` clears the flag
+        // on every path that needs it, which is the same rule stated once instead of twice.
         UpdateTickLabel();
     }
 
