@@ -14196,3 +14196,46 @@ it, so the clamp correctly held it up. The condition was too small for the effec
 "effect size below resolution" from the testing standards. Fixed by enlarging the map, never by
 loosening the assertion, and the precondition now checks BOTH cameras clear the floor rather than
 only the wide one.
+
+## B223 — the root cause, found by the owner asking whether it still follows MVP
+
+**2026-08-29, after the fix above was merged.** The owner:
+
+> *"this is still following MVP right"*
+
+**Checking honestly rather than answering found two more defects**, and the first is the actual cause
+of B223 — the merged fix had treated the symptom.
+
+**1. The View was deciding business state.** `TransportBar.SetDemoLength` ended with
+`Playing = false`. D55's tell is exact: *"If a Form method needs an `if` statement about business
+state, that's the tell it's doing the Presenter's job"*, and the View's job is *"purely mechanical
+translation"*. "A new demo means playback stops" is a rule about playback, not a translation of what
+the control was told — and it was invisible from `IPlaybackView` and silent, because `Playing`'s
+setter deliberately does not raise.
+
+So the first fix — moving the sizing inside `DemoSystems.Open` so nothing could run between it and
+`Play()` — **closed the hole and left the trapdoor.** Removing the side effect removes the trapdoor:
+`SetDemoLength` can now be called by anyone, anywhere, in any order, and cannot stop playback.
+`PlaybackPresenter.Load` clears the flag on every path that needs it, which is the same rule stated
+once instead of twice.
+
+**`TransportBar` had no tests at all**, which is how a decision came to live in it unnoticed. It has
+three now.
+
+**2. A stale clock, reachable only once the side effect was gone.** `DemoSystems.Open` nulls every
+source on the no-timeline path — eyes, viewmodels, moments, sounds, appearance — and returned
+without clearing the presenter's clock. A demo whose schema failed to decode, opened after one that
+decoded, left `HasDemo` true and `Position` answering from a closed recording. Nothing ever advanced
+that clock only because `SetDemoLength` had switched playback off.
+
+**And the test that looked like it covered this could not.**
+`Open_WithNoTimeline_ClearsEverySourceRatherThanLeavingThem` asserts `HasDemo` is false on a
+presenter that was **never loaded** — the precondition already equals the assertion, which is the
+shape that same test's own comments warn about for `appearances.Timeline`. Loading a clock first is
+what makes the claim falsifiable, and it failed immediately.
+
+**The general finding, which is the part worth carrying.** A pattern question — *"is this still
+MVP"* — found a defect that no test failure, no log line and no measurement had. Asking what a change
+did to the ARCHITECTURE is a different instrument from asking whether it works, and it reached
+something the others could not: the merged fix worked, was verified end to end, and was still
+guarding a hazard rather than removing it.

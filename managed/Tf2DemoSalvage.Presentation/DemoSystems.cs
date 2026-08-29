@@ -146,6 +146,19 @@ public sealed class DemoSystems
 
         if (timeline is not { } demo)
         {
+            // **The clock is a source like the others and was the one this method did not clear.**
+            // Every line above nulls the previous demo's state; the presenter kept the previous
+            // demo's clock, so `HasDemo` stayed true and `Position` went on answering from a
+            // recording that had been closed.
+            //
+            // It was masked until 2026-08-29 by `TransportBar.SetDemoLength` switching playback off
+            // as a side effect — nothing ever advanced the stale clock, so nothing showed. Taking
+            // that side effect out (D55: the View decides nothing) is what made it reachable, and
+            // `DemoSystemsTests` could not have caught it either way: its existing case asserts
+            // `HasDemo` is false on a presenter that was never loaded, so the precondition already
+            // equalled the assertion.
+            _playback.Load(null);
+
             return;
         }
 
