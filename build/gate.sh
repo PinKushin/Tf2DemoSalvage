@@ -437,7 +437,11 @@ run Tf2DemoSalvage.Audio.Tests    audio     183
 # once `SetDemoLength` stopped switching playback off as a side effect. The case that was there
 # asserted `HasDemo` was false on a presenter that had never been loaded — precondition equals
 # assertion — so it could not have caught it.
-run Tf2DemoSalvage.Presentation.Tests presentation 413
+# 413 -> 414: the sound schedule must SURVIVE a level teardown (B228). It did not, and that silenced
+# the viewer completely — `Apply` opens the demo and then reads the map, so `LevelSystems.Shutdown`
+# nulled the schedule before a frame was drawn. The test that looked like it covered this set
+# `sound.Schedule = null` as a precondition and never asserted on it.
+run Tf2DemoSalvage.Presentation.Tests presentation 414
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.

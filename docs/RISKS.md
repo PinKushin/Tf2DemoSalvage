@@ -14356,3 +14356,54 @@ startsolid there.
 displacement (`CDispCollTree::AABBTree_*`). It is an optimisation over a few hundred triangles, and
 whole displacements are already rejected before reaching them — the right thing to add when a
 profile says so, and no earlier.
+
+### B228 — reading the map deleted the demo's sounds; the viewer was silent for days — FIXED 2026-08-29
+
+**The instrument was already there and had never been read.** `SoundPresenter.ReportAudioOutput`
+was added days earlier — submitted against dropped-for-zero-gain, at 1, 10, 100, 1000 — and the
+handoff carried *"has never been read on a run"* as an open item. Reading it took one launch and the
+line was simply absent.
+
+**The mechanism.** `MainForm.Apply` opens the demo and THEN reads the map:
+
+```
+_demoSystems.Open(...)               // sets _sound.Schedule
+bool haveMap = read ?? LoadMap(...)  // -> ClearMap -> _levels.Shutdown()
+                                     //    -> SoundPresenter.LevelShutdownPreEntity() -> Schedule = null
+```
+
+`SoundPresenter.Update` returns at its first guard when `Schedule` is null, so the entire sound path
+— one-shots, loops, and the soundscape's room tone — did nothing for the whole session. Measured on
+`cp_process_f12` before the fix: **23,772 sounds on the timeline, 542 precached, 110 frames drawn,
+and not one sound submitted.** After: `911 submitted, 89 dropped for zero gain` and 23 loops
+started. The owner confirmed by ear.
+
+**It is B223's shape for the third time in one day** — a later call silently undoing an earlier one,
+with nothing logged because the undo is an assignment. The irony is on the record: the level-teardown
+walk was introduced *because* "nothing tore down the sound schedule at all", and that fix is what
+broke it.
+
+**The lifetime question was settled from the SDK rather than by taste**, at the owner's prompting
+(*"you are cheacking the sdk right?"*, and *"its going to be demo lifetime im pretty sure"*):
+
+- `CSoundEmitterSystem` does **not** implement `LevelShutdownPreEntity` at all. Its
+  `LevelShutdownPostEntity` (`SoundEmitterSystem.cpp:333`) clears
+  `soundemitterbase->ClearSoundOverrides()` — map-scoped SCRIPT data, loaded by
+  `LevelInitPreEntity` from `scripts/<mapname>_level_sounds.txt`.
+- `C_SoundscapeSystem::LevelShutdownPreEntity` (`c_soundscape.cpp:120`) is literally `{}`, with the
+  voices stopped post-entity by `OnStopAllSounds()`.
+
+Neither clears anything resembling a play queue, because a live client has none — it receives sounds
+as events. Our `Schedule` is a cursor into one DEMO's sound list, so the demo owns it, and
+`DemoSystems.Open` already holds both ends: it builds one for a timeline that decoded and nulls it
+for one that did not.
+
+**The failed-load path was the case the old code covered from the side**, so it is covered directly
+now: `CouldNotOpen` calls `DemoSystems.Open` with no timeline rather than hand-clearing the clock and
+the transport length. Two hand-maintained lists of what a demo owns is the shape that let three
+sources go missing separately in B193.
+
+**The test that looked like it covered this could not.** `Shutdown_EverySystem_IsToldTheLevelIsGoing`
+set `sound.Schedule = null` as a PRECONDITION and never asserted on it — so the schedule was named in
+the test and measured by nobody. The same precondition-equals-assertion shape as the stale clock
+found earlier the same day.
