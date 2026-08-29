@@ -49,6 +49,36 @@ public static class ViewCamera
     public static float[] Matrix(bool firstPerson, FreeCamera? eye, FreeCamera free) =>
         Active(firstPerson, eye, free).ToMatrix();
 
+    /// <summary>Which camera the frame is seen through, by mode.</summary>
+    /// <param name="mode">Which view the user asked for.</param>
+    /// <param name="eye">The in-eye camera, or null when nobody's eyes are available.</param>
+    /// <param name="chase">The chase camera, or null when there is no target to chase.</param>
+    /// <param name="free">The free camera, which everything falls back to.</param>
+    /// <returns>The camera to project, cull and measure with.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="free"/> is null.</exception>
+    /// <remarks>
+    /// **The two-argument form below could not express three modes**, and the comment on it says why
+    /// it only ever needed two: `CameraMode` had two members. It has three now
+    /// (<see cref="CameraMode.ThirdPerson"/>), so "which mode" is a mode again rather than a flag.
+    ///
+    /// **Every mode still falls back to the free camera**, per D98 — a viewer that loses its subject
+    /// drops into the view it can always offer. That is why both nullable cameras are asked for
+    /// rather than assumed: first person on a demo with no eye, and chase with nobody to chase, are
+    /// ordinary states rather than faults.
+    /// </remarks>
+    public static FreeCamera Active(
+        CameraMode mode, FreeCamera? eye, FreeCamera? chase, FreeCamera free)
+    {
+        ArgumentNullException.ThrowIfNull(free);
+
+        return mode switch
+        {
+            CameraMode.FirstPerson when eye is { } through => through,
+            CameraMode.ThirdPerson when chase is { } behind => behind,
+            _ => free,
+        };
+    }
+
     /// <summary>Which camera the frame is actually seen through.</summary>
     /// <param name="firstPerson">Whether the view is through a player's eyes.</param>
     /// <param name="eye">That player's camera, or null when nobody's eyes are available.</param>
@@ -63,8 +93,9 @@ public static class ViewCamera
     /// a player's eyes culls the geometry the viewer is looking at, and the symptom is the world
     /// disappearing in first person only.
     ///
-    /// This project has shipped the neighbouring version of that mistake: a build-time shortcut
-    /// that assumed a top-down camera, which broke the moment the free camera moved.
+    /// **Kept as the two-mode form while callers migrate to the mode-taking overload above.** It is
+    /// that overload with `mode` collapsed to a boolean and no chase camera, which is exactly what
+    /// it meant before `CameraMode` had a third member.
     /// </remarks>
     public static FreeCamera Active(bool firstPerson, FreeCamera? eye, FreeCamera free)
     {

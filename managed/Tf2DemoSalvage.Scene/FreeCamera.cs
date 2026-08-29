@@ -187,6 +187,37 @@ public sealed class FreeCamera
             Aspect = aspect,
         };
 
+    /// <summary>A chase camera watching a player from behind — Valve's <c>OBS_MODE_CHASE</c>.</summary>
+    /// <param name="origin">The target's position, which is their feet.</param>
+    /// <param name="eyeYaw">Their eye yaw; the camera looks the way they look.</param>
+    /// <param name="alive">Whether they are alive, which changes the height and the pitch.</param>
+    /// <param name="ducking">Whether they are ducking.</param>
+    /// <param name="aspect">The viewport's width over its height.</param>
+    /// <returns>The camera.</returns>
+    /// <remarks>
+    /// **The placement is <see cref="ChaseCamera"/>'s and the citation lives there** —
+    /// <c>C_HLTVCamera::CalcChaseCamView</c>. This is the adapter that turns it into the camera type
+    /// the rest of the viewer draws through, so the two cannot disagree about where the camera is:
+    /// the same reason <c>Axes</c> below exists.
+    ///
+    /// **Note it takes the target's yaw and not their pitch.** A camera that copied the pitch would
+    /// dive into the floor whenever the player looked down, which is the mistake the engine avoids
+    /// with <c>cameraAngles.x = 0</c> before it applies its own offset.
+    /// </remarks>
+    public static FreeCamera Chase(
+        (float X, float Y, float Z) origin, float eyeYaw, bool alive, bool ducking, float aspect)
+    {
+        (float X, float Y, float Z, float Pitch, float Yaw, float Roll) view =
+            ChaseCamera.View(origin.X, origin.Y, origin.Z, eyeYaw, alive, ducking);
+
+        return new FreeCamera
+        {
+            Origin = (view.X, view.Y, view.Z),
+            Angles = (view.Pitch, view.Yaw, view.Roll),
+            Aspect = aspect,
+        };
+    }
+
     /// <summary>This camera's axes, as <c>AngleVectors</c> builds them.</summary>
     /// <returns>Forward, right and up — Valve's three, in Valve's order.</returns>
     /// <remarks>

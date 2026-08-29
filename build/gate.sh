@@ -408,7 +408,11 @@ run Tf2DemoSalvage.Audio.Tests    audio     183
 # 396: FreeFlightServerSpeedTests, five cases on the free camera flying at the RECORDING server's
 # speeds rather than two constants (D106). Two of them are the wiring — a SetServer with an empty
 # body passes everything else in this project.
-run Tf2DemoSalvage.Presentation.Tests presentation 396
+# 396 -> 402 on 2026-08-28: ViewCameraModeTests (6). ViewCamera.Active could not express three
+# camera modes — its own comment recorded that two arguments sufficed because CameraMode had two
+# members — and picking the wrong camera is the defect that reads as a culling bug rather than as a
+# second camera, so each mode and each fallback is pinned.
+run Tf2DemoSalvage.Presentation.Tests presentation 402
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.

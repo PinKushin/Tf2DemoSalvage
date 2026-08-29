@@ -37,4 +37,24 @@ public enum CameraMode
     /// — which is what the engine does when you spectate in game.
     /// </remarks>
     FirstPerson,
+
+    /// <summary>Behind and slightly above a player, looking the way they look — the chase camera.</summary>
+    /// <remarks>
+    /// **Valve's <c>OBS_MODE_CHASE</c>, and it is not a convenience mode.** It is where the engine
+    /// GOES when first person is unavailable: <c>C_HLTVCamera::CalcInEyeCamView</c>
+    /// (<c>hltvcamera.cpp:307</c>) hands straight to <c>CalcChaseCamView</c> for a dead target,
+    /// under the comment "if dead, show from 3rd person". A viewer without this mode has nowhere to
+    /// put the camera when that happens, which is why this project ended up emptying a dead player's
+    /// hands while leaving the camera in his skull — see D116.
+    ///
+    /// **It also decides the viewmodel, and that is the same rule rather than a second one.**
+    /// <c>CViewRender::ShouldDrawViewModel</c> (<c>viewrender.cpp:974</c>) refuses whenever
+    /// <c>C_BasePlayer::ShouldDrawLocalPlayer()</c> is true, which is exactly "the view is third
+    /// person". So no viewmodel here, and the followed player IS drawn — the two consequences are
+    /// one condition.
+    ///
+    /// The placement is <see cref="ChaseCamera"/>: ninety-six units back along the target's yaw,
+    /// over their eyes, or over their ragdoll and pitched down fifteen degrees when they are dead.
+    /// </remarks>
+    ThirdPerson,
 }

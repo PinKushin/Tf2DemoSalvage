@@ -253,6 +253,38 @@ public sealed class SpectatorView
             $"at tick {tick}");
     }
 
+    /// <summary>The chase camera on whoever is being watched, or null when nobody is.</summary>
+    /// <param name="tick">The tick being drawn.</param>
+    /// <param name="aspect">The viewport's width over its height.</param>
+    /// <returns>The camera, or null when there is no target.</returns>
+    /// <remarks>
+    /// **Valve's <c>OBS_MODE_CHASE</c>, and the mode the engine falls back to** — see
+    /// <see cref="CameraMode.ThirdPerson"/> and <see cref="ChaseCamera"/> for the citations.
+    ///
+    /// **It follows the same target as <see cref="Eye"/>**, deliberately: switching between first
+    /// and third person watches the same player, which is what <c>C_HLTVCamera</c> does with one
+    /// <c>m_iTraget1</c> and a mode beside it. Two independent target choices would let the modes
+    /// drift apart, and the bug would look like the camera jumping to a different player.
+    ///
+    /// **A dead target is fine here** — unlike <see cref="Eye"/>, which refuses one. That asymmetry
+    /// IS the engine's: `CalcInEyeCamView` bails to this, so this is where a dead target ends up
+    /// rather than somewhere it must be kept out of.
+    /// </remarks>
+    public FreeCamera? Chase(int tick, float aspect)
+    {
+        if (Target(tick) is not { } target)
+        {
+            return null;
+        }
+
+        return FreeCamera.Chase(
+            (target.X, target.Y, target.Z),
+            target.EyeYaw ?? target.Yaw,
+            target.IsAlive,
+            Ducking(target),
+            aspect);
+    }
+
     /// <summary>The camera for the first-person view, or null when there is none.</summary>
     /// <param name="tick">The tick being drawn.</param>
     /// <param name="aspect">The viewport's width over its height.</param>
