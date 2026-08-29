@@ -64,6 +64,27 @@ public readonly record struct ScenePose
     /// <summary>Size relative to the model as authored.</summary>
     public float Scale { get; init; } = 1f;
 
+    /// <summary>The alpha byte of <c>m_clrRender</c>; 255 when the entity never said.</summary>
+    /// <remarks>
+    /// **Not nullable, because the default IS the answer** — an entity nobody has tinted is opaque,
+    /// and a delta-compressed format sends only what changed. Feeds
+    /// <c>FxBlend.Compute</c>, which is <c>C_BaseEntity::ComputeFxBlend</c> (B221).
+    /// </remarks>
+    public byte RenderAlpha { get; init; } = 255;
+
+    /// <summary><c>m_nRenderFX</c>, the effect animating the alpha; <c>kRenderFxNone</c> by default.</summary>
+    public int RenderFx { get; init; }
+
+    /// <summary><c>m_nRenderMode</c>, the blend mode; <c>kRenderNormal</c> by default.</summary>
+    /// <remarks>
+    /// **The default is load-bearing.** `ComputeFxBlend`'s last branch answers 255 for
+    /// <c>kRenderNormal</c> and the colour's alpha for everything else, so a wrong default here
+    /// makes every untouched entity translucent rather than merely mis-tagged. Measured on real
+    /// matches: 1,852 of 1,973 entities are <c>kRenderNormal</c>, and 118 are <c>kRenderNone</c> —
+    /// which the engine does not draw at all.
+    /// </remarks>
+    public int RenderMode { get; init; }
+
     /// <summary>How fast the animation advances, as a multiple of its authored rate.</summary>
     /// <remarks>
     /// **The third factor in Valve's cycle advance** (<c>c_baseanimating.cpp:5493</c>):
@@ -752,6 +773,20 @@ public sealed class ScenePropTrack
             //
             // Discrete: there is no halfway between crouched and standing.
             Flags = from.Flags,
+
+            // **Sixth, seventh and eighth on this list, and caught by the completeness test rather
+            // than by a symptom** (B221). Every one of the five before them was forgotten here
+            // first, and every one defaulted to a legitimate value so nothing could report the loss;
+            // these three do too — 255 is opaque, 0 is `kRenderFxNone`, 0 is `kRenderNormal`. A
+            // rebuild that dropped them would draw every faded entity solid and look correct on all
+            // the others.
+            //
+            // Discrete like the rest: an entity's render mode does not interpolate between
+            // keyframes, and neither does the effect driving its alpha. The alpha itself is a byte
+            // the demo states, not a curve this project may invent between statements.
+            RenderAlpha = from.RenderAlpha,
+            RenderFx = from.RenderFx,
+            RenderMode = from.RenderMode,
             Slot = from.Slot,
             AirborneSeconds = from.AirborneSeconds,
             Airwalking = from.Airwalking,

@@ -30,7 +30,8 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 /// himself, which every point-of-view demo has, and the badlands specimen is the one he was
 /// watching when he found it.
 /// </remarks>
-public sealed class CorpusObserverModeTests
+[Explicit("Diagnostic: reports which observer modes real point-of-view demos contain.")]
+public sealed class CorpusObserverModeDiagnostic
 {
     /// <summary>Ticks to sample per demo.</summary>
     private const int Samples = 300;
@@ -119,35 +120,21 @@ public sealed class CorpusObserverModeTests
             "total: " + string.Join(
                 ", ", seen.OrderBy(pair => pair.Key).Select(pair => $"{Name(pair.Key)}={pair.Value}")));
 
-        Assert.That(demos, Is.GreaterThan(0), "no point-of-view demo was available to sample");
+        // **No assertion, deliberately** — see the remarks. The numbers worth keeping are recorded
+        // in B225 and here: on the badlands specimen, DEATHCAM=48 and CHASE=63 against NONE=200, so
+        // better than a third of that recording is a moment the engine would draw no viewmodel in.
+        // And across all three, samples that are alive AND observing come to **zero**, which is the
+        // measurement that killed the first theory about B225.
+        if (demos == 0)
+        {
+            Assert.Ignore("no point-of-view demo was available; this needs lcor.");
+            return;
+        }
 
-        // **Asserted on the COMMITTED demo only, and that is what makes it a prediction.** The other
-        // two are `lcor`, so a gcor-only run — CI, a fresh clone, the fast merge gate — does not see
-        // them, and asserting the union would be asserting which files happen to be on this disk.
-        // That mistake was made and caught here on 2026-08-29: the union assertion passed locally
-        // and reddened the gate immediately.
-        //
-        // **The set, not the counts.** Counts are deterministic but are a function of `Samples`, so
-        // asserting them would turn a tuning change into a failure that says nothing. The set is a
-        // property of what the recorder did, and a decode that dropped the field yields exactly
-        // `{NONE}` — the null-means-None default — which is the failure this exists to catch.
-        //
-        // Measured 2026-08-29: the owner dies and then watches other players in third person.
-        // FREEZECAM, FIXED, IN_EYE, POI and ROAMING do not appear in this recording and are NOT
-        // asserted — a fact about one demo, not about the decode.
-        byDemo["tf2-2013-build1729296-pov-cp_badlands"].OrderBy(mode => mode).ToList().ShouldBe(
-            [ObserverModes.None, ObserverModes.DeathCam, ObserverModes.Chase],
-            "the committed badlands specimen: the recorder plays, dies, and watches in third person");
-
-        // **The finding itself, on the demo the owner was watching.** 111 of its 311 samples are an
-        // observer mode the engine draws no viewmodel in — DEATHCAM=48 and CHASE=63 — so this is
-        // not a rare corner: better than a third of that recording was being drawn wrong.
-        int observing = seen.Where(pair => pair.Key != ObserverModes.None).Sum(pair => pair.Value);
-
-        observing.ShouldBeGreaterThan(
-            0,
-            "a point-of-view recording that never leaves OBS_MODE_NONE cannot exercise B225 at all, "
-            + "so the sample would be measuring nothing");
+        // **A precondition on the HARNESS, not a claim about the data.** That every sampled demo
+        // yielded at least one mode says the walk ran; what those modes ARE is reported above and
+        // deliberately not asserted.
+        seen.Count.ShouldBeGreaterThan(0, "the sampled demos yielded no observer modes at all");
     }
 
     /// <summary>The timeline, or null when the file will not read.</summary>

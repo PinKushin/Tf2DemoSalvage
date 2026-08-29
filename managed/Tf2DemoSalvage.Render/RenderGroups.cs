@@ -37,28 +37,16 @@ public enum RenderGroup
     Other,
 }
 
-/// <summary>
-/// The <c>m_nRenderMode</c> values that change which list an entity joins.
-/// </summary>
-/// <remarks>
-/// **Two of eleven, because two are all that <c>GetRenderGroup</c> tests.** <c>RenderMode_t</c>
-/// (<c>public/const.h:351</c>) has eleven members and the grouping decision distinguishes exactly
-/// these: anything that is not <see cref="Normal"/> makes the entity transparent, and
-/// <see cref="Environmental"/> additionally makes it undrawn. Declaring the other nine would be
-/// nine claims that this project handles them — the failure `docs/CONFORMANCE.md` exists to catch.
-///
-/// **Nothing decodes <c>m_nRenderMode</c> yet**, so every caller here passes <see cref="Normal"/>.
-/// That is a named gap rather than a silent one: see <see cref="RenderGroups.For"/>.
-/// </remarks>
-public static class RenderModes
-{
-    /// <summary><c>kRenderNormal</c> — the entity's own materials decide, and nothing else.</summary>
-    public const int Normal = 0;
-
-    /// <summary><c>kRenderEnvironmental</c> — *"not drawn, used for environmental effects"*.</summary>
-    public const int Environmental = 6;
-}
-
+// **`RenderModes` moved to `Tf2DemoSalvage.Scene` on 2026-08-29** (B221). It is `const.h`, which is
+// in `public/` precisely because the entity and the leaf system both read it — and here it could
+// only ever be read by the leaf system, since Render references Scene and not the reverse. The
+// entity is what computes its own alpha (`ComputeFxBlend`), so the values had to be somewhere both
+// could see.
+//
+// **Its old note said "two of eleven, because two are all that `GetRenderGroup` tests"**, and that
+// was right about the grouping and wrong as a general rule: `ComputeFxBlend`'s default branch tests
+// `kRenderNormal` against everything else, and a real match carries kRenderGlow, kRenderTransAdd
+// and 118 entities at kRenderNone. All eleven are declared now, measured rather than assumed.
 /// <summary>
 /// Which of the engine's render lists a renderable joins, and whether it joins two.
 /// </summary>

@@ -316,6 +316,15 @@ public sealed class EntityState
     /// <summary>What the player is watching through; see OBS_MODE_NONE in shareddefs.h.</summary>
     private const string ObserverModeProperty = "m_iObserverMode";
 
+    /// <summary>The entity's colour and alpha, as a packed <c>color32</c>.</summary>
+    private const string RenderColorProperty = "m_clrRender";
+
+    /// <summary>Which <c>kRenderFx_*</c> effect animates the alpha.</summary>
+    private const string RenderFxProperty = "m_nRenderFX";
+
+    /// <summary>Which <c>kRender*</c> blend mode the entity draws with.</summary>
+    private const string RenderModeProperty = "m_nRenderMode";
+
     private const string EyeAnglesPitch = "m_angEyeAngles[0]";
     private const string EyeAnglesYaw = "m_angEyeAngles[1]";
 
@@ -974,6 +983,49 @@ public sealed class EntityState
     /// <c>UnimplementedGameplayEntityConformanceTests</c>, which still records that gap.
     /// </remarks>
     public int? ObserverMode() => Integer($"{BasePlayerTable}.{ObserverModeProperty}");
+
+    /// <summary>The entity's render colour and alpha, when it says.</summary>
+    /// <returns><c>m_clrRender</c> as a packed <c>color32</c>, or <c>null</c> when never sent.</returns>
+    /// <remarks>
+    /// **A <c>color32</c> squeezed into a 32-bit int** — <c>SendPropInt(SENDINFO(m_clrRender), 32,
+    /// SPROP_UNSIGNED)</c> (<c>baseentity.cpp:279</c>). The struct is <c>byte r, g, b, a</c>
+    /// (<c>tier0/basetypes.h:248</c>), so on a little-endian machine the red is the LOW byte and the
+    /// alpha the high one. Getting that round the wrong way tints every entity and leaves the alpha
+    /// reading as a colour channel, which looks like a lighting fault rather than a decode one.
+    ///
+    /// **Absent means opaque white**, <c>255,255,255,255</c>, which is what an entity that never
+    /// mentions the field is: unmodulated and fully solid. `RenderAlpha` applies that default so a
+    /// caller does not have to.
+    /// </remarks>
+    public int? RenderColor() => Integer($"{BaseEntityTable}.{RenderColorProperty}");
+
+    /// <summary>The alpha byte of <see cref="RenderColor"/>, defaulting to opaque.</summary>
+    /// <remarks>
+    /// **Not nullable, because the default IS the answer.** A delta-compressed format sends only
+    /// what changed, and an entity nobody has tinted is opaque — treating absence as unknown would
+    /// make every ordinary entity a special case at the call site
+    /// (`docs/memory/sentinels-conflate-unknown-with-answer.md`).
+    /// </remarks>
+    public byte RenderAlpha() =>
+        RenderColor() is { } packed ? (byte)((packed >> 24) & 0xFF) : (byte)255;
+
+    /// <summary>Which effect animates the entity's alpha, when it says.</summary>
+    /// <returns><c>m_nRenderFX</c>, or <c>null</c> when it was never sent.</returns>
+    /// <remarks>
+    /// Eight bits unsigned (<c>baseentity.cpp:276</c>). **Absent means <c>kRenderFxNone</c>**, which
+    /// is zero and by far the common case — almost nothing in a match pulses or strobes.
+    /// </remarks>
+    public int? RenderFx() => Integer($"{BaseEntityTable}.{RenderFxProperty}");
+
+    /// <summary>Which blend mode the entity draws with, when it says.</summary>
+    /// <returns><c>m_nRenderMode</c>, or <c>null</c> when it was never sent.</returns>
+    /// <remarks>
+    /// Eight bits unsigned (<c>baseentity.cpp:277</c>). **Absent means <c>kRenderNormal</c>**, and
+    /// that default is load-bearing rather than incidental: `ComputeFxBlend`'s default branch
+    /// answers 255 for <c>kRenderNormal</c> and the colour's alpha for anything else, so reading
+    /// absence as some other mode would make every untouched entity translucent.
+    /// </remarks>
+    public int? RenderMode() => Integer($"{BaseEntityTable}.{RenderModeProperty}");
 
     /// <summary>The player's engine flags, when they were sent.</summary>
     /// <returns><c>m_fFlags</c>, or <c>null</c> when it was never sent.</returns>
