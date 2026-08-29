@@ -115,6 +115,18 @@ public sealed class LaunchOptionsTests
         read.SurfaceColours.ShouldBeFalse();
         read.Spectate.ShouldBeNull();
         read.Zoom.ShouldBe(1f);
+        read.AutoPlay.ShouldBeFalse();
+    }
+
+    [Test]
+    public void Read_Autoplay_IsAsked()
+    {
+        // **An option because it was an environment variable, and that is why it had no test.**
+        // `TF2VIEW_AUTOPLAY` had exactly one reference in the repository — its own declaration —
+        // so nothing set it, nothing asserted it, and the ordering it depends on broke three
+        // times unnoticed. A process-wide variable also cannot be exercised without setting it
+        // for every test in the run, which is the reason the one place that read it was a window.
+        Read("--autoplay", "a.dem").AutoPlay.ShouldBeTrue();
     }
 
     [Test]

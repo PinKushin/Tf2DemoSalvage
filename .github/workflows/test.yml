@@ -176,7 +176,7 @@ jobs:
           # total, so the floor holds on the machine without TF2.
           ./build/assert-test-count.sh '**/content.trx' 785 Content
           # 396 -> 402 on 2026-08-28: ViewCameraModeTests (6), for the third camera mode.
-          ./build/assert-test-count.sh '**/presentation.trx' 402 Presentation
+          ./build/assert-test-count.sh '**/presentation.trx' 404 Presentation
           ./build/assert-test-count.sh '**/logging.trx' 17 Logging
           # 10 is MEASURED locally and safe on a runner without the SDK, because a .trx total counts
           # skipped tests: the two conformance cases Assert.Ignore where source-sdk-2013 is absent
@@ -403,7 +403,13 @@ jobs:
         run: |
           ./build/assert-test-count.sh '**/audio.trx' 183 Audio
           ./build/assert-test-count.sh '**/fonts.trx' 7 Fonts
-          ./build/assert-test-count.sh '**/viewer.trx' 101 Viewer
+          # 101 -> 103: LaunchOptionWiringTests (B223, D118). These load a corpus demo into a real
+          # MainForm, which this job has; Team Fortress 2 it does NOT have, and that is fine —
+          # `Apply` carries on past a map it cannot read and says "(map not found)", so the launch
+          # option is still observed. CI is the only machine without the game
+          # (docs/memory/ci-is-the-machine-without-tf2.md), so it is also the only place that path
+          # is exercised at all.
+          ./build/assert-test-count.sh '**/viewer.trx' 103 Viewer
           # 553 -> 582 on 2026-08-28: TwoPassConformanceTests (28) and TwoPassWiringTests (1).
           #
           # **This floor has drifted from the local gate's and the delta is all that was raised.**

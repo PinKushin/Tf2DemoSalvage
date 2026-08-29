@@ -127,6 +127,21 @@ public sealed class PlaybackPresenter
     /// </remarks>
     public void Seek(int tick) => _clock?.Seek(tick);
 
+    /// <summary>Sizes the controls for a demo of the given length.</summary>
+    /// <param name="lastTick">Highest tick in the demo; zero disables playback.</param>
+    /// <remarks>
+    /// **A forward, and it exists so that nobody reaches past the presenter to the control** (D62,
+    /// D118). The window used to call the transport itself, immediately after the call that starts
+    /// autoplay — and since sizing the controls also clears the playing flag, that silently undid
+    /// it. One owner of the order is the fix; a second caller agreeing to go first is not.
+    ///
+    /// Deliberately NOT folded into <see cref="Load"/>, though the two are always called together
+    /// on the success path: a demo whose schema failed to decode has a LENGTH from its header and
+    /// no clock at all, and folding them would leave that demo's scrub bar dead. That case is
+    /// ordinary here — decoding is what this project is still finishing.
+    /// </remarks>
+    public void SetDemoLength(int lastTick) => _view.SetDemoLength(lastTick);
+
     public void Play()
     {
         if (_clock is null)

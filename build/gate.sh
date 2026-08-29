@@ -421,7 +421,10 @@ run Tf2DemoSalvage.Audio.Tests    audio     183
 # camera modes — its own comment recorded that two arguments sufficed because CameraMode had two
 # members — and picking the wrong camera is the defect that reads as a culling bug rather than as a
 # second camera, so each mode and each fallback is pinned.
-run Tf2DemoSalvage.Presentation.Tests presentation 402
+# 402 -> 404 on 2026-08-29: `--autoplay` becomes a launch option (D118), plus the one case that can
+# reach `Open`'s demo length without a timeline. Autoplay was an environment variable with exactly
+# one reference in the repository — its own declaration — so nothing set it and nothing asserted it.
+run Tf2DemoSalvage.Presentation.Tests presentation 404
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.
@@ -719,7 +722,14 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     135
 # can fail when the loader drops the flag, and it does — verified by manipulation, sniper against
 # scout as its control.
 run Tf2DemoSalvage.Rendering.Tests rendering 685
-run Tf2DemoSalvage.Viewer3D.Tests viewer    101
+# 101 -> 103 on 2026-08-29: LaunchOptionWiringTests (B223, D118). Two tests, and they cost about
+# seventeen seconds EACH, because each builds a real MainForm and loads a corpus demo — which reads
+# cp_badlands.bsp when Team Fortress 2 is installed. That is the most expensive pair in this file
+# per test, and it is deliberate: they are the only instrument in the repository that can observe a
+# launch option reaching a running window. `LaunchOptionsTests` proves the command line is READ, and
+# `DemoSystemsTests` cannot reach the autoplay path at all because `DemoTimeline`'s constructor is
+# private. Autoplay's ordering had broken three times with every suite green.
+run Tf2DemoSalvage.Viewer3D.Tests viewer    103
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."

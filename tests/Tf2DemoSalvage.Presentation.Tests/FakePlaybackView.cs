@@ -39,6 +39,23 @@ internal sealed class FakePlaybackView : IPlaybackView
     /// <inheritdoc />
     public void ShowTick(int tick) => ShownTicks.Add(tick);
 
+    /// <summary>The length last set, or -1 when none has been.</summary>
+    public int DemoLength { get; private set; } = -1;
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// **Clears <see cref="Playing"/>, because the real control does and that is the bug this fake
+    /// has to be able to reproduce** (B223). `TransportBar.SetDemoLength` ends with
+    /// <c>Playing = false</c>; a fake that only recorded the number would let a test pass against
+    /// the exact ordering that shipped — the "wrong instrument" case, where the measurement is not
+    /// faithful to the variable.
+    /// </remarks>
+    public void SetDemoLength(int lastTick)
+    {
+        DemoLength = lastTick;
+        Playing = false;
+    }
+
     /// <summary>Acts as the user dragging the scrubber.</summary>
     public void Scrub(int tick) => Scrubbed?.Invoke(this, new TickEventArgs(tick));
 

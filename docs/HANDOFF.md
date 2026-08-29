@@ -7,12 +7,17 @@ Everything below is on `main`, gate green: **4,202 across twelve assemblies, plu
 
 ## Read this first
 
-**The next task is the launch options**, by the owner's sequencing: *"we will do the launch options
-next so you have an easier time testing."* `--first-person` and autoplay both fail to reach the
-running viewer, which means every visual check this session needed a human to drive the window.
-Fixing them is small, and it makes everything after it cheaper to verify.
+**The launch options are done** (B223, D118), and one sentence of what this section used to say was
+wrong: it claimed `--first-person` and autoplay both failed to reach the running viewer. **Only
+autoplay was broken.** `--first-person` works and was measured working — the claim about it was an
+inference from a bad invocation that was never checked and then written down as fact.
 
-**Then displacement collision**, which is the largest single item outstanding. The chase camera's
+Autoplay's defect was real and structural: `Apply` started playback and then called
+`SetDemoLength`, whose last act is `Playing = false` through a setter that deliberately does not
+raise. The viewer logged "playback started at load" and sat paused. It is the third time that
+ordering has broken; the length now lives inside `DemoSystems.Open`, so there is no gap left.
+
+**Next is displacement collision**, which is the largest single item outstanding. The chase camera's
 wall clip walks BRUSHES only, so terrain is invisible to it: on a map with displacement ground —
 which is most TF2 maps — the camera passes through the hillside behind a player. Its plan is below.
 
@@ -61,8 +66,10 @@ already begins inside the surface — and the sweep reports clear. Do the same f
 
 ## Also open, smaller
 
-- **Launch options do not work.** `--first-person` and autoplay were both tried this session and
-  neither reached the running viewer. Never investigated. Probably the smallest useful task here.
+- **`--look` and `--zoom` are parsed and then ignored**, and say nothing about it. They meant
+  something only for the orthographic camera D98 removed. Either give them a meaning for a camera
+  placed in the world — fly to a point, at what distance — or refuse them with a message. A silently
+  dropped option is the class of defect B223 was.
 - **A blue medic draws with a red viewmodel.** Reported, untouched.
 - **Audio was lost at some point** in the days before this session. An output-level instrument was
   added to `SoundPresenter` (submitted vs dropped for zero gain) and has never been read on a run.
