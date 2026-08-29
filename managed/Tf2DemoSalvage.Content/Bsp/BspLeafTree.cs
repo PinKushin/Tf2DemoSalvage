@@ -98,13 +98,33 @@ public sealed class BspLeafTree
         ReadOnlyMemory<byte> nodes,
         ReadOnlyMemory<byte> planes,
         ReadOnlyMemory<byte> leaves = default,
-        int leafStride = 32)
+        int leafStride = 32,
+        ReadOnlyMemory<byte> leafBrushes = default,
+        ReadOnlyMemory<byte> brushes = default,
+        ReadOnlyMemory<byte> brushSides = default)
     {
         _nodes = nodes;
         _planes = planes;
         _leaves = leaves;
         _leafStride = leafStride;
+        _leafBrushes = leafBrushes;
+        _brushes = brushes;
+        _brushSides = brushSides;
     }
+
+    private readonly ReadOnlyMemory<byte> _leafBrushes;
+    private readonly ReadOnlyMemory<byte> _brushes;
+    private readonly ReadOnlyMemory<byte> _brushSides;
+
+    /// <summary>Whether the map carried the lumps a real collision trace needs.</summary>
+    /// <remarks>
+    /// **When false, <see cref="Sweep"/> falls back to the leaf's contents flag**, which stops at
+    /// the node plane that bounds the solid rather than at the brush inside it. That is an
+    /// approximation of the engine and is stated as one; it exists so a hand-built tree in a test,
+    /// and any map missing these lumps, still answers something sane instead of never colliding.
+    /// </remarks>
+    public bool HasBrushes =>
+        !_brushes.IsEmpty && !_brushSides.IsEmpty && !_leafBrushes.IsEmpty;
 
     /// <summary>Whether the map carried a tree to walk.</summary>
     public bool IsEmpty => _nodes.IsEmpty || _planes.IsEmpty;
@@ -137,7 +157,14 @@ public sealed class BspLeafTree
             BspLumpData.Read(file, header.Lump(BspLumpIndex.Nodes)),
             BspLumpData.Read(file, header.Lump(BspLumpIndex.Planes)),
             BspLumpData.Read(file, header.Lump(BspLumpIndex.Leafs)),
-            header.Lump(BspLumpIndex.Leafs).Version >= 1 ? 32 : 56);
+            header.Lump(BspLumpIndex.Leafs).Version >= 1 ? 32 : 56,
+
+            // **The collision lumps, so a sweep clips against BRUSHES as the engine does.** Without
+            // them a trace can only stop at a node plane, which is a different surface from the one
+            // the game collides with.
+            BspLumpData.Read(file, header.Lump(BspLumpIndex.LeafBrushes)),
+            BspLumpData.Read(file, header.Lump(BspLumpIndex.Brushes)),
+            BspLumpData.Read(file, header.Lump(BspLumpIndex.BrushSides)));
     }
 
     /// <summary>Whether a point can see the sky along a direction.</summary>
@@ -543,7 +570,7 @@ public sealed class BspLeafTree
         if (node < 0)
         {
             int leaf = -node - 1;
-            int at = leaf * LeafStride;
+            int at = leaf * _leafStride;
 
             ReadOnlySpan<byte> leaves = _leaves.Span;
 
@@ -552,8 +579,21 @@ public sealed class BspLeafTree
                 return;
             }
 
-            // **The near end of the span is what is reported**, because the caller wants where the
-            // sweep STOPPED. A solid leaf entered at fraction f means everything past f is inside.
+            // **Brushes when the map has them, which is Valve's own trace** — `CM_TraceToLeaf`
+            // walks the leaf's brushes and `CM_ClipBoxToBrush` clips against each one's planes.
+            if (HasBrushes)
+            {
+                ClipToLeafBrushes(
+                    leaf, startFraction, endFraction,
+                    fromX, fromY, fromZ, toX, toY, toZ, halfExtent, ref hit);
+
+                return;
+            }
+
+            // **Fallback for a map or fixture with no collision lumps**, and it is an approximation:
+            // it stops at the node plane bounding the solid rather than at the brush inside it. The
+            // near end of the span is reported, because a solid leaf entered at fraction f means
+            // everything past f is inside.
             if ((BinaryPrimitives.ReadInt32LittleEndian(leaves[at..]) & ContentsSolid) != 0 &&
                 startFraction < hit)
             {
@@ -632,6 +672,225 @@ public sealed class BspLeafTree
 
     /// <summary>How deep the tree walk may go before the tree is treated as malformed.</summary>
     private const int MaximumTreeDepth = 256;
+
+    /// <summary>Bytes per <c>dbrush_t</c>: <c>firstside</c>, <c>numsides</c>, <c>contents</c>.</summary>
+    private const int BrushStride = 12;
+
+    /// <summary>Bytes per <c>dbrushside_t</c>: <c>planenum</c>, <c>texinfo</c>, <c>dispinfo</c>, <c>bevel</c>.</summary>
+    private const int BrushSideStride = 8;
+
+    /// <summary>Byte offset of <c>firstleafbrush</c> in <c>dleaf_t</c>.</summary>
+    /// <remarks>
+    /// contents 0, cluster 4, the area/flags bitfield 6, mins 8, maxs 14, firstleafface 20,
+    /// numleaffaces 22 — which is why the face pair above reads at 20 and 22.
+    /// </remarks>
+    private const int LeafFirstBrushOffset = 24;
+
+    /// <summary>Byte offset of <c>numleafbrushes</c>.</summary>
+    private const int LeafBrushCountOffset = 26;
+
+    /// <summary>Valve's <c>DIST_EPSILON</c>: the gap a trace stops short by.</summary>
+    /// <remarks>
+    /// <c>#define DIST_EPSILON 0.03125f</c> — a thirty-second of a unit, "keeps the endpoints from
+    /// being exactly on a surface", because a point resting exactly in a plane is ambiguous to every
+    /// later test that asks which side it is on.
+    /// </remarks>
+    private const float DistanceEpsilon = 0.03125f;
+
+    /// <summary>Clips a sweep against every solid brush in one leaf.</summary>
+    /// <remarks>
+    /// **Valve's <c>CM_ClipBoxToBrush</c>**, which is the whole of Source's collision against world
+    /// geometry. A brush is a CONVEX volume, so the sweep is inside it only between the last plane
+    /// it enters and the first it leaves; if it leaves before it enters, it missed.
+    ///
+    /// <code>
+    ///   d1 = DotProduct( p1, plane->normal ) - dist;
+    ///   d2 = DotProduct( p2, plane->normal ) - dist;
+    ///   if (d1 > 0 &amp;&amp; d2 > 0) return;        // outside this plane for the whole sweep: no hit
+    ///   if (d1 &lt;= 0 &amp;&amp; d2 &lt;= 0) continue;    // inside this plane throughout: says nothing
+    ///   if (d1 > d2)  … entering, keep the LATEST …
+    ///   else          … leaving,  keep the EARLIEST …
+    /// </code>
+    ///
+    /// **The box is folded into the plane distance**, not into the geometry: <c>dist</c> is pushed
+    /// out by the box's projection onto the normal, so a swept box becomes a swept point. That is
+    /// the same trick as the node walk above, applied to the surface the engine actually collides
+    /// with rather than to a partition plane.
+    ///
+    /// **Only brushes whose contents are solid**, so a trace passes through triggers, water and
+    /// clip volumes meant for players rather than cameras — mirroring the engine's content mask.
+    /// </remarks>
+    private void ClipToLeafBrushes(
+        int leaf,
+        float startFraction, float endFraction,
+        float fromX, float fromY, float fromZ,
+        float toX, float toY, float toZ,
+        float halfExtent,
+        ref float hit)
+    {
+        ReadOnlySpan<byte> leaves = _leaves.Span;
+
+        int leafAt = leaf * _leafStride;
+
+        if (leafAt < 0 || leafAt + LeafBrushCountOffset + 2 > leaves.Length)
+        {
+            return;
+        }
+
+        int first = BinaryPrimitives.ReadUInt16LittleEndian(leaves[(leafAt + LeafFirstBrushOffset)..]);
+        int count = BinaryPrimitives.ReadUInt16LittleEndian(leaves[(leafAt + LeafBrushCountOffset)..]);
+
+        ReadOnlySpan<byte> leafBrushes = _leafBrushes.Span;
+        ReadOnlySpan<byte> brushes = _brushes.Span;
+
+        for (int each = 0; each < count; each++)
+        {
+            int indexAt = (first + each) * 2;
+
+            if (indexAt < 0 || indexAt + 2 > leafBrushes.Length)
+            {
+                return;
+            }
+
+            int brush = BinaryPrimitives.ReadUInt16LittleEndian(leafBrushes[indexAt..]);
+            int brushAt = brush * BrushStride;
+
+            if (brushAt < 0 || brushAt + BrushStride > brushes.Length)
+            {
+                continue;
+            }
+
+            int firstSide = BinaryPrimitives.ReadInt32LittleEndian(brushes[brushAt..]);
+            int sides = BinaryPrimitives.ReadInt32LittleEndian(brushes[(brushAt + 4)..]);
+            int contents = BinaryPrimitives.ReadInt32LittleEndian(brushes[(brushAt + 8)..]);
+
+            if ((contents & ContentsSolid) == 0)
+            {
+                continue;
+            }
+
+            ClipToBrush(
+                firstSide, sides, startFraction, endFraction,
+                fromX, fromY, fromZ, toX, toY, toZ, halfExtent, ref hit);
+        }
+    }
+
+    /// <summary>Clips a sweep against one convex brush.</summary>
+    private void ClipToBrush(
+        int firstSide, int sides,
+        float startFraction, float endFraction,
+        float fromX, float fromY, float fromZ,
+        float toX, float toY, float toZ,
+        float halfExtent,
+        ref float hit)
+    {
+        if (sides <= 0)
+        {
+            return;
+        }
+
+        ReadOnlySpan<byte> brushSides = _brushSides.Span;
+        ReadOnlySpan<byte> planes = _planes.Span;
+
+        float enters = -1f;
+        float leaves = 1f;
+
+        // Whether the sweep begins outside the brush at all. A sweep that starts inside every plane
+        // is already embedded, which is a different answer from hitting a surface on the way.
+        bool startsOutside = false;
+
+        for (int side = 0; side < sides; side++)
+        {
+            int sideAt = (firstSide + side) * BrushSideStride;
+
+            if (sideAt < 0 || sideAt + BrushSideStride > brushSides.Length)
+            {
+                return;
+            }
+
+            int planeAt = BinaryPrimitives.ReadUInt16LittleEndian(brushSides[sideAt..]) * PlaneStride;
+
+            if (planeAt < 0 || planeAt + PlaneStride > planes.Length)
+            {
+                return;
+            }
+
+            float normalX = BinaryPrimitives.ReadSingleLittleEndian(planes[planeAt..]);
+            float normalY = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 4)..]);
+            float normalZ = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 8)..]);
+            float distance = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 12)..]);
+
+            // The box pushed into the plane, so a swept box becomes a swept point.
+            distance += halfExtent *
+                (MathF.Abs(normalX) + MathF.Abs(normalY) + MathF.Abs(normalZ));
+
+            float start = (normalX * fromX) + (normalY * fromY) + (normalZ * fromZ) - distance;
+            float end = (normalX * toX) + (normalY * toY) + (normalZ * toZ) - distance;
+
+            if (start > 0f)
+            {
+                startsOutside = true;
+            }
+
+            // Outside this plane for the whole sweep: a convex volume cannot be entered at all.
+            if (start > 0f && end >= 0f)
+            {
+                return;
+            }
+
+            // Inside this plane throughout: it bounds nothing about when the brush is entered.
+            if (start <= 0f && end <= 0f)
+            {
+                continue;
+            }
+
+            float span = start - end;
+
+            if (MathF.Abs(span) < 1e-9f)
+            {
+                continue;
+            }
+
+            if (start > end)
+            {
+                // Crossing inwards: the brush is entered at the LATEST such crossing.
+                enters = MathF.Max(enters, (start - DistanceEpsilon) / span);
+            }
+            else
+            {
+                // Crossing outwards: it is left at the EARLIEST.
+                leaves = MathF.Min(leaves, (start + DistanceEpsilon) / span);
+            }
+        }
+
+        if (!startsOutside)
+        {
+            // **Only the TRUE start of the sweep is startsolid, not the start of a sub-segment.**
+            // `Descend` splits the segment at every node plane, so once the sweep has passed into
+            // geometry every deeper piece legitimately begins inside a brush. Reporting each of
+            // those as startsolid clobbered the answer to zero for every trace on a real map — the
+            // defect that made this whole path look like it worked while measuring nothing.
+            if (startFraction <= 0f)
+            {
+                hit = 0f;
+            }
+
+            return;
+        }
+
+        if (enters < leaves && enters > -1f)
+        {
+            // **`enters` is a fraction of THIS sub-segment; `hit` is a fraction of the whole
+            // sweep.** Mapping between the two is not cosmetic: without it a surface found deep in
+            // the tree is reported as though it were near the start.
+            float whole = startFraction + ((endFraction - startFraction) * MathF.Max(enters, 0f));
+
+            if (whole < hit)
+            {
+                hit = whole;
+            }
+        }
+    }
 
     /// <summary>Which leaf contains a point.</summary>
     /// <param name="x">World position.</param>

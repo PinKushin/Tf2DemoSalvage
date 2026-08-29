@@ -66,6 +66,30 @@ internal static class BspLumpIndex
     /// <summary>Face indices per leaf.</summary>
     public const int LeafFaces = 16;
 
+    /// <summary>Brush indices per leaf — the collision counterpart of <see cref="LeafFaces"/>.</summary>
+    /// <remarks>
+    /// **These three are what make a real trace possible rather than an approximation of one.**
+    /// Source's collision is brush-based: <c>CM_TraceToLeaf</c> walks a leaf's brushes and
+    /// <c>CM_ClipBoxToBrush</c> clips the sweep against each one's planes. The visual BSP tree is
+    /// NOT a collision hull — Quake precomputed one per box size and Source does not — so tracing
+    /// the node tree alone is a different shape that disagrees with the engine at corners.
+    ///
+    /// An array of <c>unsigned short</c>, indexed by a leaf's <c>firstleafbrush</c>.
+    /// </remarks>
+    public const int LeafBrushes = 17;
+
+    /// <summary>The convex volumes collision is made of: <c>dbrush_t</c>, twelve bytes.</summary>
+    /// <remarks><c>firstside</c>, <c>numsides</c>, <c>contents</c>.</remarks>
+    public const int Brushes = 18;
+
+    /// <summary>One plane of a brush: <c>dbrushside_t</c>, eight bytes.</summary>
+    /// <remarks>
+    /// <c>planenum</c> (unsigned short, "facing out of the leaf"), <c>texinfo</c>, <c>dispinfo</c>
+    /// and <c>bevel</c>. The bevel sides exist so a BOX sweep has planes to clip against where a
+    /// point sweep would need none, which is why they must not be skipped.
+    /// </remarks>
+    public const int BrushSides = 19;
+
     /// <summary>Displacement descriptions — the terrain.</summary>
     public const int DispInfo = 26;
 
