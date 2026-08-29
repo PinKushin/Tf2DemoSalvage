@@ -1451,6 +1451,25 @@ public sealed class DemoTimeline
                 weaponClass = carried.ClassName;
             }
 
+            bool seen = last.TryGetValue(entity.EntityIndex, out SceneViewmodel before);
+
+            // **The parity counter is how the engine says "play that again"** — see
+            // `ViewmodelAnimation.RestartAt` for the citation. `m_nSequence` cannot express it,
+            // because firing the same weapon twice sets the same number twice, and the record
+            // equality below would then record nothing at all.
+            //
+            // An unsent parity means unchanged rather than zero, so the previous value is carried
+            // forward: reading a missing property as 0 would fake a restart every time it wrapped
+            // back to something else.
+            int parity = entity.ViewmodelAnimationParity()
+                ?? (seen ? before.AnimationParity : 0);
+
+            int startedAt = ViewmodelAnimation.RestartAt(
+                seen ? before.AnimationParity : null,
+                parity,
+                seen ? before.AnimationStartTick : 0,
+                tick);
+
             SceneViewmodel weapon = new(
                 path,
                 entity.ViewmodelSequence() ?? 0,
@@ -1459,11 +1478,12 @@ public sealed class DemoTimeline
                 entity.ViewmodelSlot(),
                 entity.IsDrawn,
                 weaponItem,
-                weaponClass);
+                weaponClass,
+                parity,
+                startedAt);
 
             // Unchanged since this entity was last sampled, so there is nothing new to record.
-            if (last.TryGetValue(entity.EntityIndex, out SceneViewmodel before) &&
-                before == weapon)
+            if (seen && before == weapon)
             {
                 continue;
             }

@@ -137,13 +137,17 @@ public sealed class ViewmodelScene
     /// do. The owner's rule: *"we shouldnt be forcing any sequence only stuff from the demo or how
     /// valve does it"*. The engine agrees; nothing in its viewmodel path picks an idle.
     /// </remarks>
+    /// <param name="seconds">Demo time now, which the animation's own clock is measured back from.</param>
+    /// <param name="intervalPerTick">Seconds per tick, for turning the restart tick into a time.</param>
     public ViewmodelSceneResult Build(
         IViewmodelSource viewmodels,
         int tick,
         int follower,
         ViewmodelPlacement at,
         string? hands,
-        string? heldWeapon)
+        string? heldWeapon,
+        double seconds = 0d,
+        float intervalPerTick = 0f)
     {
         ArgumentNullException.ThrowIfNull(viewmodels);
 
@@ -152,13 +156,18 @@ public sealed class ViewmodelScene
             return new ViewmodelSceneResult([], Changed(string.Empty, -1, -1));
         }
 
+        // **Now, less however long ago the animation restarted** — expressed as elapsed TICKS rather
+        // than by rebuilding demo time from the tick, so it holds whatever the caller's clock is.
+        // `m_nAnimationParity` is what says it restarted at all; see `ViewmodelAnimation.RestartAt`.
+        double started = seconds - ((tick - weapon.AnimationStartTick) * intervalPerTick);
+
         List<SceneProp> props =
         [
             new SceneProp(
                 ArmsEntityIndex,
                 weapon.ModelPath,
                 SceneModelKind.Studio,
-                at.PoseFor(weapon.Sequence, weapon.PlaybackRate)),
+                at.PoseFor(weapon.Sequence, weapon.PlaybackRate, started)),
         ];
 
         // **The comparison is a PATH comparison and the separators differ.** A model named in the
@@ -214,7 +223,7 @@ public sealed class ViewmodelScene
                 WeaponEntityIndex,
                 held,
                 SceneModelKind.Studio,
-                at.PoseFor(AttachmentSequence, weapon.PlaybackRate),
+                at.PoseFor(AttachmentSequence, weapon.PlaybackRate, started),
                 AttachedTo: ArmsEntityIndex));
         }
 
@@ -223,11 +232,17 @@ public sealed class ViewmodelScene
         // weapon rather than instead of it.
         if (viewmodels.OffHandAt(tick, follower) is { } offHand)
         {
+            // **Its own parity, not the main hand's.** The off hand is a separate viewmodel entity
+            // with its own `m_nAnimationParity`, so a spy's watch restarts when the watch restarts —
+            // borrowing the weapon's start would tie two independent animations together.
+            double offHandStarted =
+                seconds - ((tick - offHand.AnimationStartTick) * intervalPerTick);
+
             props.Add(new SceneProp(
                 OffHandEntityIndex,
                 offHand.ModelPath,
                 SceneModelKind.Studio,
-                at.PoseFor(offHand.Sequence, offHand.PlaybackRate)));
+                at.PoseFor(offHand.Sequence, offHand.PlaybackRate, offHandStarted)));
         }
 
         return new ViewmodelSceneResult(
@@ -298,7 +313,11 @@ public readonly record struct ViewmodelPlacement(
     /// <param name="sequence">What the demo says the weapon is playing.</param>
     /// <param name="playbackRate">How fast, as the wire sent it.</param>
     /// <returns>The pose.</returns>
-    public ScenePose PoseFor(int sequence, float playbackRate) =>
+    /// <param name="animationStartSeconds">
+    /// Demo time the animation restarted, from <c>m_nAnimationParity</c>; the cycle is measured from
+    /// here rather than from demo time, as <c>m_flAnimTime</c> is.
+    /// </param>
+    public ScenePose PoseFor(int sequence, float playbackRate, double animationStartSeconds = 0d) =>
         new()
         {
             X = X,
@@ -309,5 +328,6 @@ public readonly record struct ViewmodelPlacement(
             Roll = Roll,
             Sequence = sequence,
             PlaybackRate = playbackRate,
+            AnimationStartSeconds = animationStartSeconds,
         };
 }

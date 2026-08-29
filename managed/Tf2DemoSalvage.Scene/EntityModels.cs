@@ -437,7 +437,14 @@ public sealed class EntityModelSet
             // runs its own in C_BaseAnimating::FrameAdvance and treats any sent cycle as a
             // correction; a player's is never sent at all, so replaying it holds one frame of a
             // real animation — a convincing statue.
-            double advanced = where.Cycle + (seconds * skinned.CyclesPerSecond(sequence));
+            // **A viewmodel measures its cycle from when its animation STARTED, not from demo time.**
+            // `C_BaseViewModel::UpdateAnimationParity` (`c_baseviewmodel.cpp:467`) sets
+            // `SetCycle( 0 )` and `m_flAnimTime = curtime` on a parity change, so a restarted
+            // animation begins at frame zero rather than wherever a free-running clock happens to
+            // be. Everything else leaves `AnimationStartSeconds` at zero and is unaffected.
+            double elapsed = seconds - where.AnimationStartSeconds;
+
+            double advanced = where.Cycle + (elapsed * skinned.CyclesPerSecond(sequence));
             float phase = (float)(advanced - Math.Floor(advanced));
 
             posed.Sequence = sequence;

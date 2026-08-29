@@ -608,6 +608,50 @@ public sealed class EntityState
     /// <summary>Which animation a viewmodel is playing.</summary>
     public int? ViewmodelSequence() => Integer($"{ViewModelTable}.m_nSequence");
 
+    /// <summary>The counter that says an animation restarted — <c>m_nAnimationParity</c>.</summary>
+    /// <remarks>
+    /// **The sequence number cannot say "play that again", so the engine flips this instead.**
+    /// <c>SendViewModelMatchingSequence</c> (<c>baseviewmodel_shared.cpp:363</c>) bumps it every time
+    /// the server hands the viewmodel an animation, including the one already playing, and
+    /// <c>C_BaseViewModel::UpdateAnimationParity</c> (<c>c_baseviewmodel.cpp:467</c>) restarts the
+    /// cycle on any difference. See <see cref="ViewmodelAnimation.RestartAt"/>.
+    /// </remarks>
+    public int? ViewmodelAnimationParity() =>
+        Integer($"{ViewModelTable}.m_nAnimationParity");
+
+    /// <summary>The counter that says a sequence changed — <c>m_nNewSequenceParity</c>.</summary>
+    /// <remarks>
+    /// **<c>DT_BaseAnimating</c>'s equivalent, and it is not the same field as
+    /// <c>m_nAnimationParity</c>.** <c>C_BaseAnimating</c> uses this one to drive sequence
+    /// TRANSITIONS — <c>m_SequenceTransitioner.CheckForSequenceChange</c>
+    /// (<c>c_baseanimating.cpp:1831</c>) — and to reset cycle interpolation at <c>:4738</c>. The
+    /// viewmodel carries both because it is a <c>C_BaseAnimating</c> that also has viewmodel rules.
+    ///
+    /// Decoded and not yet acted on: this viewer does not blend between sequences, so there is no
+    /// transitioner for it to feed. Recorded here rather than left out so the gap is visible.
+    /// </remarks>
+    public int? ViewmodelNewSequenceParity() =>
+        Integer($"{ViewModelTable}.m_nNewSequenceParity");
+
+    /// <summary>The counter that re-arms animation events — <c>m_nResetEventsParity</c>.</summary>
+    /// <remarks>
+    /// <c>c_baseanimating.cpp:3618</c>: <c>bool resetEvents = m_nResetEventsParity !=
+    /// m_nPrevResetEventsParity;</c>, which lets an animation's events fire again when it replays.
+    /// Decoded and not yet acted on — this viewer does not dispatch animation events at all, so the
+    /// consumer does not exist yet.
+    /// </remarks>
+    public int? ViewmodelResetEventsParity() =>
+        Integer($"{ViewModelTable}.m_nResetEventsParity");
+
+    /// <summary>The counter that fires a muzzle flash — <c>m_nMuzzleFlashParity</c>.</summary>
+    /// <remarks>
+    /// Two bits, <c>EF_MUZZLEFLASH_BITS</c> (<c>const.h:305</c>), bumped by
+    /// <c>C_BaseAnimating::DoMuzzleFlash</c> (<c>c_baseanimating.cpp:6284</c>). Decoded and not yet
+    /// acted on: nothing here draws a muzzle flash.
+    /// </remarks>
+    public int? ViewmodelMuzzleFlashParity() =>
+        Integer($"{ViewModelTable}.m_nMuzzleFlashParity");
+
     /// <summary>Which of a player's two viewmodels this one is.</summary>
     /// <returns>0 for the weapon in hand, 1 for the off hand, or <c>null</c> when unstated.</returns>
     /// <remarks>

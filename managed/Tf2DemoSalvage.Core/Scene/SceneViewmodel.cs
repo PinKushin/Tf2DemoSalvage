@@ -36,6 +36,17 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// <param name="WeaponClassName">
 /// That weapon's entity class, for the stock-model route when it carries no item.
 /// </param>
+/// <param name="AnimationParity">
+/// <c>m_nAnimationParity</c>, three bits, bumped by <c>SendViewModelMatchingSequence</c> every time
+/// the server hands the viewmodel an animation — including the one already playing, which is the
+/// case <see cref="Sequence"/> cannot express. Carried on the record so its value equality registers
+/// a re-fire as a change; without it, firing twice records nothing and the animation never replays.
+/// </param>
+/// <param name="AnimationStartTick">
+/// The tick the current animation restarted on, derived from <see cref="AnimationParity"/>. The
+/// cycle is measured from here, which is <c>UpdateAnimationParity</c>'s <c>m_flAnimTime = curtime</c>
+/// beside its <c>SetCycle( 0 )</c>.
+/// </param>
 public readonly record struct SceneViewmodel(
     string ModelPath,
     int Sequence,
@@ -44,7 +55,9 @@ public readonly record struct SceneViewmodel(
     int? Slot,
     bool Drawn = true,
     int? WeaponItem = null,
-    string? WeaponClassName = null)
+    string? WeaponClassName = null,
+    int AnimationParity = 0,
+    int AnimationStartTick = 0)
 {
     /// <summary>The slot TF2 puts the weapon in the player's hands in.</summary>
     public const int MainHand = 0;

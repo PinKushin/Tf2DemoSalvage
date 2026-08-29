@@ -602,7 +602,9 @@ public sealed class MomentScene : IGameSystemPerFrame
                     camera.Angles.Yaw,
                     camera.Angles.Roll),
                 hands,
-                weaponModel)
+                weaponModel,
+                info.Seconds,
+                info.IntervalPerTick)
             : new ViewmodelSceneResult([], Changed: false);
 
         if (scene.Props.Count == 0)
