@@ -14292,3 +14292,67 @@ death at tick 2008:
 **`m_iObserverMode` is kept and is not consolation.** It is the engine's own first-person test, it
 covers the case liveness cannot — a player who goes to spectator is alive — and no demo in reach
 happens to contain that case today. `CorpusObserverModeTests` will say so when one does.
+
+### B227 — the chase camera passed through terrain, and the planned fix was aimed at the wrong lump — FIXED 2026-08-29
+
+**The defect.** `BspLeafTree.Sweep` walks BRUSHES. Displacements are not brushes, so terrain was
+invisible to the world sweep and the chase camera flew through hillsides on every TF2 map — which is
+most of them.
+
+**The plan was wrong, and measuring first is the only reason that was cheap.** The handoff's step 2
+read *"leaf → `LUMP_LEAFFACES` → faces → `dispinfo`"*. On `cp_badlands` that route reaches **none** of
+the 1191 displacement faces:
+
+```
+cp_badlands: 13845 faces, 1191 of them displacements; 5516 leaves, 0 naming terrain;
+             0 displacement faces and 12654 flat faces reachable
+```
+
+**The control is what makes that believable** — 12,654 flat faces ARE reached by the same walk, and
+13845 − 1191 = 12654 exactly, so every flat face is reachable and no displacement face is. Perfect
+separation, not noise. An empty result is usually a fact about the reader
+(`docs/memory/an-empty-search-needs-a-control.md`); this one is a fact about the format.
+
+It makes sense in hindsight. A displacement's base quad is not the terrain — the real surface is a
+heightfield bulging out of that quad, often well outside it — so the compiler has no single leaf to
+file the face under. `vrad` builds its own displacement list rather than using leaves, and the
+engine's `cmodel_disp.cpp`, which would say so outright, is not published.
+
+**So the narrowing is by BOUNDS.** Each displacement carries a box; a sweep tests the ones its own
+travel could touch. `cp_badlands` has 1191 of them and a chase sweep is 96 units, so all but a
+handful are rejected by a comparison.
+
+**The primitive is `CDispCollTree::SweepAABBTriIntersect`** — and note which file: the SDK ships an
+older `public/dispcoll.cpp` with `SweptAABBTriIntersect` and a newer `public/dispcoll_common.cpp`
+with `SweepAABBTriIntersect`, one letter apart. The newer owns the AABB tree the engine walks; the
+handoff cited the older.
+
+**Three levels, and each caught something the others could not:**
+
+- **The primitive**, against fractions worked out by hand from the SDK before the code existed —
+  0.46984375 on a flat triangle, 0.38977903 on a slope. Both matched to six decimals.
+- **The whole-map set**, against a brute force over every triangle with no narrowing.
+- **`MapLevel.Sweep`**, which is the only one that can see a world sweep asking the BSP tree and
+  nothing else — the actual bug. At (2048, 0, 258.6) brushes report clear and terrain stops the box
+  at 0.689; before this the camera was handed the 1.0.
+
+**Three sabotages, and two of them SURVIVED first**, which is the part worth keeping:
+
+- Disabling the nine edge planes left all eight original primitive cases green. The "misses beside
+  the triangle" case was at (100,100), outside the triangle's *axis-aligned* bounds, so the axis
+  planes rejected it and the edge planes never spoke.
+- Tightening the whole-map bounds test by 64 units changed no answer over a 640-unit drop: a long
+  ray's box is so tall that only a displacement lying entirely in a thin band near its top is
+  excluded. Shortening the rays to 80 units — the length a chase camera actually sweeps — made the
+  same sabotage red immediately.
+
+**Two test premises were also wrong about the map rather than about the code**, and both are
+recorded in the tests: a box dropped 512 units onto a vertex at z = 288 stops at z = 793, because
+`cp_badlands` stacks terrain above terrain; and the space just above a displacement vertex is
+usually *inside* the brush the terrain was carved from, so the brush trace correctly reports
+startsolid there.
+
+**Still not done, and deliberately:** the per-displacement AABB tree Valve walks inside one
+displacement (`CDispCollTree::AABBTree_*`). It is an optimisation over a few hundred triangles, and
+whole displacements are already rejected before reaching them — the right thing to add when a
+profile says so, and no earlier.

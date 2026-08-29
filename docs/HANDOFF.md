@@ -17,7 +17,12 @@ Autoplay's defect was real and structural: `Apply` started playback and then cal
 raise. The viewer logged "playback started at load" and sat paused. It is the third time that
 ordering has broken; the length now lives inside `DemoSystems.Open`, so there is no gap left.
 
-**Next is displacement collision**, which is the largest single item outstanding. The chase camera's
+**Displacement collision is done too** (B227), and the plan in this file for it was wrong in two
+places, both recorded: the primitive lives in `dispcoll_common.cpp` rather than `dispcoll.cpp`, and
+the narrowing is by BOUNDS rather than by leaf — `LUMP_LEAFFACES` reaches none of `cp_badlands`'
+1191 displacement faces, measured, with the 12,654 flat faces it does reach as the control. What
+remains of that plan is the per-displacement AABB tree, which is an optimisation and was always
+meant to be last. The chase camera's
 wall clip walks BRUSHES only, so terrain is invisible to it: on a map with displacement ground —
 which is most TF2 maps — the camera passes through the hillside behind a player. Its plan is below.
 

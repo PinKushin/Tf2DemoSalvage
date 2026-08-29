@@ -174,7 +174,7 @@ jobs:
           # mstudioanimdesc_t::pAnim, the continuity assertion, and the diagnostics that found it.
           # These skip without the game installed, and a skipped test still counts toward the trx
           # total, so the floor holds on the machine without TF2.
-          ./build/assert-test-count.sh '**/content.trx' 785 Content
+          ./build/assert-test-count.sh '**/content.trx' 800 Content
           # 396 -> 402 on 2026-08-28: ViewCameraModeTests (6), for the third camera mode.
           ./build/assert-test-count.sh '**/presentation.trx' 412 Presentation
           ./build/assert-test-count.sh '**/logging.trx' 17 Logging
@@ -418,7 +418,10 @@ jobs:
           # whatever margin the gap represents; setting it to the local number would either be a
           # silent tightening or a red CI, and neither is a thing to do in passing. Filed rather
           # than fixed here.
-          ./build/assert-test-count.sh '**/rendering.trx' 582 Rendering
+          # 582 -> 584 on 2026-08-29: MapLevelSweepTests (B227). Raised by the measured delta, per
+          # the note above: the gap to the local gate's floor is still unreconciled and closing it
+          # in passing would be either a silent tightening or a red CI.
+          ./build/assert-test-count.sh '**/rendering.trx' 584 Rendering
           ./build/assert-test-count.sh '**/viewer-ui.trx' 14 ViewerUi
           # 117 -> 118 on 2026-08-28: ViewmodelAnimationParityCorpusTests, which asserts the parity
           # counter reaches the scene from a real demo and changes there.

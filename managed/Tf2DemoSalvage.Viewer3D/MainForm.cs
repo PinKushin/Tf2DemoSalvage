@@ -1445,10 +1445,11 @@ internal class MainForm : Form, IFrameSteps
             // traces a twelve-unit hull from the target to the camera and pulls the camera in to
             // whatever it hits (`hltvcamera.cpp`, and see `ChaseCamera`). Null until a map is open,
             // which is why `SpectatorView.World` is nullable rather than assumed.
-            _spectator.World = map.Level.Leaves is { } leaves
-                ? (from, to, extent) =>
-                    leaves.Sweep(from.X, from.Y, from.Z, to.X, to.Y, to.Z, extent)
-                : null;
+            // **`MapLevel.Sweep`, which asks the BRUSHES and the TERRAIN** (B227). This asked only
+            // `Leaves` until 2026-08-29, and displacements are not in the BSP tree at all — measured
+            // on cp_badlands, where none of the 1191 displacement faces is reachable from any leaf —
+            // so the camera passed straight through every hillside in the game.
+            _spectator.World = (from, to, extent) => map.Level.Sweep(from, to, extent);
 
             ProjectMap();
             return !map.Outline.IsEmpty;
