@@ -67,6 +67,12 @@ public sealed class LifeStateCorpusDiagnostic
             TestContext.Out.WriteLine(
                 $"  tick {tick,5}: life {who.LifeState?.ToString(CultureInfo.InvariantCulture) ?? "unsent",6} " +
                 $"at ({who.X,8:0}, {who.Y,8:0}, {who.Z,6:0}) " +
+                // **`Drawn` is `EF_NODRAW` on the viewmodel's own table, and it decides whether the
+                // POV divergence exists at all.** TF2's non-HLTV path reaches
+                // `BaseClass::ShouldDraw()`, which consults exactly this — so if a recording clears
+                // it while the recorder is dead, honouring it is the whole implementation and there
+                // is nothing to write.
+                $"drawn {(held?.Drawn.ToString() ?? "-"),5} " +
                 $"viewmodel {(held is { } vm && vm.ModelPath.Length > 0 ? vm.ModelPath : "(none)")}");
         }
     }
