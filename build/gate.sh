@@ -131,7 +131,10 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # C_BaseViewModel::UpdateAnimationParity before implementing it. m_nAnimationParity is how the engine
 # says "play that again" when the sequence number cannot change; without it a repeated shot recorded
 # no timeline entry at all and played no animation.
-run Tf2DemoSalvage.Core.Tests     core     1544
+# 1544 -> 1550 on 2026-08-29: DirectorShotTests (6), which decode hltv_chase from an AUTHORED demo.
+# No demo in the corpus carries the event — measured, not assumed — so the specimen had to be
+# written; see the corpus test that asserts that absence and will go red when it stops being true.
+run Tf2DemoSalvage.Core.Tests     core     1550
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
@@ -557,7 +560,7 @@ run Tf2DemoSalvage.Content.Tests  content   785
 # 130 -> 133 on 2026-08-28: LifeStateCorpusDiagnostic (3, Explicit), which measured the liveness of
 # every player across two demos and chose the UI suite's opening tick. Its report is what showed that
 # tick 2500 sat inside a death — the frame that constant was chosen for is a freezecam, not a player.
-run Tf2DemoSalvage.Corpus.Tests   corpus     133
+run Tf2DemoSalvage.Corpus.Tests   corpus     135
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that
