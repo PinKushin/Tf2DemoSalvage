@@ -174,7 +174,7 @@ jobs:
           # mstudioanimdesc_t::pAnim, the continuity assertion, and the diagnostics that found it.
           # These skip without the game installed, and a skipped test still counts toward the trx
           # total, so the floor holds on the machine without TF2.
-          ./build/assert-test-count.sh '**/content.trx' 774 Content
+          ./build/assert-test-count.sh '**/content.trx' 778 Content
           # 396 -> 402 on 2026-08-28: ViewCameraModeTests (6), for the third camera mode.
           ./build/assert-test-count.sh '**/presentation.trx' 402 Presentation
           ./build/assert-test-count.sh '**/logging.trx' 17 Logging

@@ -538,6 +538,8 @@ public sealed class BspLeafTree
             0, 0f, 1f,
             fromX, fromY, fromZ,
             toX, toY, toZ,
+            fromX, fromY, fromZ,
+            toX, toY, toZ,
             MathF.Abs(halfExtent),
             ref hit,
             0);
@@ -558,6 +560,8 @@ public sealed class BspLeafTree
         int node, float startFraction, float endFraction,
         float fromX, float fromY, float fromZ,
         float toX, float toY, float toZ,
+        float wholeFromX, float wholeFromY, float wholeFromZ,
+        float wholeToX, float wholeToY, float wholeToZ,
         float halfExtent,
         ref float hit,
         int depth)
@@ -581,11 +585,22 @@ public sealed class BspLeafTree
 
             // **Brushes when the map has them, which is Valve's own trace** — `CM_TraceToLeaf`
             // walks the leaf's brushes and `CM_ClipBoxToBrush` clips against each one's planes.
+            // **The WHOLE ray, not this sub-segment, and that distinction is the bug that made
+            // this path find nothing.** `CM_TraceToLeaf` clips the entire trace against a leaf's
+            // brushes; the tree walk exists only to choose WHICH brushes are worth testing.
+            //
+            // Handing it the split piece is subtly self-defeating: by the time the walk reaches the
+            // solid leaf, that piece already begins inside the floor brush, so every plane answers
+            // "inside, continue", no entry is ever found, and the sweep reports clear. The brushes
+            // are found correctly and the arithmetic is right; only the segment was wrong.
             if (HasBrushes)
             {
                 ClipToLeafBrushes(
-                    leaf, startFraction, endFraction,
-                    fromX, fromY, fromZ, toX, toY, toZ, halfExtent, ref hit);
+                    leaf,
+                    wholeFromX, wholeFromY, wholeFromZ,
+                    wholeToX, wholeToY, wholeToZ,
+                    halfExtent,
+                    ref hit);
 
                 return;
             }
@@ -638,13 +653,13 @@ public sealed class BspLeafTree
 
         if (startSide >= offset && endSide >= offset)
         {
-            Descend(front, startFraction, endFraction, fromX, fromY, fromZ, toX, toY, toZ, halfExtent, ref hit, depth + 1);
+            Descend(front, startFraction, endFraction, fromX, fromY, fromZ, toX, toY, toZ, wholeFromX, wholeFromY, wholeFromZ, wholeToX, wholeToY, wholeToZ, halfExtent, ref hit, depth + 1);
             return;
         }
 
         if (startSide < -offset && endSide < -offset)
         {
-            Descend(back, startFraction, endFraction, fromX, fromY, fromZ, toX, toY, toZ, halfExtent, ref hit, depth + 1);
+            Descend(back, startFraction, endFraction, fromX, fromY, fromZ, toX, toY, toZ, wholeFromX, wholeFromY, wholeFromZ, wholeToX, wholeToY, wholeToZ, halfExtent, ref hit, depth + 1);
             return;
         }
 
@@ -666,8 +681,8 @@ public sealed class BspLeafTree
         float midY = fromY + ((toY - fromY) * crossing);
         float midZ = fromZ + ((toZ - fromZ) * crossing);
 
-        Descend(near, startFraction, middle, fromX, fromY, fromZ, midX, midY, midZ, halfExtent, ref hit, depth + 1);
-        Descend(far, middle, endFraction, midX, midY, midZ, toX, toY, toZ, halfExtent, ref hit, depth + 1);
+        Descend(near, startFraction, middle, fromX, fromY, fromZ, midX, midY, midZ, wholeFromX, wholeFromY, wholeFromZ, wholeToX, wholeToY, wholeToZ, halfExtent, ref hit, depth + 1);
+        Descend(far, middle, endFraction, midX, midY, midZ, toX, toY, toZ, wholeFromX, wholeFromY, wholeFromZ, wholeToX, wholeToY, wholeToZ, halfExtent, ref hit, depth + 1);
     }
 
     /// <summary>How deep the tree walk may go before the tree is treated as malformed.</summary>
@@ -722,7 +737,6 @@ public sealed class BspLeafTree
     /// </remarks>
     private void ClipToLeafBrushes(
         int leaf,
-        float startFraction, float endFraction,
         float fromX, float fromY, float fromZ,
         float toX, float toY, float toZ,
         float halfExtent,
@@ -770,15 +784,13 @@ public sealed class BspLeafTree
             }
 
             ClipToBrush(
-                firstSide, sides, startFraction, endFraction,
-                fromX, fromY, fromZ, toX, toY, toZ, halfExtent, ref hit);
+                firstSide, sides, fromX, fromY, fromZ, toX, toY, toZ, halfExtent, ref hit);
         }
     }
 
     /// <summary>Clips a sweep against one convex brush.</summary>
     private void ClipToBrush(
         int firstSide, int sides,
-        float startFraction, float endFraction,
         float fromX, float fromY, float fromZ,
         float toX, float toY, float toZ,
         float halfExtent,
@@ -865,30 +877,19 @@ public sealed class BspLeafTree
 
         if (!startsOutside)
         {
-            // **Only the TRUE start of the sweep is startsolid, not the start of a sub-segment.**
-            // `Descend` splits the segment at every node plane, so once the sweep has passed into
-            // geometry every deeper piece legitimately begins inside a brush. Reporting each of
-            // those as startsolid clobbered the answer to zero for every trace on a real map — the
-            // defect that made this whole path look like it worked while measuring nothing.
-            if (startFraction <= 0f)
-            {
-                hit = 0f;
-            }
-
+            // Began inside this brush. Valve sets `startsolid` and a fraction of zero, which is the
+            // same statement as "it got nowhere". Meaningful again now that the segment handed in
+            // is the whole ray rather than a piece of it.
+            hit = 0f;
             return;
         }
 
-        if (enters < leaves && enters > -1f)
+        // `if (enterfrac < leavefrac && enterfrac >= 0.0f)` — the sweep is inside a convex brush
+        // only between the last plane it enters and the first it leaves, and a negative entry means
+        // it was already past the surface. The fraction is of the whole ray, so it needs no mapping.
+        if (enters < leaves && enters >= 0f && enters < hit)
         {
-            // **`enters` is a fraction of THIS sub-segment; `hit` is a fraction of the whole
-            // sweep.** Mapping between the two is not cosmetic: without it a surface found deep in
-            // the tree is reported as though it were near the start.
-            float whole = startFraction + ((endFraction - startFraction) * MathF.Max(enters, 0f));
-
-            if (whole < hit)
-            {
-                hit = whole;
-            }
+            hit = enters;
         }
     }
 
