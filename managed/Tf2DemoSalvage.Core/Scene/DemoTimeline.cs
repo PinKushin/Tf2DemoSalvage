@@ -1422,13 +1422,44 @@ public sealed class DemoTimeline
             // and the lookup walks forward keeping the last match — so a watch put away would carry
             // on being answered for the rest of the demo. The flag has to travel with the sample so
             // that the latest state is the one that wins.
+            // **Which weapon the VIEWMODEL says it is holding** (B222). `DT_BaseViewModel` networks
+            // `m_hWeapon` (`baseviewmodel_shared.cpp:567`), and that entity's own `m_nModelIndex` is
+            // its VIEW model — the `c_` model — as this decoder already records elsewhere. So the
+            // pair resolves the weapon the engine's own way, in one hop, from data the demo states
+            // outright.
+            //
+            // What this replaces reconstructed it from the PLAYER instead: the player's
+            // `m_hActiveWeapon`, that entity's item definition index, then a lookup in
+            // `items_game.txt`. Three hops and a schema to reach something already on the wire, and
+            // every hop able to fail on its own. Valve never asks the player; the viewmodel knows.
+            //
+            // Empty when the viewmodel names no weapon, which is an ordinary state — an off hand
+            // holding nothing, or a viewmodel between weapons.
+            // **The ITEM, not that entity's model index** — Valve builds the attachment as
+            // `pItem->GetPlayerDisplayModel( iClass, team )` (`econ_entity.cpp:1167`), which is
+            // `model_player` from `items_game.txt`. Taking the weapon entity's own `m_nModelIndex`
+            // was tried on 2026-08-28 and drew no weapon at all: `m_hWeapon` says WHICH weapon and
+            // the schema says what it looks like. Both hops are needed and they are different
+            // questions.
+            int? weaponItem = null;
+            string? weaponClass = null;
+
+            if (entity.ViewmodelWeapon() is { } weaponEntity &&
+                entities.TryGet(weaponEntity, out EntityState? carried))
+            {
+                weaponItem = carried.ItemDefinitionIndex();
+                weaponClass = carried.ClassName;
+            }
+
             SceneViewmodel weapon = new(
                 path,
                 entity.ViewmodelSequence() ?? 0,
                 entity.ViewmodelPlaybackRate() ?? 1f,
                 entity.ViewmodelOwner(),
                 entity.ViewmodelSlot(),
-                entity.IsDrawn);
+                entity.IsDrawn,
+                weaponItem,
+                weaponClass);
 
             // Unchanged since this entity was last sampled, so there is nothing new to record.
             if (last.TryGetValue(entity.EntityIndex, out SceneViewmodel before) &&

@@ -84,7 +84,7 @@ public sealed class SoundPresenter(
 
         _audioReports++;
 
-        audio.LogInformation(
+        audio.LogDebug(
             "{Message}",
             $"sound output: {_submitted} submitted, {_silenced} dropped for zero gain");
     }

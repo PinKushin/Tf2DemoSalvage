@@ -584,6 +584,27 @@ public sealed class EntityState
     /// </remarks>
     public int? ViewmodelOwner() => Slot(Integer($"{ViewModelTable}.m_hOwner"));
 
+    /// <summary>Which weapon entity this viewmodel is showing — <c>m_hWeapon</c>.</summary>
+    /// <returns>The weapon's entity index, or <c>null</c> when it names none.</returns>
+    /// <remarks>
+    /// **The viewmodel says which weapon it is, and this project was asking the PLAYER instead**
+    /// (B222). `DT_BaseViewModel` networks `SendPropEHandle( SENDINFO( m_hWeapon ) )`
+    /// (`baseviewmodel_shared.cpp:567`) — the engine's own answer, sent per viewmodel, for exactly
+    /// the question "what is in this hand".
+    ///
+    /// What replaced it was a reconstruction: read the PLAYER's `m_hActiveWeapon`, take that
+    /// entity's item definition index, and look the model up in `items_game.txt`. Three hops and a
+    /// schema, to arrive at something the demo states outright — and each hop can fail on its own.
+    /// Valve never does this: `C_BaseViewModel::m_hWeapon` is set when the weapon is drawn and the
+    /// attachment model is built from it.
+    ///
+    /// **The weapon entity's own model index is the VIEW model**, which this decoder already knows
+    /// and records at <see cref="ModelIndexProperty"/>'s remarks — so the pair
+    /// <c>m_hWeapon</c> → that entity's <c>m_nModelIndex</c> resolves the `c_` model with no schema
+    /// lookup at all.
+    /// </remarks>
+    public int? ViewmodelWeapon() => Slot(Integer($"{ViewModelTable}.m_hWeapon"));
+
     /// <summary>Which animation a viewmodel is playing.</summary>
     public int? ViewmodelSequence() => Integer($"{ViewModelTable}.m_nSequence");
 

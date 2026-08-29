@@ -165,6 +165,20 @@ public sealed class ViewmodelScene
         // class schema and one that arrived over the wire disagree on slashes, so comparing them
         // raw answers "these are different models" for the same file — which silently selects the
         // one-model scheme and leaves the weapon undrawn.
+        // **The model comes from the ITEM SCHEMA, and that is Valve's own source.** The attachment
+        // is built as
+        //
+        //     pEnt->InitializeAsClientEntity(
+        //         pItem->GetPlayerDisplayModel( iClass, pOwner->GetTeamNumber() ), … )
+        //
+        // (`econ_entity.cpp:1167`), and `GetPlayerDisplayModel` is `model_player` out of
+        // `items_game.txt` — exactly what `WeaponModels.For` resolves. An attempt on 2026-08-28 to
+        // "fix parity" by taking the weapon entity's own `m_nModelIndex` through
+        // `DT_BaseViewModel.m_hWeapon` was WRONG and stopped the weapon drawing at all: `m_hWeapon`
+        // names which weapon, and the model still comes from the item. Reverted the same evening.
+        //
+        // The lesson is the one the owner had already given: check the SDK before swapping a hop,
+        // rather than inferring the hop from a memory and measuring afterwards.
         if (AttachesToHands(weapon.ModelPath, hands) && heldWeapon is { Length: > 0 } held)
         {
             // **The weapon does NOT take the arms' sequence, and TF2 is explicit about it** (B222).
@@ -185,6 +199,17 @@ public sealed class ViewmodelScene
             // `SendWeaponAnim( ACT_VM_PULLBACK )` at `tf_weapon_pipebomblauncher.cpp:209` — the
             // weapon is asked for a sequence it does not have. Sequence zero is what the engine
             // leaves it on, and the merge is what actually places it.
+            //
+            // **Re-applied as parity, and now judged on its own** (B222). Handing the weapon the
+            // ARMS' sequence index is wrong under any reading: the two models have unrelated
+            // sequence tables — `c_demo_arms` merges 74, `c_stickybomb_launcher` carries one — so
+            // every index above zero asks the weapon for something it does not have. The engine
+            // never does this; the attachment keeps its own sequence and the merge places it.
+            //
+            // It matters most during a sticky charge, which is the one action that moves the arms
+            // off sequence zero for a sustained period: `SendWeaponAnim( ACT_VM_PULLBACK )` →
+            // `SendViewModelMatchingSequence` → `SetSequence`, `SetCycle(0)`
+            // (`baseviewmodel_shared.cpp:357`). That is exactly when the weapon disappears.
             props.Add(new SceneProp(
                 WeaponEntityIndex,
                 held,

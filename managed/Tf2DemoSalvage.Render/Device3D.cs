@@ -498,13 +498,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
         if (drawing != _viewmodelsDrawn)
         {
-            if (_viewmodelTransitions++ < ViewmodelTransitionReports)
+            if (_render.IsEnabled(LogLevel.Debug))
             {
-                _render.LogInformation(
+                _render.LogDebug(
                     "{Message}",
                     $"viewmodel pass {(_viewmodelsDrawn < 0 ? "start" : "changed")}: " +
-                    $"{Describe(_viewmodelsDrawn)} -> {Describe(drawing)}" +
-                    $"{(_viewmodelTransitions == ViewmodelTransitionReports ? " — further transitions not logged" : string.Empty)}");
+                    $"{Describe(_viewmodelsDrawn)} -> {Describe(drawing)}");
             }
 
             _viewmodelsDrawn = drawing;
@@ -532,7 +531,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             {
                 _viewmodelCameraBroken = !sane;
 
-                _render.LogWarning(
+                // Guarded on the work: the join below formats sixteen floats.
+                if (!_render.IsEnabled(LogLevel.Debug))
+                {
+                    return;
+                }
+
+                _render.LogDebug(
                     "{Message}",
                     $"viewmodel camera matrix {(sane ? "RECOVERED" : "went NON-FINITE")}: " +
                     string.Join(", ", camera.Select(each => each.ToString("0.###", CultureInfo.InvariantCulture))));
@@ -1825,14 +1830,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         // frame is exactly the case worth seeing and exactly the case that would write sixty lines a
         // second; the first few carry the whole finding and the rest are weight. The cap is per
         // MODEL, so a second model flipping is still reported.
-        if (moved && was.Reported < ChangeReports && _classified.ContainsKey(instance.ModelPath))
+        if (moved && _classified.ContainsKey(instance.ModelPath) &&
+            _render.IsEnabled(LogLevel.Debug))
         {
-            _render.LogWarning(
+            _render.LogDebug(
                 "{Message}",
                 $"{System.IO.Path.GetFileNameWithoutExtension(instance.ModelPath)} changed render " +
                 $"group: {was.Group} (opaque {was.Opaque}, translucent {was.Translucent}) -> " +
-                $"{requested} (opaque {opaque}, translucent {blended}) at frame {instance.Frame}" +
-                $"{(was.Reported + 1 == ChangeReports ? " — further changes to this model not logged" : string.Empty)}");
+                $"{requested} (opaque {opaque}, translucent {blended}) at frame {instance.Frame}");
         }
 
         _classified[instance.ModelPath] =
@@ -1841,25 +1846,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         return (opaque, blended, twoPass);
     }
 
-    /// <summary>How many group changes to report per model before falling silent.</summary>
-    private const int ChangeReports = 8;
-
-    /// <summary>How many viewmodel-pass transitions to report before falling silent.</summary>
-    /// <remarks>
-    /// **Generous, because a transition log is bounded by the signal rather than by the clock.** A
-    /// stable pass writes nothing at all; only a flicker writes, and a flicker is what is being
-    /// hunted. Two hundred is enough to cover a whole rollout and still bound a pathological case.
-    /// </remarks>
-    private const int ViewmodelTransitionReports = 200;
-
     /// <summary>How many viewmodels the last frame drew: −1 for no pass at all.</summary>
     private int _viewmodelsDrawn = -2;
 
     /// <summary>Whether the viewmodel camera's matrix was last seen non-finite.</summary>
     private bool _viewmodelCameraBroken;
-
-    /// <summary>How many transitions have been reported.</summary>
-    private int _viewmodelTransitions;
 
     /// <summary>Reports a viewmodel whose bones stop describing a pose, and when they recover.</summary>
     /// <param name="instance">The viewmodel about to be drawn.</param>
@@ -1979,12 +1970,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
         _boneState[instance.ModelPath] = (bad, band, place);
 
-        if (_boneReports++ >= ViewmodelTransitionReports)
+        if (!_render.IsEnabled(LogLevel.Debug))
         {
             return;
         }
 
-        _render.LogWarning(
+        _render.LogDebug(
             "{Message}",
             $"{System.IO.Path.GetFileNameWithoutExtension(instance.ModelPath)} bones changed: " +
             $"{was.Bad} degenerate -> {bad} of {instance.Bones?.Count ?? 0}, " +
@@ -2028,8 +2019,6 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// <summary>Each viewmodel's last reported bone state: degenerate count, span band, placement.</summary>
     private readonly Dictionary<string, (int Bad, string Band, string Place)> _boneState = [];
 
-    /// <summary>How many bone reports have been written.</summary>
-    private int _boneReports;
 
     /// <summary>How a viewmodel count reads in the log.</summary>
     private static string Describe(int drawing) => drawing switch

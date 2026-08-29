@@ -54,6 +54,13 @@ public sealed class AnimatingEntity
         _accessor = new BoneAccessor(pose.BoneCount);
         _written = new BoneBitList(pose.BoneCount);
         _log = (loggers ?? NullLoggerFactory.Instance).CreateLogger("props");
+
+        // So the skeleton can report a bone built on a parent the mask skipped (B222). It is the
+        // one way a pose goes wrong while every bone remains finite, non-zero and correctly shaped.
+        if (pose is SkeletonPose skeleton)
+        {
+            skeleton.Log = _log;
+        }
     }
 
     /// <summary>The entity this one is bone-merged onto, or null when it stands on its own.</summary>

@@ -37,6 +37,19 @@ misplaced viewmodel. The player had run across the map in between. Measured agai
 the same frame** it was correct, and the owner confirmed by looking. A difference between two
 timestamps is not a difference between two things.
 
+**5. A threshold chosen without asking what size of effect must survive it.** A weapon's distance
+from the hands was bucketed as "over 100 units = AWAY". A viewmodel lives within tens of units of the
+eye, so a weapon fifty units out — completely off screen — reported `with the hands`. The fix was
+5-unit buckets, and the fault was choosing the resolution before asking what had to be visible
+through it.
+
+**6. A global report budget where the subject is per-model.** A "what did this model submit"
+line was capped at 200 reports total, in a method that runs for every one of 250 props a frame. Two
+animating props — `cappoint_hologram` and `demo_scotchbonnet` — spent the entire budget within
+seconds, and the viewmodel, the only subject it was built for, never reported once. A whole
+reproduction was wasted. **A shared budget is a resolution choice too**, and the noisiest subject
+spends it.
+
 **Why:** each of these is the "wrong instrument" failure from the testing section applied to a LOG
 rather than to a test, and a log has no red state to warn you — silence reads as "the thing did not
 happen". So the question to ask of any diagnostic before believing it is the same one:

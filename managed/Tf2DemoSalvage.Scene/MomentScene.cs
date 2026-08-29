@@ -160,6 +160,12 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// <summary>The weapon model the follower last held, so a change can be reported once.</summary>
     private string? _lastWeaponModel;
 
+    /// <summary><c>LIFE_ALIVE</c>, <c>public/const.h:275</c> — what <c>IsAlive()</c> compares to.</summary>
+    private const int LifeAlive = 0;
+
+    /// <summary>Whether the follower was alive last frame, so death is reported once.</summary>
+    private bool _lastAlive = true;
+
     /// <summary>What this moment draws, after every visibility rule.</summary>
     public IReadOnlyList<SceneProp> Drawn => _drawn;
 
@@ -490,7 +496,28 @@ public sealed class MomentScene : IGameSystemPerFrame
                 $"sun {(Lighting.SunAt(camera.Origin.X, camera.Origin.Y, camera.Origin.Z) is null ? "none" : "reaching")}");
         }
 
+        // **Ask the VIEWMODEL which weapon it is showing, not the player** (B222). The engine sends
+        // `m_hWeapon` on `DT_BaseViewModel` (`baseviewmodel_shared.cpp:567`) — one handle, per
+        // viewmodel, stating exactly what is in that hand. The player's `m_hActiveWeapon` is a
+        // reconstruction of the same fact and can disagree with it: it is the PLAYER's state, and a
+        // viewmodel is a separate entity with its own lifetime.
+        //
+        // The model still comes from the item schema either way, because that is where Valve gets
+        // it: `pItem->GetPlayerDisplayModel( iClass, team )`, `econ_entity.cpp:1167`. Only the
+        // question "which weapon" moves.
+        SceneViewmodel? inHand = source.MainHandAt(info.CurrentTick, follower);
+
+        // **The player's active weapon still decides, and the viewmodel's own is REPORTED beside
+        // it** (B222). Switching the decision to `m_hWeapon` did not fix the reported dropout, so it
+        // is reverted with the other unverified edits of 2026-08-28 — but the decode stays, because
+        // the two answers disagreeing is exactly what the parity rebuild needs to know and nothing
+        // measures it otherwise. Valve asks the viewmodel; we ask the player; this line is where
+        // that gap becomes visible instead of theoretical.
         string? weaponModel = held is { } holder ? Weapons.For(holder) : null;
+
+        string? fromViewmodel = inHand is { WeaponItem: not null } or { WeaponClassName: not null }
+            ? Weapons.For(inHand.Value.WeaponItem, inHand.Value.WeaponClassName, held?.PlayerClass)
+            : null;
 
         // **Which weapon the follower is holding, reported when it CHANGES.** Measured 2026-08-28: a
         // demoman's sticky launcher vanishes for a few frames at a time and the viewmodel pass keeps
@@ -504,42 +531,106 @@ public sealed class MomentScene : IGameSystemPerFrame
         // wrong class is an entity-table question; the right class resolving to the wrong model is a
         // schema question. One line distinguishes all three, and without it the only visible symptom
         // is a weapon that is sometimes absent.
-        if (!string.Equals(weaponModel, _lastWeaponModel, StringComparison.Ordinal))
+        if (!string.Equals(weaponModel, _lastWeaponModel, StringComparison.Ordinal) &&
+            _render.IsEnabled(LogLevel.Debug))
         {
-            _render.LogWarning(
+            _render.LogDebug(
                 "{Message}",
                 $"held weapon changed at tick {info.CurrentTick}: " +
                 $"{_lastWeaponModel ?? "(none)"} -> {weaponModel ?? "(none)"}, " +
                 $"m_hActiveWeapon {held?.ActiveWeapon?.ToString(CultureInfo.InvariantCulture) ?? "(none)"}, " +
                 $"class {held?.WeaponClass ?? "(none)"}, " +
-                $"item {held?.WeaponItem?.ToString(CultureInfo.InvariantCulture) ?? "(none)"}");
+                $"item {held?.WeaponItem?.ToString(CultureInfo.InvariantCulture) ?? "(none)"}, " +
+
+                // **Alive or dead, because it decides whether "no weapon" is a defect at all**
+                // (B222). `m_hActiveWeapon` reading invalid for 9.5 seconds is CORRECT for a dead
+                // player — TF2 shows no viewmodel either — and is our bug if he is alive and the
+                // property was merely not re-sent, since an unsent property means unchanged rather
+                // than invalid. One field separates the two and nothing else in the log can.
+                //
+                // LifeState: 0 alive, 1 dying, 2 dead (`LIFE_*`, shareddefs.h).
+                $"lifeState {held?.LifeState?.ToString(CultureInfo.InvariantCulture) ?? "(unsent)"}, " +
+                $"drawn {held?.Drawn.ToString() ?? "(none)"}, " +
+
+                // What the VIEWMODEL says it is holding, from `m_hWeapon`. Valve uses this and we
+                // use the line above; printing both is the only way to see them disagree.
+                $"m_hWeapon says {fromViewmodel ?? "(none)"}");
 
             _lastWeaponModel = weaponModel;
         }
 
-        ViewmodelSceneResult scene = _viewmodels.Build(
-            source,
-            info.CurrentTick,
-            follower,
-            new ViewmodelPlacement(
-                camera.Origin.X,
-                camera.Origin.Y,
-                camera.Origin.Z,
-                camera.Angles.Pitch,
-                camera.Angles.Yaw,
-                camera.Angles.Roll),
-            hands,
-            weaponModel);
+        // **A dead player has no viewmodel at all, and Valve's demo camera is where that is
+        // decided** (B222). `C_HLTVCamera::CalcInEyeCamView` (`hltvcamera.cpp:307`) opens with
+        //
+        //     if ( !pPlayer->IsAlive() )
+        //     {
+        //         // if dead, show from 3rd person
+        //         CalcChaseCamView( eyeOrigin, eyeAngles, fov );
+        //         return;
+        //     }
+        //     ...
+        //     pPlayer->CalcViewModelView( eyeOrigin, eyeAngles );
+        //
+        // so a dead spectated player never reaches `CalcViewModelView` — there is no viewmodel to
+        // draw, because the view is not in his eyes any more.
+        //
+        // **What this was doing instead, and what it looked like.** The weapon vanished correctly:
+        // `m_hActiveWeapon` reads invalid on death, so `Weapons.For` returned null and the weapon
+        // prop was never built. The ARMS carried on being posed and drawn for as long as the player
+        // stayed dead — 23 seconds in the measured case — which reads on screen as "the weapon
+        // disappeared", because floating hands at this field of view are easy to miss. The owner
+        // found them only by shrinking the window: *"there are floating hands you cant see them at
+        // regular resolution"*.
+        //
+        // **`IsAlive()` is exactly `m_lifeState == LIFE_ALIVE`** (`baseentity_shared.h:106`,
+        // `LIFE_ALIVE` = 0 at `public/const.h:275`). A null life state means the recording never
+        // said, which is ordinary for anyone but the followed player in a POV demo — treated as
+        // alive, because drawing the viewmodel is the normal case and an absent property means
+        // "unchanged" rather than "dead".
+        bool alive = held?.LifeState is null or LifeAlive;
+
+        ViewmodelSceneResult scene = alive
+            ? _viewmodels.Build(
+                source,
+                info.CurrentTick,
+                follower,
+                new ViewmodelPlacement(
+                    camera.Origin.X,
+                    camera.Origin.Y,
+                    camera.Origin.Z,
+                    camera.Angles.Pitch,
+                    camera.Angles.Yaw,
+                    camera.Angles.Roll),
+                hands,
+                weaponModel)
+            : new ViewmodelSceneResult([], Changed: false);
 
         if (scene.Props.Count == 0)
         {
-            _render.LogWarning(
-                "{Message}",
-                $"no viewmodel for entity {follower} at tick {info.CurrentTick}");
+            // **Not a warning when he is simply dead**, which is a state rather than a fault and
+            // lasts for a whole respawn. Warning for every other way of reaching zero props, which
+            // are all defects worth seeing.
+            if (alive)
+            {
+                _render.LogWarning(
+                    "{Message}",
+                    $"no viewmodel for entity {follower} at tick {info.CurrentTick}");
+            }
+            else if (_lastAlive && _render.IsEnabled(LogLevel.Debug))
+            {
+                _render.LogDebug(
+                    "{Message}",
+                    $"entity {follower} is dead (lifeState " +
+                    $"{held?.LifeState?.ToString(CultureInfo.InvariantCulture) ?? "?"}), so there " +
+                    "is no viewmodel — Valve shows a dead spectated player in third person");
+            }
 
+            _lastAlive = alive;
             ViewmodelCamera = null;
             return;
         }
+
+        _lastAlive = alive;
 
         // **Whether the set grew, because packing is not uploading.** `Add` fills this process's
         // copy of the geometry; the renderer keeps its own on the GPU and only receives it when
@@ -568,6 +659,9 @@ public sealed class MomentScene : IGameSystemPerFrame
                     $"  viewmodel prop '{shown.ModelPath}' seq {shown.Pose.Sequence}");
             }
         }
+
+        // Where the eye is, so the viewmodel's own report can measure itself against it (B222).
+        _models.ViewmodelEye = (camera.Origin.X, camera.Origin.Y, camera.Origin.Z);
 
         // **One call for all of them, because Instances CLEARS the list it is given.** Posing the
         // arms and then the weapon into the same list threw the arms away and drew the gun alone.
