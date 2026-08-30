@@ -566,7 +566,11 @@ run Tf2DemoSalvage.Presentation.Tests presentation 414
 # VMT. It settled B62 in one read: shader `Water`, no `$basetexture` by design, refracting against
 # `_rt_WaterRefraction`. Reading what the GAME ships is the fifth source CLAUDE.md lists and the one
 # that gets forgotten, because it is data rather than code.
-run Tf2DemoSalvage.Content.Tests  content   801
+# 801 -> 810: WaterShaderConformanceTests (9), `water.cpp:535` transcribed — which of the two passes
+# a water material draws, and Valve's `Draw()` fallback when neither applies. The last case walks all
+# 64 flag combinations to assert the engine never answers "nothing drawable", which is precisely what
+# the magenta chequer was claiming for a material TF2 has never failed to draw (B62).
+run Tf2DemoSalvage.Content.Tests  content   810
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
