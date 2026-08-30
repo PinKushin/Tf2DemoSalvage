@@ -384,10 +384,16 @@ old code was wrong against the SDK.
 
 **Still to read, in this order:**
 
-1. `ParserState::handle_packet_entities` in the oracle — what it does with entities *after*
+1. ~~`ParserState::handle_packet_entities` in the oracle — what it does with entities *after*
    parsing, particularly the `update_baseline` flag and the two baseline slots. This parser
    ignores both, and a baseline swap that changes how a later delta is interpreted would look
-   exactly like this.
+   exactly like this.~~ **Read and implemented, 2026-08-30 — and the note was right.** See B231
+   and `docs/findings/04-entities.md`. `EntityBaselineSlots` now maintains both arrays; an entering
+   entity deltas against its own stored state when one applies and against its class baseline
+   otherwise. **This item sat unread for months while the defect it predicts was blamed on
+   parenting, on render mode, and on PVS in turn** — three investigations, two reverted merges. A
+   "still to read" list is only as good as the habit of re-reading it when a symptom matches its own
+   description.
 2. The SDK's `CBaseClientState::ReadPacketEntities` and `CEntityReadInfo`, for anything between
    entities that this parser does not consume.
 3. The oracle's own tests under `src/demo/`, which encode expectations no prose states.

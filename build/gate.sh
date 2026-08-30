@@ -154,7 +154,16 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # spawn door a resupply cabinet for a whole recording, off the class baseline. Two of the three
 # model tests are controls: an unchanged index must keep its model, and a changed one must not
 # split the track in two.
-run Tf2DemoSalvage.Core.Tests     core     1575
+# 1575 -> 1584: EntityBaselineSlotConformanceTests (9). svc_PacketEntities names one of two
+# PER-ENTITY baseline arrays and periodically asks the client to rebuild the other; both fields were
+# decoded, round-tripped and consumed by nothing, so every entering entity was read against its
+# CLASS baseline -- one representative entity's state shared by the whole class. 2,340 snapshots in
+# the owner's recording set update_baseline. Six of the nine are controls, because every wrong
+# implementation here still produces plausible numbers: no stored baseline must fall back, the other
+# slot must not see the store, a stored baseline of a different class must not apply, a full update
+# must ignore it, a snapshot without the flag must store nothing, and a delta update must not become
+# a baseline. Five sabotages, each killing exactly its own test.
+run Tf2DemoSalvage.Core.Tests     core     1584
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.

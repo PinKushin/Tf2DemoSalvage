@@ -541,3 +541,37 @@ swap that changes how a later delta is interpreted would look exactly like this"
 under **Still to read**, and it was never read. The note was right and sat unactioned for months;
 the measurement above is the first evidence that the mechanism is live in a real recording rather
 than merely possible.
+
+#### Implemented, and what it moved
+
+**Evidence class: measured, before and after, on the same recording.**
+
+`EntityBaselineSlots` maintains the two arrays. An entering entity deltas against its own stored
+state when the snapshot's named slot holds one **of the same class** and the snapshot is a **delta**;
+otherwise against its class baseline. On `update_baseline` the named array is copied wholesale into
+the other one and each entering entity's **merged** state is written over the copy.
+
+The eight `resupply_locker` entities in `cp_fulgur`, before and after, against the map:
+
+| entity | before | after | map |
+|---|---|---|---|
+| 52 | (3440 -2096 240) | (3440 -2096 240) | `prop_locker_blu_5` |
+| 54 | (3024 -1736 368) | (3024 -1736 368) | `prop_locker_blu_6` |
+| 82 | (2480 2784 192) | (2480 2784 192) | `prop_locker_red_2` |
+| 105 | (1744 880 104) **+ (3440 -2096 240)** | (1744 880 104) | `prop_locker_red_3` |
+| 312 | (6232 -3024 384) **+ (3440 -2096 240) + (6043 -2961 374)** | (6232 -3024 384) | `prop_locker_blu_3` |
+| 314 | (5744 -2664 384) **+ (3440 -2096 240) + (5719 -2658 383)** | (5744 -2664 384) | `prop_locker_blu_4` |
+| 413 | (-864 -1104 152) | (-864 -1104 152) | `prop_locker_blu_7` |
+| 420 | (-0 -1580 -64) | (-0 -1580 -64) | `prop_locker_blu_8` |
+
+**The bolded poses are the class baseline's**, `prop_locker_blu_5`'s world origin, plus what the
+timeline interpolated on the way there and back. Entities 472, 473, 477, 478 and 717 disappeared
+entirely — they were slots briefly holding a stranger's state and nothing else, and the walk's prop
+count fell from 27 to 21. The two BLU spawn cabinets went from 78 samples across three positions to
+**303 at one**.
+
+**Six of the nine tests are controls, and that ratio is not padding.** Every wrong implementation
+here produces plausible numbers rather than an error: read the wrong slot and entities still decode,
+skip the array copy and they decode for one snapshot in two, drop the class check and a reused slot
+inherits a stranger. The only way to tell those apart is to write the case down first. Five
+deliberate sabotages each killed exactly the test written for it.

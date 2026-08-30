@@ -153,7 +153,9 @@ jobs:
           # 1567 -> 1575 on 2026-08-30: HandleSerialConformanceTests (5) and
           # ModelIndexFollowsUpdatesConformanceTests (3) — both halves of PostDataUpdate this
           # project had left out. Synthetic and file-free.
-          ./build/assert-test-count.sh '**/core.trx' 1575 Core
+          # 1575 -> 1584 on 2026-08-30: EntityBaselineSlotConformanceTests (9), the two per-entity
+          # baseline arrays svc_PacketEntities names. Synthetic and file-free.
+          ./build/assert-test-count.sh '**/core.trx' 1584 Core
           ./build/assert-test-count.sh '**/cli.trx' 74 Cli
           # 628 -> 645 is ARITHMETIC, not a measurement: 17 tests were added to Content on
           # 2026-08-24 (SchemeFont 6, GlyphAtlas 11), all self-contained, so every one of them

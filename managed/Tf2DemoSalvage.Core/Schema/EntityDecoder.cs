@@ -176,6 +176,32 @@ public sealed class EntityDecoder : IEntityBaselines
 
     private readonly List<int> _entityEndBits = [];
 
+    /// <summary>The two per-entity baseline arrays this decoder maintains across snapshots.</summary>
+    /// <remarks>
+    /// The one piece of decoder state that genuinely spans snapshots, and deliberately so: the
+    /// point of <c>update_baseline</c> is that a checkpoint taken now is read back later.
+    /// </remarks>
+    private readonly EntityBaselineSlots _baselineSlots = new();
+
+    /// <summary>
+    /// For each entering entity of the last snapshot, the per-entity baseline that applied.
+    /// </summary>
+    /// <remarks>
+    /// **Per-snapshot scratch, cleared at the top of every <see cref="Decode"/>**, alongside
+    /// <see cref="_removed"/> and <see cref="_entityEndBits"/> which work the same way.
+    ///
+    /// It exists because <see cref="EffectiveProperties"/> is handed one entity and the answer
+    /// depends on two things only the snapshot carries — which baseline array it names, and whether
+    /// it is a delta. Resolving at read time and remembering the result keeps that decision where
+    /// the information is.
+    ///
+    /// **The class id is stored beside the properties and checked on the way out.** Without it, an
+    /// entry left by one entity could be handed to a different entity in the same slot, which is
+    /// the failure this whole mechanism is careful about everywhere else.
+    /// </remarks>
+    private readonly Dictionary<int, (int ClassId, IReadOnlyList<DecodedProperty> Properties)>
+        _snapshotBaselines = [];
+
     /// <summary>
     /// Entity indices the most recent delta snapshot reported as removed.
     /// </summary>
@@ -215,6 +241,7 @@ public sealed class EntityDecoder : IEntityBaselines
         List<DecodedEntity> entities = new(header.UpdatedEntries);
         _removed.Clear();
         _entityEndBits.Clear();
+        _snapshotBaselines.Clear();
 
         int entityIndex = -1;
 
@@ -230,8 +257,30 @@ public sealed class EntityDecoder : IEntityBaselines
                     $"stream has desynchronised."));
             }
 
-            entities.Add(ReadEntity(ref reader, entityIndex, indexPayloadBits));
+            DecodedEntity entity = ReadEntity(ref reader, entityIndex, indexPayloadBits);
+
+            entities.Add(entity);
             _entityEndBits.Add(reader.BitsRead);
+
+            // **Which baseline this entity actually deltas against, resolved while the snapshot is
+            // still in hand.** `EffectiveProperties` is handed one entity and cannot know the named
+            // slot or whether the snapshot was a delta, and both decide the answer. Recorded here
+            // for the same reason `_removed` and `_entityEndBits` are: per-snapshot scratch the
+            // caller reads back immediately, cleared at the top of every Decode.
+            if (entity.UpdateType == EntityUpdateType.Enter &&
+                _baselineSlots.For(
+                    header.BaselineIndex, entityIndex, entity.ClassId, header.IsDelta)
+                    is { } stored)
+            {
+                _snapshotBaselines[entityIndex] = (entity.ClassId, stored);
+            }
+        }
+
+        // **The other half of the pair, and it runs after every entity is read** because what gets
+        // stored is the merged state of the whole snapshot, not of one entity at a time.
+        if (header.UpdateBaseline)
+        {
+            _baselineSlots.Update(header.BaselineIndex, header.IsDelta, entities);
         }
 
         // Where the entity section ended, so an encoder can be checked against what the decoder
@@ -884,29 +933,33 @@ public sealed class EntityDecoder : IEntityBaselines
             return entity.Properties;
         }
 
-        IReadOnlyList<DecodedProperty>? baseline = Baseline(entity.ClassId);
+        // **The entity's OWN stored baseline first, and the class baseline only when none applies.**
+        // `svc_PacketEntities` names one of two per-entity baseline arrays and periodically asks the
+        // client to rebuild the other; an entity re-entering the visible set is a delta against its
+        // own last checkpoint, which is how two properties can describe a door completely.
+        //
+        // Read against the class baseline instead — one representative entity's state, shared by
+        // the whole class — those two properties leave the entity holding a stranger's values.
+        // Measured on `cp_fulgur`: the BLU spawn door was created with the class baseline's model
+        // index 1154 (`resupply_locker.mdl`) and its origin (3440 -2096 240), which is
+        // `prop_locker_blu_5`'s world position out of the map's entity lump.
+        //
+        // Resolved in `Decode`, where the named slot and the delta flag are still in hand. An
+        // entity with no entry — a hand-built one, or one the server has not checkpointed yet —
+        // falls through to the class baseline, which is what this method always did.
+        IReadOnlyList<DecodedProperty>? baseline =
+            _snapshotBaselines.TryGetValue(
+                entity.EntityIndex,
+                out (int ClassId, IReadOnlyList<DecodedProperty> Properties) resolved)
+                && resolved.ClassId == entity.ClassId
+                    ? resolved.Properties
+                    : Baseline(entity.ClassId);
 
         // Null and empty are treated alike here, unlike in Baseline itself: for this question
         // "no baseline" and "a baseline that sets nothing" produce the same merged state.
-        if (baseline is null || baseline.Count == 0)
-        {
-            return entity.Properties;
-        }
-
-        SortedDictionary<int, DecodedProperty> merged = [];
-
-        foreach (DecodedProperty property in baseline)
-        {
-            merged[property.Index] = property;
-        }
-
-        // Second, so the snapshot wins wherever it spoke. That direction is the whole mechanism.
-        foreach (DecodedProperty property in entity.Properties)
-        {
-            merged[property.Index] = property;
-        }
-
-        return [.. merged.Values];
+        return baseline is null || baseline.Count == 0
+            ? entity.Properties
+            : BaselineMerge.Overlay(baseline, entity.Properties);
     }
 
     /// <summary>The flattened property list a class's updates index into.</summary>
