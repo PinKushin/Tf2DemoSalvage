@@ -70,12 +70,16 @@ public sealed class ViewerMenuTests
         // Valve convar this viewer had no equivalent for, which is why B170 could not be tested by
         // the one manipulation that would settle it. The count RISING for a named reason is the
         // outcome this test is for; a fall, or a rise nobody can name, is the defect it guards.
+        //
+        // **Fourteen since 2026-08-29**: `cl_showpos`, beside `cl_showfps` because Valve's own
+        // `CFPSPanel` draws both (D123). Added as an instrument for reading positions off a
+        // screenshot, on the owner's direction.
         using MainForm form = new();
 
         ToolStripMenuItem view = form.MainMenuStrip!.Items.OfType<ToolStripMenuItem>()
             .Single(item => item.Name == MainForm.ViewMenuId);
 
-        view.DropDownItems.Count.ShouldBe(13);
+        view.DropDownItems.Count.ShouldBe(14);
     }
 
     [Test]

@@ -618,22 +618,71 @@ internal sealed partial class ViewerApplication : IDisposable
     /// </remarks>
     public void InvokeMenuItem(string menuId, string itemId)
     {
-        // **By NAME, because a menu item has no AutomationId to search by.** WinForms does not
-        // surface one for ToolStripMenuItem, and asking for it does not return nothing — it throws
-        // on the first item inspected, which reads as "the menu is missing" rather than "you asked
-        // the wrong question".
-        AutomationElement? menu = Retry.WhileNull(
+        AutomationElement item = MenuItem(menuId, itemId, out AutomationElement menu);
+
+        item.Patterns.Invoke.Pattern.Invoke();
+
+        // Closed again so the next expand starts from a known state, and so an open menu is not
+        // left covering the viewport a later test is about to measure.
+        menu.Patterns.ExpandCollapse.Pattern.Collapse();
+    }
+
+    /// <summary>Whether a check menu item is currently ticked.</summary>
+    /// <param name="menuId">The menu's accessible name.</param>
+    /// <param name="itemId">The item's accessible name.</param>
+    /// <returns>Its toggle state.</returns>
+    /// <exception cref="InvalidOperationException">No such menu or item appeared in time.</exception>
+    /// <remarks>
+    /// **Needed because <see cref="InvokeMenuItem"/> on a check item TOGGLES.** A test that wants a
+    /// known state — "off before I measure the before picture" — cannot get there by invoking, since
+    /// invoking twice returns it to where it started. This assembly shares one viewer and the tests
+    /// do not run in a fixed order, so "it is probably off" is not a state, it is an assumption.
+    /// </remarks>
+    public bool IsMenuItemChecked(string menuId, string itemId)
+    {
+        AutomationElement item = MenuItem(menuId, itemId, out AutomationElement menu);
+
+        bool ticked = item.Patterns.Toggle.Pattern.ToggleState.Value == ToggleState.On;
+
+        menu.Patterns.ExpandCollapse.Pattern.Collapse();
+
+        return ticked;
+    }
+
+    /// <summary>Opens a menu and finds one of its items, leaving the menu expanded.</summary>
+    /// <param name="menuId">The menu's accessible name.</param>
+    /// <param name="itemId">The item's accessible name.</param>
+    /// <param name="menu">The menu, so the caller can collapse it when it is done.</param>
+    /// <returns>The item.</returns>
+    /// <exception cref="InvalidOperationException">No such menu or item appeared in time.</exception>
+    /// <remarks>
+    /// **By NAME, because a menu item has no AutomationId to search by.** WinForms does not surface
+    /// one for `ToolStripMenuItem`, and asking for it does not return nothing — it throws on the
+    /// first item inspected, which reads as "the menu is missing" rather than "you asked the wrong
+    /// question".
+    ///
+    /// **Left expanded, and the caller collapses it.** Reading a toggle state and invoking an item
+    /// both need the item found the same way, and a helper that closed the menu itself would make
+    /// the element it just returned stale.
+    /// </remarks>
+    private AutomationElement MenuItem(string menuId, string itemId, out AutomationElement menu)
+    {
+        AutomationElement? found = Retry.WhileNull(
             () => Window.FindFirstDescendant(search => search.ByName(menuId)),
             FindTimeout,
             throwOnTimeout: true,
             timeoutMessage: $"No menu named '{menuId}' appeared.").Result;
 
-        Assert.That(menu, Is.Not.Null, $"no menu named '{menuId}'");
+        Assert.That(found, Is.Not.Null, $"no menu named '{menuId}'");
 
-        menu!.Patterns.ExpandCollapse.Pattern.Expand();
+        menu = found!;
+
+        menu.Patterns.ExpandCollapse.Pattern.Expand();
+
+        AutomationElement opened = menu;
 
         AutomationElement? item = Retry.WhileNull(
-            () => menu.FindFirstDescendant(search => search.ByName(itemId)),
+            () => opened.FindFirstDescendant(search => search.ByName(itemId)),
             FindTimeout,
             throwOnTimeout: true,
             timeoutMessage: $"{itemId} never appeared under {menuId}.").Result;
@@ -643,11 +692,7 @@ internal sealed partial class ViewerApplication : IDisposable
         // that would hide a real change to Retry's contract.
         Assert.That(item, Is.Not.Null, $"{itemId} was not found under {menuId}");
 
-        item!.Patterns.Invoke.Pattern.Invoke();
-
-        // Closed again so the next expand starts from a known state, and so an open menu is not
-        // left covering the viewport a later test is about to measure.
-        menu.Patterns.ExpandCollapse.Pattern.Collapse();
+        return item!;
     }
 
     /// <summary>Finds a control by the automation id the shell gives it.</summary>

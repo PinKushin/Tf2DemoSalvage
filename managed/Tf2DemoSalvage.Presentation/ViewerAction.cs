@@ -122,6 +122,18 @@ public enum ViewerAction
     /// <remarks>TF2's `cl_showfps`.</remarks>
     FrameRate,
 
+    /// <summary>Show or hide the position readout.</summary>
+    /// <remarks>
+    /// TF2's `cl_showpos`, drawn by the same panel as <see cref="FrameRate"/>.
+    ///
+    /// **No default key, and that is Valve's answer rather than an omission.**
+    /// `config_default.cfg` binds neither convar, so a user reaches both through the console or a
+    /// config — and this viewer's menu. Inventing a default here would take a key TF2 leaves
+    /// available (`docs/memory/tf2-binds-every-letter-but-o.md`), which is the opposite of what
+    /// D101 is for. It is bindable, so a config that wants it can say so.
+    /// </remarks>
+    PositionReadout,
+
     /// <summary>Colour surfaces by their properties.</summary>
     /// <remarks>Ours; no single engine convar covers it.</remarks>
     SurfaceColours,
@@ -307,6 +319,18 @@ public sealed class KeyBindings
             // The three keys TF2 does not use, spent on the things reached most often.
             [ViewerAction.FullScreen] = "F11",
             [ViewerAction.FrameRate] = "F8",
+
+            // **`CTRL+p` because every action must have one, which is a project rule rather than
+            // Valve's.** TF2 binds neither `cl_showfps` nor `cl_showpos` in `config_default.cfg`,
+            // so parity alone would leave this unbound — and `ConfigConsoleConformanceTests.Unbound_
+            // TheShippedDefaults_LeaveNothingUnreachable` refuses that, correctly: an action with no
+            // default key is one nobody finds.
+            //
+            // A CTRL combination rather than a bare letter, for the reason recorded beside
+            // `CTRL+o`: `config_default.cfg` binds every letter but `o`, so a real config takes any
+            // single-key default away, and Source's `bind` has no syntax for a modifier so a
+            // combination cannot collide with one. `p` is free among the twelve already used.
+            [ViewerAction.PositionReadout] = "CTRL+p",
             [ViewerAction.SurfaceColours] = "F9",
 
             // **F5 is TF2's screenshot key and this is TF2's `screenshot` command**, so a config
@@ -381,6 +405,7 @@ public sealed class KeyBindings
             [ViewerAction.PlayPause] = "demo_togglepause",
             [ViewerAction.Screenshot] = "screenshot",
             [ViewerAction.FrameRate] = "cl_showfps",
+            [ViewerAction.PositionReadout] = "cl_showpos",
             [ViewerAction.Wireframe] = "mat_wireframe",
             [ViewerAction.DrawFlat] = "mat_drawflat",
             [ViewerAction.Luxels] = "mat_luxels",

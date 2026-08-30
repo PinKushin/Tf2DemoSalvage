@@ -154,3 +154,4 @@
 - [Measure the route before building on it](measure-the-route-before-building-on-it.md) — the planned lump path reached zero of 1191 faces.
 - [An instrument unread is not an instrument](an-instrument-unread-is-not-an-instrument.md) — reading one found the viewer had been silent for days.
 - [Key a lookup on the question](key-a-lookup-on-the-question.md) — deriving every case from case zero makes case zero load-bearing.
+- [Not every setting needs a bind](not-every-setting-needs-a-bind.md) — a convar can be config-only; three tiers, and only the last is a default.
