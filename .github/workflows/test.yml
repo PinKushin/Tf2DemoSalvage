@@ -188,7 +188,10 @@ jobs:
           # 826 -> 827 on 2026-08-30: SpawnRoomEntityProbe (1, Explicit), which reads cp_fulgur's
           # entity lump so a placement claim is checked against the MAP rather than against another
           # reading of our own decode.
-          ./build/assert-test-count.sh '**/content.trx' 827 Content
+          # 827 -> 835 on 2026-08-30: ClampCycleConformanceTests (7) and
+          # SetupGateStaticPropProbe (1, Explicit). A one-shot sequence's cycle was wrapped
+          # rather than clamped, so every non-looping animation restarted for ever.
+          ./build/assert-test-count.sh '**/content.trx' 835 Content
           # 396 -> 402 on 2026-08-28: ViewCameraModeTests (6), for the third camera mode.
           # 412 -> 414 on 2026-08-29, and that is TWO bumps: the stale-clock case on
           # `DemoSystems.Open` (B223 follow-up) was raised in build/gate.sh and missed here, and the

@@ -469,7 +469,18 @@ public sealed class EntityModelSet
             double elapsed = seconds - where.AnimationStartSeconds;
 
             double advanced = where.Cycle + (elapsed * skinned.CyclesPerSecond(sequence));
-            float phase = (float)(advanced - Math.Floor(advanced));
+
+            // **Wrapped only if the sequence LOOPS** (`C_BaseAnimating::ClampCycle`,
+            // `c_baseanimating.cpp:1431`). This was `advanced - Math.Floor(advanced)`, which is the
+            // looping branch applied to everything — so a one-shot sequence that finished started
+            // again, for ever. The owner's report: *"the health cab is in a animation loop, it
+            // doesnt stop"*; `resupply_locker.mdl`'s `idle`, `open` and `close` are all flags 0x0.
+            //
+            // `FrameFor` holds a finished one-shot on its last frame and takes the loop flag to do
+            // it, and could never run that branch, because the wrap here had already erased the
+            // evidence that the cycle went past one.
+            float phase = StudioSequences.ClampCycle(
+                (float)advanced, skinned.Loops(sequence));
 
             posed.Sequence = sequence;
             posed.Frame = StudioSequences.FrameFor(

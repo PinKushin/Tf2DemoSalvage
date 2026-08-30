@@ -619,7 +619,16 @@ run Tf2DemoSalvage.Presentation.Tests presentation 424
 # resupply lockers are UNPARENTED and that a parented prop's `origin` key is its parent's world
 # position. Every position claim in the B231 hunt before it was checked against another reading of
 # our own decode, which cannot falsify a wrong premise; the map can.
-run Tf2DemoSalvage.Content.Tests  content   827
+# 827 -> 835: ClampCycleConformanceTests (7) and SetupGateStaticPropProbe (1, Explicit).
+# C_BaseAnimating::ClampCycle wraps a cycle only when the sequence LOOPS and clamps to 0.999
+# otherwise; this project wrapped unconditionally in two places, both spelled
+# `advanced - Math.Floor(advanced)`, so every one-shot sequence restarted for ever -- the owner's
+# spawn health cabinet opened and shut without stopping. FrameFor already held the last frame
+# and took the loop flag to do it, and could never run that branch, because the caller had
+# already erased the evidence that the cycle went past one. Three of the seven are controls: an
+# in-range cycle must be untouched either way, a looping cycle must still wrap, and the same
+# input on a looping sequence must return to the start rather than hold.
+run Tf2DemoSalvage.Content.Tests  content   835
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2

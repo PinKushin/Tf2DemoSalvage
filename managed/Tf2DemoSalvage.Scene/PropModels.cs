@@ -2080,7 +2080,16 @@ public static class PropModels
 
             bool loops = wanted < SequenceLoops.Count && SequenceLoops[wanted];
 
-            float phase = (float)(advanced - Math.Floor(advanced));
+            // **Wrapped only if the sequence LOOPS** (`C_BaseAnimating::ClampCycle`,
+            // `c_baseanimating.cpp:1431`). This was `advanced - Math.Floor(advanced)`, the looping
+            // branch applied to everything, so a one-shot sequence that finished began again.
+            //
+            // Note what that did to the two lines below, which already had it right: `FrameFor`
+            // holds a finished one-shot on its last frame, and `next` deliberately holds rather
+            // than wrapping — *"A door that has finished opening must blend toward the pose it is
+            // already in, not back to shut"*. Neither could ever run, because the phase reaching
+            // them was wrapped below one and looked like a sequence still in progress.
+            float phase = StudioSequences.ClampCycle((float)advanced, loops);
 
             int frame = StudioSequences.FrameFor(phase, where.Frames, loops);
 
