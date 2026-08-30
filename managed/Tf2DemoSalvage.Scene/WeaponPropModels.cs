@@ -37,8 +37,23 @@ namespace Tf2DemoSalvage.Scene;
 /// flamethrowers and most miniguns network a world model and keep it; re-resolving them would
 /// replace a measured index with a lookup and is a chance to be wrong about weapons that work.
 /// </remarks>
-internal static class WeaponPropModels
+internal sealed class WeaponPropModels
 {
+    /// <summary>What each (item, class, player class) resolved to last time it was asked.</summary>
+    /// <remarks>
+    /// **This runs every frame, and without the cache it cost 44 ms of one** — measured on the
+    /// owner's machine, drawlist mean 2.9 ms before and 46.6 ms after, 1,201 slow moments against
+    /// one. 122 of `cp_fulgur`'s 1,158 prop tracks await an item lookup, and every one was
+    /// re-resolved on every frame it was alive.
+    ///
+    /// **The key is Valve's own invalidation rule, not a guess at one.** `UpdateModelToClass` is
+    /// called from `OnOwnerClassChange` and `ReapplyProvision` (`econ_entity.cpp:288`, `:358`) — the
+    /// model is re-derived when the ITEM or the owner's CLASS changes and at no other time, which is
+    /// exactly this tuple. A null answer is cached too: a game that is not installed answers null
+    /// for every item, for ever, and re-asking is the same wasted work.
+    /// </remarks>
+    private readonly Dictionary<(int Item, string Class, int PlayerClass), string?> _resolved = [];
+
     /// <summary>Fills in the model of any prop whose item names one.</summary>
     /// <param name="drawn">The props for this moment, edited in place.</param>
     /// <param name="players">Players, for the owner's class — models differ per class.</param>
@@ -47,7 +62,7 @@ internal static class WeaponPropModels
     /// <see cref="WeaponModels.For(int?, string?, int?)"/> in production.
     /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
-    public static void Resolve(
+    public void Resolve(
         IList<SceneProp> drawn,
         IReadOnlyList<ScenePlayer> players,
         Func<int?, string?, int?, string?> model)
@@ -71,8 +86,16 @@ internal static class WeaponPropModels
             // player this moment knows about, which `WeaponModels.For` reads as class zero.
             int? playerClass = ClassOf(players, prop.AttachedTo ?? prop.OwnedBy);
 
-            if (model(prop.ItemDefinitionIndex, prop.ClassName, playerClass)
-                is { Length: > 0 } named)
+            (int, string, int) key =
+                (prop.ItemDefinitionIndex.Value, prop.ClassName, playerClass ?? 0);
+
+            if (!_resolved.TryGetValue(key, out string? named))
+            {
+                named = model(prop.ItemDefinitionIndex, prop.ClassName, playerClass);
+                _resolved[key] = named;
+            }
+
+            if (named is { Length: > 0 })
             {
                 drawn[index] = prop with { ModelPath = named };
             }

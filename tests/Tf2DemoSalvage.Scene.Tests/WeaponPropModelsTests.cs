@@ -31,7 +31,7 @@ public sealed class WeaponPropModelsTests
         // The reported case.
         List<SceneProp> drawn = [Weapon(model: "", item: MediGun, owner: 3)];
 
-        WeaponPropModels.Resolve(drawn, [], (_, _, _) => MedigunModel);
+        new WeaponPropModels().Resolve(drawn, [], (_, _, _) => MedigunModel);
 
         drawn[0].ModelPath.ShouldBe(MedigunModel);
     }
@@ -44,7 +44,7 @@ public sealed class WeaponPropModelsTests
         // a change nobody asked for, and a chance to be wrong about weapons that currently work.
         List<SceneProp> drawn = [Weapon(model: "models/weapons/w_rocket.mdl", item: 513, owner: 3)];
 
-        WeaponPropModels.Resolve(drawn, [], (_, _, _) => MedigunModel);
+        new WeaponPropModels().Resolve(drawn, [], (_, _, _) => MedigunModel);
 
         drawn[0].ModelPath.ShouldBe("models/weapons/w_rocket.mdl", "the wire already named it");
     }
@@ -56,7 +56,7 @@ public sealed class WeaponPropModelsTests
         // this, "resolves weapons" and "assigns a model to anything blank" are the same observation.
         List<SceneProp> drawn = [Weapon(model: "", item: null, owner: 3)];
 
-        WeaponPropModels.Resolve(drawn, [], (_, _, _) => MedigunModel);
+        new WeaponPropModels().Resolve(drawn, [], (_, _, _) => MedigunModel);
 
         drawn[0].ModelPath.ShouldBe(string.Empty);
     }
@@ -68,7 +68,7 @@ public sealed class WeaponPropModelsTests
         // viewer runs without an installed game in CI, where every lookup returns null.
         List<SceneProp> drawn = [Weapon(model: "", item: MediGun, owner: 3)];
 
-        WeaponPropModels.Resolve(drawn, [], (_, _, _) => null);
+        new WeaponPropModels().Resolve(drawn, [], (_, _, _) => null);
 
         drawn[0].ModelPath.ShouldBe(string.Empty);
     }
@@ -83,7 +83,7 @@ public sealed class WeaponPropModelsTests
 
         int? asked = null;
 
-        WeaponPropModels.Resolve(
+        new WeaponPropModels().Resolve(
             drawn,
             [Player(entityIndex: 7, playerClass: 5)],
             (_, _, forClass) =>
@@ -105,7 +105,7 @@ public sealed class WeaponPropModelsTests
 
         int? asked = 99;
 
-        WeaponPropModels.Resolve(
+        new WeaponPropModels().Resolve(
             drawn,
             [Player(entityIndex: 8, playerClass: 5)],
             (_, _, forClass) =>
@@ -115,6 +115,68 @@ public sealed class WeaponPropModelsTests
             });
 
         asked.ShouldBeNull();
+    }
+
+    [Test]
+    public void Resolve_TheSameWeaponOnASecondFrame_IsNotLookedUpAgain()
+    {
+        // **A performance regression this shipped, measured on the owner's machine.** The drawlist
+        // phase went from a 2.9 ms mean to 46.6 ms and slow moments from one to 1,201, because 122
+        // of `cp_fulgur`'s 1,158 prop tracks await an item lookup and every one was re-resolved on
+        // every frame it was alive.
+        //
+        // **The key is Valve's own invalidation rule, not a guess.** `UpdateModelToClass` is called
+        // from `OnOwnerClassChange` and `ReapplyProvision` — the model is re-derived when the item
+        // or the owner's class changes, and at no other time.
+        WeaponPropModels models = new();
+
+        int lookups = 0;
+
+        for (int frame = 0; frame < 5; frame++)
+        {
+            List<SceneProp> drawn = [Weapon(model: "", item: MediGun, owner: 7)];
+
+            models.Resolve(
+                drawn,
+                [Player(entityIndex: 7, playerClass: 5)],
+                (_, _, _) =>
+                {
+                    lookups++;
+                    return MedigunModel;
+                });
+
+            drawn[0].ModelPath.ShouldBe(MedigunModel, "every frame still gets its answer");
+        }
+
+        lookups.ShouldBe(1, "the answer cannot change while item and owner class do not");
+    }
+
+    [Test]
+    public void Resolve_ADifferentPlayerClassHoldingTheSameItem_IsLookedUpSeparately()
+    {
+        // **The control, and it is what makes the cache key correct rather than merely small.** A
+        // shotgun is one item and four models — soldier, pyro, heavy and engineer — so a cache keyed
+        // on the item alone would hand the engineer the soldier's model. Caching by the whole tuple
+        // is the difference between an optimisation and a bug.
+        WeaponPropModels models = new();
+
+        List<int?> asked = [];
+
+        foreach (int playerClass in (int[])[3, 9])
+        {
+            List<SceneProp> drawn = [Weapon(model: "", item: MediGun, owner: 7)];
+
+            models.Resolve(
+                drawn,
+                [Player(entityIndex: 7, playerClass: playerClass)],
+                (_, _, forClass) =>
+                {
+                    asked.Add(forClass);
+                    return MedigunModel;
+                });
+        }
+
+        asked.ShouldBe([3, 9], "a different class is a different question");
     }
 
     private static SceneProp Weapon(string model, int? item, int owner) =>

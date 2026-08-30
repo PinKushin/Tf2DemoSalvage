@@ -100,6 +100,42 @@ public sealed class MedigunPlacementProbe
                 + $"{track.ClassName} '{track.ModelPath}'");
         }
 
+        // **How many tracks the routing change added to Props**, which is the FPS question. A
+        // track with an item and no model used to produce nothing at all; now it is a prop, and
+        // every per-frame walk over Props pays for it.
+        int unresolved = timeline.Props.Count(
+            track => track.ModelPath.Length == 0 && track.ItemDefinitionIndex is not null);
+
+        TestContext.Out.WriteLine(
+            $"CENSUS {timeline.Props.Count} prop tracks, {unresolved} of them awaiting an item "
+            + $"lookup, {timeline.PlayerTracks.Count} player tracks");
+
+        // **What sequence the spawn cabinets are actually told to play, and when.** The owner
+        // reports they now stay OPEN, where before they looped for ever. `ClampCycle` holds a
+        // finished one-shot on its last frame, which is right — `open` ends open. So the question is
+        // whether the demo ever says `close`, and if it does, whether the track follows.
+        foreach (ScenePropTrack cabinet in timeline.Props
+            .Where(track =>
+                track.ModelPath.Contains("resupply_locker", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(track => track.EntityIndex)
+            .Take(4))
+        {
+            List<string> sequences =
+            [
+                .. cabinet.Keyframes
+                    .Select(frame => $"t{frame.Tick.ToString(CultureInfo.InvariantCulture)}"
+                        + $":seq{frame.Pose.Sequence.ToString(CultureInfo.InvariantCulture)}"
+                        + $"@{frame.Pose.Cycle:0.00}")
+                    .Take(10),
+            ];
+
+            TestContext.Out.WriteLine(
+                $"CABINET {cabinet.EntityIndex} {cabinet.Keyframes.Count} keyframes, "
+                + $"distinct sequences "
+                + $"[{string.Join(",", cabinet.Keyframes.Select(f => f.Pose.Sequence).Distinct().Order())}]"
+                + $" first: {string.Join(" ", sequences)}");
+        }
+
         // What actually reaches the scene, and where.
         Dictionary<string, HashSet<string>> placed = new(StringComparer.OrdinalIgnoreCase);
         Dictionary<string, int> sightings = new(StringComparer.OrdinalIgnoreCase);

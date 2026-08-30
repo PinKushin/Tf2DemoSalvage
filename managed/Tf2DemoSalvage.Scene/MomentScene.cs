@@ -111,6 +111,13 @@ public sealed class MomentScene : IGameSystemPerFrame
     private readonly ViewmodelScene _viewmodels;
     private readonly ILogger _render;
 
+    /// <summary>Names weapons whose model the wire never carried, and remembers the answers.</summary>
+    /// <remarks>
+    /// An instance rather than a static call, because the cache inside it is the whole point: the
+    /// lookup runs every frame over every prop awaiting one, and re-asking cost 44 ms of a frame.
+    /// </remarks>
+    private readonly WeaponPropModels _weaponModels = new();
+
     private readonly List<SceneProp> _drawn = [];
     private readonly List<ModelInstance> _instances = [];
     private readonly List<ModelInstance> _viewmodelInstances = [];
@@ -219,7 +226,7 @@ public sealed class MomentScene : IGameSystemPerFrame
         //
         // Before the visibility filters, because a prop with no model would otherwise be judged on
         // a name it has not been given yet.
-        WeaponPropModels.Resolve(_drawn, players, Weapons.For);
+        _weaponModels.Resolve(_drawn, players, Weapons.For);
 
         ReportUndressedPlayers(players);
 

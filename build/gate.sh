@@ -359,7 +359,14 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 # already has a model is untouched, one with no item is untouched, a lookup that answers null
 # must not blank the prop (CI has no game install, so every lookup returns null there), and an
 # owner this moment does not know about must ask with NO class rather than with somebody's.
-run Tf2DemoSalvage.Scene.Tests    scene     244
+# 244 -> 246: two cache cases for WeaponPropModels. Resolving a weapon's model from its item
+# ran EVERY FRAME for every prop awaiting one -- measured on the owner's machine, drawlist mean
+# 2.9 ms before and 46.6 ms after, 1,201 slow moments against one, because 122 of cp_fulgur's
+# 1,158 prop tracks await a lookup. The key is Valve's own invalidation rule: UpdateModelToClass
+# is called from OnOwnerClassChange and ReapplyProvision, so item + owner class is exactly when
+# the answer can change. The second case is the control -- one item is four models across
+# classes, so a cache keyed on the item alone would hand the engineer the soldier's shotgun.
+run Tf2DemoSalvage.Scene.Tests    scene     246
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
