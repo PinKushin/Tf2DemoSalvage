@@ -155,4 +155,3 @@
 - [An instrument unread is not an instrument](an-instrument-unread-is-not-an-instrument.md) — reading one found the viewer had been silent for days.
 - [Key a lookup on the question](key-a-lookup-on-the-question.md) — deriving every case from case zero makes case zero load-bearing.
 - [Not every setting needs a bind](not-every-setting-needs-a-bind.md) — a convar can be config-only; three tiers, and only the last is a default.
-- [Decoding a field is not honouring it](decoding-a-field-is-not-honouring-it.md) — grep the SDK for every use; one consumer of four is three quarters unimplemented.
