@@ -34,6 +34,7 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="LightU">Lightmap atlas coordinate across; zero for anything but brushwork.</param>
 /// <param name="LightV">Lightmap atlas coordinate down; zero for anything but brushwork.</param>
 /// <param name="LightStep">How far along the atlas each directional set sits, or zero.</param>
+/// <param name="MaterialSlot">The mesh's own skinref, which a skin family is looked up by.</param>
 public readonly record struct PropVertex(
     float X, float Y, float Z, float U, float V, int MaterialIndex,
     float OriginX = 0f, float OriginY = 0f,
@@ -50,7 +51,18 @@ public readonly record struct PropVertex(
     // entity is the other case entirely: vrad lights every model's faces, not just the world's
     // (vrad.cpp:703), so a door's faces have baked samples sitting in the same lighting lump as
     // the wall's. Dropping them here is what made an opening door a flat panel.
-    float LightU = 0f, float LightV = 0f, float LightStep = 0f);
+    float LightU = 0f, float LightV = 0f, float LightStep = 0f,
+
+    // **The mesh's own `mstudiomesh_t::material`, which is a SKINREF and not a texture index**
+    // (B229). `g_skinref[skin][skinref]` turns it into one
+    // (`utils/motionmapper/motionmapper.h:134`), so this is the key a skin family is looked up by
+    // — `MaterialIndex` above is already the ANSWER for one particular family, and asking "what
+    // does that answer become in another family" is a question the engine never asks and that has
+    // two answers whenever two meshes share a material.
+    //
+    // −1 for anything with no skin table to index: brush entities, and any geometry not built
+    // from a `.mdl`. It can then never match a swap entry, which is what those want.
+    int MaterialSlot = -1);
 
 /// <summary>
 /// The models a map places, loaded and put where the map says.
@@ -127,9 +139,8 @@ public static class PropModels
     /// The light reaching a point, used for props whose baked vertex lighting is absent or refused.
     /// </param>
     /// <param name="props">
-    /// Where loading reports what it refused, or <c>null</c> for nowhere. Optional with a
-    /// null-object default (D83), because most callers here are tests that want geometry rather
-    /// than commentary.
+    /// Where loading reports what it refused, and what it could not paint. <b>Required, and first,
+    /// so that a caller cannot omit it</b> — see the remarks.
     /// </param>
     /// <remarks>
     /// **A prop without baked lighting is lit from the light cache, not left white** (B123). The
@@ -144,24 +155,40 @@ public static class PropModels
     /// updated models since these maps were compiled and their checksums no longer match. Leaving
     /// those props white meant no lighting at all: flat albedo, which reads washed out on a pale
     /// model and as a dark disc on the capture point's dark metal, which is how this was noticed.
+    ///
+    /// **The logger is required, and that is a fix rather than a style choice (B229).** It used to
+    /// be <c>ILogger? props = null</c>, defaulted to <c>NullLogger.Instance</c>, with a comment
+    /// saying "most callers of this are tests that want geometry, not commentary". There was
+    /// exactly ONE caller in the repository — `MapAssets` — and it passed nothing. So every finding
+    /// this method produces was discarded, including the two warnings in <c>Register</c> that name
+    /// the model whose mesh will draw in the missing-material chequer.
+    ///
+    /// That cost four hypotheses on B229: the viewer log was read for those warnings, they were
+    /// absent, and their absence was taken as evidence about the geometry rather than about the
+    /// sink. The same log held 125 `pairing` lines, which is exactly the number of ENTITY models —
+    /// those arrive through <see cref="LoadFrames"/>, which was handed a real logger four lines
+    /// away in the same method.
+    ///
+    /// A null-object default is right where several callers genuinely differ. With one caller it
+    /// is a hole with a comment over it, and this is the second time that shape has cost a day
+    /// (`docs/memory/a-null-object-default-hides-a-missed-wiring.md`). Required means the compiler
+    /// asks the question instead of a reviewer having to.
     /// </remarks>
     public static IReadOnlyList<PropVertex> Load(
+        ILogger props,
         ReadOnlyMemory<byte> map,
         PakFile pak,
         GameArchives archives,
         MaterialTable materialTable,
         Func<string, ResolvedMaterial?> load,
         ICollection<string>? refusedLighting = null,
-        Func<float, float, float, PointLighting>? lightAt = null,
-        ILogger? props = null)
+        Func<float, float, float, PointLighting>? lightAt = null)
     {
+        ArgumentNullException.ThrowIfNull(props);
         ArgumentNullException.ThrowIfNull(pak);
         ArgumentNullException.ThrowIfNull(archives);
         ArgumentNullException.ThrowIfNull(materialTable);
         ArgumentNullException.ThrowIfNull(load);
-
-        // Null-object default: most callers of this are tests that want geometry, not commentary.
-        props ??= NullLogger.Instance;
 
         IReadOnlyList<BspStaticProp> placements;
 
@@ -252,14 +279,26 @@ public static class PropModels
             // and it reads as the map's own art rather than as a defect. Measured on
             // cp_process_final: 267 of 1631 placements ask for a family other than zero.
             //
-            // The swap is applied here rather than at load time because a model is loaded ONCE and
+            // The lookup is done here rather than at load time because a model is loaded ONCE and
             // placed many times, with different families at different placements. Vertices are
-            // already copied per placement, so remapping the material index on the way past costs
-            // a dictionary lookup and no extra geometry.
-            IReadOnlyDictionary<int, int>? swap =
-                placement.Skin > 0 && model.Frames.SkinSwaps is { } swaps && placement.Skin <= swaps.Count
-                    ? swaps[placement.Skin - 1]
-                    : null;
+            // already copied per placement, so resolving the material on the way past costs a
+            // dictionary lookup and no extra geometry.
+            //
+            // **Indexed BY family rather than by family-minus-one, and family zero is not special**
+            // (B229). The table used to hold families 1..N and to be keyed on family zero's
+            // resolved material, which made a model whose family-zero texture the map does not
+            // pack undrawable in every family. An out-of-range skin falls back to family zero,
+            // which is `props_shared.cpp:1079`'s answer for the same input.
+            IReadOnlyDictionary<int, int>? family = null;
+
+            if (model.Frames.SkinSwaps is { Count: > 0 } families)
+            {
+                int chosen = placement.Skin >= 0 && placement.Skin < families.Count
+                    ? placement.Skin
+                    : 0;
+
+                family = families[chosen];
+            }
 
             // **Sampled once per placement, not per vertex.** The engine gives a whole model one
             // ambient cube — `DrawModelInfo_t.m_vecAmbientCube` is a single set of six — and it is
@@ -281,9 +320,9 @@ public static class PropModels
             {
                 PropVertex corner = model.Corners[at];
 
-                if (swap is not null && swap.TryGetValue(corner.MaterialIndex, out int replaced))
+                if (family is not null && family.TryGetValue(corner.MaterialSlot, out int painted))
                 {
-                    corner = corner with { MaterialIndex = replaced };
+                    corner = corner with { MaterialIndex = painted };
                 }
 
                 (float x, float y, float z) = transform.Apply(corner.X, corner.Y, corner.Z);
@@ -815,12 +854,23 @@ public static class PropModels
             // inside the bake would append the same materials to the shared table once per frame.
             int[] materialByMesh = new int[Math.Min(meshes.Count, model.Meshes.Count)];
 
+            short[] skinTable = StudioSkins.Read(modelFile);
+            int families = StudioSkins.Families(modelFile);
+            int references = StudioSkins.References(modelFile);
+
             for (int index = 0; index < materialByMesh.Length; index++)
             {
+                // **Family ZERO's texture, said explicitly rather than assumed** (B229). A mesh's
+                // `material` is a skinref, and family zero's row is what turns it into a texture
+                // index — usually the identity, which is why reading the reference directly agreed
+                // with the engine on almost every model this project has ever loaded. On a model
+                // whose first row is not the identity it does not, and the mesh silently takes
+                // another mesh's texture.
                 materialByMesh[index] = Register(
                     props,
                     model,
-                    model.Meshes[index].MaterialIndex,
+                    StudioSkins.TextureFor(
+                        skinTable, references, families, 0, model.Meshes[index].MaterialIndex),
                     materialTable,
                     materialIndices,
                     load);
@@ -835,37 +885,47 @@ public static class PropModels
             // the batches below are emitted once per family over the SAME vertices - a family
             // differs only in which material paints a mesh, so it costs batch metadata rather than
             // geometry.
-            short[] skinTable = StudioSkins.Read(modelFile);
-            int families = StudioSkins.Families(modelFile);
-            int references = StudioSkins.References(modelFile);
-
+            //
+            // **Keyed by the mesh's SKINREF, and built for every family including zero (B229).**
+            // It used to start at family 1 and key each entry on family zero's RESOLVED material
+            // index, which made family zero load-bearing for every other family: a model whose
+            // family-zero texture the map does not pack resolved to −1, `−1` was refused as a key,
+            // and every placement of that model drew in the missing-material chequer however well
+            // its own family resolved. `cp_fulgur` places `props_aquatic/pipe_256.mdl` at skins 1
+            // and 12 of 15 and packs exactly those two textures.
+            //
+            // Family zero is included so the lookup below has no special case, and entries are
+            // recorded even when they resolve to −1: a family whose texture is genuinely missing
+            // draws the chequer, which is what the engine does, rather than quietly falling back to
+            // another family's art.
             List<Dictionary<int, int>> byFamily = [];
 
-            for (int family = 1; family < families; family++)
+            for (int family = 0; family < families; family++)
             {
-                Dictionary<int, int> swap = [];
+                Dictionary<int, int> painted = [];
 
                 for (int index = 0; index < materialByMesh.Length; index++)
                 {
                     int reference = model.Meshes[index].MaterialIndex;
-                    int at = (family * references) + reference;
 
-                    if (reference < 0 || at < 0 || at >= skinTable.Length)
+                    if (reference < 0 || painted.ContainsKey(reference))
                     {
                         continue;
                     }
 
-                    int swapped = Register(
-                        props,
-                        model, skinTable[at], materialTable, materialIndices, load);
-
-                    if (swapped >= 0 && materialByMesh[index] >= 0)
-                    {
-                        swap[materialByMesh[index]] = swapped;
-                    }
+                    painted[reference] = family == 0
+                        ? materialByMesh[index]
+                        : Register(
+                            props,
+                            model,
+                            StudioSkins.TextureFor(
+                                skinTable, references, families, family, reference),
+                            materialTable,
+                            materialIndices,
+                            load);
                 }
 
-                byFamily.Add(swap);
+                byFamily.Add(painted);
             }
 
             if (families > 1)
@@ -873,7 +933,11 @@ public static class PropModels
                 props.LogInformation(
                     "{Message}",
                     $"skins {path}: {families} families over {references} references, " +
-                    $"{string.Join(", ", byFamily.Select(swap => swap.Count + " materials swapped"))}");
+                    string.Join(
+                        ", ",
+                        byFamily.Select((family, at) =>
+                            $"[{at}] {family.Count} refs, "
+                            + $"{family.Values.Count(material => material < 0)} unpainted")));
             }
 
             // **A skinned model keeps ONE copy of its geometry, and unposed.** The shader applies
@@ -944,6 +1008,12 @@ public static class PropModels
                         // cube, which is evaluated against the surface normal.
                         frame.Add(new PropVertex(
                             x, y, z, vertex.U, vertex.V, materialByMesh[index],
+
+                            // **The skinref this corner's mesh names**, which is what a family is
+                            // looked up by (B229). `MaterialIndex` beside it is family zero's
+                            // answer, kept because it is the default for a placement that names no
+                            // other family and because everything downstream already batches on it.
+                            MaterialSlot: mesh.MaterialIndex,
                             NormalX: vertex.NormalX,
                             NormalY: vertex.NormalY,
                             NormalZ: vertex.NormalZ,

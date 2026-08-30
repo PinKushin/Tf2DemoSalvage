@@ -711,7 +711,14 @@ public sealed class MapAssets
         // full-suite run is for.
         List<string> refusedLighting = [];
 
+        // **The logger, which this call omitted from the day it was written (B229).** It was the
+        // only caller of an `ILogger? props = null` overload, so the entire static-prop path — four
+        // categories of finding, every refused lighting file by name, and the two warnings that
+        // name a model whose mesh cannot resolve a material — went to a `NullLogger`. The same
+        // area is handed to `LoadFrames` twenty lines below for entity models, which is why the
+        // viewer log looked populated while the half being investigated was silent.
         IReadOnlyList<PropVertex> props = PropModels.Load(
+            factory.CreateLogger("props"),
             map,
             pak,
             archives,

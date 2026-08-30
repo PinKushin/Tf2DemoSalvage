@@ -4670,7 +4670,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
             //
             // Resolving here also means a player who switches teams is right on the very next
             // frame, with nothing repacked.
-            int material = skin is not null && skin.TryGetValue(batch.MaterialIndex, out int swapped)
+            // **Looked up by the batch's SKINREF, not by the material it already resolved to**
+            // (B229). `MaterialIndex` is family zero's answer; keying on it asks what one family's
+            // material becomes in another, which has two answers as soon as two meshes share it and
+            // no answer at all when family zero's texture is the one the map does not ship. The
+            // engine indexes by the mesh's own reference, which is what `MaterialSlot` carries.
+            int material = skin is not null && skin.TryGetValue(batch.MaterialSlot, out int swapped)
                 ? swapped
                 : batch.MaterialIndex;
 
@@ -4999,7 +5004,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 continue;
             }
 
-            int material = skin is not null && skin.TryGetValue(batch.MaterialIndex, out int swapped)
+            // **Looked up by the batch's SKINREF, not by the material it already resolved to**
+            // (B229). `MaterialIndex` is family zero's answer; keying on it asks what one family's
+            // material becomes in another, which has two answers as soon as two meshes share it and
+            // no answer at all when family zero's texture is the one the map does not ship. The
+            // engine indexes by the mesh's own reference, which is what `MaterialSlot` carries.
+            int material = skin is not null && skin.TryGetValue(batch.MaterialSlot, out int swapped)
                 ? swapped
                 : batch.MaterialIndex;
 

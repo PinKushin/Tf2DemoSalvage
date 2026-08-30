@@ -1329,16 +1329,35 @@ public sealed class EntityModelSet
     public IReadOnlyList<IReadOnlyList<WorldBatch>> AllFrames(string modelPath) =>
         _byModel.TryGetValue(modelPath, out List<List<WorldBatch>>? frames) ? frames : [];
 
-    /// <summary>Which material replaces which for a skin family, or null for the model's own.</summary>
+    /// <summary>Which material paints which skinref, for one skin family.</summary>
     /// <param name="modelPath">The model's path.</param>
-    /// <param name="skin">Which family; zero is the model's own and substitutes nothing.</param>
-    /// <returns>The substitution to apply when binding, or null.</returns>
-    public IReadOnlyDictionary<int, int>? SkinSwap(string modelPath, int skin) =>
-        skin > 0 &&
-        _swaps.TryGetValue(modelPath, out IReadOnlyList<IReadOnlyDictionary<int, int>>? swaps) &&
-        skin - 1 < swaps.Count
-            ? swaps[skin - 1]
-            : null;
+    /// <param name="skin">Which family; out of range falls back to zero, as the engine does.</param>
+    /// <returns>The family's row, keyed by skinref, or null for a model with no table.</returns>
+    /// <remarks>
+    /// **Indexed by family, and keyed by SKINREF** (B229). Both were off by one design: the list
+    /// held families 1..N so this subtracted one, and each entry was keyed on family zero's
+    /// RESOLVED material index — which made family zero load-bearing for every other family and
+    /// left a model whose family-zero texture is not shipped undrawable at every skin.
+    ///
+    /// A mesh's <c>mstudiomesh_t::material</c> is a skinref and
+    /// <c>g_skinref[skin][skinref]</c> turns it into a texture index
+    /// (<c>utils/motionmapper/motionmapper.h:134</c>), so the row is the whole answer and family
+    /// zero is a row like any other. Returned even for skin zero, because the caller then has no
+    /// special case to get wrong.
+    /// </remarks>
+    public IReadOnlyDictionary<int, int>? SkinSwap(string modelPath, int skin)
+    {
+        if (!_swaps.TryGetValue(modelPath, out IReadOnlyList<IReadOnlyDictionary<int, int>>? swaps)
+            || swaps.Count == 0)
+        {
+            return null;
+        }
+
+        // `props_shared.cpp:1079` — a skin the model does not have falls back to family zero rather
+        // than being refused. A demo names an entity's `m_nSkin` and this project does not control
+        // what it says.
+        return swaps[skin >= 0 && skin < swaps.Count ? skin : 0];
+    }
 
     /// <summary>Which baked frame a prop's sequence and cycle select.</summary>
     /// <param name="prop">The prop, carrying the sequence and cycle the demo networked.</param>
@@ -1484,7 +1503,12 @@ public sealed class EntityModelSet
                 // batch that spanned two alternatives could not be skipped for one of them. A
                 // capture point's three signs share a material; merged on material alone they
                 // become one run and no per-entity choice can separate them again.
-                Dictionary<(int Material, int Part, int Model), List<WorldVertex>> byMaterial = [];
+                //
+                // **And by the skinref, for the same reason at draw time** (B229). Two meshes can
+                // share family zero's material and differ in another family, so a run merged
+                // across skinrefs has no single answer to "what paints this at skin 1".
+                Dictionary<(int Material, int Slot, int Part, int Model), List<WorldVertex>>
+                    byMaterial = [];
 
                 for (int index = 0; index < corners.Count; index++)
                 {
@@ -1492,8 +1516,11 @@ public sealed class EntityModelSet
 
                     PropVertex ahead = index < onward.Count ? onward[index] : corner;
 
-                    (int Material, int Part, int Model) key =
-                        (corner.MaterialIndex, corner.BodyPart, corner.BodyModel);
+                    (int Material, int Slot, int Part, int Model) key = (
+                        corner.MaterialIndex,
+                        corner.MaterialSlot,
+                        corner.BodyPart,
+                        corner.BodyModel);
 
                     if (!byMaterial.TryGetValue(key, out List<WorldVertex>? into))
                     {
@@ -1540,15 +1567,16 @@ public sealed class EntityModelSet
                         WeightC: corner.Weights.Third));
                 }
 
-                foreach (KeyValuePair<(int Material, int Part, int Model), List<WorldVertex>> group
-                    in byMaterial)
+                foreach (KeyValuePair<(int Material, int Slot, int Part, int Model),
+                    List<WorldVertex>> group in byMaterial)
                 {
                     batches.Add(new WorldBatch(
                         group.Key.Material,
                         _vertices.Count,
                         group.Value.Count,
                         group.Key.Part,
-                        group.Key.Model));
+                        group.Key.Model,
+                        MaterialSlot: group.Key.Slot));
 
                     _vertices.AddRange(group.Value);
                 }
@@ -1562,7 +1590,7 @@ public sealed class EntityModelSet
                 {
                     int alternatives = 0;
 
-                    foreach ((int _, int _, int alternative) in byMaterial.Keys)
+                    foreach ((int _, int _, int _, int alternative) in byMaterial.Keys)
                     {
                         alternatives = Math.Max(alternatives, alternative + 1);
                     }

@@ -31,3 +31,24 @@ call site is the thing to verify, and only the real artefact can verify it — s
 required parameter where every production caller genuinely has the dependency; where optional is
 right, comment the production call site saying that omitting it is silent, and check the output
 once. Related: [[logs-are-the-debugger]], [[one-place-or-it-drifts]].
+
+**It happened again on 2026-08-29, and the second instance sharpens the rule.**
+`PropModels.Load` took `ILogger? props = null` with a comment saying *"most callers of this are
+tests that want geometry, not commentary"*. **There was exactly ONE caller in the whole repository**
+— `MapAssets` — and it passed nothing. So the static-prop path had been mute since it was written:
+four categories of summary, every refused lighting file by name, and both warnings that name a model
+whose mesh will draw in the missing-material chequer.
+
+**Count the callers before writing the comment.** "Most callers are tests" was a guess about a
+population of one, and it read as a considered trade for a year. An optional parameter with a single
+caller is not a convenience — it is an unwired sink with a rationale attached.
+
+**And the log looked populated, which is why a grep did not find it.** The same `props` area carried
+125 `pairing` lines — exactly the count of ENTITY models, a different path handed a real logger
+twenty lines away in the same method. "Did that subsystem say anything" answers yes while half of it
+is silent, so the question has to be "did THIS call site's lines arrive", which means asserting on a
+line only it can produce.
+
+**Cost:** four hypotheses on B229, one of them — *"both of `Register`'s warnings fired zero times"* —
+read as evidence about the geometry when it was evidence about the sink. See
+[[an-instrument-unread-is-not-an-instrument]].

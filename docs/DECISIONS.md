@@ -6807,3 +6807,38 @@ buys a departure), `docs/memory/an-optimisation-is-not-a-skippable-departure.md`
 mechanism is not parity), D117 (implement the feature, do not document the omission), D120 (a found
 divergence is fixed, not filed). Each arrived from a different direction — performance, structure,
 scope, process — and this one closes the last of them: the conversation itself.
+
+## D122 — A dependency with one production caller is a required parameter, not an optional one
+
+**2026-08-29, from B229.** `PropModels.Load` declared `ILogger? props = null` and defaulted it to
+`NullLogger.Instance`, with the comment *"most callers of this are tests that want geometry, not
+commentary"*. It had **exactly one caller in the repository** — `MapAssets` — and that caller passed
+nothing, so every finding the static-prop loader produced had been discarded since the day it was
+written.
+
+**The rule:** an injected dependency is optional only where several production call sites genuinely
+differ about whether they have it. Where one call site exists, it is required, and the parameter goes
+first so a call cannot silently omit it. The compiler then asks the question that a reviewer has now
+twice failed to.
+
+**This is a narrowing of D83, not a reversal of it.** D83 made subsystems take an `ILogger` rather
+than reach for a static, and null-object defaults are the idiom that made that conversion painless
+across 193 call sites. That was right. What was wrong is treating the default as free: it converts a
+forgotten argument into silence, which is the one failure mode a logging change cannot afford.
+
+**Why the cost is asymmetric, which is the actual argument.** A required parameter costs each test
+one `NullLogger.Instance`. An unwired optional one costs an investigation: four hypotheses on B229
+were reasoned correctly from an instrument that could not speak, and hypothesis 2 — *"both of
+`Register`'s warnings fired zero times"* — actively pointed away from the cause. That is the second
+time (see `docs/memory/a-null-object-default-hides-a-missed-wiring.md`, D83's own follow-up, where a
+green gate of 3,231 tests sat over a viewer that had lost 202 log lines).
+
+**And the diagnostic that would have caught it is cheap.** `PropLoadLoggingTests` asserts that a real
+map load produces a line only the static-prop path can produce. Its control matters more than the
+test: asserting merely that the `props` area spoke would have passed throughout, because the entity
+half of the same area was writing 125 lines a load.
+
+**Eight other optional-logger parameters remain** in `Animation`, `Render` and `Scene`. They are not
+converted here — this decision governs new ones and any that an investigation touches, and a sweep
+is its own piece of work with its own gate run. That is recorded so the gap is deliberate rather than
+forgotten; see `docs/RISKS.md` B229.
