@@ -150,6 +150,11 @@ jobs:
           # 1550 -> 1556: RenderStateDecodeTests, synthetic and in Core.Tests per D38.
           # 1556 -> 1560 on 2026-08-29: ShouldDrawConformanceTests (4), synthetic and file-free, so
           # all four run here for real. C_BaseEntity::ShouldDraw refuses kRenderNone (B231).
+          # 1560 -> 1559 the same night: implementing that citation deleted cp_fulgur's gates
+          # entirely, so the behaviour is reverted and one case is [Explicit], which the adapter
+          # drops from the total. Three still run. See docs/RISKS.md B231.
+          # 1559 -> 1560 on 2026-08-30: the kRenderNone case is un-marked, now that the
+          # parent-transform half exists and a grate on a hidden door is still placed (B231).
           ./build/assert-test-count.sh '**/core.trx' 1560 Core
           ./build/assert-test-count.sh '**/cli.trx' 74 Cli
           # 628 -> 645 is ARITHMETIC, not a measurement: 17 tests were added to Content on
@@ -179,7 +184,9 @@ jobs:
           # total, so the floor holds on the machine without TF2.
           # 810 -> 817 on 2026-08-29: StudioSkinsConformanceTests (7), `g_skinref[skin][skinref]`
           # from motionmapper.h:134. Synthetic and file-free, so all seven run here for real.
-          ./build/assert-test-count.sh '**/content.trx' 817 Content
+          # 817 -> 826 on 2026-08-30: EntityTransformConformanceTests (9), CalcAbsolutePosition
+          # transcribed whole. Synthetic and file-free, so all nine run here for real.
+          ./build/assert-test-count.sh '**/content.trx' 826 Content
           # 396 -> 402 on 2026-08-28: ViewCameraModeTests (6), for the third camera mode.
           # 412 -> 414 on 2026-08-29, and that is TWO bumps: the stale-clock case on
           # `DemoSystems.Open` (B223 follow-up) was raised in build/gate.sh and missed here, and the

@@ -156,3 +156,4 @@
 - [Key a lookup on the question](key-a-lookup-on-the-question.md) — deriving every case from case zero makes case zero load-bearing.
 - [Not every setting needs a bind](not-every-setting-needs-a-bind.md) — a convar can be config-only; three tiers, and only the last is a default.
 - [Decoding a field is not honouring it](decoding-a-field-is-not-honouring-it.md) — grep the SDK for every use; one consumer of four is three quarters unimplemented.
+- [A bug is a divergence search first](a-bug-is-a-divergence-search-first.md) — our bugs are not new problems; read until the mechanism is whole.

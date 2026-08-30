@@ -14689,11 +14689,20 @@ side has a special case left to get wrong.
 overwhelming majority of props have one skin family, where every reading agrees with every other.
 
 **A second, separate defect on the same map**, reported at the same time and NOT to be conflated
-with this one: the spawn grate is rotated 90 degrees from its correct orientation, and when the
-round starts it moves out of view and never returns. The owner's read: *"it might be the gates
-animating forever like we had happen when we first implemented grates at all"*. The red ring near it
-is the enemy-team "no entry" overlay drawing correctly, not a distortion — a misreading of mine that
-he corrected.
+with this one: the spawn grate is rotated 90 degrees from its correct orientation. Chased under
+B231, where it turns out the owner was not looking at the grate at all — see there.
+
+**Two things first reported alongside it were later withdrawn by the owner, and both are kept
+because each sent the search somewhere.** *"When the round starts it moves out of view and never
+returns"*, with his read *"it might be the gates animating forever like we had happen when we first
+implemented grates at all"* — retracted: *"wasnt an actual thing, it was my misreading of the gate
+being out of view"*, which is ordinary PVS. And the red ring beside it is the enemy-team "no entry"
+overlay drawing correctly rather than a distortion, which was a misreading of MINE that he
+corrected.
+
+**The cost of the first one was real**: an animate-forever theory was carried for two sessions, and
+when the parenting explanation arrived it was credited with accounting for a symptom that had never
+happened. An explanation that fits an observation nobody made is not evidence for it.
 
 ## B230 — a UI click was refused because the viewer would not reach the foreground in five seconds — OPEN
 
@@ -14744,7 +14753,7 @@ The gate builds real `MainForm`s in `Viewer3D.Tests`, both failures came immedia
 gate, and the slow run is consistent with a machine still busy. That is a guess and is written here
 as one.
 
-## B231 — every `kRenderNone` entity was drawn, including eighteen invisible doors on one map — CLOSED 2026-08-29
+## B231 — kRenderNone: the citation is sound, our reading of it is not — REOPENED 2026-08-30
 
 **Found while chasing the owner's spawn grate**, which he described as *"rotated 90 degrees from
 what it should be"* and which *"just stops drawing before the round even starts"*.
@@ -14816,3 +14825,46 @@ a `func_door` is never rotated, which made "we are applying a direction as a rot
 [0 105 0]` — exactly the map's values, decoded, interpolated and reaching the pose. Brush entity
 rotation works. Whether the phantom doors were what the owner saw is his to confirm by looking;
 what is certain is that we were drawing geometry the engine refuses.
+
+### REVERTED the same night, and the reason is the whole entry
+
+**The fix was implemented, gated, merged and pushed — and then the owner looked**: *"lolol missing
+gates completely in this pov demo now"*. With the `kRenderNone` entities hidden, `cp_fulgur`'s gates
+are gone from the map. His verdict on the change: *"yea that was a massive fucking revert"*.
+
+**So the inference above is wrong.** The paragraph reading *"those doors are invisible movers and
+the visible gates are separate brushwork, which is an ordinary mapping idiom"* was a GUESS dressed
+as a finding. It explained the measurement, it sounded like domain knowledge, and one look
+falsified it. Nothing measured it and nothing tried to.
+
+**What is NOT in doubt**, and is why the conformance case is kept rather than deleted:
+
+- `kRenderNone` is ordinal 10 of `RenderMode_t` — counted, `const.h:351..363`, comment *"Don't
+  render."*
+- `C_BaseEntity::ShouldDraw` refuses it in its first line, `c_baseentity.cpp:1447`.
+- All eighteen `func_door` entities on `cp_fulgur` report mode 10, in the map's entity lump **and**
+  in the recording. Two independent sources.
+
+**What must therefore be true, and neither is established:**
+
+1. **This project reads the mode from somewhere it should not.** The value agrees with the map, so
+   it is not obviously wrong — but agreeing with a spawn keyvalue is not the same as being the
+   entity's `m_nRenderMode`, and `docs/memory/a-property-name-needs-its-declaring-table.md` is
+   exactly this shape.
+2. **Or the engine reaches brush entities by a path that does not consult `ShouldDraw`.** A brush
+   model is a renderable like any other in the client leaf system, so this would be surprising —
+   but "surprising" is what the first reading was too.
+
+**Next step, and it is not another citation.** `ShouldDraw` has overrides in the client
+(`c_baseanimating.cpp:3156`, `c_baseplayer.cpp:1440`, `c_baseviewmodel.cpp:277`, and a dozen
+`c_func_*` files). Read what `func_door`, `func_brush` and `func_respawnroomvisualizer` actually do
+on the CLIENT — `c_func_brush` or the entity's own class — before touching `IsDrawn` again. The
+question is which class's `ShouldDraw` runs for these, not what the base class says.
+
+**The process lesson, recorded because it cost a merge and a revert.** The measurement was sound and
+the conclusion drawn from it was not: "all eighteen doors are kRenderNone" is a fact, and "therefore
+the gates are drawn by something else" is a hypothesis that had a cheap test available — *look at
+the map with them hidden* — which was not run before merging. A screenshot would have cost two
+minutes. See `docs/memory/on-ui-work-ask-when-the-claim-cannot-be-checked-by-looking` in
+`CLAUDE.md`: anything about a user interface that cannot be verified by seeing it is a QUESTION for
+the owner, not a statement — and "these eighteen entities should vanish" is precisely such a claim.

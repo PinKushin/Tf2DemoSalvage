@@ -142,6 +142,18 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # outright (c_baseentity.cpp:1447) and this project drew it — the mode was only decoded on
 # 2026-08-29 (B221) and reached the render GROUP, where alpha 255 plus mode 10 classifies as
 # translucent and draws solid. All eighteen func_doors on cp_fulgur are kRenderNone.
+#
+# **1560 -> 1559 the same night, and a FALLING count needs its reason written here.** Implementing
+# that citation deleted cp_fulgur's gates from the map entirely — the owner looked, and they were
+# simply gone. So the behaviour is reverted and the one case asserting it is `[Explicit]`, which
+# this adapter excludes from the total when no filter is given.
+#
+# **Nothing was lost.** The other three cases still run and still assert: that every other mode
+# draws, that a silent mode draws, and that EF_NODRAW still hides. What is parked is a single claim
+# whose citation is sound and whose consequence is not understood — see docs/RISKS.md B231.
+# 1559 -> 1560: the kRenderNone case is un-marked. It was [Explicit] for one night, because
+# implementing it deleted cp_fulgur's gates; the parent-transform half (B231) is in now, so a grate
+# hung on a hidden door is still placed by it and the citation can be honoured.
 run Tf2DemoSalvage.Core.Tests     core     1560
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
@@ -585,7 +597,11 @@ run Tf2DemoSalvage.Presentation.Tests presentation 424
 # hand-built, so it runs on CI and on the measurement boxes; the table is deliberately NOT the
 # identity, because an identity table gives the same answer for every family and cannot tell a
 # correct lookup from one that ignores the skin (B229).
-run Tf2DemoSalvage.Content.Tests  content   817
+# 817 -> 826: EntityTransformConformanceTests (9), CalcAbsolutePosition written down whole before
+# any of it existed — all three branches in order, ConcatTransforms, MatrixAngles including its
+# gimbal-lock branch, and the angle shortcut that COPIES the parent's stored angles rather than
+# extracting them. That last one caught the first implementation round-tripping 20 into 19.999998.
+run Tf2DemoSalvage.Content.Tests  content   826
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
@@ -631,7 +647,10 @@ run Tf2DemoSalvage.Content.Tests  content   817
 # render mode and whether it went absent or hidden, and it is what found B231 — every func_door on
 # cp_fulgur reporting mode 10 in the RECORDING and not merely in the map, which is the difference
 # between "the mapper set it" and "the entity is it".
-run Tf2DemoSalvage.Corpus.Tests   corpus     138
+# 138 -> 139: ParentedPropDiagnostic (1, Explicit). Written to TEST the parenting hypothesis rather
+# than illustrate it, after the previous round merged on an inference: it showed all six grate props
+# present, parented, and sitting at (0,0,0).
+run Tf2DemoSalvage.Corpus.Tests   corpus     139
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that
@@ -809,7 +828,10 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     138
 # angles, movedir and rendermode its brush entities declare. It killed a hypothesis rather than
 # confirming one — the 90-degree grate was blamed on unapplied `angles`, and the probe showed
 # cp_fulgur declares them while the demo carries them through to the pose intact.
-run Tf2DemoSalvage.Rendering.Tests rendering 709
+# 709 -> 710: SetupGateEntityProbe (1, Explicit), which dumps EVERY keyvalue on a map's gates
+# rather than the four already suspected — and that is how the prop_dynamic riders were found at
+# all. A probe that prints only the fields somebody thought of cannot find the one nobody did.
+run Tf2DemoSalvage.Rendering.Tests rendering 710
 # 101 -> 103 on 2026-08-29: LaunchOptionWiringTests (B223, D118). Two tests, and they cost about
 # seventeen seconds EACH, because each builds a real MainForm and loads a corpus demo — which reads
 # cp_badlands.bsp when Team Fortress 2 is installed. That is the most expensive pair in this file
