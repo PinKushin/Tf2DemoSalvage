@@ -912,7 +912,16 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     145
 # set builders select on Kind == Studio -- so the empty string went to PakFile.ReadFile and killed
 # the viewer at load. The second case is the control: a track that HAS its path is still worn, so
 # the guard tests the path rather than the item, which every cosmetic also carries.
-run Tf2DemoSalvage.Rendering.Tests rendering 712
+# 712 -> 713: NetworkedPropertyCoverageTests. The denominator for 'what does the demo tell us
+# that we ignore', extracted from the SDK's own client RecvTables so it cannot flatter us --
+# an audit starting from OUR accessors can only find fields we already decode, and the two
+# most expensive gaps of 2026-08-30 were both invisible to that. Writes docs/WIRE-COVERAGE.md.
+# Three controls, because an extraction that matched nothing would report perfect coverage of
+# an empty set: a floor on the count, the two motivating fields asserted present, and
+# SchemaGap's positive control on the other half of the diff. The disguise control earned its
+# keep immediately -- the first sweep read only src/game/client and TF's player state is
+# declared in src/game/shared/tf, so it reported 0 of 66 for a table it could not see.
+run Tf2DemoSalvage.Rendering.Tests rendering 713
 # 101 -> 103 on 2026-08-29: LaunchOptionWiringTests (B223, D118). Two tests, and they cost about
 # seventeen seconds EACH, because each builds a real MainForm and loads a corpus demo — which reads
 # cp_badlands.bsp when Team Fortress 2 is installed. That is the most expensive pair in this file
