@@ -146,7 +146,15 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # so an entity that left and re-entered the PVS lost everything it had accumulated -- measured on a
 # spawn-door prop re-entering with the SAME serial and zero properties. Three of the four are
 # controls: a new serial must still take the baseline, a first enter must, and a delta must not.
-run Tf2DemoSalvage.Core.Tests     core     1567
+# 1567 -> 1575: HandleSerialConformanceTests (5) and ModelIndexFollowsUpdatesConformanceTests (3).
+# Both are halves of PostDataUpdate this project had left out. A handle is an index AND a serial and
+# masking the serial away resolves a dangling handle to a real, existing, different entity; and
+# ValidateModelIndex sits beside HierarchySetParent ABOVE the DATA_UPDATE_CREATED test, so the model
+# is re-applied every update while a track fixed it at construction -- which named cp_fulgur's BLU
+# spawn door a resupply cabinet for a whole recording, off the class baseline. Two of the three
+# model tests are controls: an unchanged index must keep its model, and a changed one must not
+# split the track in two.
+run Tf2DemoSalvage.Core.Tests     core     1575
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
@@ -597,7 +605,12 @@ run Tf2DemoSalvage.Presentation.Tests presentation 424
 # all three branches, ConcatTransforms, MatrixAngles including its gimbal-lock branch, and the
 # angle shortcut that COPIES the parent stored angles. That last one caught the first
 # implementation round-tripping 20 into 19.999998.
-run Tf2DemoSalvage.Content.Tests  content   826
+# 826 -> 827: SpawnRoomEntityProbe (1, Explicit). It reads cp_fulgur's entity lump and prints every
+# gate, door and cabinet with its `parentname` resolved -- which is what established that all eight
+# resupply lockers are UNPARENTED and that a parented prop's `origin` key is its parent's world
+# position. Every position claim in the B231 hunt before it was checked against another reading of
+# our own decode, which cannot falsify a wrong premise; the map can.
+run Tf2DemoSalvage.Content.Tests  content   827
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
@@ -645,7 +658,12 @@ run Tf2DemoSalvage.Content.Tests  content   826
 # 141 -> 142: ParentLifetimeDiagnostic (1, Explicit), which walks one entity slot across the whole
 # recording and prints every transition. It is what found the re-entry bug: the parent is present
 # at tick 9781 and gone by 14180, which is a value being overwritten rather than never sent.
-run Tf2DemoSalvage.Corpus.Tests   corpus     142
+# 142 -> 143: LockerParentProbe (1, Explicit). It walks one slot's every update with the instance
+# baselines LOADED, which is what named the cause: a creating update carries only what differs from
+# the class baseline, so cp_fulgur's BLU spawn door was created holding the baseline's model index
+# and origin -- a resupply locker at prop_locker_blu_5's world position. Its first version omitted
+# the baselines and reported "the baseline has no parent", which was a fact about an empty decoder.
+run Tf2DemoSalvage.Corpus.Tests   corpus     143
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that

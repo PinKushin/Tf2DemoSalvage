@@ -124,6 +124,14 @@ public sealed class EntityState
     /// <summary><c>MAX_EDICT_BITS</c> — the low bits of a handle are the entity's slot.</summary>
     private const int EdictBits = 11;
 
+    /// <summary>How many low bits of a handle name the slot — <c>MAX_EDICT_BITS</c>.</summary>
+    /// <remarks>
+    /// Exposed so `EntityStateTable.Resolve` can read the SERIAL above them without keeping its own
+    /// copy of the split. Two copies of a bit width are two chances to disagree, and a wrong one
+    /// masks a handle to the wrong slot — which resolves to a real, existing, different entity.
+    /// </remarks>
+    internal const int EdictBitCount = EdictBits;
+
     /// <summary>
     /// <c>NUM_NETWORKED_EHANDLE_SERIAL_NUMBER_BITS</c> — the high part of a handle, which
     /// distinguishes a slot's current occupant from the one that used to be there.
@@ -818,6 +826,30 @@ public sealed class EntityState
         return ((Integer($"{BaseEntityTable}.{EffectsProperty}") ?? 0) & BoneMerge) == 0
             ? null
             : Slot(Integer($"{BaseEntityTable}.{OwnerProperty}"));
+    }
+
+    /// <summary>The raw handle this entity hangs off, serial and all.</summary>
+    /// <returns>The handle as the wire carried it, or <c>null</c> when it names nothing.</returns>
+    /// <remarks>
+    /// **<see cref="Attachment"/> answers the same question with the serial thrown away**, which is
+    /// safe only while no slot is ever reused — and slots are reused constantly (B231). This hands
+    /// the whole value to <c>EntityStateTable.Resolve</c>, which compares the serial against the
+    /// slot's current occupant exactly as dereferencing a <c>CBaseHandle</c> does.
+    ///
+    /// The same two sources, in the same order: a move parent outright, or an owner for something
+    /// that also asked to be bone-merged.
+    /// </remarks>
+    public int? AttachmentHandle()
+    {
+        if (Integer($"{BaseEntityTable}.{ParentProperty}") is { } parent &&
+            parent != InvalidHandle)
+        {
+            return parent;
+        }
+
+        return ((Integer($"{BaseEntityTable}.{EffectsProperty}") ?? 0) & BoneMerge) == 0
+            ? null
+            : Integer($"{BaseEntityTable}.{OwnerProperty}");
     }
 
     /// <summary>Which of its parent's attachment points this entity hangs from.</summary>

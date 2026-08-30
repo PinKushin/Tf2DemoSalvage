@@ -426,7 +426,65 @@ public sealed class ScenePropTrack
     public int EntityIndex { get; }
 
     /// <summary>The model this entity draws as.</summary>
-    public string ModelPath { get; }
+    /// <remarks>
+    /// **Kept current, because the engine re-applies the model on every update** — the same reason
+    /// <see cref="AttachedTo"/> is, and the two are set on adjacent lines in
+    /// <c>C_BaseEntity::PostDataUpdate</c> (<c>client/c_baseentity.cpp:2603</c>):
+    ///
+    /// <code>
+    ///   HierarchySetParent(m_hNetworkMoveParent);
+    ///   MarkMessageReceived();
+    ///   // Make sure that the correct model is referenced for this entity
+    ///   ValidateModelIndex();
+    ///   if ( updateType == DATA_UPDATE_CREATED ) { ... }
+    /// </code>
+    ///
+    /// Both calls sit ABOVE the <c>DATA_UPDATE_CREATED</c> test, so both run every update, and
+    /// <c>ValidateModelIndex</c> ends in <c>SetModelByIndex( m_nModelIndex )</c>
+    /// (<c>c_baseentity.cpp:2531</c>). This project followed the parent and fixed the model at
+    /// construction — half the mechanism.
+    ///
+    /// **What that cost is not a corner case, because a creating update rarely carries the model.**
+    /// An entity is created as a delta against its class's INSTANCE BASELINE, which is one
+    /// representative entity's state, so everything the creating update does not mention comes from
+    /// whatever entity happened to supply the baseline. Measured on `cp_fulgur`, slot 432 — the BLU
+    /// spawn's windowed door:
+    ///
+    /// <code>
+    ///   Enter 432 serial 998 props 2  modelindex 1154 origin (3440 -2096 240)   &lt;- baseline
+    ///   Enter 432 serial 998 props 11 modelindex 1177 origin (2 0 -59)          &lt;- the real values
+    /// </code>
+    ///
+    /// 1154 is `resupply_locker.mdl` and `(3440 -2096 240)` is `prop_locker_blu_5`'s world origin
+    /// out of the map's entity lump. The door was a resupply cabinet for the rest of the recording,
+    /// and nine other entities took that same baseline's identity the same way. The owner's report
+    /// was that the spawn gates and the health cabinet do not draw.
+    ///
+    /// **Not a reason to stop merging the baseline** — `CL_CopyNewEntity` does exactly that, and
+    /// the engine simply overwrites the guess on the next update because it re-reads the index.
+    /// Removing the merge would trade this defect for B132's.
+    ///
+    /// Set through <see cref="Follow"/> rather than by a bare setter, so an empty path — an entity
+    /// whose model has not arrived yet — cannot erase a name the track already has.
+    /// </remarks>
+    public string ModelPath { get; private set; }
+
+    /// <summary>Re-applies the entity's model, as <c>ValidateModelIndex</c> does each update.</summary>
+    /// <param name="modelPath">What <c>m_nModelIndex</c> now names, or empty when it names nothing.</param>
+    /// <remarks>
+    /// **An empty path is ignored, and that is the engine's behaviour rather than a convenience.**
+    /// <c>SetModelByIndex</c> resolves through <c>modelinfo->GetModel</c>
+    /// (<c>c_baseentity.cpp:1778</c>) and a model index of zero is the "no model" placeholder, which
+    /// leaves the entity drawing what it already had. Treating it as a change would blank the name
+    /// of every entity whose update happened not to mention its model.
+    /// </remarks>
+    internal void Follow(string? modelPath)
+    {
+        if (!string.IsNullOrEmpty(modelPath))
+        {
+            ModelPath = modelPath;
+        }
+    }
 
     /// <summary>The engine's serial for this occupant of the slot.</summary>
     /// <remarks>

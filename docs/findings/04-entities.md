@@ -451,3 +451,93 @@ That same line also says an `EF_NODRAW` entity is not drawn. This project does t
 skip. It was briefly filed as a gap (B133) on the strength of a search scoped to the renderer alone,
 and withdrawn the same day: the absence of the flag downstream is caused by the filter being
 upstream, which is the correct place for it.
+
+### A creating update is a delta against the instance baseline, and the baseline is a stranger
+
+**Evidence class: measured on the corpus, and cross-checked against the map's own entity lump.**
+
+`cp_fulgur`, the owner's recording. Slot 432 is the BLU spawn's windowed door. Watching every update
+to that slot in order, with the `instancebaseline` string table applied:
+
+```
+Enter 432 serial 998 props 2  modelindex 1154 origin (3440 -2096 240)
+Enter 432 serial 998 props 11 modelindex 1177 origin (2 0 -59)
+```
+
+Index 1177 is `models/props_gameplay/windowed_door.mdl`. Index **1154** is
+`models/props_gameplay/resupply_locker.mdl`, and `(3440 -2096 240)` is `prop_locker_blu_5`'s world
+origin, read out of the map:
+
+```
+PROP prop_dynamic models/props_gameplay/resupply_locker.mdl
+       name    (prop_locker_blu_5)
+       origin  (3440 -2095.56 240.16)
+       parent  [unparented]
+```
+
+**Neither value belongs to the door.** They belong to whichever entity supplied `CDynamicProp`'s
+instance baseline. An entity is created as a delta against that baseline, so a creating update
+carries only what differs from it — and everything it omits is a stranger's state until the next
+update corrects it.
+
+**The engine is untroubled by this because it re-reads the model every update.**
+`C_BaseEntity::PostDataUpdate`, `client/c_baseentity.cpp:2603`:
+
+```cpp
+    Assert( m_hNetworkMoveParent.Get() || !m_hNetworkMoveParent.IsValid() );
+    HierarchySetParent(m_hNetworkMoveParent);
+
+    MarkMessageReceived();
+
+    // Make sure that the correct model is referenced for this entity
+    ValidateModelIndex();
+
+    // If this entity was new, then latch in various values no matter what.
+    if ( updateType == DATA_UPDATE_CREATED )
+```
+
+**Both calls sit above the `DATA_UPDATE_CREATED` test, so both run on every update.**
+`ValidateModelIndex` ends in `SetModelByIndex( m_nModelIndex )` (`c_baseentity.cpp:2531`).
+
+This project followed the first of that pair and not the second: `ScenePropTrack.AttachedTo` was
+assigned every update, with a comment citing these very lines, while `ModelPath` was fixed at
+construction. So the door was named a resupply cabinet for the rest of the recording, and nine other
+entities took the same baseline's identity the same way — every one of them reporting
+`(3440 -2096 240)`, one map prop's position, which is what made the pattern visible at all.
+
+**Half a mechanism, and the half that was implemented is the one that made it hard to see.** A
+correct parent on a wrongly-named prop looks like a naming problem; a wrong parent would have looked
+like a parenting problem, which is what three earlier rounds of this investigation assumed.
+
+#### The origin half is a different mechanism, and it is not implemented at all
+
+Correcting the model leaves the cabinet tracks holding two keyframes — the baseline's origin and the
+real one — and the timeline interpolates between them, so a BLU spawn cabinet flies across the map
+and back. The pose sequence measured for slot 312, `prop_locker_blu_3`:
+
+```
+(6232 -3024 384) | (3440 -2096 240) | (6043 -2961 374)
+```
+
+The third is an interpolation between the first two.
+
+The engine does not do this because `svc_PacketEntities` carries two more fields this project
+decodes, round-trips and never consumes — `baseline` and `update_baseline`. Counted across the
+recording:
+
+| flags | snapshots |
+|---|---|
+| `baseline=0 updatebaseline=0` | 12,340 |
+| `baseline=0 updatebaseline=1` | 1,169 |
+| `baseline=1 updatebaseline=0` | 12,798 |
+| `baseline=1 updatebaseline=1` | 1,171 |
+
+**2,340 snapshots ask the client to update a baseline, and the index alternates.** An entity
+entering the PVS deltas against its *per-entity* baseline in the named slot, not against the class
+instance baseline — which is exactly how a two-property `EnterPVS` can describe a door completely.
+
+`docs/RISKS.md` filed this in the B12/B13 write-up as *"This parser ignores both, and a baseline
+swap that changes how a later delta is interpreted would look exactly like this"*, listed it first
+under **Still to read**, and it was never read. The note was right and sat unactioned for months;
+the measurement above is the first evidence that the mechanism is live in a real recording rather
+than merely possible.

@@ -1952,7 +1952,7 @@ public sealed class EntityModelSet
                 // three correct measurements locating the fourth
                 // (`docs/memory/measure-every-hop-before-blaming-one.md`).
                 if (_render.IsEnabled(LogLevel.Debug) &&
-                    _reportedFrames.Add(prop.ModelPath + "#placed"))
+                    _reportedFrames.Add($"{prop.ModelPath}#{prop.EntityIndex}#placed"))
                 {
                     _render.LogDebug(
                         "{Message}",

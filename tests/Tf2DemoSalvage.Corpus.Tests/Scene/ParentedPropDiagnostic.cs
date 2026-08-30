@@ -39,12 +39,19 @@ public sealed class ParentedPropDiagnostic
     /// <summary>The recording the owner was watching.</summary>
     private const string Recording = "tf2-2026-pub-pov-clean";
 
-    /// <summary>The models the map parents to its gate movers.</summary>
+    /// <summary>The models under investigation.</summary>
+    /// <remarks>
+    /// The three the map parents to its gate movers, and <c>resupply_locker</c>, which it does NOT
+    /// parent — `SpawnRoomEntityProbe` reads all eight of them out of `cp_fulgur`'s entity lump as
+    /// `[unparented]`. The cabinet is on this list precisely because it should never appear in the
+    /// transform branch below, so its presence there is a defect the same report can show.
+    /// </remarks>
     private static readonly string[] Gates =
     [
         "door_grate003",
         "door_slide_large_door",
         "windowed_door",
+        "resupply_locker",
     ];
 
     /// <summary>Ticks to sample across the demo.</summary>
@@ -193,7 +200,10 @@ public sealed class ParentedPropDiagnostic
             }
         }
 
-        foreach (string pair in pairs.Order(StringComparer.Ordinal).Take(14))
+        // **Not truncated.** A `Take(14)` here hid every `resupply_locker` pairing behind the door
+        // models that sort before it, which is the exact evidence this report exists to show. A cap
+        // that silently drops the tail of an ordered list drops whatever sorts last.
+        foreach (string pair in pairs.Order(StringComparer.Ordinal))
         {
             TestContext.Out.WriteLine("SAMETICK" + pair);
         }

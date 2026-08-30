@@ -1828,7 +1828,12 @@ public sealed class DemoTimeline
         // `CDynamicProp` hung on a `func_door` searching for a skeleton brushwork does not have.
         bool boneMerged = state.IsBoneMerged || mergesItself.Contains(entity.ClassId);
 
-        if (state.Attachment() is { } owner)
+        // **Resolved through the table, so the handle's SERIAL is checked** (B231).
+        // `RecvProxy_IntToEHandle` keeps index and serial and dereferencing compares the serial
+        // against the slot's current occupant; masking it away resolves a dangling handle to a
+        // real, existing, different entity. Measured: a spawn resupply locker composed onto a door
+        // because its parent slot had been reused, landing thousands of units away.
+        if (entities.Resolve(state.AttachmentHandle()) is { } owner)
         {
             attachedTo = owner;
 
@@ -1889,6 +1894,19 @@ public sealed class DemoTimeline
             // report as a missing asset - which is exactly the false alarm this split avoids.
             (model.Length == 0 ? players : props).Add(track);
         }
+
+        // **The model, kept current for the same reason and on the engine's own adjacent line.**
+        // `C_BaseEntity::PostDataUpdate` (`c_baseentity.cpp:2603`) calls `HierarchySetParent` and
+        // then `ValidateModelIndex`, both ABOVE the `DATA_UPDATE_CREATED` test, so both run on
+        // every update. This followed the parent and fixed the model at construction.
+        //
+        // A creating update rarely carries the model, because it is a delta against the class
+        // INSTANCE BASELINE — one representative entity's state. Measured on `cp_fulgur`, slot 432,
+        // the BLU spawn's windowed door: created from two properties with the baseline's model
+        // index 1154 (`resupply_locker.mdl`) and the baseline's origin (3440 -2096 240), which is
+        // `prop_locker_blu_5`'s world position out of the map. The next update said 1177 and
+        // (2 0 -59), and the track never heard it. Nine other entities took the same identity.
+        track.Follow(model);
 
         // Kept current rather than set once: a wearable can arrive before its owner handle does,
         // and a track stuck on the first answer would draw the hat on whoever wore it last.
