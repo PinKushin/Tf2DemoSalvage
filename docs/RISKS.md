@@ -14505,3 +14505,70 @@ failed three times today.
 **The practice this pass exists to establish:** closing a bug means **editing the header**. Appending
 the resolution below it is right and should continue — the wrong turns are the valuable part — but
 it is not the closure, and for seven entries it left the index disagreeing with the file it indexes.
+
+## B62 — measured 2026-08-29: the material is `Water`, and a chequer is our own invention
+
+**The owner found it on screen** and corrected a wrong conclusion of mine in the process. On
+`cp_fulgur` the viewer draws one magenta-and-black chequer; his report: *"the real tf2 doesnt show
+the purple and black texture anywhere on this map, its not a new map"*, and *"i did not have that
+missing texture in game, i wouldnt have kept the demo if there was, because that would be a bad
+parity demo"*.
+
+**Two separate faults, and the first hid the second.**
+
+**1. A texdata name may carry `.vmt`, and we appended a second one.** `cp_fulgur` stores
+`water/water_well_beneath.vmt`, so the lookup asked for `...vmt.vmt` and missed.
+
+I first argued this was correct parity, citing `IMaterialSystem::FindMaterial`'s own comment — *"a
+full path to the vmt file ... **without a file extension**"* — and the fact that the SDK's tools hand
+the texdata string straight through with no stripping (`utilmatlib.cpp:75`). The conclusion was
+wrong, and the owner supplied the argument that settles it without needing the engine at all:
+
+> *"wouldnt the double file extension couse issues anyway though? idk how valve handles it really
+> but i know C# doesnt handle that without stripping"*
+
+**Exactly so, and this is the stronger reason.** The lookup builds `"materials/" + name + ".vmt"`.
+Given a name that already ends in `.vmt` it asks an archive for
+`materials/water/water_well_beneath.vmt.vmt` — **a path that cannot exist in any archive**, whatever
+the material system does internally. The path construction is broken on its own terms; the engine's
+behaviour is not a premise of that.
+
+What the owner's observation of the running game adds is the separate fact that the engine
+**normalises** such a name rather than erroring — so the header comment describes the intended
+contract rather than the implementation, and the implementation is closed. Evidence class for that
+part: **measured on the shipping game**, not read from source.
+
+**Worth keeping as a general lesson.** The first framing made the fix depend on an empirical
+observation about a closed system, when a plain argument about our own code was available and
+sufficient. Reaching for parity evidence is right; reaching for it *first*, past a defect that is
+visible without it, is not.
+
+**2. The material declares no `$basetexture`, because it is a `Water` shader.** Read straight out of
+the VPK (`WaterMaterialProbe`):
+
+```
+"Water"
+{
+    "$abovewater" 0            "%compilewater" 1
+    "$forceexpensive" 1
+    "$CHEAPWATERSTARTDISTANCE" 500.0   "$CHEAPWATERENDDISTANCE" 1000.0
+    "%tooltexture" "dev/water_normal"
+    "$refractamount" ".2"      "$refracttint" "[0.95 1.0 0.97]"
+    "$reflectamount" "1.0"     "$reflecttint" "[1 1 1]"
+    "$refracttexture" "_rt_WaterRefraction"
+}
+```
+
+There is no base texture and there is not meant to be: water refracts against a render target and
+takes its surface from a bump map. `IsErrorMaterial` is false — the engine loads this and draws
+water. **Chequering it is ours, not Valve's**, and that is the whole of B62 seen from the outside.
+
+**The instrument was also at fault and is fixed.** The inventory said *"MISSING 1 with no base
+texture resolved"* and the renderer said *"1 will draw as the missing-material chequer at 377"* —
+a count and an index, and no way to reach the material. It names them now, unbounded, because a
+count says something is wrong and a name says what to open.
+
+**What is NOT decided here**: what to draw for a `Water` material until the shader exists. Valve's
+answer is the `Water` shader with refraction and reflection render targets, which is a real feature
+rather than a fallback, so this is one of D121's narrow "really cannot do it yet" cases and is the
+owner's call rather than something to substitute quietly.

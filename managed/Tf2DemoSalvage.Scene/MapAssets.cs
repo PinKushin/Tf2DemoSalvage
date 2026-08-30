@@ -863,6 +863,28 @@ public sealed class MapAssets
             $"{table.Bumps.Count(bump => bump is not null)} with a bump map; " +
             $"MISSING {table.Count - textured} with no base texture resolved");
 
+        // **NAMES the ones that failed, because the count alone cost an hour.** The inventory above
+        // said "MISSING 1" and the renderer said "1 will draw as the missing-material chequer at
+        // 377"; between them they gave a number, an index and no way to reach the material — so the
+        // only route to it was to guess from a warning that had stopped being printed. A count says
+        // a thing is wrong and a name says what to open.
+        //
+        // Unbounded on purpose: a map with forty broken materials wants forty lines, and capping a
+        // diagnostic by a report count is the rule this project already keeps.
+        if (table.Count != textured)
+        {
+            for (int index = 0; index < table.Count; index++)
+            {
+                if (table.Textures[index] is null)
+                {
+                    assets.LogWarning(
+                        "{Message}",
+                        $"material {index} '{table.Materials[index].Name}' resolved no base " +
+                        "texture, so it will draw as the missing-material chequer");
+                }
+            }
+        }
+
         // **Measured rather than assumed.** A detail chain that loads nothing still draws a
         // perfectly reasonable map, so the count is the only thing that says it is working.
         assets.LogInformation(
@@ -1191,7 +1213,24 @@ public sealed class MapAssets
             }
         }
 
-        if (Find("materials/" + materialName + ".vmt") is not { } vmt)
+        // **A texdata name may already carry `.vmt`, and appending a second one asks for a path that
+        // cannot exist.** `cp_fulgur` stores `water/water_well_beneath.vmt`, so the lookup below
+        // would ask an archive for `materials/water/water_well_beneath.vmt.vmt` — no archive
+        // contains that, whatever the engine does internally. The bug is in the path this builds and
+        // needs no appeal to Valve to see.
+        //
+        // **The engine additionally NORMALISES such a name rather than erroring**, which is a
+        // separate fact and is measured rather than read: `IMaterialSystem::FindMaterial`'s comment
+        // says the name is *"a full path to the vmt file ... without a file extension"* and the
+        // SDK's tools pass the texdata string straight through (`utilmatlib.cpp:75`), so the header
+        // suggests the map is malformed. It is not — the owner, on this map: *"the real tf2 doesnt
+        // show the purple and black texture anywhere on this map, its not a new map"*. The material
+        // system is closed, so the running game is the only source that could settle that half.
+        string name = materialName.EndsWith(".vmt", StringComparison.OrdinalIgnoreCase)
+            ? materialName[..^4]
+            : materialName;
+
+        if (Find("materials/" + name + ".vmt") is not { } vmt)
         {
             // **Silent only when the caller is guessing.** A model's material can be reached by
             // several candidate paths and all but one are expected to miss; reporting each would

@@ -562,7 +562,11 @@ run Tf2DemoSalvage.Presentation.Tests presentation 414
 # MEASUREMENT that reversed the plan — leaffaces reach none of cp_badlands' 1191 displacement faces
 # while reaching all 12,654 flat ones, so terrain is narrowed by bounds, not by leaf. The second is
 # a differential against a brute force over every triangle on the map.
-run Tf2DemoSalvage.Content.Tests  content   800
+# 800 -> 801: WaterMaterialProbe, [Explicit], which prints the shipped `water/water_well_beneath`
+# VMT. It settled B62 in one read: shader `Water`, no `$basetexture` by design, refracting against
+# `_rt_WaterRefraction`. Reading what the GAME ships is the fifth source CLAUDE.md lists and the one
+# that gets forgotten, because it is data rather than code.
+run Tf2DemoSalvage.Content.Tests  content   801
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2

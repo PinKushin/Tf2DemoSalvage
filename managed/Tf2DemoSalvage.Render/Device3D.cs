@@ -1804,12 +1804,19 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             instance.BodyParts,
             instance.Body);
 
-        RenderGroup requested = RenderGroups.For(translucent, instance.TwoPass);
+        // **The alpha and the render mode are real now** (B221). These were `FullyOpaque` and
+        // `Normal` from every caller because nothing decoded `m_clrRender`, `m_nRenderFX` or
+        // `m_nRenderMode`; `EntityModels` runs `C_BaseEntity::ComputeFxBlend` per entity per frame
+        // and the answer arrives on the instance.
+        RenderGroup requested = RenderGroups.For(
+            translucent, instance.TwoPass, isBrushModel: false, instance.Alpha, instance.RenderMode);
 
         (RenderGroup stored, bool twoPass) = RenderGroups.Store(requested);
 
-        (bool opaque, bool blended) =
-            RenderGroups.Lists(stored, twoPass, RenderGroups.FullyOpaque);
+        // **The same alpha, not `FullyOpaque` again.** `Lists` drops an invisible renderable
+        // entirely — "Don't need to sort invisible stuff" — and 118 entities in a real match are
+        // `kRenderNone`, which the engine does not draw at all.
+        (bool opaque, bool blended) = RenderGroups.Lists(stored, twoPass, instance.Alpha);
 
         // **Logged when it CHANGES, not once per model, and the difference is the whole point.**
         // The symptom this was added for is a weapon that draws sometimes and not others, reported
@@ -1820,6 +1827,21 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         // The frame is carried because it is the input that varies: `Classify` resolves batches
         // through `ModelBatches(path, frame)`, so a model whose frame selects different batches can
         // legitimately classify differently from one frame to the next.
+        // **Says when an entity is drawn at anything other than full alpha, once per model** (B221).
+        // Without it "the fade path is wired" is unfalsifiable from a run: the classification line
+        // below reports the GROUP, and a model can be opaque-grouped at alpha 200 exactly as it is
+        // at 255. Guarded on the work as well as the write, and reported through `_faded` so a
+        // model that fades every frame writes one line rather than sixty a second.
+        if (instance.Alpha != RenderGroups.FullyOpaque &&
+            _render.IsEnabled(LogLevel.Debug) &&
+            _faded.Add(instance.ModelPath))
+        {
+            _render.LogDebug(
+                "{Message}",
+                $"{System.IO.Path.GetFileNameWithoutExtension(instance.ModelPath)} drawn at alpha " +
+                $"{instance.Alpha} of 255, render mode {instance.RenderMode}, group {requested}");
+        }
+
         _classified.TryGetValue(
             instance.ModelPath,
             out (RenderGroup Group, bool Opaque, bool Translucent, int Reported) was);
@@ -2032,6 +2054,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// <summary>The last render group each model classified into, to report a change.</summary>
     private readonly Dictionary<string, (RenderGroup Group, bool Opaque, bool Translucent, int Reported)>
         _classified = [];
+
+    /// <summary>Models already reported as drawn below full alpha, so each says so once.</summary>
+    /// <remarks>
+    /// **Not capped by a count** — the project's rule is that a diagnostic is never bounded by a
+    /// report limit, because the run that matters is the one where the interesting thing happens
+    /// late. Bounded by IDENTITY instead: one line per model path, however many frames it fades for.
+    /// </remarks>
+    private readonly HashSet<string> _faded = [];
 
     /// <summary>Writes, once, what the cull kept and how it spread across Valve's size buckets.</summary>
     /// <param name="offered">Every instance the scene produced, before culling.</param>
