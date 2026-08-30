@@ -134,7 +134,11 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # 1544 -> 1550 on 2026-08-29: DirectorShotTests (6), which decode hltv_chase from an AUTHORED demo.
 # No demo in the corpus carries the event — measured, not assumed — so the specimen had to be
 # written; see the corpus test that asserts that absence and will go red when it stops being true.
-run Tf2DemoSalvage.Core.Tests     core     1550
+# 1550 -> 1556 on 2026-08-29: RenderStateDecodeTests (6) — m_clrRender, m_nRenderFX, m_nRenderMode
+# and m_iObserverMode read off HAND-BUILT entities. Synthetic and in Core.Tests deliberately (D38):
+# `Corpus.Tests` needs Git LFS, so Stryker never mutates anything placed there, and the two corpus
+# suites these replace took tens of seconds to assert what a demo happens to contain.
+run Tf2DemoSalvage.Core.Tests     core     1556
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
@@ -596,7 +600,11 @@ run Tf2DemoSalvage.Content.Tests  content   800
 # 135 -> 136: CorpusObserverModeTests, the level that catches a decode which never populates the
 # field. It also measured the number that killed the first theory: across three POV demos, samples
 # that are alive AND observing come to ZERO, so the observer-mode rule alone explains none of B225.
-run Tf2DemoSalvage.Corpus.Tests   corpus     136
+# 136 -> 137: CorpusRenderModeDiagnostic. **A count that went UP while the suite got weaker on
+# purpose** — the two render/observer corpus TESTS became `[Explicit]` diagnostics that report and
+# assert nothing about what a demo contains (D38), and their real claims moved to synthetic tests in
+# Core.Tests where Stryker can reach them.
+run Tf2DemoSalvage.Corpus.Tests   corpus     137
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that
@@ -761,7 +769,10 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     136
 # usually inside the brush the terrain was carved from, so the brush trace correctly reports
 # startsolid there and the column proves nothing. It finds one where brushes are clear and terrain
 # is not — (2048, 0, 258.6), terrain 0.689 against brushes 1.0.
-run Tf2DemoSalvage.Rendering.Tests rendering 687
+# 687 -> 702: FxBlendConformanceTests (15), `C_BaseEntity::ComputeFxBlend` written down before it
+# was implemented. Every case is hand-read from c_baseentity.cpp:3343 — including the four that
+# MUTATE the entity's alpha, which Valve marks "JAY: HACK for now -- not time based".
+run Tf2DemoSalvage.Rendering.Tests rendering 702
 # 101 -> 103 on 2026-08-29: LaunchOptionWiringTests (B223, D118). Two tests, and they cost about
 # seventeen seconds EACH, because each builds a real MainForm and loads a corpus demo — which reads
 # cp_badlands.bsp when Team Fortress 2 is installed. That is the most expensive pair in this file

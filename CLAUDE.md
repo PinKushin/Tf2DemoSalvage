@@ -18,6 +18,43 @@ A standalone TF2 `.dem` parser that works across TF2's full history, including d
 - **Run Stryker.NET on every C# test project** as part of normal development, not bolted on at the end. It mutates the code and checks whether the test suite actually kills the mutants — proves the tests do something, unlike coverage percentage alone. A surviving mutant is a real finding: either add the missing assertion, or the mutated code path genuinely doesn't matter and can be deleted. Doesn't apply to `libtf2dem` (Stryker is .NET/JS-only) — for the C core, equivalent rigor comes from adversarial hand-built byte fixtures per primitive, and every malformed-input bug found becomes a permanent regression fixture.
 - **Wire up SonarLint + Roslyn analyzers (`Microsoft.CodeAnalysis.NetAnalyzers`, `SonarAnalyzer.CSharp`) from the first C# project**, with `.editorconfig` set to `warning`/`error` for correctness-related rules so violations surface at build time, not in a later cleanup pass.
 
+## Synthetic fixtures come FIRST; the corpus keeps only what real bytes alone can prove (D38)
+
+**This is already D38 and it was not being followed.** The owner, 2026-08-29: *"they are suppose to
+be used above real demos in tests"*, and *"we have a bunch of tests and stuff that cant be mut
+tested and takes longer than required to test"*. It is repeated here because `docs/DECISIONS.md` is
+long and this file is the one read at session start — the rule existed and the reminder did not.
+
+**Two costs, and neither is style.** A corpus test needs Git LFS, so it **cannot run on the
+measurement boxes at all** — a test placed in `Corpus.Tests` is one Stryker never mutates. And it is
+slow: `Core.Tests`' synthetic suite runs in a few hundred milliseconds where corpus suites take
+tens of seconds each.
+
+**A synthetic fixture is STRONGER, not a compromise.** A corpus test does not know the right answer
+and must compare two readings of the same file; a hand-built one HAS ground truth, because the test
+put the value there. `SyntheticDemo` can write a demo the engine itself accepts.
+
+**The question that kills most corpus tests**, and it is the owner's: *"why do we need to verify a
+demo has anything?"* An assertion that a real recording contains a death, a crouch, an observer mode
+or a translucent entity is a claim about **TF2**, not about this parser. Reading the SDK establishes
+that; a test does not.
+
+**So, in order:**
+
+1. **Decode, behaviour, arithmetic → synthetic, in `Core.Tests`** (not `Corpus.Tests`, which nothing
+   mutates). Build the entity or the demo, assert the exact value you put there.
+2. **Only-real-bytes questions → the corpus.** A writer-side quirk, a truncated `dem_datatables`, a
+   protocol nobody can synthesise faithfully.
+3. **A MEASUREMENT is not a test.** "How many entities in a real match are translucent" is worth
+   running once and recording the number in `docs/RISKS.md` or `docs/findings/`. If the harness is
+   worth keeping, it is a `*Diagnostic` marked `[Explicit]` that reports numbers and asserts
+   nothing — never a test that fails when a demo changes.
+
+**Live examples of the mistake, from the session that produced this note:**
+`CorpusObserverModeTests` and `CorpusRenderModeTests` were both written as corpus tests asserting
+what real demos contain, when the decode belonged in a synthetic test and the counts belonged in a
+diagnostic. Both were converted.
+
 ## Corpus reality
 
 **This section described a one-demo corpus and is now badly out of date in the good direction.** As of 2026-08-10 the committed corpus (**gcor**) is 10 demos / 20.3 MB spanning **five measured protocols** — 11, 14, 15, 16 and 24 — each recorded on a period client whose `version` output dates it exactly. Most eras carry a POV and a SourceTV recording of the same session, which is the pairing that has caught two writer-side findings. Metadata in `tools/corpus/manifest.json`, era table in `docs/TIMELINE.md`.

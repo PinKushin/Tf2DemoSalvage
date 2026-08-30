@@ -147,7 +147,8 @@ jobs:
           # spawns its own tasks and reads no game files, so it runs identically on a runner.
           # 1539 -> 1544 on 2026-08-28: ViewmodelAnimationParityConformanceTests (5), Valve's
           # UpdateAnimationParity written down before it was implemented.
-          ./build/assert-test-count.sh '**/core.trx' 1550 Core
+          # 1550 -> 1556: RenderStateDecodeTests, synthetic and in Core.Tests per D38.
+          ./build/assert-test-count.sh '**/core.trx' 1556 Core
           ./build/assert-test-count.sh '**/cli.trx' 74 Cli
           # 628 -> 645 is ARITHMETIC, not a measurement: 17 tests were added to Content on
           # 2026-08-24 (SchemeFont 6, GlyphAtlas 11), all self-contained, so every one of them
@@ -425,13 +426,15 @@ jobs:
           # 582 -> 584 on 2026-08-29: MapLevelSweepTests (B227). Raised by the measured delta, per
           # the note above: the gap to the local gate's floor is still unreconciled and closing it
           # in passing would be either a silent tightening or a red CI.
-          ./build/assert-test-count.sh '**/rendering.trx' 584 Rendering
+          # 584 -> 599: FxBlendConformanceTests (15), raised by the measured delta as above.
+          ./build/assert-test-count.sh '**/rendering.trx' 599 Rendering
           ./build/assert-test-count.sh '**/viewer-ui.trx' 14 ViewerUi
           # 117 -> 118 on 2026-08-28: ViewmodelAnimationParityCorpusTests, which asserts the parity
           # counter reaches the scene from a real demo and changes there.
           # 118 -> 121 on 2026-08-28: LifeStateCorpusDiagnostic (3), which chose the UI suite's
           # opening tick. Skipped tests count toward the trx total, so the floor holds here too.
-          ./build/assert-test-count.sh '**/corpus.trx' 123 Corpus
+          # 123 -> 124: CorpusRenderModeDiagnostic, raised by the measured delta.
+          ./build/assert-test-count.sh '**/corpus.trx' 124 Corpus
 
       - uses: actions/upload-artifact@v7
         if: failure()

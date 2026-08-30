@@ -174,6 +174,18 @@ public sealed class PoseCompletenessTests
         Body = 3,
         Skin = 1,
 
+        // **All three away from their defaults, and each default is a legitimate value** — 255 is
+        // opaque, 0 is `kRenderFxNone` and 0 is `kRenderNormal` — so a rebuild that dropped any of
+        // them would look correct on every ordinary entity and wrong only on the ones that fade.
+        // That is the exact shape this file exists for, and the shape `ScenePropTrack`'s own comment
+        // warns about beside `Body`.
+        //
+        // `kRenderFxFlickerSlow` and `kRenderNone` rather than arbitrary numbers: both occur in real
+        // matches (76 and 118 entities respectively), so the fixture is a state the code will meet.
+        RenderAlpha = 128,
+        RenderFx = 12,
+        RenderMode = 10,
+
         // Not 1, which is the default and would make the completeness assertion compare a default
         // against a default. This pair caught PlaybackRate the moment it was added, which is the
         // entire point of the control.
