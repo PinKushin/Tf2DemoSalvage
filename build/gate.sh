@@ -142,7 +142,11 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # Equip both call FollowEntity outside their server-only guards, so the client sets EF_BONEMERGE
 # itself and it never travels -- 26 of 26 CTFWearable send no m_fEffects at all. Synthetic, and the
 # table chain is deliberately not an identity so a one-level walk fails.
-run Tf2DemoSalvage.Core.Tests     core     1563
+# 1563 -> 1567: ReentryPreservesStateTests (4). The class baseline was re-applied on EVERY Enter,
+# so an entity that left and re-entered the PVS lost everything it had accumulated -- measured on a
+# spawn-door prop re-entering with the SAME serial and zero properties. Three of the four are
+# controls: a new serial must still take the baseline, a first enter must, and a delta must not.
+run Tf2DemoSalvage.Core.Tests     core     1567
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
@@ -638,7 +642,10 @@ run Tf2DemoSalvage.Content.Tests  content   826
 # 137 -> 141: four Explicit diagnostics from the B231 hunt -- brush entity state, parented props,
 # bone-merge detection and the missing-model gap. The parented one is what found that the SPAWN
 # doors send a local origin with no parent we resolve, which is a separate defect.
-run Tf2DemoSalvage.Corpus.Tests   corpus     141
+# 141 -> 142: ParentLifetimeDiagnostic (1, Explicit), which walks one entity slot across the whole
+# recording and prints every transition. It is what found the re-entry bug: the parent is present
+# at tick 9781 and gone by 14180, which is a value being overwritten rather than never sent.
+run Tf2DemoSalvage.Corpus.Tests   corpus     142
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that

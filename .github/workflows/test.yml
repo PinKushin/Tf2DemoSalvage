@@ -149,7 +149,8 @@ jobs:
           # UpdateAnimationParity written down before it was implemented.
           # 1550 -> 1556: RenderStateDecodeTests, synthetic and in Core.Tests per D38.
           # 1556 -> 1563 on 2026-08-30: WearableClassConformanceTests (7), synthetic and file-free.
-          ./build/assert-test-count.sh '**/core.trx' 1563 Core
+          # 1563 -> 1567 on 2026-08-30: ReentryPreservesStateTests (4), synthetic and file-free.
+          ./build/assert-test-count.sh '**/core.trx' 1567 Core
           ./build/assert-test-count.sh '**/cli.trx' 74 Cli
           # 628 -> 645 is ARITHMETIC, not a measurement: 17 tests were added to Content on
           # 2026-08-24 (SchemeFont 6, GlyphAtlas 11), all self-contained, so every one of them
