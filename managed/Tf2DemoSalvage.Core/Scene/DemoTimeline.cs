@@ -921,9 +921,25 @@ public sealed class DemoTimeline
         // **Class names come from dem_datatables, not from svc_ClassInfo.** TF2 sets the
         // "create on client" flag and sends no names, so a reader waiting for that message names
         // nothing and finds no players while decoding every entity correctly.
+        // **Which classes bone-merge themselves, computed once from the schema** (B231).
+        // `CEconWearable::Spawn` calls `AddEffects( EF_BONEMERGE )` outside its server-only guard
+        // (`econ_wearable.cpp:112`), so every client sets it for every wearable it creates and the
+        // flag never travels — measured, 26 of 26 `CTFWearable` entities send no `m_fEffects` at
+        // all. This viewer is the only reader that never runs `Spawn`, so it derives the same
+        // answer from the class, which `dem_datatables` does carry.
+        //
+        // Per class rather than per entity because the answer cannot vary between two instances of
+        // one class, and the walk is over send tables rather than over anything cheap.
+        HashSet<int> mergesItself = [];
+
         foreach (ServerClass serverClass in schema.ServerClasses)
         {
             entities.SetClassName(serverClass.Id, serverClass.ClassName);
+
+            if (SchemaClasses.BoneMergesItself(schema, serverClass.TableName))
+            {
+                mergesItself.Add(serverClass.Id);
+            }
         }
 
         List<TimelineFrame> frames = [];
@@ -1159,7 +1175,7 @@ public sealed class DemoTimeline
                     entities.Apply(entity);
                     RecordProp(
                         entity, entities, precache, tracks, props, playerTracks,
-                        protocol, command.Tick);
+                        mergesItself, protocol, command.Tick);
                 }
 
                 moved = true;
@@ -1690,6 +1706,7 @@ public sealed class DemoTimeline
         Dictionary<int, ScenePropTrack> tracks,
         List<ScenePropTrack> props,
         List<ScenePropTrack> players,
+        HashSet<int> mergesItself,
         int protocol,
         int tick)
     {
@@ -1796,10 +1813,32 @@ public sealed class DemoTimeline
         int? attachedTo = null;
         (float X, float Y, float Z) origin;
 
+        // **Both halves, and neither alone is the answer** (B231).
+        //
+        // `CalcAbsolutePosition` (`c_baseentity.cpp:4387`) tests `EF_BONEMERGE` to choose between
+        // riding a parent's SKELETON and concatenating onto its transform. Weapons carry that flag
+        // on the wire; wearables do not, because `CEconWearable::Spawn` adds it on the CLIENT for
+        // every wearable any client creates (`econ_wearable.cpp:112`, outside the server-only
+        // guard) and so it never needs to travel.
+        //
+        // Measured on a real match: 26 of 26 `CTFWearable` and 3 of 3 `CTFPowerupBottle` send no
+        // `m_fEffects` at all, while every weapon sends the flag. Reading only the wire puts every
+        // hat and cosmetic on the transform path — which broke the viewer outright — and treating
+        // every parent as a merge is the mistake in the other direction, which leaves a
+        // `CDynamicProp` hung on a `func_door` searching for a skeleton brushwork does not have.
+        bool boneMerged = state.IsBoneMerged || mergesItself.Contains(entity.ClassId);
+
         if (state.Attachment() is { } owner)
         {
             attachedTo = owner;
-            origin = (0f, 0f, 0f);
+
+            // **A bone-merged follower's own origin is meaningless and a parented one's is not.**
+            // `FollowEntity` calls `SetLocalOrigin( vec3_origin )` on the follower
+            // (`baseentity_shared.cpp:2371`), so a merged entity genuinely sends zero and the
+            // bones place it; everything else sends its OFFSET from the parent, which is the value
+            // `MatrixSetColumn( GetLocalOrigin(), 3, matEntityToParent )` needs. Zeroing both
+            // discards the second.
+            origin = boneMerged ? (0f, 0f, 0f) : state.Origin() ?? (0f, 0f, 0f);
         }
         else if (state.Origin() is { } placed)
         {
@@ -1854,6 +1893,10 @@ public sealed class DemoTimeline
         // Kept current rather than set once: a wearable can arrive before its owner handle does,
         // and a track stuck on the first answer would draw the hat on whoever wore it last.
         track.AttachedTo = attachedTo;
+
+        // Kept current alongside the parent, because an entity can gain or lose the flag on a
+        // later delta and the branch it takes has to follow.
+        track.BoneMerged = boneMerged;
 
         // Ownership regardless of attachment, because the first-person view hides a followed
         // player's weapon by OWNER and a carried weapon that sends an origin is parented to nobody.
@@ -2055,7 +2098,8 @@ public sealed class DemoTimeline
             {
                 into.Add(new SceneProp(
                     track.EntityIndex, track.ModelPath, track.Kind, Moving(track, tick, pose),
-                    track.AttachedTo, track.AttachmentPoint, track.OwnedBy, track.WeaponState));
+                    track.AttachedTo, track.AttachmentPoint, track.OwnedBy, track.WeaponState,
+                    track.BoneMerged));
             }
         }
     }
