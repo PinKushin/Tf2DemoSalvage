@@ -184,7 +184,12 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # client-side animated and send NO server cycle at all, so the toggle is their restart and a fix
 # built on parity alone did not move them. The case carries its own control inline: parity and
 # sequence held still while the toggle does not move must NOT restart.
-run Tf2DemoSalvage.Core.Tests     core     1592
+# 1592 -> 1593: the frame-reset toggle counts only in CLIENT-side mode, which
+# c_baseanimating.cpp:5021 guards it with and the first version left out. Found by auditing every
+# EntityState accessor for a production caller -- ClientSideAnimation had none, which is this
+# project's recurring failure exactly. The case IS the control: a server-animated prop toggling
+# the field must NOT restart on it.
+run Tf2DemoSalvage.Core.Tests     core     1593
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.

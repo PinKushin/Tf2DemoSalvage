@@ -150,6 +150,29 @@ public sealed class SequenceParityConformanceTests
             "the frame-reset toggle flipped, which is a client-side animation starting over");
     }
 
+    [Test]
+    public void Build_AServerAnimatedPropWhoseFrameResetToggles_DoesNotRestart()
+    {
+        // **The guard Valve puts around the toggle, and the control a first version lacked.**
+        // `c_baseanimating.cpp:5021` reads `m_bClientSideFrameReset` ONLY inside
+        // `if ( m_bClientSideAnimation )`. A server-animated entity that toggles the field must not
+        // restart on it — its signal is the parity.
+        //
+        // Found by auditing every `EntityState` accessor for a production caller:
+        // `ClientSideAnimation` had none, which is this project's recurring failure exactly —
+        // a field decoded and never consumed.
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticProp.Demo(
+            clientSideAnimation: false,
+            (Tick: 0, Sequence: 1, Parity: 4, FrameReset: 0),
+            (Tick: 660, Sequence: 1, Parity: 4, FrameReset: 1)));
+
+        ScenePropTrack track = Single(timeline);
+
+        Last(track).ShouldBe(
+            Started(track, at: 0),
+            "the toggle means nothing to a server-animated entity, so nothing restarted");
+    }
+
     /// <summary>The animation clock on the track's final keyframe.</summary>
     private static double Last(ScenePropTrack track) =>
         track.Keyframes[^1].Pose.AnimationStartSeconds;

@@ -1963,9 +1963,24 @@ public sealed class DemoTimeline
 
         // **Both are consumed even once the first has fired**, because the stored value must track
         // the wire whether or not anyone acted on it, or the next genuine change is missed.
+        //
+        // **And the toggle counts only in CLIENT-side mode**, which is the guard Valve puts around
+        // it and which a first version of this left out — caught by auditing every EntityState
+        // accessor for a production caller and finding `ClientSideAnimation` had none.
+        // `c_baseanimating.cpp:5021`:
+        //
+        //     if ( m_bClientSideAnimation )
+        //         if ( m_bClientSideFrameReset != m_bLastClientSideFrameReset )
+        //             ResetClientsideFrame();
+        //
+        // A server-animated entity that toggles the field would otherwise restart on it, which is
+        // the same class of mistake as reading the toggle's VALUE instead of its change.
         if (state.ClientSideFrameReset() is { } reset)
         {
-            restarted |= track.LastFrameReset is not null && reset != track.LastFrameReset;
+            restarted |= track.LastFrameReset is not null
+                && reset != track.LastFrameReset
+                && state.ClientSideAnimation() is not 0 and not null;
+
             track.LastFrameReset = reset;
         }
 

@@ -650,3 +650,51 @@ and this keeps the networked value.
 The narrower rule was chosen because the wider one changes every working weapon and the difference
 cannot be checked without looking at the screen. It is recorded here rather than in a code comment
 because a divergence is a question for the owner, not a note to self.
+
+### The mechanical audit: which decoded fields have no consumer
+
+**Evidence class: mechanical, over the repository.** Every bug found on 2026-08-30 had one of two
+shapes — a field decoded and never read, or a mechanism wired to one caller of several. That is
+auditable rather than discoverable one symptom at a time, and the audit is two lines of shell:
+
+```bash
+# every public accessor on EntityState
+grep -oE "public [A-Za-z0-9_?<>., ()]+ [A-Z][A-Za-z0-9_]*\(" EntityState.cs | ...
+# each one with no production caller outside the file that declares it
+grep -rlE "\.${name}\(" managed/ --include=*.cs | grep -v Scene/EntityState.cs
+```
+
+**46 accessors, 5 with no production caller:**
+
+| accessor | verdict |
+|---|---|
+| `Attachment` | dead — replaced by `AttachmentHandle`, which checks the handle's serial |
+| `RenderColor` | `m_clrRender`, decoded and never applied |
+| `ViewmodelMuzzleFlashParity` | known gap, documented at the declaration |
+| `ViewmodelNewSequenceParity` | known gap; the `DT_BaseAnimating` twin is now consumed |
+| `ViewmodelResetEventsParity` | known gap — this viewer dispatches no animation events |
+
+**It caught a divergence introduced an hour earlier.** `ClientSideAnimation` appeared on that list
+because the frame-reset fix honoured `m_bClientSideFrameReset` unconditionally, where
+`c_baseanimating.cpp:5021` reads it only inside `if ( m_bClientSideAnimation )`. A server-animated
+entity toggling the field would have restarted on it. The audit found that in seconds; no amount of
+looking at the screen would have.
+
+#### What the audit CANNOT see, which is the larger set
+
+It enumerates fields this project already decodes. A field never decoded at all is invisible to it,
+and those are the more expensive gaps:
+
+- **`m_flAnimTime`** — cited in seven comments, decoded nowhere. It lives in
+  `DT_AnimTimeMustBeFirst`, not `DT_BaseEntity`, so asking under the obvious name silently matches
+  nothing.
+- **Spy disguises.** `m_nDisguiseTeam` and `m_nDisguiseClass` are networked
+  (`tf_player_shared.cpp:400`), and the string "Disguise" appears **zero** times in the entire
+  managed tree. The owner's report is the symptom: *"a spy looked like a blue spy and a red demo at
+  the same time"*.
+
+**So the denominator has to come from the SDK's RecvTables, not from our own accessors** — the same
+argument `SdkCoverageTests` already makes for shader parameters and BSP lumps, applied to networked
+properties. A coverage test over `RecvPropInt( RECVINFO( ... ) )` for the classes this viewer draws
+would turn every remaining gap of this kind into a number, and it is the single highest-value thing
+left undone here.

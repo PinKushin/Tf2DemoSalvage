@@ -161,7 +161,8 @@ jobs:
           # clock. Synthetic and file-free.
           # 1591 -> 1592 on 2026-08-30: the client-side frame reset, the second of Valve's two
           # animation restart signals. Synthetic and file-free.
-          ./build/assert-test-count.sh '**/core.trx' 1592 Core
+          # 1592 -> 1593 on 2026-08-30: the client-side guard around the frame-reset toggle.
+          ./build/assert-test-count.sh '**/core.trx' 1593 Core
           ./build/assert-test-count.sh '**/cli.trx' 74 Cli
           # 628 -> 645 is ARITHMETIC, not a measurement: 17 tests were added to Content on
           # 2026-08-24 (SchemeFont 6, GlyphAtlas 11), all self-contained, so every one of them
