@@ -1497,7 +1497,13 @@ public sealed class EntityModelSet
             // resolves through the same loader to geometry the map built, so the only thing that
             // ever made this test about `.mdl` files was that nothing else had geometry yet.
             // Sprites still have none, and Unknown means the model reference was never resolved.
-            if (!IsDrawable(prop.Kind) || _byModel.ContainsKey(prop.ModelPath))
+            // **A path too, because a Studio prop can reach here without one.** A weapon whose model
+            // the wire never carried is named from its item by `WeaponPropModels`, and that lookup
+            // answers null when the game is not installed — which is every CI run. Passing the empty
+            // string to `load` throws out of `PakFile.ReadFile`.
+            if (!IsDrawable(prop.Kind) ||
+                prop.ModelPath.Length == 0 ||
+                _byModel.ContainsKey(prop.ModelPath))
             {
                 continue;
             }

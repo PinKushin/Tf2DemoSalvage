@@ -98,6 +98,48 @@ public sealed class WornModelsTests
     }
 
     /// <summary>A prop track, with the attachment the timeline would have set.</summary>
+    [Test]
+    public void From_AnAttachedStudioTrackWithNoPathYet_IsNotWorn()
+    {
+        // **A regression test for a crash shipped to the owner.** A weapon whose model the wire
+        // never carried reaches `Props` with an EMPTY path and an item number — `items_game.txt`
+        // names the model and only the Scene layer can read it — and its kind is `Studio`, because
+        // every `model_player` is a `.mdl`. It therefore satisfies both conditions above, and the
+        // empty string went into the load set:
+        //
+        //   System.ArgumentException: The value cannot be an empty string ... (Parameter 'path')
+        //      at Tf2DemoSalvage.Content.Assets.PakFile.ReadFile(String path)
+        //
+        // The players/props split that kept model-less tracks out of `Props` documented this exact
+        // hazard, and relaxing it without visiting the consumers is what let it through.
+        ScenePropTrack pending = Track(string.Empty, attachedTo: 8);
+
+        pending.ItemDefinitionIndex = MediGun;
+
+        pending.Kind.ShouldBe(
+            SceneModelKind.Studio,
+            "the precondition: an item names a .mdl, so the kind is known while the path is not");
+
+        WornModels.From([pending], []).ShouldBeEmpty();
+    }
+
+    [Test]
+    public void From_AnAttachedStudioTrackThatHasItsPath_IsStillWorn()
+    {
+        // **The control, and it is why the guard tests the PATH rather than the item.** Every
+        // cosmetic and every weapon that does name a model carries an item too, so a guard written
+        // against `ItemDefinitionIndex` would drop all of them and lose more than it saved.
+        ScenePropTrack resolved = Track(
+            "models/weapons/c_models/c_medigun/c_medigun.mdl", attachedTo: 8);
+
+        resolved.ItemDefinitionIndex = MediGun;
+
+        WornModels.From([resolved], []).ShouldContain(resolved.ModelPath);
+    }
+
+    /// <summary>The stock Medi Gun, whose entity networks no model index at all.</summary>
+    private const int MediGun = 211;
+
     private static ScenePropTrack Track(string modelPath, int? attachedTo)
     {
         ScenePropTrack track = new(entityIndex: 9, modelPath);

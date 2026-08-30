@@ -54,7 +54,14 @@ public static class WornModels
         {
             // Studio only: a brush entity has no skeleton to merge onto and asking for one would
             // force a pointless skinned load of map geometry.
-            if (track.AttachedTo is not null && track.Kind == SceneModelKind.Studio)
+            //
+            // **And a path, because a Studio track can now lack one.** A weapon whose model the
+            // wire never carried is attached, is Studio — every `model_player` is a `.mdl` — and
+            // has an empty path until the Scene layer resolves its item. `heldWeapons` below is the
+            // list that names those, resolved through the same item schema the engine uses.
+            if (track.AttachedTo is not null &&
+                track.Kind == SceneModelKind.Studio &&
+                track.ModelPath.Length > 0)
             {
                 paths.Add(track.ModelPath);
             }

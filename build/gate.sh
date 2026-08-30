@@ -873,7 +873,12 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     144
 # 708 -> 710: BrushEntityAngleProbe and SetupGateEntityProbe, both Explicit. The second dumps
 # EVERY keyvalue on a map gate rather than the four already suspected, which is how the parented
 # prop_dynamic riders were found at all.
-run Tf2DemoSalvage.Rendering.Tests rendering 710
+# 710 -> 712: two WornModels cases for a track whose model is not resolved yet. Making a weapon's
+# model resolvable from its ITEM let a Studio track reach Props with an EMPTY path, and both load
+# set builders select on Kind == Studio -- so the empty string went to PakFile.ReadFile and killed
+# the viewer at load. The second case is the control: a track that HAS its path is still worn, so
+# the guard tests the path rather than the item, which every cosmetic also carries.
+run Tf2DemoSalvage.Rendering.Tests rendering 712
 # 101 -> 103 on 2026-08-29: LaunchOptionWiringTests (B223, D118). Two tests, and they cost about
 # seventeen seconds EACH, because each builds a real MainForm and loads a corpus demo — which reads
 # cp_badlands.bsp when Team Fortress 2 is installed. That is the most expensive pair in this file
