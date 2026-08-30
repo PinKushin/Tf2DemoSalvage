@@ -49,6 +49,9 @@ public sealed class WearableClassConformanceTests
     /// <summary><c>CEconWearable</c>'s network table — <c>econ_wearable.cpp:31</c>.</summary>
     private const string WearableTable = "DT_WearableItem";
 
+    /// <summary><c>CBaseCombatWeapon</c>'s table — <c>basecombatweapon_shared.cpp:2622</c>.</summary>
+    private const string CombatWeaponTable = "DT_BaseCombatWeapon";
+
     [Test]
     public void BoneMergedByClass_AWearablesOwnTable_IsRecognised()
     {
@@ -86,6 +89,28 @@ public sealed class WearableClassConformanceTests
             Table(WearableTable));
 
         SchemaClasses.BoneMergesItself(schema, "DT_TFPowerupBottle").ShouldBeTrue();
+    }
+
+    [Test]
+    public void BoneMergedByClass_ACarriedWeapon_IsRecognisedToo()
+    {
+        // **The second family, and leaving it out is what broke the viewmodel.**
+        // `CBaseCombatWeapon::Equip` (`basecombatweapon_shared.cpp:982`) calls
+        // `FollowEntity( pOwner )` before its `#if !defined( CLIENT_DLL )` guard, and
+        // `FollowEntity`'s second argument defaults to `bBoneMerge = true` (`baseentity.h:564`).
+        // So a carried weapon merges itself client-side exactly as a wearable does.
+        //
+        // Measured: weapons SPLIT on the wire — `CTFRocketLauncher` and `CWeaponMedigun` send the
+        // flag, `CTFFireAxe`, `CTFShovel`, `CTFBonesaw` and `CTFWeaponInvis` do not. Trusting the
+        // wire alone therefore drops a different subset of weapons every match.
+        DemoSchema schema = Schema(
+            Table("DT_TFWeaponFireAxe", Inherits("DT_TFWeaponBaseMelee")),
+            Table("DT_TFWeaponBaseMelee", Inherits("DT_TFWeaponBase")),
+            Table("DT_TFWeaponBase", Inherits(CombatWeaponTable)),
+            Table(CombatWeaponTable),
+            Table(WearableTable));
+
+        SchemaClasses.BoneMergesItself(schema, "DT_TFWeaponFireAxe").ShouldBeTrue();
     }
 
     [Test]

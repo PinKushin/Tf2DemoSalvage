@@ -25,6 +25,22 @@ public static class SchemaClasses
     /// </remarks>
     public const string WearableTable = "DT_WearableItem";
 
+    /// <summary><c>CBaseCombatWeapon</c>'s network table — <c>basecombatweapon_shared.cpp:2622</c>.</summary>
+    /// <remarks>
+    /// **A carried weapon follows its owner the same way a wearable does, and from shared code.**
+    /// <c>CBaseCombatWeapon::Equip</c> (<c>basecombatweapon_shared.cpp:982</c>) calls
+    /// <c>FollowEntity( pOwner )</c> before its <c>#if !defined( CLIENT_DLL )</c> guard, and
+    /// <c>FollowEntity</c>'s second parameter defaults to <c>bBoneMerge = true</c>
+    /// (<c>baseentity.h:564</c>) — so the client adds <c>EF_BONEMERGE</c> itself here too.
+    ///
+    /// **Measured, and it is why weapons split down the middle on the wire**: `CTFRocketLauncher`
+    /// and `CWeaponMedigun` carry the flag, while `CTFFireAxe`, `CTFShovel`, `CTFBonesaw` and
+    /// `CTFWeaponInvis` do not. Reading the wire alone therefore sends *some* weapons and the
+    /// viewmodel arms down the transform path — measured as `c_spy_arms.mdl` claimed 319 times and
+    /// `c_fireaxe_pyro` 123 times, which is exactly the missing viewmodel (B231).
+    /// </remarks>
+    public const string CombatWeaponTable = "DT_BaseCombatWeapon";
+
     /// <summary>Whether a class bone-merges itself the moment the client creates it.</summary>
     /// <param name="schema">The demo's send tables.</param>
     /// <param name="tableName">The class's own table, from its server class entry.</param>
@@ -65,7 +81,13 @@ public static class SchemaClasses
     {
         ArgumentNullException.ThrowIfNull(schema);
 
-        return Inherits(schema, tableName, WearableTable);
+        // **Two families, and both reach the same call.** A wearable follows its wearer from
+        // `CEconWearable::Spawn`; a carried weapon follows its owner from
+        // `CBaseCombatWeapon::Equip`. Both are shared code outside a server-only guard, and both
+        // land on `FollowEntity(..., bBoneMerge: true)` — so both are set client-side and neither
+        // needs to travel.
+        return Inherits(schema, tableName, WearableTable)
+            || Inherits(schema, tableName, CombatWeaponTable);
     }
 
     /// <summary>Whether a table is, or descends from, another.</summary>

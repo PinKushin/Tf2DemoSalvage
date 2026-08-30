@@ -118,6 +118,42 @@ public sealed class ParentedPropDiagnostic
 
         TestContext.Out.WriteLine($"{models.Count} model paths in the demo overall");
 
+        // **Everything the transform branch actually claims, by model.** Three attempts at this
+        // change have broken something visual, and every time the cause was an entity taking the
+        // new branch that should not have. A list of what it takes is the only thing that can be
+        // checked BEFORE looking at a screen — the viewmodel and its weapon must not be on it.
+        Dictionary<string, int> byTransform = new(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, int> byBones = new(StringComparer.OrdinalIgnoreCase);
+
+        for (int tick = first; tick <= last; tick += step)
+        {
+            props.Clear();
+            timeline.PropsAt(tick, props);
+
+            foreach (SceneProp prop in props)
+            {
+                if (prop.AttachedTo is null)
+                {
+                    continue;
+                }
+
+                Dictionary<string, int> into = prop.BoneMerged ? byBones : byTransform;
+
+                into[prop.ModelPath] = into.GetValueOrDefault(prop.ModelPath) + 1;
+            }
+        }
+
+        TestContext.Out.WriteLine(
+            $"TRANSFORM branch claims {byTransform.Count} distinct models:");
+
+        foreach ((string model, int times) in byTransform.OrderBy(
+            entry => entry.Key, StringComparer.Ordinal))
+        {
+            TestContext.Out.WriteLine($"    XFORM {model} x{times}");
+        }
+
+        TestContext.Out.WriteLine($"BONE branch claims {byBones.Count} distinct models");
+
         // A precondition on the HARNESS, not a claim about the demo.
         models.Count.ShouldBeGreaterThan(0, "the demo named no models at all");
     }
