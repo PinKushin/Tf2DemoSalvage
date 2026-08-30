@@ -444,30 +444,27 @@ public sealed class EntityState
     public bool IsDrawn =>
         IsVisible && (Effects() & NoDraw) == 0 && RenderMode() != RenderNone;
 
-    /// <summary><c>kRenderNone</c> — <c>public/const.h:363</c>, *"Don't render."*</summary>
+    /// <summary><c>kRenderNone</c> — <c>const.h:363</c>, *"Don't render."*</summary>
     /// <remarks>
-    /// **The first test in <c>C_BaseEntity::ShouldDraw</c>** (<c>c_baseentity.cpp:1447</c>):
+    /// **The first test in <c>C_BaseEntity::ShouldDraw</c>** (<c>c_baseentity.cpp:1447</c>), and it
+    /// was implemented, reverted, and put back the same night — the history is the point.
     ///
-    /// <code>
-    ///   // Some rendermodes prevent rendering
-    ///   if ( m_nRenderMode == kRenderNone )
-    ///       return false;
-    /// </code>
+    /// The first attempt hid every `kRenderNone` entity and **deleted `cp_fulgur`'s gates from the
+    /// map**. The citation was right and the mechanism was half-read: every gate there is an
+    /// invisible `func_door` doing the motion with a visible <c>prop_dynamic</c> PARENTED to it, and
+    /// this project had no parent-transform path at all, so the door brushwork we should never have
+    /// drawn was standing in for a grate we never drew. Hiding the stand-in left nothing.
     ///
-    /// **It was missing here until 2026-08-29, and B221 is what made the omission visible.** The
-    /// mode was not decoded at all before that, so nothing could honour it; once decoded it reached
-    /// only the render GROUP, where an entity at alpha 255 and mode 10 classifies as translucent and
-    /// draws at full opacity. So every entity the engine refuses outright was being drawn solid.
-    ///
-    /// **Measured on `cp_fulgur`: all eighteen `func_door` entities are `kRenderNone`**, in the
-    /// map's entity lump and in the recording alike. The visible gates on that map are separate
-    /// brushwork and the doors are invisible movers — an ordinary mapping idiom, and eighteen solid
-    /// slabs in this viewer. Across three sampled matches, 118 of 1,973 entities carry it.
+    /// **It is safe now because the other half exists.** `EntityModels` resolves a parent through
+    /// `_parentPlacements`, which holds every entity drawn or not — `CalcAbsolutePosition` composes
+    /// onto a parent's transform without asking whether the parent renders — so a grate hung on a
+    /// hidden door is placed by it regardless.
     ///
     /// Compared against the mode rather than tested for non-zero: ten of the eleven modes draw, and
     /// `!= 0` would delete every glow, additive and transparent entity in the map.
     /// </remarks>
     private const int RenderNone = 10;
+
 
     /// <summary>The effect flags, from whichever table this entity declares them in.</summary>
     /// <remarks>
@@ -813,6 +810,16 @@ public sealed class EntityState
     /// this was found as.
     /// </remarks>
     public int? Owner() => Slot(Integer($"{BaseEntityTable}.{OwnerProperty}"));
+
+    /// <summary>Whether this entity rides its parent's skeleton rather than its transform.</summary>
+    /// <remarks>
+    /// <c>EF_BONEMERGE</c>, which is the branch <c>C_BaseEntity::CalcAbsolutePosition</c> takes
+    /// second (<c>c_baseentity.cpp:4387</c>) and the only thing separating the two ways of hanging
+    /// off something. Exposed on its own because <see cref="Attachment"/> answers "what do I hang
+    /// off" for BOTH mechanisms and cannot say which — see `ScenePropTrack.BoneMerged` (B231).
+    /// </remarks>
+    public bool IsBoneMerged =>
+        ((Integer($"{BaseEntityTable}.{EffectsProperty}") ?? 0) & BoneMerge) != 0;
 
     public int? Attachment()
     {
