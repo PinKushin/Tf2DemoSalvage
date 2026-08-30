@@ -155,7 +155,9 @@ jobs:
           # project had left out. Synthetic and file-free.
           # 1575 -> 1584 on 2026-08-30: EntityBaselineSlotConformanceTests (9), the two per-entity
           # baseline arrays svc_PacketEntities names. Synthetic and file-free.
-          ./build/assert-test-count.sh '**/core.trx' 1584 Core
+          # 1584 -> 1588 on 2026-08-30: WeaponItemModelConformanceTests (4). A weapon's model
+          # comes from its item, and every CWeaponMedigun networks no model index at all.
+          ./build/assert-test-count.sh '**/core.trx' 1588 Core
           ./build/assert-test-count.sh '**/cli.trx' 74 Cli
           # 628 -> 645 is ARITHMETIC, not a measurement: 17 tests were added to Content on
           # 2026-08-24 (SchemeFont 6, GlyphAtlas 11), all self-contained, so every one of them
@@ -213,7 +215,9 @@ jobs:
           # 222 -> 238 on 2026-08-30. This copy had drifted 13 below build/gate.sh's floor, which
           # is the drift CLAUDE.md warns about: a floor far below the number it guards catches
           # neither of the two failures it exists for.
-          ./build/assert-test-count.sh '**/scene.trx' 238 Scene
+          # 238 -> 244 on 2026-08-30: WeaponPropModelsTests (6), the Scene half of that fix.
+          # Needs no game install: the resolution is passed in, so CI exercises all six.
+          ./build/assert-test-count.sh '**/scene.trx' 244 Scene
 
       # **Coverage, gated PER ASSEMBLY rather than per report.** A Cobertura file's root line-rate
       # averages every assembly the run loaded, including ones the suite never touches — measured

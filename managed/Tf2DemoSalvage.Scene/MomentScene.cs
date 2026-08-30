@@ -208,6 +208,19 @@ public sealed class MomentScene : IGameSystemPerFrame
         _drawn.Clear();
         _drawn.AddRange(props);
 
+        // **A weapon's model comes from its ITEM, and some weapons network no model index at all.**
+        // `CEconEntity::SetModel` resolves `pItem->GetPlayerDisplayModel( iClass, team )` —
+        // `model_player` from `items_game.txt`, `econ_entity.cpp:1167` — which `Weapons.For` has
+        // implemented for the viewmodel and the followed player since B222. The weapon entities
+        // OTHER players carry were the one caller that never asked, so every medigun in every demo
+        // went undrawn: measured on `cp_fulgur`, all three `CWeaponMedigun` entities network
+        // neither `m_nModelIndex` nor `m_iWorldModelIndex` while stating item 211, the stock Medi
+        // Gun. A minigun does it too, so this is not one weapon's quirk.
+        //
+        // Before the visibility filters, because a prop with no model would otherwise be judged on
+        // a name it has not been given yet.
+        WeaponPropModels.Resolve(_drawn, players, Weapons.For);
+
         ReportUndressedPlayers(players);
 
         PlayerProps.Add(players, _drawn, Appearance);

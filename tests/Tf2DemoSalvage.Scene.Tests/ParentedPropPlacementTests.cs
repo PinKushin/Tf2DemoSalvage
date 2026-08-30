@@ -93,7 +93,26 @@ public sealed class ParentedPropPlacementTests
                 nameof(SceneProp.AttachmentPoint),
                 nameof(SceneProp.OwnedBy),
                 nameof(SceneProp.WeaponState),
+
+                // **`ItemDefinitionIndex` and `ClassName`, added for the weapon whose model the
+                // wire never carried** — `CEconEntity::SetModel` resolves
+                // `pItem->GetPlayerDisplayModel( iClass, team )` and every `CWeaponMedigun`
+                // networks no model index at all. Every other construction site was visited and
+                // keeps the default deliberately:
+                //
+                // - `PlayerProps` — a player is not an econ item. Their cosmetics are, and those
+                //   are separate entities with their own tracks.
+                // - `ViewmodelScene`'s three — the viewmodel and its weapon already resolve their
+                //   model through `WeaponModels.For` at `ViewmodelScene.cs:184`, from the
+                //   viewmodel's own `m_hWeapon`. Setting these would give the same answer by a
+                //   second route, which is the duplication that lets two paths disagree.
+                // - `EntityModels`' synthetic prop — a path with no entity behind it, built to
+                //   load a model rather than to draw one.
+                //
+                // Only `DemoTimeline` sets them, because only it has the entity.
                 nameof(SceneProp.BoneMerged),
+                nameof(SceneProp.ItemDefinitionIndex),
+                nameof(SceneProp.ClassName),
             ],
             ignoreOrder: true,
             "a defaulted field on SceneProp is a claim every construction site makes silently. "

@@ -163,7 +163,14 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # slot must not see the store, a stored baseline of a different class must not apply, a full update
 # must ignore it, a snapshot without the flag must store nothing, and a delta update must not become
 # a baseline. Five sabotages, each killing exactly its own test.
-run Tf2DemoSalvage.Core.Tests     core     1584
+# 1584 -> 1588: WeaponItemModelConformanceTests (4). A weapon's model comes from its ITEM --
+# CEconEntity::UpdateModelToClass resolves pItem->GetPlayerDisplayModel (econ_entity.cpp:382) --
+# and every CWeaponMedigun networks NEITHER m_nModelIndex nor m_iWorldModelIndex while stating
+# item 211. A null model returned outright, so no track existed and no medigun on any other
+# player was ever drawn. Two of the four are controls: a weapon that DOES send a world model
+# keeps it, and a track with neither model nor item still stays out of Props, which is the rule
+# this relaxes.
+run Tf2DemoSalvage.Core.Tests     core     1588
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
@@ -347,7 +354,12 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 # legitimate value, so every construction site that stayed silent claimed it — and ViewmodelScene
 # did, which is what made the first-person weapon vanish. The third case enumerates the defaulted
 # parameters by reflection so the next silent claim fails here.
-run Tf2DemoSalvage.Scene.Tests    scene     238
+# 238 -> 244: WeaponPropModelsTests (6), the Scene half of the same fix -- which props are asked
+# about, what they are asked, and what is done with the answer. Four are controls: a prop that
+# already has a model is untouched, one with no item is untouched, a lookup that answers null
+# must not blank the prop (CI has no game install, so every lookup returns null there), and an
+# owner this moment does not know about must ask with NO class rather than with somebody's.
+run Tf2DemoSalvage.Scene.Tests    scene     244
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -681,7 +693,10 @@ run Tf2DemoSalvage.Content.Tests  content   835
 # the class baseline, so cp_fulgur's BLU spawn door was created holding the baseline's model index
 # and origin -- a resupply locker at prop_locker_blu_5's world position. Its first version omitted
 # the baselines and reported "the baseline has no parent", which was a fact about an empty decoder.
-run Tf2DemoSalvage.Corpus.Tests   corpus     143
+# 143 -> 144: MedigunPlacementProbe (1, Explicit). It carries two dead theories with it -- the
+# medigun tracks that looked misplaced were the ten CTFDroppedWeapon entities on the floor, and
+# the bone-merge rule was firing correctly all along.
+run Tf2DemoSalvage.Corpus.Tests   corpus     144
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that

@@ -575,3 +575,78 @@ here produces plausible numbers rather than an error: read the wrong slot and en
 skip the array copy and they decode for one snapshot in two, drop the class check and a reused slot
 inherits a stranger. The only way to tell those apart is to write the case down first. Five
 deliberate sabotages each killed exactly the test written for it.
+
+### A weapon's model is not on the wire, and for some weapons nothing is
+
+**Evidence class: measured on the corpus, cross-checked against published SDK source.**
+
+Owner's report: *"mediguns still are not drawing on other players too, but the flamethrower, and it
+looks like everything else, draws"*.
+
+Two readings died first, and both are worth keeping because both looked right:
+
+1. **"It draws in the wrong place."** The render log says `c_medigun.mdl` IS drawn, at a real world
+   position. Those are the ten `CTFDroppedWeapon` entities on the floor — correct in every respect.
+2. **"The bone-merge rule is not firing for weapons."** Every track carrying `c_medigun.mdl`
+   reported `parent none, merged False`. Same ten entities; a dropped weapon is not merged to
+   anybody. `SchemaClasses.BoneMergesItself` is `True` for `CWeaponMedigun` throughout.
+
+Both were facts about the wrong entities. Every weapon in the recording that has an OWNER:
+
+| entity | class | `m_nModelIndex` | `m_iWorldModelIndex` | item | owner |
+|---|---|---|---|---|---|
+| 968 | `CTFRocketLauncher` | 996 | 426 | 513 | 18 |
+| 953 | `CTFRocketLauncher` | 996 | 200 | 907 | 22 |
+| 1100 | `CTFFlameThrower` | none | 225 | 40 | 5 |
+| 940 | `CTFMinigun` | none | 393 | 424 | 24 |
+| **1017** | **`CWeaponMedigun`** | **none** | **none** | **211** | **8** |
+| **1109** | **`CWeaponMedigun`** | **none** | **none** | **211** | **21** |
+| **1192** | **`CTFMinigun`** | **none** | **none** | **15123** | **23** |
+
+**Item 211 is the stock Medi Gun.** Nothing was missing from the recording — the number that names
+the model was there the whole time, and no one asked it. `DemoTimeline.ModelFor` reads
+`WorldModelIndex() ?? ModelIndex()`, got nothing, and returned before a track was ever made.
+
+**It is not medigun-specific**, which the minigun proves: the rule is "weapons that network no model
+index", and the medigun is merely the class where that is always true.
+
+#### The engine never reads that field for an econ entity
+
+`CEconEntity::UpdateModelToClass`, `game/shared/econ/econ_entity.cpp:382`:
+
+```cpp
+    pszModel = pItem->GetPlayerDisplayModel( m_iOldOwnerClass, nTeam );
+    if ( pszModel && pszModel[0] )
+    {
+        if ( V_stricmp( STRING( GetModelName() ), pszModel ) != 0 )
+        {
+            ...
+            SetModel( pszModel );
+        }
+    }
+```
+
+The model comes from `model_player` in `items_game.txt`, keyed by the owner's CLASS — which is why
+a shotgun shared by soldier, pyro, heavy and engineer is four different models under one item.
+
+**This project already knew that.** `DemoTimeline.cs:1600` carries the citation and the failed
+experiment: *"Taking the weapon entity's own `m_nModelIndex` was tried on 2026-08-28 and drew no
+weapon at all: `m_hWeapon` says WHICH weapon and the schema says what it looks like."*
+`WeaponModels.For` implements it, and was wired to the viewmodel and to the followed player. The
+weapon entities other players carry were the one caller that never asked — **the fourth
+half-implemented mechanism found in a single session**, after the model index, the baseline slots
+and the animation cycle.
+
+#### A divergence this fix does NOT close, stated rather than hidden
+
+Valve's rule is *the item wins whenever it names something different*. This fix is narrower: it
+resolves only when the entity networks **no** model at all, and leaves a weapon that sent one alone.
+
+The two agree for every weapon measured here, because the server sets `m_iWorldModelIndex` from the
+same item — flamethrower index 225 resolves to `c_backburner.mdl`, a `c_` model, not the legacy
+`w_` one. They can disagree when an entity's owner CLASS changes, since Valve re-resolves per class
+and this keeps the networked value.
+
+The narrower rule was chosen because the wider one changes every working weapon and the difference
+cannot be checked without looking at the screen. It is recorded here rather than in a code comment
+because a divergence is a question for the owner, not a note to self.

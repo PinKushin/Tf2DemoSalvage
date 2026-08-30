@@ -1861,7 +1861,21 @@ public sealed class DemoTimeline
         // what the interpolator needs, and the model is the viewer's to resolve from the install.
         string? model = ModelFor(state, precache, protocol);
 
-        if (model is null)
+        // **Which econ item this is, when it is one.** A weapon's model comes from the item schema
+        // rather than from the wire — `pItem->GetPlayerDisplayModel( iClass, team )`,
+        // `econ_entity.cpp:1167` — and some weapons network no model index at all. Measured on
+        // `cp_fulgur`, every weapon with an owner: a rocket launcher sends both indices, a
+        // flamethrower sends the world model, and every `CWeaponMedigun` sends NEITHER, while all
+        // of them state their item. 211 is the stock Medi Gun.
+        int? item = state.ItemDefinitionIndex();
+
+        // **A null model is not the end of the road for something that says which ITEM it is**
+        // (B231). This returned outright, so a medigun — no `m_nModelIndex`, no
+        // `m_iWorldModelIndex`, item 211 — produced no track at all, and every medigun on every
+        // other player went undrawn. `WeaponModels.For` has resolved exactly this for the viewmodel
+        // and the followed player since B222; the weapon entities other players carry were the one
+        // caller that never asked.
+        if (model is null && item is null)
         {
             return;
         }
@@ -1886,14 +1900,31 @@ public sealed class DemoTimeline
 
         if (track is null)
         {
-            track = new ScenePropTrack(entity.EntityIndex, model, state.SerialNumber);
+            // Empty rather than null for a weapon whose model is not on the wire yet: the track's
+            // path is a string, and `Follow` fills it in when a later update names one.
+            track = new ScenePropTrack(
+                entity.EntityIndex, model ?? string.Empty, state.SerialNumber);
             tracks[entity.EntityIndex] = track;
 
             // Player tracks are kept apart from Props. They carry poses and no model, so a
             // consumer walking Props to draw models would find one it cannot draw and could only
             // report as a missing asset - which is exactly the false alarm this split avoids.
-            (model.Length == 0 ? players : props).Add(track);
+            // **An ITEM is a model the draw path can still find, so it crosses over** (B231). The
+            // reasoning above is right about a player, whose model-less track can never resolve to
+            // anything, and wrong about a weapon whose model is merely not on the wire: `items_game`
+            // names it, `WeaponModels.For` reads it, and the only thing standing between them was
+            // this line putting the track where nothing drawing models ever looks.
+            //
+            // Narrow deliberately — an item index, not merely "has an owner" — so the false
+            // missing-asset alarm the split exists to prevent stays prevented. A track with no
+            // model AND no item still has nothing anyone could resolve.
+            (string.IsNullOrEmpty(model) && item is null ? players : props).Add(track);
         }
+
+        // Kept current for the same reason the model is: an entity can be created from a baseline
+        // that omits its item and be told which one it is on a later update.
+        track.ItemDefinitionIndex = item ?? track.ItemDefinitionIndex;
+        track.ClassName = state.ClassName ?? track.ClassName;
 
         // **The model, kept current for the same reason and on the engine's own adjacent line.**
         // `C_BaseEntity::PostDataUpdate` (`c_baseentity.cpp:2603`) calls `HierarchySetParent` and
@@ -2117,7 +2148,7 @@ public sealed class DemoTimeline
                 into.Add(new SceneProp(
                     track.EntityIndex, track.ModelPath, track.Kind, Moving(track, tick, pose),
                     track.AttachedTo, track.AttachmentPoint, track.OwnedBy, track.WeaponState,
-                    track.BoneMerged));
+                    track.BoneMerged, track.ItemDefinitionIndex, track.ClassName));
             }
         }
     }

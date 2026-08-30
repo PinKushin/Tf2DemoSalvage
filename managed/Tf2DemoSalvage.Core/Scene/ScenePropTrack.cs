@@ -320,6 +320,17 @@ public readonly record struct ScenePose
 /// Whether it rides its parent's SKELETON — <c>EF_BONEMERGE</c>, the second branch of
 /// <c>CalcAbsolutePosition</c> — rather than concatenating its own transform onto its parent's.
 /// </param>
+/// <param name="ItemDefinitionIndex">
+/// Which econ item this is, when it is one, so a weapon whose model the wire never carried can
+/// still be named. <c>CEconEntity::SetModel</c> resolves
+/// <c>pItem-&gt;GetPlayerDisplayModel( iClass, team )</c> — <c>model_player</c> from
+/// <c>items_game.txt</c>, <c>econ_entity.cpp:1167</c> — so the networked index is a convenience
+/// rather than the source of truth. Measured on `cp_fulgur`: every <c>CWeaponMedigun</c> networks
+/// neither <c>m_nModelIndex</c> nor <c>m_iWorldModelIndex</c>, and every one states item 211.
+/// </param>
+/// <param name="ClassName">
+/// Its networked class name, the stock fallback for an item that names no model of its own.
+/// </param>
 /// <param name="AttachmentPoint">
 /// Which of that entity's named attachment points it hangs from, one-based, or <c>null</c> when it
 /// is bone-merged instead.
@@ -359,7 +370,20 @@ public readonly record struct SceneProp(
     // concatenates its own local transform onto the parent's. `AttachedTo` says what it hangs off
     // and cannot say which mechanism, so treating every parent as a bone merge left a prop hung on
     // brushwork looking for a skeleton that does not exist.
-    bool BoneMerged = false);
+    bool BoneMerged = false,
+
+    // **Which econ item this is, and which class it is, so a model-less weapon can still be
+    // named.** A weapon's model comes from `items_game.txt` rather than from the wire —
+    // `pItem->GetPlayerDisplayModel( iClass, team )`, `econ_entity.cpp:1167` — and measured on
+    // `cp_fulgur` every `CWeaponMedigun` networks neither `m_nModelIndex` nor
+    // `m_iWorldModelIndex` while stating item 211, the stock Medi Gun. `WeaponPropModels` turns
+    // the pair into a path; the item is the answer and the class name is the stock fallback for
+    // an item that has no `model_player` of its own.
+    //
+    // Appended, like OwnedBy and WeaponState above and for the same reason: every parameter here
+    // is positional, so inserting one silently re-maps every call site.
+    int? ItemDefinitionIndex = null,
+    string ClassName = "");
 
 /// <summary>
 /// One entity's pose over the whole demo, stored as the moments it changed.
@@ -486,6 +510,44 @@ public sealed class ScenePropTrack
         }
     }
 
+    /// <summary>Which econ item this entity is, when it is one.</summary>
+    /// <remarks>
+    /// **A weapon's model comes from its ITEM, not from the wire, and for some weapons the wire
+    /// carries no model at all.** `CEconEntity::SetModel` resolves
+    /// <c>pItem-&gt;GetPlayerDisplayModel( iClass, team )</c> — <c>model_player</c> from
+    /// <c>items_game.txt</c> (<c>econ_entity.cpp:1167</c>) — so <c>m_nModelIndex</c> is a
+    /// convenience the server sends when it happens to, not the source of truth.
+    ///
+    /// Measured on `cp_fulgur`, every weapon with an owner. A rocket launcher sends both indices, a
+    /// flamethrower sends the world model, and every `CWeaponMedigun` sends NEITHER — while all of
+    /// them state their item:
+    ///
+    /// <code>
+    ///   CTFRocketLauncher model  996 worldmodel  426 item   513
+    ///   CTFFlameThrower   model none worldmodel  225 item    40
+    ///   CWeaponMedigun    model none worldmodel none item   211
+    ///   CTFMinigun        model none worldmodel none item 15123
+    /// </code>
+    ///
+    /// **211 is the stock Medi Gun**, so the information was never missing — only unread, and every
+    /// medigun on every other player went undrawn for it.
+    ///
+    /// **Carried rather than resolved here**, because `items_game.txt` belongs to the content layer
+    /// and Core must not read it. This is the number; `WeaponModels.For` turns it into a model, and
+    /// already did so for the viewmodel and the followed player.
+    /// </remarks>
+    public int? ItemDefinitionIndex { get; internal set; }
+
+    /// <summary>The entity's networked class name, for the stock-weapon fallback.</summary>
+    /// <remarks>
+    /// **The item is the answer and this is the backstop.** `WeaponModels.For` prefers the item
+    /// because that is what the player actually equipped — preferring the class would draw a stock
+    /// rocket launcher for every reskin in the game — and falls back to the class only when the
+    /// item names no model. A decorated weapon whose definition inherits its model through a
+    /// prefab is the case that needs it.
+    /// </remarks>
+    public string ClassName { get; internal set; } = string.Empty;
+
     /// <summary>The engine's serial for this occupant of the slot.</summary>
     /// <remarks>
     /// **An entity is its index AND its serial.** The index is a slot the engine reissues; the
@@ -601,7 +663,21 @@ public sealed class ScenePropTrack
     /// an inline BSP submodel numbered within the map — <c>*3</c> is the map's fourth. Everything
     /// else is told apart by extension, the way the engine's own loader does.
     /// </remarks>
-    public SceneModelKind Kind => Classify(ModelPath);
+    /// <remarks>
+    /// **An econ item is always a studio model, so a weapon awaiting its item lookup is not of
+    /// UNKNOWN kind.** `CEconEntity::SetModel` resolves `model_player` from `items_game.txt`
+    /// (`econ_entity.cpp:1167`) and every value it can return is a `.mdl` — so the kind is known
+    /// even while the path is not.
+    ///
+    /// **In the engine this state does not exist at all**: the client has `items_game.txt` and
+    /// resolves the model when the entity is created, so a weapon is never model-less. The gap is
+    /// this project's layering — Core decodes and must not read game content — and answering
+    /// `Unknown` here would export that layering as a fact about the entity. It is not one.
+    /// </remarks>
+    public SceneModelKind Kind =>
+        ModelPath.Length == 0 && ItemDefinitionIndex is not null
+            ? SceneModelKind.Studio
+            : Classify(ModelPath);
 
     /// <summary>How many moments the entity actually changed at.</summary>
     public int KeyframeCount => _keyframes.Count;
