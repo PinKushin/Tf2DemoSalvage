@@ -1947,6 +1947,22 @@ public sealed class EntityModelSet
             }
             else if (prop.AttachedTo is { } wearer)
             {
+                // **Says WHY a parented prop was dropped, which nothing did** (B231). A prop that
+                // is not bone-merged and whose parent is not in `_parentPlacements` falls to this
+                // branch, fails the same lookup against the drawn set, and `continue`s — leaving no
+                // census line, no warning, and a model missing from the map with nothing to read.
+                // The gates and the spawn locker are exactly that, and three rebuilds were spent
+                // guessing at it.
+                if (!prop.BoneMerged && _render.IsEnabled(LogLevel.Debug) &&
+                    _reportedFrames.Add(prop.ModelPath + "#parent"))
+                {
+                    _render.LogDebug(
+                        "{Message}",
+                        $"{prop.ModelPath} is parented to {wearer} and not bone-merged, and that "
+                        + $"entity has no placement this frame "
+                        + $"(parents known: {_parentPlacements.Count}, drawn: {_drawnPlacements.Count})");
+                }
+
                 if (!_drawnPlacements.TryGetValue(wearer, out PropTransform stands))
                 {
                     // The wearer is not being drawn — dead, out of the visible set, or a model that
