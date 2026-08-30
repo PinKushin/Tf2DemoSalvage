@@ -788,6 +788,24 @@ public sealed class EntityState
     /// </remarks>
     public int? Owner() => Slot(Integer($"{BaseEntityTable}.{OwnerProperty}"));
 
+    /// <summary>Whether the WIRE says this entity rides its parent's skeleton.</summary>
+    /// <remarks>
+    /// <c>EF_BONEMERGE</c>, the branch <c>C_BaseEntity::CalcAbsolutePosition</c> takes second
+    /// (<c>c_baseentity.cpp:4387</c>).
+    ///
+    /// **This is only half the answer and must not be used alone** (B231). Measured on a real
+    /// match: every weapon carries the flag, and **26 of 26 `CTFWearable` entities carry no
+    /// <c>m_fEffects</c> at all** — because `CEconWearable::Spawn` adds it on the CLIENT, for every
+    /// wearable any client creates, so it never needs to travel. The other half is
+    /// <c>SchemaClasses.BoneMergesItself</c>, which derives the same thing from the class the way
+    /// the engine does; `DemoTimeline` combines them.
+    ///
+    /// Using this alone sent every hat, cosmetic and powerup bottle down the transform path and
+    /// broke the viewer outright.
+    /// </remarks>
+    public bool IsBoneMerged =>
+        (Effects() & BoneMerge) != 0;
+
     public int? Attachment()
     {
         // The parent is attachment outright - an entity only has one because something set it.

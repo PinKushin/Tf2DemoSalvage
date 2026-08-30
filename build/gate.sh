@@ -138,7 +138,11 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # and m_iObserverMode read off HAND-BUILT entities. Synthetic and in Core.Tests deliberately (D38):
 # `Corpus.Tests` needs Git LFS, so Stryker never mutates anything placed there, and the two corpus
 # suites these replace took tens of seconds to assert what a demo happens to contain.
-run Tf2DemoSalvage.Core.Tests     core     1556
+# 1556 -> 1563: WearableClassConformanceTests (7). CEconWearable::Spawn and CBaseCombatWeapon::
+# Equip both call FollowEntity outside their server-only guards, so the client sets EF_BONEMERGE
+# itself and it never travels -- 26 of 26 CTFWearable send no m_fEffects at all. Synthetic, and the
+# table chain is deliberately not an identity so a one-level walk fails.
+run Tf2DemoSalvage.Core.Tests     core     1563
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
@@ -318,7 +322,11 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 # cases pin B225's actual mechanism — `Effective` was asking `SpectatorTarget.Choose` about a
 # point-of-view demo, so the mode was decided by the liveness of a player who was not the one being
 # watched. The second of those two is the control, and without it "is ANY player dead" would pass.
-run Tf2DemoSalvage.Scene.Tests    scene     235
+# 235 -> 238: ParentedPropPlacementTests (3). SceneProp.BoneMerged defaults to false, which is a
+# legitimate value, so every construction site that stayed silent claimed it — and ViewmodelScene
+# did, which is what made the first-person weapon vanish. The third case enumerates the defaulted
+# parameters by reflection so the next silent claim fails here.
+run Tf2DemoSalvage.Scene.Tests    scene     238
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -581,7 +589,11 @@ run Tf2DemoSalvage.Presentation.Tests presentation 424
 # hand-built, so it runs on CI and on the measurement boxes; the table is deliberately NOT the
 # identity, because an identity table gives the same answer for every family and cannot tell a
 # correct lookup from one that ignores the skin (B229).
-run Tf2DemoSalvage.Content.Tests  content   817
+# 817 -> 826: EntityTransformConformanceTests (9), CalcAbsolutePosition written down whole --
+# all three branches, ConcatTransforms, MatrixAngles including its gimbal-lock branch, and the
+# angle shortcut that COPIES the parent stored angles. That last one caught the first
+# implementation round-tripping 20 into 19.999998.
+run Tf2DemoSalvage.Content.Tests  content   826
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
@@ -623,7 +635,10 @@ run Tf2DemoSalvage.Content.Tests  content   817
 # purpose** — the two render/observer corpus TESTS became `[Explicit]` diagnostics that report and
 # assert nothing about what a demo contains (D38), and their real claims moved to synthetic tests in
 # Core.Tests where Stryker can reach them.
-run Tf2DemoSalvage.Corpus.Tests   corpus     137
+# 137 -> 141: four Explicit diagnostics from the B231 hunt -- brush entity state, parented props,
+# bone-merge detection and the missing-model gap. The parented one is what found that the SPAWN
+# doors send a local origin with no parent we resolve, which is a separate defect.
+run Tf2DemoSalvage.Corpus.Tests   corpus     141
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that
@@ -797,7 +812,10 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     137
 # could not contain the answer. PropMaterialResolutionTests (2) is the output-level assertion: no
 # placed corner on cp_fulgur names material -1, with cp_process_final as the control.
 # ChequeredPropMaterialProbe (2, Explicit) reports where a chequered prop's material actually lives.
-run Tf2DemoSalvage.Rendering.Tests rendering 708
+# 708 -> 710: BrushEntityAngleProbe and SetupGateEntityProbe, both Explicit. The second dumps
+# EVERY keyvalue on a map gate rather than the four already suspected, which is how the parented
+# prop_dynamic riders were found at all.
+run Tf2DemoSalvage.Rendering.Tests rendering 710
 # 101 -> 103 on 2026-08-29: LaunchOptionWiringTests (B223, D118). Two tests, and they cost about
 # seventeen seconds EACH, because each builds a real MainForm and loads a corpus demo — which reads
 # cp_badlands.bsp when Team Fortress 2 is installed. That is the most expensive pair in this file
