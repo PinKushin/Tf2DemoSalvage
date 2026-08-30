@@ -6892,3 +6892,58 @@ test, and then inventing a key to satisfy the action, is the tail wagging the do
 So: decide whether a setting is *reachable enough* as a convar plus a menu item BEFORE making it an
 action. `CTRL+p` was kept because the owner accepted it and because a debug view earns one, not
 because the test demanded it.
+
+## D124 — a bug is a divergence search first, because Valve already solved it
+
+**2026-08-30, the owner's direction, after a fix of mine shipped and had to be pulled:**
+
+> *"diversions from valve cause issues like this, any bug we find should be a diversion search for
+> the first like hour"*
+
+and, when asked how literally to take it:
+
+> *"not a rule, just a kinda standard in a way, its loose i dont expect a real timed hour, the point
+> is that none of our issues are not solved problems within the source engine, we have no reason to
+> not use those answers, and by not using those answers we run into bugs and compatability issues"*
+
+**The claim is not that Valve's way is nicer. It is that our bugs are not new problems.** This is a
+viewer for Valve's format reading Valve's maps and drawing Valve's models; anything that looks
+wrong is something the engine already does correctly, so the first question is *which mechanism are
+we missing or doing differently*, not *what is wrong with our code*.
+
+**The hour is a posture, not a stopwatch** — spend the opening effort in the SDK rather than in the
+debugger, and expect the answer to be there.
+
+### The case that produced it, because it shows both halves
+
+B231. Chasing a spawn grate drawn wrong, the divergence found was real and cited:
+`C_BaseEntity::ShouldDraw` refuses `kRenderNone`, and every `func_door` on `cp_fulgur` carries it.
+Implementing that removed the gates from the map entirely and had to be reverted — *"lolol missing
+gates completely"*.
+
+**The search had stopped one question short.** Reading the base class answered "does the engine draw
+this entity" and never asked "then what DOES draw the gate". The answer was in the same entity lump,
+unread because the probe printed only the four keys already suspected:
+
+```
+func_door 'setupgate_stage1_1_bottom'  rendermode 10        <- invisible mover
+  prop_dynamic door_grate003_bottom.mdl parentname 'setupgate_stage1_1_bottom'  rendermode 0
+```
+
+Every gate is a pair — an invisible `func_door` doing the motion and collision, and a visible
+`prop_dynamic` **parented** to it. 49 of 1228 entities on that map declare a `parentname`. This
+project composes a parent transform only for bone-merged wearables, so a prop parented to a
+brushwork mover is given origin (0,0,0), finds no skeleton to hang off, and is dropped. The door
+brushwork we should not have been drawing was standing in for the grate we were not drawing —
+which is why it looked *rotated*: the owner was never looking at the grate at all.
+
+**One reported symptom was retracted and it is worth keeping the retraction.** "It moves and never
+comes back" was offered as a third thing the theory explained, and the owner then said it *"wasnt an
+actual thing, it was my misreading of the gate being out of view"* — ordinary PVS. So the theory was
+credited with explaining an observation that never happened, which is precisely how a wrong theory
+looks confirmed. The parenting finding stands without it, on the entity lump and on our own code
+path; the tally of symptoms it accounted for was inflated by one.
+
+**So the rule earns itself twice over.** A divergence search found the fault; stopping the search at
+the first citation is what turned the fix into a regression. Read until the engine's mechanism is
+whole (D-note: `half-a-mechanism-is-not-parity`), not until a line of C++ agrees with you.
