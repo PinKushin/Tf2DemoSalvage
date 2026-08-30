@@ -562,7 +562,20 @@ run Tf2DemoSalvage.Presentation.Tests presentation 414
 # MEASUREMENT that reversed the plan — leaffaces reach none of cp_badlands' 1191 displacement faces
 # while reaching all 12,654 flat ones, so terrain is narrowed by bounds, not by leaf. The second is
 # a differential against a brute force over every triangle on the map.
-run Tf2DemoSalvage.Content.Tests  content   800
+# 800 -> 801: WaterMaterialProbe, [Explicit], which prints the shipped `water/water_well_beneath`
+# VMT. It settled B62 in one read: shader `Water`, no `$basetexture` by design, refracting against
+# `_rt_WaterRefraction`. Reading what the GAME ships is the fifth source CLAUDE.md lists and the one
+# that gets forgotten, because it is data rather than code.
+# 801 -> 810: WaterShaderConformanceTests (9), `water.cpp:535` transcribed — which of the two passes
+# a water material draws, and Valve's `Draw()` fallback when neither applies. The last case walks all
+# 64 flag combinations to assert the engine never answers "nothing drawable", which is precisely what
+# the magenta chequer was claiming for a material TF2 has never failed to draw (B62).
+# 810 -> 817: StudioSkinsConformanceTests (7). `g_skinref[skin][skinref]` written down from Valve's
+# own comment at `utils/motionmapper/motionmapper.h:134` before the lookup existed. Synthetic and
+# hand-built, so it runs on CI and on the measurement boxes; the table is deliberately NOT the
+# identity, because an identity table gives the same answer for every family and cannot tell a
+# correct lookup from one that ignores the skin (B229).
+run Tf2DemoSalvage.Content.Tests  content   817
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
@@ -772,7 +785,13 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     137
 # 687 -> 702: FxBlendConformanceTests (15), `C_BaseEntity::ComputeFxBlend` written down before it
 # was implemented. Every case is hand-read from c_baseentity.cpp:3343 — including the four that
 # MUTATE the entity's alpha, which Valve marks "JAY: HACK for now -- not time based".
-run Tf2DemoSalvage.Rendering.Tests rendering 702
+# 702 -> 708: B229's three instruments. PropLoadLoggingTests (2) asserts the static-prop loader
+# reports through a real logger — it had an `ILogger? props = null` its ONLY caller never passed, so
+# every warning it produced went to a NullLogger and four hypotheses were spent reading a log that
+# could not contain the answer. PropMaterialResolutionTests (2) is the output-level assertion: no
+# placed corner on cp_fulgur names material -1, with cp_process_final as the control.
+# ChequeredPropMaterialProbe (2, Explicit) reports where a chequered prop's material actually lives.
+run Tf2DemoSalvage.Rendering.Tests rendering 708
 # 101 -> 103 on 2026-08-29: LaunchOptionWiringTests (B223, D118). Two tests, and they cost about
 # seventeen seconds EACH, because each builds a real MainForm and loads a corpus demo — which reads
 # cp_badlands.bsp when Team Fortress 2 is installed. That is the most expensive pair in this file

@@ -317,11 +317,13 @@ public sealed class MapAssets
         IReadOnlyList<MapCubemap?> cubemaps,
         IReadOnlyList<IReadOnlyList<MaterialProxy>> proxies,
         IReadOnlyList<BspMaterial> materials,
+        IReadOnlyList<string> shaders,
         LightmapAtlas lightmaps,
         IReadOnlyList<PropVertex> props,
         int resolved,
         int missing)
     {
+        Shaders = shaders;
         Textures = textures;
         BlendTextures = blendTextures;
         Details = details;
@@ -365,6 +367,14 @@ public sealed class MapAssets
     /// </remarks>
     public PropModels.ModelFrames? Geometry(string path) =>
         EntityModels.TryGetValue(path, out PropModels.ModelFrames? frames) ? frames : null;
+
+    /// <summary>Each material's VMT shader name, e.g. <c>LightmappedGeneric</c> or <c>Water</c>.</summary>
+    /// <remarks>
+    /// **Carried so "no base texture" can be read correctly** (B62). For most shaders a null texture
+    /// is a failure and the engine's magenta chequer is the right answer; for <c>Water</c> it is not,
+    /// because water declares none by design. Only the shader name distinguishes them.
+    /// </remarks>
+    public IReadOnlyList<string> Shaders { get; }
 
     /// <summary>One decoded texture per material, null where none was found.</summary>
     public IReadOnlyList<MapTexture?> Textures { get; }
@@ -701,7 +711,14 @@ public sealed class MapAssets
         // full-suite run is for.
         List<string> refusedLighting = [];
 
+        // **The logger, which this call omitted from the day it was written (B229).** It was the
+        // only caller of an `ILogger? props = null` overload, so the entire static-prop path — four
+        // categories of finding, every refused lighting file by name, and the two warnings that
+        // name a model whose mesh cannot resolve a material — went to a `NullLogger`. The same
+        // area is handed to `LoadFrames` twenty lines below for entity models, which is why the
+        // viewer log looked populated while the half being investigated was silent.
         IReadOnlyList<PropVertex> props = PropModels.Load(
+            factory.CreateLogger("props"),
             map,
             pak,
             archives,
@@ -854,6 +871,28 @@ public sealed class MapAssets
         // hour (B55), and how four refused prop lighting files hid inside an ordinary total (B83).
         int textured = table.Textures.Count(texture => texture is not null);
 
+        // **Counted apart, so the MISSING figure means "broken"** (B62). A `Water` material has no
+        // base texture and never should; folding it into the missing count makes a healthy map read
+        // as a faulty one, and leaves the count disagreeing with the named list below it — which is
+        // an instrument contradicting itself, the fault this same line was just fixed for.
+        int water = 0;
+
+        for (int index = 0; index < table.Count; index++)
+        {
+            if (table.Textures[index] is null &&
+                table.Shaders[index].Equals("Water", StringComparison.OrdinalIgnoreCase))
+            {
+                water++;
+            }
+        }
+
+        string byDesign = water switch
+        {
+            0 => string.Empty,
+            1 => ", and 1 Water material that declares none by design",
+            _ => $", and {water} Water materials that declare none by design",
+        };
+
         assets.LogInformation(
             "{Message}",
             $"ASKED FOR {table.Count} materials ({brushMaterials} the map's own, " +
@@ -861,7 +900,34 @@ public sealed class MapAssets
             $"HAVE {textured} with a base texture; " +
             $"PRODUCED {table.Details.Count(detail => detail is not null)} with a detail texture, " +
             $"{table.Bumps.Count(bump => bump is not null)} with a bump map; " +
-            $"MISSING {table.Count - textured} with no base texture resolved");
+            $"MISSING {table.Count - textured - water} with no base texture resolved" + byDesign);
+
+        // **NAMES the ones that failed, because the count alone cost an hour.** The inventory above
+        // said "MISSING 1" and the renderer said "1 will draw as the missing-material chequer at
+        // 377"; between them they gave a number, an index and no way to reach the material — so the
+        // only route to it was to guess from a warning that had stopped being printed. A count says
+        // a thing is wrong and a name says what to open.
+        //
+        // Unbounded on purpose: a map with forty broken materials wants forty lines, and capping a
+        // diagnostic by a report count is the rule this project already keeps.
+        if (table.Count != textured)
+        {
+            for (int index = 0; index < table.Count; index++)
+            {
+                // **`Water` is exempt, because it declares no `$basetexture` by design** (B62).
+                // Reporting it as missing is the same false claim the chequer made, one layer up:
+                // an inventory that names a healthy material as broken teaches a reader to
+                // disbelieve the line.
+                if (table.Textures[index] is null &&
+                    !table.Shaders[index].Equals("Water", StringComparison.OrdinalIgnoreCase))
+                {
+                    assets.LogWarning(
+                        "{Message}",
+                        $"material {index} '{table.Materials[index].Name}' resolved no base " +
+                        "texture, so it will draw as the missing-material chequer");
+                }
+            }
+        }
 
         // **Measured rather than assumed.** A detail chain that loads nothing still draws a
         // perfectly reasonable map, so the count is the only thing that says it is working.
@@ -908,6 +974,7 @@ public sealed class MapAssets
             table.Cubemaps,
             table.Proxies,
             table.Materials,
+            table.Shaders,
             lightmaps,
             props,
             resolved,
@@ -1191,7 +1258,24 @@ public sealed class MapAssets
             }
         }
 
-        if (Find("materials/" + materialName + ".vmt") is not { } vmt)
+        // **A texdata name may already carry `.vmt`, and appending a second one asks for a path that
+        // cannot exist.** `cp_fulgur` stores `water/water_well_beneath.vmt`, so the lookup below
+        // would ask an archive for `materials/water/water_well_beneath.vmt.vmt` — no archive
+        // contains that, whatever the engine does internally. The bug is in the path this builds and
+        // needs no appeal to Valve to see.
+        //
+        // **The engine additionally NORMALISES such a name rather than erroring**, which is a
+        // separate fact and is measured rather than read: `IMaterialSystem::FindMaterial`'s comment
+        // says the name is *"a full path to the vmt file ... without a file extension"* and the
+        // SDK's tools pass the texdata string straight through (`utilmatlib.cpp:75`), so the header
+        // suggests the map is malformed. It is not — the owner, on this map: *"the real tf2 doesnt
+        // show the purple and black texture anywhere on this map, its not a new map"*. The material
+        // system is closed, so the running game is the only source that could settle that half.
+        string name = materialName.EndsWith(".vmt", StringComparison.OrdinalIgnoreCase)
+            ? materialName[..^4]
+            : materialName;
+
+        if (Find("materials/" + name + ".vmt") is not { } vmt)
         {
             // **Silent only when the caller is guessing.** A model's material can be reached by
             // several candidate paths and all but one are expected to miss; reporting each would

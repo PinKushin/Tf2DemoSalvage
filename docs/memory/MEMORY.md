@@ -153,3 +153,4 @@
 - [Ask about the entity you are drawing](ask-about-the-entity-you-are-drawing.md) — the resolver existed; the rule asked its neighbour instead.
 - [Measure the route before building on it](measure-the-route-before-building-on-it.md) — the planned lump path reached zero of 1191 faces.
 - [An instrument unread is not an instrument](an-instrument-unread-is-not-an-instrument.md) — reading one found the viewer had been silent for days.
+- [Key a lookup on the question](key-a-lookup-on-the-question.md) — deriving every case from case zero makes case zero load-bearing.

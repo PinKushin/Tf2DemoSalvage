@@ -74,6 +74,69 @@ public static class StudioSkins
         return table;
     }
 
+    /// <summary>Which texture a mesh paints with, at a given skin.</summary>
+    /// <param name="table">The skin table, as <see cref="Read"/> returns it.</param>
+    /// <param name="references">How many materials a family names, from the header.</param>
+    /// <param name="families">How many families the model has, from the header.</param>
+    /// <param name="skin">The family asked for — a placement's <c>m_Skin</c>, or an entity's.</param>
+    /// <param name="reference">The mesh's own <c>mstudiomesh_t::material</c>.</param>
+    /// <returns>An index into the model's textures, or −1 when the reference cannot be answered.</returns>
+    /// <remarks>
+    /// **Valve's own comment names the shape** —
+    /// <c>utils/motionmapper/motionmapper.h:134</c>:
+    ///
+    /// <code>
+    ///   EXTERN  int g_skinref[256][MAXSTUDIOSKINS]; // [skin][skinref], returns texture index
+    /// </code>
+    ///
+    /// So a mesh's <c>material</c> field is a SKINREF and not a texture index, and the skin picks
+    /// the row that turns it into one. Family zero is a row like any other.
+    ///
+    /// **This exists as its own function because privileging family zero is invisible on nearly
+    /// every model (B229).** Almost all props have one family, where the row is the identity and
+    /// every reading agrees. Where they differ, the difference is total: `cp_fulgur` places
+    /// `props_aquatic/pipe_256.mdl` at skins 1 and 12 of 15 and packs only those two textures, so a
+    /// reader that resolves family zero first gets nothing and paints every pipe on the map in the
+    /// missing-material chequer.
+    ///
+    /// An out-of-range SKIN falls back to family zero, which is <c>props_shared.cpp:1079</c>'s
+    /// answer for the same situation. An out-of-range REFERENCE is refused, because there is no row
+    /// that answers it and guessing paints a mesh with another mesh's texture — silently wrong is
+    /// worse than magenta.
+    /// </remarks>
+    public static int TextureFor(
+        short[] table, int references, int families, int skin, int reference)
+    {
+        ArgumentNullException.ThrowIfNull(table);
+
+        if (reference < 0)
+        {
+            return -1;
+        }
+
+        // **A model with no table is ordinary, not malformed.** Most props carry one family and
+        // many carry no table at all, and for those the mesh's reference already IS the texture
+        // index — the identity is the answer.
+        if (table.Length == 0 || references <= 0 || families <= 0)
+        {
+            return reference;
+        }
+
+        if (reference >= references)
+        {
+            return -1;
+        }
+
+        // `props_shared.cpp:1079`. A placement naming a family the model does not have is input
+        // this project does not control (D32).
+        int family = skin >= 0 && skin < families ? skin : 0;
+        int at = (family * references) + reference;
+
+        // The header's counts and the table's length are separate facts in an untrusted file, so a
+        // short table falls back rather than reading past its end.
+        return at >= 0 && at < table.Length ? table[at] : reference;
+    }
+
     private static int Count(ReadOnlyMemory<byte> file, int offset)
     {
         ReadOnlySpan<byte> bytes = file.Span;

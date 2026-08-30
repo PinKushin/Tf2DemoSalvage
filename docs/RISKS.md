@@ -14505,3 +14505,226 @@ failed three times today.
 **The practice this pass exists to establish:** closing a bug means **editing the header**. Appending
 the resolution below it is right and should continue — the wrong turns are the valuable part — but
 it is not the closure, and for seven entries it left the index disagreeing with the file it indexes.
+
+## B62 — measured 2026-08-29: the material is `Water`, and a chequer is our own invention
+
+**The owner found it on screen** and corrected a wrong conclusion of mine in the process. On
+`cp_fulgur` the viewer draws one magenta-and-black chequer; his report: *"the real tf2 doesnt show
+the purple and black texture anywhere on this map, its not a new map"*, and *"i did not have that
+missing texture in game, i wouldnt have kept the demo if there was, because that would be a bad
+parity demo"*.
+
+**Two separate faults, and the first hid the second.**
+
+**1. A texdata name may carry `.vmt`, and we appended a second one.** `cp_fulgur` stores
+`water/water_well_beneath.vmt`, so the lookup asked for `...vmt.vmt` and missed.
+
+I first argued this was correct parity, citing `IMaterialSystem::FindMaterial`'s own comment — *"a
+full path to the vmt file ... **without a file extension**"* — and the fact that the SDK's tools hand
+the texdata string straight through with no stripping (`utilmatlib.cpp:75`). The conclusion was
+wrong, and the owner supplied the argument that settles it without needing the engine at all:
+
+> *"wouldnt the double file extension couse issues anyway though? idk how valve handles it really
+> but i know C# doesnt handle that without stripping"*
+
+**Exactly so, and this is the stronger reason.** The lookup builds `"materials/" + name + ".vmt"`.
+Given a name that already ends in `.vmt` it asks an archive for
+`materials/water/water_well_beneath.vmt.vmt` — **a path that cannot exist in any archive**, whatever
+the material system does internally. The path construction is broken on its own terms; the engine's
+behaviour is not a premise of that.
+
+What the owner's observation of the running game adds is the separate fact that the engine
+**normalises** such a name rather than erroring — so the header comment describes the intended
+contract rather than the implementation, and the implementation is closed. Evidence class for that
+part: **measured on the shipping game**, not read from source.
+
+**Worth keeping as a general lesson.** The first framing made the fix depend on an empirical
+observation about a closed system, when a plain argument about our own code was available and
+sufficient. Reaching for parity evidence is right; reaching for it *first*, past a defect that is
+visible without it, is not.
+
+**2. The material declares no `$basetexture`, because it is a `Water` shader.** Read straight out of
+the VPK (`WaterMaterialProbe`):
+
+```
+"Water"
+{
+    "$abovewater" 0            "%compilewater" 1
+    "$forceexpensive" 1
+    "$CHEAPWATERSTARTDISTANCE" 500.0   "$CHEAPWATERENDDISTANCE" 1000.0
+    "%tooltexture" "dev/water_normal"
+    "$refractamount" ".2"      "$refracttint" "[0.95 1.0 0.97]"
+    "$reflectamount" "1.0"     "$reflecttint" "[1 1 1]"
+    "$refracttexture" "_rt_WaterRefraction"
+}
+```
+
+There is no base texture and there is not meant to be: water refracts against a render target and
+takes its surface from a bump map. `IsErrorMaterial` is false — the engine loads this and draws
+water. **Chequering it is ours, not Valve's**, and that is the whole of B62 seen from the outside.
+
+**The instrument was also at fault and is fixed.** The inventory said *"MISSING 1 with no base
+texture resolved"* and the renderer said *"1 will draw as the missing-material chequer at 377"* —
+a count and an index, and no way to reach the material. It names them now, unbounded, because a
+count says something is wrong and a name says what to open.
+
+**What is NOT decided here**: what to draw for a `Water` material until the shader exists. Valve's
+answer is the `Water` shader with refraction and reflection render targets, which is a real feature
+rather than a fallback, so this is one of D121's narrow "really cannot do it yet" cases and is the
+owner's call rather than something to substitute quietly.
+
+## B229 — 19,274 triangles draw as the missing-material chequer, because skin family zero was privileged — CLOSED 2026-08-29
+
+**Found by the owner looking at `cp_fulgur`**, a map the real game renders with no chequer anywhere:
+*"the real tf2 doesnt show the purple and black texture anywhere on this map, its not a new map"*.
+Pipe elbows inside the level and flat panels out in the 3D skybox draw in Valve's magenta chequer.
+
+**Measured**, by three diagnostics added for this and kept:
+
+```
+1193 materials, 0 will draw as the missing-material chequer
+batch names material -1, outside the table of 1193
+19274 triangles name material -1 ... centred on (1802, -679, 373)
+```
+
+**Both of the first two are true at once, and that pairing is the finding.** Every material
+resolved; no material is missing. The chequer is reached by the OTHER route into the same fallback —
+a batch whose index is outside the table — and until now nothing distinguished the two. The bind
+site treats "texture failed to load" and "index is not a material" identically.
+
+**Drawing them chequered is deliberate and should stay.** `MapWorld.AppendProps` argues it: *"It
+used to be skipped, on the reasoning that a white rock reads as a rendering fault — which was true
+and was the wrong conclusion. A hole reads as nothing at all, and nothing at all is what nobody
+investigates. Magenta gets reported."* The defect is upstream — something yields −1.
+
+**Four hypotheses, each killed by its own instrument. Recorded so nobody re-walks them:**
+
+1. **A missing base texture.** No: the inventory names every material that resolves none, and after
+   the `Water` exemption that list is empty.
+2. **`PropModels.Register` returning −1** — either from a slot outside the model's material list or
+   from no candidate producing a texture. Both paths now log; **both fired zero times.**
+3. **A prop mesh carrying −1 into its vertices.** Logged at the vertex site; **zero.**
+4. **A brush-entity surface.** No, twice over: `BspSurfaces` *requires* `0 <= materialIndex <
+   materials.Count` and would throw otherwise, and brush models are added to the ENTITY model table
+   rather than to the static-prop vertex list `AppendProps` walks.
+
+**Every one of those four is sound reasoning from an instrument that could not speak.** Hypothesis 2
+says "both paths now log; both fired zero times", and that was read as evidence about the geometry.
+It was evidence about the SINK.
+
+### The instrument was disconnected, and that is the first half of the finding
+
+`PropModels.Load` took `ILogger? props = null` with a `NullLogger` default and a comment saying
+*"most callers of this are tests that want geometry, not commentary"*. There was **exactly one
+caller in the repository** — `MapAssets` — and it passed nothing. So every finding the static-prop
+path produces had been discarded since the day it was written: four categories of summary, every
+refused lighting file by name, and both of `Register`'s warnings, which name the model whose mesh
+will draw chequered.
+
+**What made it invisible is that the log looked populated.** The same `props` area carried 125
+`pairing` lines, and 125 is exactly the number of ENTITY models — those arrive through `LoadFrames`,
+which is handed `factory.CreateLogger("props")` twenty lines away in the same method. A grep for
+"did the props area say anything" answers yes throughout.
+
+This is the second time this shape has cost a day; `docs/memory/a-null-object-default-hides-a-missed-wiring.md`
+records the first, where a green suite lost 202 log lines. The parameter is **required** now, and
+first in the signature, so the compiler asks the question instead of a reviewer having to.
+
+`PropLoadLoggingTests` is the assertion that the caller passes something real, and its control is
+the part worth keeping: asserting only "the props area spoke" would have passed for the whole period
+the static-prop half was mute.
+
+### The defect itself: a mesh's `material` is a SKINREF, not a texture index
+
+With the logger connected, `cp_fulgur` named 117 refusals in one load. The pattern settles it:
+
+```
+props_aquatic/pipe_256.mdl: 15 families x 15 references, 1 mesh referencing skinref 0
+  texture[0] 'pipes01' absent      <- family 0
+  texture[1] 'pipes02' SHIPPED
+  texture[12] 'pipes13' SHIPPED
+  placements ask for skins: 1, 12
+```
+
+The map packs exactly the two skins it places and does not pack family zero's. `props_antiquity/
+skycards_jungle256bump.mdl` is the same story at skins 4 and 5 — those are the flat panels in the
+skybox.
+
+**Valve's rule, in Valve's own words, in an open file** —
+`src/utils/motionmapper/motionmapper.h:134`:
+
+```c
+EXTERN  int g_skinref[256][MAXSTUDIOSKINS]; // [skin][skinref], returns texture index
+```
+
+with the structure at `public/studio.h:2238` (`numskinref`, `numskinfamilies`, `skinindex`,
+`pSkinref`). A mesh's `mstudiomesh_t::material` (`studio.h:1365`) is a **skinref**; the skin picks
+the row that turns it into a texture index. **Family zero is a row like any other.**
+
+This project resolved family zero for each mesh and expressed every other family as a swap FROM that
+resolved index — so family zero was load-bearing for all of them. When its texture is not shipped,
+`Register` returns −1, a swap keyed on −1 is refused, and every placement draws chequered however
+well its own family resolves.
+
+**Two independent faults in one design, and the second has no symptom yet.** Keying on the resolved
+material also asks "what does texture X become at skin 1", which has *two answers* the moment two
+meshes share a material at family zero and differ above it. Nothing in the corpus exercises it; it
+would have been a wrong texture rather than a magenta one, which is the harder kind to notice.
+
+### The fix
+
+`StudioSkins.TextureFor(table, references, families, skin, reference)` is the rule with its
+citation, and `StudioSkinsConformanceTests` pins it — synthetic, hand-built, and deliberately not an
+identity table, because an identity row answers the same for every family and cannot tell a correct
+lookup from one that ignores the skin. An out-of-range skin falls back to family zero, which is
+`props_shared.cpp:1079`'s own answer.
+
+`PropVertex` and `WorldBatch` now carry `MaterialSlot`, the mesh's skinref, and both the static-prop
+path and the renderer's draw-time lookup key on it. The entity path's `SkinSwap` was also indexed
+`skin - 1` over a list of families 1..N; it is indexed by family now, with zero included, so neither
+side has a special case left to get wrong.
+
+**Measured after:** `cp_fulgur` places 0 corners with no material, against 19,274 triangles before.
+`cp_process_final`, the control, was 0 before and after — which is why the fault survived: the
+overwhelming majority of props have one skin family, where every reading agrees with every other.
+
+**A second, separate defect on the same map**, reported at the same time and NOT to be conflated
+with this one: the spawn grate is rotated 90 degrees from its correct orientation, and when the
+round starts it moves out of view and never returns. The owner's read: *"it might be the gates
+animating forever like we had happen when we first implemented grates at all"*. The red ring near it
+is the enemy-team "no entry" overlay drawing correctly, not a distortion — a misreading of mine that
+he corrected.
+
+## B230 — a UI click was refused because the viewer would not reach the foreground in five seconds — OPEN
+
+**Seen once, 2026-08-29**, in the UI phase run immediately after `build/gate.sh` finished twelve
+test projects. `Click_TheCycleTargetButton_InTheFreeCamera_DoesNotCycle` failed inside
+`ViewerApplication.Click` at line 466, which is the foreground guard's own `throw`:
+
+> Refusing to click {automationId}: the viewer did not come to the foreground, so the click would be
+> delivered into whatever window is in front of it.
+
+**The guard did exactly what it exists for.** A click is synthesized at SCREEN coordinates, so a
+click delivered while another window is in front presses a button in somebody else's application —
+which is why this refuses rather than clicking on a maybe. Nothing was corrupted; a test failed
+instead, which is the correct trade.
+
+**So the open question is what held the foreground for more than five seconds**, and the timing is
+the clue: the gate had just torn down twelve test hosts, several of which build real `MainForm`s.
+A window still closing is a plausible holder and would explain why the same test passes alone in one
+second and passed in two later full runs.
+
+**Not resolved by those green runs, deliberately.** *"Flake is a defect in synchronisation or in the
+app — never noise"*, and *"never retry a failing test to make it pass"*. Two greens after one red is
+three samples, not a diagnosis.
+
+**What to do next, and what NOT to do.** Do not widen the five-second window as a first move: that
+converts a deterministic refusal into a slower probabilistic one and `docs/memory/a-negative-retry-is-a-sleep.md`
+is about exactly this shape. Find the holder first — `GetForegroundWindow` and its owning process
+logged at the moment the guard gives up would name it in one failure, and that diagnostic costs
+nothing on the passing path.
+
+**A process note that cost the first diagnosis:** the run was piped through `tail`, so when the
+message was wanted it was gone and had to be recovered by reading which `throw` line 466 is. The
+gate's own rule — *"do not filter the gate's output down to summary lines while iterating"* —
+applies to the UI phase too, and `--logger trx` keeps the message whatever the pipe does.

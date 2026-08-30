@@ -32,6 +32,7 @@ namespace Tf2DemoSalvage.Scene;
 public sealed class MaterialTable
 {
     private readonly List<BspMaterial> _materials = [];
+    private readonly List<string> _shaders = [];
     private readonly List<MapTexture?> _textures = [];
     private readonly List<MapTexture?> _blendTextures = [];
     private readonly List<MapDetail?> _details = [];
@@ -49,6 +50,13 @@ public sealed class MaterialTable
     public IReadOnlyList<BspMaterial> Materials => _materials;
 
     /// <summary>One decoded texture per material, null where none was found.</summary>
+    /// <summary>Each material's VMT shader name, e.g. <c>LightmappedGeneric</c> or <c>Water</c>.</summary>
+    /// <remarks>
+    /// **Kept so a null base texture can be read correctly** (B62). Most shaders without one are a
+    /// failure; <c>Water</c> is not, and the difference is only visible from here.
+    /// </remarks>
+    public IReadOnlyList<string> Shaders => _shaders;
+
     public IReadOnlyList<MapTexture?> Textures => _textures;
 
     /// <summary>The second layer of a blend material, null for the rest.</summary>
@@ -104,6 +112,21 @@ public sealed class MaterialTable
         _phong.Add(resolved.Phong);
         _lightWarps.Add(resolved.LightWarp);
         _proxies.Add(resolved.Proxies ?? []);
+
+        // **The shader name, kept because "no base texture" is only a fault for SOME shaders**
+        // (B62). `Water` declares none by design — it refracts against a render target and takes its
+        // surface from a normal map — so the renderer needs to know which shader asked before
+        // deciding that a null texture means a missing material.
+        // **`?? string.Empty`, because `default(ResolvedMaterial)` has a NULL Shader.** The record
+        // declares `string Shader = ""`, and a primary-constructor default does not run for
+        // `default(T)` — `Resolve` returns `default` on a miss, so every material that failed to
+        // resolve arrives here with null. Without this the water check below threw a
+        // NullReferenceException on four rendering tests, and only on maps with a missing material.
+        //
+        // Second time this exact trap has bitten in one day: `ChaseSettings` needed the same guard,
+        // for the same reason. See `docs/memory/a-nullable-pattern-on-a-struct-is-dead-code.md`'s
+        // neighbourhood — a record struct's defaults are constructor behaviour, not field state.
+        _shaders.Add(resolved.Shader ?? string.Empty);
 
         return index;
     }

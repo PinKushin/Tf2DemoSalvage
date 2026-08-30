@@ -59,6 +59,7 @@ public readonly record struct WorldVertex(
 /// <param name="BodyPart">Which body part this run belongs to, for a model batch.</param>
 /// <param name="BodyModel">Which of that part's alternatives, so one can be chosen per entity.</param>
 /// <param name="Category">What this run of triangles is, for the category view (B219).</param>
+/// <param name="MaterialSlot">The mesh skinref this run came from, for the skin lookup (B229).</param>
 /// <remarks>
 /// **A batch never spans two body parts**, which is what makes the choice possible at draw time. The
 /// grouping key is the material AND the part and alternative it came from, so a run can be skipped
@@ -77,7 +78,15 @@ public readonly record struct WorldBatch(
     // and `ClearWorld` discarding the models with them was the bug that forced this out. A batch
     // belongs to exactly one category, so this is where the answer belongs: the colour is then
     // chosen at draw time and the toggle is a constant write rather than a rebuild.
-    SurfaceCategory Category = SurfaceCategory.Brush);
+    SurfaceCategory Category = SurfaceCategory.Brush,
+
+    // **The skinref every triangle in this run shares, for the skin lookup at draw time** (B229).
+    // `MaterialIndex` above is family zero's answer, and asking what that answer becomes in
+    // another family is a question with two answers as soon as two meshes share a material —
+    // which is why the run is keyed on this as well as on the material.
+    //
+    // −1 for world brushwork, which has no skin table and is never handed a family.
+    int MaterialSlot = -1);
 
 /// <summary>What a drawn surface is, for the diagnostic view.</summary>
 /// <remarks>

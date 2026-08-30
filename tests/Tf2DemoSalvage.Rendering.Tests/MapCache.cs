@@ -71,7 +71,22 @@ internal static class MapCache
     /// under contention is exactly what this exists to prevent. The lazy is per key, so a test
     /// wanting a different map is not blocked behind one wanting this map.
     /// </remarks>
-    private static readonly ConcurrentDictionary<string, Lazy<MapAssets>> Loaded = new();
+    private static readonly ConcurrentDictionary<string, Lazy<LoadedMap>> Loaded = new();
+
+    /// <summary>A cached load: the assets, and everything the load said while producing them.</summary>
+    /// <param name="Assets">The map, shared with every other caller asking the same thing.</param>
+    /// <param name="Log">Every line the load wrote, with the area that wrote it.</param>
+    /// <remarks>
+    /// **The log rides along because it costs nothing and it was the missing instrument.** Loading
+    /// a map with a real logger factory is the same work as loading it with a null one; keeping
+    /// what it said turns "what did the loader report" from a question needing its own 30-second
+    /// load into a question any test can ask of the shared one.
+    ///
+    /// It is also the only way to assert that a subsystem spoke AT ALL, which is what B229 needed:
+    /// `MapAssets` was not passing `PropModels.Load` a logger, so the static-prop path wrote to a
+    /// `NullLogger` and its two chequer warnings could never appear in any log the owner read.
+    /// </remarks>
+    internal sealed record LoadedMap(MapAssets Assets, RecordingLoggerFactory Log);
 
     /// <summary>The reference map, loaded once per distinct request.</summary>
     /// <param name="maximumTextureSize">Largest texture edge to decode.</param>
@@ -86,7 +101,24 @@ internal static class MapCache
     public static MapAssets Load(
         int maximumTextureSize = DefaultTextureSize,
         IReadOnlyCollection<string>? entityModels = null,
-        string mapName = DefaultMap)
+        string mapName = DefaultMap) =>
+        Loaded_(maximumTextureSize, entityModels, mapName).Assets;
+
+    /// <summary>The same load, with what it reported while producing the assets.</summary>
+    /// <param name="maximumTextureSize">Largest texture edge to decode.</param>
+    /// <param name="entityModels">Models to load beyond the map's own, or null.</param>
+    /// <param name="mapName">Which map, without folder or extension.</param>
+    /// <returns>The assets and the log, shared with every other caller asking the same thing.</returns>
+    public static LoadedMap With(
+        int maximumTextureSize = DefaultTextureSize,
+        IReadOnlyCollection<string>? entityModels = null,
+        string mapName = DefaultMap) =>
+        Loaded_(maximumTextureSize, entityModels, mapName);
+
+    private static LoadedMap Loaded_(
+        int maximumTextureSize,
+        IReadOnlyCollection<string>? entityModels,
+        string mapName)
     {
         string path = RequirePath(mapName);
 
@@ -98,12 +130,20 @@ internal static class MapCache
 
         return Loaded.GetOrAdd(
             key,
-            _ => new Lazy<MapAssets>(
-                () => MapAssets.Load(
-                    File.ReadAllBytes(path),
-                    GameArchives.Open(GameInstall.Root),
-                    maximumTextureSize,
-                    entityModels),
+            _ => new Lazy<LoadedMap>(
+                () =>
+                {
+                    RecordingLoggerFactory log = new();
+
+                    return new LoadedMap(
+                        MapAssets.Load(
+                            File.ReadAllBytes(path),
+                            GameArchives.Open(GameInstall.Root),
+                            maximumTextureSize,
+                            entityModels,
+                            loggers: log),
+                        log);
+                },
                 LazyThreadSafetyMode.ExecutionAndPublication))
             .Value;
     }

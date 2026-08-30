@@ -49,6 +49,16 @@ namespace Tf2DemoSalvage.Scene;
 /// Whether the model declares <c>$mostlyopaque</c>, so the engine would draw its solid parts in the
 /// opaque pass and its blended parts in the translucent one.
 /// </param>
+/// <param name="Alpha">
+/// <c>GetFxBlend()</c> for this frame, nought to 255 — what <c>C_BaseEntity::ComputeFxBlend</c>
+/// produced from the entity's <c>m_clrRender</c>, <c>m_nRenderFX</c> and <c>m_nRenderMode</c>
+/// (B221). 255 means fully opaque and is the default, so an instance built by hand behaves as it
+/// did before this existed.
+/// </param>
+/// <param name="RenderMode">
+/// <c>m_nRenderMode</c>. Anything but <c>kRenderNormal</c> makes the entity transparent, and
+/// <c>kRenderEnvironmental</c> makes it undrawn — <c>RenderGroups.For</c>.
+/// </param>
 public readonly record struct ModelInstance(
     string ModelPath,
     float[] Matrix,
@@ -114,7 +124,21 @@ public readonly record struct ModelInstance(
     //
     // Whether it is DRAWN twice is a further question, and the renderer asks it: the entity must
     // also be translucent and at full alpha. See `RenderGroups`.
-    bool TwoPass = false);
+    bool TwoPass = false,
+
+    // **`GetFxBlend()`, nought to 255 — what `C_BaseEntity::ComputeFxBlend` produced this frame**
+    // (B221). Computed once where the instance is built, which gives the same once-per-frame
+    // guarantee the engine gets from caching by frame count, without a cache that can go stale.
+    //
+    // Defaults to opaque so a caller that builds an instance by hand — every test, and the
+    // viewmodel path — gets the behaviour that was there before this existed.
+    int Alpha = 255,
+
+    // **`m_nRenderMode`, which decides which list the entity joins.** Anything that is not
+    // `kRenderNormal` makes it transparent, and `kRenderEnvironmental` makes it undrawn — see
+    // `RenderGroups.For`, which has taken this parameter since D114 and received the default from
+    // every caller until now.
+    int RenderMode = 0);
 
 /// <summary>
 /// The models a demo's entities wear, packed once and posed by the GPU.
@@ -1305,16 +1329,35 @@ public sealed class EntityModelSet
     public IReadOnlyList<IReadOnlyList<WorldBatch>> AllFrames(string modelPath) =>
         _byModel.TryGetValue(modelPath, out List<List<WorldBatch>>? frames) ? frames : [];
 
-    /// <summary>Which material replaces which for a skin family, or null for the model's own.</summary>
+    /// <summary>Which material paints which skinref, for one skin family.</summary>
     /// <param name="modelPath">The model's path.</param>
-    /// <param name="skin">Which family; zero is the model's own and substitutes nothing.</param>
-    /// <returns>The substitution to apply when binding, or null.</returns>
-    public IReadOnlyDictionary<int, int>? SkinSwap(string modelPath, int skin) =>
-        skin > 0 &&
-        _swaps.TryGetValue(modelPath, out IReadOnlyList<IReadOnlyDictionary<int, int>>? swaps) &&
-        skin - 1 < swaps.Count
-            ? swaps[skin - 1]
-            : null;
+    /// <param name="skin">Which family; out of range falls back to zero, as the engine does.</param>
+    /// <returns>The family's row, keyed by skinref, or null for a model with no table.</returns>
+    /// <remarks>
+    /// **Indexed by family, and keyed by SKINREF** (B229). Both were off by one design: the list
+    /// held families 1..N so this subtracted one, and each entry was keyed on family zero's
+    /// RESOLVED material index — which made family zero load-bearing for every other family and
+    /// left a model whose family-zero texture is not shipped undrawable at every skin.
+    ///
+    /// A mesh's <c>mstudiomesh_t::material</c> is a skinref and
+    /// <c>g_skinref[skin][skinref]</c> turns it into a texture index
+    /// (<c>utils/motionmapper/motionmapper.h:134</c>), so the row is the whole answer and family
+    /// zero is a row like any other. Returned even for skin zero, because the caller then has no
+    /// special case to get wrong.
+    /// </remarks>
+    public IReadOnlyDictionary<int, int>? SkinSwap(string modelPath, int skin)
+    {
+        if (!_swaps.TryGetValue(modelPath, out IReadOnlyList<IReadOnlyDictionary<int, int>>? swaps)
+            || swaps.Count == 0)
+        {
+            return null;
+        }
+
+        // `props_shared.cpp:1079` — a skin the model does not have falls back to family zero rather
+        // than being refused. A demo names an entity's `m_nSkin` and this project does not control
+        // what it says.
+        return swaps[skin >= 0 && skin < swaps.Count ? skin : 0];
+    }
 
     /// <summary>Which baked frame a prop's sequence and cycle select.</summary>
     /// <param name="prop">The prop, carrying the sequence and cycle the demo networked.</param>
@@ -1460,7 +1503,12 @@ public sealed class EntityModelSet
                 // batch that spanned two alternatives could not be skipped for one of them. A
                 // capture point's three signs share a material; merged on material alone they
                 // become one run and no per-entity choice can separate them again.
-                Dictionary<(int Material, int Part, int Model), List<WorldVertex>> byMaterial = [];
+                //
+                // **And by the skinref, for the same reason at draw time** (B229). Two meshes can
+                // share family zero's material and differ in another family, so a run merged
+                // across skinrefs has no single answer to "what paints this at skin 1".
+                Dictionary<(int Material, int Slot, int Part, int Model), List<WorldVertex>>
+                    byMaterial = [];
 
                 for (int index = 0; index < corners.Count; index++)
                 {
@@ -1468,8 +1516,11 @@ public sealed class EntityModelSet
 
                     PropVertex ahead = index < onward.Count ? onward[index] : corner;
 
-                    (int Material, int Part, int Model) key =
-                        (corner.MaterialIndex, corner.BodyPart, corner.BodyModel);
+                    (int Material, int Slot, int Part, int Model) key = (
+                        corner.MaterialIndex,
+                        corner.MaterialSlot,
+                        corner.BodyPart,
+                        corner.BodyModel);
 
                     if (!byMaterial.TryGetValue(key, out List<WorldVertex>? into))
                     {
@@ -1516,15 +1567,16 @@ public sealed class EntityModelSet
                         WeightC: corner.Weights.Third));
                 }
 
-                foreach (KeyValuePair<(int Material, int Part, int Model), List<WorldVertex>> group
-                    in byMaterial)
+                foreach (KeyValuePair<(int Material, int Slot, int Part, int Model),
+                    List<WorldVertex>> group in byMaterial)
                 {
                     batches.Add(new WorldBatch(
                         group.Key.Material,
                         _vertices.Count,
                         group.Value.Count,
                         group.Key.Part,
-                        group.Key.Model));
+                        group.Key.Model,
+                        MaterialSlot: group.Key.Slot));
 
                     _vertices.AddRange(group.Value);
                 }
@@ -1538,7 +1590,7 @@ public sealed class EntityModelSet
                 {
                     int alternatives = 0;
 
-                    foreach ((int _, int _, int alternative) in byMaterial.Keys)
+                    foreach ((int _, int _, int _, int alternative) in byMaterial.Keys)
                     {
                         alternatives = Math.Max(alternatives, alternative + 1);
                     }
@@ -1918,6 +1970,20 @@ public sealed class EntityModelSet
             // Looking it up twice would be two dictionary probes per model per frame for one answer.
             _ = _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? parts);
 
+            // **`C_BaseEntity::ComputeFxBlend`, once per entity per frame** (B221). The engine
+            // computes this on the entity and caches it by frame count; here the frame IS this
+            // call, so computing it at the one place a `ModelInstance` is built gives the same
+            // once-per-frame guarantee without a cache to go stale.
+            //
+            // `seconds` is demo time, which is `gpGlobals->curtime` for a viewer — the pulses,
+            // strobes and flickers are functions of it, and the entity index de-syncs them.
+            FxBlendResult fx = FxBlend.Compute(
+                prop.Pose.RenderFx,
+                prop.Pose.RenderMode,
+                prop.Pose.RenderAlpha,
+                prop.EntityIndex,
+                (float)seconds);
+
             into.Add(new ModelInstance(
                 prop.ModelPath,
                 transform.ToMatrix(),
@@ -1949,7 +2015,13 @@ public sealed class EntityModelSet
                 // **$mostlyopaque, off the model's own header.** A model this side never loaded
                 // answers false, which is the engine's answer for a model with no flag — and the
                 // conservative one, since it draws the model in one pass rather than two.
-                TwoPass: parts?.TwoPass ?? false));
+                TwoPass: parts?.TwoPass ?? false,
+
+                // **`GetFxBlend()` and `m_nRenderMode`, the two inputs `RenderGroups.For` has taken
+                // since D114 and never been given** (B221). Until now every caller passed
+                // `FullyOpaque` and `Normal`, so a cloaked spy drew solid and nothing could fade.
+                Alpha: fx.Blend,
+                RenderMode: prop.Pose.RenderMode));
         }
 
         _tally.Report();
