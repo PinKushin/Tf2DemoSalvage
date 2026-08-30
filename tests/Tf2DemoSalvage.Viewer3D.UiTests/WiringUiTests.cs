@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -170,21 +171,35 @@ public sealed class WiringUiTests
                 "The draw loop never reported its bucket spread, so either no opaque model reached "
                 + "the device or the sort is no longer being applied to them.");
 
-        string line = Viewer.LastLine("opaque draw order:")
-            .ShouldNotBeNull("the retry above should have waited for this");
+        // **Across every sample, not the newest one** (2026-08-29). The census used to be logged
+        // once per device and is now logged whenever the counts change, so `LastLine` answers about
+        // whatever moment happened to be last — and `buckets 0/0/0/4` is a perfectly good moment
+        // with four large models in it. A spread of one is only evidence of an unset box if it holds
+        // when there are enough models for a spread to be possible.
+        //
+        // The failure this guards is structural: an unset `Bounds` puts EVERY model in bucket 3 at
+        // EVERY moment, so it cannot produce a single spread sample.
+        IReadOnlyList<string> lines = Viewer.AllLines("opaque draw order:");
+
+        lines.ShouldNotBeEmpty("the retry above should have waited for at least one");
 
         // `... buckets 3/14/62/8` — the counts are the tail of the line, after the last space.
-        string counts = line[(line.LastIndexOf(' ') + 1)..];
+        List<string> spreads = [.. lines.Select(line => line[(line.LastIndexOf(' ') + 1)..])];
 
-        int populated = counts
-            .Split('/')
-            .Count(bucket => int.TryParse(bucket, out int models) && models > 0);
+        // Counted outside the assertion: Shouldly's predicate becomes an expression tree, which
+        // cannot hold the `out` declaration `int.TryParse` needs.
+        int widest = spreads.Max(Populated);
 
-        populated.ShouldBeGreaterThan(
+        widest.ShouldBeGreaterThan(
             1,
-            $"every opaque model fell in one bucket ({counts}), which is what an unset "
-            + "ModelInstance.Bounds looks like");
+            "every opaque model fell in one bucket in every sample ("
+            + string.Join(" | ", spreads)
+            + "), which is what an unset ModelInstance.Bounds looks like");
     }
+
+    /// <summary>How many of a sample's four size buckets hold anything.</summary>
+    private static int Populated(string counts) =>
+        counts.Split('/').Count(bucket => int.TryParse(bucket, out int models) && models > 0);
 
     [Test]
     public void TheOpaqueModels_BeforeBeingDrawn_HadTheOnesOutsideTheViewRemoved()
@@ -194,10 +209,20 @@ public sealed class WiringUiTests
         // every test stays green, and the only evidence is that the two counts on this line agree.
         //
         // **Measured, not assumed: 45 of 49 on this demo at this moment.** Four of the map's models
-        // are behind the camera or past its edges. The assertion is the inequality rather than the
-        // numbers, because the scene may legitimately gain or lose models — but if it ever reaches
-        // equality, either the cull stopped running or a camera change put the whole map on screen,
-        // and both are worth a red test.
+        // are behind the camera or past its edges.
+        //
+        // **This read ONE line and that was the defect, not the assertion** (2026-08-29). The
+        // census latched on the first drawn frame, which is the least representative moment there
+        // is — the camera at its opening placement, the scene still filling in. When B231 removed
+        // eighteen invisible `func_door` movers from `cp_fulgur`, that frame went from `45 of 49`
+        // to `24 of 24`: the cull working perfectly and reporting the exact signature of a cull
+        // that never ran. The owner's own session, sampled later, read `6 of 30`.
+        //
+        // The test's own comment had predicted it — *"either the cull stopped running or a camera
+        // change put the whole map on screen"* — and offered no way to tell those apart. So the
+        // fix is to the CONDITION rather than to the assertion: the device now logs the pair when
+        // it CHANGES, and this asks whether any sample culled anything. An unbuilt frustum keeps
+        // everything at every moment, so one counter-example is decisive and no single frame is.
         //
         // Needs the game for the same reason as the bucket check: with no TF2 there are no models.
         ViewerSession.RequireTheGame();
@@ -208,26 +233,41 @@ public sealed class WiringUiTests
             throwOnTimeout: true,
             timeoutMessage: "The draw loop never reported what it kept.");
 
-        string line = Viewer.LastLine("opaque draw order:")
-            .ShouldNotBeNull("the retry above should have waited for this");
+        IReadOnlyList<string> lines = Viewer.AllLines("opaque draw order:");
 
-        // `opaque draw order: 45 of 49 models kept, buckets 1/6/0/38`
-        Match counted = Regex.Match(
-            line,
-            @"opaque draw order: (\d+) of (\d+) models kept",
-            RegexOptions.None,
-            TimeSpan.FromSeconds(5));
+        lines.ShouldNotBeEmpty("the retry above should have waited for at least one");
 
-        counted.Success.ShouldBeTrue($"the census line should carry both counts: {line}");
+        List<(int Kept, int Offered, string Line)> samples = [];
 
-        int kept = int.Parse(counted.Groups[1].Value, CultureInfo.InvariantCulture);
-        int offered = int.Parse(counted.Groups[2].Value, CultureInfo.InvariantCulture);
+        foreach (string entry in lines)
+        {
+            // `opaque draw order: 45 of 49 models kept, buckets 1/6/0/38`
+            Match counted = Regex.Match(
+                entry,
+                @"opaque draw order: (\d+) of (\d+) models kept",
+                RegexOptions.None,
+                TimeSpan.FromSeconds(5));
 
-        kept.ShouldBeLessThan(
-            offered,
-            $"nothing was culled ({line}), which is what an unbuilt view frustum looks like");
+            counted.Success.ShouldBeTrue($"the census line should carry both counts: {entry}");
 
-        kept.ShouldBeGreaterThan(
-            0, "everything was culled, so the frustum is pointing away from the map");
+            samples.Add((
+                int.Parse(counted.Groups[1].Value, CultureInfo.InvariantCulture),
+                int.Parse(counted.Groups[2].Value, CultureInfo.InvariantCulture),
+                entry));
+        }
+
+        // **Any sample culling anything proves the frustum is built and applied.** The failure this
+        // guards keeps EVERYTHING at every moment, so it cannot produce even one of these.
+        samples.ShouldContain(
+            sample => sample.Kept < sample.Offered,
+            "nothing was culled in any sample, which is what an unbuilt view frustum looks like: "
+            + string.Join(" | ", samples.Select(sample => sample.Line)));
+
+        // **Still asserted on every sample, because this one IS about a moment.** A frustum
+        // pointing away from the map keeps nothing, and that is a black screen whenever it happens
+        // rather than only if it happens always.
+        samples.ShouldAllBe(
+            sample => sample.Kept > 0,
+            "everything was culled in some sample, so the frustum is pointing away from the map");
     }
 }

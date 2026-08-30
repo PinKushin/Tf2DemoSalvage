@@ -138,7 +138,11 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # and m_iObserverMode read off HAND-BUILT entities. Synthetic and in Core.Tests deliberately (D38):
 # `Corpus.Tests` needs Git LFS, so Stryker never mutates anything placed there, and the two corpus
 # suites these replace took tens of seconds to assert what a demo happens to contain.
-run Tf2DemoSalvage.Core.Tests     core     1556
+# 1556 -> 1560: ShouldDrawConformanceTests (4). `C_BaseEntity::ShouldDraw` refuses kRenderNone
+# outright (c_baseentity.cpp:1447) and this project drew it — the mode was only decoded on
+# 2026-08-29 (B221) and reached the render GROUP, where alpha 255 plus mode 10 classifies as
+# translucent and draws solid. All eighteen func_doors on cp_fulgur are kRenderNone.
+run Tf2DemoSalvage.Core.Tests     core     1560
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
@@ -623,7 +627,11 @@ run Tf2DemoSalvage.Content.Tests  content   817
 # purpose** — the two render/observer corpus TESTS became `[Explicit]` diagnostics that report and
 # assert nothing about what a demo contains (D38), and their real claims moved to synthetic tests in
 # Core.Tests where Stryker can reach them.
-run Tf2DemoSalvage.Corpus.Tests   corpus     137
+# 137 -> 138: BrushEntityStateDiagnostic (1, Explicit). It reports each brush entity's angles,
+# render mode and whether it went absent or hidden, and it is what found B231 — every func_door on
+# cp_fulgur reporting mode 10 in the RECORDING and not merely in the map, which is the difference
+# between "the mapper set it" and "the entity is it".
+run Tf2DemoSalvage.Corpus.Tests   corpus     138
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that
@@ -797,7 +805,11 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     137
 # could not contain the answer. PropMaterialResolutionTests (2) is the output-level assertion: no
 # placed corner on cp_fulgur names material -1, with cp_process_final as the control.
 # ChequeredPropMaterialProbe (2, Explicit) reports where a chequered prop's material actually lives.
-run Tf2DemoSalvage.Rendering.Tests rendering 708
+# 708 -> 709: BrushEntityAngleProbe (1, Explicit), which reads a map's entity lump and reports the
+# angles, movedir and rendermode its brush entities declare. It killed a hypothesis rather than
+# confirming one — the 90-degree grate was blamed on unapplied `angles`, and the probe showed
+# cp_fulgur declares them while the demo carries them through to the pose intact.
+run Tf2DemoSalvage.Rendering.Tests rendering 709
 # 101 -> 103 on 2026-08-29: LaunchOptionWiringTests (B223, D118). Two tests, and they cost about
 # seventeen seconds EACH, because each builds a real MainForm and loads a corpus demo — which reads
 # cp_badlands.bsp when Team Fortress 2 is installed. That is the most expensive pair in this file
