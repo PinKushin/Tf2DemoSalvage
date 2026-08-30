@@ -77,6 +77,7 @@ public sealed class PropAnimationProbe
         HashSet<int> watched = [52, 54, 105, 312, 314];
 
         List<string> lines = [];
+        HashSet<string> items = new(StringComparer.Ordinal);
         Dictionary<string, int> sent = new(StringComparer.Ordinal);
 
         foreach (DemoCommand command in commands
@@ -101,6 +102,20 @@ public sealed class PropAnimationProbe
                             decoder.Decode(snapshot.Body.Span, snapshot, snapshot.LengthBits))
                         {
                             table.Apply(entity);
+
+                            // **Every distinct (class, item) a WEAPON entity ever states**, over
+                            // the whole recording rather than at the end. The owner sees one medic
+                            // holding a medigun and another holding nothing, and a Kritzkrieg,
+                            // Quick-Fix or Vaccinator is a different item index from the stock 211
+                            // — so guessing the number is the wrong move when the demo states it.
+                            if (table.TryGet(entity.EntityIndex, out EntityState? weapon) &&
+                                (weapon.ClassName ?? string.Empty).Contains(
+                                    "Weapon", StringComparison.Ordinal))
+                            {
+                                items.Add(
+                                    $"{weapon.ClassName} item "
+                                    + $"{weapon.ItemDefinitionIndex()?.ToString(CultureInfo.InvariantCulture) ?? "none"}");
+                            }
 
                             if (!watched.Contains(entity.EntityIndex) ||
                                 !table.TryGet(entity.EntityIndex, out EntityState? now) ||
@@ -156,6 +171,11 @@ public sealed class PropAnimationProbe
         {
             TestContext.Out.WriteLine(
                 $"SENT {name} x{count.ToString(CultureInfo.InvariantCulture)}");
+        }
+
+        foreach (string item in items.Order(StringComparer.Ordinal))
+        {
+            TestContext.Out.WriteLine($"ITEM {item}");
         }
 
         lines.Count.ShouldBeGreaterThan(0, "the walk saw no updates for the watched entities");

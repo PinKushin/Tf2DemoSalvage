@@ -97,6 +97,8 @@ public sealed class MedigunPlacementProbe
                 + $"merged {track.BoneMerged} "
                 + $"keyframes {track.Keyframes.Count} "
                 + $"item {track.ItemDefinitionIndex?.ToString(CultureInfo.InvariantCulture) ?? "none"} "
+                + $"state {track.WeaponState?.ToString(CultureInfo.InvariantCulture) ?? "none"} "
+                + $"owner {track.OwnedBy?.ToString(CultureInfo.InvariantCulture) ?? "none"} "
                 + $"{track.ClassName} '{track.ModelPath}'");
         }
 
