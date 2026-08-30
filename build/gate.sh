@@ -170,7 +170,15 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # player was ever drawn. Two of the four are controls: a weapon that DOES send a world model
 # keeps it, and a track with neither model nor item still stays out of Props, which is the rule
 # this relaxes.
-run Tf2DemoSalvage.Core.Tests     core     1588
+# 1588 -> 1591: SequenceParityConformanceTests (3). A prop's animation clock was never stamped,
+# so EntityModels' `elapsed = seconds - AnimationStartSeconds` was the WHOLE RECORDING -- the
+# spawn cabinets looped for ever, then after the cycle clamp held their last frame for ever.
+# C_BaseAnimating measures from a stamp (c_baseanimating.cpp:5480) and knows an animation
+# restarted from m_nNewSequenceParity (:4737), which this project read only on the viewmodel and
+# whose own remarks admitted it was decoded and not acted on. Two of the three are controls: a
+# prop that never restarts keeps its clock, and a prop REPLAYING the same sequence must still
+# restart -- which is why the counter exists and why comparing sequence numbers is not enough.
+run Tf2DemoSalvage.Core.Tests     core     1591
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.

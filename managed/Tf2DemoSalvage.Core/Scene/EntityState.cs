@@ -653,6 +653,32 @@ public sealed class EntityState
     public int? ViewmodelNewSequenceParity() =>
         Integer($"{ViewModelTable}.m_nNewSequenceParity");
 
+    /// <summary>The counter that says THIS entity's animation restarted.</summary>
+    /// <remarks>
+    /// **The same field on <c>DT_BaseAnimating</c>, which every animated prop has and which nothing
+    /// asked for until now.** <c>ViewmodelNewSequenceParity</c> above reads the viewmodel's copy and
+    /// its remarks admit it is "decoded and not yet acted on"; this one is acted on, because it is
+    /// what tells a spawn cabinet its `open` began.
+    ///
+    /// <c>C_BaseAnimating::OnDataChanged</c>, <c>c_baseanimating.cpp:4737</c>:
+    ///
+    /// <code>
+    ///   // reset prev cycle if new sequence
+    ///   if (m_nNewSequenceParity != m_nPrevNewSequenceParity)
+    ///   {
+    ///       ...
+    ///       m_iv_flCycle.Reset();
+    ///   }
+    /// </code>
+    ///
+    /// **A counter rather than a comparison of sequence numbers, and that difference is the point.**
+    /// <c>m_nNewSequenceParity = ( m_nNewSequenceParity + 1 ) &amp; EF_PARITY_MASK</c>
+    /// (<c>c_baseanimating.cpp:5574</c>) — a cabinet used twice plays the SAME sequence twice, and
+    /// only the counter says the second one began.
+    /// </remarks>
+    public int? NewSequenceParity() =>
+        Integer($"{AnimatingTable}.m_nNewSequenceParity");
+
     /// <summary>The counter that re-arms animation events — <c>m_nResetEventsParity</c>.</summary>
     /// <remarks>
     /// <c>c_baseanimating.cpp:3618</c>: <c>bool resetEvents = m_nResetEventsParity !=

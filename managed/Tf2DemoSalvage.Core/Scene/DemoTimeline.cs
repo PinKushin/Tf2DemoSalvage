@@ -1175,7 +1175,7 @@ public sealed class DemoTimeline
                     entities.Apply(entity);
                     RecordProp(
                         entity, entities, precache, tracks, props, playerTracks,
-                        mergesItself, protocol, command.Tick);
+                        mergesItself, protocol, command.Tick, interval);
                 }
 
                 moved = true;
@@ -1708,7 +1708,8 @@ public sealed class DemoTimeline
         List<ScenePropTrack> players,
         HashSet<int> mergesItself,
         int protocol,
-        int tick)
+        int tick,
+        float interval)
     {
         if (entity.UpdateType == EntityUpdateType.Delete)
         {
@@ -1926,6 +1927,27 @@ public sealed class DemoTimeline
         track.ItemDefinitionIndex = item ?? track.ItemDefinitionIndex;
         track.ClassName = state.ClassName ?? track.ClassName;
 
+        // **A parity change means this animation began again, so its clock restarts**
+        // (`C_BaseAnimating::OnDataChanged`, `c_baseanimating.cpp:4737`). Everything downstream
+        // measures `elapsed = seconds - AnimationStartSeconds`, and leaving that at zero made
+        // `elapsed` the whole recording — a one-shot sequence finished before its first frame drew.
+        //
+        // **A counter rather than a comparison of sequence numbers**, because a cabinet used twice
+        // plays `open` twice and only the counter says the second one began
+        // (`m_nNewSequenceParity = ( m_nNewSequenceParity + 1 ) & EF_PARITY_MASK`, `:5574`).
+        //
+        // An entity that never sends the field keeps the clock it was created with, which is right:
+        // nothing has told it to restart.
+        if (state.NewSequenceParity() is { } parity && parity != track.LastSequenceParity)
+        {
+            if (track.LastSequenceParity is not null)
+            {
+                track.AnimationStartSeconds = tick * interval;
+            }
+
+            track.LastSequenceParity = parity;
+        }
+
         // **The model, kept current for the same reason and on the engine's own adjacent line.**
         // `C_BaseEntity::PostDataUpdate` (`c_baseentity.cpp:2603`) calls `HierarchySetParent` and
         // then `ValidateModelIndex`, both ABOVE the `DATA_UPDATE_CREATED` test, so both run on
@@ -1991,6 +2013,9 @@ public sealed class DemoTimeline
             tick,
             new ScenePose
             {
+                // **When the animation now playing began**, so `elapsed` downstream is the time
+                // since the server stamped it rather than since the recording opened.
+                AnimationStartSeconds = track.AnimationStartSeconds,
                 X = origin.X,
                 Y = origin.Y,
                 Z = origin.Z,

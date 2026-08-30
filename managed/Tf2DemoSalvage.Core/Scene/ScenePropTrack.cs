@@ -548,6 +548,27 @@ public sealed class ScenePropTrack
     /// </remarks>
     public string ClassName { get; internal set; } = string.Empty;
 
+    /// <summary>The parity counter last seen, so a change can be noticed.</summary>
+    /// <remarks>
+    /// Null until the entity states one. An entity that never sends the field keeps its clock from
+    /// creation, which is what a prop that never restarts an animation should do.
+    /// </remarks>
+    internal int? LastSequenceParity { get; set; }
+
+    /// <summary>When the animation now playing was stamped as having begun, in seconds.</summary>
+    /// <remarks>
+    /// **`C_BaseAnimating` measures its interval from a stamp, never from the start of time** —
+    /// <c>flInterval = ( curtime - m_flAnimTime )</c>, <c>c_baseanimating.cpp:5480</c>, re-stamped
+    /// on every advance. This project left the equivalent at zero for every prop, so `elapsed` was
+    /// the whole recording: a one-shot animation was finished before its first frame drew, and a
+    /// looping one had wrapped an arbitrary number of times.
+    ///
+    /// Measured on `cp_fulgur`: the spawn cabinets are told <c>seq0</c> idle → <c>seq1</c> open →
+    /// <c>seq2</c> close, every keyframe carrying cycle <c>0.00</c>. The owner saw them loop for
+    /// ever, and after the cycle clamp was corrected, hold open for ever. One cause, two symptoms.
+    /// </remarks>
+    internal double AnimationStartSeconds { get; set; }
+
     /// <summary>The engine's serial for this occupant of the slot.</summary>
     /// <remarks>
     /// **An entity is its index AND its serial.** The index is a slot the engine reissues; the

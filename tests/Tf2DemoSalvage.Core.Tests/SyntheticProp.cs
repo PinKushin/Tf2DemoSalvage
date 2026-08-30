@@ -1,0 +1,184 @@
+using System;
+using System.Collections.Generic;
+
+using Tf2DemoSalvage.Core.Container;
+using Tf2DemoSalvage.Core.Net;
+using Tf2DemoSalvage.Core.Schema;
+using Tf2DemoSalvage.Core.Scene;
+
+namespace Tf2DemoSalvage.Core.Tests;
+
+/// <summary>
+/// A demo carrying one animated prop, told to play chosen sequences at chosen ticks.
+/// </summary>
+/// <remarks>
+/// **Chosen rather than found** (D38). A real recording has to be searched for a cabinet somebody
+/// walked into, and the assertion then becomes whatever that search turned up; here the sequence
+/// changes are the ones under test.
+///
+/// The schema mirrors the shape `cp_fulgur`'s own does, measured from its `dem_datatables`:
+/// <c>m_nSequence</c> and <c>m_nNewSequenceParity</c> on <c>DT_BaseAnimating</c>, the cycle on
+/// <c>DT_ServerAnimationData</c>, and <c>m_flAnimTime</c> in its own <c>DT_AnimTimeMustBeFirst</c> —
+/// which is Valve's trick to force that field first on the wire, and the reason asking for it under
+/// <c>DT_BaseEntity</c> silently matches nothing.
+/// </remarks>
+internal static class SyntheticProp
+{
+    /// <summary>Class id of the prop this fixture networks.</summary>
+    public const int PropClassId = 0;
+
+    /// <summary>Entity slot the prop occupies.</summary>
+    public const int PropEntityIndex = 9;
+
+    /// <summary>Precache index of the prop's model.</summary>
+    public const int Model = 1;
+
+    /// <summary>What that index names.</summary>
+    public const string ModelPath = "models/props_gameplay/resupply_locker.mdl";
+
+    /// <summary>A demo of one prop over several snapshots.</summary>
+    /// <param name="frames">Tick, sequence and parity for each snapshot; the first creates.</param>
+    /// <returns>The demo's bytes.</returns>
+    public static byte[] Demo(params (int Tick, int Sequence, int Parity)[] frames)
+    {
+        ArgumentNullException.ThrowIfNull(frames);
+
+        DemoSchema schema = Schema();
+
+        EntityDecoder decoder = new(
+            schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        List<DemoCommand> commands =
+        [
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                0,
+                ServerInfo(),
+                SyntheticDemo.StringTable(
+                    ModelPrecache.TableName, [string.Empty, ModelPath], maxEntries: 8)),
+            SyntheticDemo.DataTables(schema),
+        ];
+
+        IReadOnlyList<FlatProperty> flat = decoder.FlattenedFor(PropClassId);
+
+        for (int index = 0; index < frames.Length; index++)
+        {
+            (int tick, int sequence, int parity) = frames[index];
+
+            List<DecodedProperty> properties =
+            [
+                Property(flat, "m_nModelIndex", PropertyValue.FromInt(Model)),
+                Property(flat, "m_nSequence", PropertyValue.FromInt(sequence)),
+                Property(flat, "m_nNewSequenceParity", PropertyValue.FromInt(parity)),
+
+                // **Cycle zero every time, because that is what the recording carries.** Measured
+                // on `cp_fulgur`: every cabinet keyframe reads 0.00. The server states where the
+                // animation begins and leaves the advancing to the client.
+                Property(flat, "m_flCycle", PropertyValue.FromFloat(0f)),
+
+                // A position, so the prop is placed and reaches the scene rather than being
+                // dropped for having nowhere to be.
+                Property(flat, "m_vecOrigin", PropertyValue.FromVectorXY(64f, 0f)),
+                Property(flat, "m_vecOrigin[2]", PropertyValue.FromFloat(0f)),
+            ];
+
+            properties.Sort((left, right) => left.Index.CompareTo(right.Index));
+
+            DecodedEntity prop = new(
+                PropEntityIndex,
+                PropClassId,
+                SerialNumber: 3,
+                index == 0 ? EntityUpdateType.Enter : EntityUpdateType.Delta,
+                properties);
+
+            byte[] body = decoder.EncodeEntities(
+                [prop], [], isDelta: index > 0, 0, out int bits);
+
+            commands.Add(SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                tick,
+                new PacketEntitiesMessage(
+                    MaxEntries: 64,
+                    IsDelta: index > 0,
+                    DeltaFromTick: index > 0 ? frames[index - 1].Tick : null,
+                    BaselineIndex: false,
+                    UpdatedEntries: 1,
+                    LengthBits: bits,
+                    UpdateBaseline: false,
+                    Body: body)));
+        }
+
+        return SyntheticDemo.From(SyntheticDemo.DefaultProtocol, [.. commands]);
+    }
+
+    private static DecodedProperty Property(
+        IReadOnlyList<FlatProperty> flat, string name, PropertyValue value)
+    {
+        for (int index = 0; index < flat.Count; index++)
+        {
+            if (string.Equals(flat[index].Property.Name, name, StringComparison.Ordinal))
+            {
+                return new DecodedProperty(index, flat[index], value);
+            }
+        }
+
+        throw new InvalidOperationException($"the fixture schema declares no {name}");
+    }
+
+    private static ServerInfoMessage ServerInfo() => new(
+        NetworkProtocol: SyntheticDemo.DefaultProtocol,
+        ServerCount: 1,
+        IsSourceTv: true,
+        IsDedicated: true,
+        MapCrc: 0,
+        MaxClasses: 1,
+        MapHash: new byte[16],
+        PlayerSlot: 0,
+        MaxPlayers: 24,
+        IntervalPerTick: 1f / 66.67f,
+        Platform: 'w',
+        GameDirectory: "tf",
+        Map: "cp_fulgur",
+        Skybox: "sky_tf2_04",
+        ServerName: "synthetic",
+        IsReplay: false);
+
+    /// <summary>One prop class, with the tables a real <c>CDynamicProp</c> declares.</summary>
+    private static DemoSchema Schema() => new(
+        [
+            new SendTable("DT_AnimTimeMustBeFirst", NeedsDecoder: true,
+            [
+                new SendProperty(SendPropType.Int, "m_flAnimTime", 1, string.Empty, 0f, 0f, 8, 0),
+            ]),
+            new SendTable("DT_BaseEntity", NeedsDecoder: true,
+            [
+                new SendProperty(SendPropType.Int, "m_nModelIndex", 1, string.Empty, 0f, 0f, 13, 0),
+                new SendProperty(
+                    SendPropType.VectorXY, "m_vecOrigin", 1, string.Empty, -16384f, 16384f, 32, 0),
+                new SendProperty(
+                    SendPropType.Float, "m_vecOrigin[2]", 1, string.Empty, -16384f, 16384f, 32, 0),
+                new SendProperty(
+                    SendPropType.DataTable, "animtime", 1, "DT_AnimTimeMustBeFirst", 0f, 0f, 0, 0),
+            ]),
+            new SendTable("DT_ServerAnimationData", NeedsDecoder: true,
+            [
+                new SendProperty(SendPropType.Float, "m_flCycle", 0, string.Empty, 0f, 1f, 15, 0),
+            ]),
+            new SendTable("DT_BaseAnimating", NeedsDecoder: true,
+            [
+                new SendProperty(SendPropType.Int, "m_nSequence", 1, string.Empty, 0f, 0f, 12, 0),
+                new SendProperty(
+                    SendPropType.Int, "m_nNewSequenceParity", 1, string.Empty, 0f, 0f, 3, 0),
+                new SendProperty(
+                    SendPropType.DataTable, "baseentity", 1, "DT_BaseEntity", 0f, 0f, 0, 0),
+                new SendProperty(
+                    SendPropType.DataTable, "serveranimdata", 1, "DT_ServerAnimationData", 0f, 0f, 0, 0),
+            ]),
+            new SendTable("DT_DynamicProp", NeedsDecoder: true,
+            [
+                new SendProperty(
+                    SendPropType.DataTable, "baseanimating", 1, "DT_BaseAnimating", 0f, 0f, 0, 0),
+            ]),
+        ],
+        [new ServerClass(PropClassId, "CDynamicProp", "DT_DynamicProp")]);
+}

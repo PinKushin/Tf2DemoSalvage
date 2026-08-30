@@ -202,6 +202,31 @@ public sealed class MedigunPlacementProbe
                 + $"{SchemaClasses.Inherits(schema, serverClass.TableName, SchemaClasses.CombatWeaponTable)}");
         }
 
+        // **What `CDynamicProp` can send about its animation at all.** `animtime ABSENT` has two
+        // readings — the property is not in the schema under the name we ask for, or it is and the
+        // server never sends it — and only the flattened list separates them.
+        // See docs/memory/a-property-name-needs-its-declaring-table.md: a wrong owner table is not
+        // a near miss, it is silently no match.
+        foreach (ServerClass prop in schema.ServerClasses
+            .Where(candidate => candidate.ClassName == "CDynamicProp"))
+        {
+            EntityDecoder reader = new(
+                schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+            foreach (FlatProperty flat in reader.FlattenedFor(prop.Id)
+                .Where(flat =>
+                    flat.Property.Name.Contains("Anim", StringComparison.OrdinalIgnoreCase)
+                    || flat.Property.Name.Contains("Cycle", StringComparison.OrdinalIgnoreCase)
+                    || flat.Property.Name.Contains("Playback", StringComparison.OrdinalIgnoreCase)
+                    || flat.Property.Name.Contains("Sequence", StringComparison.OrdinalIgnoreCase)
+                    || flat.Property.Name.Contains("Simulation", StringComparison.OrdinalIgnoreCase)))
+            {
+                TestContext.Out.WriteLine(
+                    $"SCHEMA {flat.OwnerTable}.{flat.Property.Name} "
+                    + $"type {flat.Property.Type}");
+            }
+        }
+
         // **The chain itself, because "the walk returned false" has two readings**: the ancestor is
         // genuinely absent, or the walk cannot see it. Only the tables the schema actually links
         // separate those.
@@ -269,6 +294,34 @@ public sealed class MedigunPlacementProbe
                 + $"attachment "
                 + $"{entity.Attachment()?.ToString(CultureInfo.InvariantCulture) ?? "none"} "
                 + $"origin {(entity.Origin() is { } at ? $"({at.X:0} {at.Y:0} {at.Z:0})" : "none")}");
+        }
+
+        // **Does the demo carry `m_flAnimTime`?** `C_BaseAnimating::FrameAdvance` measures its
+        // interval as `curtime - m_flAnimTime` and re-stamps it every advance
+        // (`c_baseanimating.cpp:5480`), and the field is NETWORKED —
+        // `RecvPropInt( RECVINFO(m_flAnimTime), 0, RecvProxy_AnimTime )`, `c_baseentity.cpp:424`.
+        // This project cites it in seven comments and decodes it nowhere, substituting demo time
+        // zero, which is why a one-shot prop animation is finished before the first frame is drawn.
+        foreach (EntityState cabinet in entities.All
+            .Where(entity => (entity.ClassName ?? string.Empty)
+                .Contains("DynamicProp", StringComparison.Ordinal))
+            .OrderBy(entity => entity.EntityIndex)
+            .Take(6))
+        {
+            TestContext.Out.WriteLine(
+                $"ANIMTIME {cabinet.EntityIndex} {cabinet.ClassName} "
+                + $"sequence "
+                + $"{cabinet.Integer("DT_BaseAnimating.m_nSequence")
+                    ?.ToString(CultureInfo.InvariantCulture) ?? "none"} "
+                + $"animtime "
+                + $"{cabinet.Integer("DT_BaseEntity.m_flAnimTime")
+                    ?.ToString(CultureInfo.InvariantCulture) ?? "ABSENT"} "
+                + $"simtime "
+                + $"{cabinet.Integer("DT_BaseEntity.m_flSimulationTime")
+                    ?.ToString(CultureInfo.InvariantCulture) ?? "ABSENT"} "
+                + $"rate "
+                + $"{cabinet.Integer("DT_BaseAnimating.m_flPlaybackRate")
+                    ?.ToString(CultureInfo.InvariantCulture) ?? "ABSENT"}");
         }
 
         foreach ((string name, int count) in byClass.OrderBy(

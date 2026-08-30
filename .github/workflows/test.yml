@@ -157,7 +157,9 @@ jobs:
           # baseline arrays svc_PacketEntities names. Synthetic and file-free.
           # 1584 -> 1588 on 2026-08-30: WeaponItemModelConformanceTests (4). A weapon's model
           # comes from its item, and every CWeaponMedigun networks no model index at all.
-          ./build/assert-test-count.sh '**/core.trx' 1588 Core
+          # 1588 -> 1591 on 2026-08-30: SequenceParityConformanceTests (3), the prop animation
+          # clock. Synthetic and file-free.
+          ./build/assert-test-count.sh '**/core.trx' 1591 Core
           ./build/assert-test-count.sh '**/cli.trx' 74 Cli
           # 628 -> 645 is ARITHMETIC, not a measurement: 17 tests were added to Content on
           # 2026-08-24 (SchemeFont 6, GlyphAtlas 11), all self-contained, so every one of them
