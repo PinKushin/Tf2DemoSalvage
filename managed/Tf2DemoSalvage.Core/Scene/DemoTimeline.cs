@@ -1796,24 +1796,10 @@ public sealed class DemoTimeline
         int? attachedTo = null;
         (float X, float Y, float Z) origin;
 
-        // **Whether this entity rides a SKELETON or a transform, which is Valve's second branch and
-        // was the missing distinction** (B231). `CalcAbsolutePosition` tests `EF_BONEMERGE` — not
-        // "does it have a parent" — and everything that is not bone-merged concatenates its own
-        // local transform onto its parent's. This project took the first branch for both, so a
-        // `prop_dynamic` parented to a `func_door` looked for a skeleton the door does not have.
-        bool boneMerged = state.IsBoneMerged;
-
         if (state.Attachment() is { } owner)
         {
             attachedTo = owner;
-
-            // **A bone-merged entity keeps (0,0,0) and one that is merely parented does NOT.** The
-            // bones carry the first outright, so its own origin is meaningless — but a parented
-            // entity's `m_vecOrigin` IS its offset from the parent, which is precisely the value
-            // `MatrixSetColumn( GetLocalOrigin(), 3, matEntityToParent )` needs. Zeroing it for
-            // everything discarded that offset, and the grate props then had nothing left to place
-            // them with even once a parent transform was available.
-            origin = boneMerged ? (0f, 0f, 0f) : state.Origin() ?? (0f, 0f, 0f);
+            origin = (0f, 0f, 0f);
         }
         else if (state.Origin() is { } placed)
         {
@@ -1868,10 +1854,6 @@ public sealed class DemoTimeline
         // Kept current rather than set once: a wearable can arrive before its owner handle does,
         // and a track stuck on the first answer would draw the hat on whoever wore it last.
         track.AttachedTo = attachedTo;
-
-        // Kept current alongside the parent, because an entity can gain or lose EF_BONEMERGE on a
-        // later delta and the branch it takes has to follow.
-        track.BoneMerged = boneMerged;
 
         // Ownership regardless of attachment, because the first-person view hides a followed
         // player's weapon by OWNER and a carried weapon that sends an origin is parented to nobody.
@@ -2073,8 +2055,7 @@ public sealed class DemoTimeline
             {
                 into.Add(new SceneProp(
                     track.EntityIndex, track.ModelPath, track.Kind, Moving(track, tick, pose),
-                    track.AttachedTo, track.AttachmentPoint, track.OwnedBy, track.WeaponState,
-                    track.BoneMerged));
+                    track.AttachedTo, track.AttachmentPoint, track.OwnedBy, track.WeaponState));
             }
         }
     }

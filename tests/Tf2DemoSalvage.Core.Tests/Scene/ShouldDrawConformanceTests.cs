@@ -49,25 +49,6 @@ public sealed class ShouldDrawConformanceTests
     {
         // `if ( m_nRenderMode == kRenderNone ) return false;` — the first test in ShouldDraw, and
         // it is unconditional: no alpha, no effect flag and no model can put the entity back.
-        //
-        // **This was implemented on 2026-08-29 and reverted the same night, and the case is kept
-        // rather than deleted because the CITATION is not in doubt.** `kRenderNone` is ordinal 10 of
-        // `RenderMode_t` (`const.h:363`, comment *"Don't render."*) and `ShouldDraw` refuses it in
-        // its first line. What is in doubt is what that implies for the entities this project was
-        // hiding.
-        //
-        // **The measurement that motivated it**: all eighteen `func_door` entities on `cp_fulgur`
-        // report mode 10, in the map's entity lump and in the recording alike. The inference drawn
-        // was that the visible gates must be separate brushwork and the doors invisible movers.
-        // **The owner looked, and the gates were gone from the map entirely** — so the inference was
-        // wrong and one of two things is true: this project reads the mode from somewhere it should
-        // not, or the engine reaches those brush entities by a path that does not consult
-        // `ShouldDraw`. A citation cannot settle which.
-        //
-        // **Explicit rather than deleted or inverted.** Deleting loses the citation, and asserting
-        // the current behaviour would encode a divergence as if it were the rule — a change detector
-        // pointed at the wrong answer. This runs on demand, states what the engine does, and fails
-        // until the question is answered.
         Entity(Property("m_nRenderMode", RenderNone)).IsDrawn.ShouldBeFalse();
     }
 
@@ -122,36 +103,10 @@ public sealed class ShouldDrawConformanceTests
         return state;
     }
 
-    /// <summary>A property declared as <c>DT_BaseEntity</c> declares it.</summary>
-    /// <param name="name">The wire name.</param>
-    /// <param name="value">The decoded value.</param>
-    /// <param name="bits">Its width, from the SDK.</param>
-    /// <returns>The decoded property.</returns>
-    /// <remarks>
-    /// **The widths and the flag are the SDK's, not invented** — `baseentity.cpp:276`:
-    ///
-    /// <code>
-    ///   SendPropInt (SENDINFO(m_nRenderFX),   8,           SPROP_UNSIGNED),
-    ///   SendPropInt (SENDINFO(m_nRenderMode), 8,           SPROP_UNSIGNED),
-    ///   SendPropInt (SENDINFO(m_fEffects),    EF_MAX_BITS, SPROP_UNSIGNED),
-    ///   SendPropInt (SENDINFO(m_clrRender),   32,          SPROP_UNSIGNED),
-    /// </code>
-    ///
-    /// **These said 32 bits and no flags for every one of them, and the owner caught it.** It is
-    /// inert in THIS test — the value is handed over already decoded, so no bit is read — and that
-    /// is exactly why it was worth fixing rather than shrugging at: a fixture that misdescribes the
-    /// property cannot ever catch anything width- or sign-related, and it teaches the next reader
-    /// the wrong wire format. `docs/memory/fixtures-are-the-weak-point.md`: source every fixture
-    /// from a real file or the SDK, never from our own code.
-    /// </remarks>
-    private static DecodedProperty Property(string name, int value, int bits = 8) =>
+    private static DecodedProperty Property(string name, int value) =>
         new(0, new FlatProperty(
-                new SendProperty(
-                    SendPropType.Int, name, Unsigned, string.Empty, 0f, 0f, bits, 0),
+                new SendProperty(SendPropType.Int, name, 0, string.Empty, 0f, 0f, 32, 0),
                 "DT_BaseEntity",
                 null),
             PropertyValue.FromInt(value));
-
-    /// <summary><c>SPROP_UNSIGNED</c>, which every property here carries.</summary>
-    private const int Unsigned = 1;
 }

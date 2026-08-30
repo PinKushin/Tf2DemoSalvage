@@ -316,10 +316,6 @@ public readonly record struct ScenePose
 /// Mantreads or a demoman's shield never sends it, and those are worn whatever is in the player's
 /// hands. See <see cref="ScenePropTrack.WeaponState"/>.
 /// </param>
-/// <param name="BoneMerged">
-/// Whether it rides its parent's SKELETON — <c>EF_BONEMERGE</c>, the second branch of
-/// <c>CalcAbsolutePosition</c> — rather than concatenating its own transform onto its parent's.
-/// </param>
 /// <param name="AttachmentPoint">
 /// Which of that entity's named attachment points it hangs from, one-based, or <c>null</c> when it
 /// is bone-merged instead.
@@ -352,14 +348,7 @@ public readonly record struct SceneProp(
     // Appended rather than inserted: every parameter here is positional, so putting it beside the
     // other attachment fields would silently re-map every call site that passes OwnedBy by
     // position.
-    int? WeaponState = null,
-
-    // **Which of Valve's two attachment branches this entity takes** (B231). `EF_BONEMERGE` rides
-    // the parent's SKELETON — `MoveToAimEnt`, c_baseentity.cpp:4389 — and everything else
-    // concatenates its own local transform onto the parent's. `AttachedTo` says what it hangs off
-    // and cannot say which mechanism, so treating every parent as a bone merge left a prop hung on
-    // brushwork looking for a skeleton that does not exist.
-    bool BoneMerged = false);
+    int? WeaponState = null);
 
 /// <summary>
 /// One entity's pose over the whole demo, stored as the moments it changed.
@@ -475,28 +464,6 @@ public sealed class ScenePropTrack
     /// cosmetic for however long that takes.
     /// </remarks>
     public int? AttachedTo { get; internal set; }
-
-    /// <summary>Whether it rides its parent's SKELETON rather than its parent's transform.</summary>
-    /// <remarks>
-    /// **This is the branch <c>CalcAbsolutePosition</c> takes second, and it is the only thing that
-    /// separates the two ways of hanging off something** (<c>c_baseentity.cpp:4387</c>):
-    ///
-    /// <code>
-    ///   if (!m_pMoveParent)                 { abs = local;    return; }
-    ///   if ( IsEffectActive(EF_BONEMERGE) ) { MoveToAimEnt(); return; }
-    ///   // otherwise concatenate the parent's transform with this entity's local one
-    /// </code>
-    ///
-    /// **This project had only the bone-merged branch and used it for everything with a parent**,
-    /// which is right for a hat and wrong for anything hung off brushwork: a `prop_dynamic`
-    /// parented to a `func_door` has no skeleton to ride, so it was given origin (0,0,0) and then
-    /// dropped for want of one. Measured on `cp_fulgur`, where every gate is an invisible
-    /// `func_door` plus a parented grate prop and all six grates sat at the world origin (B231).
-    ///
-    /// False is the safe default: an entity that never said `EF_BONEMERGE` is placed by the
-    /// transform path, which is what the engine does for it.
-    /// </remarks>
-    public bool BoneMerged { get; internal set; }
 
     /// <summary>Which entity owns this one, whatever it hangs from.</summary>
     /// <remarks>

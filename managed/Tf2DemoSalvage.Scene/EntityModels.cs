@@ -499,37 +499,21 @@ public sealed class EntityModelSet
 
         // Parent links second, so every entity exists before anything points at one.
         _drawnPlacements.Clear();
-        _parentPlacements.Clear();
 
         foreach (SceneProp prop in props)
         {
             _lightPoints[prop.EntityIndex] = IlluminationPoint(prop, prop.Pose);
 
-            ScenePose at = prop.Pose;
-
-            PropTransform placed =
-                new(at.X, at.Y, at.Z, at.Pitch, at.Yaw, at.Roll, at.Scale);
-
-            // **Every entity, drawn or not, because a TRANSFORM is not a question about drawing**
-            // (B231). `CalcAbsolutePosition` composes a child onto its parent's transform with no
-            // reference to whether the parent is rendered — and on `cp_fulgur` the parent of every
-            // gate is an invisible `func_door`, so the one map that matters here is the one that
-            // includes entities nobody draws.
-            _parentPlacements[prop.EntityIndex] = placed;
-
             // Recorded only for props that will actually be drawn, so "the wearer is not being
             // drawn" is answerable without depending on the draw loop's order — which is the whole
             // point of there no longer being one.
-            //
-            // **Kept SEPARATE from the map above, and the difference is Valve's.** A bone-merged
-            // item follows `if ( baseDrawn )` — no wearer on screen, no hat — while a parented
-            // entity follows its parent's transform regardless. Merging the two would either draw
-            // hats on invisible players or delete props hung on invisible movers, and this project
-            // has now done the second one for real.
             if (IsDrawable(prop.Kind) &&
                 Batches(prop.ModelPath, SelectFor(prop, seconds).Frame).Count > 0)
             {
-                _drawnPlacements[prop.EntityIndex] = placed;
+                ScenePose at = prop.Pose;
+
+                _drawnPlacements[prop.EntityIndex] =
+                    new PropTransform(at.X, at.Y, at.Z, at.Pitch, at.Yaw, at.Roll, at.Scale);
             }
 
             if (!_entities.TryGetValue(prop.EntityIndex, out AnimatingEntity? animating))
@@ -630,16 +614,6 @@ public sealed class EntityModelSet
     /// drawn" is answerable without depending on which order the draw loop reaches them in.
     /// </remarks>
     private readonly Dictionary<int, PropTransform> _drawnPlacements = [];
-
-    /// <summary>Where EVERY entity is this frame, drawn or not, for resolving a parent.</summary>
-    /// <remarks>
-    /// **Separate from `_drawnPlacements` because they answer different questions**
-    /// (B231). That one says "is my wearer on screen", which is what `if ( baseDrawn )` asks before
-    /// hanging a hat; this one says "where is my parent", which `CalcAbsolutePosition` asks with no
-    /// regard for whether the parent renders. Every gate on `cp_fulgur` hangs off an invisible
-    /// `func_door`, so the second map is the only one that can place them.
-    /// </remarks>
-    private readonly Dictionary<int, PropTransform> _parentPlacements = [];
 
     /// <summary>This entity's animating object, rebuilt when its model changes.</summary>
     private AnimatingEntity EntityFor(SceneProp prop, PropModels.SkinnedModel skinned)
@@ -1922,30 +1896,7 @@ public sealed class EntityModelSet
             // Bones the parent does not have keep the child's own, which is the same fallback
             // Remap's −1 already means: an item with a part the player has no bone for keeps the
             // shape the artist gave it rather than collapsing to the origin.
-            // **Valve's third branch, and it had no home here until B231**
-            // (`c_baseentity.cpp:4393`). An entity with a parent that is NOT bone-merged builds an
-            // entity-to-parent matrix from its own local angles and origin and concatenates its
-            // parent's transform onto it. Everything with a parent used to take the bone path
-            // below, so a `prop_dynamic` hung on a `func_door` searched for a skeleton brushwork
-            // does not have and was dropped — every gate on `cp_fulgur` is exactly that pairing.
-            //
-            // Placed BEFORE the bone-merge branch reads `_drawnPlacements`, because the two are
-            // alternatives rather than stages: the engine returns from whichever one applies.
-            if (prop is { AttachedTo: { } parent, BoneMerged: false }
-                && _parentPlacements.TryGetValue(parent, out PropTransform parentToWorld))
-            {
-                // `GetParentToWorldTransform` prefers the parent's ATTACHMENT when one is named and
-                // resolvable, and falls back to the parent's own transform otherwise
-                // (`c_baseentity.cpp:4330`). Brushwork has no attachments, so the fallback is the
-                // path every gate takes; an attachment-hung child still reaches the bone code below
-                // through `AttachmentPoint`.
-                transform = parentToWorld.Concat(
-                    new PropTransform(
-                        prop.Pose.X, prop.Pose.Y, prop.Pose.Z,
-                        prop.Pose.Pitch, prop.Pose.Yaw, prop.Pose.Roll,
-                        prop.Pose.Scale));
-            }
-            else if (prop.AttachedTo is { } wearer)
+            if (prop.AttachedTo is { } wearer)
             {
                 if (!_drawnPlacements.TryGetValue(wearer, out PropTransform stands))
                 {
