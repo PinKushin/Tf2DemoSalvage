@@ -224,7 +224,20 @@ public sealed class ViewmodelScene
                 held,
                 SceneModelKind.Studio,
                 at.PoseFor(AttachmentSequence, weapon.PlaybackRate, started),
-                AttachedTo: ArmsEntityIndex));
+                AttachedTo: ArmsEntityIndex,
+
+                // **Bone-merged onto the arms, and saying so is not optional** (B231). The comment
+                // above already states it — *"the attachment keeps its own sequence and the merge
+                // places it"* — but `SceneProp.BoneMerged` defaults to FALSE, so a construction
+                // site that stays silent claims the opposite.
+                //
+                // That default is what broke the viewmodel: the held weapon fell into the
+                // transform branch and was composed onto the arms' origin instead of merged onto
+                // their skeleton. `DemoTimeline` was updated when the field was added and this site
+                // was not, which is the shape `docs/memory/a-moves-regressions-are-wiring.md`
+                // records — the field arrived, one caller set it, and the rest silently took a
+                // default that is also a legitimate value.
+                BoneMerged: true));
         }
 
         // **A player has two viewmodels, and the second is not a duplicate of the first.** Slot 1 is
