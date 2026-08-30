@@ -911,6 +911,20 @@ public static class PropModels
                 {
                     StudioMesh mesh = model.Meshes[index];
 
+                    // **Names the MODEL whose mesh will draw chequered** (B62 follow-on). Two
+                    // instruments already report this and neither can be acted on: the material
+                    // inventory says every material resolved, and `MapWorld` says 19,274 triangles
+                    // name material -1 at a position. Both true, neither says which model — and
+                    // `Register`'s own two warnings fired zero times, so the -1 is arriving by a
+                    // route nobody has yet named.
+                    if (materialByMesh[index] < 0 && props.IsEnabled(LogLevel.Debug))
+                    {
+                        props.LogDebug(
+                            "{Message}",
+                            $"{model.Name}: mesh {index} carries material {materialByMesh[index]}, "
+                            + $"from slot {mesh.MaterialIndex} of {model.Materials.Count}");
+                    }
+
                     if (mesh.FirstVertex + mesh.VertexCount > vertices.Count)
                     {
                         continue;
@@ -1150,6 +1164,20 @@ public static class PropModels
     {
         if (materialIndex < 0 || materialIndex >= model.Materials.Count)
         {
+            // **This was silent, and the silence is why a magenta pipe took an evening.** A mesh
+            // naming a slot outside its model's material list returns −1, the batch carries −1, and
+            // the renderer binds the missing-material chequer for it — while the material inventory
+            // reports every material resolved, because none FAILED. Two instruments both telling
+            // the truth and neither able to see the fault between them.
+            //
+            // The owner found it by looking: pipe elbows and flat panels in the 3D skybox drawn in
+            // Valve's chequer on `cp_fulgur`, a map the real game renders without one.
+            props.LogWarning(
+                "{Message}",
+                $"{model.Name}: a mesh names material slot {materialIndex} of "
+                + $"{model.Materials.Count}, which is outside the model's own list; that mesh will "
+                + "draw as the missing-material chequer");
+
             return -1;
         }
 

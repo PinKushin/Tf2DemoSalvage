@@ -14572,3 +14572,49 @@ count says something is wrong and a name says what to open.
 answer is the `Water` shader with refraction and reflection render targets, which is a real feature
 rather than a fallback, so this is one of D121's narrow "really cannot do it yet" cases and is the
 owner's call rather than something to substitute quietly.
+
+## B229 — 19,274 triangles draw as the missing-material chequer, and the producer is still unidentified — OPEN
+
+**Found by the owner looking at `cp_fulgur`**, a map the real game renders with no chequer anywhere:
+*"the real tf2 doesnt show the purple and black texture anywhere on this map, its not a new map"*.
+Pipe elbows inside the level and flat panels out in the 3D skybox draw in Valve's magenta chequer.
+
+**Measured**, by three diagnostics added for this and kept:
+
+```
+1193 materials, 0 will draw as the missing-material chequer
+batch names material -1, outside the table of 1193
+19274 triangles name material -1 ... centred on (1802, -679, 373)
+```
+
+**Both of the first two are true at once, and that pairing is the finding.** Every material
+resolved; no material is missing. The chequer is reached by the OTHER route into the same fallback —
+a batch whose index is outside the table — and until now nothing distinguished the two. The bind
+site treats "texture failed to load" and "index is not a material" identically.
+
+**Drawing them chequered is deliberate and should stay.** `MapWorld.AppendProps` argues it: *"It
+used to be skipped, on the reasoning that a white rock reads as a rendering fault — which was true
+and was the wrong conclusion. A hole reads as nothing at all, and nothing at all is what nobody
+investigates. Magenta gets reported."* The defect is upstream — something yields −1.
+
+**Four hypotheses, each killed by its own instrument. Recorded so nobody re-walks them:**
+
+1. **A missing base texture.** No: the inventory names every material that resolves none, and after
+   the `Water` exemption that list is empty.
+2. **`PropModels.Register` returning −1** — either from a slot outside the model's material list or
+   from no candidate producing a texture. Both paths now log; **both fired zero times.**
+3. **A prop mesh carrying −1 into its vertices.** Logged at the vertex site; **zero.**
+4. **A brush-entity surface.** No, twice over: `BspSurfaces` *requires* `0 <= materialIndex <
+   materials.Count` and would throw otherwise, and brush models are added to the ENTITY model table
+   rather than to the static-prop vertex list `AppendProps` walks.
+
+**So the −1 enters the prop vertex list by a route none of those four covers**, and that is exactly
+where the next session should start: instrument the construction of the `props` list itself
+(`MapAssets`' `IReadOnlyList<PropVertex>`) rather than any of its suspected producers.
+
+**A second, separate defect on the same map**, reported at the same time and NOT to be conflated
+with this one: the spawn grate is rotated 90 degrees from its correct orientation, and when the
+round starts it moves out of view and never returns. The owner's read: *"it might be the gates
+animating forever like we had happen when we first implemented grates at all"*. The red ring near it
+is the enemy-team "no entry" overlay drawing correctly, not a distortion — a misreading of mine that
+he corrected.

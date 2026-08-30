@@ -317,11 +317,13 @@ public sealed class MapAssets
         IReadOnlyList<MapCubemap?> cubemaps,
         IReadOnlyList<IReadOnlyList<MaterialProxy>> proxies,
         IReadOnlyList<BspMaterial> materials,
+        IReadOnlyList<string> shaders,
         LightmapAtlas lightmaps,
         IReadOnlyList<PropVertex> props,
         int resolved,
         int missing)
     {
+        Shaders = shaders;
         Textures = textures;
         BlendTextures = blendTextures;
         Details = details;
@@ -365,6 +367,14 @@ public sealed class MapAssets
     /// </remarks>
     public PropModels.ModelFrames? Geometry(string path) =>
         EntityModels.TryGetValue(path, out PropModels.ModelFrames? frames) ? frames : null;
+
+    /// <summary>Each material's VMT shader name, e.g. <c>LightmappedGeneric</c> or <c>Water</c>.</summary>
+    /// <remarks>
+    /// **Carried so "no base texture" can be read correctly** (B62). For most shaders a null texture
+    /// is a failure and the engine's magenta chequer is the right answer; for <c>Water</c> it is not,
+    /// because water declares none by design. Only the shader name distinguishes them.
+    /// </remarks>
+    public IReadOnlyList<string> Shaders { get; }
 
     /// <summary>One decoded texture per material, null where none was found.</summary>
     public IReadOnlyList<MapTexture?> Textures { get; }
@@ -854,6 +864,28 @@ public sealed class MapAssets
         // hour (B55), and how four refused prop lighting files hid inside an ordinary total (B83).
         int textured = table.Textures.Count(texture => texture is not null);
 
+        // **Counted apart, so the MISSING figure means "broken"** (B62). A `Water` material has no
+        // base texture and never should; folding it into the missing count makes a healthy map read
+        // as a faulty one, and leaves the count disagreeing with the named list below it — which is
+        // an instrument contradicting itself, the fault this same line was just fixed for.
+        int water = 0;
+
+        for (int index = 0; index < table.Count; index++)
+        {
+            if (table.Textures[index] is null &&
+                table.Shaders[index].Equals("Water", StringComparison.OrdinalIgnoreCase))
+            {
+                water++;
+            }
+        }
+
+        string byDesign = water switch
+        {
+            0 => string.Empty,
+            1 => ", and 1 Water material that declares none by design",
+            _ => $", and {water} Water materials that declare none by design",
+        };
+
         assets.LogInformation(
             "{Message}",
             $"ASKED FOR {table.Count} materials ({brushMaterials} the map's own, " +
@@ -861,7 +893,7 @@ public sealed class MapAssets
             $"HAVE {textured} with a base texture; " +
             $"PRODUCED {table.Details.Count(detail => detail is not null)} with a detail texture, " +
             $"{table.Bumps.Count(bump => bump is not null)} with a bump map; " +
-            $"MISSING {table.Count - textured} with no base texture resolved");
+            $"MISSING {table.Count - textured - water} with no base texture resolved" + byDesign);
 
         // **NAMES the ones that failed, because the count alone cost an hour.** The inventory above
         // said "MISSING 1" and the renderer said "1 will draw as the missing-material chequer at
@@ -875,7 +907,12 @@ public sealed class MapAssets
         {
             for (int index = 0; index < table.Count; index++)
             {
-                if (table.Textures[index] is null)
+                // **`Water` is exempt, because it declares no `$basetexture` by design** (B62).
+                // Reporting it as missing is the same false claim the chequer made, one layer up:
+                // an inventory that names a healthy material as broken teaches a reader to
+                // disbelieve the line.
+                if (table.Textures[index] is null &&
+                    !table.Shaders[index].Equals("Water", StringComparison.OrdinalIgnoreCase))
                 {
                     assets.LogWarning(
                         "{Message}",
@@ -930,6 +967,7 @@ public sealed class MapAssets
             table.Cubemaps,
             table.Proxies,
             table.Materials,
+            table.Shaders,
             lightmaps,
             props,
             resolved,

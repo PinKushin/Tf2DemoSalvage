@@ -560,6 +560,34 @@ public static class MapWorldBuilder
                 continue;
             }
 
+            // **Says WHERE the chequered geometry is, because "material -1" alone cannot be
+            // chased.** Drawing an unresolved prop in Valve's chequer is deliberate — the note in
+            // `AppendProps` argues it, and rightly: a hole is what nobody investigates. But the
+            // owner then has to find it, and the only thing said about it so far was a count.
+            //
+            // A world position separates the two places it turned up on `cp_fulgur`: pipe elbows
+            // inside the level, and flat panels out in the 3D skybox, which sits thousands of units
+            // from the play area. One number tells those apart; the material index cannot.
+            if (group.Key < 0 && group.Value.Count > 0)
+            {
+                float x = 0f;
+                float y = 0f;
+                float depth = 0f;
+
+                foreach (WorldVertex corner in group.Value)
+                {
+                    x += corner.X;
+                    y += corner.Y;
+                    depth += corner.Depth;
+                }
+
+                render.LogWarning(
+                    "{Message}",
+                    $"{group.Value.Count / 3} triangles name material {group.Key} and will draw as "
+                    + $"the missing-material chequer, centred on ({x / group.Value.Count:0}, "
+                    + $"{y / group.Value.Count:0}, {depth / group.Value.Count:0})");
+            }
+
             propBatches.Add(new WorldBatch(
                 group.Key,
                 all.Count,

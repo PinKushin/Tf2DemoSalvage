@@ -1600,6 +1600,24 @@ internal sealed unsafe class WorldRenderer : IDisposable
     private ComPtr<ID3D11ShaderResourceView> _lightmap;
     private ComPtr<ID3D11ShaderResourceView> _white;
 
+    /// <summary>A genuinely white 1x1, for a material that legitimately has no base texture.</summary>
+    /// <remarks>
+    /// **<see cref="_white"/> is the magenta chequer despite its name**, so anything wanting a
+    /// neutral has to use this instead. See B62: a `Water` material declares no `$basetexture` and
+    /// binding the chequer for it drew a broken-content marker on a healthy map.
+    /// </remarks>
+    private ComPtr<ID3D11ShaderResourceView> _flatWhite;
+
+    /// <summary>Materials with no base texture whose SHADER does not want one.</summary>
+    /// <remarks>
+    /// Water, today. Kept apart from <see cref="_chequered"/> because the two mean opposite things:
+    /// one is content that failed to load, the other is content that was never supposed to be there.
+    /// </remarks>
+    private readonly HashSet<int> _untextured = [];
+
+    /// <summary>Material indices seen outside the table, so each is reported once.</summary>
+    private readonly HashSet<int> _unindexed = [];
+
     /// <summary>Valve's measurement grid, drawn under the category tint.</summary>
     private ComPtr<ID3D11ShaderResourceView> _devGrid;
 
@@ -2210,6 +2228,19 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // like art, while a magenta chequer looks like a bug and gets reported.
         _white = CreateTexture(device, context, MissingSize, MissingSize, TextureImage.Rgba(Missing()));
 
+        // **An actually white texture, because `_white` is not one** (B62). The field above is
+        // Valve's magenta-and-black chequer and has been since it was written; the name is the trap
+        // `docs/memory/a-neutral-default-must-be-neutral.md` is about, and the comment beside
+        // `mat_showlowresimage` already warns against binding it as a neutral.
+        //
+        // Needed once a material could legitimately have no base texture: a `Water` shader declares
+        // none by design, and Valve's fallback for water it cannot shade is `Draw()` — plain lit
+        // geometry, which is white times the lightmap. Binding `_white` there produced the chequer
+        // the owner reported, and removing the material from `_chequered` did not help because the
+        // fallback bind is what draws it.
+        _flatWhite = CreateTexture(
+            device, context, 1, 1, TextureImage.Rgba(new byte[] { 255, 255, 255, 255 }));
+
         if (assets.DevGrid is { } grid)
         {
             _devGrid = CreateTexture(device, context, grid.Width, grid.Height, grid.Image);
@@ -2253,10 +2284,34 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
             ComPtr<ID3D11ShaderResourceView> uploaded = Upload(device, context, texture);
 
+            // **A `Water` material declares no `$basetexture` and is not missing** (B62). Water
+            // refracts against `_rt_WaterRefraction` and takes its surface from a normal map;
+            // `IsErrorMaterial` is false and the engine has never failed to draw one. Chequering it
+            // was this project answering "nothing drawable here" for a material TF2 draws every
+            // time — the owner found it on `cp_fulgur` and said the real game shows no chequer
+            // anywhere on that map.
+            //
+            // **Valve's answer for a water material it cannot shade is `Draw()`** — its own comment
+            // is *"draw something so that we won't go into wireframe-land"* (`water.cpp:578`). A
+            // plain white bind is that: untextured geometry taking the lightmap, rather than a
+            // marker saying the content is broken. `WaterShader.Pass` transcribes which pass the
+            // engine would take, and none of its answers is "nothing".
+            //
+            // Shading it properly is still to come. What this removes is the false REPORT.
+            bool water = index < assets.Shaders.Count &&
+                assets.Shaders[index].Equals("Water", StringComparison.OrdinalIgnoreCase);
+
             if (uploaded.Handle is null)
             {
-                chequered.Add(index);
-                _chequered.Add(index);
+                if (water)
+                {
+                    _untextured.Add(index);
+                }
+                else
+                {
+                    chequered.Add(index);
+                    _chequered.Add(index);
+                }
             }
 
             _textures.Add(uploaded);
@@ -2908,11 +2963,36 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 continue;
             }
 
+            // **The fallback is the chequer for a MISSING texture and plain white for a shader that
+            // wants none** (B62). Those look identical from here — both are "the handle is null" —
+            // and telling them apart is the whole fix: water drew Valve's broken-content marker on
+            // a map the real game renders without one.
+            ComPtr<ID3D11ShaderResourceView> absent =
+                _untextured.Contains(batch.MaterialIndex) ? _flatWhite : _white;
+
+            // **Says WHY a batch is about to draw as the chequer, once per index** (B62 follow-on).
+            // The material inventory reports 1192 of 1193 resolved and the renderer reports 0
+            // chequered, and yet pipe elbows and skybox panels draw magenta on cp_fulgur — so the
+            // chequer is being reached by a route the counts cannot see. There are only two: a null
+            // texture, which the inventory would have named, and an index outside the table, which
+            // nothing reports at all. This separates them.
+            //
+            // Bounded by identity rather than by a count, as every diagnostic here is.
+            if (_render.IsEnabled(LogLevel.Debug) &&
+                (batch.MaterialIndex < 0 || batch.MaterialIndex >= _textures.Count) &&
+                _unindexed.Add(batch.MaterialIndex))
+            {
+                _render.LogDebug(
+                    "{Message}",
+                    $"batch names material {batch.MaterialIndex}, outside the table of "
+                    + $"{_textures.Count}; it will draw as the missing-material chequer");
+            }
+
             ComPtr<ID3D11ShaderResourceView> texture =
                 batch.MaterialIndex >= 0 && batch.MaterialIndex < _textures.Count &&
                 _textures[batch.MaterialIndex].Handle is not null
                     ? _textures[batch.MaterialIndex]
-                    : _white;
+                    : absent;
 
             // The second layer, or the first again where a material has only one - so the
             // shader's mix becomes an identity rather than needing a branch.
