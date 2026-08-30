@@ -385,7 +385,13 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 # is called from OnOwnerClassChange and ReapplyProvision, so item + owner class is exactly when
 # the answer can change. The second case is the control -- one item is four models across
 # classes, so a cache keyed on the item alone would hand the engineer the soldier's shotgun.
-run Tf2DemoSalvage.Scene.Tests    scene     246
+# 246 -> 247: the item now WINS whenever it names something different, which is
+# CEconEntity::UpdateModelToClass's actual rule (econ_entity.cpp:411) rather than the narrower
+# 'fill in when the wire said nothing' that shipped first. The new case is its own control's
+# partner: an item naming NOTHING must leave the wire's model alone, which is the other half of
+# Valve's own `if ( pszModel && pszModel[0] )` and the reason the wider rule is safe on a machine
+# with no game installed -- every CI run.
+run Tf2DemoSalvage.Scene.Tests    scene     247
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

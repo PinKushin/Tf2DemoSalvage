@@ -33,9 +33,17 @@ namespace Tf2DemoSalvage.Scene;
 /// drawing on other players too, but the flamethrower, and it looks like everything else, draws"*,
 /// and it is not medigun-specific: a minigun does it too.
 ///
-/// **Only a prop with NO model is touched**, which is the majority-case control. Rocket launchers,
-/// flamethrowers and most miniguns network a world model and keep it; re-resolving them would
-/// replace a measured index with a lookup and is a chance to be wrong about weapons that work.
+/// **The item WINS whenever it names something different**, which is Valve's rule and not the
+/// narrower one this shipped first. `CEconEntity::UpdateModelToClass` (`econ_entity.cpp:411`)
+/// replaces the model on a difference rather than filling in a blank, and the networked index is
+/// only the fallback for an item that names nothing.
+///
+/// The first version resolved only when the wire carried nothing. It agreed with Valve on every
+/// weapon in the corpus — the server sets `m_iWorldModelIndex` from the same item — and diverged
+/// when an owner's CLASS changes, since the engine re-resolves per class and the narrow rule keeps
+/// the stale value. It was recorded as a known divergence and then closed, because a divergence
+/// left open on the grounds that it has not bitten yet is the shape of every bug in this file's
+/// history.
 /// </remarks>
 internal sealed class WeaponPropModels
 {
@@ -75,7 +83,7 @@ internal sealed class WeaponPropModels
         {
             SceneProp prop = drawn[index];
 
-            if (prop.ModelPath.Length != 0 || prop.ItemDefinitionIndex is null)
+            if (prop.ItemDefinitionIndex is null)
             {
                 continue;
             }
@@ -95,7 +103,20 @@ internal sealed class WeaponPropModels
                 _resolved[key] = named;
             }
 
-            if (named is { Length: > 0 })
+            // **The item WINS whenever it names something different**, which is Valve's rule
+            // rather than the narrower "fill in when the wire said nothing" this shipped first.
+            // `CEconEntity::UpdateModelToClass`, `econ_entity.cpp:411`:
+            //
+            //     pszModel = pItem->GetPlayerDisplayModel( m_iOldOwnerClass, nTeam );
+            //     if ( pszModel && pszModel[0] )
+            //         if ( V_stricmp( STRING( GetModelName() ), pszModel ) != 0 )
+            //             SetModel( pszModel );
+            //
+            // The networked index stays as the FALLBACK, which is the other half of the same
+            // condition: `if ( pszModel && pszModel[0] )` means an item that names nothing leaves
+            // the entity drawing what it already had. That matters here beyond parity — the lookup
+            // answers null on a machine with no game installed, which is every CI run.
+            if (named is { Length: > 0 } && !string.Equals(named, prop.ModelPath, StringComparison.Ordinal))
             {
                 drawn[index] = prop with { ModelPath = named };
             }

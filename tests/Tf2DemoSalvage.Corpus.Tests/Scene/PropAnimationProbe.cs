@@ -78,6 +78,7 @@ public sealed class PropAnimationProbe
 
         List<string> lines = [];
         HashSet<string> items = new(StringComparer.Ordinal);
+        HashSet<string> everything = new(StringComparer.Ordinal);
         Dictionary<string, int> sent = new(StringComparer.Ordinal);
 
         foreach (DemoCommand command in commands
@@ -102,6 +103,17 @@ public sealed class PropAnimationProbe
                             decoder.Decode(snapshot.Body.Span, snapshot, snapshot.LengthBits))
                         {
                             table.Apply(entity);
+
+                            // **A GLOBAL census of every property name any entity sends**, not
+                            // scoped to the watched ones. `docs/WIRE-COVERAGE.md` says what the
+                            // ENGINE declares; this says what this recording actually carries, and
+                            // the difference decides whether an unread field is a gap worth closing
+                            // or a field no demo ever sends.
+                            foreach (DecodedProperty property in entity.Properties)
+                            {
+                                everything.Add(
+                                    $"{property.Definition.OwnerTable}.{property.Definition.Property.Name}");
+                            }
 
                             // **Every distinct (class, item) a WEAPON entity ever states**, over
                             // the whole recording rather than at the end. The owner sees one medic
@@ -177,6 +189,18 @@ public sealed class PropAnimationProbe
         {
             TestContext.Out.WriteLine($"ITEM {item}");
         }
+
+        foreach (string name in everything
+            .Where(name => name.Contains("Override", StringComparison.OrdinalIgnoreCase)
+                || name.Contains("Cond", StringComparison.OrdinalIgnoreCase)
+                || name.Contains("Disguise", StringComparison.OrdinalIgnoreCase))
+            .Order(StringComparer.Ordinal))
+        {
+            TestContext.Out.WriteLine($"CARRIED {name}");
+        }
+
+        TestContext.Out.WriteLine(
+            $"CENSUS {everything.Count} distinct properties carried by this recording");
 
         lines.Count.ShouldBeGreaterThan(0, "the walk saw no updates for the watched entities");
     }

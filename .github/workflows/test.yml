@@ -226,7 +226,9 @@ jobs:
           # Needs no game install: the resolution is passed in, so CI exercises all six.
           # 244 -> 246 on 2026-08-30: WeaponPropModels caches its item lookup, which ran
           # every frame and cost 44 ms of one.
-          ./build/assert-test-count.sh '**/scene.trx' 246 Scene
+          # 246 -> 247 on 2026-08-30: the item-authority half of UpdateModelToClass, with the
+          # fallback that keeps CI (no game installed) drawing what the wire said.
+          ./build/assert-test-count.sh '**/scene.trx' 247 Scene
 
       # **Coverage, gated PER ASSEMBLY rather than per report.** A Cobertura file's root line-rate
       # averages every assembly the run loaded, including ones the suite never touches — measured

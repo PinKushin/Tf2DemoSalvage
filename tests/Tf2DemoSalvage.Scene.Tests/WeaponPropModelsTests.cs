@@ -37,16 +37,38 @@ public sealed class WeaponPropModelsTests
     }
 
     [Test]
-    public void Resolve_APropThatAlreadyHasAModel_IsLeftAlone()
+    public void Resolve_APropWhoseItemNamesADifferentModel_TakesTheItems()
     {
-        // **The majority-case control.** Rocket launchers, flamethrowers and most miniguns DO
-        // network a world model. Re-resolving them would replace a measured index with a lookup —
-        // a change nobody asked for, and a chance to be wrong about weapons that currently work.
+        // **Valve's rule, and this shipped the narrower one first.**
+        // `CEconEntity::UpdateModelToClass` (`econ_entity.cpp:411`) replaces the model whenever the
+        // ITEM names something different — it does not merely fill in a blank:
+        //
+        //     if ( pszModel && pszModel[0] )
+        //         if ( V_stricmp( STRING( GetModelName() ), pszModel ) != 0 )
+        //             SetModel( pszModel );
+        //
+        // The first version resolved only when the wire carried nothing, which agreed with Valve on
+        // every weapon measured and diverges when an owner's CLASS changes — the engine re-resolves
+        // per class and the narrow rule keeps the stale value.
         List<SceneProp> drawn = [Weapon(model: "models/weapons/w_rocket.mdl", item: 513, owner: 3)];
 
         new WeaponPropModels().Resolve(drawn, [], (_, _, _) => MedigunModel);
 
-        drawn[0].ModelPath.ShouldBe("models/weapons/w_rocket.mdl", "the wire already named it");
+        drawn[0].ModelPath.ShouldBe(MedigunModel, "the item is what the engine draws from");
+    }
+
+    [Test]
+    public void Resolve_AnItemThatNamesNothing_KeepsTheWiresModel()
+    {
+        // **The other half of Valve's own condition**, and it is what makes the rule above safe:
+        // `if ( pszModel && pszModel[0] )` — an item that names nothing leaves the entity drawing
+        // what it already had. The lookup answers null on a machine with no game installed, which
+        // is every CI run, so without this the wider rule would blank every weapon there.
+        List<SceneProp> drawn = [Weapon(model: "models/weapons/w_rocket.mdl", item: 513, owner: 3)];
+
+        new WeaponPropModels().Resolve(drawn, [], (_, _, _) => null);
+
+        drawn[0].ModelPath.ShouldBe("models/weapons/w_rocket.mdl", "nothing named it, so nothing changed");
     }
 
     [Test]
