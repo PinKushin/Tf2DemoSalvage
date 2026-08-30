@@ -6842,3 +6842,53 @@ half of the same area was writing 125 lines a load.
 converted here — this decision governs new ones and any that an investigation touches, and a sweep
 is its own piece of work with its own gate run. That is recorded so the gap is deliberate rather than
 forgotten; see `docs/RISKS.md` B229.
+
+## D123 — `cl_showpos`, and: a setting does not have to become a key binding
+
+**2026-08-29, on the owner's direction.** He asked for the readout as an instrument for this
+project's own debugging: *"we should display the position of the camera like cl_showpos in our
+viewer so we can SS that and you can figure out the positions everything happens at and where you
+should be able to see them"*.
+
+It is Valve's `cl_showpos`, transcribed from `game/client/vgui_fpspanel.cpp:316` — three lines,
+`pos` / `ang` / `vel`, mode 1 the view and mode 2 the watched player, with the velocity line read
+outside the mode branch so it is the player's speed either way. `PositionReadoutConformanceTests`
+pins the formats before any of it existed, because a readout rounded differently from the game's
+cannot be compared against the game's, which is the whole use.
+
+**`FpsOverlay` became `ToolsPanel` for it, and that is Valve's structure rather than tidiness.**
+`CFPSPanel` draws both readouts, `ShouldDraw` returns true when EITHER convar is on, and `Paint`
+walks ONE line counter across them so the position starts below the frame rate. Two objects would
+have put that counter in the caller — which here is the Form, and a Form deciding where a readout
+stacks is the MVP violation D55 names.
+
+### The correction, and it is the part worth keeping
+
+The action was first added with **no default key**, reasoning that TF2's `config_default.cfg` binds
+neither `cl_showfps` nor `cl_showpos`, so parity meant none. Three existing tests refused that:
+`ConfigConsoleConformanceTests.Unbound_TheShippedDefaults_LeaveNothingUnreachable` asserts that the
+shipped defaults leave **every** `ViewerAction` reachable. `CTRL+p` was added to satisfy it.
+
+The owner's response was that the invariant, not the parity reasoning, is what is too strong:
+
+> *"not every cvar or setting needs a key bind, but that ctrl p works i guess"*
+
+and then, precisely:
+
+> *"really if its not something valve normally binds a button too we dont NEED the bind, but having
+> binds for the debug views is nice and SS's is needed"*
+
+**So the rule is a three-way split, not a blanket.** Something Valve binds → bind it, D101's own
+argument. A debug view → a bind is *nice*, and `cl_showpos` is one, which is why `CTRL+p` stands.
+A screenshot → *needed*, because it is the one action a person must reach mid-frame. Anything else
+— an ordinary setting or convar — **needs no binding at all and should not be forced into one.**
+
+**The mistake to avoid is upstream of the binding.** `Unbound_TheShippedDefaults_LeaveNothing
+Unreachable` is right about `ViewerAction`: an action with no key is one nobody finds. What it
+cannot say is whether a given setting should have been a `ViewerAction` in the first place. A
+config-only convar is a legitimate thing for this viewer to have; making it an action to satisfy a
+test, and then inventing a key to satisfy the action, is the tail wagging the dog twice.
+
+So: decide whether a setting is *reachable enough* as a convar plus a menu item BEFORE making it an
+action. `CTRL+p` was kept because the owner accepted it and because a debug view earns one, not
+because the test demanded it.

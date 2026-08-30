@@ -13,6 +13,7 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <param name="SetTextureQuality">Choose which mip level to load from.</param>
 /// <param name="SetSurfaceColours">Colour surfaces by category.</param>
 /// <param name="SetFrameRateMeter">Show Valve's frame rate meter.</param>
+/// <param name="SetPositionReadout">Show Valve's position readout.</param>
 /// <param name="SetWireframe">Draw edges only.</param>
 /// <param name="SetFullbright">Substitute the lighting or the texture.</param>
 /// <param name="SetDrawWorld">Draw the level's brushwork.</param>
@@ -40,6 +41,7 @@ internal readonly record struct ViewerMenuActions(
     Action<TextureQuality> SetTextureQuality,
     Action<bool> SetSurfaceColours,
     Action<bool> SetFrameRateMeter,
+    Action<bool> SetPositionReadout,
     Action<bool> SetWireframe,
     Action<Fullbright> SetFullbright,
     Action<bool> SetDrawWorld,
@@ -82,6 +84,9 @@ internal sealed class ViewerMenu : IDisposable
 
     /// <summary>Valve's frame rate meter.</summary>
     public ToolStripMenuItem FrameRate { get; }
+
+    /// <summary>Valve's position readout.</summary>
+    public ToolStripMenuItem PositionReadout { get; }
 
     /// <summary>Edges only.</summary>
     public ToolStripMenuItem Wireframe { get; }
@@ -264,6 +269,30 @@ internal sealed class ViewerMenu : IDisposable
         };
 
         FrameRate.CheckedChanged += (_, _) => actions.SetFrameRateMeter(FrameRate.Checked);
+
+        // **Valve's `cl_showpos`, drawn by the same panel and therefore next to it in the menu.**
+        // Added on the owner's direction as an INSTRUMENT rather than as a feature (D123): *"we
+        // should display the position of the camera like cl_showpos in our viewer so we can SS that
+        // and you can figure out the positions everything happens at and where you should be able
+        // to see them"*.
+        //
+        // **Mode 1, the view's own position**, because that is the question a screenshot is being
+        // taken to answer: where the CAMERA is. Mode 2 reports the watched player, which for a
+        // free-camera shot of a piece of geometry says nothing about what is being looked at.
+        PositionReadout = new ToolStripMenuItem("&Position")
+        {
+            Name = MainForm.PositionReadoutItemId,
+            CheckOnClick = true,
+            Checked = settings.ShowPosition != 0,
+            ShortcutKeys = Shortcut(ViewerAction.PositionReadout),
+            AccessibleName = "Position",
+            AccessibleDescription =
+                "Draws TF2's own position readout under the frame rate: the camera's coordinates, " +
+                "the direction it faces, and the watched player's speed.",
+        };
+
+        PositionReadout.CheckedChanged += (_, _) =>
+            actions.SetPositionReadout(PositionReadout.Checked);
 
         // **Valve's `mat_wireframe`, replacing the brush outline that used to sit on F10.** The
         // outline drew precomputed BSP edge segments as an overlay — 60,764 of them, built for the
@@ -516,6 +545,7 @@ internal sealed class ViewerMenu : IDisposable
         view.DropDownItems.Add(DebugMenu);
         view.DropDownItems.Add(SurfaceColours);
         view.DropDownItems.Add(FrameRate);
+        view.DropDownItems.Add(PositionReadout);
         view.DropDownItems.Add(FullScreen);
         view.DropDownItems.Add(fullScreenMode);
         view.DropDownItems.Add(textureQuality);
@@ -552,6 +582,7 @@ internal sealed class ViewerMenu : IDisposable
 
         Wireframe.Dispose();
         FrameRate.Dispose();
+        PositionReadout.Dispose();
         Specular.Dispose();
         Phong.Dispose();
 

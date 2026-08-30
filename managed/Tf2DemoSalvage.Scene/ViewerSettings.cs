@@ -183,6 +183,19 @@ public sealed record ViewerSettings
     /// </remarks>
     public const string ShowFrameRateCommand = "cl_showfps";
 
+    /// <summary>Command name for the position readout.</summary>
+    /// <remarks>
+    /// Valve's name, declared in `src/game/client/vgui_fpspanel.cpp:28` —
+    /// <c>ConVar cl_showpos( "cl_showpos", "0", 0, "Draw current position at top of screen" )</c>.
+    /// It is drawn by the same panel as <see cref="ShowFrameRateCommand"/>, which is why
+    /// <c>PositionReadout</c> sits beside <c>ToolsPanel</c> rather than anywhere else.
+    ///
+    /// **Added as an instrument, on the owner's direction**: *"we should display the position of
+    /// the camera like cl_showpos in our viewer so we can SS that and you can figure out the
+    /// positions everything happens at and where you should be able to see them"* (D123).
+    /// </remarks>
+    public const string ShowPositionCommand = "cl_showpos";
+
     /// <summary>Command name for where screenshots are written.</summary>
     /// <remarks>
     /// **A setting rather than an environment variable, on the owner's direction**: "env vars are a
@@ -367,6 +380,10 @@ public sealed record ViewerSettings
     /// <remarks>`cl_showfps`'s own default, from its declaration in `vgui_fpspanel.cpp`.</remarks>
     public const int FrameRateMeterOff = 0;
 
+    /// <summary>The position readout is off.</summary>
+    /// <remarks>`cl_showpos`'s own default, from its declaration in `vgui_fpspanel.cpp:28`.</remarks>
+    public const int PositionReadoutOff = 0;
+
     /// <summary>Where screenshots are written, or null for beside the log.</summary>
     /// <remarks>
     /// Not validated here. Whether the folder can be created is a question about the disk at the
@@ -477,6 +494,16 @@ public sealed record ViewerSettings
     /// Off by default, as the game has it.
     /// </remarks>
     public int ShowFrameRate { get; init; } = FrameRateMeterOff;
+
+    /// <summary>Whether to draw the position readout, and whose position.</summary>
+    /// <remarks>
+    /// **An int, and the values are the engine's**: 0 off, 1 the view's own origin and angles, 2
+    /// the watched player's. `vgui_fpspanel.cpp:316` opens on `> 0` and swaps the subject only on
+    /// `== 2`, so anything else above zero shows the view.
+    ///
+    /// Off by default, as the game has it.
+    /// </remarks>
+    public int ShowPosition { get; init; } = PositionReadoutOff;
 
     /// <summary>The field of view the first-person weapon is drawn with, in degrees.</summary>
     /// <remarks>
@@ -774,6 +801,15 @@ public sealed record ViewerSettings
             };
         }
 
+        // **Kept as written rather than normalised to 0/1/2**, unlike `cl_showfps` above. The
+        // engine reads this one with `GetInt()` and tests `> 0` then `== 2`, so `cl_showpos 3` is a
+        // legal thing to type and shows the view; clamping it here would answer a config that says
+        // 3 with a readout the game would not draw.
+        if (Read(values, ShowPositionCommand) is { } position)
+        {
+            settings = settings with { ShowPosition = position };
+        }
+
         return settings;
     }
 
@@ -951,6 +987,17 @@ public sealed record ViewerSettings
             ShowFrameRateCommand,
             ShowFrameRate.ToString(CultureInfo.InvariantCulture),
             ShowFrameRate == Defaults.ShowFrameRate);
+
+        text.AppendLine();
+        text.AppendLine("// Position readout, exactly as TF2 draws it: 1 is the view's own origin");
+        text.AppendLine("// and angles, 2 is the watched player's. The velocity line is the");
+        text.AppendLine("// player's speed either way. Useful for saying where something is when");
+        text.AppendLine("// reporting what a screenshot shows.");
+        Setting(
+            text,
+            ShowPositionCommand,
+            ShowPosition.ToString(CultureInfo.InvariantCulture),
+            ShowPosition == Defaults.ShowPosition);
 
         return text.ToString();
     }

@@ -445,7 +445,13 @@ run Tf2DemoSalvage.Audio.Tests    audio     183
 # the viewer completely — `Apply` opens the demo and then reads the map, so `LevelSystems.Shutdown`
 # nulled the schedule before a frame was drawn. The test that looked like it covered this set
 # `sound.Schedule = null` as a precondition and never asserted on it.
-run Tf2DemoSalvage.Presentation.Tests presentation 414
+# 414 -> 424: `cl_showpos` (D123). PositionReadoutConformanceTests (7), transcribed from
+# `vgui_fpspanel.cpp:316` before the type existed — two spaces after each label, the mode switching
+# only `pos` and `ang` while `vel` stays the player's, and `> 0` opening the block so `cl_showpos 3`
+# draws the view rather than nothing. Plus three on `ToolsPanel`, which was `FpsOverlay` until this:
+# Valve's `CFPSPanel` draws both readouts and walks ONE line counter across them, so the position
+# sits below the frame rate and a panel that composed them separately would overlap them.
+run Tf2DemoSalvage.Presentation.Tests presentation 424
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.

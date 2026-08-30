@@ -98,6 +98,9 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>Automation id of the frame rate meter toggle — Valve's <c>cl_showfps</c>.</summary>
     public const string FrameRateItemId = "FrameRateMenuItem";
 
+    /// <summary>Automation id of the position readout toggle — Valve's <c>cl_showpos</c>.</summary>
+    public const string PositionReadoutItemId = "PositionReadoutMenuItem";
+
     /// <summary>Automation id of the reflections toggle — Valve's <c>mat_specular</c>.</summary>
     public const string SpecularItemId = "SpecularMenuItem";
 
@@ -1034,6 +1037,7 @@ internal class MainForm : Form, IFrameSteps
                 SetTextureQuality: SetTextureQuality,
                 SetSurfaceColours: SetSurfaceColours,
                 SetFrameRateMeter: SetFrameRateMeter,
+                SetPositionReadout: SetPositionReadout,
                 SetWireframe: SetWireframe,
                 SetFullbright: SetFullbright,
                 SetDrawWorld: SetDrawWorld,
@@ -2704,6 +2708,30 @@ internal class MainForm : Form, IFrameSteps
             string.Create(CultureInfo.InvariantCulture, $"cl_showfps {_settings.ShowFrameRate}"));
     }
 
+    /// <summary>Shows or hides Valve's position readout.</summary>
+    /// <param name="on">Whether to draw it.</param>
+    /// <remarks>
+    /// **One, not two.** `cl_showpos 1` reports the VIEW's own origin and angles, which is the
+    /// question a screenshot is taken to answer — where the camera is. Mode 2 reports the watched
+    /// player instead, and for a free-camera shot of a piece of geometry that says nothing about
+    /// what is being looked at. Someone who wants the player can still write `cl_showpos 2` in a
+    /// config; the menu offers the useful one.
+    /// </remarks>
+    internal void SetPositionReadout(bool on)
+    {
+        _settings = _settings with { ShowPosition = on ? PositionReadout.View : 0 };
+
+        _renderLog.LogInformation(
+            "{Message}",
+            string.Create(CultureInfo.InvariantCulture, $"cl_showpos {_settings.ShowPosition}"));
+
+        // **Invalidated, unlike the frame-rate meter beside it.** That one is only ever switched on
+        // while frames are already being produced, because it exists to measure them. This can be
+        // switched on while playback is paused, and a paused viewer redraws on demand — without
+        // this the readout would not appear until something else caused a frame.
+        _viewport.Invalidate();
+    }
+
     /// <summary>Valve's <c>mat_wireframe</c>.</summary>
     /// <param name="on">Whether to draw edges only.</param>
     internal void SetWireframe(bool on) =>
@@ -3274,7 +3302,7 @@ internal class MainForm : Form, IFrameSteps
     // `gpGlobals->absoluteframetime` (`vgui_fpspanel.cpp:166`), the same quantity
     // `CalcDemoViewOverride` flies its demo camera by (`view.cpp:153`).
 
-    // `_fpsMeter` was here until 2026-08-25. The meter belongs to `FpsOverlay` now, which composes
+    // `_fpsMeter` was here until 2026-08-25. The meter belongs to `ToolsPanel` now, which composes
     // the whole readout — the mode, the sampling, the map name and Valve's placement — and needs no
     // window to do it (B188, D90).
 
@@ -3538,7 +3566,7 @@ internal class MainForm : Form, IFrameSteps
     /// <returns>Quads in screen pixels, empty when there is nothing to draw.</returns>
     /// <remarks>
     /// **All that is left here is the atlas and the viewport width** (D90). Composing the readout —
-    /// the mode, the sampling, the map name, Valve's placement — is <see cref="FpsOverlay"/>;
+    /// the mode, the sampling, the map name, Valve's placement — is <see cref="ToolsPanel"/>;
     /// rasterising a font is the one genuinely platform-bound part, because ours is GDI and a Linux
     /// port swaps it for FreeType (D84).
     ///
@@ -3551,6 +3579,7 @@ internal class MainForm : Form, IFrameSteps
     public IReadOnlyList<HudQuad> BuildOverlay()
     {
         _overlayQuads.Mode = _settings.ShowFrameRate;
+        _overlayQuads.Position = ReadPosition();
 
         if (_overlayQuads.NeedsAtlas)
         {
@@ -3562,7 +3591,52 @@ internal class MainForm : Form, IFrameSteps
     }
 
     /// <summary>The frame-rate readout, which owns everything about it except the glyphs.</summary>
-    private readonly FpsOverlay _overlayQuads = new();
+    private readonly ToolsPanel _overlayQuads = new();
+
+    /// <summary>This frame's <c>cl_showpos</c> subject, gathered from the camera and the demo.</summary>
+    /// <returns>The readout; hidden when the convar is off.</returns>
+    /// <remarks>
+    /// **Gathering only — every rule about what is SHOWN lives in <see cref="PositionReadout"/>**
+    /// (D55). This picks up the four values the engine's own `Paint` picks up and hands them over;
+    /// which of them reaches the screen is the readout's decision, not a window's.
+    ///
+    /// **The angles for mode 2 are the player's BODY angles**, which is what
+    /// <c>GetAbsAngles()</c> returns for a player: pitch and roll are zero and the yaw is the
+    /// entity's. The eyes are a separate question the engine answers with <c>EyeAngles()</c>, and
+    /// <c>cl_showpos</c> does not ask it — so `EyePitch` is deliberately not substituted here even
+    /// though this project decodes it.
+    ///
+    /// **`vel` is a DIVERGENCE and it is forced by the data.** Valve reports
+    /// <c>GetLocalVelocity().Length()</c>, a 3D velocity the server sends; `m_vecVelocity` lives in
+    /// <c>DT_LocalPlayerExclusive</c>, so a SourceTV recording carries nobody's and a POV recording
+    /// carries only the recorder's. `ScenePlayer.Speed` is differenced from position over a tenth
+    /// of a second and is HORIZONTAL — see `DemoTimeline.SpeedAt` — so this line is that number,
+    /// which is the same quantity the animation system already runs on. It is close for a player
+    /// running and reads low for one falling.
+    /// </remarks>
+    private PositionReadout ReadPosition()
+    {
+        int mode = _settings.ShowPosition;
+
+        if (mode <= PositionReadout.Hidden)
+        {
+            // **Returned early rather than built and discarded**, because the camera below is not
+            // free: `ViewCameraNow` resolves the spectator target and the free camera's placement.
+            // A viewer that never switches this on should pay nothing for it.
+            return default;
+        }
+
+        FreeCamera camera = ViewCameraNow(0d);
+        ScenePlayer? watched = _spectator.Viewed(_transport.CurrentTick);
+
+        return new PositionReadout(
+            mode,
+            camera.Origin,
+            camera.Angles,
+            watched is { } player ? (player.X, player.Y, player.Z) : default,
+            watched is { } angles ? (0f, angles.Yaw, 0f) : default,
+            watched?.Speed ?? 0f);
+    }
 
     /// <summary>Rasterises the overlay font and gives it to the device, once.</summary>
     /// <remarks>

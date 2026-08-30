@@ -183,7 +183,9 @@ jobs:
           # `DemoSystems.Open` (B223 follow-up) was raised in build/gate.sh and missed here, and the
           # sound schedule surviving a level teardown (B228) is the second. Local floors and these
           # are two lists of the same numbers, which is why one of them drifts.
-          ./build/assert-test-count.sh '**/presentation.trx' 414 Presentation
+          # 414 -> 424 on 2026-08-29: cl_showpos (D123) — 7 conformance cases off
+          # vgui_fpspanel.cpp:316 and 3 on ToolsPanel's shared line counter. All device-free.
+          ./build/assert-test-count.sh '**/presentation.trx' 424 Presentation
           ./build/assert-test-count.sh '**/logging.trx' 17 Logging
           # 10 is MEASURED locally and safe on a runner without the SDK, because a .trx total counts
           # skipped tests: the two conformance cases Assert.Ignore where source-sdk-2013 is absent

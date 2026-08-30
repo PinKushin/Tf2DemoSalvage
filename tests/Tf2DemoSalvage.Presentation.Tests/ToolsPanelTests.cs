@@ -28,13 +28,13 @@ namespace Tf2DemoSalvage.Presentation.Tests;
 /// The atlas is built by the frontend and handed in, because rasterising a font is the one part of
 /// this that is genuinely platform work: ours is GDI, and a Linux port swaps it for FreeType (D90).
 /// </remarks>
-public sealed class FpsOverlayTests
+public sealed class ToolsPanelTests
 {
     [Test]
     public void Quads_WhileTheMeterIsHidden_AreEmpty()
     {
         // `cl_showfps 0` is the ordinary state, so this is most frames of most runs.
-        FpsOverlay overlay = new() { Mode = FpsMeter.Hidden };
+        ToolsPanel overlay = new() { Mode = FpsMeter.Hidden };
 
         overlay.Quads(Atlas(), ViewportWidth, "cp_process_f12", OneSixtieth).ShouldBeEmpty();
     }
@@ -45,7 +45,7 @@ public sealed class FpsOverlayTests
         // **The control for the case above**, without which "hidden draws nothing" cannot be told
         // apart from "nothing ever draws". Two frames, because the meter deliberately draws nothing
         // on the first one after being shown — it has no frame duration to report yet.
-        FpsOverlay overlay = new() { Mode = FpsMeter.Instantaneous };
+        ToolsPanel overlay = new() { Mode = FpsMeter.Instantaneous };
 
         overlay.Quads(Atlas(), ViewportWidth, "cp_process_f12", OneSixtieth);
 
@@ -57,7 +57,7 @@ public sealed class FpsOverlayTests
     {
         // The frame between switching the meter on and the atlas being rasterised. The frontend
         // builds that atlas, so a viewer whose font rasteriser failed keeps drawing the world.
-        FpsOverlay overlay = new() { Mode = FpsMeter.Instantaneous };
+        ToolsPanel overlay = new() { Mode = FpsMeter.Instantaneous };
 
         overlay.Quads(null, ViewportWidth, "cp_process_f12", OneSixtieth);
 
@@ -71,8 +71,8 @@ public sealed class FpsOverlayTests
         // `CFPSPanel::ComputeSize` puts the panel at `x = wide - FPS_PANEL_WIDTH` with its text at
         // panel-local (2, 2). Two widths, because one cannot tell "tracks the viewport" from
         // "always at some fixed x" — which is what a left-anchored readout would look like.
-        FpsOverlay wide = Shown();
-        FpsOverlay narrow = Shown();
+        ToolsPanel wide = Shown();
+        ToolsPanel narrow = Shown();
 
         float wideLeft = LeftmostX(wide.Quads(Atlas(), 2560, "cp_process_f12", OneSixtieth));
         float narrowLeft = LeftmostX(narrow.Quads(Atlas(), 1280, "cp_process_f12", OneSixtieth));
@@ -111,7 +111,7 @@ public sealed class FpsOverlayTests
         // cannot respond to the manipulation, so it would have failed against correct code. The
         // watermarks bracket the instantaneous rate across frames, so alternating two frame
         // durations gives a low below a high only if they survive the assignment.
-        FpsOverlay overlay = new() { Mode = FpsMeter.Smoothed };
+        ToolsPanel overlay = new() { Mode = FpsMeter.Smoothed };
 
         for (int frame = 0; frame < 8; frame++)
         {
@@ -124,10 +124,77 @@ public sealed class FpsOverlayTests
         reading.Low.ShouldBeLessThan(reading.High);
     }
 
-    /// <summary>A meter already past its first frame, so it has something to report.</summary>
-    private static FpsOverlay Shown()
+    [Test]
+    public void Quads_WithOnlyThePositionShown_AreDrawnEvenThoughTheMeterIsOff()
     {
-        FpsOverlay overlay = new() { Mode = FpsMeter.Instantaneous };
+        // **`CFPSPanel::ShouldDraw` returns true when EITHER convar is on**, and this panel used to
+        // return early the moment the meter had no reading. So `cl_showpos 1` with `cl_showfps 0`
+        // — which is precisely how the owner asked to use it, as an instrument on an otherwise
+        // clean screenshot — would have drawn nothing at all.
+        ToolsPanel panel = new()
+        {
+            Mode = FpsMeter.Hidden,
+            Position = new PositionReadout(
+                PositionReadout.View, (1f, 2f, 3f), default, default, default, 0f),
+        };
+
+        panel.Quads(Atlas(), ViewportWidth, "cp_process_f12", OneSixtieth).ShouldNotBeEmpty();
+    }
+
+    [Test]
+    public void Quads_WithBothShown_PutThePositionBelowTheFrameRate()
+    {
+        // **Valve walks ONE line counter across both readouts** — `int i = 0` in `Paint`,
+        // incremented past the frame-rate line before the position lines are placed at
+        // `2 + i * ( GetFontTall + 2 )`. So the position starts on the line after the meter, and
+        // an implementation that composed the two independently would draw them on top of each
+        // other.
+        ToolsPanel panel = Shown();
+
+        panel.Position = new PositionReadout(
+            PositionReadout.View, (1f, 2f, 3f), default, default, default, 0f);
+
+        IReadOnlyList<HudQuad> quads =
+            panel.Quads(Atlas(), ViewportWidth, "cp_process_f12", OneSixtieth);
+
+        // Four distinct rows: the frame rate, then pos, ang and vel.
+        quads.Select(quad => quad.Y).Distinct().Count().ShouldBe(
+            4, "the meter's line and the readout's three should each sit on their own row");
+    }
+
+    [Test]
+    public void Quads_WithOnlyThePositionShown_StartOnTheTopLine()
+    {
+        // **The control for the stacking, and it is what makes the count above mean something.**
+        // With the meter off the counter has not been incremented, so the position starts at the
+        // top — an implementation that reserved a row for a meter nobody switched on would leave a
+        // gap, and the test above cannot see the difference.
+        ToolsPanel alone = new() { Mode = FpsMeter.Hidden, Position = Somewhere };
+
+        IReadOnlyList<HudQuad> quads =
+            alone.Quads(Atlas(), ViewportWidth, "cp_process_f12", OneSixtieth);
+
+        // **Asserted as a ROW COUNT and a top edge, which the first draft did not do.** It compared
+        // the lowest quad of this case against the meter case and expected "three lines end higher
+        // than four" — and that survived a sabotage which put all three position lines on ONE row,
+        // because three-on-one-row still ends higher than four-on-two. A comparison between two
+        // cases is not a measurement of either.
+        quads.Select(quad => quad.Y).Distinct().Count().ShouldBe(
+            3, "pos, ang and vel each get their own row");
+
+        quads.Min(quad => quad.Y).ShouldBe(
+            Shown().Quads(Atlas(), ViewportWidth, "cp_process_f12", OneSixtieth).Min(q => q.Y),
+            "with no meter drawn the readout starts on the panel's own top line, not below a gap");
+    }
+
+    /// <summary>A visible readout, for tests about placement rather than about content.</summary>
+    private static PositionReadout Somewhere => new(
+        PositionReadout.View, (1802f, -679f, 373f), (0f, 90f, 0f), default, default, 0f);
+
+    /// <summary>A meter already past its first frame, so it has something to report.</summary>
+    private static ToolsPanel Shown()
+    {
+        ToolsPanel overlay = new() { Mode = FpsMeter.Instantaneous };
 
         overlay.Quads(Atlas(), ViewportWidth, "cp_process_f12", OneSixtieth);
 
