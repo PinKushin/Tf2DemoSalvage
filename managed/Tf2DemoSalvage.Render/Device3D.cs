@@ -1652,8 +1652,24 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     private ((float X, float Y, float Z) Origin, (float Pitch, float Yaw, float Roll) Angles,
              float Fov, float Near, float Far, float Aspect)? _culledFor;
 
-    /// <summary>Whether the opaque draw order has been reported.</summary>
-    private bool _reportedDrawOrder;
+    // **`_reportedDrawOrder` was here and is gone.** It latched "this has been reported", which
+    // `_drawOrderReports` now says more precisely — and keeping both would be two fields that must
+    // agree, which is the shape that drifts.
+
+    /// <summary>The last kept/offered pair reported, so only a change is logged.</summary>
+    private (int Kept, int Offered)? _lastDrawOrder;
+
+    /// <summary>How many draw-order lines have been written.</summary>
+    private int _drawOrderReports;
+
+    /// <summary>How many changes to report before falling silent.</summary>
+    /// <remarks>
+    /// **A cap rather than a rate limit**, because the question this answers is settled early: a
+    /// handful of distinct kept/offered pairs across a session is enough to tell a working cull
+    /// from one that never runs, and a scene whose counts oscillate every frame would otherwise
+    /// write a line every frame (B191 — a log line on a hot path is not free).
+    /// </remarks>
+    private const int MaximumDrawOrderReports = 12;
 
     /// <summary>Whether the world cull has said what it kept, for this map.</summary>
     private bool _reportedWorldCull;
@@ -2085,18 +2101,47 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// * The kept count being ZERO on a map with models is the frustum pointing the wrong way, which
     ///   is the failure that produces a black screen.
     ///
-    /// One line per device, like the repeated-model census beside it: this is a wiring check, and a
-    /// per-frame version would be tens of thousands of lines saying the same thing.
+    /// **Logged when the pair CHANGES, not once per device, and the difference is a real failure.**
+    /// It was once-only, on the reasoning that a per-frame version would be tens of thousands of
+    /// lines saying the same thing — which is true of a per-FRAME line and not of a per-CHANGE one.
+    /// What once-only actually reported was the FIRST drawn frame, which is the least
+    /// representative moment there is: the camera sits at its opening placement and the scene is
+    /// still filling in.
+    ///
+    /// That is the ambiguity three paragraphs up, made worse. "Equal counts mean an unbuilt
+    /// frustum" is only sound if something was outside the view at the moment sampled, and one
+    /// arbitrary early frame cannot promise that. Measured 2026-08-29: after B231 removed eighteen
+    /// invisible doors from `cp_fulgur`, that first frame went from `45 of 49` to `24 of 24` — the
+    /// cull working perfectly and the line reporting the signature of a cull that never ran. The
+    /// owner's own session, sampled later, read `6 of 30`.
+    ///
+    /// Capped, so a scene whose counts oscillate cannot fill a log
+    /// (`docs/memory/log-the-event-not-a-sample-of-it.md`).
     /// </remarks>
     private void ReportDrawOrder(
         IReadOnlyList<ModelInstance>? offered, IReadOnlyList<ModelInstance> ordered)
     {
-        if (_reportedDrawOrder || offered is not { Count: > 0 })
+        if (offered is not { Count: > 0 })
         {
             return;
         }
 
-        _reportedDrawOrder = true;
+        (int Kept, int Offered) counts = (ordered.Count, offered.Count);
+
+        if (counts == _lastDrawOrder || _drawOrderReports >= MaximumDrawOrderReports)
+        {
+            return;
+        }
+
+        // **The per-model detail stays on the FIRST report only.** It is one line per culled model
+        // and answers "was the door eaten", which is a question about a scene rather than about a
+        // moment; repeating it on every change is the volume the once-only design was right to
+        // avoid.
+        bool first = _drawOrderReports == 0;
+
+        _lastDrawOrder = counts;
+        _drawOrderReports++;
+
 
         int[] perBucket = new int[OpaqueBuckets.Count];
 
@@ -2116,6 +2161,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         // say whether it ate something it should not have. The owner watched badlands roller doors
         // show the wall behind them, and no log anywhere could answer "was the door culled" — which
         // is the first question and was unanswerable.
+        if (!first)
+        {
+            return;
+        }
+
         HashSet<string> kept = [];
 
         foreach (ModelInstance instance in ordered)

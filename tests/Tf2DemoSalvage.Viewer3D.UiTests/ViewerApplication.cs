@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -396,6 +397,21 @@ internal sealed partial class ViewerApplication : IDisposable
         return null;
     }
 
+    /// <summary>Every logged line containing the given text, oldest first.</summary>
+    /// <param name="line">Text to look for.</param>
+    /// <returns>The matching lines, empty when none matched or the log cannot be read.</returns>
+    /// <remarks>
+    /// **Needed because a single line is a single MOMENT, and some questions are about a session.**
+    /// The draw-order census asks whether the view frustum culls anything; equality at one instant
+    /// also happens when the camera legitimately sees everything, so the question can only be
+    /// settled across several samples. <see cref="LastLine"/> answers about the newest state and
+    /// cannot express that.
+    /// </remarks>
+    public IReadOnlyList<string> AllLines(string line) =>
+    [
+        .. Lines().Where(entry => entry.Contains(line, StringComparison.Ordinal)),
+    ];
+
     /// <summary>Opens a demo the way a person does: find it in the playlist and activate it.</summary>
     /// <param name="demoName">Enough of the file name to single it out.</param>
     /// <exception cref="InvalidOperationException">No row matched.</exception>
@@ -465,7 +481,7 @@ internal sealed partial class ViewerApplication : IDisposable
         {
             throw new InvalidOperationException(
                 $"Refusing to click {automationId}: the viewer did not come to the foreground, so " +
-                "the click would be delivered into whatever window is in front of it.");
+                $"the click would be delivered into whatever window is in front of it. {Holder()}");
         }
 
         System.Drawing.Rectangle bounds = Find(automationId).BoundingRectangle;
@@ -518,7 +534,47 @@ internal sealed partial class ViewerApplication : IDisposable
         {
             throw new InvalidOperationException(
                 $"Refusing to press {key}: the viewer did not come to the foreground, so the " +
-                "keystroke would be delivered to whatever window is in front of it.");
+                $"keystroke would be delivered to whatever window is in front of it. {Holder()}");
+        }
+    }
+
+    /// <summary>Who holds the foreground, for a refusal message.</summary>
+    /// <returns>The owning process and window handle, or why that could not be answered.</returns>
+    /// <remarks>
+    /// **B230, and it is here because the evidence keeps being lost.** The foreground guard refused
+    /// twice on 2026-08-29/30, both times immediately after a heavy run, and both times the message
+    /// said only that the viewer did not come forward — which names the symptom and not one thing
+    /// about the cause. Two green runs afterwards are three samples, not a diagnosis.
+    ///
+    /// **The suspicion is a test host still tearing down**, since the gate builds real `MainForm`s
+    /// in `Viewer3D.Tests` and a window that is still closing holds the foreground. That is a
+    /// guess; this makes the next occurrence answer it instead.
+    ///
+    /// **Costs nothing on the passing path** — it runs only inside a throw — which is why it is a
+    /// better first move than widening the five-second window.
+    /// `docs/memory/a-negative-retry-is-a-sleep.md`: lengthening the wait would convert a
+    /// deterministic refusal into a slower probabilistic one and measure nothing.
+    /// </remarks>
+    private static string Holder()
+    {
+        try
+        {
+            IntPtr foreground = GetForegroundWindow();
+
+            if (foreground == IntPtr.Zero)
+            {
+                return "Nothing held the foreground, which is the locked-desktop case.";
+            }
+
+            uint thread = GetWindowThreadProcessId(foreground, IntPtr.Zero);
+
+            return $"The foreground window was {foreground} on thread {thread}.";
+        }
+        catch (EntryPointNotFoundException failure)
+        {
+            // Reported rather than swallowed: a diagnostic that fails silently is the thing this
+            // whole method exists to stop happening.
+            return $"The foreground holder could not be read: {failure.Message}";
         }
     }
 

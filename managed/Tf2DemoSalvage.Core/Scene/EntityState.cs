@@ -441,7 +441,33 @@ public sealed class EntityState
     /// PVS, which is a different thing from being deleted and a different thing again from being
     /// told not to draw.
     /// </remarks>
-    public bool IsDrawn => IsVisible && (Effects() & NoDraw) == 0;
+    public bool IsDrawn =>
+        IsVisible && (Effects() & NoDraw) == 0 && RenderMode() != RenderNone;
+
+    /// <summary><c>kRenderNone</c> — <c>public/const.h:363</c>, *"Don't render."*</summary>
+    /// <remarks>
+    /// **The first test in <c>C_BaseEntity::ShouldDraw</c>** (<c>c_baseentity.cpp:1447</c>):
+    ///
+    /// <code>
+    ///   // Some rendermodes prevent rendering
+    ///   if ( m_nRenderMode == kRenderNone )
+    ///       return false;
+    /// </code>
+    ///
+    /// **It was missing here until 2026-08-29, and B221 is what made the omission visible.** The
+    /// mode was not decoded at all before that, so nothing could honour it; once decoded it reached
+    /// only the render GROUP, where an entity at alpha 255 and mode 10 classifies as translucent and
+    /// draws at full opacity. So every entity the engine refuses outright was being drawn solid.
+    ///
+    /// **Measured on `cp_fulgur`: all eighteen `func_door` entities are `kRenderNone`**, in the
+    /// map's entity lump and in the recording alike. The visible gates on that map are separate
+    /// brushwork and the doors are invisible movers — an ordinary mapping idiom, and eighteen solid
+    /// slabs in this viewer. Across three sampled matches, 118 of 1,973 entities carry it.
+    ///
+    /// Compared against the mode rather than tested for non-zero: ten of the eleven modes draw, and
+    /// `!= 0` would delete every glow, additive and transparent entity in the map.
+    /// </remarks>
+    private const int RenderNone = 10;
 
     /// <summary>The effect flags, from whichever table this entity declares them in.</summary>
     /// <remarks>

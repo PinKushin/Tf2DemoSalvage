@@ -14728,3 +14728,91 @@ nothing on the passing path.
 message was wanted it was gone and had to be recovered by reading which `throw` line 466 is. The
 gate's own rule — *"do not filter the gate's output down to summary lines while iterating"* —
 applies to the UI phase too, and `--logger trx` keeps the message whatever the pipe does.
+
+**Second occurrence, 2026-08-30, and the same note was ignored.** Two of thirty failed in a run that
+took **29 seconds against a usual 11**, immediately after a full gate — and the output was piped
+through `tail` again, so the messages were lost a second time by the person who had just written the
+paragraph above. The next run was green. Three samples, still not a diagnosis.
+
+**A diagnostic now runs inside the refusal**, which is what this entry asked for rather than a wider
+window: `ViewerApplication.Holder()` reports the foreground window handle and its owning thread at
+the moment the guard gives up, on both the key and the click paths. It costs nothing on the passing
+path because it only executes inside the `throw`.
+
+**The standing suspicion, to be confirmed or killed by that line:** a test host still tearing down.
+The gate builds real `MainForm`s in `Viewer3D.Tests`, both failures came immediately after a full
+gate, and the slow run is consistent with a machine still busy. That is a guess and is written here
+as one.
+
+## B231 — every `kRenderNone` entity was drawn, including eighteen invisible doors on one map — CLOSED 2026-08-29
+
+**Found while chasing the owner's spawn grate**, which he described as *"rotated 90 degrees from
+what it should be"* and which *"just stops drawing before the round even starts"*.
+
+**`C_BaseEntity::ShouldDraw` refuses it outright** (`c_baseentity.cpp:1437`):
+
+```c
+bool C_BaseEntity::ShouldDraw()
+{
+    // Some rendermodes prevent rendering
+    if ( m_nRenderMode == kRenderNone )
+        return false;
+
+    return (model != 0) && !IsEffectActive(EF_NODRAW) && (index != 0);
+}
+```
+
+`EF_NODRAW` was already honoured here; the render mode was not. **B221 decoded `m_nRenderMode` on
+2026-08-29 and routed it only to the render GROUP**, where an entity at alpha 255 and mode 10
+classifies as translucent and draws at full opacity — so decoding the field changed nothing about
+what reached the screen, which is the shape of no-op this project keeps finding.
+
+**Measured on `cp_fulgur`, in the RECORDING rather than the map.** That distinction is the whole
+value of the diagnostic: the entity lump states a spawn value a server may change, and the demo
+states what the entity actually is.
+
+```
+*4  func_door: mode [10] alpha [255]   *18 func_door: mode [10]
+*6  func_door: mode [10] alpha [255]   *19 func_door: mode [10]
+*14 func_door: mode [10] alpha [255]   *22 func_door: mode [10]
+...  all eighteen func_doors, mode 10 throughout
+*21 func_respawnroomvisualizer: mode [0]  drawn 2030, absent 0
+```
+
+**Those doors are invisible movers and the visible gates are separate brushwork**, which is an
+ordinary mapping idiom. This viewer was drawing eighteen solid door-shaped slabs the game does not.
+
+### What the same measurement settled about the OTHER half, where nothing is wrong
+
+The owner reported that one grate vanishes when he cannot see it and comes back when he can, while
+others stay drawn throughout — and reasonably doubted PVS, since *"the demo is drawing stuff further
+away, including players and other gates"*.
+
+Both behaviours are the engine's, and they belong to different entities.
+`CBaseEntity::UpdateTransmitState` (`baseentity.cpp:3991`) ends:
+
+```c
+// by default cull against PVS
+return SetTransmitState( FL_EDICT_PVSCHECK );
+```
+
+with `FL_EDICT_ALWAYS` reserved for the world (`GetModelIndex() == 1`) and the skybox, and TF2
+overriding it for several classes in `tf_gamerules.h`. So `*21`, a `func_respawnroomvisualizer`, is
+present at **2030 of 2030 samples with zero absences**, while every `func_door` comes and goes.
+Distance has nothing to do with it: the PVS is per leaf, and a POV demo is the client's own network
+stream recorded verbatim, so the client never HELD the entities the server culled.
+
+**Nothing to fix there**, and it is worth having written down: this is the answer to
+*"1st person POV demos shouldnt cull everything the player cant see"* — they do, and the server does
+it before the client ever sees a byte.
+
+### The hypothesis this killed, kept because it was wrong for an instructive reason
+
+The 90 degrees was blamed on brush-entity `angles` never being applied — `cp_fulgur` declares four
+rotated `func_brush` entities (`-0 120 0`, `-0 105 0` twice, `-0 90 0`), and `doors.cpp:440` asserts
+a `func_door` is never rotated, which made "we are applying a direction as a rotation" look strong.
+
+**The demo falsified it directly**: `*162: angles [0 90 0]`, `*159: [0 120 0]`, `*160/161:
+[0 105 0]` — exactly the map's values, decoded, interpolated and reaching the pose. Brush entity
+rotation works. Whether the phantom doors were what the owner saw is his to confirm by looking;
+what is certain is that we were drawing geometry the engine refuses.

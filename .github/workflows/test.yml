@@ -148,7 +148,9 @@ jobs:
           # 1539 -> 1544 on 2026-08-28: ViewmodelAnimationParityConformanceTests (5), Valve's
           # UpdateAnimationParity written down before it was implemented.
           # 1550 -> 1556: RenderStateDecodeTests, synthetic and in Core.Tests per D38.
-          ./build/assert-test-count.sh '**/core.trx' 1556 Core
+          # 1556 -> 1560 on 2026-08-29: ShouldDrawConformanceTests (4), synthetic and file-free, so
+          # all four run here for real. C_BaseEntity::ShouldDraw refuses kRenderNone (B231).
+          ./build/assert-test-count.sh '**/core.trx' 1560 Core
           ./build/assert-test-count.sh '**/cli.trx' 74 Cli
           # 628 -> 645 is ARITHMETIC, not a measurement: 17 tests were added to Content on
           # 2026-08-24 (SchemeFont 6, GlyphAtlas 11), all self-contained, so every one of them
