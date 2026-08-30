@@ -1938,14 +1938,40 @@ public sealed class DemoTimeline
         //
         // An entity that never sends the field keeps the clock it was created with, which is right:
         // nothing has told it to restart.
-        if (state.NewSequenceParity() is { } parity && parity != track.LastSequenceParity)
-        {
-            if (track.LastSequenceParity is not null)
-            {
-                track.AnimationStartSeconds = tick * interval;
-            }
+        // **Two signals, because the engine has two modes and reads a different field in each.**
+        // `C_BaseAnimating::OnDataChanged` (`c_baseanimating.cpp:5021`) checks
+        // `m_bClientSideFrameReset` ONLY when `m_bClientSideAnimation` is set, and resets cycle
+        // interpolation on `m_nNewSequenceParity` (`:4737`) regardless. Measured on `cp_fulgur`, the
+        // spawn cabinets are client-side animated — they send `m_bClientSideAnimation` 1 and no
+        // `DT_ServerAnimationData.m_flCycle` whatsoever — so the toggle is their restart, and a fix
+        // built on parity alone did not move them.
+        //
+        // **The frame reset is a TOGGLE and only its CHANGE means anything.**
+        // `CBaseAnimating::ResetClientsideFrame` is `m_bClientSideFrameReset =
+        // !(bool)m_bClientSideFrameReset` (`server/baseanimating.cpp:3055`), so reading it as a
+        // boolean "should reset" would restart on every update where it happened to be one.
+        // **A first sighting is not a restart.** An entity's opening update states whatever value
+        // it holds, and treating that as a change would stamp the clock for every prop the moment
+        // it appears — wrong for one that has been idling since the map loaded.
+        bool restarted = false;
 
+        if (state.NewSequenceParity() is { } parity)
+        {
+            restarted |= track.LastSequenceParity is not null && parity != track.LastSequenceParity;
             track.LastSequenceParity = parity;
+        }
+
+        // **Both are consumed even once the first has fired**, because the stored value must track
+        // the wire whether or not anyone acted on it, or the next genuine change is missed.
+        if (state.ClientSideFrameReset() is { } reset)
+        {
+            restarted |= track.LastFrameReset is not null && reset != track.LastFrameReset;
+            track.LastFrameReset = reset;
+        }
+
+        if (restarted)
+        {
+            track.AnimationStartSeconds = tick * interval;
         }
 
         // **The model, kept current for the same reason and on the engine's own adjacent line.**

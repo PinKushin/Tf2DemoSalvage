@@ -112,6 +112,44 @@ public sealed class SequenceParityConformanceTests
             "the same sequence played again is a new animation, which is what the counter is for");
     }
 
+    [Test]
+    public void Build_AClientAnimatedPropWhoseFrameResetToggles_RestartsItsClock()
+    {
+        // **The signal that actually moves `cp_fulgur`'s cabinets, and the one a parity-only fix
+        // missed.** They send `m_bClientSideAnimation` 1 and no server cycle whatsoever, and
+        // `C_BaseAnimating::OnDataChanged` reads the frame reset ONLY in that mode
+        // (`c_baseanimating.cpp:5021`):
+        //
+        //     if ( m_bClientSideAnimation )
+        //         if ( m_bClientSideFrameReset != m_bLastClientSideFrameReset )
+        //             ResetClientsideFrame();
+        //
+        // The parity is held CONSTANT here so the toggle is the only thing that moved — otherwise
+        // this test passes on the mechanism the previous one already covers.
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticProp.Demo(
+            clientSideAnimation: true,
+            (Tick: 0, Sequence: 1, Parity: 4, FrameReset: 0),
+            (Tick: 660, Sequence: 1, Parity: 4, FrameReset: 0)));
+
+        ScenePropTrack track = Single(timeline);
+
+        // Parity and sequence are both held still; only the toggle could restart anything, and it
+        // has not moved either.
+        Last(track).ShouldBe(
+            Started(track, at: 0),
+            "the toggle did not flip, so nothing restarted");
+
+        // And now one where it does flip, with the parity again unchanged between them.
+        DemoTimeline flipped = DemoTimeline.Build(SyntheticProp.Demo(
+            clientSideAnimation: true,
+            (Tick: 0, Sequence: 1, Parity: 4, FrameReset: 0),
+            (Tick: 660, Sequence: 1, Parity: 4, FrameReset: 1)));
+
+        Started(Single(flipped), at: 660).ShouldBeGreaterThan(
+            0d,
+            "the frame-reset toggle flipped, which is a client-side animation starting over");
+    }
+
     /// <summary>The animation clock on the track's final keyframe.</summary>
     private static double Last(ScenePropTrack track) =>
         track.Keyframes[^1].Pose.AnimationStartSeconds;

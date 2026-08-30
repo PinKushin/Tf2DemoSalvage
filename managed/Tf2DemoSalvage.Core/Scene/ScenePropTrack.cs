@@ -555,6 +555,15 @@ public sealed class ScenePropTrack
     /// </remarks>
     internal int? LastSequenceParity { get; set; }
 
+    /// <summary>The frame-reset toggle last seen, so a flip can be noticed.</summary>
+    /// <remarks>
+    /// **The restart signal for a CLIENT-side animated entity**, which is what an animated prop is:
+    /// measured on `cp_fulgur`, the spawn cabinets send `m_bClientSideAnimation` 1 and no server
+    /// cycle whatsoever. `C_BaseAnimating::OnDataChanged` reads this one only in that mode
+    /// (`c_baseanimating.cpp:5021`) and `m_nNewSequenceParity` in either.
+    /// </remarks>
+    internal int? LastFrameReset { get; set; }
+
     /// <summary>When the animation now playing was stamped as having begun, in seconds.</summary>
     /// <remarks>
     /// **`C_BaseAnimating` measures its interval from a stamp, never from the start of time** —

@@ -43,6 +43,33 @@ internal static class SyntheticProp
     {
         ArgumentNullException.ThrowIfNull(frames);
 
+        (int, int, int, int)[] widened = new (int, int, int, int)[frames.Length];
+
+        for (int index = 0; index < frames.Length; index++)
+        {
+            // Frame reset held at zero: a server-animated prop's restart signal is the parity, and
+            // a fixture that moved both could not tell which one the code under test read.
+            widened[index] =
+                (frames[index].Tick, frames[index].Sequence, frames[index].Parity, 0);
+        }
+
+        return Demo(clientSideAnimation: false, widened);
+    }
+
+    /// <summary>The same, saying whether the CLIENT advances the cycle.</summary>
+    /// <param name="clientSideAnimation">
+    /// <c>m_bClientSideAnimation</c>. Measured 1 on `cp_fulgur`'s spawn cabinets, which send no
+    /// server cycle at all — so their restart signal is the frame-reset toggle rather than the
+    /// sequence parity (`c_baseanimating.cpp:5021`).
+    /// </param>
+    /// <param name="frames">Tick, sequence and parity for each snapshot.</param>
+    /// <returns>The demo's bytes.</returns>
+    public static byte[] Demo(
+        bool clientSideAnimation,
+        params (int Tick, int Sequence, int Parity, int FrameReset)[] frames)
+    {
+        ArgumentNullException.ThrowIfNull(frames);
+
         DemoSchema schema = Schema();
 
         EntityDecoder decoder = new(
@@ -63,13 +90,22 @@ internal static class SyntheticProp
 
         for (int index = 0; index < frames.Length; index++)
         {
-            (int tick, int sequence, int parity) = frames[index];
+            (int tick, int sequence, int parity, int frameReset) = frames[index];
 
             List<DecodedProperty> properties =
             [
                 Property(flat, "m_nModelIndex", PropertyValue.FromInt(Model)),
                 Property(flat, "m_nSequence", PropertyValue.FromInt(sequence)),
                 Property(flat, "m_nNewSequenceParity", PropertyValue.FromInt(parity)),
+                Property(
+                    flat,
+                    "m_bClientSideAnimation",
+                    PropertyValue.FromInt(clientSideAnimation ? 1 : 0)),
+
+                // **Its own knob, not derived from the parity.** A first version computed it as
+                // `parity & 1`, which coupled the two signals — and the control that needed the
+                // toggle to stay still while the parity moved could not be written at all.
+                Property(flat, "m_bClientSideFrameReset", PropertyValue.FromInt(frameReset)),
 
                 // **Cycle zero every time, because that is what the recording carries.** Measured
                 // on `cp_fulgur`: every cabinet keyframe reads 0.00. The server states where the
@@ -169,6 +205,10 @@ internal static class SyntheticProp
                 new SendProperty(SendPropType.Int, "m_nSequence", 1, string.Empty, 0f, 0f, 12, 0),
                 new SendProperty(
                     SendPropType.Int, "m_nNewSequenceParity", 1, string.Empty, 0f, 0f, 3, 0),
+                new SendProperty(
+                    SendPropType.Int, "m_bClientSideAnimation", 1, string.Empty, 0f, 0f, 1, 0),
+                new SendProperty(
+                    SendPropType.Int, "m_bClientSideFrameReset", 1, string.Empty, 0f, 0f, 1, 0),
                 new SendProperty(
                     SendPropType.DataTable, "baseentity", 1, "DT_BaseEntity", 0f, 0f, 0, 0),
                 new SendProperty(

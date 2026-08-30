@@ -178,7 +178,13 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # whose own remarks admitted it was decoded and not acted on. Two of the three are controls: a
 # prop that never restarts keeps its clock, and a prop REPLAYING the same sequence must still
 # restart -- which is why the counter exists and why comparing sequence numbers is not enough.
-run Tf2DemoSalvage.Core.Tests     core     1591
+# 1591 -> 1592: the client-side frame reset. C_BaseAnimating has TWO restart signals and reads a
+# different one per mode -- m_bClientSideFrameReset only when m_bClientSideAnimation is set
+# (c_baseanimating.cpp:5021), m_nNewSequenceParity in either (:4737). cp_fulgur's cabinets are
+# client-side animated and send NO server cycle at all, so the toggle is their restart and a fix
+# built on parity alone did not move them. The case carries its own control inline: parity and
+# sequence held still while the toggle does not move must NOT restart.
+run Tf2DemoSalvage.Core.Tests     core     1592
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
@@ -655,7 +661,11 @@ run Tf2DemoSalvage.Presentation.Tests presentation 424
 # already erased the evidence that the cycle went past one. Three of the seven are controls: an
 # in-range cycle must be untouched either way, a looping cycle must still wrap, and the same
 # input on a looping sequence must return to the start rather than hold.
-run Tf2DemoSalvage.Content.Tests  content   835
+# 835 -> 836: GateMaterialProbe (1, Explicit). It decodes the setup gate's materials and reports
+# their mean colour, which is how a claim about how something LOOKS gets a number: the frame is
+# R49 G33 B16 -- orange in a 3:2:1 ratio -- and the mesh R82 G77 B73, neutral grey. Both correct,
+# which is what moved the gate hunt off materials and onto something only a screenshot can settle.
+run Tf2DemoSalvage.Content.Tests  content   836
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
@@ -711,7 +721,11 @@ run Tf2DemoSalvage.Content.Tests  content   835
 # 143 -> 144: MedigunPlacementProbe (1, Explicit). It carries two dead theories with it -- the
 # medigun tracks that looked misplaced were the ten CTFDroppedWeapon entities on the floor, and
 # the bone-merge rule was firing correctly all along.
-run Tf2DemoSalvage.Corpus.Tests   corpus     144
+# 144 -> 145: PropAnimationProbe (1, Explicit), which prints every animation field a prop sends
+# update by update. It is what found that the cabinets are CLIENT-side animated and send no cycle
+# -- a fix had already been built on the parity, from inferring that field rather than measuring
+# it. Per-update rather than final state, because every question here is about a transition.
+run Tf2DemoSalvage.Corpus.Tests   corpus     145
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that

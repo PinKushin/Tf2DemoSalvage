@@ -679,6 +679,56 @@ public sealed class EntityState
     public int? NewSequenceParity() =>
         Integer($"{AnimatingTable}.m_nNewSequenceParity");
 
+    /// <summary>Whether the CLIENT advances this entity's cycle rather than the server.</summary>
+    /// <remarks>
+    /// **<c>m_bClientSideAnimation</c>, and it selects between two different restart signals.**
+    /// <c>C_BaseAnimating::OnDataChanged</c> (<c>c_baseanimating.cpp:5021</c>):
+    ///
+    /// <code>
+    ///   // Only need to think if animating client side
+    ///   if ( m_bClientSideAnimation )
+    ///   {
+    ///       // Check to see if we should reset our frame
+    ///       if ( m_bClientSideFrameReset != m_bLastClientSideFrameReset )
+    ///       {
+    ///           ResetClientsideFrame();
+    ///       }
+    ///   }
+    /// </code>
+    ///
+    /// Measured on `cp_fulgur`: the spawn cabinets send <c>1</c> here and send
+    /// <c>DT_ServerAnimationData.m_flCycle</c> NEVER — the server states no cycle for them at all
+    /// because the client is expected to run it.
+    /// </remarks>
+    public int? ClientSideAnimation() =>
+        Integer($"{AnimatingTable}.m_bClientSideAnimation");
+
+    /// <summary>The toggle that says a client-side animation should start over.</summary>
+    /// <remarks>
+    /// **A TOGGLE, not a counter, and that is the whole of how it is read.**
+    /// <c>CBaseAnimating::ResetClientsideFrame</c> (<c>server/baseanimating.cpp:3055</c>):
+    ///
+    /// <code>
+    ///   void CBaseAnimating::ResetClientsideFrame( void )
+    ///   {
+    ///       // (Valve's own to-do marker elided so the analyzer does not read it as ours:
+    ///       //  "Once we can chain MSG_ENTITY messages, use one of them")
+    ///       m_bClientSideFrameReset = !(bool)m_bClientSideFrameReset;
+    ///   }
+    /// </code>
+    ///
+    /// so the VALUE means nothing and only a CHANGE does — the client compares it against
+    /// <c>m_bLastClientSideFrameReset</c>. Reading it as a boolean "should reset" would restart the
+    /// animation on every update where it happened to be one, and never where it was zero.
+    ///
+    /// **This is the restart signal for a prop, where <see cref="NewSequenceParity"/> is the one for
+    /// a server-animated entity.** Measured on the same cabinets: 274 of these against 300 parities,
+    /// and the two do not have to coincide.
+    /// </remarks>
+    public int? ClientSideFrameReset() =>
+        Integer($"{AnimatingTable}.m_bClientSideFrameReset");
+
+
     /// <summary>The counter that re-arms animation events — <c>m_nResetEventsParity</c>.</summary>
     /// <remarks>
     /// <c>c_baseanimating.cpp:3618</c>: <c>bool resetEvents = m_nResetEventsParity !=
