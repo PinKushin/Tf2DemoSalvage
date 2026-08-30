@@ -154,6 +154,50 @@ public sealed class ParentedPropDiagnostic
 
         TestContext.Out.WriteLine($"BONE branch claims {byBones.Count} distinct models");
 
+        // **Where each transform-parented prop's PARENT actually is.** The standing hypothesis is
+        // that a brush entity's geometry is already in world space and its `m_vecOrigin` stays
+        // (0,0,0) until it moves — in which case composing a child onto it puts the child at the
+        // map origin, which is exactly "loads, instances, invisible". A parent sitting at a real
+        // world position kills that hypothesis outright and sends the search elsewhere.
+        // **Paired AT THE SAME TICK, which the first attempt at this was not.** Entity slots are
+        // reused, so a map of "last pose seen per index" across a whole demo reports whoever
+        // occupied the slot last — which made a spawn grate look parented to a medigun. A parent
+        // has to be looked up in the same snapshot as its child or the answer is about two
+        // different moments.
+        HashSet<string> pairs = new(StringComparer.Ordinal);
+
+        for (int tick = first; tick <= last; tick += step)
+        {
+            props.Clear();
+            timeline.PropsAt(tick, props);
+
+            Dictionary<int, SceneProp> here = [];
+
+            foreach (SceneProp prop in props)
+            {
+                here[prop.EntityIndex] = prop;
+            }
+
+            foreach (SceneProp prop in props)
+            {
+                if (prop is not { AttachedTo: { } parent, BoneMerged: false })
+                {
+                    continue;
+                }
+
+                string where = here.TryGetValue(parent, out SceneProp found)
+                    ? $"{found.ModelPath} at ({found.Pose.X:0} {found.Pose.Y:0} {found.Pose.Z:0})"
+                    : "ABSENT FROM THIS TICK";
+
+                pairs.Add($"  {prop.ModelPath} -> {parent}: {where}");
+            }
+        }
+
+        foreach (string pair in pairs.Order(StringComparer.Ordinal).Take(14))
+        {
+            TestContext.Out.WriteLine("SAMETICK" + pair);
+        }
+
         // A precondition on the HARNESS, not a claim about the demo.
         models.Count.ShouldBeGreaterThan(0, "the demo named no models at all");
     }

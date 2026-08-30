@@ -1944,6 +1944,24 @@ public sealed class EntityModelSet
                         prop.Pose.X, prop.Pose.Y, prop.Pose.Z,
                         prop.Pose.Pitch, prop.Pose.Yaw, prop.Pose.Roll,
                         prop.Pose.Scale));
+
+                // **Says where the composition actually PUT it, once per model.** Every input to
+                // this was measured and correct — the parent is the right `func_door`, at the right
+                // world position, and it moves — while the prop stayed invisible. The one thing
+                // never measured was the output, which is the shape this project keeps meeting:
+                // three correct measurements locating the fourth
+                // (`docs/memory/measure-every-hop-before-blaming-one.md`).
+                if (_render.IsEnabled(LogLevel.Debug) &&
+                    _reportedFrames.Add(prop.ModelPath + "#placed"))
+                {
+                    _render.LogDebug(
+                        "{Message}",
+                        $"{prop.ModelPath} composed onto {parent}: parent "
+                        + $"({parentToWorld.OriginX:0} {parentToWorld.OriginY:0} "
+                        + $"{parentToWorld.OriginZ:0}) + local "
+                        + $"({prop.Pose.X:0} {prop.Pose.Y:0} {prop.Pose.Z:0}) = "
+                        + $"({transform.OriginX:0} {transform.OriginY:0} {transform.OriginZ:0})");
+                }
             }
             else if (prop.AttachedTo is { } wearer)
             {
