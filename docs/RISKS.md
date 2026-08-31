@@ -15267,5 +15267,30 @@ Those are the three gates' exact positions. **And the owner still reports the do
 | materials | `VertexLitGeneric`, one texture each, 512×512 orange and 256×256 alpha-tested |
 | door brushwork | no longer drawn (B240), so nothing is in front of them |
 
-**Still unexplained.** Everything measurable says the grates are placed, bounded, batched and
-textured, and the doorway is empty on screen.
+**Still unexplained, and now measured much further.** Captured with `TF2VIEW_CAMERA` at the gate —
+which is the instrument that should have been used on the first night, not the fifth hour:
+
+| asked | answer |
+|---|---|
+| instance matrix | (5416 −2168 552), the gate |
+| bone 0 position | (5416 −2168 552) |
+| bone 0 rotation | diagonal (1 1 1) — identity, not a degenerate matrix |
+| world bounds | (5310 −2366 409)–(5521 −1969 694), around the gate |
+| batches | `drawing 2 of 2 batches — kept [960:opaque/textured, 961:opaque/textured]` |
+| renderer | `door_grate003_top draws materials: 960:opaque, 961:opaque` |
+| the picture | the doorway is empty, straight through to the rocks |
+| the map origin | nothing piled there either |
+
+So it is placed, oriented, bounded, batched, textured, submitted **and drawn**, and no pixels appear.
+
+**The one difference left between the measurement and the viewer** is that `instance` builds its own
+`EntityModelSet` and calls `Instances` directly, while the viewer goes through `MomentScene`. All
+four of that class's draw-list filters were read and none can remove a `CDynamicProp` on a
+`func_door`: `FirstPersonVisibility` needs a followed player, `WeaponVisibility` needs a
+`WeaponState` and an owner, `DisguiseVisibility` needs a disguised owner, `RespawnRoomVisibility`
+names one class.
+
+**The next experiment, stated so it is not guessed at again:** log the instance matrix at the point
+of DRAW, in `WorldRenderer`, beside the `draws materials` line. Every number above comes from
+rebuilding the scene outside the viewer; none of it is read out of the viewer's own draw call. That
+gap is exactly where five wrong conclusions have already come from tonight.

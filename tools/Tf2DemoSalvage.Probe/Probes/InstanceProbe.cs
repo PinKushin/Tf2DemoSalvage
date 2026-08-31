@@ -107,10 +107,34 @@ public sealed class InstanceProbe : IProbe
         foreach (ModelInstance instance in instances
             .Where(instance => instance.ModelPath.Contains(filter, StringComparison.OrdinalIgnoreCase)))
         {
-            // Translation lives in the last row of the shader's row-vector matrix.
+            // **The matrix AND the bones, because for a GPU-posed model the bones are what
+            // place it.** A skinned model's vertices are transformed by bone matrices in the vertex
+            // shader; the instance matrix can be perfectly right while the model draws somewhere
+            // else entirely. Reporting only one of the two is how B241 was declared fixed while the
+            // gates were still empty.
+            // **The bone's ROTATION as well as its translation.** A matrix3x4 whose rotation is all
+            // zeros still carries a correct-looking position, and every vertex it skins collapses
+            // onto that one point — a model that is placed, bounded, batched, textured and
+            // invisible. Reporting only the translation cannot tell that from a working bone.
+            string bones = instance.Bones is { Count: > 0 } skeleton
+                ? $"bone0 pos ({skeleton[0][3]:0.#} {skeleton[0][7]:0.#} {skeleton[0][11]:0.#}) "
+                  + $"diag ({skeleton[0][0]:0.###} {skeleton[0][5]:0.###} {skeleton[0][10]:0.###}) "
+                  + $"of {skeleton.Count.ToString(CultureInfo.InvariantCulture)}"
+                : "no bones (baked)";
+
+            // Translation lives in the last row of the shader's row-vector matrix; a bone is
+            // Valve's matrix3x4_t with translation in column 3, so indices 3, 7 and 11.
+            // **And the WORLD BOUNDS, which is what the frustum culls on.** Everything else can be
+            // right while these sit at the map origin, and a box the camera cannot see removes the
+            // model with no other symptom at all.
+            (float minX, float minY, float minZ, float maxX, float maxY, float maxZ) =
+                instance.WorldBounds;
+
             output.WriteLine(
-                $"  at ({instance.Matrix[12]:0.#} {instance.Matrix[13]:0.#} "
-                + $"{instance.Matrix[14]:0.#})  {instance.ModelPath}");
+                $"  matrix ({instance.Matrix[12]:0.#} {instance.Matrix[13]:0.#} "
+                + $"{instance.Matrix[14]:0.#})  {bones}  "
+                + $"bounds ({minX:0.#} {minY:0.#} {minZ:0.#})-({maxX:0.#} {maxY:0.#} {maxZ:0.#})  "
+                + instance.ModelPath);
         }
     }
 }
