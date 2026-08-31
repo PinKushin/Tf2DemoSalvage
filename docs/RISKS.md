@@ -15617,16 +15617,62 @@ another person is holding"*. There are two ways, they agree in a real client, an
 with each other** — which makes this a decode defect with a built-in control rather than a
 rendering question (`docs/memory/two-recordings-of-one-value.md`).
 
-**Where to look next**, in order of cheapness:
+### Lead 2 measured: the class baseline, and it explains B231 as well — 2026-08-31
 
-1. What our stored per-entity baseline for 1138 actually holds for `m_iState` — if it says 2, the
-   slot bookkeeping checkpointed it while active and never re-checkpointed, and the question moves
-   to whether `Update` is merging into the right slot.
-2. Whether the class baseline for `CTFBonesaw` declares `m_iState` at all. If it does not, nothing
-   in the pipeline can ever return the value to its default, and staleness is structural.
-3. Whether a real client would in fact draw both — testable by playing this demo in TF2 and looking
-   at that player at tick 14000, which is the only instrument here that cannot be wrong about what
-   the engine does.
+The `baseline` probe reads the `instancebaseline` string table through the same public helpers
+production uses and reports what each class declares. On `tf2-2026-pub-pov-clean`:
+
+```
+CTFBonesaw                NO BASELINE
+CTFPistol                 DT_BaseCombatWeapon.m_iState = 0
+CTFPistol_Scout           DT_BaseCombatWeapon.m_iState = 2
+CTFPistol_ScoutSecondary  DT_BaseCombatWeapon.m_iState = 1
+CDynamicProp              DT_BaseEntity.moveparent    = 2097151
+BASELINES 68 of 363 classes carry one
+```
+
+**A class baseline is one representative entity's state at the moment the server made it, not a
+table of defaults.** Three pistol variants carry three different `m_iState` values, which is only
+explicable that way — and it is what `EntityBaselineSlots` already says in prose: *"one
+representative entity's state, shared by every entity of that class"*.
+
+Two conclusions, and the second was not being looked for:
+
+- **The bonesaw's staleness is STRUCTURAL.** Its class has no baseline at all, and the `ENTER`
+  carries no `m_iState`, so no path through this pipeline can return the value to a default. It
+  holds 2 for the rest of the recording no matter what the accumulate step does.
+- **B231's symptom is now explained exactly.** `CDynamicProp`'s baseline declares
+  `moveparent = 2097151` — `0x1FFFFF`, twenty-one bits of ones, which is the INVALID handle
+  sentinel `EntityState.Slot` already tests for. Rebuilding a door from the CLASS baseline sets its
+  parent to "nothing", which is precisely the gate coming off its door. B231 was right about what
+  it measured and attributed it to "rebuild from baseline" in general, where the culprit is
+  "rebuild from the class baseline when a per-entity one applies".
+
+### The rule both cases point at, and it is already written down elsewhere
+
+**On the wire, absent means the DEFAULT** (`docs/memory/sentinels-conflate-unknown-with-answer.md`).
+After an `Enter`, a property in neither the baseline nor the update is at its property's default —
+not at whatever this reader last accumulated. That single rule satisfies both:
+
+- bonesaw — no baseline, no `m_iState` in the update, so it defaults to `WEAPON_NOT_CARRIED` and
+  `ShouldDraw` refuses it, which is one weapon in the hand;
+- door — the per-entity baseline slot carries its `moveparent`, so replacing preserves it.
+
+**Not implemented, and deliberately not started unannounced.** It makes an `Enter` REPLACE rather
+than merge, and `EntityState` presently treats an absent property as "unknown" rather than as its
+default — so this touches the decode core and every entity in every demo, which is a wider blast
+radius than the weapon state it was found through. The plan, for whoever picks it up:
+
+1. Give `EntityState` a way to drop its networked properties, and have `Apply` use it on `Enter`
+   before writing baseline ∪ update.
+2. Decide what "default" means for a property the demo never mentions — the engine takes the
+   `RecvProp`'s own default, which is zero for an int, and this project currently answers null.
+   Those are different, and callers such as `WeaponVisibility` branch on the difference.
+3. Regression-check the two known cases in the same run: `cp_fulgur`'s gates keep their parent, and
+   entity 1138 reads holstered at tick 14000.
+
+The remaining lead is unchanged: whether a real client draws both, testable by playing this demo in
+TF2 and looking, which is the only instrument here that cannot be wrong about the engine.
 
 **Do NOT "fix" this by having `WeaponVisibility` prefer the player's `m_hActiveWeapon`.** It would
 hide the defect behind a rule Valve does not have (`ShouldDraw` reads `m_iState` and nothing else),
