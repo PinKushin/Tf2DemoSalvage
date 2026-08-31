@@ -191,6 +191,44 @@ public sealed class FxBlendConformanceTests
     }
 
     [Test]
+    public void Compute_StrobeWhoseWaveIsAFractionBelowZero_IsTheAlphaBecauseValveTruncatesFirst()
+    {
+        // **The sign test is on an INT, and that is the whole of B246.** Valve declares
+        // `int blend` and assigns a double to it:
+        //
+        //     blend = 20 * sin( gpGlobals->curtime * 4 + offset );
+        //     if ( blend < 0 ) blend = 0; else blend = m_clrRender->a;
+        //
+        // C++ truncates toward zero on that assignment, so a wave of −0.4 becomes **0**, which is
+        // not less than zero — and the engine draws the entity at full alpha. Testing the float
+        // instead draws it invisible.
+        //
+        // **The condition is chosen so correct and broken disagree, which is the only kind that
+        // measures anything here.** At `curtime = 0.7904` the argument is 3.1616 radians, a hair
+        // past pi, where the sine is −0.0200 and the wave is −0.400. Any input where the wave is
+        // below −1 or above 0 predicts the SAME observation both ways, so the two tests above
+        // cannot see this and never could.
+        FxBlend.Compute(RenderFx.StrobeSlow, RenderModes.TransColor, 137, 0, 0.7904f)
+            .Blend.ShouldBe(
+                137,
+                "20*sin(3.1616) is -0.400, which truncates to 0 — and 0 is not less than 0");
+    }
+
+    [Test]
+    public void Compute_StrobeWhoseWaveIsAWholeUnitBelowZero_IsStillNothing()
+    {
+        // **The control, and it is what stops the fix going too far.** Truncation only rescues the
+        // window between −1 and 0; at −1.0 or below the int is genuinely negative and the strobe is
+        // off. An implementation that dropped the sign test altogether would pass the test above
+        // and fail this one.
+        //
+        // `curtime = 0.8104` puts the argument at 3.2416 radians: sine −0.0999, wave −1.999,
+        // truncated −1.
+        FxBlend.Compute(RenderFx.StrobeSlow, RenderModes.TransColor, 137, 0, 0.8104f)
+            .Blend.ShouldBe(0, "-1.999 truncates to -1, which IS less than zero");
+    }
+
+    [Test]
     public void Compute_FlickerSlow_SumsTwoSinesAtDifferentRates()
     {
         // blend = 20 * (sin( curtime * 2 ) + sin( curtime * 17 + offset ))
