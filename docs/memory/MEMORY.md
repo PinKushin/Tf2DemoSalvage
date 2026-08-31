@@ -160,3 +160,5 @@
 - [An open item is a defect report](an-open-item-is-a-defect-report.md) — a "still to read" note that predicts a symptom is an unfixed bug.
 - [A probe is a script, not a test](a-probe-is-a-script-not-a-test.md) — `[Explicit]` hides it from the run, not from the build or the floor.
 - [One look can be two mechanisms](one-look-can-be-two-mechanisms.md) — a skin AND a bodygroup; the right texture on a mesh nobody draws.
+- [Parity is the search, not the defence](parity-is-the-search-not-the-defence.md) — read every branch of the engine function; a rule in a comment is not enforced.
+- [Take your own screenshot](take-your-own-screenshot.md) — TF2VIEW_CAMERA plus --shot; stop asking for F5.
