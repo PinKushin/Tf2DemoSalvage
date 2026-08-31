@@ -234,6 +234,10 @@ public sealed class DemoSystemsTests
         public void PlayersAt(double tick, ICollection<ScenePlayer> into) => into.Clear();
 
         public void PropsAt(double tick, ICollection<SceneProp> into) => into.Clear();
+
+        // Null rather than a state: this stub carries no recording, and "the demo did not say" is
+        // the honest answer for one.
+        public int? RoundStateAt(double tick) => null;
     }
 
     private static SoundPresenter Sound() =>

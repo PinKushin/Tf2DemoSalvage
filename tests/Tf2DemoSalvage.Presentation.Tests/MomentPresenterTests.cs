@@ -44,6 +44,26 @@ public sealed class MomentPresenterTests
     }
 
     [Test]
+    public void Show_WithASource_AsksItForTheRoundAtTheTickBeingShown()
+    {
+        // **The wiring assertion, and it is the only kind that can fail when a value is decoded,
+        // retained, unit-tested and never read.** `m_flPlaybackRate` was all four of those for
+        // weeks and every animation played at rate 1 with a green suite.
+        //
+        // The round decides whether a spawn's team wall is drawn at all
+        // (`C_FuncRespawnRoomVisualizer::DrawModel`, `c_func_respawnroom.cpp:47`), and only the
+        // recording knows it — so a presenter that never asked would leave the scene deciding on
+        // null for ever, which is the state that draws.
+        StubSource source = new() { RoundState = RespawnRoomVisibility.TeamWin };
+        MomentPresenter presenter = Presenter(out FrameLedger _);
+        presenter.Source = source;
+
+        presenter.Show(tick: 123.5, View());
+
+        source.RoundStateCalls.ShouldBe(1, "the scene cannot derive the round; it must be asked for");
+    }
+
+    [Test]
     public void Show_CalledTwice_HandsTheSourceTheSameBuffersAgain()
     {
         // **The buffers are fields rather than locals, and this is the claim that encodes.** A
@@ -230,6 +250,17 @@ public sealed class MomentPresenterTests
         {
             PropCalls++;
             into.Clear();
+        }
+
+        /// <summary>What round this stub claims, and whether it was asked.</summary>
+        public int? RoundState { get; init; }
+
+        public int RoundStateCalls { get; private set; }
+
+        public int? RoundStateAt(double tick)
+        {
+            RoundStateCalls++;
+            return RoundState;
         }
     }
 }

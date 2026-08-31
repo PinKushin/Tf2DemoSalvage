@@ -36,6 +36,9 @@ public readonly record struct StudioMesh(
 /// <param name="BodyParts">
 /// Each body part's place value and how many alternatives it offers, for reading <c>m_nBody</c>.
 /// </param>
+/// <param name="BodyPartNames">
+/// Each body part's name, in the same order — how <c>FindBodygroupByName</c> addresses one.
+/// </param>
 /// <param name="Flags">
 /// The header's <c>STUDIOHDR_FLAGS_*</c> word — see <see cref="StudioModelFlags"/>.
 /// </param>
@@ -57,6 +60,7 @@ public sealed record StudioModelInfo(
     IReadOnlyList<string> MaterialFolders,
     IReadOnlyList<StudioMesh> Meshes,
     IReadOnlyList<(int Base, int Count)> BodyParts,
+    IReadOnlyList<string> BodyPartNames,
     int Flags)
 {
     /// <summary>Whether the model asks to be drawn in two passes — <c>$mostlyopaque</c>.</summary>
@@ -95,6 +99,69 @@ public sealed record StudioModelInfo(
         return place <= 0 || count <= 0
             ? mesh.BodyModel == 0
             : mesh.BodyModel == (body / place) % count;
+    }
+
+    /// <summary>Which body part carries a name, or −1.</summary>
+    /// <param name="name">The part's name, compared case-insensitively.</param>
+    /// <returns>Its index, or −1 when the model has no such part.</returns>
+    /// <remarks>
+    /// <c>FindBodygroupByName</c>, <c>shared/animation.cpp:927</c>, which compares with
+    /// <c>Q_strcasecmp</c>. **−1 rather than an exception**: the engine's own callers keep the
+    /// answer and test it, because a model legitimately may not have the part — TF2 asks every
+    /// player model for <c>spyMask</c> and only the spy has one.
+    /// </remarks>
+    public int FindBodygroup(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        for (int part = 0; part < BodyPartNames.Count; part++)
+        {
+            if (string.Equals(BodyPartNames[part], name, StringComparison.OrdinalIgnoreCase))
+            {
+                return part;
+            }
+        }
+
+        return -1;
+    }
+
+    /// <summary>A body number with one part set to one of its alternatives.</summary>
+    /// <param name="body">The body number to start from.</param>
+    /// <param name="group">Which part, as <see cref="FindBodygroup"/> gives it.</param>
+    /// <param name="value">Which alternative.</param>
+    /// <returns>The new body number, or the old one when the request cannot be honoured.</returns>
+    /// <remarks>
+    /// <c>SetBodygroup</c>, <c>shared/animation.cpp:863</c>:
+    ///
+    /// <code>
+    ///   int iCurrent = ( body / pbodypart-&gt;base ) % pbodypart-&gt;nummodels;
+    ///   body = ( body - ( iCurrent * pbodypart-&gt;base ) + ( iValue * pbodypart-&gt;base ) );
+    /// </code>
+    ///
+    /// **The parts share one integer like digits of a mixed-radix number**, so setting one has to
+    /// subtract what it currently holds rather than OR a bit in. Doing that wrongly corrupts every
+    /// OTHER part's digit, which draws as a model quietly missing a different piece.
+    ///
+    /// Valve returns early for an out-of-range group or value; this returns the body unchanged,
+    /// which is the same behaviour written as an expression.
+    /// </remarks>
+    public int WithBodygroup(int body, int group, int value)
+    {
+        if (group < 0 || group >= BodyParts.Count || value < 0)
+        {
+            return body;
+        }
+
+        (int place, int count) = BodyParts[group];
+
+        if (place <= 0 || value >= count)
+        {
+            return body;
+        }
+
+        int current = (body / place) % count;
+
+        return body - (current * place) + (value * place);
     }
 
     /// <summary>Where a material might be, in the order worth trying.</summary>
@@ -276,7 +343,8 @@ public static class StudioModel
                 $"{MaximumVersion} this reader knows.");
         }
 
-        (List<StudioMesh> meshes, List<(int Base, int Count)> parts) = ReadMeshes(bytes);
+        (List<StudioMesh> meshes, List<(int Base, int Count)> parts, List<string> names) =
+            ReadMeshes(bytes);
 
         return new StudioModelInfo(
             ReadFixedString(bytes.Slice(HeaderNameOffset, NameBytes)),
@@ -285,6 +353,7 @@ public static class StudioModel
             ReadFolders(bytes),
             meshes,
             parts,
+            names,
 
             // **Last in the parameter list on purpose.** `Checksum` is the only other int here, so
             // placing this beside it would let a transposition compile silently; separated by four
@@ -336,10 +405,11 @@ public static class StudioModel
         return folders;
     }
 
-    private static (List<StudioMesh> Meshes, List<(int Base, int Count)> Parts) ReadMeshes(
-        ReadOnlySpan<byte> file)
+    private static (List<StudioMesh> Meshes, List<(int Base, int Count)> Parts, List<string> Names)
+        ReadMeshes(ReadOnlySpan<byte> file)
     {
         List<(int Base, int Count)> chosen = [];
+        List<string> names = [];
 
         int parts = Count(file, HeaderBodyPartCountOffset, "body parts");
         int partsAt = Offset(file, HeaderBodyPartIndexOffset, parts, BodyPartStride, "body parts");
@@ -370,13 +440,24 @@ public static class StudioModel
                 BinaryPrimitives.ReadInt32LittleEndian(file[(partAt + BodyPartBaseOffset)..]),
                 models));
 
+            // **The name, because the code that matters addresses a part by name.** TF2's spy mask
+            // is `FindBodygroupByName( "spyMask" )` and the index differs per model, so an index
+            // alone cannot say which part that is. Relative to the part, like every other index in
+            // this format.
+            int nameAt = partAt + BinaryPrimitives.ReadInt32LittleEndian(
+                file[(partAt + BodyPartNameOffset)..]);
+
+            names.Add(nameAt > 0 && nameAt < file.Length
+                ? ReadFixedString(file[nameAt..])
+                : string.Empty);
+
             for (int model = 0; model < models; model++)
             {
                 ReadModelMeshes(file, modelsAt + (model * ModelStride), meshes, part, model);
             }
         }
 
-        return (meshes, chosen);
+        return (meshes, chosen, names);
     }
 
     private static void ReadModelMeshes(

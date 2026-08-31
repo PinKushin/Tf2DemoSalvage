@@ -38,6 +38,17 @@ public interface IMomentSource
     /// <param name="tick">The moment, which may fall between ticks.</param>
     /// <param name="into">The buffer to fill; cleared first.</param>
     public void PropsAt(double tick, ICollection<SceneProp> into);
+
+    /// <summary>The round the game rules were in, or null when the demo does not say.</summary>
+    /// <param name="tick">The moment being shown.</param>
+    /// <returns><c>m_iRoundState</c>; <c>GR_STATE_TEAM_WIN</c> is 5.</returns>
+    /// <remarks>
+    /// **Asked because two drawing rules need it and neither can derive it.** A spawn's team wall
+    /// is drawn to nobody once the round is won (<c>c_func_respawnroom.cpp:47</c>). Null is "the
+    /// demo did not say" rather than a state — every pre-2009 era specimen carries no game rules
+    /// entity at all.
+    /// </remarks>
+    public int? RoundStateAt(double tick);
 }
 
 /// <summary>A demo's timeline, as a moment source.</summary>
@@ -59,4 +70,7 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
     /// <inheritdoc />
     public void PropsAt(double tick, ICollection<SceneProp> into) =>
         timeline.PropsAt(tick, into);
+
+    /// <inheritdoc />
+    public int? RoundStateAt(double tick) => timeline.RoundStateAt(tick);
 }

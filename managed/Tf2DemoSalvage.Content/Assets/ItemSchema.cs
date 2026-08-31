@@ -45,6 +45,16 @@ public sealed class ItemSchema
         /// <summary>Its <c>model_player_per_class</c> entries, keyed by the schema's class name.</summary>
         public Dictionary<string, string> PerClass { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>Its <c>model_player_per_class</c> <c>basename</c>, or null.</summary>
+        /// <remarks>
+        /// **The block's second form, and the one that was silently dropped.** A `basename` carries
+        /// `%s` placeholders that <c>InitPerClassStringArray</c> expands per class rather than a
+        /// map of class to path — `models/player/items/%s/%s_cap.mdl` becomes
+        /// `models/player/items/scout/scout_cap.mdl`. Stored as a key called "basename" it looked
+        /// like a class nobody plays, so every item using this form resolved to nothing.
+        /// </remarks>
+        public string? PerClassBaseName { get; set; }
+
         /// <summary>The entity class it is, such as <c>tf_weapon_scattergun</c>.</summary>
         public string? ItemClass { get; set; }
 
@@ -124,7 +134,15 @@ public sealed class ItemSchema
                     break;
 
                 case 4 when entry is not null && inPerClass && value is not null:
-                    entry.PerClass[key] = value;
+                    if (string.Equals(key, "basename", StringComparison.OrdinalIgnoreCase))
+                    {
+                        entry.PerClassBaseName = value;
+                    }
+                    else
+                    {
+                        entry.PerClass[key] = value;
+                    }
+
                     break;
 
                 default:
@@ -142,27 +160,97 @@ public sealed class ItemSchema
     /// <param name="playerClass">Whose hands, as <c>m_iClass</c> gives it.</param>
     /// <returns>A model path, or <c>null</c> when the schema names none.</returns>
     /// <remarks>
-    /// **Styles are deliberately not implemented.** A style is a per-item variant its owner picks,
-    /// and the engine consults it first. Nothing in the corpus uses one, so building it would be a
-    /// guess with no way to check it — a styled item resolves to its base model here, which is the
-    /// right model in the wrong variant rather than nothing at all.
+    /// **Styles are not implemented, and this is very nearly what the engine does anyway** — which
+    /// is not what an earlier version of this note claimed. `CEconItemView::GetItemStyle`
+    /// (`econ_item_view.cpp:731`) ends at `GetSOCData()->GetStyle()`, and `GetSOCData` finds an
+    /// inventory only for an account the client is subscribed to — its own (`:839`). A live client
+    /// watching another player therefore gets `INVALID_STYLE_INDEX`, `GetStyleInfo` returns null,
+    /// and the lookup falls through to exactly the per-class-then-base order below. In a demo there
+    /// is no subscribed inventory at all.
+    ///
+    /// **The one real gap is the `item style override` attribute**, which is a networked attribute
+    /// rather than backpack state and which a demo does carry — see `RISKS.md` B234. Nothing here
+    /// decodes attributes yet, so an item wearing that attribute draws the wrong variant. Every
+    /// other styled item draws what the engine would have drawn.
     /// </remarks>
     public string? ModelFor(int definitionIndex, int playerClass)
     {
-        string? className = playerClass > 0 && playerClass < ClassNames.Length
-            ? ClassNames[playerClass]
-            : null;
-
-        // Per class first, then the base — GetPlayerDisplayModel's own order, and both are
-        // inherited, so the whole chain is searched for one before falling back to the other.
-        if (className is not null &&
-            Inherited(definitionIndex, entry =>
-                entry.PerClass.TryGetValue(className, out string? model) ? model : null) is { } perClass)
+        // Per class first, then the base — GetPlayerDisplayModel's own order
+        // (`econ_item_view.cpp:962`), and both are inherited, so the whole chain is searched for
+        // one before falling back to the other.
+        if (playerClass > 0 && playerClass < ClassNames.Length)
         {
-            return perClass;
+            return PerClassModel(definitionIndex, playerClass)
+                ?? Inherited(definitionIndex, entry => entry.Model);
+        }
+
+        // **`TF_CLASS_UNDEFINED` is not an empty slot, it is a copy of the first class's answer.**
+        // `InitPerClassStringArray` ends every iteration with
+        // `if ( outputArray[0] == NULL ) outputArray[0] = outputArray[i]`
+        // (`tf_item_schema.cpp:541`), and `CEconItemView::GetPlayerDisplayModel` reads slot zero
+        // like any other before reaching the base model. So a prop whose owner is not a player this
+        // moment knows about still resolves.
+        for (int candidate = 1; candidate < ClassNames.Length; candidate++)
+        {
+            if (PerClassModel(definitionIndex, candidate) is { } first)
+            {
+                return first;
+            }
         }
 
         return Inherited(definitionIndex, entry => entry.Model);
+    }
+
+    /// <summary><c>TF_CLASS_DEMOMAN</c>, whose model files disagree with his schema name.</summary>
+    private const int Demoman = 4;
+
+    /// <summary>What <c>model_player_per_class</c> says for one class, in Valve's order.</summary>
+    /// <remarks>
+    /// **Two forms, and reading one of them is the bug this fixes.** `InitPerClassStringArray`
+    /// (`tf_item_schema.cpp:489`) takes the class's own entry when there is one and otherwise
+    /// expands the block's `basename`:
+    ///
+    /// <code>
+    ///   CUtlString strClassString( pPerClassData-&gt;GetString( ClassUsability[i], NULL ) );
+    ///   if ( !strClassString.IsEmpty() )  use it
+    ///   else if ( pszBaseName )           sprintf( pszBaseName, name, name, name )
+    /// </code>
+    ///
+    /// Both halves are looked up through the prefab chain, because the engine merges a definition
+    /// with its prefabs before reading the block at all — so a child naming one class and a prefab
+    /// carrying the pattern is one block by the time Valve sees it.
+    /// </remarks>
+    private string? PerClassModel(int definitionIndex, int playerClass)
+    {
+        string className = ClassNames[playerClass];
+
+        if (Inherited(definitionIndex, entry =>
+            entry.PerClass.TryGetValue(className, out string? model) ? model : null) is { } named)
+        {
+            return named;
+        }
+
+        if (Inherited(definitionIndex, entry => entry.PerClassBaseName) is not { } pattern)
+        {
+            return null;
+        }
+
+        // **The demoman is spelled `demo` here and Valve's own source apologises for it**: *"the
+        // vast majority of his models are whatever_demo.mdl ... If this class is the
+        // TF_CLASS_DEMOMAN, just force 'demo'"* (`tf_item_schema.cpp:519`). Without this every
+        // demoman cosmetic using a pattern names a file that does not exist, which looks on screen
+        // exactly like naming no file at all.
+        string token = playerClass == Demoman ? "demo" : className;
+
+        // **Valve supplies the name three times to one `sprintf`**, so a pattern with more `%s`
+        // than that is undefined behaviour in the engine and simply reads adjacent stack. Replacing
+        // every occurrence is the same answer for every pattern the schema actually contains — the
+        // most any of them uses is two — and is defined for the rest.
+        //
+        // The substituted name is lower case where Valve's `ClassUsabilityStrings` are capitalised.
+        // Source's filesystem is case-insensitive and the schema's own patterns are lower case, so
+        // this produces the path the engine resolves to rather than the one it constructs.
+        return pattern.Replace("%s", token, StringComparison.Ordinal);
     }
 
     /// <summary>Whether this item is drawn as its own model parented to the player's arms.</summary>

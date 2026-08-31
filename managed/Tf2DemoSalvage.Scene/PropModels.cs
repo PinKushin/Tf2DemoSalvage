@@ -1136,6 +1136,7 @@ public static class PropModels
                     IlluminationOf(modelFile),
                     byFamily,
                     model.BodyParts,
+                    model.BodyPartNames,
 
                     // Read for every model rather than only for wearers: which models get worn is
                     // not known here, and a table of a few dozen entries costs nothing next to the
@@ -1889,6 +1890,7 @@ public static class PropModels
     /// <param name="Illumination">Where the model wants its light sampled, in model space.</param>
     /// <param name="SkinSwaps">Per extra skin family, how each material of family zero is replaced.</param>
     /// <param name="BodyParts">Each body part's place value and alternative count, for m_nBody.</param>
+    /// <param name="BodyPartNames">Each body part's name, in the same order.</param>
     /// <param name="Attachments">
     /// The named points other entities hang from, in the model's own order. Indexed ONE-based by
     /// <c>m_iParentAttachment</c>, because the engine stores them that way.
@@ -1919,6 +1921,11 @@ public static class PropModels
         (float X, float Y, float Z) Illumination = default,
         IReadOnlyList<IReadOnlyDictionary<int, int>>? SkinSwaps = null,
         IReadOnlyList<(int Base, int Count)>? BodyParts = null,
+
+        // **The parts' NAMES, because the code that matters addresses one by name.** TF2's spy mask
+        // is `FindBodygroupByName( "spyMask" )` (c_tf_player.cpp:5371) and the index differs per
+        // model, so the place/count pairs above cannot say which part that is.
+        IReadOnlyList<string>? BodyPartNames = null,
 
         // **The named points other entities hang from.** A hat merges bones by name; a halo, a
         // canteen, a spellbook and a spy's sapper share no bone name with their wearer and hang
@@ -2017,6 +2024,10 @@ public static class PropModels
         /// The entity's <c>m_flPlaybackRate</c> — the third factor in Valve's advance
         /// (<c>c_baseanimating.cpp:5493</c>). One is normal speed.
         /// </param>
+        /// <param name="startedAt">
+        /// Demo time at which this animation began, from <c>ScenePose.AnimationStartSeconds</c>.
+        /// Zero for an entity that arrived already playing, which measures from demo time as before.
+        /// </param>
         /// <returns>An index into <see cref="Geometry"/>, always in range.</returns>
         /// <remarks>
         /// **An unknown sequence draws the first frame rather than nothing.** A demo can name a
@@ -2024,8 +2035,9 @@ public static class PropModels
         /// added in a later game version than the recording - and a prop that vanishes is a worse
         /// answer than one that stands still.
         /// </remarks>
-        public int Frame(int sequence, float cycle, double seconds, float playbackRate = 1f) =>
-            Select(sequence, cycle, seconds, playbackRate).Frame;
+        public int Frame(
+            int sequence, float cycle, double seconds, float playbackRate = 1f, double startedAt = 0.0) =>
+            Select(sequence, cycle, seconds, playbackRate, startedAt).Frame;
 
         /// <summary>Which baked frames a sequence and cycle fall between, and how far.</summary>
         /// <param name="sequence">The networked sequence; zero when the demo has not said.</param>
@@ -2034,6 +2046,10 @@ public static class PropModels
         /// <param name="playbackRate">
         /// The entity's <c>m_flPlaybackRate</c> — the third factor in Valve's advance
         /// (<c>c_baseanimating.cpp:5493</c>). One is normal speed.
+        /// </param>
+        /// <param name="startedAt">
+        /// Demo time at which this animation began, from <c>ScenePose.AnimationStartSeconds</c>.
+        /// Zero for an entity that arrived already playing, which measures from demo time as before.
         /// </param>
         /// <returns>The frame to draw, the one after it, and the blend between them.</returns>
         /// <remarks>
@@ -2046,7 +2062,7 @@ public static class PropModels
         /// <see cref="StudioSequences.FrameFor(float, int, bool)"/> does with the frame itself.
         /// </remarks>
         public (int Frame, int Next, float Blend) Select(
-            int sequence, float cycle, double seconds, float playbackRate)
+            int sequence, float cycle, double seconds, float playbackRate, double startedAt = 0.0)
         {
             if (Geometry.Count == 0)
             {
@@ -2076,11 +2092,37 @@ public static class PropModels
             // `addcycle = flInterval * cyclerate * m_flPlaybackRate`, and the playback rate was
             // absent here - decoded, retained, and read by nothing - so anything not playing at
             // rate 1 advanced at the wrong speed.
-            double advanced = cycle + (seconds * where.CyclesPerSecond * playbackRate);
+            // **From when this animation BEGAN, not from the start of the demo** (B237). Valve's
+            // advance is over an interval — `flInterval = ( curtime - m_flAnimTime )`,
+            // `c_baseanimating.cpp:5480` — and `m_flAnimTime` is re-stamped whenever the animation
+            // restarts. `Simulate` was taught that for skinned models and this selector, which is
+            // the path every BAKED prop takes, was still handed absolute demo time.
+            //
+            // Measured on the owner's demo: a spawn cabinet begins `open` 177.57 seconds in. At
+            // 1.0345 cycles a second, absolute time gives a cycle of 183, clamped to the end before
+            // its first frame is drawn — so the door is fully open the instant it starts and never
+            // moves. That is a door that does not animate, which is what "stuck open" looks like.
+            //
+            // **Never negative.** The scene interpolates between packets and can ask for a moment
+            // fractionally before the packet that stamped the restart. A negative elapsed runs a
+            // one-shot backwards to its floor harmlessly, but wraps a LOOPING sequence to near its
+            // end — a door snapping shut for a frame.
+            double elapsed = Math.Max(0.0, seconds - startedAt);
+
+            double advanced = cycle + (elapsed * where.CyclesPerSecond * playbackRate);
 
             bool loops = wanted < SequenceLoops.Count && SequenceLoops[wanted];
 
-            float phase = (float)(advanced - Math.Floor(advanced));
+            // **Wrapped only if the sequence LOOPS** (`C_BaseAnimating::ClampCycle`,
+            // `c_baseanimating.cpp:1431`). This was `advanced - Math.Floor(advanced)`, the looping
+            // branch applied to everything, so a one-shot sequence that finished began again.
+            //
+            // Note what that did to the two lines below, which already had it right: `FrameFor`
+            // holds a finished one-shot on its last frame, and `next` deliberately holds rather
+            // than wrapping — *"A door that has finished opening must blend toward the pose it is
+            // already in, not back to shut"*. Neither could ever run, because the phase reaching
+            // them was wrapped below one and looked like a sequence still in progress.
+            float phase = StudioSequences.ClampCycle((float)advanced, loops);
 
             int frame = StudioSequences.FrameFor(phase, where.Frames, loops);
 

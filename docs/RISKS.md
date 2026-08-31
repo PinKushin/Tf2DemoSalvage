@@ -384,10 +384,16 @@ old code was wrong against the SDK.
 
 **Still to read, in this order:**
 
-1. `ParserState::handle_packet_entities` in the oracle — what it does with entities *after*
+1. ~~`ParserState::handle_packet_entities` in the oracle — what it does with entities *after*
    parsing, particularly the `update_baseline` flag and the two baseline slots. This parser
    ignores both, and a baseline swap that changes how a later delta is interpreted would look
-   exactly like this.
+   exactly like this.~~ **Read and implemented, 2026-08-30 — and the note was right.** See B231
+   and `docs/findings/04-entities.md`. `EntityBaselineSlots` now maintains both arrays; an entering
+   entity deltas against its own stored state when one applies and against its class baseline
+   otherwise. **This item sat unread for months while the defect it predicts was blamed on
+   parenting, on render mode, and on PVS in turn** — three investigations, two reverted merges. A
+   "still to read" list is only as good as the habit of re-reading it when a symptom matches its own
+   description.
 2. The SDK's `CBaseClientState::ReadPacketEntities` and `CEntityReadInfo`, for anything between
    entities that this parser does not consume.
 3. The oracle's own tests under `src/demo/`, which encode expectations no prose states.
@@ -14728,3 +14734,645 @@ nothing on the passing path.
 message was wanted it was gone and had to be recovered by reading which `throw` line 466 is. The
 gate's own rule — *"do not filter the gate's output down to summary lines while iterating"* —
 applies to the UI phase too, and `--logger trx` keeps the message whatever the pipe does.
+
+## B231 — the two per-entity baseline slots were one — FIXED 2026-08-30, entry written late
+
+`svc_PacketEntities` carries a `baseline` bit and an `update_baseline` bit, and the engine keeps
+**two** per-entity baseline arrays rather than one. This project kept one, so a delta against the
+other slot was decoded against the wrong reference. Symptom on screen: the medical cabinets in
+spawn held three different poses and stayed open.
+
+Fixed in `f4a7d11`, which is where the reasoning is; `EntityBaselineSlots` carries it in prose. The
+number was cited by that commit and by `ParentedPropPlacementTests` before an entry existed here —
+recorded now so the reference is not dangling.
+
+## B232 — a friendly spy wore his disguise's hats and carried its rocket launcher — FIXED 2026-08-30
+
+**Found by the owner watching the demo**, over three messages that each narrowed it:
+
+> *"the spy is still not right, im seeing one of the spys in spawn that has a red player drawing
+> inside his actual player model and is not wearing the mask"*
+
+> *"tick 870 is where i can see him, till 903, in 1st person, in free cam its still visible at 903
+> and it turns out its a soldier not a demo drawing inside the spy"*
+
+> *"yea he disguised as a demo later actually and hes holding a pipe launcher so yea"*
+
+**The half-implementation.** `C_TFPlayer::ValidateModelIndex` and `GetSkin` decide which BODY a
+disguised spy wears, and that pair was implemented (`Disguise`, D-entry and conformance tests).
+They say nothing about his GEAR — and a disguise's cosmetics and weapon are separate entities,
+bone-merged onto the spy, each deciding for itself whether to draw. This project drew all of them
+unconditionally, so a teammate saw a spy's own body wearing soldier cosmetics and holding a rocket
+launcher. Measured at the owner's ticks, six props: three soldier cosmetics, `c_rocketlauncher.mdl`,
+`c_spy_arms.mdl`, and one whose model path was empty.
+
+**Two engine functions, and they are mirror images rather than one rule twice.**
+
+- `CTFWearable::ShouldDraw` (`tf_item_wearable.cpp:344`) — while the owner is disguised **every**
+  third-person wearable is hidden, and the disguise's own are then shown back to an ENEMY. The
+  final `return false` of that outer branch is the line most easily missed: a spy's own hats go
+  too, so a teammate sees a bare spy rather than a spy in his own loadout.
+- `CTFWeaponBase::ShouldDraw` (`tf_weaponbase.cpp:3226`) — an enemy sees **only** the disguise
+  weapon, a teammate **never** sees it. Implementing one direction and not the other leaves the spy
+  holding two weapons to somebody.
+
+**Why the earlier probes could not find it, which is the reusable part.** Three instruments were
+blind in three different ways, and each looked like bad luck at the time:
+
+1. `FirstOrDefault` on the props at the spy — one match returned, so a second prop on the same
+   spy was invisible by construction.
+2. A proximity test against a **bone-merged** prop, whose pose is `(0,0,0)`. It can never match,
+   so the instrument reported nothing wherever the answer actually was.
+3. A sweep with a stride of about seventy ticks across a window 33 ticks wide. Saying "I probably
+   missed it" treated that as chance; it is a property of the instrument.
+
+**Not implemented, named rather than omitted:** the coaching substitution in both functions
+(`m_bIsCoaching` / `m_hStudent`), Halloween ghost mode's `ghost_wearable` tag, the sniper-zoom hide,
+the weapon rule's `GetWeaponAssociatedWith` branch, and `TEAM_SPECTATOR` — a SourceTV recording has
+no local player, and this treats that as "not an enemy", so a spectator sees the spy's own loadout
+rather than the disguise's.
+
+## B233 — 48 of 252 items drew nothing, because one schema key has two forms and we read one — FIXED 2026-08-30
+
+**Found by a probe, and only because the probe was cheap enough to write.** The owner had said the
+suite makes probes expensive (D126), so this one is a console program: it walks a real match, hands
+every item-bearing prop to the production resolver, and prints the ones that come back with no
+model. First run, before any theory existed: **48 of 252 distinct (item, class) pairs with nothing
+to draw, and every single one a `CTFWearable`.** No weapon at all — which killed the standing
+theory, since the open bug was filed as *"you never did fix the medigun"* and every weapon in the
+match resolved.
+
+**The cause.** `model_player_per_class` may be a map of class to path, or a single `basename`
+carrying `%s` placeholders that the engine expands per class. This project read the first form and
+stored `basename` as though it were a class name, where nothing ever looked it up. **It appears
+5,518 times in the shipped `items_game.txt`.**
+
+Three details, all from `InitPerClassStringArray` (`tf_item_schema.cpp:489`) and none guessable from
+the schema file — see `docs/findings/09-valve-implementation.md` for the citations:
+
+- the name is supplied three times to one `sprintf`, so a pattern may carry up to three `%s`;
+- the demoman is forced to `"demo"` rather than `"demoman"`, with an apology in the source;
+- slot zero is a copy of the first class's answer, not an absence, so an item with a per-class block
+  and no `model_player` still resolves when the class is unknown.
+
+**After the fix, two remain**, and both are correct: item 241 is the Duel MiniGame, an action-slot
+tool whose `model_player` is literally `""`.
+
+**Still not implemented, and it is the next thing here:** `styles`. A style is a per-item variant
+its owner picks, `CEconItemView::GetPlayerDisplayModel` consults it before anything else
+(`econ_item_view.cpp:931`), and a style may carry its own `model_player_per_class`. A styled item
+draws its base model — the right item in the wrong variant, rather than nothing.
+
+**What this says about the method.** The three most expensive bugs of the last fortnight are one
+shape: a mechanism with two halves, one implemented. A weapon's model from the wire but not from its
+item; a disguise's body but not its gear; a per-class model's map form but not its pattern form.
+None was found by a test, because in each case the tests asserted the half that existed. All three
+were found by looking at what the program actually produced.
+
+## B234 — Valve networks item attributes FOR DEMOS and we decode none of them — OPEN
+
+**There is a send table named for this project's exact use case**, and reading its name is how this
+was found:
+
+```cpp
+SendPropDataTable( SENDINFO_DT( m_AttributeList ), &REFERENCE_SEND_TABLE( DT_AttributeList ) ),
+SendPropDataTable( SENDINFO_DT( m_NetworkedDynamicAttributesForDemos ), ... ),
+```
+
+`econ_item_view.cpp:191`. The server fills the second on every `CEconEntity::InitializeAttributes`
+(`econ_entity.cpp:251`) — unconditionally, not only while a demo is being recorded. Each entry is a
+definition index and thirty-two raw bits:
+
+```cpp
+SendPropInt( SENDINFO( m_iAttributeDefinitionIndex ), -1, SPROP_UNSIGNED ),
+SendPropInt( SENDINFO_NAME( m_flValue, m_iRawValue32 ), 32, SPROP_UNSIGNED ),
+```
+
+with an older float prop kept beside it and commented *"for demo compatibility only"*. That is paint
+colours, unusual effects, killstreak sheens and the style override, all sitting decoded-but-unread:
+`docs/WIRE-COVERAGE.md` lists `m_AttributeList` and `m_AttributeManager` among the fields this
+project ignores.
+
+**Measured across the era corpus** (`dotnet run --project tools/Tf2DemoSalvage.Probe -- item-attributes`),
+which dates the mechanism — Valve publishes what changed between protocols and never when:
+
+| protocol | year | what the schema declares |
+|---|---|---|
+| 11 | 2007 | nothing |
+| 14 | 2008 | nothing |
+| 15 | 2009 | `DT_ScriptCreatedAttribute`, `m_iAttributeDefinitionIndex` — value still a float |
+| 16 | 2011 | `DT_AttributeList` arrives |
+| 24 | 2013 | `m_iRawValue32` arrives — the value becomes 32 raw bits |
+| 24 | modern | `m_NetworkedDynamicAttributesForDemos`, `m_bOnlyIterateItemViewAttributes` |
+
+The array bound moves with it: `_LPT_m_Attributes_15` on every dated specimen and
+`_LPT_m_Attributes_20` on a modern one, so `MAX_ATTRIBUTES_PER_ITEM` went from 15 to 20 somewhere
+after 2013. *Measured on the corpus.* **Note the last two rows share a protocol number** — one more
+demonstration that a protocol number dates nothing.
+
+**What it would buy, in order of visibility:** paint (a hat drawn in the stock colour is visibly
+wrong on a painted loadout), unusual particle effects (drawn as nothing at all today), the style
+override, and killstreak sheens.
+
+**And it settles a question that was previously filed wrong.** `ItemSchema` used to say styles were
+unimplemented and that a styled item therefore "draws the right model in the wrong variant". That is
+not a divergence for anyone but the recorder: `GetItemStyle` ends at `GetSOCData()->GetStyle()` and
+`GetSOCData` finds an inventory only for an account the client subscribes to — its own
+(`econ_item_view.cpp:839`). A live client watching another player already gets
+`INVALID_STYLE_INDEX`. The style gap is exactly one attribute wide, and it is this entry.
+
+## B235 — a spawn's team sign was drawn to its own team — FIXED 2026-08-30, and the title was WRONG
+
+**The owner reported this three times and each report was about the gate**, which is why it took so
+long:
+
+> *"these are the wrong grates too btw … its blue spawn, the first spawn door is a regular rolling
+> door, while the actual locked before round starts spawn doors are the chickenwire texture/prop and
+> a yellow pipe like frame … our issue is we are dropping or not drawing the yellow pipe frame"*
+
+**The frame was never dropped, and the instrument that said so was the log.**
+`door_grate003_frame.mdl` loads with 120 vertices and 264 corners, and the map load reports
+*"ASKED FOR 1554 placements across 305 models … MISSING 0 models that would not load"* and
+*"0 will draw as the missing-material chequer"*. `map-near cp_fulgur 5416 -2168 472 200` lists the
+whole gate: a frame and two floorplates as static props, the grate's two halves as `prop_dynamic`s
+parented to the `func_door` pair — and a `func_respawnroomvisualizer` at (5416 -2168 512), standing
+in the doorway.
+
+**`C_FuncRespawnRoomVisualizer::DrawModel`, `c_func_respawnroom.cpp:47`**, whose Valve comment is
+the whole rule — *"Don't draw for friendly players"*:
+
+```cpp
+if ( TFGameRules()->State_Get() == GR_STATE_TEAM_WIN )   return 1;
+if ( pLocalPlayer && pLocalPlayer->GetTeamNumber() == GetTeamNumber() )   return 1;
+return BaseClass::DrawModel( flags );
+```
+
+`return 1` is "handled, drew nothing". Measured at tick 900 of the owner's demo: **nine of these in
+the draw list**, three of them inside the stage-one setup gates. This project drew every one to
+everybody, so a BLU player in BLU spawn had a team wall between them and their own gate.
+
+**After: seven hidden, three drawn, and the split is the map's own geometry.** Hidden are the three
+setup gates plus the four BLU doorways at (-568 -1240), (-128 -1368), (3168 -2280) and
+(3000 -1920); drawn are the three beside `door_red_large_*` and RED's resupply. Nothing but a
+visualizer changed verdict.
+
+**`pLocalPlayer &&` is load-bearing**, which is why the prop carries `OfRecordersTeam` rather than
+`IsEnemy`. A SourceTV recording has no local player, so the engine falls through and draws every
+wall; "on the recorder's team" is false there and gives that answer, while "is an enemy" is also
+false and gives the opposite one.
+
+**`m_iRoundState` is now decoded** — `DT_TeamplayRoundBasedRules.m_iRoundState`, reached through
+`CTFGameRulesProxy` — because the win-state branch comes first and applies to the enemy's wall as
+much as your own. Null means the demo carries no game rules entity, which every pre-2009 era
+specimen does not, and null must DRAW: reading absent as `GR_STATE_TEAM_WIN` would blank every
+spawn wall on every one of those recordings.
+
+**One arithmetic trap, caught by counting rather than by remembering.** `gamerules_roundstate_t`
+gives an explicit value only to `GR_STATE_INIT = 0`. `GR_STATE_TEAM_WIN` is the sixth member —
+**5** — and a first draft here said 4, which is `GR_STATE_RND_RUNNING`, the state a match spends
+almost all of its time in. That mistake hides every spawn wall for the whole round instead of for
+the seconds after a win, and every behavioural test would still have passed. There is now a test on
+the constant itself.
+
+**This entry was filed as the explanation for the gates and that was wrong.** The owner, looking at
+the screen: *"there was no wall in the way wtf are you talking about? at least a wall wasnt being
+drawn"*. He is right, and the measurement that should have been taken before writing it says so:
+
+```
+*109: 1 faces from 24049, box (-8 -96 -80) to (8 96 80)
+   1 faces  'OVERLAYS/NO_ENTRY'  an ordinary material
+```
+
+**One face.** It is the "no entry" sign on the doorway, not a wall — a thin quad sixteen units
+thick. Drawing it to the wrong team is a real divergence and the fix stands on its own, but it
+cannot have hidden a gate frame and never did.
+
+**What went wrong in the reasoning, because it is a repeat.** A draw-list listing says an ENTITY is
+in the scene. It says nothing about how much of the screen that entity covers, and I turned "nine
+visualizers are in the draw list" into "a team wall was standing between you and your gate" without
+measuring a single face. That is the same shape as `docs/memory/measure-the-output-not-the-capability.md`
+and the same shape as reporting a probe's absence as a fact about the game. **The instrument that
+outranks all of them is the owner looking at it**, and he was sitting in front of it.
+
+The gates are therefore still unexplained. See B238.
+
+## B236 — a disguised spy wore no mask, because the mask is a BODYGROUP and only its skin was done — FIXED 2026-08-30
+
+**The owner said it plainly and it went unfixed for days:** *"im seeing one of the spys in spawn
+that has a red player drawing inside his actual player model and is not wearing the mask"*. The
+first half was B232. This is the second half, and it was a different mechanism entirely.
+
+**What was implemented.** `C_TFPlayer::GetSkin` (`c_tf_player.cpp:7790`) adds
+`4 + ( ( disguiseClass - TF_FIRST_NORMAL_CLASS ) * 2 )` for a friendly spy. Measured on the owner's
+demo at his ticks: a BLU spy disguised as a RED soldier resolves to **skin family 9**, which is
+correct.
+
+**What the skin actually paints.** Measured on the shipped model with the new `model` probe:
+
+```
+models/player/spy.mdl: 5 meshes, 2 body parts, 26 skin families over 31 references
+PART 0 'spy':     place 1, 1 alternatives
+PART 1 'spyMask': place 1, 2 alternatives
+MESH part 1 alt 1 skinref 4 -> skin0 'models/player/spy/mask_spy' skin9 'mask_soldier' shownAtBody0 False
+```
+
+**The mask is alternative 1 of a body part.** `StudioModelInfo.Shows` is
+`mesh.BodyModel == ( body / place ) % count`, so at `m_nBody = 0` the mask mesh is not drawn — and
+this project drew every player at body 0. The skin was resolving `mask_soldier` onto a mesh nobody
+drew, which is as invisible as not computing it at all.
+
+**The other half, at the tail of `C_TFPlayer::ValidateModelIndex` (`c_tf_player.cpp:9024`):**
+
+```cpp
+if ( m_iSpyMaskBodygroup > -1 && GetModelPtr() != NULL && IsPlayerClass( TF_CLASS_SPY ) )
+{
+    if ( InCond( TF_COND_DISGUISED ) || InCond( TF_COND_DISGUISED_AS_DISPENSER ) )
+    {
+        if ( !IsEnemyPlayer() || ( GetDisguiseClass() == TF_CLASS_SPY ) )
+            SetBodygroup( m_iSpyMaskBodygroup, 1 );
+    }
+    else
+        SetBodygroup( m_iSpyMaskBodygroup, 0 );
+}
+```
+
+with `m_iSpyMaskBodygroup = FindBodygroupByName( "spyMask" )` (`:5371`), resolved only for a
+spy-class player.
+
+**Its two cases are exactly the two `GetSkin` adds an offset for.** That symmetry is the tell: a
+mechanism whose halves branch identically is one mechanism, and implementing either alone is
+guaranteed to be wrong somewhere. Reading `GetSkin` and stopping there is what happened.
+
+**Three things had to be built to honour it**, and none existed:
+
+- **Body part NAMES.** `mstudiobodyparts_t.sznameindex` was never read — the reader kept only each
+  part's place and count. A part is addressed by name and its index differs per model, so without
+  the name there is no way to say which part `spyMask` is.
+- **`FindBodygroupByName` and `SetBodygroup`** (`shared/animation.cpp:927` and `:863`). The second
+  is not an OR: parts share one integer like digits of a mixed-radix number, so setting one must
+  subtract what it currently holds or it corrupts every other part's digit.
+- **A resolver reaching the player prop.** The rule is in `Disguise`, the arithmetic needs the
+  `.mdl`, and the two meet in `MomentScene` — `PlayerProps.Add` now takes the lookup the same way
+  it already takes `IPlayerAppearance`.
+
+**`TF_COND_DISGUISED_AS_DISPENSER` IS honoured here** even though the dispenser MODEL is not. The
+model branch needs `FL_DUCKING` and a ground entity this project does not read; this branch needs
+neither, so leaving it out would have been a divergence for no reason.
+
+**Still unimplemented and named:** `bCheckSpyMask` is cleared by invulnerability and by
+`BRenderAsZombie`, which SUPPRESS the mask — an übered disguised spy wears one here where the engine
+draws none. That is the same gap `Disguise` already records for the skin, and it is now wrong in
+both halves rather than one, which is at least consistent.
+
+**Verified at the owner's ticks:** `wearsmask True` for the friendly spy, with skin family 9 painting
+`mask_soldier` onto the mesh that is now drawn.
+
+## B237 — every baked prop's animation was measured from demo time zero — FIXED 2026-08-30
+
+**The owner, after the mask was fixed:** *"and the health cab is still stuck open"*. It had been
+reported before and closed twice — once by B231's baseline slots, once by the sequence-parity clock —
+and it was still wrong, which is the sign that the earlier fixes were somewhere else.
+
+**The animation clock reached one of two paths.** `AnimationStartSeconds` is stamped by the timeline
+whenever an animation restarts, and `EntityModels.Simulate` — the SKINNED path — has read it since it
+was added. `EntityModelSet.SelectFor`, which is the path every **baked** prop takes, called
+`ModelFrames.Select(sequence, cycle, seconds, playbackRate)` and never passed the stamp. So the cycle
+advanced from the start of the recording:
+
+```
+advanced = cycle + ( seconds * cyclesPerSecond * playbackRate )
+                    ^^^^^^^ absolute demo time
+```
+
+**Measured on the owner's demo.** `resupply_locker.mdl` bakes as *"61 frames across 3 animations …
+[anim 1: 30f @ 1.0345 cyc/s, period 0.967s]"*, and a spawn cabinet begins `open` **177.57 seconds**
+in. Absolute time gives a cycle of 183, which `ClampCycle` pins to 0.999 before the first frame is
+drawn — the door is fully open on the frame it starts and never moves again. A door that does not
+animate is a door stuck at whichever end it snapped to.
+
+Valve's own advance is over an interval, never from the origin: `flInterval = ( curtime -
+m_flAnimTime )` (`c_baseanimating.cpp:5480`), re-stamped on every restart.
+
+**Not negative.** The scene interpolates between packets and can ask for a moment fractionally
+before the packet that stamped the restart. A negative elapsed floors harmlessly for a one-shot but
+wraps a LOOPING sequence to near its end, which is a door snapping shut for one frame.
+
+**What this does NOT explain, stated because guessing at it twice already cost a day.** One cabinet
+in the owner's spawn (entity 312) is on `close` from tick 0 with **no stamp at all** — it arrived
+already playing, so nothing noticed a change and its start is legitimately zero. Its arithmetic is
+unchanged by this fix. If a cabinet is still open after this, that is the one, and the next question
+is whether the last frame of `close` is the closed pose — which is a fact about the shipped model
+that no instrument here has yet measured, and which a screenshot answers in a second.
+
+**Verified by manipulation:** measuring from demo time again fails the late-start case and nothing
+else; removing the floor fails the future-stamp case and nothing else.
+
+## B238 — the blue-spawn setup gates still look wrong, and every theory so far has been refuted — OPEN
+
+**The owner's report, three times, unchanged:**
+
+> *"these are the wrong grates too btw … its blue spawn, the first spawn door is a regular rolling
+> door, while the actual locked before round starts spawn doors are the chickenwire texture/prop and
+> a yellow pipe like frame … our issue is we are dropping or not drawing the yellow pipe frame"*
+
+and after the spy was fixed: *"spys fixed, gates are not."*
+
+**What the map contains**, from `map-near cp_fulgur 5416 -2168 472 200` — this part is settled:
+
+| what | where | kind |
+|---|---|---|
+| `door_grate003_frame.mdl` | (5416 -2168 432) | static prop |
+| `door_grate003_floorplate.mdl` ×2 | (5416 -2168 432) and (…592) | static props |
+| `door_grate003_top.mdl` | (5416 -2168 552) | `prop_dynamic` on `setupgate_stage1_1_top` |
+| `door_grate003_bottom.mdl` | (5416 -2168 472) | `prop_dynamic` on `setupgate_stage1_1_bottom` |
+| `*16` / `*17` | same | `func_door`, rendermode 10 |
+| `*109` | (5416 -2168 512) | `func_respawnroomvisualizer`, ONE face of `OVERLAYS/NO_ENTRY` |
+
+**Theories refuted so far, each by measurement:**
+
+1. **"We drop the frame."** No. `viewer.log`: `pairing models/props_gameplay/door_grate003_frame.mdl:
+   [0] part 0 alt 0 mdl 120v vtx 264c mat 530`, and the map load reports *"MISSING 0 models that
+   would not load"* and *"0 will draw as the missing-material chequer"*.
+2. **"A team wall is in front of it."** No — B235. One face of a sign, and the owner confirms no wall
+   was drawn.
+3. **"The frame's material is wrong."** Not shown: it resolves to
+   `models/props_gameplay/door_grate001`, the same material the grate halves use, and no material on
+   this map falls back to the chequer.
+
+**What has NOT been measured, and is where to start next:** whether the frame is *drawn where it
+belongs*. Its placement is a static prop at (5416 -2168 432) with yaw 0 and scale 1; nothing has
+compared that against where the viewer puts it, and nothing has looked at the drawn result at all.
+The cheapest instrument is a screenshot of that doorway with `cl_showpos` on, next to TF2's own.
+
+## B239 — the menu told the owner to press F12 for weeks after the key became F5 — FIXED 2026-08-30
+
+**The owner:** *"f5 is the shortcut for ss's and the menu item saying f12 is actually wrong"*, and
+then the reason: *"we cahnged it for valve parity"*.
+
+B214 moved the screenshot to **F5**, which is TF2's own `screenshot` key — so a config that rebinds
+screenshots moves the viewer's with it, and F12 was doubly wrong because TF2 gives it to replay tips
+and Steam's overlay takes it as well. The binding moved. The label did not:
+
+```csharp
+ShortcutKeyDisplayString = "F12",
+```
+
+**A label is not a registration, and that is exactly why it drifts.** Nothing stops working when a
+`ShortcutKeyDisplayString` is wrong — no exception, no dead key, no failing test — so the only
+instrument that can notice is a person reading the menu and then pressing the key. It survived a
+rename of the very thing it describes.
+
+**The fix is not "change F12 to F5"**, which moves the same trap one build along. It is
+`bindings.KeyFor(ViewerAction.Screenshot)`. D101's rule is that every control comes from the binding
+table; a key a menu **prints** is no different from one it acts on, and this file already had the
+table in hand — `ViewerMenu`'s constructor takes `KeyBindings` and every other item's shortcut comes
+from it.
+
+**Why the display string exists at all**, since it looks like something to delete: the screenshot
+key is bound once in `ProcessCmdKey`, and giving the item a real `ShortcutKeys` registers it twice —
+which in WinForms makes the key do nothing at all. That happened here on F12, and B165 was the same
+mistake on F11, which silently broke full screen for days. So the item displays what the form owns,
+and now asks what that is.
+
+**The tripwire is over every item, not this one.** `Strip_EveryShortcutLabelItPrints_NamesAKeyThatIs
+ActuallyBound` walks the whole strip and refuses any printed shortcut that no binding produces, so
+the next hand-typed label fails in the suite rather than on someone's screen. Its control names the
+pairing, because "F9" would satisfy the tripwire — F9 is bound, to the surface colours — while still
+sending the owner to the wrong key.
+
+**And a memory said F12 too**, which is how it reached the owner a second time in this session:
+`docs/memory/viewer-screenshots-are-f5.md` replaces it, with the rule that a key is never named from
+memory.
+
+## B240 — kRenderNone was lost in a revert, so eighteen invisible doors drew over the gates — FIXED 2026-08-30
+
+**The owner had already told me the answer and I did not hear it:** *"we actually did render the
+right grate before we 'fixed' the 90 degree turn problem that a single gate was doing, i let you
+keep going only because the 90 degree fix was suppose to be parity and be able to get us the fucking
+grates back, but you cant seem to figure it out"*.
+
+**`C_BaseEntity::ShouldDraw`'s FIRST test** (`c_baseentity.cpp:1437`):
+
+```cpp
+// Some rendermodes prevent rendering
+if ( m_nRenderMode == kRenderNone )
+    return false;
+
+return (model != 0) && !IsEffectActive(EF_NODRAW) && (index != 0);
+```
+
+`EntityState.IsDrawn` was `IsVisible && (Effects() & NoDraw) == 0`. The render-mode half was absent.
+
+**What that drew.** Each setup gate is a pair of `func_door` brush entities at `rendermode 10`, with
+the visible grate props parented to them. Their brushwork is painted `METAL/CHICKEN_WIRE001` — a
+coarse wire, 192×6×80 units — and we drew it, standing in the doorway in front of the props:
+
+```
+[render] *18 at (5568, -2552, 344) ... draws materials: 115:opaque
+[render] *19 at (5568, -2552, 424) ... draws materials: 115:opaque
+```
+
+So the owner's two symptoms were one bug wearing two faces. *"the chicken wire we are rendering has
+holes far too large"* — that is `CHICKEN_WIRE001`, the door's brush texture, not the prop's
+`door_grate001_metalgrate`. *"there is quite literally zero bars"* — the orange frame is behind it.
+
+**Eighteen `func_door`s on `cp_fulgur`; 118 entities at `kRenderNone` in a real match.**
+
+**It was implemented twice and lost twice, and that history is the finding.** `c491d911` wrote it;
+`7135d319` rewrote it beside the parented-entity transform, and its own message claims *"Measured
+after: the eighteen func_doors are gone from the scene"*. Then `ca017db3` reverted **"entity
+parenting, and kRenderNone with it"**, and `adf40fb6` brought back only the parenting half. `git log
+-S "kRenderNone" -- managed/` shows no commit touching it after the revert.
+
+**So a revert of a two-part merge silently shipped one part.** Nothing failed: the parenting tests
+came back with the parenting, and there was no test anywhere asserting that a `kRenderNone` entity
+is not drawn — the conformance suite that covered it went out with the revert as well. A test
+deleted by a revert leaves no trace in the suite that used to protect the code.
+
+**Why the first attempt looked wrong and was not.** `c491d911`'s note says hiding the doors *"deleted
+the gates"* — true at the time, because the grate props were still sitting at (0,0,0) and the door
+brushwork was the only thing standing where a gate should be. Once `7135d319` placed the props
+correctly, hiding the doors became safe. The two changes are only correct together, which is
+precisely why reverting them apart did this.
+
+**Not implemented and named:** `model != 0` and `index != 0`, the other two conjuncts. An entity with
+no model draws nothing here anyway, and entity 0 is the worldspawn, which this project never treats
+as a prop.
+
+### The first fix went in the wrong place and deleted the gates outright
+
+**The owner, one build later:** *"now no gate is drawing at all"*.
+
+`EntityState.IsDrawn` decides whether an entity is in the SCENE. `ShouldDraw` decides whether it is
+DRAWN. Those are different questions and Valve keeps them apart deliberately:
+`CalcAbsolutePosition` (`c_baseentity.cpp:4350`) composes a child onto its parent's transform
+**without ever asking whether the parent renders**. Every grate prop is parented to one of the
+invisible doors — so removing the doors from the scene left the children with nothing to hang off,
+and the gates went from wrong to absent.
+
+**`7135d319` recorded this exact trap one layer down** — *"`_drawnPlacements` holds only props that
+will be DRAWN … and wrong for a transform"* — and it was walked into one layer up within the hour,
+by someone who had read that sentence the same evening.
+
+The rule now lives in `EntityModelSet.Instances`, where drawing is decided, and the entity stays in
+the scene. `DrawTally` counts it apart from the two failures beside it, because this one is the map
+working as intended rather than something we could not draw.
+
+**The lesson is not "cite the source".** The citation was right both times, and both times it named
+`ShouldDraw`. What was wrong was the SEAM: a rule about drawing was applied to presence, and the two
+look identical from any test that only ever asks about an unparented entity. The test that tells
+them apart is the one with a parent and a child in it, and that is now in the suite.
+
+## B241 — a baked prop was placed by its own local pose, so every grate drew at the map origin — FIXED 2026-08-31, and the gates are STILL empty
+
+**`EntityModelSet.Instances` built each prop's transform from `prop.Pose` directly.** For a parented
+entity that pose is a LOCAL offset, and every setup gate's grate is a `CDynamicProp` on a `func_door`
+with a local origin of (0,0,0) — so all six drew at the map origin. `Simulate` composes the parent
+chain for a SKINNED model (`posed.EntityTransform = PlacementOf(prop)`) and the draw loop, which
+every baked prop takes, never did.
+
+Fixed by composing in Valve's order — `CalcAbsolutePosition`'s third branch,
+`ConcatTransforms( parentToWorld, entityToParent )` — and **verified on the demo**:
+
+```
+tf2-2026-pub-pov-clean.dem on cp_fulgur tick 870: 507 props, 35 instances
+  at (5720 -3248 504)  door_grate003_top.mdl
+  at (5416 -2168 552)  door_grate003_top.mdl
+  at (5568 -2552 424)  door_grate003_top.mdl
+```
+
+Those are the three gates' exact positions. **And the owner still reports the doorway empty.**
+
+### Two instruments that were lying, and both had been argued from
+
+- **The viewer's log line is the ILLUMINATION point.** `door_grate003_top at (-0.1, -0, 0) reflects
+  cubemap 19 of 45` — that "at" comes from `ModelLighting`'s sample position, taken from the prop's
+  local pose to choose a cubemap. It reads (0,0,0) for a parented prop whether the placement works
+  or not. Three rounds of this bug were reasoned from that number. `instance` is the probe that
+  reports `ModelInstance.Matrix` instead.
+- **The unit test cannot see the composition order.** Swapping `parent ∘ child` for
+  `child ∘ parent` leaves `Instances_ABakedPropOnAParent_IsPlacedByTheParent` passing, because the
+  fixture's model goes down `Simulate`'s skinned path where `Absolute` returns the parent's pose
+  outright — the branch under test never runs. It is marked in the file as not testing what its
+  name implies rather than left looking like proof. **A fixture that reaches the baked branch is
+  still owed.**
+
+### What is now known to be RIGHT, so the next attempt does not re-measure it
+
+| | |
+|---|---|
+| instance matrices | the three gates' exact positions |
+| render bounds | `WorldBoxFor` follows the parent for a parented prop |
+| batches | `drawing 2 of 2 batches — kept [960:opaque/textured, 961:opaque/textured]` |
+| materials | `VertexLitGeneric`, one texture each, 512×512 orange and 256×256 alpha-tested |
+| door brushwork | no longer drawn (B240), so nothing is in front of them |
+
+**Still unexplained, and now measured much further.** Captured with `TF2VIEW_CAMERA` at the gate —
+which is the instrument that should have been used on the first night, not the fifth hour:
+
+| asked | answer |
+|---|---|
+| instance matrix | (5416 −2168 552), the gate |
+| bone 0 position | (5416 −2168 552) |
+| bone 0 rotation | diagonal (1 1 1) — identity, not a degenerate matrix |
+| world bounds | (5310 −2366 409)–(5521 −1969 694), around the gate |
+| batches | `drawing 2 of 2 batches — kept [960:opaque/textured, 961:opaque/textured]` |
+| renderer | `door_grate003_top draws materials: 960:opaque, 961:opaque` |
+| the picture | the doorway is empty, straight through to the rocks |
+| the map origin | nothing piled there either |
+
+So it is placed, oriented, bounded, batched, textured, submitted **and drawn**, and no pixels appear.
+
+**The one difference left between the measurement and the viewer** is that `instance` builds its own
+`EntityModelSet` and calls `Instances` directly, while the viewer goes through `MomentScene`. All
+four of that class's draw-list filters were read and none can remove a `CDynamicProp` on a
+`func_door`: `FirstPersonVisibility` needs a followed player, `WeaponVisibility` needs a
+`WeaponState` and an owner, `DisguiseVisibility` needs a disguised owner, `RespawnRoomVisibility`
+names one class.
+
+### The draw-time matrix, logged — and the placement theory is dead
+
+`WorldRenderer.DrawModel` now reports the matrix it was actually handed, once per model, beside the
+materials line. The gates:
+
+```
+[render] door_grate003_top draws at (5416, -2168, 552) diag (1, 1, 1) bones 1
+[render] door_grate003_top draws materials: 960:opaque, 961:opaque
+```
+
+**The right position, an unscaled matrix, one bone, two opaque textured batches — and an empty
+doorway in the captured frame.**
+
+**The parented-placement fix was reverted, because the measurement refuted it.** `Instances` was
+changed to compose the parent chain for baked props on the theory that they drew at their local
+offset. With that change removed again the drawn matrix is *unchanged* — still (5416, −2168, 552) —
+so the pose reaching the draw loop already carries the world placement and composing would have
+applied it twice. An unverifiable change to where every prop is drawn is not worth carrying on a
+theory the evidence does not support.
+
+**What the new log line immediately showed, and it is the lead worth following:**
+
+```
+[render] demo draws at (0, 0, 0) diag (1, 1, 1) bones 84
+[render] windowed_door draws at (0, 0, 0) diag (1, 1, 1) bones 1
+[render] door_grate003_top draws at (5416, -2168, 552) diag (1, 1, 1) bones 1
+```
+
+A player draws at the origin with 84 bones because the BONES carry its placement. `windowed_door` —
+another `prop_dynamic` parented to a `func_door`, and one nobody has confirmed is visible either —
+does the same. The grate does not. **Two props of the same kind, parented the same way, are placed
+by different mechanisms**, and whichever of them is wrong, they cannot both be right.
+
+### FIXED — the bone AND the matrix were both placing it
+
+**`IStudioRender::DrawModel` takes bone-to-world matrices and nothing else** (`istudiorender.h:329`).
+Valve has no separate entity transform for a studio model, because `SetupBones` folds the placement
+into every bone before the draw. A non-identity matrix beside real bones therefore applies the
+placement **twice**.
+
+**This project already wrote the rule down and never enforced it.** `WorldRenderer.DrawModel`, in a
+comment about cubemaps:
+
+> *"A baked model is put in the world by its matrix, so the translation is its position. A SKINNED
+> model is put there by its bones and its matrix stays at identity."*
+
+It held only by accident. A player's pose is (0,0,0); a bone-merged item's is (0,0,0) by
+construction. Nothing broke until a **skinned prop with a real networked origin** arrived — and a
+setup gate's grate is exactly that: `CDynamicProp`, one bone, origin (5416 −2168 552). Bone and
+matrix each placed it there, so it drew about ten thousand units off the map. The doorway you could
+see straight through was the only symptom it had.
+
+`Instances` now sets the matrix to identity whenever the instance carries bones.
+
+### And the quarter turn, which was the SAME method missing Valve's third branch
+
+With the gates drawing, the owner: *"that one gate on the left in your SS, is rotated 90 degreed"* —
+the original symptom, reported before any of this was understood.
+
+`Absolute` returned the parent's pose outright for every parented prop. That is
+`CalcAbsolutePosition`'s **bone-merge** branch applied to entities that are not merged, and it throws
+the child's own ANGLES away. Branch 3 (`c_baseentity.cpp:4396`) composes:
+
+```cpp
+AngleMatrix( GetLocalAngles(), matEntityToParent );
+MatrixSetColumn( GetLocalOrigin(), 3, matEntityToParent );
+ConcatTransforms( GetParentToWorldTransform( … ), matEntityToParent, m_rgflCoordinateFrame );
+
+if ( m_angRotation == vec3_angle && m_iParentAttachment == 0 )
+    VectorCopy( m_pMoveParent->GetAbsAngles(), m_angAbsRotation );   // only THEN copy the parent's
+else
+    MatrixAngles( m_rgflCoordinateFrame, m_angAbsRotation );
+```
+
+**The angle shortcut is conditional and was being applied unconditionally.** `cp_fulgur`'s three
+setup gates face different ways, so the one whose grate carries its own yaw drew a quarter turn out.
+
+### The instrument this cost, and it is the reusable part
+
+A UI test asserted `kept < offered` on the cull census to catch a frustum that was never built.
+It passed for months because the scene happened to have models behind the camera — and placing
+parented props correctly brought them into view, so it read `20 of 20` and went red with nothing
+broken. `Culled` returns false outright when the frustum is unbuilt, so **an unbuilt frustum and a
+scene entirely on screen produce the identical line.** The census now reports `frustum built` and
+the test asserts that instead: the flag was always the thing it wanted, and the count never could
+be.

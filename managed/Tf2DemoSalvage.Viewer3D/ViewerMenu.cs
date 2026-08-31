@@ -517,18 +517,25 @@ internal sealed class ViewerMenu : IDisposable
             DebugMenu.DropDownItems.Add(item);
         }
 
-        // **F12 is bound ONCE, in ProcessCmdKey, and this item only DISPLAYS it.** It carried
-        // ShortcutKeys = Keys.F12 as well, so the key was registered twice — by the menu and by the
-        // form — and pressing it did nothing at all: no file, no log line, no error. The owner spotted
-        // the shape immediately: "if f12 is double bound it wont work".
+        // **The screenshot key is bound ONCE, in ProcessCmdKey, and this item only DISPLAYS it.**
+        // It carried `ShortcutKeys` as well, so the key was registered twice — by the menu and by
+        // the form — and pressing it did nothing at all: no file, no log line, no error. The owner
+        // spotted the shape immediately: "if f12 is double bound it wont work".
         //
         // This is the second time in this file. B165 was the same mistake on F11, which silently
         // broke full screen for days. A shortcut belongs to one owner; the other one says so in
         // text.
+        //
+        // **And the text it says must be ASKED, not typed** (B239). This label was the literal
+        // "F12" and stayed that way when B214 moved the screenshot to F5 for Valve parity — F5 is
+        // TF2's own screenshot key — so the menu told the owner to press a key that does nothing
+        // for weeks. A label is not a registration, so nothing breaks when it drifts, which is
+        // precisely why it drifts. D101's rule is that every key comes from the binding table, and
+        // a key a menu PRINTS is no different from one it acts on.
         ToolStripMenuItem screenshot = new("Save a &screenshot")
         {
             Name = MainForm.ScreenshotItemId,
-            ShortcutKeyDisplayString = "F12",
+            ShortcutKeyDisplayString = bindings.KeyFor(ViewerAction.Screenshot),
             AccessibleName = MainForm.ScreenshotItemName,
             AccessibleDescription = "Writes a picture of the viewport beside the viewer's log.",
         };

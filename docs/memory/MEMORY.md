@@ -46,7 +46,7 @@
 - [Bone merge sends no position](bone-merge-sends-no-position.md) — EF_BONEMERGE takes the owner's bones by name.
 - [Demo ticks do not start at zero](demo-ticks-do-not-start-at-zero.md) — a hardcoded probe tick reports a plausible count.
 - [Negative model indices are dynamic](negative-model-indices-are-dynamic.md) — the DynamicModels table holds cosmetics.
-- [Viewer screenshots are F12](viewer-screenshots-are-f12.md) — captures land beside viewer.log in %LOCALAPPDATA%.
+- [Viewer screenshots are F5](viewer-screenshots-are-f5.md) — TF2's own key since B214; never name a key from memory.
 - [Read the SDK for the whole mechanism](read-the-sdk-for-the-whole-mechanism.md) — finding the flag is the easy half.
 - [Lookups must match exactly](lookups-must-match-exactly.md) — a Contains lookup laid every player down.
 - [Build-time shortcuts assume the camera](build-time-shortcuts-assume-the-camera.md) — top-down culls broke the free camera.
@@ -157,3 +157,8 @@
 - [Not every setting needs a bind](not-every-setting-needs-a-bind.md) — a convar can be config-only; three tiers, and only the last is a default.
 - [A bug is a divergence search first](a-bug-is-a-divergence-search-first.md) — our bugs are not new problems; read until the mechanism is whole.
 - [Decoding a field is not honouring it](decoding-a-field-is-not-honouring-it.md) — grep the SDK for every use; one consumer of four is three quarters unimplemented.
+- [An open item is a defect report](an-open-item-is-a-defect-report.md) — a "still to read" note that predicts a symptom is an unfixed bug.
+- [A probe is a script, not a test](a-probe-is-a-script-not-a-test.md) — `[Explicit]` hides it from the run, not from the build or the floor.
+- [One look can be two mechanisms](one-look-can-be-two-mechanisms.md) — a skin AND a bodygroup; the right texture on a mesh nobody draws.
+- [Parity is the search, not the defence](parity-is-the-search-not-the-defence.md) — read every branch of the engine function; a rule in a comment is not enforced.
+- [Take your own screenshot](take-your-own-screenshot.md) — TF2VIEW_CAMERA plus --shot; stop asking for F5.

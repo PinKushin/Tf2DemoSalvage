@@ -486,6 +486,78 @@ public sealed class EntityModelsTests
             [true],
             Skinned: SyntheticSkinnedModel.WithOneBone());
 
+    [Test]
+    public void Instances_APropAtKRenderNone_IsNotDrawn()
+    {
+        // **`C_BaseEntity::ShouldDraw`'s first test** (`c_baseentity.cpp:1447`): *"Some rendermodes
+        // prevent rendering"*. Eighteen `func_door`s on `cp_fulgur` declare `rendermode 10`, their
+        // brushwork is painted `METAL/CHICKEN_WIRE001`, and drawing it stood a coarse wire panel in
+        // every setup gate's doorway in front of the grate props (B240).
+        EntityModelSet models = new();
+        List<ModelInstance> instances = [];
+
+        SceneProp[] props = [Prop("models/props/crate.mdl") with { Pose = Hidden() }];
+
+        models.Add(props, OneTriangle);
+        models.Instances(props, instances);
+
+        instances.ShouldBeEmpty();
+    }
+
+    [Test]
+    public void Instances_APropAtAnyOtherRenderMode_IsDrawn()
+    {
+        // **The control, and it is the one that keeps this from deleting the game.** Only
+        // `kRenderNone` refuses; every other mode is a BLEND and still draws, differently. A rule
+        // written as "the mode is not normal" would remove 410 of a real match's 1,973 entities
+        // rather than the 118 that ask for it.
+        EntityModelSet models = new();
+        List<ModelInstance> instances = [];
+
+        SceneProp[] props =
+        [
+            Prop("models/props/crate.mdl") with
+            {
+                Pose = new ScenePose { Scale = 1f, RenderMode = 4 },
+            },
+        ];
+
+        models.Add(props, OneTriangle);
+        models.Instances(props, instances);
+
+        instances.ShouldHaveSingleItem();
+    }
+
+    [Test]
+    public void Instances_AChildOfAKRenderNoneParent_StillFindsItsParent()
+    {
+        // **The case the first attempt at this broke, and it broke it completely** (B240). Putting
+        // the render-mode test in `EntityState.IsDrawn` removed the invisible doors from the SCENE,
+        // and every grate prop is parented to one — so the children lost the transform they hang
+        // off and every gate vanished. The owner: *"now no gate is drawing at all"*.
+        //
+        // `CalcAbsolutePosition` (`c_baseentity.cpp:4350`) composes a child onto its parent's
+        // transform without ever asking whether the parent renders. So the parent must stay in the
+        // list, and only its DRAWING is refused.
+        EntityModelSet models = new();
+        List<ModelInstance> instances = [];
+
+        SceneProp[] props =
+        [
+            Prop("models/props/door.mdl", x: 100f, entity: 5) with { Pose = Hidden(100f) },
+            Prop("models/props/grate.mdl", entity: 6, attachedTo: 5),
+        ];
+
+        models.Add(props, OneTriangle);
+        models.Instances(props, instances);
+
+        instances.ShouldHaveSingleItem("the door is refused and the grate is not");
+    }
+
+    /// <summary>A pose at <c>kRenderNone</c> — the mode eighteen of cp_fulgur's doors declare.</summary>
+    private static ScenePose Hidden(float x = 0f) =>
+        new() { X = x, Scale = 1f, RenderMode = 10 };
+
     private static SceneProp Prop(
         string model,
         float x = 0f,

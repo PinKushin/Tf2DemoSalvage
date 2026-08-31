@@ -142,7 +142,64 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # Equip both call FollowEntity outside their server-only guards, so the client sets EF_BONEMERGE
 # itself and it never travels -- 26 of 26 CTFWearable send no m_fEffects at all. Synthetic, and the
 # table chain is deliberately not an identity so a one-level walk fails.
-run Tf2DemoSalvage.Core.Tests     core     1563
+# 1563 -> 1567: ReentryPreservesStateTests (4). The class baseline was re-applied on EVERY Enter,
+# so an entity that left and re-entered the PVS lost everything it had accumulated -- measured on a
+# spawn-door prop re-entering with the SAME serial and zero properties. Three of the four are
+# controls: a new serial must still take the baseline, a first enter must, and a delta must not.
+# 1567 -> 1575: HandleSerialConformanceTests (5) and ModelIndexFollowsUpdatesConformanceTests (3).
+# Both are halves of PostDataUpdate this project had left out. A handle is an index AND a serial and
+# masking the serial away resolves a dangling handle to a real, existing, different entity; and
+# ValidateModelIndex sits beside HierarchySetParent ABOVE the DATA_UPDATE_CREATED test, so the model
+# is re-applied every update while a track fixed it at construction -- which named cp_fulgur's BLU
+# spawn door a resupply cabinet for a whole recording, off the class baseline. Two of the three
+# model tests are controls: an unchanged index must keep its model, and a changed one must not
+# split the track in two.
+# 1575 -> 1584: EntityBaselineSlotConformanceTests (9). svc_PacketEntities names one of two
+# PER-ENTITY baseline arrays and periodically asks the client to rebuild the other; both fields were
+# decoded, round-tripped and consumed by nothing, so every entering entity was read against its
+# CLASS baseline -- one representative entity's state shared by the whole class. 2,340 snapshots in
+# the owner's recording set update_baseline. Six of the nine are controls, because every wrong
+# implementation here still produces plausible numbers: no stored baseline must fall back, the other
+# slot must not see the store, a stored baseline of a different class must not apply, a full update
+# must ignore it, a snapshot without the flag must store nothing, and a delta update must not become
+# a baseline. Five sabotages, each killing exactly its own test.
+# 1584 -> 1588: WeaponItemModelConformanceTests (4). A weapon's model comes from its ITEM --
+# CEconEntity::UpdateModelToClass resolves pItem->GetPlayerDisplayModel (econ_entity.cpp:382) --
+# and every CWeaponMedigun networks NEITHER m_nModelIndex nor m_iWorldModelIndex while stating
+# item 211. A null model returned outright, so no track existed and no medigun on any other
+# player was ever drawn. Two of the four are controls: a weapon that DOES send a world model
+# keeps it, and a track with neither model nor item still stays out of Props, which is the rule
+# this relaxes.
+# 1588 -> 1591: SequenceParityConformanceTests (3). A prop's animation clock was never stamped,
+# so EntityModels' `elapsed = seconds - AnimationStartSeconds` was the WHOLE RECORDING -- the
+# spawn cabinets looped for ever, then after the cycle clamp held their last frame for ever.
+# C_BaseAnimating measures from a stamp (c_baseanimating.cpp:5480) and knows an animation
+# restarted from m_nNewSequenceParity (:4737), which this project read only on the viewmodel and
+# whose own remarks admitted it was decoded and not acted on. Two of the three are controls: a
+# prop that never restarts keeps its clock, and a prop REPLAYING the same sequence must still
+# restart -- which is why the counter exists and why comparing sequence numbers is not enough.
+# 1591 -> 1592: the client-side frame reset. C_BaseAnimating has TWO restart signals and reads a
+# different one per mode -- m_bClientSideFrameReset only when m_bClientSideAnimation is set
+# (c_baseanimating.cpp:5021), m_nNewSequenceParity in either (:4737). cp_fulgur's cabinets are
+# client-side animated and send NO server cycle at all, so the toggle is their restart and a fix
+# built on parity alone did not move them. The case carries its own control inline: parity and
+# sequence held still while the toggle does not move must NOT restart.
+# 1592 -> 1593: the frame-reset toggle counts only in CLIENT-side mode, which
+# c_baseanimating.cpp:5021 guards it with and the first version left out. Found by auditing every
+# EntityState accessor for a production caller -- ClientSideAnimation had none, which is this
+# project's recurring failure exactly. The case IS the control: a server-animated prop toggling
+# the field must NOT restart on it.
+# 1593 -> 1598: PlayerConditionConformanceTests (5). A TF condition is one bit of FIVE networked
+# variables chosen by the condition's number (CConditionVars, tf_player_shared.cpp:1041), and this
+# project read none of them -- DT_TFPlayerShared was 0 of 66 in WIRE-COVERAGE. Three of the five
+# are controls: a bit set in the WRONG variable must not answer, an empty set answers nothing,
+# and bit 31 must read as set rather than as a negative int.
+# 1598 -> 1599: kRenderNone, and the case here asserts where it does NOT belong (B240). Testing the
+# render mode in EntityState.IsDrawn removed the invisible func_doors from the SCENE, and every
+# grate prop is parented to one -- so the children lost the transform they hang off and every gate
+# vanished outright. ShouldDraw stops an entity DRAWING; CalcAbsolutePosition composes a child onto
+# its parent without asking whether the parent renders. The rule lives in Scene now.
+run Tf2DemoSalvage.Core.Tests     core     1599
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
@@ -326,7 +383,62 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 # legitimate value, so every construction site that stayed silent claimed it — and ViewmodelScene
 # did, which is what made the first-person weapon vanish. The third case enumerates the defaulted
 # parameters by reflection so the next silent claim fails here.
-run Tf2DemoSalvage.Scene.Tests    scene     238
+# 238 -> 244: WeaponPropModelsTests (6), the Scene half of the same fix -- which props are asked
+# about, what they are asked, and what is done with the answer. Four are controls: a prop that
+# already has a model is untouched, one with no item is untouched, a lookup that answers null
+# must not blank the prop (CI has no game install, so every lookup returns null there), and an
+# owner this moment does not know about must ask with NO class rather than with somebody's.
+# 244 -> 246: two cache cases for WeaponPropModels. Resolving a weapon's model from its item
+# ran EVERY FRAME for every prop awaiting one -- measured on the owner's machine, drawlist mean
+# 2.9 ms before and 46.6 ms after, 1,201 slow moments against one, because 122 of cp_fulgur's
+# 1,158 prop tracks await a lookup. The key is Valve's own invalidation rule: UpdateModelToClass
+# is called from OnOwnerClassChange and ReapplyProvision, so item + owner class is exactly when
+# the answer can change. The second case is the control -- one item is four models across
+# classes, so a cache keyed on the item alone would hand the engineer the soldier's shotgun.
+# 246 -> 247: the item now WINS whenever it names something different, which is
+# CEconEntity::UpdateModelToClass's actual rule (econ_entity.cpp:411) rather than the narrower
+# 'fill in when the wire said nothing' that shipped first. The new case is its own control's
+# partner: an item naming NOTHING must leave the wire's model alone, which is the other half of
+# Valve's own `if ( pszModel && pszModel[0] )` and the reason the wider rule is safe on a machine
+# with no game installed -- every CI run.
+# 247 -> 255: DisguiseConformanceTests (8). A disguised spy is drawn as their disguise TO THE
+# ENEMY and only to the enemy -- C_TFPlayer::ValidateModelIndex:8990 and GetSkin:7790, both
+# gated on InCond( TF_COND_DISGUISED ) && IsEnemyPlayer(). Half are controls, and the friendly
+# case is the one that matters: a teammate sees the spy AS a spy with a mask offset, so an
+# implementation without IsEnemyPlayer hides every friendly spy -- the opposite of the game.
+# 255 -> 263: DisguiseVisibilityTests (7) and the OfDisguise arm of the SceneProp tripwire (1).
+# `ValidateModelIndex` decided which BODY a disguised spy wears; it said nothing about the gear,
+# and the gear is separate entities bone-merged onto him. So a friendly spy wore the disguise's
+# soldier hats and carried its rocket launcher -- the owner watched it at ticks 870-903 and named
+# them. CTFWearable::ShouldDraw (tf_item_wearable.cpp:344) and CTFWeaponBase::ShouldDraw
+# (tf_weaponbase.cpp:3226) are MIRROR IMAGES rather than one rule twice: an enemy loses the spy's
+# real weapon, a teammate loses the disguise's, and implementing one direction leaves him holding
+# two weapons to somebody. Four of the eight are controls -- an enemy must still SEE the disguise,
+# an undisguised player's hats are untouched, the spy's own body is never removed, and an enemy spy
+# posing as one of OUR spies shows nothing.
+# 263 -> 270: RespawnRoomVisibilityTests (7). A spawn's team wall is not drawn to the team that
+# spawns behind it -- C_FuncRespawnRoomVisualizer::DrawModel, c_func_respawnroom.cpp:47, whose own
+# comment is "Don't draw for friendly players". Measured on cp_fulgur at tick 900: NINE of these
+# were in the draw list, three standing inside the stage-one setup gates the owner reported as
+# wrong. Three of the seven are controls -- the enemy's wall must still draw, the gate itself must
+# never be touched, and an unknown round state must draw rather than being read as the win state.
+# The seventh asserts GR_STATE_TEAM_WIN is 5: the enum gives an explicit value only to its first
+# member, a first draft said 4, and 4 is GR_STATE_RND_RUNNING -- which would have hidden every
+# spawn wall for the whole match while all six other tests passed.
+# 270 -> 277: the spy's mask is a BODYGROUP as well as a skin, and only the skin was implemented
+# (B236). GetSkin picks WHICH mask is painted; ValidateModelIndex's tail (c_tf_player.cpp:9024) sets
+# the body part named spyMask, and on the shipped models/player/spy.mdl the mask mesh is alternative
+# 1 of that part -- so at m_nBody = 0 the texture was painted on a mesh nobody drew. Five cases for
+# the rule, two for the wiring. Three of the five are controls: an enemy seeing a demoman must NOT
+# see a mask, an undisguised spy must lose it, and a disguised player who is not a spy must be
+# refused because only the spy's model has that part. The two wiring cases are the only ones that
+# could have caught the bug -- WearsMask and the skin offset both had passing tests while nothing
+# set the body.
+# 277 -> 280: kRenderNone applied where drawing is decided (B240). Two of the three are controls,
+# and the third is the one the first attempt broke: a child of a kRenderNone parent must still find
+# that parent, because the parent stays in the scene and only its drawing is refused. The other
+# control keeps this from deleting the game -- every mode but 10 is a blend that still draws.
+run Tf2DemoSalvage.Scene.Tests    scene     280
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -459,7 +571,10 @@ run Tf2DemoSalvage.Audio.Tests    audio     183
 # draws the view rather than nothing. Plus three on `ToolsPanel`, which was `FpsOverlay` until this:
 # Valve's `CFPSPanel` draws both readouts and walks ONE line counter across them, so the position
 # sits below the frame rate and a panel that composed them separately would overlap them.
-run Tf2DemoSalvage.Presentation.Tests presentation 424
+# 424 -> 425: the presenter asks its source for the round state. A WIRING assertion, which is the
+# only kind that fails when a value is decoded, retained, unit-tested and never read -- exactly what
+# m_flPlaybackRate was for weeks while every animation played at rate 1 with a green suite.
+run Tf2DemoSalvage.Presentation.Tests presentation 425
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.
@@ -593,7 +708,33 @@ run Tf2DemoSalvage.Presentation.Tests presentation 424
 # all three branches, ConcatTransforms, MatrixAngles including its gimbal-lock branch, and the
 # angle shortcut that COPIES the parent stored angles. That last one caught the first
 # implementation round-tripping 20 into 19.999998.
-run Tf2DemoSalvage.Content.Tests  content   826
+# 826 -> 827: SpawnRoomEntityProbe (1, Explicit). It reads cp_fulgur's entity lump and prints every
+# gate, door and cabinet with its `parentname` resolved -- which is what established that all eight
+# resupply lockers are UNPARENTED and that a parented prop's `origin` key is its parent's world
+# position. Every position claim in the B231 hunt before it was checked against another reading of
+# our own decode, which cannot falsify a wrong premise; the map can.
+# 827 -> 835: ClampCycleConformanceTests (7) and SetupGateStaticPropProbe (1, Explicit).
+# C_BaseAnimating::ClampCycle wraps a cycle only when the sequence LOOPS and clamps to 0.999
+# otherwise; this project wrapped unconditionally in two places, both spelled
+# `advanced - Math.Floor(advanced)`, so every one-shot sequence restarted for ever -- the owner's
+# spawn health cabinet opened and shut without stopping. FrameFor already held the last frame
+# and took the loop flag to do it, and could never run that branch, because the caller had
+# already erased the evidence that the cycle went past one. Three of the seven are controls: an
+# in-range cycle must be untouched either way, a looping cycle must still wrap, and the same
+# input on a looping sequence must return to the start rather than hold.
+# 835 -> 836: GateMaterialProbe (1, Explicit). It decodes the setup gate's materials and reports
+# their mean colour, which is how a claim about how something LOOKS gets a number: the frame is
+# R49 G33 B16 -- orange in a 3:2:1 ratio -- and the mesh R82 G77 B73, neutral grey. Both correct,
+# which is what moved the gate hunt off materials and onto something only a screenshot can settle.
+# 836 -> 843: `model_player_per_class` has TWO forms and this read one (B233). Besides a map of
+# class to path the block may carry a single `basename` with `%s` placeholders, expanded per class
+# by InitPerClassStringArray (tf_item_schema.cpp:489) -- and the reader stored "basename" as though
+# it were a class nobody plays, so every item using that form resolved to no model. It appears 5,518
+# times in the shipped schema. Six unit cases plus one conformance case on the shipped file.
+# Three are controls: an explicitly named class must beat the pattern, a class NOT named must take
+# it, and an item with no per-class block at all must still answer its base model when the class is
+# unknown -- without that last one the slot-zero rule would swallow every weapon whose owner left.
+run Tf2DemoSalvage.Content.Tests  content   843
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
@@ -638,7 +779,30 @@ run Tf2DemoSalvage.Content.Tests  content   826
 # 137 -> 141: four Explicit diagnostics from the B231 hunt -- brush entity state, parented props,
 # bone-merge detection and the missing-model gap. The parented one is what found that the SPAWN
 # doors send a local origin with no parent we resolve, which is a separate defect.
-run Tf2DemoSalvage.Corpus.Tests   corpus     141
+# 141 -> 142: ParentLifetimeDiagnostic (1, Explicit), which walks one entity slot across the whole
+# recording and prints every transition. It is what found the re-entry bug: the parent is present
+# at tick 9781 and gone by 14180, which is a value being overwritten rather than never sent.
+# 142 -> 143: LockerParentProbe (1, Explicit). It walks one slot's every update with the instance
+# baselines LOADED, which is what named the cause: a creating update carries only what differs from
+# the class baseline, so cp_fulgur's BLU spawn door was created holding the baseline's model index
+# and origin -- a resupply locker at prop_locker_blu_5's world position. Its first version omitted
+# the baselines and reported "the baseline has no parent", which was a fact about an empty decoder.
+# 143 -> 144: MedigunPlacementProbe (1, Explicit). It carries two dead theories with it -- the
+# medigun tracks that looked misplaced were the ten CTFDroppedWeapon entities on the floor, and
+# the bone-merge rule was firing correctly all along.
+# 144 -> 145: PropAnimationProbe (1, Explicit), which prints every animation field a prop sends
+# update by update. It is what found that the cabinets are CLIENT-side animated and send no cycle
+# -- a fix had already been built on the parity, from inferring that field rather than measuring
+# it. Per-update rather than final state, because every question here is about a transition.
+# 145 -> 146: DisguiseDrawProbe (1, Explicit), which walks the SAME call MomentScene makes --
+# PlayerProps.Add -- and reports the model and skin a disguised player actually gets. The
+# timeline probe proved the decode and proved nothing about what reaches a screen, which is
+# this project's most reliable bug (output-level-assertion-or-it-is-not-done).
+#
+# **This number is ARITHMETIC, not measured**, against the repo's own rule -- the last full
+# corpus run reported 145 and exactly one Explicit test was added since. Recorded as such so
+# nobody reads it as a measurement; the next full gate will confirm or correct it.
+run Tf2DemoSalvage.Corpus.Tests   corpus     146
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that
@@ -815,7 +979,30 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     141
 # 708 -> 710: BrushEntityAngleProbe and SetupGateEntityProbe, both Explicit. The second dumps
 # EVERY keyvalue on a map gate rather than the four already suspected, which is how the parented
 # prop_dynamic riders were found at all.
-run Tf2DemoSalvage.Rendering.Tests rendering 710
+# 710 -> 712: two WornModels cases for a track whose model is not resolved yet. Making a weapon's
+# model resolvable from its ITEM let a Studio track reach Props with an EMPTY path, and both load
+# set builders select on Kind == Studio -- so the empty string went to PakFile.ReadFile and killed
+# the viewer at load. The second case is the control: a track that HAS its path is still worn, so
+# the guard tests the path rather than the item, which every cosmetic also carries.
+# 712 -> 713: NetworkedPropertyCoverageTests. The denominator for 'what does the demo tell us
+# that we ignore', extracted from the SDK's own client RecvTables so it cannot flatter us --
+# an audit starting from OUR accessors can only find fields we already decode, and the two
+# most expensive gaps of 2026-08-30 were both invisible to that. Writes docs/WIRE-COVERAGE.md.
+# Three controls, because an extraction that matched nothing would report perfect coverage of
+# an empty set: a floor on the count, the two motivating fields asserted present, and
+# SchemaGap's positive control on the other half of the diff. The disguise control earned its
+# keep immediately -- the first sweep read only src/game/client and TF's player state is
+# declared in src/game/shared/tf, so it reported 0 of 66 for a table it could not see.
+# 713 -> 716: the baked animation path measured its cycle from demo time ZERO (B237). Valve's
+# advance is over an interval -- flInterval = ( curtime - m_flAnimTime ), c_baseanimating.cpp:5480 --
+# and the timeline has stamped AnimationStartSeconds since the cabinets were first looked at, but
+# only Simulate's SKINNED path ever read it. Every BAKED prop went through ModelFrames.Select with
+# absolute seconds, so a cabinet whose `open` begins 177 seconds in computed a cycle of 183 and
+# clamped to the final frame before drawing once: a door already fully open, that never moves.
+# Two of the three are controls -- an animation with no stamp must behave exactly as before, and a
+# stamp AHEAD of the moment being drawn must not run the animation backwards, which for a looping
+# sequence wraps to near the end and snaps a door shut for a frame.
+run Tf2DemoSalvage.Rendering.Tests rendering 716
 # 101 -> 103 on 2026-08-29: LaunchOptionWiringTests (B223, D118). Two tests, and they cost about
 # seventeen seconds EACH, because each builds a real MainForm and loads a corpus demo — which reads
 # cp_badlands.bsp when Team Fortress 2 is installed. That is the most expensive pair in this file
@@ -826,7 +1013,13 @@ run Tf2DemoSalvage.Rendering.Tests rendering 710
 # 103 -> 106: TransportBarTests. The control had no tests at all, which is how `SetDemoLength` came
 # to end with `Playing = false` — a decision about playback made inside the View, invisible from
 # `IPlaybackView`, and silent because that setter does not raise. D55's tell, and B223's cause.
-run Tf2DemoSalvage.Viewer3D.Tests viewer    106
+# 106 -> 108: the menu printed "F12" for the screenshot long after B214 moved the key to F5 for
+# Valve parity (B239). A ShortcutKeyDisplayString is a LABEL rather than a registration, so nothing
+# breaks when it lies and no test could see it -- the only instrument was the owner reading the menu
+# and pressing a dead key. The first case is a tripwire over EVERY item, so the next hand-typed
+# label fails here; the second is its control, because "F9" would satisfy the tripwire (F9 is bound,
+# to the surface colours) while still naming the wrong key for the screenshot.
+run Tf2DemoSalvage.Viewer3D.Tests viewer    108
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."

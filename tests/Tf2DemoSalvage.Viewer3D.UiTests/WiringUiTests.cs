@@ -211,7 +211,7 @@ public sealed class WiringUiTests
         string line = Viewer.LastLine("opaque draw order:")
             .ShouldNotBeNull("the retry above should have waited for this");
 
-        // `opaque draw order: 45 of 49 models kept, buckets 1/6/0/38`
+        // `opaque draw order: 45 of 49 models kept, frustum built, buckets 1/6/0/38`
         Match counted = Regex.Match(
             line,
             @"opaque draw order: (\d+) of (\d+) models kept",
@@ -223,11 +223,21 @@ public sealed class WiringUiTests
         int kept = int.Parse(counted.Groups[1].Value, CultureInfo.InvariantCulture);
         int offered = int.Parse(counted.Groups[2].Value, CultureInfo.InvariantCulture);
 
-        kept.ShouldBeLessThan(
-            offered,
-            $"nothing was culled ({line}), which is what an unbuilt view frustum looks like");
+        // **The frustum's own report, because the counts cannot answer this** (B241). `Culled`
+        // returns false outright when the frustum is not built, so an unbuilt frustum and a scene
+        // entirely on screen produce the same line — and this test asserted `kept < offered` for
+        // months on the strength of a scene that happened to have models behind the camera.
+        //
+        // Placing parented props correctly brought those models back into view and the line read
+        // `20 of 20`. Nothing had broken; the condition had stopped discriminating, which is a
+        // fact about the test rather than about the cull.
+        line.Contains("frustum built", StringComparison.Ordinal).ShouldBeTrue(
+            $"the cull did not run at all ({line}), which draws the whole map every frame");
 
         kept.ShouldBeGreaterThan(
             0, "everything was culled, so the frustum is pointing away from the map");
+
+        kept.ShouldBeLessThanOrEqualTo(
+            offered, "more models were kept than were offered, which is arithmetic, not a view");
     }
 }

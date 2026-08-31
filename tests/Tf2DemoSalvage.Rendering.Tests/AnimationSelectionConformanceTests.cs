@@ -129,10 +129,53 @@ public sealed class AnimationSelectionConformanceTests
         blend.ShouldBe(0.25f, 0.001f);
     }
 
+    [Test]
+    public void Select_ASequenceThatStartedLate_MeasuresFromItsOwnStart()
+    {
+        // **The animation clock reached the SKINNED path and not this one** (B237). Valve advances
+        // from an interval, not from the start of time: `flInterval = ( curtime - m_flAnimTime )`
+        // (`c_baseanimating.cpp:5480`), re-stamped whenever the animation restarts. `Simulate` does
+        // that for a skinned model and this selector was still handed absolute demo time.
+        //
+        // Measured on the owner's demo: a spawn cabinet begins `open` 177.57 seconds in. At
+        // 1.0345 cycles a second, absolute time gives a cycle of 183 — clamped to the end before
+        // the first frame is drawn, so the door is fully open the instant it starts and never
+        // moves. Elapsed time gives 0.03 of a cycle, which is a door beginning to open.
+        (int late, _, _) = Select(cycle: 0f, seconds: 177.6, rate: 1f, startedAt: 177.57);
+
+        late.ShouldBe(0, "an animation 0.03s old is at its first frame, whenever the demo says it began");
+    }
+
+    [Test]
+    public void Select_ASequenceThatStartedAtZero_IsUnchanged()
+    {
+        // **The control, and it is why this is safe.** An entity that arrives already playing has
+        // no stamp — nothing noticed a change — and must keep behaving exactly as before, measured
+        // from demo time. Half the corpus's props are in that state.
+        (int fromZero, _, _) = Select(cycle: 0f, seconds: 0.5, rate: 1f, startedAt: 0.0);
+        (int unstamped, _, _) = Select(cycle: 0f, seconds: 0.5, rate: 1f);
+
+        fromZero.ShouldBe(unstamped);
+    }
+
+    [Test]
+    public void Select_ASequenceStampedInTheFuture_DoesNotRunBackwards()
+    {
+        // **A stamp ahead of the moment being drawn is a real state, not a corrupt one**: the
+        // scene interpolates between packets and can ask for a tick fractionally before the packet
+        // that stamped the restart. A negative elapsed would run the animation backwards past its
+        // first frame, and `ClampCycle` floors at zero rather than wrapping for a one-shot — but
+        // for a LOOPING sequence a negative cycle wraps to near the END, which is a door snapping
+        // shut for one frame.
+        (int before, _, _) = Select(cycle: 0f, seconds: 1.0, rate: 1f, startedAt: 1.2);
+
+        before.ShouldBe(0, "an animation that has not begun is at its first frame");
+    }
+
     /// <summary>Runs the selector over a model with one looping animation.</summary>
     private static (int Frame, int Next, float Blend) Select(
-        float cycle, double seconds, float rate, int sequence = 0) =>
-        Model().Select(sequence, cycle, seconds, rate);
+        float cycle, double seconds, float rate, int sequence = 0, double startedAt = 0.0) =>
+        Model().Select(sequence, cycle, seconds, rate, startedAt);
 
     /// <summary>
     /// A model with one sequence, one looping animation and <see cref="Frames"/> baked frames.

@@ -322,4 +322,56 @@ public static class StudioSequences
         // duplicate end of this one.
         return ((frame % distinct) + distinct) % distinct;
     }
+
+    /// <summary>Brings an advanced cycle back into range, wrapping only if the sequence loops.</summary>
+    /// <param name="cycle">How far through the sequence, advanced and possibly past the end.</param>
+    /// <param name="loops">Whether the sequence loops, from <c>STUDIO_LOOPING</c>.</param>
+    /// <returns>A cycle inside the sequence.</returns>
+    /// <remarks>
+    /// **<c>C_BaseAnimating::ClampCycle</c>, <c>client/c_baseanimating.cpp:1431</c>:**
+    ///
+    /// <code>
+    ///   if (isLooping)
+    ///   {
+    ///       flCycle -= (int)flCycle;
+    ///       if (flCycle &lt; 0.0f) { flCycle += 1.0f; }
+    ///   }
+    ///   else
+    ///   {
+    ///       flCycle = clamp( flCycle, 0.0f, 0.999f );
+    ///   }
+    /// </code>
+    ///
+    /// **This has to happen where the cycle is ADVANCED, not where the frame is chosen.**
+    /// <see cref="FrameFor(float, int, bool)"/> holds a one-shot sequence's final pose correctly and takes the loop
+    /// flag to do it — but a caller that has already wrapped the cycle into [0,1) has destroyed the
+    /// only evidence that the sequence ended, so the branch can never run. Two callers did exactly
+    /// that, both spelled <c>advanced - Math.Floor(advanced)</c>, which is the looping case applied
+    /// to everything. Honouring a flag one layer too late looks exactly like honouring it.
+    ///
+    /// Measured symptom: `models/props_gameplay/resupply_locker.mdl` carries `idle`, `open` and
+    /// `close`, all of them <c>flags 0x0</c>, and the spawn cabinet opened and shut for ever.
+    ///
+    /// **<c>0.999</c> rather than <c>1</c> is Valve's, and it is kept** (D89). It lands on the last
+    /// frame through <see cref="FrameFor(float, int, bool)"/> exactly as one does, so the choice is invisible here —
+    /// which is precisely why it should be theirs rather than ours.
+    ///
+    /// **The negative cases are not symmetric.** A looping cycle below zero wraps forward, because
+    /// C's <c>(int)</c> truncates toward zero and the guard then adds one; a one-shot cycle below
+    /// zero clamps to the START, because a sequence that has not begun holds its first pose.
+    /// </remarks>
+    public static float ClampCycle(float cycle, bool loops)
+    {
+        if (!loops)
+        {
+            return Math.Clamp(cycle, 0f, EndOfOneShotCycle);
+        }
+
+        float wrapped = cycle - (int)cycle;
+
+        return wrapped < 0f ? wrapped + 1f : wrapped;
+    }
+
+    /// <summary>Valve's ceiling for a one-shot sequence that has finished.</summary>
+    private const float EndOfOneShotCycle = 0.999f;
 }

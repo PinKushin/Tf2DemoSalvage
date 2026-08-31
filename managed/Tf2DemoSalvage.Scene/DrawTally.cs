@@ -42,6 +42,7 @@ public sealed class DrawTally
     private int _notStudio;
     private int _noBatches;
     private int _drawn;
+    private int _notDrawn;
 
     private readonly Dictionary<string, int> _noBatchesBy = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> _notStudioBy = new(StringComparer.Ordinal);
@@ -54,6 +55,7 @@ public sealed class DrawTally
         _notStudio = 0;
         _noBatches = 0;
         _drawn = 0;
+        _notDrawn = 0;
 
         _noBatchesBy.Clear();
         _notStudioBy.Clear();
@@ -109,10 +111,25 @@ public sealed class DrawTally
         _noBatchesBy[name] = _noBatchesBy.GetValueOrDefault(name) + 1;
     }
 
+    /// <summary>Records a prop the entity itself asks not to be drawn.</summary>
+    /// <remarks>
+    /// **`kRenderNone`, and it is counted apart from every other reason on purpose.** A prop with no
+    /// geometry is a load failure and a prop of an undrawable KIND is a gap in this renderer; this
+    /// one is the map working as intended — 118 entities in a real match, eighteen `func_door`s on
+    /// `cp_fulgur` alone. Folding it into "not drawable" would bury a real gap under the ordinary
+    /// case, which is the mistake `NotDrawable`'s own note is about.
+    ///
+    /// These entities stay in the SCENE. Their children hang off their transforms
+    /// (`CalcAbsolutePosition`, `c_baseentity.cpp:4350`), which is why they cannot simply be
+    /// dropped upstream — see `EntityState.IsDrawn`.
+    /// </remarks>
+    public void NotDrawn() => _notDrawn++;
+
     /// <summary>Records a prop that will be drawn.</summary>
     public void Drawn() => _drawn++;
 
-    private (int AskedFor, int Drawn, int NotStudio, int NoBatches) _last = (-1, -1, -1, -1);
+    private (int AskedFor, int Drawn, int NotStudio, int NoBatches, int NotDrawn) _last =
+        (-1, -1, -1, -1, -1);
     private long _reportedAt;
 
     /// <summary>Reports the frame's counts, when they have changed and not too often.</summary>
@@ -128,7 +145,7 @@ public sealed class DrawTally
     /// </remarks>
     public void Report()
     {
-        (int, int, int, int) state = (_askedFor, _drawn, _notStudio, _noBatches);
+        (int, int, int, int, int) state = (_askedFor, _drawn, _notStudio, _noBatches, _notDrawn);
 
         long now = Stopwatch.GetTimestamp();
 
@@ -147,7 +164,12 @@ public sealed class DrawTally
             "{Message}",
             $"asked for {_askedFor}, produced {_drawn}; " +
             $"skipped {_notStudio} not-studio [{Named(_notStudioBy)}], " +
-            $"{_noBatches} no-batches [{Named(_noBatchesBy)}]");
+            $"{_noBatches} no-batches [{Named(_noBatchesBy)}], " +
+
+            // Counted and REPORTED apart from the two failures beside it: this one is the map
+            // working as intended, and a number that never moves is how a reader tells the
+            // difference between "we cannot draw it" and "it asked not to be drawn".
+            $"{_notDrawn} kRenderNone");
     }
 
     private static string Named(Dictionary<string, int> by) =>

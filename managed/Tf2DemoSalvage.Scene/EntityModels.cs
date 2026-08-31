@@ -469,7 +469,18 @@ public sealed class EntityModelSet
             double elapsed = seconds - where.AnimationStartSeconds;
 
             double advanced = where.Cycle + (elapsed * skinned.CyclesPerSecond(sequence));
-            float phase = (float)(advanced - Math.Floor(advanced));
+
+            // **Wrapped only if the sequence LOOPS** (`C_BaseAnimating::ClampCycle`,
+            // `c_baseanimating.cpp:1431`). This was `advanced - Math.Floor(advanced)`, which is the
+            // looping branch applied to everything — so a one-shot sequence that finished started
+            // again, for ever. The owner's report: *"the health cab is in a animation loop, it
+            // doesnt stop"*; `resupply_locker.mdl`'s `idle`, `open` and `close` are all flags 0x0.
+            //
+            // `FrameFor` holds a finished one-shot on its last frame and takes the loop flag to do
+            // it, and could never run that branch, because the wrap here had already erased the
+            // evidence that the cycle went past one.
+            float phase = StudioSequences.ClampCycle(
+                (float)advanced, skinned.Loops(sequence));
 
             posed.Sequence = sequence;
             posed.Frame = StudioSequences.FrameFor(
@@ -744,9 +755,59 @@ public sealed class EntityModelSet
             return prop.Pose;
         }
 
-        return _propsByEntity.TryGetValue(wearer, out SceneProp parent)
-            ? Absolute(parent, budget - 1)
-            : prop.Pose;
+        if (!_propsByEntity.TryGetValue(wearer, out SceneProp parent))
+        {
+            return prop.Pose;
+        }
+
+        ScenePose above = Absolute(parent, budget - 1);
+
+        // **Branch 2 — `EF_BONEMERGE`.** `MoveToAimEnt` gives the follower its parent's place
+        // outright, and its own origin is the zero `FollowEntity` wrote.
+        if (prop.BoneMerged)
+        {
+            return above;
+        }
+
+        // **Branch 3, which this method used to skip** (B241). `c_baseentity.cpp:4396`:
+        //
+        //   AngleMatrix( GetLocalAngles(), matEntityToParent );
+        //   MatrixSetColumn( GetLocalOrigin(), 3, matEntityToParent );
+        //   ConcatTransforms( GetParentToWorldTransform( … ), matEntityToParent, m_rgflCoordinateFrame );
+        //
+        // Returning the parent's pose for everything is the bone-merge branch applied to entities
+        // that are not merged, and it throws the child's own ANGLES away. A setup gate's grate is
+        // rotated to face its doorway and the three gates on `cp_fulgur` face different ways, so
+        // one of them drew a quarter turn out — the owner's *"that one gate on the left is rotated
+        // 90 degreed"*, reported before any of this was understood.
+        PropTransform composed = new PropTransform(
+                above.X, above.Y, above.Z, above.Pitch, above.Yaw, above.Roll, above.Scale)
+            .Concat(new PropTransform(
+                prop.Pose.X, prop.Pose.Y, prop.Pose.Z,
+                prop.Pose.Pitch, prop.Pose.Yaw, prop.Pose.Roll, prop.Pose.Scale));
+
+        (float x, float y, float z) = composed.Apply(0f, 0f, 0f);
+
+        // **The angle shortcut is Valve's and it is CONDITIONAL** (`:4406`): a child with no angles
+        // of its own and no parent attachment copies the parent's absolute angles; anything else
+        // extracts them from the composed matrix. Applying the shortcut unconditionally is what
+        // discarded the gate's quarter turn.
+        bool declaresNoAngles =
+            prop.Pose.Pitch == 0f && prop.Pose.Yaw == 0f && prop.Pose.Roll == 0f;
+
+        (float pitch, float yaw, float roll) = declaresNoAngles && prop.AttachmentPoint is null
+            ? (above.Pitch, above.Yaw, above.Roll)
+            : composed.Angles();
+
+        return prop.Pose with
+        {
+            X = x,
+            Y = y,
+            Z = z,
+            Pitch = pitch,
+            Yaw = yaw,
+            Roll = roll,
+        };
     }
 
     /// <summary>This frame's props by entity index, so a parent chain can be walked.</summary>
@@ -1355,6 +1416,56 @@ public sealed class EntityModelSet
     public IReadOnlyList<IReadOnlyList<WorldBatch>> AllFrames(string modelPath) =>
         _byModel.TryGetValue(modelPath, out List<List<WorldBatch>>? frames) ? frames : [];
 
+    /// <summary>A body number with one named body part set to one of its alternatives.</summary>
+    /// <param name="modelPath">The model whose parts are being addressed.</param>
+    /// <param name="group">The part's name, as <c>FindBodygroupByName</c> takes it.</param>
+    /// <param name="value">Which alternative.</param>
+    /// <returns>The body number, or zero when this model has no such part.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **The pair of engine functions, together, because separately they invite the wrong
+    /// arithmetic.** `FindBodygroupByName` (`shared/animation.cpp:927`) turns a name into an index
+    /// and `SetBodygroup` (`:863`) folds a value into the number:
+    ///
+    /// <code>
+    ///   int iCurrent = ( body / pbodypart-&gt;base ) % pbodypart-&gt;nummodels;
+    ///   body = ( body - ( iCurrent * pbodypart-&gt;base ) + ( iValue * pbodypart-&gt;base ) );
+    /// </code>
+    ///
+    /// Parts share one integer like digits of a mixed-radix number, so this is not an OR.
+    ///
+    /// **Zero when the model is not loaded YET**, which is a real state: a model is packed on first
+    /// sight, so the first frame a spy appears on answers zero and the next answers correctly. The
+    /// alternative would be to block the scene on a model load, which is worse than one frame of an
+    /// unmasked spy.
+    /// </remarks>
+    public int WithBodygroup(string modelPath, string group, int value)
+    {
+        ArgumentNullException.ThrowIfNull(modelPath);
+        ArgumentNullException.ThrowIfNull(group);
+
+        if (!_frames.TryGetValue(modelPath, out PropModels.ModelFrames? model)
+            || model.BodyParts is not { Count: > 0 } parts
+            || model.BodyPartNames is not { Count: > 0 } names)
+        {
+            return 0;
+        }
+
+        for (int part = 0; part < names.Count && part < parts.Count; part++)
+        {
+            if (!string.Equals(names[part], group, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            (int place, int count) = parts[part];
+
+            return place > 0 && value >= 0 && value < count ? value * place : 0;
+        }
+
+        return 0;
+    }
+
     /// <summary>Which material paints which skinref, for one skin family.</summary>
     /// <param name="modelPath">The model's path.</param>
     /// <param name="skin">Which family; out of range falls back to zero, as the engine does.</param>
@@ -1397,7 +1508,19 @@ public sealed class EntityModelSet
     /// <returns>The frame to draw, the one after it, and the blend between them.</returns>
     public (int Frame, int Next, float Blend) SelectFor(SceneProp prop, double seconds) =>
         _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? frames)
-            ? frames.Select(prop.Pose.Sequence, prop.Pose.Cycle, seconds, prop.Pose.PlaybackRate)
+            ? frames.Select(
+                prop.Pose.Sequence,
+                prop.Pose.Cycle,
+                seconds,
+                prop.Pose.PlaybackRate,
+
+                // **The stamp, which this call was not passing** (B237). The timeline records when
+                // each animation began — `AnimationStartSeconds`, from the parity counter and the
+                // client-side frame reset — and the SKINNED path in `Simulate` has used it since it
+                // was added. This one, which every baked prop takes, did not, so a cabinet's `open`
+                // was measured from the start of the recording and clamped to its final frame
+                // before it drew once.
+                prop.Pose.AnimationStartSeconds)
             : (0, 0, 0f);
 
     /// <summary>Whether a model kind has geometry this renderer can draw.</summary>
@@ -1486,7 +1609,13 @@ public sealed class EntityModelSet
             // resolves through the same loader to geometry the map built, so the only thing that
             // ever made this test about `.mdl` files was that nothing else had geometry yet.
             // Sprites still have none, and Unknown means the model reference was never resolved.
-            if (!IsDrawable(prop.Kind) || _byModel.ContainsKey(prop.ModelPath))
+            // **A path too, because a Studio prop can reach here without one.** A weapon whose model
+            // the wire never carried is named from its item by `WeaponPropModels`, and that lookup
+            // answers null when the game is not installed — which is every CI run. Passing the empty
+            // string to `load` throws out of `PakFile.ReadFile`.
+            if (!IsDrawable(prop.Kind) ||
+                prop.ModelPath.Length == 0 ||
+                _byModel.ContainsKey(prop.ModelPath))
             {
                 continue;
             }
@@ -1778,6 +1907,26 @@ public sealed class EntityModelSet
                 continue;
             }
 
+            // **`C_BaseEntity::ShouldDraw`'s first test** (`c_baseentity.cpp:1447`): *"Some
+            // rendermodes prevent rendering"*, and `kRenderNone` is the one. Eighteen `func_door`s
+            // on `cp_fulgur` declare it, their brushwork is painted `METAL/CHICKEN_WIRE001`, and
+            // drawing it stood a coarse wire panel in the doorway in front of the grate props.
+            //
+            // **HERE and not in `EntityState.IsDrawn`, which is where it went first and broke the
+            // gates completely** (B240). That property decides whether an entity is in the scene at
+            // all; this decides whether it is drawn. Valve keeps them apart for a reason the gates
+            // demonstrate: every grate prop is PARENTED to one of those invisible doors, and
+            // `CalcAbsolutePosition` composes a child onto its parent's transform without asking
+            // whether the parent renders. Remove the parent from the scene and the child has
+            // nothing to hang off.
+            //
+            // Only this mode refuses. Every other value is a blend that still draws.
+            if (prop.Pose.RenderMode == RenderModes.None)
+            {
+                _tally.NotDrawn();
+                continue;
+            }
+
             if (Batches(prop.ModelPath, frame).Count == 0)
             {
                 _tally.NoGeometry(prop.ModelPath);
@@ -1786,8 +1935,23 @@ public sealed class EntityModelSet
 
             _tally.Drawn();
 
+            // **A parented prop is placed by its PARENT's transform, and this loop never asked**
+            // (B241). `Simulate` above composes the chain for a SKINNED model — `posed.
+            // EntityTransform = PlacementOf(prop)` — and every BAKED prop came through here and was
+            // placed at its own pose, which for a parented entity is its LOCAL offset. Every setup
+            // gate's grate is a `CDynamicProp` on a `func_door` with a local origin of (0,0,0), so
+            // all six drew at the map origin. The door's brushwork stood where they should have
+            // been, which is why nobody could see it until `kRenderNone` stopped drawing that.
             ScenePose pose = prop.Pose;
 
+            // **This was changed to compose the parent chain and changed back** (B241). The theory
+            // was that a parented prop drew at its LOCAL offset; the measurement says otherwise —
+            // with the composition removed again, the viewer still logs
+            // `door_grate003_top draws at (5416, -2168, 552)`, the gate. The pose reaching here
+            // already carries the world placement, so composing again would apply it twice.
+            //
+            // Left as it was, deliberately: an unverifiable change to where EVERY prop is drawn is
+            // not worth carrying on a theory the evidence does not support.
             PropTransform transform = new(
                 pose.X, pose.Y, pose.Z, pose.Pitch, pose.Yaw, pose.Roll, pose.Scale);
 
@@ -1952,7 +2116,7 @@ public sealed class EntityModelSet
                 // three correct measurements locating the fourth
                 // (`docs/memory/measure-every-hop-before-blaming-one.md`).
                 if (_render.IsEnabled(LogLevel.Debug) &&
-                    _reportedFrames.Add(prop.ModelPath + "#placed"))
+                    _reportedFrames.Add($"{prop.ModelPath}#{prop.EntityIndex}#placed"))
                 {
                     _render.LogDebug(
                         "{Message}",
@@ -2046,6 +2210,33 @@ public sealed class EntityModelSet
                 {
                     ReportPosedExtents(prop.ModelPath, bones, prop.ModelPath + " WORN");
                 }
+            }
+
+            // **A model posed by BONES is placed by those bones, and its matrix is identity**
+            // (B241). `IStudioRender::DrawModel` takes bone-to-world matrices and nothing else
+            // (`istudiorender.h:329`); Valve has no separate entity transform for a studio model,
+            // because `SetupBones` folds the placement into every bone before the draw. So a
+            // non-identity matrix beside real bones applies the placement TWICE.
+            //
+            // **This project already wrote the rule down and did not enforce it.**
+            // `WorldRenderer.DrawModel`: *"A baked model is put in the world by its matrix … a
+            // SKINNED model is put there by its bones and its matrix stays at identity."* It held
+            // only by accident — a player's pose is (0,0,0) and a merged item's is (0,0,0) by
+            // construction — so nothing broke until a skinned prop arrived carrying a real origin.
+            //
+            // A setup gate's grate is exactly that: `CDynamicProp`, one bone, and a networked origin
+            // of (5416 −2168 552). Bone and matrix each placed it there, so it drew about ten
+            // thousand units off the map, and the doorway you could see straight through was the
+            // only symptom. Measured before this line existed:
+            //
+            //   demo               draws at (0, 0, 0)          bones 84
+            //   windowed_door      draws at (0, 0, 0)          bones 1
+            //   door_grate003_top  draws at (5416, -2168, 552) bones 1
+            //
+            // Two props of the same kind parented the same way, placed by two mechanisms.
+            if (bones is { Count: > 0 })
+            {
+                transform = PropTransform.Identity;
             }
 
             // **Hoisted out of the argument list**, because two arguments now want it: the body

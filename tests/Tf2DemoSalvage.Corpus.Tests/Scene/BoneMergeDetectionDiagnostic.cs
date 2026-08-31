@@ -50,10 +50,25 @@ public sealed class BoneMergeDetectionDiagnostic
     /// <summary>The recording the owner was watching.</summary>
     private const string Recording = "tf2-2026-pub-pov-clean";
 
+    /// <summary><c>INVALID_NETWORKED_EHANDLE_VALUE</c> — 21 bits of ones.</summary>
+    /// <remarks>
+    /// <c>(1 &lt;&lt; (MAX_EDICT_BITS + NUM_NETWORKED_EHANDLE_SERIAL_NUMBER_BITS)) - 1</c>, 11 + 10
+    /// bits. Written out here because `EntityState` keeps its copy internal; the point of the
+    /// measurement is to see the RAW value before any masking, since masking the sentinel yields
+    /// slot 2047, a perfectly ordinary-looking answer.
+    /// </remarks>
+    private const int InvalidHandle = (1 << 21) - 1;
+
+    /// <summary>The low bits of a handle that name the entity slot — <c>MAX_EDICT_BITS</c>.</summary>
+    private const int EdictMask = (1 << 11) - 1;
+
     [Test]
     public void Decode_TheEntities_ReportsHowManyParentedOnesCarryBoneMerge()
     {
-        EntityStateTable table = Accumulate(Corpus.Demo(Recording), packetLimit: 4000);
+        // **40,000 rather than 4,000, and the difference is a whole class of entity.** The spawn
+        // doors enter late enough that a 4,000-packet walk does not contain them at all -- and an
+        // entity absent from a truncated table is indistinguishable from one that never existed.
+        EntityStateTable table = Accumulate(Corpus.Demo(Recording), packetLimit: 40000);
 
         int entities = 0;
         int parented = 0;
@@ -190,6 +205,62 @@ public sealed class BoneMergeDetectionDiagnostic
                     + $"bone-merges itself = "
                     + SchemaClasses.BoneMergesItself(schema, serverClass.TableName));
             }
+        }
+
+        // **What the SPAWN doors actually carry.** They report no parent while sending a local
+        // origin, and the map parents them outright — so either `moveparent` never arrives, or it
+        // arrives as the invalid sentinel. Those are different defects: the first is a decode gap,
+        // the second means the server really is telling us there is no parent and the fault is
+        // upstream of the handle.
+        //
+        // Reported RAW, before `Slot` masks it, because masking is what turns the second case into
+        // the first. `EntityState.NoHandle` is 21 bits of ones.
+        foreach (EntityState prop in table.All
+            .Where(candidate => string.Equals(
+                candidate.ClassName, "CDynamicProp", StringComparison.Ordinal))
+            .OrderBy(candidate => candidate.EntityIndex)
+            .Take(20))
+        {
+            bool has = prop.Properties.TryGetValue(
+                "DT_BaseEntity.moveparent", out PropertyValue handle);
+
+            long raw = has ? handle.AsInt : -1;
+            long slot = raw == InvalidHandle ? -1 : raw & EdictMask;
+
+            string parentage = has
+                ? $"= {raw} (invalid sentinel {InvalidHandle}) -> slot {slot}"
+                : "ABSENT";
+
+            string origin = prop.Origin() is { } at
+                ? $"({at.X:0} {at.Y:0} {at.Z:0})"
+                : "none";
+
+            TestContext.Out.WriteLine(
+                $"DYNPROP {prop.EntityIndex}: moveparent {parentage}, origin {origin}");
+        }
+
+        // **The spawn doors by entity index, whatever class they turn out to be.** The map calls
+        // them `prop_dynamic`, but they are not among the demo's `CDynamicProp` entities — so the
+        // class is the first thing to establish, and a filter written on the class name I expected
+        // would have hidden them exactly as it just did.
+        foreach (int index in (int[])[78, 81, 411, 434, 504, 505])
+        {
+            if (!table.TryGet(index, out EntityState? door))
+            {
+                TestContext.Out.WriteLine($"DOOR {index}: not in the table");
+                continue;
+            }
+
+            bool hasParent = door.Properties.TryGetValue(
+                "DT_BaseEntity.moveparent", out PropertyValue handle);
+
+            TestContext.Out.WriteLine(
+                $"DOOR {index}: class {door.ClassName ?? "?"}, "
+                + $"moveparent {(hasParent ? handle.AsInt.ToString(
+                    System.Globalization.CultureInfo.InvariantCulture) : "ABSENT")}, "
+                + $"origin {(door.Origin() is { } at ? $"({at.X:0} {at.Y:0} {at.Z:0})" : "none")}, "
+                + $"model {door.ModelIndex()?.ToString(
+                    System.Globalization.CultureInfo.InvariantCulture) ?? "none"}");
         }
 
         // A precondition on the HARNESS, not a claim about the demo.

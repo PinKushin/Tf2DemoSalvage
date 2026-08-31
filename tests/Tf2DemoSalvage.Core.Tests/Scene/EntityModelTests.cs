@@ -137,6 +137,28 @@ public sealed class EntityModelTests
         entity.IsDrawn.ShouldBeTrue();
     }
 
+    [Test]
+    public void AnEntityAtKRenderNone_IsStillInTheScene()
+    {
+        // **`kRenderNone` does NOT belong here, and putting it here deleted the gates entirely**
+        // (B240). `ShouldDraw` (`c_baseentity.cpp:1447`) refuses rendermode 10 — but it decides
+        // whether an entity is DRAWN, and this property decides whether it is in the scene at all.
+        //
+        // Valve keeps those apart for a reason the setup gates demonstrate: every grate prop is
+        // PARENTED to an invisible `func_door`, and `CalcAbsolutePosition` (`:4350`) composes a
+        // child onto its parent's transform without asking whether the parent renders. Testing the
+        // mode here removed the doors from the scene, so the grates had nothing to hang off and
+        // vanished — the owner: *"now no gate is drawing at all"*.
+        //
+        // The mode is applied in `EntityModelSet.Instances`, where drawing is decided.
+        EntityState entity = State(
+            Property("DT_BaseEntity", "m_nModelIndex", PropertyValue.FromInt(3)),
+            Property("DT_BaseEntity", "m_nRenderMode", PropertyValue.FromInt(10)));
+
+        entity.IsDrawn.ShouldBeTrue(
+            "an entity nobody draws is still an entity its children hang off");
+    }
+
     private static EntityState State(params DecodedProperty[] properties)
     {
         EntityStateTable table = new(EntityBaselines.None);

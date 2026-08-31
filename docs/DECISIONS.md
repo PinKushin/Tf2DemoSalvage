@@ -6947,3 +6947,87 @@ path; the tally of symptoms it accounted for was inflated by one.
 **So the rule earns itself twice over.** A divergence search found the fault; stopping the search at
 the first citation is what turned the fix into a regression. Read until the engine's mechanism is
 whole (D-note: `half-a-mechanism-is-not-parity`), not until a line of C++ agrees with you.
+
+## D125 — a "still to read" item is a live defect report, not a wish list
+
+**Owner direction, 2026-08-30:** *"keep going, implement the baseline slots"* — after the search
+that produced D124 finally reached the cause.
+
+`docs/RISKS.md` had this written down during the B12/B13 hunt, first on a list headed **Still to
+read**:
+
+> `ParserState::handle_packet_entities` in the oracle — what it does with entities *after* parsing,
+> particularly the `update_baseline` flag and the two baseline slots. This parser ignores both, and
+> **a baseline swap that changes how a later delta is interpreted would look exactly like this.**
+
+That is a correct diagnosis of a defect that then went unfixed for months, while the same symptom
+was attributed in turn to entity parenting, to render mode, and to PVS — three investigations and
+two merges that had to be reverted. Every one of those was a real Valve mechanism we had half of,
+so every one produced a plausible story and some genuine fixes; none of them was the cause.
+
+**The decision: when a symptom matches the text of an open item, that item is read before a new
+theory is formed.** Not after the new theory fails. The cost of re-reading the list is minutes; the
+cost of not doing it here was three investigations and a revert of working code.
+
+**Why the item was skippable, and this is the part worth keeping.** It was filed under a heading
+that reads like optional background — "still to read" — inside a write-up of a bug that had already
+been fixed. Nothing about it said *this is broken now*. So the corrective is on the filing as much
+as on the reading: a mechanism we do not implement is an open defect, and it belongs in a numbered
+risk entry that a search for the symptom will surface, not in the tail of a closed investigation.
+
+**And note what would NOT have helped.** More measurement of our own data. Every one of the three
+wrong theories was supported by correct measurements of correct decoded values — the numbers were
+never wrong, the question was. That is `read-the-spec-before-measuring-our-data` again, and it is the
+third time it has been the answer.
+
+---
+
+## D126 — a probe is a script, not a test; it lives in `tools/Tf2DemoSalvage.Probe`
+
+**The owner, 2026-08-30:**
+
+> *"btw, you can script a probe outside the test suite, having a bunch of probe tests just slows the
+> suite down and putting in a suite and running the whole damn thing takes forever"*
+
+**He is describing two separate costs, and the second is the one that was invisible.**
+
+The first is the suite's. There are about sixty `*Probe` files across the test projects. Every one
+is compiled into a test assembly, discovered by the adapter on every run, and listed in every
+`.trx`. `[Explicit]` keeps a probe out of the RUN; it does not keep it out of the build or the
+discovery, and it does not stop it counting towards a floor.
+
+The second is what it costs to ASK a probe something. Running one meant `dotnet test --filter` — a
+build of an assembly referencing NUnit, the adapter, Shouldly and every production project, then a
+VSTest host started to execute a single case whose output had to be dug out of `TestContext.Out`.
+And because the parameters were `const`, a second question meant editing a constant and paying the
+whole cost again. The `spy-draw` probe's tick window is the worked example: the owner named
+860–935, and asking about a different window should not require a rebuild of a test assembly.
+
+**So a probe is a console program.** `tools/Tf2DemoSalvage.Probe` discovers `IProbe`
+implementations by reflection, so adding one is adding a file — no dispatch table, no registration,
+which is the open/closed rule the standards ask for and which is also the only thing NUnit was
+buying us.
+
+```bash
+dotnet run --project tools/Tf2DemoSalvage.Probe
+```
+
+**Where a probe locates demos is shared, not copied.** `DemoCorpus` lives in the tool and
+`Tf2DemoSalvage.Corpus.Tests` consumes it, rather than the reverse — the tool must not drag NUnit
+into a program whose point is to build quickly. Two copies of "where are the demos" would let a
+probe answer a question about a different file than the test that motivated it, with nothing
+reporting the discrepancy (`one-place-or-it-drifts`).
+
+**This does not change D38, it completes it.** D38 already said a measurement is not a test, and
+that a harness worth keeping is `[Explicit]` and asserts nothing. What it did not say is where such
+a harness should LIVE, so the answer defaulted to "in the suite, marked Explicit" — which is how
+sixty of them accumulated there while each one individually followed the rule.
+
+**What stays a test.** Anything with a right answer: decode, arithmetic, a rule read from the SDK.
+Those are synthetic and belong in `Core.Tests` or a layer's own suite, exactly as D38 says. A probe
+is for questions whose answer is a number nobody knows yet.
+
+**The migration is incremental and deliberately so.** Sixty probes carry findings in their prose,
+and several answer questions that are now closed — those should be deleted with their finding
+promoted to `docs/findings/`, not ported. Porting them all in one pass would move the prose without
+reading it, which is the one outcome worse than leaving them where they are.

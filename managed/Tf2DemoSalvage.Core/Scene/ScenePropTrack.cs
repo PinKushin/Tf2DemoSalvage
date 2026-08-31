@@ -320,6 +320,25 @@ public readonly record struct ScenePose
 /// Whether it rides its parent's SKELETON — <c>EF_BONEMERGE</c>, the second branch of
 /// <c>CalcAbsolutePosition</c> — rather than concatenating its own transform onto its parent's.
 /// </param>
+/// <param name="ItemDefinitionIndex">
+/// Which econ item this is, when it is one, so a weapon whose model the wire never carried can
+/// still be named. <c>CEconEntity::SetModel</c> resolves
+/// <c>pItem-&gt;GetPlayerDisplayModel( iClass, team )</c> — <c>model_player</c> from
+/// <c>items_game.txt</c>, <c>econ_entity.cpp:1167</c> — so the networked index is a convenience
+/// rather than the source of truth. Measured on `cp_fulgur`: every <c>CWeaponMedigun</c> networks
+/// neither <c>m_nModelIndex</c> nor <c>m_iWorldModelIndex</c>, and every one states item 211.
+/// </param>
+/// <param name="OfDisguise">
+/// Whether this cosmetic or weapon belongs to the owner's DISGUISE rather than to the owner —
+/// <c>m_bDisguiseWearable</c> and <c>m_bDisguiseWeapon</c>, both networked.
+/// </param>
+/// <param name="ClassName">
+/// Its networked class name, the stock fallback for an item that names no model of its own.
+/// </param>
+/// <param name="OfRecordersTeam">
+/// Whether this entity is on the RECORDER's team — <c>C_FuncRespawnRoomVisualizer::DrawModel</c>
+/// hides a spawn wall from the team that spawns behind it (<c>c_func_respawnroom.cpp:47</c>).
+/// </param>
 /// <param name="AttachmentPoint">
 /// Which of that entity's named attachment points it hangs from, one-based, or <c>null</c> when it
 /// is bone-merged instead.
@@ -359,7 +378,42 @@ public readonly record struct SceneProp(
     // concatenates its own local transform onto the parent's. `AttachedTo` says what it hangs off
     // and cannot say which mechanism, so treating every parent as a bone merge left a prop hung on
     // brushwork looking for a skeleton that does not exist.
-    bool BoneMerged = false);
+    bool BoneMerged = false,
+
+    // **Which econ item this is, and which class it is, so a model-less weapon can still be
+    // named.** A weapon's model comes from `items_game.txt` rather than from the wire —
+    // `pItem->GetPlayerDisplayModel( iClass, team )`, `econ_entity.cpp:1167` — and measured on
+    // `cp_fulgur` every `CWeaponMedigun` networks neither `m_nModelIndex` nor
+    // `m_iWorldModelIndex` while stating item 211, the stock Medi Gun. `WeaponPropModels` turns
+    // the pair into a path; the item is the answer and the class name is the stock fallback for
+    // an item that has no `model_player` of its own.
+    //
+    // Appended, like OwnedBy and WeaponState above and for the same reason: every parameter here
+    // is positional, so inserting one silently re-maps every call site.
+    int? ItemDefinitionIndex = null,
+    string ClassName = "",
+
+    // **Whether this belongs to a DISGUISE rather than to its owner.**
+    // `m_bDisguiseWearable` (`tf_item_wearable.cpp:36`) and `m_bDisguiseWeapon`
+    // (`tf_weaponbase.cpp:198`), both networked. The server sends a disguise's gear as its own
+    // entities bone-merged to the spy so an ENEMY sees a convincing soldier; who may see it is
+    // `DisguiseVisibility`.
+    bool OfDisguise = false,
+
+    // **Whether this entity is on the RECORDER's team**, which some entities are drawn or not drawn
+    // by. `C_FuncRespawnRoomVisualizer::DrawModel` (`c_func_respawnroom.cpp:47`) returns without
+    // drawing when `pLocalPlayer->GetTeamNumber() == GetTeamNumber()`, so a player standing in
+    // their own spawn does not see the team wall across their own doorway.
+    //
+    // **Computed here rather than in the scene, for the same reason `ScenePlayer.IsEnemy` is**: it
+    // compares against the local player, and in a recording that is whoever recorded it — which
+    // only the timeline knows.
+    //
+    // **Not `IsEnemy`, and the difference matters.** With no local player at all — a SourceTV
+    // recording — the engine's `pLocalPlayer &&` short-circuits and the visualizer DRAWS. "On the
+    // recorder's team" is false there, which is the same answer; "is an enemy" would also be false
+    // and would give the opposite one.
+    bool OfRecordersTeam = false);
 
 /// <summary>
 /// One entity's pose over the whole demo, stored as the moments it changed.
@@ -426,7 +480,152 @@ public sealed class ScenePropTrack
     public int EntityIndex { get; }
 
     /// <summary>The model this entity draws as.</summary>
-    public string ModelPath { get; }
+    /// <remarks>
+    /// **Kept current, because the engine re-applies the model on every update** — the same reason
+    /// <see cref="AttachedTo"/> is, and the two are set on adjacent lines in
+    /// <c>C_BaseEntity::PostDataUpdate</c> (<c>client/c_baseentity.cpp:2603</c>):
+    ///
+    /// <code>
+    ///   HierarchySetParent(m_hNetworkMoveParent);
+    ///   MarkMessageReceived();
+    ///   // Make sure that the correct model is referenced for this entity
+    ///   ValidateModelIndex();
+    ///   if ( updateType == DATA_UPDATE_CREATED ) { ... }
+    /// </code>
+    ///
+    /// Both calls sit ABOVE the <c>DATA_UPDATE_CREATED</c> test, so both run every update, and
+    /// <c>ValidateModelIndex</c> ends in <c>SetModelByIndex( m_nModelIndex )</c>
+    /// (<c>c_baseentity.cpp:2531</c>). This project followed the parent and fixed the model at
+    /// construction — half the mechanism.
+    ///
+    /// **What that cost is not a corner case, because a creating update rarely carries the model.**
+    /// An entity is created as a delta against its class's INSTANCE BASELINE, which is one
+    /// representative entity's state, so everything the creating update does not mention comes from
+    /// whatever entity happened to supply the baseline. Measured on `cp_fulgur`, slot 432 — the BLU
+    /// spawn's windowed door:
+    ///
+    /// <code>
+    ///   Enter 432 serial 998 props 2  modelindex 1154 origin (3440 -2096 240)   &lt;- baseline
+    ///   Enter 432 serial 998 props 11 modelindex 1177 origin (2 0 -59)          &lt;- the real values
+    /// </code>
+    ///
+    /// 1154 is `resupply_locker.mdl` and `(3440 -2096 240)` is `prop_locker_blu_5`'s world origin
+    /// out of the map's entity lump. The door was a resupply cabinet for the rest of the recording,
+    /// and nine other entities took that same baseline's identity the same way. The owner's report
+    /// was that the spawn gates and the health cabinet do not draw.
+    ///
+    /// **Not a reason to stop merging the baseline** — `CL_CopyNewEntity` does exactly that, and
+    /// the engine simply overwrites the guess on the next update because it re-reads the index.
+    /// Removing the merge would trade this defect for B132's.
+    ///
+    /// Set through <see cref="Follow"/> rather than by a bare setter, so an empty path — an entity
+    /// whose model has not arrived yet — cannot erase a name the track already has.
+    /// </remarks>
+    public string ModelPath { get; private set; }
+
+    /// <summary>Re-applies the entity's model, as <c>ValidateModelIndex</c> does each update.</summary>
+    /// <param name="modelPath">What <c>m_nModelIndex</c> now names, or empty when it names nothing.</param>
+    /// <remarks>
+    /// **An empty path is ignored, and that is the engine's behaviour rather than a convenience.**
+    /// <c>SetModelByIndex</c> resolves through <c>modelinfo->GetModel</c>
+    /// (<c>c_baseentity.cpp:1778</c>) and a model index of zero is the "no model" placeholder, which
+    /// leaves the entity drawing what it already had. Treating it as a change would blank the name
+    /// of every entity whose update happened not to mention its model.
+    /// </remarks>
+    internal void Follow(string? modelPath)
+    {
+        if (!string.IsNullOrEmpty(modelPath))
+        {
+            ModelPath = modelPath;
+        }
+    }
+
+    /// <summary>Which econ item this entity is, when it is one.</summary>
+    /// <remarks>
+    /// **A weapon's model comes from its ITEM, not from the wire, and for some weapons the wire
+    /// carries no model at all.** `CEconEntity::SetModel` resolves
+    /// <c>pItem-&gt;GetPlayerDisplayModel( iClass, team )</c> — <c>model_player</c> from
+    /// <c>items_game.txt</c> (<c>econ_entity.cpp:1167</c>) — so <c>m_nModelIndex</c> is a
+    /// convenience the server sends when it happens to, not the source of truth.
+    ///
+    /// Measured on `cp_fulgur`, every weapon with an owner. A rocket launcher sends both indices, a
+    /// flamethrower sends the world model, and every `CWeaponMedigun` sends NEITHER — while all of
+    /// them state their item:
+    ///
+    /// <code>
+    ///   CTFRocketLauncher model  996 worldmodel  426 item   513
+    ///   CTFFlameThrower   model none worldmodel  225 item    40
+    ///   CWeaponMedigun    model none worldmodel none item   211
+    ///   CTFMinigun        model none worldmodel none item 15123
+    /// </code>
+    ///
+    /// **211 is the stock Medi Gun**, so the information was never missing — only unread, and every
+    /// medigun on every other player went undrawn for it.
+    ///
+    /// **Carried rather than resolved here**, because `items_game.txt` belongs to the content layer
+    /// and Core must not read it. This is the number; `WeaponModels.For` turns it into a model, and
+    /// already did so for the viewmodel and the followed player.
+    /// </remarks>
+    public int? ItemDefinitionIndex { get; internal set; }
+
+    /// <summary>The entity's networked class name, for the stock-weapon fallback.</summary>
+    /// <remarks>
+    /// **The item is the answer and this is the backstop.** `WeaponModels.For` prefers the item
+    /// because that is what the player actually equipped — preferring the class would draw a stock
+    /// rocket launcher for every reskin in the game — and falls back to the class only when the
+    /// item names no model. A decorated weapon whose definition inherits its model through a
+    /// prefab is the case that needs it.
+    /// </remarks>
+    public string ClassName { get; internal set; } = string.Empty;
+
+    /// <summary>Whether this belongs to its owner's DISGUISE rather than to its owner.</summary>
+    /// <remarks>
+    /// `m_bDisguiseWearable` / `m_bDisguiseWeapon`. Kept current rather than set once: the server
+    /// creates a disguise's gear when the disguise goes up and the flag arrives with it.
+    /// </remarks>
+    public bool OfDisguise { get; internal set; }
+
+    /// <summary>Which team this entity belongs to, or null when it declares none.</summary>
+    /// <remarks>
+    /// **The entity's own team, not a relation to anybody.** Whether it is the RECORDER's team is a
+    /// question about a moment — a player can switch sides mid-demo — so the comparison happens in
+    /// <c>DemoTimeline.PropsAt</c> against the frame's recorder team rather than being baked in
+    /// here.
+    ///
+    /// Read for the spawn walls, which the team that spawns behind them does not see
+    /// (<c>C_FuncRespawnRoomVisualizer::DrawModel</c>, <c>c_func_respawnroom.cpp:47</c>).
+    /// </remarks>
+    public int? TeamNumber { get; internal set; }
+
+    /// <summary>The parity counter last seen, so a change can be noticed.</summary>
+    /// <remarks>
+    /// Null until the entity states one. An entity that never sends the field keeps its clock from
+    /// creation, which is what a prop that never restarts an animation should do.
+    /// </remarks>
+    internal int? LastSequenceParity { get; set; }
+
+    /// <summary>The frame-reset toggle last seen, so a flip can be noticed.</summary>
+    /// <remarks>
+    /// **The restart signal for a CLIENT-side animated entity**, which is what an animated prop is:
+    /// measured on `cp_fulgur`, the spawn cabinets send `m_bClientSideAnimation` 1 and no server
+    /// cycle whatsoever. `C_BaseAnimating::OnDataChanged` reads this one only in that mode
+    /// (`c_baseanimating.cpp:5021`) and `m_nNewSequenceParity` in either.
+    /// </remarks>
+    internal int? LastFrameReset { get; set; }
+
+    /// <summary>When the animation now playing was stamped as having begun, in seconds.</summary>
+    /// <remarks>
+    /// **`C_BaseAnimating` measures its interval from a stamp, never from the start of time** —
+    /// <c>flInterval = ( curtime - m_flAnimTime )</c>, <c>c_baseanimating.cpp:5480</c>, re-stamped
+    /// on every advance. This project left the equivalent at zero for every prop, so `elapsed` was
+    /// the whole recording: a one-shot animation was finished before its first frame drew, and a
+    /// looping one had wrapped an arbitrary number of times.
+    ///
+    /// Measured on `cp_fulgur`: the spawn cabinets are told <c>seq0</c> idle → <c>seq1</c> open →
+    /// <c>seq2</c> close, every keyframe carrying cycle <c>0.00</c>. The owner saw them loop for
+    /// ever, and after the cycle clamp was corrected, hold open for ever. One cause, two symptoms.
+    /// </remarks>
+    internal double AnimationStartSeconds { get; set; }
 
     /// <summary>The engine's serial for this occupant of the slot.</summary>
     /// <remarks>
@@ -543,7 +742,21 @@ public sealed class ScenePropTrack
     /// an inline BSP submodel numbered within the map — <c>*3</c> is the map's fourth. Everything
     /// else is told apart by extension, the way the engine's own loader does.
     /// </remarks>
-    public SceneModelKind Kind => Classify(ModelPath);
+    /// <remarks>
+    /// **An econ item is always a studio model, so a weapon awaiting its item lookup is not of
+    /// UNKNOWN kind.** `CEconEntity::SetModel` resolves `model_player` from `items_game.txt`
+    /// (`econ_entity.cpp:1167`) and every value it can return is a `.mdl` — so the kind is known
+    /// even while the path is not.
+    ///
+    /// **In the engine this state does not exist at all**: the client has `items_game.txt` and
+    /// resolves the model when the entity is created, so a weapon is never model-less. The gap is
+    /// this project's layering — Core decodes and must not read game content — and answering
+    /// `Unknown` here would export that layering as a fact about the entity. It is not one.
+    /// </remarks>
+    public SceneModelKind Kind =>
+        ModelPath.Length == 0 && ItemDefinitionIndex is not null
+            ? SceneModelKind.Studio
+            : Classify(ModelPath);
 
     /// <summary>How many moments the entity actually changed at.</summary>
     public int KeyframeCount => _keyframes.Count;

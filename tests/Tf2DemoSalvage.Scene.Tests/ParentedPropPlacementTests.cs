@@ -93,7 +93,43 @@ public sealed class ParentedPropPlacementTests
                 nameof(SceneProp.AttachmentPoint),
                 nameof(SceneProp.OwnedBy),
                 nameof(SceneProp.WeaponState),
+
+                // **`ItemDefinitionIndex` and `ClassName`, added for the weapon whose model the
+                // wire never carried** — `CEconEntity::SetModel` resolves
+                // `pItem->GetPlayerDisplayModel( iClass, team )` and every `CWeaponMedigun`
+                // networks no model index at all. Every other construction site was visited and
+                // keeps the default deliberately:
+                //
+                // - `PlayerProps` — a player is not an econ item. Their cosmetics are, and those
+                //   are separate entities with their own tracks.
+                // - `ViewmodelScene`'s three — the viewmodel and its weapon already resolve their
+                //   model through `WeaponModels.For` at `ViewmodelScene.cs:184`, from the
+                //   viewmodel's own `m_hWeapon`. Setting these would give the same answer by a
+                //   second route, which is the duplication that lets two paths disagree.
+                // - `EntityModels`' synthetic prop — a path with no entity behind it, built to
+                //   load a model rather than to draw one.
+                //
+                // Only `DemoTimeline` sets them, because only it has the entity.
                 nameof(SceneProp.BoneMerged),
+                nameof(SceneProp.ItemDefinitionIndex),
+                nameof(SceneProp.ClassName),
+
+                // **`OfDisguise`, added for the spy's borrowed cosmetics and weapon.** Every other
+                // construction site was visited and keeps the default deliberately, for the same
+                // reason as the two above: only `DemoTimeline` has the entity, and only an entity
+                // can say `m_bDisguiseWearable` or `m_bDisguiseWeapon`. A player's own prop, the
+                // viewmodel's three, and the synthetic load-set prop are none of them a disguise's
+                // gear, and false is the true answer for all four rather than an absent one.
+                nameof(SceneProp.OfDisguise),
+
+                // **`OfRecordersTeam`, added for the spawn walls a team does not see through its
+                // own doorway.** Same answer as the three above, and for a sharper reason: the
+                // comparison is against the LOCAL player, which only `DemoTimeline` knows —
+                // `PropsAt` reads the recorder's team off the frame at that tick. A viewmodel, a
+                // player's own prop and the synthetic load-set prop have no team relation to
+                // report, and false is the value that DRAWS, which is what the engine does for
+                // every entity this rule does not name.
+                nameof(SceneProp.OfRecordersTeam),
             ],
             ignoreOrder: true,
             "a defaulted field on SceneProp is a claim every construction site makes silently. "

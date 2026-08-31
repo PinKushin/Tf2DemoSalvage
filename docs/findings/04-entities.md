@@ -451,3 +451,250 @@ That same line also says an `EF_NODRAW` entity is not drawn. This project does t
 skip. It was briefly filed as a gap (B133) on the strength of a search scoped to the renderer alone,
 and withdrawn the same day: the absence of the flag downstream is caused by the filter being
 upstream, which is the correct place for it.
+
+### A creating update is a delta against the instance baseline, and the baseline is a stranger
+
+**Evidence class: measured on the corpus, and cross-checked against the map's own entity lump.**
+
+`cp_fulgur`, the owner's recording. Slot 432 is the BLU spawn's windowed door. Watching every update
+to that slot in order, with the `instancebaseline` string table applied:
+
+```
+Enter 432 serial 998 props 2  modelindex 1154 origin (3440 -2096 240)
+Enter 432 serial 998 props 11 modelindex 1177 origin (2 0 -59)
+```
+
+Index 1177 is `models/props_gameplay/windowed_door.mdl`. Index **1154** is
+`models/props_gameplay/resupply_locker.mdl`, and `(3440 -2096 240)` is `prop_locker_blu_5`'s world
+origin, read out of the map:
+
+```
+PROP prop_dynamic models/props_gameplay/resupply_locker.mdl
+       name    (prop_locker_blu_5)
+       origin  (3440 -2095.56 240.16)
+       parent  [unparented]
+```
+
+**Neither value belongs to the door.** They belong to whichever entity supplied `CDynamicProp`'s
+instance baseline. An entity is created as a delta against that baseline, so a creating update
+carries only what differs from it — and everything it omits is a stranger's state until the next
+update corrects it.
+
+**The engine is untroubled by this because it re-reads the model every update.**
+`C_BaseEntity::PostDataUpdate`, `client/c_baseentity.cpp:2603`:
+
+```cpp
+    Assert( m_hNetworkMoveParent.Get() || !m_hNetworkMoveParent.IsValid() );
+    HierarchySetParent(m_hNetworkMoveParent);
+
+    MarkMessageReceived();
+
+    // Make sure that the correct model is referenced for this entity
+    ValidateModelIndex();
+
+    // If this entity was new, then latch in various values no matter what.
+    if ( updateType == DATA_UPDATE_CREATED )
+```
+
+**Both calls sit above the `DATA_UPDATE_CREATED` test, so both run on every update.**
+`ValidateModelIndex` ends in `SetModelByIndex( m_nModelIndex )` (`c_baseentity.cpp:2531`).
+
+This project followed the first of that pair and not the second: `ScenePropTrack.AttachedTo` was
+assigned every update, with a comment citing these very lines, while `ModelPath` was fixed at
+construction. So the door was named a resupply cabinet for the rest of the recording, and nine other
+entities took the same baseline's identity the same way — every one of them reporting
+`(3440 -2096 240)`, one map prop's position, which is what made the pattern visible at all.
+
+**Half a mechanism, and the half that was implemented is the one that made it hard to see.** A
+correct parent on a wrongly-named prop looks like a naming problem; a wrong parent would have looked
+like a parenting problem, which is what three earlier rounds of this investigation assumed.
+
+#### The origin half is a different mechanism, and it is not implemented at all
+
+Correcting the model leaves the cabinet tracks holding two keyframes — the baseline's origin and the
+real one — and the timeline interpolates between them, so a BLU spawn cabinet flies across the map
+and back. The pose sequence measured for slot 312, `prop_locker_blu_3`:
+
+```
+(6232 -3024 384) | (3440 -2096 240) | (6043 -2961 374)
+```
+
+The third is an interpolation between the first two.
+
+The engine does not do this because `svc_PacketEntities` carries two more fields this project
+decodes, round-trips and never consumes — `baseline` and `update_baseline`. Counted across the
+recording:
+
+| flags | snapshots |
+|---|---|
+| `baseline=0 updatebaseline=0` | 12,340 |
+| `baseline=0 updatebaseline=1` | 1,169 |
+| `baseline=1 updatebaseline=0` | 12,798 |
+| `baseline=1 updatebaseline=1` | 1,171 |
+
+**2,340 snapshots ask the client to update a baseline, and the index alternates.** An entity
+entering the PVS deltas against its *per-entity* baseline in the named slot, not against the class
+instance baseline — which is exactly how a two-property `EnterPVS` can describe a door completely.
+
+`docs/RISKS.md` filed this in the B12/B13 write-up as *"This parser ignores both, and a baseline
+swap that changes how a later delta is interpreted would look exactly like this"*, listed it first
+under **Still to read**, and it was never read. The note was right and sat unactioned for months;
+the measurement above is the first evidence that the mechanism is live in a real recording rather
+than merely possible.
+
+#### Implemented, and what it moved
+
+**Evidence class: measured, before and after, on the same recording.**
+
+`EntityBaselineSlots` maintains the two arrays. An entering entity deltas against its own stored
+state when the snapshot's named slot holds one **of the same class** and the snapshot is a **delta**;
+otherwise against its class baseline. On `update_baseline` the named array is copied wholesale into
+the other one and each entering entity's **merged** state is written over the copy.
+
+The eight `resupply_locker` entities in `cp_fulgur`, before and after, against the map:
+
+| entity | before | after | map |
+|---|---|---|---|
+| 52 | (3440 -2096 240) | (3440 -2096 240) | `prop_locker_blu_5` |
+| 54 | (3024 -1736 368) | (3024 -1736 368) | `prop_locker_blu_6` |
+| 82 | (2480 2784 192) | (2480 2784 192) | `prop_locker_red_2` |
+| 105 | (1744 880 104) **+ (3440 -2096 240)** | (1744 880 104) | `prop_locker_red_3` |
+| 312 | (6232 -3024 384) **+ (3440 -2096 240) + (6043 -2961 374)** | (6232 -3024 384) | `prop_locker_blu_3` |
+| 314 | (5744 -2664 384) **+ (3440 -2096 240) + (5719 -2658 383)** | (5744 -2664 384) | `prop_locker_blu_4` |
+| 413 | (-864 -1104 152) | (-864 -1104 152) | `prop_locker_blu_7` |
+| 420 | (-0 -1580 -64) | (-0 -1580 -64) | `prop_locker_blu_8` |
+
+**The bolded poses are the class baseline's**, `prop_locker_blu_5`'s world origin, plus what the
+timeline interpolated on the way there and back. Entities 472, 473, 477, 478 and 717 disappeared
+entirely — they were slots briefly holding a stranger's state and nothing else, and the walk's prop
+count fell from 27 to 21. The two BLU spawn cabinets went from 78 samples across three positions to
+**303 at one**.
+
+**Six of the nine tests are controls, and that ratio is not padding.** Every wrong implementation
+here produces plausible numbers rather than an error: read the wrong slot and entities still decode,
+skip the array copy and they decode for one snapshot in two, drop the class check and a reused slot
+inherits a stranger. The only way to tell those apart is to write the case down first. Five
+deliberate sabotages each killed exactly the test written for it.
+
+### A weapon's model is not on the wire, and for some weapons nothing is
+
+**Evidence class: measured on the corpus, cross-checked against published SDK source.**
+
+Owner's report: *"mediguns still are not drawing on other players too, but the flamethrower, and it
+looks like everything else, draws"*.
+
+Two readings died first, and both are worth keeping because both looked right:
+
+1. **"It draws in the wrong place."** The render log says `c_medigun.mdl` IS drawn, at a real world
+   position. Those are the ten `CTFDroppedWeapon` entities on the floor — correct in every respect.
+2. **"The bone-merge rule is not firing for weapons."** Every track carrying `c_medigun.mdl`
+   reported `parent none, merged False`. Same ten entities; a dropped weapon is not merged to
+   anybody. `SchemaClasses.BoneMergesItself` is `True` for `CWeaponMedigun` throughout.
+
+Both were facts about the wrong entities. Every weapon in the recording that has an OWNER:
+
+| entity | class | `m_nModelIndex` | `m_iWorldModelIndex` | item | owner |
+|---|---|---|---|---|---|
+| 968 | `CTFRocketLauncher` | 996 | 426 | 513 | 18 |
+| 953 | `CTFRocketLauncher` | 996 | 200 | 907 | 22 |
+| 1100 | `CTFFlameThrower` | none | 225 | 40 | 5 |
+| 940 | `CTFMinigun` | none | 393 | 424 | 24 |
+| **1017** | **`CWeaponMedigun`** | **none** | **none** | **211** | **8** |
+| **1109** | **`CWeaponMedigun`** | **none** | **none** | **211** | **21** |
+| **1192** | **`CTFMinigun`** | **none** | **none** | **15123** | **23** |
+
+**Item 211 is the stock Medi Gun.** Nothing was missing from the recording — the number that names
+the model was there the whole time, and no one asked it. `DemoTimeline.ModelFor` reads
+`WorldModelIndex() ?? ModelIndex()`, got nothing, and returned before a track was ever made.
+
+**It is not medigun-specific**, which the minigun proves: the rule is "weapons that network no model
+index", and the medigun is merely the class where that is always true.
+
+#### The engine never reads that field for an econ entity
+
+`CEconEntity::UpdateModelToClass`, `game/shared/econ/econ_entity.cpp:382`:
+
+```cpp
+    pszModel = pItem->GetPlayerDisplayModel( m_iOldOwnerClass, nTeam );
+    if ( pszModel && pszModel[0] )
+    {
+        if ( V_stricmp( STRING( GetModelName() ), pszModel ) != 0 )
+        {
+            ...
+            SetModel( pszModel );
+        }
+    }
+```
+
+The model comes from `model_player` in `items_game.txt`, keyed by the owner's CLASS — which is why
+a shotgun shared by soldier, pyro, heavy and engineer is four different models under one item.
+
+**This project already knew that.** `DemoTimeline.cs:1600` carries the citation and the failed
+experiment: *"Taking the weapon entity's own `m_nModelIndex` was tried on 2026-08-28 and drew no
+weapon at all: `m_hWeapon` says WHICH weapon and the schema says what it looks like."*
+`WeaponModels.For` implements it, and was wired to the viewmodel and to the followed player. The
+weapon entities other players carry were the one caller that never asked — **the fourth
+half-implemented mechanism found in a single session**, after the model index, the baseline slots
+and the animation cycle.
+
+#### A divergence this fix does NOT close, stated rather than hidden
+
+Valve's rule is *the item wins whenever it names something different*. This fix is narrower: it
+resolves only when the entity networks **no** model at all, and leaves a weapon that sent one alone.
+
+The two agree for every weapon measured here, because the server sets `m_iWorldModelIndex` from the
+same item — flamethrower index 225 resolves to `c_backburner.mdl`, a `c_` model, not the legacy
+`w_` one. They can disagree when an entity's owner CLASS changes, since Valve re-resolves per class
+and this keeps the networked value.
+
+The narrower rule was chosen because the wider one changes every working weapon and the difference
+cannot be checked without looking at the screen. It is recorded here rather than in a code comment
+because a divergence is a question for the owner, not a note to self.
+
+### The mechanical audit: which decoded fields have no consumer
+
+**Evidence class: mechanical, over the repository.** Every bug found on 2026-08-30 had one of two
+shapes — a field decoded and never read, or a mechanism wired to one caller of several. That is
+auditable rather than discoverable one symptom at a time, and the audit is two lines of shell:
+
+```bash
+# every public accessor on EntityState
+grep -oE "public [A-Za-z0-9_?<>., ()]+ [A-Z][A-Za-z0-9_]*\(" EntityState.cs | ...
+# each one with no production caller outside the file that declares it
+grep -rlE "\.${name}\(" managed/ --include=*.cs | grep -v Scene/EntityState.cs
+```
+
+**46 accessors, 5 with no production caller:**
+
+| accessor | verdict |
+|---|---|
+| `Attachment` | dead — replaced by `AttachmentHandle`, which checks the handle's serial |
+| `RenderColor` | `m_clrRender`, decoded and never applied |
+| `ViewmodelMuzzleFlashParity` | known gap, documented at the declaration |
+| `ViewmodelNewSequenceParity` | known gap; the `DT_BaseAnimating` twin is now consumed |
+| `ViewmodelResetEventsParity` | known gap — this viewer dispatches no animation events |
+
+**It caught a divergence introduced an hour earlier.** `ClientSideAnimation` appeared on that list
+because the frame-reset fix honoured `m_bClientSideFrameReset` unconditionally, where
+`c_baseanimating.cpp:5021` reads it only inside `if ( m_bClientSideAnimation )`. A server-animated
+entity toggling the field would have restarted on it. The audit found that in seconds; no amount of
+looking at the screen would have.
+
+#### What the audit CANNOT see, which is the larger set
+
+It enumerates fields this project already decodes. A field never decoded at all is invisible to it,
+and those are the more expensive gaps:
+
+- **`m_flAnimTime`** — cited in seven comments, decoded nowhere. It lives in
+  `DT_AnimTimeMustBeFirst`, not `DT_BaseEntity`, so asking under the obvious name silently matches
+  nothing.
+- **Spy disguises.** `m_nDisguiseTeam` and `m_nDisguiseClass` are networked
+  (`tf_player_shared.cpp:400`), and the string "Disguise" appears **zero** times in the entire
+  managed tree. The owner's report is the symptom: *"a spy looked like a blue spy and a red demo at
+  the same time"*.
+
+**So the denominator has to come from the SDK's RecvTables, not from our own accessors** — the same
+argument `SdkCoverageTests` already makes for shader parameters and BSP lumps, applied to networked
+properties. A coverage test over `RecvPropInt( RECVINFO( ... ) )` for the classes this viewer draws
+would turn every remaining gap of this kind into a number, and it is the single highest-value thing
+left undone here.

@@ -155,7 +155,11 @@ public sealed class MomentPresenter
                 view.Eye,
                 LastInterval,
                 view.ViewmodelFieldOfView,
-                view.DrawViewmodel));
+                view.DrawViewmodel,
+
+                // From the recording, not from the window: the round is something the demo knows
+                // and the viewer cannot derive.
+                source.RoundStateAt(tick)));
 
         _ledger.Posed(phases.Pose);
 

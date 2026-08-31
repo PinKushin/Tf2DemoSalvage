@@ -34,6 +34,44 @@ public sealed class EntityStateTable
         _baselines = baselines;
     }
 
+    /// <summary>Dereferences an entity handle, checking its serial as the engine does.</summary>
+    /// <param name="handle">The handle as the wire carried it, or <c>null</c> when absent.</param>
+    /// <returns>The entity's slot, or <c>null</c> when the handle names nothing live.</returns>
+    /// <remarks>
+    /// **A handle is an index AND a serial, and dropping the serial is not a simplification**
+    /// (B231). <c>RecvProxy_IntToEHandle</c> (<c>client/recvproxy.cpp:80</c>) keeps both —
+    /// <c>pEHandle-&gt;Init( iEntity, iSerialNum )</c> — and dereferencing one compares the serial
+    /// against the slot's current occupant. That comparison is the whole point: entity slots are
+    /// reused, so a handle taken before a slot changed hands must resolve to NOTHING rather than to
+    /// whoever moved in.
+    ///
+    /// **Masking alone resolves a dangling handle to a real, existing, different entity**, which is
+    /// silent and plausible. Measured on `cp_fulgur`: a spawn resupply locker was composed onto
+    /// entity 434 — a door — because its parent handle pointed at a slot that had been reused, and
+    /// the locker then appeared thousands of units from where it belongs.
+    ///
+    /// The invalid sentinel is tested BEFORE the mask, for the reason
+    /// <see cref="EntityState.Slot"/> records: it is 21 bits of ones and its low 11 mask to 2047, a
+    /// perfectly ordinary-looking slot.
+    ///
+    /// **On the table rather than on <see cref="EntityState"/>**, because resolving needs the slot's
+    /// CURRENT occupant and an entity cannot see its neighbours. That is the same split the engine
+    /// has: the handle is a value, and `cl_entitylist` is what turns it into an entity.
+    /// </remarks>
+    public int? Resolve(int? handle)
+    {
+        if (EntityState.Slot(handle) is not { } slot || handle is not { } raw)
+        {
+            return null;
+        }
+
+        // Absent, and a slot nothing occupies, are the same answer: nothing to point at.
+        return _entities.TryGetValue(slot, out EntityState? occupant)
+            && occupant.SerialNumber == raw >> EntityState.EdictBitCount
+                ? slot
+                : null;
+    }
+
     /// <summary>Names a networked class, so accumulated entities can report it.</summary>
     /// <param name="classId">The id entity snapshots carry.</param>
     /// <param name="className">The server class name, e.g. <c>CTFPlayer</c>.</param>
@@ -75,9 +113,13 @@ public sealed class EntityStateTable
         // which is a value the decoder never produces, so correct and broken agreed on it.
         bool statesSerial = entity.UpdateType == EntityUpdateType.Enter;
 
+        bool created = false;
+
         if (!_entities.TryGetValue(entity.EntityIndex, out EntityState? state) ||
             (statesSerial && state.SerialNumber != entity.SerialNumber))
         {
+            created = true;
+
             // A different serial number in the same slot is a different entity. Merging into the
             // old one leaves the newcomer holding whichever properties it has not happened to
             // resend - a player who is on the previous occupant's team until they next change it,
@@ -107,7 +149,37 @@ public sealed class EntityStateTable
         // controller enters once at tick 1 with fifteen properties, none of them on the wire, and
         // is never mentioned again. It reached this table with its class name and nothing else,
         // on every demo in the corpus, and stayed that way for the life of the file (B132).
-        foreach (DecodedProperty property in _baselines.EffectiveProperties(entity))
+        // **Only for an entity being CREATED, which is what the paragraph above actually
+        // describes** (B231). `CL_CopyNewEntity` runs "before the entity exists at all" — and an
+        // entity re-entering the potentially visible set already exists. Merging the baseline on
+        // every `Enter` overwrote everything it had accumulated with class defaults.
+        //
+        // Measured on `cp_fulgur`, one spawn-door prop across the whole recording:
+        //
+        //     tick  9781: Enter, serial 91, 11 properties, moveparent 1587610
+        //     tick  9860: Leave
+        //     tick 14180: Enter, serial 91,  0 properties
+        //     tick 14635: Leave
+        //     tick 15059: Enter, serial 91,  0 properties
+        //
+        // Same serial, so the same entity, so `created` is false above and the state was rightly
+        // kept — and then the baseline put `moveparent` back to its no-parent default and the gate
+        // came off its door. The owner described it exactly: *"the things are showing up at tick 0,
+        // but immedietly dissapearing when you hit play"*.
+        //
+        // **An `Enter` carrying ZERO properties is unreadable any other way.** As "rebuild from
+        // baseline" it would mean the server discarding everything it knows about a live, unchanged
+        // entity; as "this is visible again, nothing has changed" it is what a delta-compressed
+        // protocol should send.
+        //
+        // **This is not a door bug.** Every entity that leaves and re-enters the PVS was losing
+        // team, skin, parent, render mode and anything else sent once — which on a point-of-view
+        // recording is most of the map, repeatedly.
+        IReadOnlyList<DecodedProperty> properties = created
+            ? _baselines.EffectiveProperties(entity)
+            : entity.Properties;
+
+        foreach (DecodedProperty property in properties)
         {
             state.Set(
                 $"{property.Definition.OwnerTable}.{property.Definition.Property.Name}",

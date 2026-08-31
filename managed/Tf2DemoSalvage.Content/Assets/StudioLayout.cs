@@ -505,6 +505,16 @@ internal static class StudioLayout
     /// <summary>Bytes per <c>mstudiobodyparts_t</c>.</summary>
     public const int BodyPartStride = 16;
 
+    /// <summary>Byte offset of <c>sznameindex</c>: the part's name, relative to the part.</summary>
+    /// <remarks>
+    /// **A body part is addressed by NAME by the code that matters.** `FindBodygroupByName`
+    /// (<c>shared/animation.cpp:927</c>) walks the parts comparing this string, and TF2 uses it for
+    /// the one bodygroup a demo viewer has to reproduce: <c>m_iSpyMaskBodygroup =
+    /// FindBodygroupByName( "spyMask" )</c> (<c>c_tf_player.cpp:5371</c>). Without the name there
+    /// is no way to say which part that is — the index differs per model.
+    /// </remarks>
+    public const int BodyPartNameOffset = 0;
+
     /// <summary>Byte offset of <c>nummodels</c>: how many alternatives this part offers.</summary>
     public const int BodyPartModelCountOffset = 4;
 

@@ -2106,10 +2106,20 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 WorldSpaceBounds.LongestAxisOf(instance.WorldBounds))]++;
         }
 
+        // **Says whether the FRUSTUM WAS BUILT, not only how many survived it** (B241). The count
+        // alone cannot distinguish a cull that ran and kept everything from a cull that never ran:
+        // `Culled` returns false outright when `_frustum.IsBuilt` is false, so an unbuilt frustum
+        // and a scene entirely on screen produce the identical line.
+        //
+        // A UI test asserted `kept < offered` for exactly this and passed for months on a scene
+        // that happened to have models behind the camera — until placing parented props correctly
+        // brought them back into view and it read 20 of 20. The number it wanted was never the
+        // count; it was this flag.
         _render.LogInformation(
-            "opaque draw order: {Kept} of {Offered} models kept, buckets {Buckets}",
+            "opaque draw order: {Kept} of {Offered} models kept, frustum {Frustum}, buckets {Buckets}",
             ordered.Count,
             offered.Count,
+            _frustum.IsBuilt ? "built" : "UNBUILT",
             string.Join('/', perBucket));
 
         // **Which models were dropped, by name and by box.** A count says the cull ran; it cannot

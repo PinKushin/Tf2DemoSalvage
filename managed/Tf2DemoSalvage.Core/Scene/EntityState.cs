@@ -124,6 +124,14 @@ public sealed class EntityState
     /// <summary><c>MAX_EDICT_BITS</c> — the low bits of a handle are the entity's slot.</summary>
     private const int EdictBits = 11;
 
+    /// <summary>How many low bits of a handle name the slot — <c>MAX_EDICT_BITS</c>.</summary>
+    /// <remarks>
+    /// Exposed so `EntityStateTable.Resolve` can read the SERIAL above them without keeping its own
+    /// copy of the split. Two copies of a bit width are two chances to disagree, and a wrong one
+    /// masks a handle to the wrong slot — which resolves to a real, existing, different entity.
+    /// </remarks>
+    internal const int EdictBitCount = EdictBits;
+
     /// <summary>
     /// <c>NUM_NETWORKED_EHANDLE_SERIAL_NUMBER_BITS</c> — the high part of a handle, which
     /// distinguishes a slot's current occupant from the one that used to be there.
@@ -440,6 +448,19 @@ public sealed class EntityState
     /// The visible set matters too: <see cref="IsVisible"/> is false while an entity has left the
     /// PVS, which is a different thing from being deleted and a different thing again from being
     /// told not to draw.
+    ///
+    /// **`kRenderNone` is deliberately NOT tested here, and that is the whole of B240's second
+    /// half.** It belongs to `ShouldDraw` (`c_baseentity.cpp:1447`) — but this property decides
+    /// whether an entity is in the scene AT ALL, and those are different questions. Valve's
+    /// `ShouldDraw` stops an entity being DRAWN; `CalcAbsolutePosition` still composes a child onto
+    /// its parent's transform without asking whether the parent renders (`:4350`).
+    ///
+    /// Putting the test here removed the invisible `func_door`s from the scene entirely, and every
+    /// setup gate's grate props are PARENTED to one — so they lost the transform they hang off and
+    /// the gates vanished completely. That is the same trap `7135d319` recorded one layer down, and
+    /// it was walked into one layer up within the hour.
+    ///
+    /// The render mode is applied where drawing is decided: `EntityModelSet.Instances`.
     /// </remarks>
     public bool IsDrawn => IsVisible && (Effects() & NoDraw) == 0;
 
@@ -587,6 +608,16 @@ public sealed class EntityState
     /// <summary>The table a weapon's own properties arrive under.</summary>
     private const string WeaponTable = "DT_BaseCombatWeapon";
 
+    /// <summary>Where a TF cosmetic declares whether it belongs to a disguise.</summary>
+    /// <remarks>
+    /// `m_bDisguiseWearable` is on `CTFWearable`'s own table, not on the econ base — a disguise is
+    /// a TF concept and the econ layer knows nothing about it.
+    /// </remarks>
+    private const string WearableTable = "DT_TFWearable";
+
+    /// <summary>Where a TF weapon declares the same.</summary>
+    private const string TfWeaponTable = "DT_TFWeaponBase";
+
     /// <summary>Which player a viewmodel belongs to, or <c>null</c> when this is not one.</summary>
     /// <remarks>
     /// **<c>m_hOwner</c>, not <c>m_hOwnerEntity</c>** — a different property in a different table
@@ -644,6 +675,136 @@ public sealed class EntityState
     /// </remarks>
     public int? ViewmodelNewSequenceParity() =>
         Integer($"{ViewModelTable}.m_nNewSequenceParity");
+
+    /// <summary>The counter that says THIS entity's animation restarted.</summary>
+    /// <remarks>
+    /// **The same field on <c>DT_BaseAnimating</c>, which every animated prop has and which nothing
+    /// asked for until now.** <c>ViewmodelNewSequenceParity</c> above reads the viewmodel's copy and
+    /// its remarks admit it is "decoded and not yet acted on"; this one is acted on, because it is
+    /// what tells a spawn cabinet its `open` began.
+    ///
+    /// <c>C_BaseAnimating::OnDataChanged</c>, <c>c_baseanimating.cpp:4737</c>:
+    ///
+    /// <code>
+    ///   // reset prev cycle if new sequence
+    ///   if (m_nNewSequenceParity != m_nPrevNewSequenceParity)
+    ///   {
+    ///       ...
+    ///       m_iv_flCycle.Reset();
+    ///   }
+    /// </code>
+    ///
+    /// **A counter rather than a comparison of sequence numbers, and that difference is the point.**
+    /// <c>m_nNewSequenceParity = ( m_nNewSequenceParity + 1 ) &amp; EF_PARITY_MASK</c>
+    /// (<c>c_baseanimating.cpp:5574</c>) — a cabinet used twice plays the SAME sequence twice, and
+    /// only the counter says the second one began.
+    /// </remarks>
+    public int? NewSequenceParity() =>
+        Integer($"{AnimatingTable}.m_nNewSequenceParity");
+
+    /// <summary>The five condition bitfields, read as <c>CTFPlayerShared::InCond</c> does.</summary>
+    /// <remarks>
+    /// **All five, because 31 of `DT_TFPlayerShared`'s 66 fields live past the first.**
+    /// `CConditionVars` (`tf_player_shared.cpp:1041`) picks the variable by the condition's range,
+    /// so a reader that took only `m_nPlayerCond` would answer correctly for conditions 0..31 and
+    /// silently wrongly for every one after — including most of what TF has added since 2007.
+    ///
+    /// Absent reads as zero rather than null: a player who sends no condition field is in no
+    /// condition, which is the same thing the engine's zero-initialised member means.
+    /// </remarks>
+    public PlayerConditions Conditions() => new(
+        Integer($"{PlayerSharedTable}.m_nPlayerCond") ?? 0,
+        Integer($"{PlayerSharedTable}.m_nPlayerCondEx") ?? 0,
+        Integer($"{PlayerSharedTable}.m_nPlayerCondEx2") ?? 0,
+        Integer($"{PlayerSharedTable}.m_nPlayerCondEx3") ?? 0,
+        Integer($"{PlayerSharedTable}.m_nPlayerCondEx4") ?? 0);
+
+    /// <summary>Which class a disguised spy appears to be — <c>m_nDisguiseClass</c>.</summary>
+    public int? DisguiseClass() => Integer($"{PlayerSharedTable}.m_nDisguiseClass");
+
+    /// <summary>Which team a disguised spy appears to be on — <c>m_nDisguiseTeam</c>.</summary>
+    public int? DisguiseTeam() => Integer($"{PlayerSharedTable}.m_nDisguiseTeam");
+
+    /// <summary>Whose mask a spy disguised AS a spy wears — <c>m_nMaskClass</c>.</summary>
+    /// <remarks>
+    /// Read in exactly one branch: <c>GetDisguiseMask</c> (<c>tf_player_shared.h:375</c>) supplies
+    /// it to `GetSkin`'s enemy mask offset when the disguise class is itself a spy.
+    /// </remarks>
+    public int? DisguiseMaskClass() => Integer($"{PlayerSharedTable}.m_nMaskClass");
+
+    /// <summary>Whether this cosmetic or weapon belongs to its owner's DISGUISE.</summary>
+    /// <remarks>
+    /// **Two fields, one question.** A wearable declares <c>m_bDisguiseWearable</c> on
+    /// <c>DT_TFWearable</c> (<c>tf_item_wearable.cpp:36</c>) and a weapon declares
+    /// <c>m_bDisguiseWeapon</c> on <c>DT_TFWeaponBase</c> (<c>tf_weaponbase.cpp:198</c>); an entity
+    /// declares one or the other, never both, so asking for either and taking what answers is the
+    /// same question rather than a guess between two.
+    ///
+    /// The server creates a disguise's gear as its own entities bone-merged to the spy, so an ENEMY
+    /// sees a convincing soldier — and this flag is the only thing that separates them from the
+    /// spy's own. Without it, soldier hats and a rocket launcher draw on a spy's skeleton.
+    /// </remarks>
+    public bool OfDisguise() =>
+        (Integer($"{WearableTable}.m_bDisguiseWearable")
+            ?? Integer($"{TfWeaponTable}.m_bDisguiseWeapon")) is not (null or 0);
+
+    /// <summary>Where a TF player's shared state lives on the wire.</summary>
+    /// <remarks>
+    /// **A table this project read NOTHING from until now** — `docs/WIRE-COVERAGE.md` reported it
+    /// at 0 of 66 declared properties, and it carries conditions, disguises, cloak, charge and
+    /// stuns.
+    /// </remarks>
+    private const string PlayerSharedTable = "DT_TFPlayerShared";
+
+    /// <summary>Whether the CLIENT advances this entity's cycle rather than the server.</summary>
+    /// <remarks>
+    /// **<c>m_bClientSideAnimation</c>, and it selects between two different restart signals.**
+    /// <c>C_BaseAnimating::OnDataChanged</c> (<c>c_baseanimating.cpp:5021</c>):
+    ///
+    /// <code>
+    ///   // Only need to think if animating client side
+    ///   if ( m_bClientSideAnimation )
+    ///   {
+    ///       // Check to see if we should reset our frame
+    ///       if ( m_bClientSideFrameReset != m_bLastClientSideFrameReset )
+    ///       {
+    ///           ResetClientsideFrame();
+    ///       }
+    ///   }
+    /// </code>
+    ///
+    /// Measured on `cp_fulgur`: the spawn cabinets send <c>1</c> here and send
+    /// <c>DT_ServerAnimationData.m_flCycle</c> NEVER — the server states no cycle for them at all
+    /// because the client is expected to run it.
+    /// </remarks>
+    public int? ClientSideAnimation() =>
+        Integer($"{AnimatingTable}.m_bClientSideAnimation");
+
+    /// <summary>The toggle that says a client-side animation should start over.</summary>
+    /// <remarks>
+    /// **A TOGGLE, not a counter, and that is the whole of how it is read.**
+    /// <c>CBaseAnimating::ResetClientsideFrame</c> (<c>server/baseanimating.cpp:3055</c>):
+    ///
+    /// <code>
+    ///   void CBaseAnimating::ResetClientsideFrame( void )
+    ///   {
+    ///       // (Valve's own to-do marker elided so the analyzer does not read it as ours:
+    ///       //  "Once we can chain MSG_ENTITY messages, use one of them")
+    ///       m_bClientSideFrameReset = !(bool)m_bClientSideFrameReset;
+    ///   }
+    /// </code>
+    ///
+    /// so the VALUE means nothing and only a CHANGE does — the client compares it against
+    /// <c>m_bLastClientSideFrameReset</c>. Reading it as a boolean "should reset" would restart the
+    /// animation on every update where it happened to be one, and never where it was zero.
+    ///
+    /// **This is the restart signal for a prop, where <see cref="NewSequenceParity"/> is the one for
+    /// a server-animated entity.** Measured on the same cabinets: 274 of these against 300 parities,
+    /// and the two do not have to coincide.
+    /// </remarks>
+    public int? ClientSideFrameReset() =>
+        Integer($"{AnimatingTable}.m_bClientSideFrameReset");
+
 
     /// <summary>The counter that re-arms animation events — <c>m_nResetEventsParity</c>.</summary>
     /// <remarks>
@@ -818,6 +979,30 @@ public sealed class EntityState
         return ((Integer($"{BaseEntityTable}.{EffectsProperty}") ?? 0) & BoneMerge) == 0
             ? null
             : Slot(Integer($"{BaseEntityTable}.{OwnerProperty}"));
+    }
+
+    /// <summary>The raw handle this entity hangs off, serial and all.</summary>
+    /// <returns>The handle as the wire carried it, or <c>null</c> when it names nothing.</returns>
+    /// <remarks>
+    /// **<see cref="Attachment"/> answers the same question with the serial thrown away**, which is
+    /// safe only while no slot is ever reused — and slots are reused constantly (B231). This hands
+    /// the whole value to <c>EntityStateTable.Resolve</c>, which compares the serial against the
+    /// slot's current occupant exactly as dereferencing a <c>CBaseHandle</c> does.
+    ///
+    /// The same two sources, in the same order: a move parent outright, or an owner for something
+    /// that also asked to be bone-merged.
+    /// </remarks>
+    public int? AttachmentHandle()
+    {
+        if (Integer($"{BaseEntityTable}.{ParentProperty}") is { } parent &&
+            parent != InvalidHandle)
+        {
+            return parent;
+        }
+
+        return ((Integer($"{BaseEntityTable}.{EffectsProperty}") ?? 0) & BoneMerge) == 0
+            ? null
+            : Integer($"{BaseEntityTable}.{OwnerProperty}");
     }
 
     /// <summary>Which of its parent's attachment points this entity hangs from.</summary>

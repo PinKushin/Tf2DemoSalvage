@@ -28,9 +28,12 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 /// class has no entry of its own (<c>tf_item_schema.cpp:1058</c>), and the base is
 /// <c>model_player</c> (<c>econ_item_schema.cpp:2376</c>).
 ///
-/// **Styles are not implemented and this says so rather than leaving it silent.** A style is a
-/// per-item variant the owner chooses; the demo does carry the choice, but no weapon in the corpus
-/// uses one and building it untested would be a guess. A styled item draws its base model here.
+/// **Styles are not implemented, and the reason is narrower than it looks.** `GetItemStyle` ends at
+/// `GetSOCData()->GetStyle()`, and `GetSOCData` finds an inventory only for an account the client
+/// subscribes to — its own (`econ_item_view.cpp:839`). A live client watching another player gets
+/// `INVALID_STYLE_INDEX` and falls through to the per-class-then-base order below, which is what
+/// this does. The real gap is the `item style override` ATTRIBUTE, which is networked and which a
+/// demo carries; nothing here decodes attributes yet (`RISKS.md` B234).
 ///
 /// **The definition itself usually holds none of this.** A stock weapon is four lines and a
 /// <c>prefab</c>, and the model lives in the prefab — so resolution is a chain, and a reader that
@@ -124,6 +127,42 @@ public sealed class ItemSchemaConformanceTests
 
         // And the flag that decides whether it is a separate model at all.
         schema.AttachesToHands(13).ShouldBeTrue("the scattergun attaches to the hands");
+    }
+
+    [Test]
+    public void ModelFor_ThePerClassBasenamesInTheShippedSchema_Expand()
+    {
+        // **`basename` appears 5,518 times in the shipped file** and this project read none of
+        // them, because the reader stored the key as though "basename" were a class nobody plays.
+        // Measured on a real match afterwards: 48 of 252 distinct (item, class) pairs resolved to
+        // no model at all, and every one was a cosmetic.
+        //
+        // Both patterns below were read out of items_game.txt, not predicted:
+        //
+        //     "261" Mann Co. Cap      "basename" "models/player/items/%s/%s_cap.mdl"
+        //     "126" Bill's Hat        "basename" "models/player/items/%s/%s_bill.mdl"
+        //
+        // Neither item carries a `model_player` of its own, so before this the answer was nothing.
+        if (!File.Exists(SchemaPath))
+        {
+            Assert.Ignore("the game is not installed");
+            return;
+        }
+
+        ItemSchema schema = ItemSchema.Read(File.ReadAllBytes(SchemaPath));
+
+        schema.ModelFor(261, playerClass: 1)
+            .ShouldBe("models/player/items/scout/scout_cap.mdl");
+
+        // The demoman, whose files say `demo` where the schema says `demoman` — Valve forces the
+        // substitution and apologises for it in `tf_item_schema.cpp:519`. Without that line this
+        // names `models/player/items/demoman/demoman_cap.mdl`, which does not exist and is
+        // indistinguishable on screen from naming nothing.
+        schema.ModelFor(261, playerClass: 4)
+            .ShouldBe("models/player/items/demo/demo_cap.mdl");
+
+        schema.ModelFor(126, playerClass: 3)
+            .ShouldBe("models/player/items/soldier/soldier_bill.mdl");
     }
 
     /// <summary>Every key directly inside a named block, at a stated depth.</summary>

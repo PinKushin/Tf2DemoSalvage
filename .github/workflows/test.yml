@@ -149,7 +149,23 @@ jobs:
           # UpdateAnimationParity written down before it was implemented.
           # 1550 -> 1556: RenderStateDecodeTests, synthetic and in Core.Tests per D38.
           # 1556 -> 1563 on 2026-08-30: WearableClassConformanceTests (7), synthetic and file-free.
-          ./build/assert-test-count.sh '**/core.trx' 1563 Core
+          # 1563 -> 1567 on 2026-08-30: ReentryPreservesStateTests (4), synthetic and file-free.
+          # 1567 -> 1575 on 2026-08-30: HandleSerialConformanceTests (5) and
+          # ModelIndexFollowsUpdatesConformanceTests (3) — both halves of PostDataUpdate this
+          # project had left out. Synthetic and file-free.
+          # 1575 -> 1584 on 2026-08-30: EntityBaselineSlotConformanceTests (9), the two per-entity
+          # baseline arrays svc_PacketEntities names. Synthetic and file-free.
+          # 1584 -> 1588 on 2026-08-30: WeaponItemModelConformanceTests (4). A weapon's model
+          # comes from its item, and every CWeaponMedigun networks no model index at all.
+          # 1588 -> 1591 on 2026-08-30: SequenceParityConformanceTests (3), the prop animation
+          # clock. Synthetic and file-free.
+          # 1591 -> 1592 on 2026-08-30: the client-side frame reset, the second of Valve's two
+          # animation restart signals. Synthetic and file-free.
+          # 1592 -> 1593 on 2026-08-30: the client-side guard around the frame-reset toggle.
+          # 1593 -> 1598 on 2026-08-30: PlayerConditionConformanceTests (5), the five condition
+          # bitfields. Synthetic and file-free.
+          # 1598 -> 1600 on 2026-08-30: kRenderNone (B240), two synthetic cases.
+          ./build/assert-test-count.sh '**/core.trx' 1599 Core
           ./build/assert-test-count.sh '**/cli.trx' 74 Cli
           # 628 -> 645 is ARITHMETIC, not a measurement: 17 tests were added to Content on
           # 2026-08-24 (SchemeFont 6, GlyphAtlas 11), all self-contained, so every one of them
@@ -179,7 +195,19 @@ jobs:
           # 810 -> 817 on 2026-08-29: StudioSkinsConformanceTests (7), `g_skinref[skin][skinref]`
           # from motionmapper.h:134. Synthetic and file-free, so all seven run here for real.
           # 817 -> 826 on 2026-08-30: EntityTransformConformanceTests (9), CalcAbsolutePosition.
-          ./build/assert-test-count.sh '**/content.trx' 826 Content
+          # 826 -> 827 on 2026-08-30: SpawnRoomEntityProbe (1, Explicit), which reads cp_fulgur's
+          # entity lump so a placement claim is checked against the MAP rather than against another
+          # reading of our own decode.
+          # 827 -> 835 on 2026-08-30: ClampCycleConformanceTests (7) and
+          # SetupGateStaticPropProbe (1, Explicit). A one-shot sequence's cycle was wrapped
+          # rather than clamped, so every non-looping animation restarted for ever.
+          # 835 -> 836 on 2026-08-30: GateMaterialProbe (1, Explicit), which needs the game and
+          # so ignores here, but still counts in the trx total.
+          # 836 -> 843 on 2026-08-30: the `basename` form of model_player_per_class (B233). Six
+          # unit cases run anywhere; the seventh reads the shipped schema and skips on CI, which
+          # has no game install — the count is unaffected either way, since a skipped test is
+          # still discovered and still counted.
+          ./build/assert-test-count.sh '**/content.trx' 843 Content
           # 396 -> 402 on 2026-08-28: ViewCameraModeTests (6), for the third camera mode.
           # 412 -> 414 on 2026-08-29, and that is TWO bumps: the stale-clock case on
           # `DemoSystems.Open` (B223 follow-up) was raised in build/gate.sh and missed here, and the
@@ -187,7 +215,9 @@ jobs:
           # are two lists of the same numbers, which is why one of them drifts.
           # 414 -> 424 on 2026-08-29: cl_showpos (D123) — 7 conformance cases off
           # vgui_fpspanel.cpp:316 and 3 on ToolsPanel's shared line counter. All device-free.
-          ./build/assert-test-count.sh '**/presentation.trx' 424 Presentation
+          # 424 -> 425 on 2026-08-30: the presenter asks its source for the round state (B235).
+          # A wiring assertion, on a stub - no game install, no demo.
+          ./build/assert-test-count.sh '**/presentation.trx' 425 Presentation
           ./build/assert-test-count.sh '**/logging.trx' 17 Logging
           # 10 is MEASURED locally and safe on a runner without the SDK, because a .trx total counts
           # skipped tests: the two conformance cases Assert.Ignore where source-sdk-2013 is absent
@@ -201,7 +231,22 @@ jobs:
           # 222 -> 238 on 2026-08-30. This copy had drifted 13 below build/gate.sh's floor, which
           # is the drift CLAUDE.md warns about: a floor far below the number it guards catches
           # neither of the two failures it exists for.
-          ./build/assert-test-count.sh '**/scene.trx' 238 Scene
+          # 238 -> 244 on 2026-08-30: WeaponPropModelsTests (6), the Scene half of that fix.
+          # Needs no game install: the resolution is passed in, so CI exercises all six.
+          # 244 -> 246 on 2026-08-30: WeaponPropModels caches its item lookup, which ran
+          # every frame and cost 44 ms of one.
+          # 246 -> 247 on 2026-08-30: the item-authority half of UpdateModelToClass, with the
+          # fallback that keeps CI (no game installed) drawing what the wire said.
+          # 247 -> 255 on 2026-08-30: DisguiseConformanceTests (8). Needs no game install: the
+          # rules are arithmetic over decoded fields.
+          # 255 -> 263 on 2026-08-30: DisguiseVisibilityTests (7) plus the OfDisguise arm of the
+          # SceneProp defaulted-field tripwire. Needs no game install: hand-built props and
+          # players, no models loaded.
+          # 263 -> 270 on 2026-08-30: RespawnRoomVisibilityTests (7), B235. Hand-built props, no
+          # models loaded, so all seven run on CI.
+          # 270 -> 277 on 2026-08-30: the spyMask bodygroup (B236). Hand-built players and a stub
+          # resolver, so all seven run without a game install.
+          ./build/assert-test-count.sh '**/scene.trx' 280 Scene
 
       # **Coverage, gated PER ASSEMBLY rather than per report.** A Cobertura file's root line-rate
       # averages every assembly the run loaded, including ones the suite never touches — measured
@@ -423,7 +468,9 @@ jobs:
           # option is still observed. CI is the only machine without the game
           # (docs/memory/ci-is-the-machine-without-tf2.md), so it is also the only place that path
           # is exercised at all.
-          ./build/assert-test-count.sh '**/viewer.trx' 103 Viewer
+          # 103 -> 108 on 2026-08-30: B239's two menu-label cases, plus the three this copy had
+          # already drifted below. Both run headless-STA on the runner like the rest of this suite.
+          ./build/assert-test-count.sh '**/viewer.trx' 108 Viewer
           # 553 -> 582 on 2026-08-28: TwoPassConformanceTests (28) and TwoPassWiringTests (1).
           #
           # **This floor has drifted from the local gate's and the delta is all that was raised.**
@@ -436,7 +483,11 @@ jobs:
           # the note above: the gap to the local gate's floor is still unreconciled and closing it
           # in passing would be either a silent tightening or a red CI.
           # 584 -> 599: FxBlendConformanceTests (15), raised by the measured delta as above.
-          ./build/assert-test-count.sh '**/rendering.trx' 599 Rendering
+          # **599 -> 716 on 2026-08-30, and 599 was drift rather than a measurement.** The local
+          # gate has been at 713 for days; a floor a hundred below the suite it guards catches
+          # neither of the two failures floors exist for, which is the warning this file already
+          # carries about Core and Viewer. 716 is the measured total after B237's three cases.
+          ./build/assert-test-count.sh '**/rendering.trx' 716 Rendering
           ./build/assert-test-count.sh '**/viewer-ui.trx' 14 ViewerUi
           # 117 -> 118 on 2026-08-28: ViewmodelAnimationParityCorpusTests, which asserts the parity
           # counter reaches the scene from a real demo and changes there.

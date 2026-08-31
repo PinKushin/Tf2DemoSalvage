@@ -33,4 +33,7 @@
   <Folder Name="/benchmarks/">
     <Project Path="benchmarks/Tf2DemoSalvage.Benchmarks/Tf2DemoSalvage.Benchmarks.csproj" />
   </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/Tf2DemoSalvage.Probe/Tf2DemoSalvage.Probe.csproj" />
+  </Folder>
 </Solution>

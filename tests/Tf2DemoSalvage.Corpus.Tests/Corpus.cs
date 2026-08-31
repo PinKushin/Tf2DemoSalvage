@@ -9,34 +9,26 @@ using System.Threading;
 using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.Core.Schema;
+using Tf2DemoSalvage.Probe;
 
 namespace Tf2DemoSalvage.Core.Tests;
 
 /// <summary>
 /// Locates the reference demos, shared by every test that needs real files.
 /// </summary>
+/// <remarks>
+/// **Finding the files is <see cref="DemoCorpus"/>'s, not this type's** (D126). The probes are
+/// console programs rather than <c>[Explicit]</c> tests, and they need the same corpus this suite
+/// needs — so the locating lives in the tool and this delegates to it. The direction is that way
+/// round because the tool must not drag NUnit into a program whose point is to build quickly.
+///
+/// What stays here is everything a TEST needs on top: caches keyed by path, and
+/// <see cref="Demo(string)"/>, which skips with a reason rather than throwing.
+/// </remarks>
 internal static class Corpus
 {
     /// <summary>Anything smaller than this is a Git LFS pointer stub, not a demo.</summary>
-    public const int SmallestPlausibleDemo = 4096;
-
-    /// <summary>
-    /// Extra demos, present only on a developer's machine and never committed.
-    /// </summary>
-    /// <remarks>
-    /// The committed corpus is deliberately one specimen per category — era and point of view —
-    /// because GitHub's free Git LFS tier is 1 GiB of bandwidth a month and every CI job that
-    /// fetches it pays. A seventh protocol-24 SourceTV demo costs real budget to test nothing new.
-    ///
-    /// **Locally there is no such constraint**, and more real files is strictly better coverage.
-    /// Anything dropped in <c>tools/corpus/local/</c> joins the run automatically. The directory
-    /// is already git-ignored, and for a second reason worth keeping in mind: self-recorded demos
-    /// carry the recorder's screen name and SteamID.
-    ///
-    /// This makes a local run a superset of CI rather than a different thing, so a local pass
-    /// cannot hide a CI failure — only the reverse, which is the useful direction.
-    /// </remarks>
-    private const string LocalDirectoryName = "local";
+    public const int SmallestPlausibleDemo = DemoCorpus.SmallestPlausibleDemo;
 
     /// <summary>The demo's network protocol, read from its header.</summary>
     /// <param name="path">Path to the demo.</param>
@@ -66,53 +58,20 @@ internal static class Corpus
     /// than unset or "0" counts as on, so a typo errs towards the smaller, faster run rather than
     /// towards silently including 774 MB of demos.
     /// </remarks>
-    public static bool GcorOnly() =>
-        Environment.GetEnvironmentVariable("TF2DEMOSALVAGE_GCOR_ONLY") is { } value &&
-        value.Length > 0 &&
-        value != "0";
+    public static bool GcorOnly() => DemoCorpus.GcorOnly();
 
     /// <summary>Every usable demo in the corpus, in a stable order.</summary>
-    public static IReadOnlyList<string> Files()
-    {
-        string? directory = Directory();
-        if (directory is null)
-        {
-            return [];
-        }
-
-        // Sibling of demos/, not a child: tools/corpus/local. Combining it onto `directory` gave
-        // tools/corpus/demos/local, which does not exist — so the extra files were silently
-        // ignored and the suite reported the same 59 cases as before. A path that does not exist
-        // is not an error here, it is a no-op, which is exactly how this kind of mistake hides.
-        string local = Path.Combine(
-            Path.GetDirectoryName(directory) ?? directory, LocalDirectoryName);
-        IEnumerable<string> paths = System.IO.Directory.EnumerateFiles(directory, "*.dem");
-
-        // **Opt out of the local corpus, for a run that matches CI.** lcor is 14 demos and 774 MB
-        // and takes about 23 minutes; gcor is one specimen per era and takes a fraction of that.
-        // The local set is for spot-checking that nothing is missed across many real matches, not
-        // for gating a merge, so a merge should not have to wait for it.
-        //
-        // Announced rather than silent. A suite that quietly halved its corpus would report a
-        // smaller total that reads as a passing run - which is the failure "Passed! is not the
-        // result, the COUNT is" is about.
-        if (GcorOnly())
-        {
-            TestContext.Out.WriteLine(
-                "CORPUS gcor only: the local corpus is excluded by TF2DEMOSALVAGE_GCOR_ONLY");
-        }
-        else if (System.IO.Directory.Exists(local))
-        {
-            paths = paths.Concat(System.IO.Directory.EnumerateFiles(local, "*.dem"));
-        }
-
-        return
-        [
-            .. paths
-                .Where(p => new FileInfo(p).Length >= SmallestPlausibleDemo)
-                .OrderBy(p => p, StringComparer.Ordinal)
-        ];
-    }
+    /// <remarks>
+    /// **Opt out of the local corpus with <c>TF2DEMOSALVAGE_GCOR_ONLY</c>, for a run that matches
+    /// CI.** lcor is 774 MB and takes about 23 minutes; gcor is one specimen per era and takes a
+    /// fraction of that. The local set is for spot-checking across many real matches, not for
+    /// gating a merge, so a merge should not have to wait for it.
+    ///
+    /// Announced rather than silent, which is why <see cref="TestContext.Out"/> is passed down: a
+    /// suite that quietly halved its corpus would report a smaller total that reads as a passing
+    /// run — the failure *"Passed! is not the result, the COUNT is"* is about.
+    /// </remarks>
+    public static IReadOnlyList<string> Files() => DemoCorpus.Files(TestContext.Out);
 
     /// <summary>The one demo whose name contains a fragment, skipping the test when there is none.</summary>
     /// <param name="fragment">Part of the file name, such as a map.</param>
@@ -149,23 +108,7 @@ internal static class Corpus
     /// Walks up from the test binary looking for the corpus, rather than hard-coding a
     /// relative depth that breaks whenever the output path changes.
     /// </summary>
-    public static string? Directory()
-    {
-        DirectoryInfo? current = new(AppContext.BaseDirectory);
-
-        while (current is not null)
-        {
-            string candidate = Path.Combine(current.FullName, "tools", "corpus", "demos");
-            if (System.IO.Directory.Exists(candidate))
-            {
-                return candidate;
-            }
-
-            current = current.Parent;
-        }
-
-        return null;
-    }
+    public static string? Directory() => DemoCorpus.Directory();
 
     /// <summary>Parsed schemas, keyed by demo path.</summary>
     private static readonly ConcurrentDictionary<string, DemoSchema> Schemas =

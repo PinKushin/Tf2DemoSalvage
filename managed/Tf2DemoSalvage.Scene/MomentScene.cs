@@ -111,6 +111,13 @@ public sealed class MomentScene : IGameSystemPerFrame
     private readonly ViewmodelScene _viewmodels;
     private readonly ILogger _render;
 
+    /// <summary>Names weapons whose model the wire never carried, and remembers the answers.</summary>
+    /// <remarks>
+    /// An instance rather than a static call, because the cache inside it is the whole point: the
+    /// lookup runs every frame over every prop awaiting one, and re-asking cost 44 ms of a frame.
+    /// </remarks>
+    private readonly WeaponPropModels _weaponModels = new();
+
     private readonly List<SceneProp> _drawn = [];
     private readonly List<ModelInstance> _instances = [];
     private readonly List<ModelInstance> _viewmodelInstances = [];
@@ -208,9 +215,26 @@ public sealed class MomentScene : IGameSystemPerFrame
         _drawn.Clear();
         _drawn.AddRange(props);
 
+        // **A weapon's model comes from its ITEM, and some weapons network no model index at all.**
+        // `CEconEntity::SetModel` resolves `pItem->GetPlayerDisplayModel( iClass, team )` —
+        // `model_player` from `items_game.txt`, `econ_entity.cpp:1167` — which `Weapons.For` has
+        // implemented for the viewmodel and the followed player since B222. The weapon entities
+        // OTHER players carry were the one caller that never asked, so every medigun in every demo
+        // went undrawn: measured on `cp_fulgur`, all three `CWeaponMedigun` entities network
+        // neither `m_nModelIndex` nor `m_iWorldModelIndex` while stating item 211, the stock Medi
+        // Gun. A minigun does it too, so this is not one weapon's quirk.
+        //
+        // Before the visibility filters, because a prop with no model would otherwise be judged on
+        // a name it has not been given yet.
+        _weaponModels.Resolve(_drawn, players, Weapons.For);
+
         ReportUndressedPlayers(players);
 
-        PlayerProps.Add(players, _drawn, Appearance);
+        // **The model set resolves the mask's body part**, because only it has the .mdl. A spy's
+        // mask is a bodygroup named `spyMask` whose index differs per model, so the rule
+        // (`Disguise.WearsMask`) and the arithmetic (`WithBodygroup`) meet here — the same shape as
+        // `Appearance`, which the player prop already asks for its model and weapon suffix.
+        PlayerProps.Add(players, _drawn, Appearance, _models.WithBodygroup);
 
         // **The engine does not draw the player whose eyes you are using**, and cosmetics merge onto
         // their wearer's bones, so the hat goes with them. Without this the first-person view is the
@@ -227,6 +251,26 @@ public sealed class MomentScene : IGameSystemPerFrame
         // looking — so this sits outside the first-person block above. A player carries three and
         // holds one; without it all three bone-merge into the same hand.
         DrawList.KeepOnly(_drawn, WeaponVisibility.Visible(_drawn));
+
+        // **A disguise's gear is shown to the ENEMY and to nobody else**, and a spy's own cosmetics
+        // are hidden from everyone while he is disguised — `CTFWearable::ShouldDraw`
+        // (`tf_item_wearable.cpp:344`) and `CTFWeaponBase::ShouldDraw` (`tf_weaponbase.cpp:3226`),
+        // which are mirror images rather than one rule twice.
+        //
+        // Measured before this existed: a friendly spy disguised as a soldier carried three soldier
+        // cosmetics and a rocket launcher, all bone-merged onto a spy's skeleton. The owner saw it
+        // as "a soldier drawing inside the spy".
+        //
+        // After WeaponVisibility, which already hides a player's HOLSTERED weapons: that rule is
+        // about which of your own weapons is out, this one about whose gear it is at all.
+        DrawList.KeepOnly(_drawn, DisguiseVisibility.Visible(_drawn, players));
+
+        // **A spawn's team wall is not drawn to the team that spawns behind it** —
+        // `C_FuncRespawnRoomVisualizer::DrawModel`, `c_func_respawnroom.cpp:47`, whose own comment
+        // is *"Don't draw for friendly players"*. Measured on `cp_fulgur`: nine of these are in the
+        // draw list, three of them standing inside the stage-one setup gates, which is what the
+        // owner was looking through when he reported the gates as wrong.
+        DrawList.KeepOnly(_drawn, RespawnRoomVisibility.Visible(_drawn, info.RoundState));
 
         long rolesAt = Stopwatch.GetTimestamp();
 

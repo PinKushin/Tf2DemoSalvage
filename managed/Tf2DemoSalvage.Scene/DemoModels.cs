@@ -130,7 +130,16 @@ public static class DemoModels
 
         foreach (ScenePropTrack track in demo.Props)
         {
-            if (track.Kind == SceneModelKind.Studio)
+            // **A studio track can have no path yet, and that is not a model to load.** A weapon
+            // whose model the wire never carried reaches Core with an empty path and an item
+            // number — `CEconEntity::UpdateModelToClass` resolves it from `items_game.txt`, which
+            // Core cannot read — and its kind is Studio because every `model_player` is a `.mdl`.
+            //
+            // Passing the empty string on threw out of `PakFile.ReadFile` and killed the viewer at
+            // load. The models themselves are not lost: `game.Weapons.AllIn` below walks what every
+            // player holds and resolves each through the same item schema, so `c_medigun.mdl` is
+            // loaded by the route that knows its name.
+            if (track.Kind == SceneModelKind.Studio && track.ModelPath.Length > 0)
             {
                 paths.Add(track.ModelPath);
             }

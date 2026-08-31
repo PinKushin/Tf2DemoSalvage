@@ -34,6 +34,19 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// <c>m_flJumpStartTime</c> — a moment no demo records, so this is derived from when
 /// <c>FL_ONGROUND</c> cleared.
 /// </param>
+/// <param name="Conditions">
+/// The five <c>m_nPlayerCond</c> bitfields, read as <c>CTFPlayerShared::InCond</c> does.
+/// </param>
+/// <param name="DisguiseClass">Which class a disguised spy appears to be, <c>m_nDisguiseClass</c>.</param>
+/// <param name="DisguiseTeam">Which team they appear to be on, <c>m_nDisguiseTeam</c>.</param>
+/// <param name="DisguiseMaskClass">
+/// <c>m_nMaskClass</c>, read only when an enemy spy is disguised AS a spy — the one case where the
+/// mask offset comes from somewhere other than the disguise class (<c>tf_player_shared.h:375</c>).
+/// </param>
+/// <param name="IsEnemy">
+/// Whether this player is an enemy of the RECORDER, which is what <c>IsEnemyPlayer</c> asks of the
+/// local player (<c>c_tf_player.cpp:5384</c>). A disguise only fools the other team.
+/// </param>
 /// <param name="Airwalking">
 /// Whether this player has risen fast enough to air-walk since leaving the ground. The engine's
 /// test is <c>vecVelocity.z &gt; 300.0f || m_bInAirWalk</c>, so it latches until they land — this
@@ -114,6 +127,20 @@ public readonly record struct ScenePlayer(
     bool Drawn = true,
     float? AirborneSeconds = null,
     bool Airwalking = false,
+
+    // **The spy disguise, and the side we are on.** `C_TFPlayer::ValidateModelIndex` and `GetSkin`
+    // both branch on `InCond( TF_COND_DISGUISED ) && IsEnemyPlayer()`, so all three travel
+    // together: the conditions say whether a disguise is up, the disguise fields say what it is,
+    // and `IsEnemy` says whether we are the one meant to be fooled.
+    //
+    // `IsEnemy` is computed HERE rather than in the scene, because `IsEnemyPlayer` compares against
+    // the LOCAL player (`c_tf_player.cpp:5384`) and in a recording that is the recorder — which
+    // only the timeline knows.
+    PlayerConditions Conditions = default,
+    int? DisguiseClass = null,
+    int? DisguiseTeam = null,
+    int? DisguiseMaskClass = null,
+    bool IsEnemy = false,
     float? EyePitch = null,
     float? EyeYaw = null,
     float? AimYaw = null,
@@ -257,7 +284,24 @@ public static class SceneTeams
 /// <summary>Where everyone was at one tick.</summary>
 /// <param name="Tick">The demo tick this was recorded at.</param>
 /// <param name="Players">Every player with a known position.</param>
-public readonly record struct TimelineFrame(int Tick, IReadOnlyList<ScenePlayer> Players);
+/// <param name="RecorderTeam">
+/// The recording player's team at this tick, or <c>null</c> when there is no local player — a
+/// SourceTV recording, where the engine's own <c>pLocalPlayer &amp;&amp;</c> guards fall through.
+/// <para>
+/// **Per frame rather than per demo, because a player can switch teams mid-recording.** Everything
+/// that compares against the local player — <c>IsEnemyPlayer</c>, a spawn wall's own team — would
+/// otherwise answer with whichever team happened to be resolved last.
+/// </para>
+/// </param>
+/// <param name="RoundState">
+/// <c>m_iRoundState</c> from the game rules at this tick, or <c>null</c> when the demo carries no
+/// game rules entity. <c>GR_STATE_TEAM_WIN</c> is 5.
+/// </param>
+public readonly record struct TimelineFrame(
+    int Tick,
+    IReadOnlyList<ScenePlayer> Players,
+    int? RecorderTeam = null,
+    int? RoundState = null);
 
 /// <summary>
 /// A demo turned into player positions over time.
@@ -296,6 +340,18 @@ public sealed class DemoTimeline
 
     /// <summary>The entity that carries the atmosphere.</summary>
     private const string FogControllerClass = "CFogController";
+
+    /// <summary>The entity that carries the round.</summary>
+    /// <remarks>
+    /// **`CTFGameRulesProxy`, not the teamplay one it inherits from.** A demo's schema declares
+    /// three proxies — `CGameRulesProxy`, `CTeamplayRoundBasedRulesProxy` and `CTFGameRulesProxy` —
+    /// and TF2 instantiates the last, which reaches `m_iRoundState` through
+    /// `teamplayroundbased_gamerules_data`.
+    /// </remarks>
+    private const string GameRulesClass = "CTFGameRulesProxy";
+
+    /// <summary>Where the round state is, flattened.</summary>
+    private const string RoundStateProperty = "DT_TeamplayRoundBasedRules.m_iRoundState";
 
 
     private static readonly string[] TeamProperties =
@@ -1175,7 +1231,7 @@ public sealed class DemoTimeline
                     entities.Apply(entity);
                     RecordProp(
                         entity, entities, precache, tracks, props, playerTracks,
-                        mergesItself, protocol, command.Tick);
+                        mergesItself, protocol, command.Tick, interval);
                 }
 
                 moved = true;
@@ -1243,6 +1299,22 @@ public sealed class DemoTimeline
 
             List<ScenePlayer> players = [];
             EntityState? resource = entities.OfClass(ResourceClass).FirstOrDefault();
+
+            // **The recorder's team, resolved BEFORE the loop that needs it.** `IsEnemyPlayer`
+            // compares against the local player, and in a recording that is whoever recorded it.
+            // Reading it from the entity table rather than from the list being built is what makes
+            // the answer independent of the order players happen to be walked in — a first version
+            // searched the partial list and reported every player below the recorder's entity index
+            // as friendly, whatever their team.
+            //
+            // Null for a SourceTV recording, which has no local player: the engine's switch falls
+            // through to `return false`, so a spectator sees every spy undisguised.
+            int? recorderTeam =
+                recorderSlot is { } recording
+                && entities.TryGet(recording + 1, out EntityState? recorder)
+                    ? resource?.Integer($"m_iTeam.{recording}")
+                        ?? First(recorder, TeamProperties)
+                    : null;
 
             foreach (EntityState player in entities.OfClass(PlayerClass))
             {
@@ -1447,19 +1519,44 @@ public sealed class DemoTimeline
                     WeaponItem: player.ActiveWeapon() is { } carried &&
                         entities.TryGet(carried, out EntityState? item)
                             ? item.ItemDefinitionIndex()
-                            : null));
+                            : null,
+
+                    // **The disguise, and whose side we are on.** `C_TFPlayer::ValidateModelIndex`
+                    // and `GetSkin` both branch on
+                    // `InCond( TF_COND_DISGUISED ) && IsEnemyPlayer()`, so the three travel
+                    // together and `Disguise` applies them.
+                    Conditions: player.Conditions(),
+                    DisguiseClass: player.DisguiseClass(),
+                    DisguiseTeam: player.DisguiseTeam(),
+                    DisguiseMaskClass: player.DisguiseMaskClass(),
+
+                    // **`IsEnemyPlayer` asks about the LOCAL player** (`c_tf_player.cpp:5384`),
+                    // which in a recording is whoever recorded it — and only the timeline knows
+                    // that. Computed here so the scene never has to guess whose eyes it is behind.
+                    IsEnemy: IsEnemyOfRecorder(
+                        recorderTeam,
+                        resource?.Integer($"m_iTeam.{slot}") ?? First(player, TeamProperties))));
             }
 
             // **Only when the tick advanced.** Several commands can share a tick, and recording a
             // frame for each would make the timeline's own ordering ambiguous — PlayersAt would
             // then depend on which of them it happened to find first.
+            // **The round, from the game rules entity there is exactly one of.** `m_iRoundState`
+            // is declared in `DT_TeamplayRoundBasedRules` and reaches `CTFGameRulesProxy` through
+            // `teamplayroundbased_gamerules_data` — confirmed present in a modern demo's own
+            // schema. Null when the demo has no such entity, which every pre-2009 era specimen
+            // does not.
+            int? roundState = entities.OfClass(GameRulesClass).FirstOrDefault()?
+                .Integer(RoundStateProperty);
+
             if (frames.Count > 0 && frames[^1].Tick >= command.Tick)
             {
-                frames[^1] = new TimelineFrame(frames[^1].Tick, players);
+                frames[^1] = new TimelineFrame(
+                    frames[^1].Tick, players, recorderTeam, roundState);
                 continue;
             }
 
-            frames.Add(new TimelineFrame(command.Tick, players));
+            frames.Add(new TimelineFrame(command.Tick, players, recorderTeam, roundState));
         }
 
         Backfill(frames);
@@ -1708,7 +1805,8 @@ public sealed class DemoTimeline
         List<ScenePropTrack> players,
         HashSet<int> mergesItself,
         int protocol,
-        int tick)
+        int tick,
+        float interval)
     {
         if (entity.UpdateType == EntityUpdateType.Delete)
         {
@@ -1828,7 +1926,12 @@ public sealed class DemoTimeline
         // `CDynamicProp` hung on a `func_door` searching for a skeleton brushwork does not have.
         bool boneMerged = state.IsBoneMerged || mergesItself.Contains(entity.ClassId);
 
-        if (state.Attachment() is { } owner)
+        // **Resolved through the table, so the handle's SERIAL is checked** (B231).
+        // `RecvProxy_IntToEHandle` keeps index and serial and dereferencing compares the serial
+        // against the slot's current occupant; masking it away resolves a dangling handle to a
+        // real, existing, different entity. Measured: a spawn resupply locker composed onto a door
+        // because its parent slot had been reused, landing thousands of units away.
+        if (entities.Resolve(state.AttachmentHandle()) is { } owner)
         {
             attachedTo = owner;
 
@@ -1856,7 +1959,21 @@ public sealed class DemoTimeline
         // what the interpolator needs, and the model is the viewer's to resolve from the install.
         string? model = ModelFor(state, precache, protocol);
 
-        if (model is null)
+        // **Which econ item this is, when it is one.** A weapon's model comes from the item schema
+        // rather than from the wire — `pItem->GetPlayerDisplayModel( iClass, team )`,
+        // `econ_entity.cpp:1167` — and some weapons network no model index at all. Measured on
+        // `cp_fulgur`, every weapon with an owner: a rocket launcher sends both indices, a
+        // flamethrower sends the world model, and every `CWeaponMedigun` sends NEITHER, while all
+        // of them state their item. 211 is the stock Medi Gun.
+        int? item = state.ItemDefinitionIndex();
+
+        // **A null model is not the end of the road for something that says which ITEM it is**
+        // (B231). This returned outright, so a medigun — no `m_nModelIndex`, no
+        // `m_iWorldModelIndex`, item 211 — produced no track at all, and every medigun on every
+        // other player went undrawn. `WeaponModels.For` has resolved exactly this for the viewmodel
+        // and the followed player since B222; the weapon entities other players carry were the one
+        // caller that never asked.
+        if (model is null && item is null)
         {
             return;
         }
@@ -1881,14 +1998,114 @@ public sealed class DemoTimeline
 
         if (track is null)
         {
-            track = new ScenePropTrack(entity.EntityIndex, model, state.SerialNumber);
+            // Empty rather than null for a weapon whose model is not on the wire yet: the track's
+            // path is a string, and `Follow` fills it in when a later update names one.
+            track = new ScenePropTrack(
+                entity.EntityIndex, model ?? string.Empty, state.SerialNumber);
             tracks[entity.EntityIndex] = track;
 
             // Player tracks are kept apart from Props. They carry poses and no model, so a
             // consumer walking Props to draw models would find one it cannot draw and could only
             // report as a missing asset - which is exactly the false alarm this split avoids.
-            (model.Length == 0 ? players : props).Add(track);
+            // **An ITEM is a model the draw path can still find, so it crosses over** (B231). The
+            // reasoning above is right about a player, whose model-less track can never resolve to
+            // anything, and wrong about a weapon whose model is merely not on the wire: `items_game`
+            // names it, `WeaponModels.For` reads it, and the only thing standing between them was
+            // this line putting the track where nothing drawing models ever looks.
+            //
+            // Narrow deliberately — an item index, not merely "has an owner" — so the false
+            // missing-asset alarm the split exists to prevent stays prevented. A track with no
+            // model AND no item still has nothing anyone could resolve.
+            (string.IsNullOrEmpty(model) && item is null ? players : props).Add(track);
         }
+
+        // Kept current for the same reason the model is: an entity can be created from a baseline
+        // that omits its item and be told which one it is on a later update.
+        track.ItemDefinitionIndex = item ?? track.ItemDefinitionIndex;
+        track.ClassName = state.ClassName ?? track.ClassName;
+
+        // Kept current for the same reason the item is: a disguise's gear is created when the
+        // disguise goes up, and the flag arrives with it.
+        track.OfDisguise = state.OfDisguise() || track.OfDisguise;
+
+        // Kept current for the same reason: a brush entity states its team on creation and an
+        // update that does not mention it must not erase it.
+        track.TeamNumber = First(state, TeamProperties) ?? track.TeamNumber;
+
+        // **A parity change means this animation began again, so its clock restarts**
+        // (`C_BaseAnimating::OnDataChanged`, `c_baseanimating.cpp:4737`). Everything downstream
+        // measures `elapsed = seconds - AnimationStartSeconds`, and leaving that at zero made
+        // `elapsed` the whole recording — a one-shot sequence finished before its first frame drew.
+        //
+        // **A counter rather than a comparison of sequence numbers**, because a cabinet used twice
+        // plays `open` twice and only the counter says the second one began
+        // (`m_nNewSequenceParity = ( m_nNewSequenceParity + 1 ) & EF_PARITY_MASK`, `:5574`).
+        //
+        // An entity that never sends the field keeps the clock it was created with, which is right:
+        // nothing has told it to restart.
+        // **Two signals, because the engine has two modes and reads a different field in each.**
+        // `C_BaseAnimating::OnDataChanged` (`c_baseanimating.cpp:5021`) checks
+        // `m_bClientSideFrameReset` ONLY when `m_bClientSideAnimation` is set, and resets cycle
+        // interpolation on `m_nNewSequenceParity` (`:4737`) regardless. Measured on `cp_fulgur`, the
+        // spawn cabinets are client-side animated — they send `m_bClientSideAnimation` 1 and no
+        // `DT_ServerAnimationData.m_flCycle` whatsoever — so the toggle is their restart, and a fix
+        // built on parity alone did not move them.
+        //
+        // **The frame reset is a TOGGLE and only its CHANGE means anything.**
+        // `CBaseAnimating::ResetClientsideFrame` is `m_bClientSideFrameReset =
+        // !(bool)m_bClientSideFrameReset` (`server/baseanimating.cpp:3055`), so reading it as a
+        // boolean "should reset" would restart on every update where it happened to be one.
+        // **A first sighting is not a restart.** An entity's opening update states whatever value
+        // it holds, and treating that as a change would stamp the clock for every prop the moment
+        // it appears — wrong for one that has been idling since the map loaded.
+        bool restarted = false;
+
+        if (state.NewSequenceParity() is { } parity)
+        {
+            restarted |= track.LastSequenceParity is not null && parity != track.LastSequenceParity;
+            track.LastSequenceParity = parity;
+        }
+
+        // **Both are consumed even once the first has fired**, because the stored value must track
+        // the wire whether or not anyone acted on it, or the next genuine change is missed.
+        //
+        // **And the toggle counts only in CLIENT-side mode**, which is the guard Valve puts around
+        // it and which a first version of this left out — caught by auditing every EntityState
+        // accessor for a production caller and finding `ClientSideAnimation` had none.
+        // `c_baseanimating.cpp:5021`:
+        //
+        //     if ( m_bClientSideAnimation )
+        //         if ( m_bClientSideFrameReset != m_bLastClientSideFrameReset )
+        //             ResetClientsideFrame();
+        //
+        // A server-animated entity that toggles the field would otherwise restart on it, which is
+        // the same class of mistake as reading the toggle's VALUE instead of its change.
+        if (state.ClientSideFrameReset() is { } reset)
+        {
+            restarted |= track.LastFrameReset is not null
+                && reset != track.LastFrameReset
+                && state.ClientSideAnimation() is not 0 and not null;
+
+            track.LastFrameReset = reset;
+        }
+
+        if (restarted)
+        {
+            track.AnimationStartSeconds = tick * interval;
+        }
+
+        // **The model, kept current for the same reason and on the engine's own adjacent line.**
+        // `C_BaseEntity::PostDataUpdate` (`c_baseentity.cpp:2603`) calls `HierarchySetParent` and
+        // then `ValidateModelIndex`, both ABOVE the `DATA_UPDATE_CREATED` test, so both run on
+        // every update. This followed the parent and fixed the model at construction.
+        //
+        // A creating update rarely carries the model, because it is a delta against the class
+        // INSTANCE BASELINE — one representative entity's state. Measured on `cp_fulgur`, slot 432,
+        // the BLU spawn's windowed door: created from two properties with the baseline's model
+        // index 1154 (`resupply_locker.mdl`) and the baseline's origin (3440 -2096 240), which is
+        // `prop_locker_blu_5`'s world position out of the map. The next update said 1177 and
+        // (2 0 -59), and the track never heard it. Nine other entities took the same identity.
+        track.Follow(model);
 
         // Kept current rather than set once: a wearable can arrive before its owner handle does,
         // and a track stuck on the first answer would draw the hat on whoever wore it last.
@@ -1942,6 +2159,9 @@ public sealed class DemoTimeline
             tick,
             new ScenePose
             {
+                // **When the animation now playing began**, so `elapsed` downstream is the time
+                // since the server stamped it rather than since the recording opened.
+                AnimationStartSeconds = track.AnimationStartSeconds,
                 X = origin.X,
                 Y = origin.Y,
                 Z = origin.Z,
@@ -2091,6 +2311,12 @@ public sealed class DemoTimeline
 
         into.Clear();
 
+        // **The recorder's team AT THIS TICK**, because a player can switch sides mid-recording and
+        // "is this my own team's spawn wall" then changes answer. Null for a SourceTV recording,
+        // which has no local player at all — and the engine's `pLocalPlayer &&` guard means that
+        // case DRAWS, so an entity of no known relation must come out false rather than true.
+        int? recorderTeam = FrameAt((int)Math.Floor(tick))?.RecorderTeam;
+
         foreach (ScenePropTrack track in _props)
         {
             // A hidden entity is not drawn but is still tracked: it is coming back.
@@ -2099,10 +2325,50 @@ public sealed class DemoTimeline
                 into.Add(new SceneProp(
                     track.EntityIndex, track.ModelPath, track.Kind, Moving(track, tick, pose),
                     track.AttachedTo, track.AttachmentPoint, track.OwnedBy, track.WeaponState,
-                    track.BoneMerged));
+                    track.BoneMerged, track.ItemDefinitionIndex, track.ClassName,
+                    track.OfDisguise,
+                    OfRecordersTeam: recorderTeam is { } mine && track.TeamNumber == mine));
             }
         }
     }
+
+    /// <summary>Whether a player is on the opposite team from the recorder.</summary>
+    /// <param name="recorderTeam">The recording player's team, or null when it is not known.</param>
+    /// <param name="team">The player being asked about.</param>
+    /// <returns>Whether a disguise is meant to fool us.</returns>
+    /// <remarks>
+    /// **`C_TFPlayer::IsEnemyPlayer`, `c_tf_player.cpp:5384`**, which switches on the LOCAL player's
+    /// team and answers true only for the opposite one:
+    ///
+    /// <code>
+    ///   case TF_TEAM_RED:  return ( GetTeamNumber() == TF_TEAM_BLUE );
+    ///   case TF_TEAM_BLUE: return ( GetTeamNumber() == TF_TEAM_RED );
+    ///   default: break;
+    ///   return false;
+    /// </code>
+    ///
+    /// **The default matters and is kept.** A recorder who is a spectator, unassigned or unknown is
+    /// on NEITHER team and the engine answers false — so a SourceTV recording sees every spy
+    /// undisguised, which is what a spectator sees in game.
+    ///
+    /// **The recorder's team is resolved BEFORE the player loop, not from the list being built.**
+    /// A first version searched the players added so far, so everybody with an entity index below
+    /// the recorder's answered false regardless of team — measured on `cp_fulgur`, entities 1 and 2
+    /// reported friendly while on the opposite side. That is an ordering bug of exactly the kind
+    /// this project keeps shipping, and it was caught by reading the output rather than by the
+    /// tests, which had no ordering to get wrong.
+    ///
+    /// **The coaching branch is not implemented**: the engine substitutes the student's team when
+    /// `m_hStudent` is set and `m_bIsCoaching`. Neither field is read here, so a coached recording
+    /// reports the coach's own team.
+    /// </remarks>
+    private static bool IsEnemyOfRecorder(int? recorderTeam, int? team) =>
+        (recorderTeam, team) switch
+        {
+            (SceneTeams.Red, SceneTeams.Blu) => true,
+            (SceneTeams.Blu, SceneTeams.Red) => true,
+            _ => false,
+        };
 
     /// <summary>Fills in the movement pose parameters, which are derived rather than sent.</summary>
     /// <param name="track">The entity's track, which is where the motion is.</param>
@@ -2143,29 +2409,9 @@ public sealed class DemoTimeline
     /// and the server sends no packet on most ticks. Requiring an exact tick would blink the map
     /// empty between updates.
     /// </remarks>
-    public IReadOnlyList<ScenePlayer> PlayersAt(int tick)
-    {
-        int low = 0;
-        int high = _frames.Count - 1;
-        int found = -1;
+    public IReadOnlyList<ScenePlayer> PlayersAt(int tick) =>
+        FrameAt(tick)?.Players ?? [];
 
-        while (low <= high)
-        {
-            int middle = low + ((high - low) / 2);
-
-            if (_frames[middle].Tick <= tick)
-            {
-                found = middle;
-                low = middle + 1;
-            }
-            else
-            {
-                high = middle - 1;
-            }
-        }
-
-        return found >= 0 ? _frames[found].Players : [];
-    }
 
     /// <summary>Where everyone was at a moment, with positions interpolated as the client does.</summary>
     /// <param name="tick">The moment being shown, which may fall between ticks.</param>
@@ -2228,6 +2474,47 @@ public sealed class DemoTimeline
                 MoveY = moveY,
             });
         }
+    }
+
+    /// <summary>The round the game rules were in, or <c>null</c> when the demo does not say.</summary>
+    /// <param name="tick">The moment being shown.</param>
+    /// <returns><c>m_iRoundState</c>; <c>GR_STATE_TEAM_WIN</c> is 5.</returns>
+    /// <remarks>
+    /// **Null is "the demo did not say", not a state.** Era demos predate the game rules proxy this
+    /// reads, and a consumer that treated absent as any particular state would apply that state's
+    /// behaviour to every one of them — which for the spawn walls means blanking all of them for a
+    /// whole recording (`RespawnRoomVisibility`).
+    /// </remarks>
+    public int? RoundStateAt(double tick) => FrameAt((int)Math.Floor(tick))?.RoundState;
+
+    /// <summary>The most recent frame at or before a tick.</summary>
+    /// <remarks>
+    /// **The server does not send a packet every tick**, so this answers with the last one rather
+    /// than requiring an exact match — the same rule <see cref="PlayersAt(int)"/> has always used,
+    /// lifted out so the round state and the props answer from the same frame the players do.
+    /// </remarks>
+    private TimelineFrame? FrameAt(int tick)
+    {
+        int low = 0;
+        int high = _frames.Count - 1;
+        int found = -1;
+
+        while (low <= high)
+        {
+            int middle = low + ((high - low) / 2);
+
+            if (_frames[middle].Tick <= tick)
+            {
+                found = middle;
+                low = middle + 1;
+            }
+            else
+            {
+                high = middle - 1;
+            }
+        }
+
+        return found >= 0 ? _frames[found] : null;
     }
 
     /// <summary>The interpolation track for one entity, when it has one.</summary>
