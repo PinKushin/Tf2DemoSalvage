@@ -139,6 +139,11 @@ public sealed class ViewmodelScene
     /// </remarks>
     /// <param name="seconds">Demo time now, which the animation's own clock is measured back from.</param>
     /// <param name="intervalPerTick">Seconds per tick, for turning the restart tick into a time.</param>
+    /// <param name="team">
+    /// The owner's team, which chooses the skin family — RED draws in 0 and BLU in 1 on every
+    /// two-family <c>c_</c> model. Null leaves it at 0, which is what a viewer that does not yet
+    /// know the team should draw.
+    /// </param>
     public ViewmodelSceneResult Build(
         IViewmodelSource viewmodels,
         int tick,
@@ -147,9 +152,29 @@ public sealed class ViewmodelScene
         string? hands,
         string? heldWeapon,
         double seconds = 0d,
-        float intervalPerTick = 0f)
+        float intervalPerTick = 0f,
+        int? team = null)
     {
         ArgumentNullException.ThrowIfNull(viewmodels);
+
+        // **The team's skin family, which nothing here set** (B242). `CEconItemView::GetSkin`
+        // (`econ_item_view.cpp:975`) takes the owner's team and returns the per-team visual's skin;
+        // family 0 is RED on every `c_` model that has two. Measured on the shipped models:
+        //
+        //   c_medigun.mdl     skin0 'c_medigun'       skin1 'c_medigun_blue'
+        //   c_medic_arms.mdl  skin0 'medic_red'       skin1 'medic_blue'
+        //                     skin0 'medic_hands_red' skin1 'medic_hands_blue'
+        //
+        // So a BLU player in first person saw red sleeves, red hands and a red medigun — the owner:
+        // *"the 1st person pov always showing a red player viewmodel"*. The player's own BODY has
+        // taken its skin from its team since `PlayerProps` was written; the viewmodel never did.
+        //
+        // **The divergence that remains, named rather than hidden:** Valve reads
+        // `pVisData->iSkin` out of the item's per-team `visuals` block, which can name ANY family
+        // and which a styled item overrides again. This takes RED 0 / BLU 1, which is what every
+        // two-family `c_` model uses and what `PlayerSkin.ForTeam` already encodes for the body.
+        // An item whose visuals name a third family draws its red one here.
+        int skin = PlayerSkin.ForTeam(team);
 
         if (viewmodels.MainHandAt(tick, follower) is not { } weapon)
         {
@@ -167,7 +192,7 @@ public sealed class ViewmodelScene
                 ArmsEntityIndex,
                 weapon.ModelPath,
                 SceneModelKind.Studio,
-                at.PoseFor(weapon.Sequence, weapon.PlaybackRate, started)),
+                at.PoseFor(weapon.Sequence, weapon.PlaybackRate, started, skin)),
         ];
 
         // **The comparison is a PATH comparison and the separators differ.** A model named in the
@@ -223,7 +248,7 @@ public sealed class ViewmodelScene
                 WeaponEntityIndex,
                 held,
                 SceneModelKind.Studio,
-                at.PoseFor(AttachmentSequence, weapon.PlaybackRate, started),
+                at.PoseFor(AttachmentSequence, weapon.PlaybackRate, started, skin),
                 AttachedTo: ArmsEntityIndex,
 
                 // **Bone-merged onto the arms, and saying so is not optional** (B231). The comment
@@ -255,7 +280,7 @@ public sealed class ViewmodelScene
                 OffHandEntityIndex,
                 offHand.ModelPath,
                 SceneModelKind.Studio,
-                at.PoseFor(offHand.Sequence, offHand.PlaybackRate, offHandStarted)));
+                at.PoseFor(offHand.Sequence, offHand.PlaybackRate, offHandStarted, skin)));
         }
 
         return new ViewmodelSceneResult(
@@ -330,9 +355,14 @@ public readonly record struct ViewmodelPlacement(
     /// Demo time the animation restarted, from <c>m_nAnimationParity</c>; the cycle is measured from
     /// here rather than from demo time, as <c>m_flAnimTime</c> is.
     /// </param>
-    public ScenePose PoseFor(int sequence, float playbackRate, double animationStartSeconds = 0d) =>
+    /// <param name="skin">
+    /// Which skin family, from the owner's team — <c>CEconItemView::GetSkin( iTeam, bViewmodel )</c>.
+    /// </param>
+    public ScenePose PoseFor(
+        int sequence, float playbackRate, double animationStartSeconds = 0d, int skin = 0) =>
         new()
         {
+            Skin = skin,
             X = X,
             Y = Y,
             Z = Z,

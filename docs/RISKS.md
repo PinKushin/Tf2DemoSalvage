@@ -15376,3 +15376,38 @@ broken. `Culled` returns false outright when the frustum is unbuilt, so **an unb
 scene entirely on screen produce the identical line.** The census now reports `frustum built` and
 the test asserts that instead: the flag was always the thing it wanted, and the count never could
 be.
+
+## B242 — every viewmodel drew in RED, whatever team the player was on — FIXED 2026-08-31
+
+**The owner, from watching his own demos:** *"the 1st person pov always showing a red player
+viewmodel"*.
+
+`CEconItemView::GetSkin( iTeam, bViewmodel )` (`econ_item_view.cpp:975`) takes the owner's team and
+returns the per-team visual's skin. `ViewmodelScene` never passed a team and never set a skin, so
+every viewmodel prop drew skin family **0** — and family 0 is RED on every two-family `c_` model.
+Measured on the shipped files with the `model` probe:
+
+```
+c_medigun.mdl     skin0 'c_medigun'        skin1 'c_medigun_blue'
+c_medic_arms.mdl  skin0 'medic_red'        skin1 'medic_blue'
+                  skin0 'medic_hands_red'  skin1 'medic_hands_blue'
+```
+
+So a BLU medic in first person had red sleeves, red hands and a red medigun.
+
+**The player's own BODY has taken its skin from its team since `PlayerProps` was written.** The
+hands in front of the camera never did — the same half-a-mechanism shape as B232, B236 and B241, and
+the third time in two days that one half of a pair was implemented and the other was not.
+
+**Two of the three tests are controls, and the reason is arithmetic:** RED is family 0, which is
+*also* what an unset skin gives. A BLU-only test would pass against a rule that always returns 1,
+and a RED-only test would pass against changing nothing at all.
+
+**The divergence that remains, named rather than hidden:** Valve reads `pVisData->iSkin` out of the
+item's per-team `visuals` block, which can name ANY family, and a styled item overrides it again
+through `GetStyleSkin`. This takes RED 0 / BLU 1 — correct for every two-family `c_` model and for
+what `PlayerSkin.ForTeam` already does for the body. An item whose visuals name a third family draws
+its red one here.
+
+**Not yet verified by eye.** The rule has unit tests and a sabotage check; a first-person capture is
+still owed, and that is the instrument that matters for anything about a picture.
