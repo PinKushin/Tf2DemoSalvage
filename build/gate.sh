@@ -189,7 +189,12 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # EntityState accessor for a production caller -- ClientSideAnimation had none, which is this
 # project's recurring failure exactly. The case IS the control: a server-animated prop toggling
 # the field must NOT restart on it.
-run Tf2DemoSalvage.Core.Tests     core     1593
+# 1593 -> 1598: PlayerConditionConformanceTests (5). A TF condition is one bit of FIVE networked
+# variables chosen by the condition's number (CConditionVars, tf_player_shared.cpp:1041), and this
+# project read none of them -- DT_TFPlayerShared was 0 of 66 in WIRE-COVERAGE. Three of the five
+# are controls: a bit set in the WRONG variable must not answer, an empty set answers nothing,
+# and bit 31 must read as set rather than as a negative int.
+run Tf2DemoSalvage.Core.Tests     core     1598
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
@@ -391,7 +396,12 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 # partner: an item naming NOTHING must leave the wire's model alone, which is the other half of
 # Valve's own `if ( pszModel && pszModel[0] )` and the reason the wider rule is safe on a machine
 # with no game installed -- every CI run.
-run Tf2DemoSalvage.Scene.Tests    scene     247
+# 247 -> 255: DisguiseConformanceTests (8). A disguised spy is drawn as their disguise TO THE
+# ENEMY and only to the enemy -- C_TFPlayer::ValidateModelIndex:8990 and GetSkin:7790, both
+# gated on InCond( TF_COND_DISGUISED ) && IsEnemyPlayer(). Half are controls, and the friendly
+# case is the one that matters: a teammate sees the spy AS a spy with a mask offset, so an
+# implementation without IsEnemyPlayer hides every friendly spy -- the opposite of the game.
+run Tf2DemoSalvage.Scene.Tests    scene     255
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

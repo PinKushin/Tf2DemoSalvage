@@ -118,6 +118,23 @@ public sealed class PlayerCompletenessTests
         // Inside the push-off window, so losing it reads as the float rather than as a default.
         AirborneSeconds: 0.25f,
 
+        // **A disguise that is BOTH up and enemy-facing**, because both halves gate every branch of
+        // `C_TFPlayer::ValidateModelIndex` and `GetSkin`. A fixture with the condition and no
+        // `IsEnemy` measures a disguise nobody is fooled by, which is the default behaviour again.
+        //
+        // Bit 3 is `TF_COND_DISGUISED` (`tf_shareddefs.h:693`), and the other four variables carry
+        // distinct values so a reader that took only the first is measurable here too.
+        Conditions: new PlayerConditions(
+            1 << PlayerConditions.Disguised, 1 << 1, 1 << 2, 1 << 3, 1 << 4),
+
+        // A demoman on the other team, and a medic's mask — the mask is read in exactly one branch
+        // (an enemy spy disguised AS a spy), so a value that matched the disguise class would leave
+        // that branch unmeasurable.
+        DisguiseClass: 4,
+        DisguiseTeam: SceneTeams.Red,
+        DisguiseMaskClass: 5,
+        IsEnemy: true,
+
         // True, since false is the default and would hide the field being dropped.
         Airwalking: true,
 

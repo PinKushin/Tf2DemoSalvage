@@ -34,6 +34,19 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// <c>m_flJumpStartTime</c> — a moment no demo records, so this is derived from when
 /// <c>FL_ONGROUND</c> cleared.
 /// </param>
+/// <param name="Conditions">
+/// The five <c>m_nPlayerCond</c> bitfields, read as <c>CTFPlayerShared::InCond</c> does.
+/// </param>
+/// <param name="DisguiseClass">Which class a disguised spy appears to be, <c>m_nDisguiseClass</c>.</param>
+/// <param name="DisguiseTeam">Which team they appear to be on, <c>m_nDisguiseTeam</c>.</param>
+/// <param name="DisguiseMaskClass">
+/// <c>m_nMaskClass</c>, read only when an enemy spy is disguised AS a spy — the one case where the
+/// mask offset comes from somewhere other than the disguise class (<c>tf_player_shared.h:375</c>).
+/// </param>
+/// <param name="IsEnemy">
+/// Whether this player is an enemy of the RECORDER, which is what <c>IsEnemyPlayer</c> asks of the
+/// local player (<c>c_tf_player.cpp:5384</c>). A disguise only fools the other team.
+/// </param>
 /// <param name="Airwalking">
 /// Whether this player has risen fast enough to air-walk since leaving the ground. The engine's
 /// test is <c>vecVelocity.z &gt; 300.0f || m_bInAirWalk</c>, so it latches until they land — this
@@ -114,6 +127,20 @@ public readonly record struct ScenePlayer(
     bool Drawn = true,
     float? AirborneSeconds = null,
     bool Airwalking = false,
+
+    // **The spy disguise, and the side we are on.** `C_TFPlayer::ValidateModelIndex` and `GetSkin`
+    // both branch on `InCond( TF_COND_DISGUISED ) && IsEnemyPlayer()`, so all three travel
+    // together: the conditions say whether a disguise is up, the disguise fields say what it is,
+    // and `IsEnemy` says whether we are the one meant to be fooled.
+    //
+    // `IsEnemy` is computed HERE rather than in the scene, because `IsEnemyPlayer` compares against
+    // the LOCAL player (`c_tf_player.cpp:5384`) and in a recording that is the recorder — which
+    // only the timeline knows.
+    PlayerConditions Conditions = default,
+    int? DisguiseClass = null,
+    int? DisguiseTeam = null,
+    int? DisguiseMaskClass = null,
+    bool IsEnemy = false,
     float? EyePitch = null,
     float? EyeYaw = null,
     float? AimYaw = null,
@@ -1244,6 +1271,22 @@ public sealed class DemoTimeline
             List<ScenePlayer> players = [];
             EntityState? resource = entities.OfClass(ResourceClass).FirstOrDefault();
 
+            // **The recorder's team, resolved BEFORE the loop that needs it.** `IsEnemyPlayer`
+            // compares against the local player, and in a recording that is whoever recorded it.
+            // Reading it from the entity table rather than from the list being built is what makes
+            // the answer independent of the order players happen to be walked in — a first version
+            // searched the partial list and reported every player below the recorder's entity index
+            // as friendly, whatever their team.
+            //
+            // Null for a SourceTV recording, which has no local player: the engine's switch falls
+            // through to `return false`, so a spectator sees every spy undisguised.
+            int? recorderTeam =
+                recorderSlot is { } recording
+                && entities.TryGet(recording + 1, out EntityState? recorder)
+                    ? resource?.Integer($"m_iTeam.{recording}")
+                        ?? First(recorder, TeamProperties)
+                    : null;
+
             foreach (EntityState player in entities.OfClass(PlayerClass))
             {
                 if (!player.IsVisible || player.Origin() is not { } origin)
@@ -1447,7 +1490,23 @@ public sealed class DemoTimeline
                     WeaponItem: player.ActiveWeapon() is { } carried &&
                         entities.TryGet(carried, out EntityState? item)
                             ? item.ItemDefinitionIndex()
-                            : null));
+                            : null,
+
+                    // **The disguise, and whose side we are on.** `C_TFPlayer::ValidateModelIndex`
+                    // and `GetSkin` both branch on
+                    // `InCond( TF_COND_DISGUISED ) && IsEnemyPlayer()`, so the three travel
+                    // together and `Disguise` applies them.
+                    Conditions: player.Conditions(),
+                    DisguiseClass: player.DisguiseClass(),
+                    DisguiseTeam: player.DisguiseTeam(),
+                    DisguiseMaskClass: player.DisguiseMaskClass(),
+
+                    // **`IsEnemyPlayer` asks about the LOCAL player** (`c_tf_player.cpp:5384`),
+                    // which in a recording is whoever recorded it — and only the timeline knows
+                    // that. Computed here so the scene never has to guess whose eyes it is behind.
+                    IsEnemy: IsEnemyOfRecorder(
+                        recorderTeam,
+                        resource?.Integer($"m_iTeam.{slot}") ?? First(player, TeamProperties))));
             }
 
             // **Only when the tick advanced.** Several commands can share a tick, and recording a
@@ -2218,6 +2277,44 @@ public sealed class DemoTimeline
             }
         }
     }
+
+    /// <summary>Whether a player is on the opposite team from the recorder.</summary>
+    /// <param name="recorderTeam">The recording player's team, or null when it is not known.</param>
+    /// <param name="team">The player being asked about.</param>
+    /// <returns>Whether a disguise is meant to fool us.</returns>
+    /// <remarks>
+    /// **`C_TFPlayer::IsEnemyPlayer`, `c_tf_player.cpp:5384`**, which switches on the LOCAL player's
+    /// team and answers true only for the opposite one:
+    ///
+    /// <code>
+    ///   case TF_TEAM_RED:  return ( GetTeamNumber() == TF_TEAM_BLUE );
+    ///   case TF_TEAM_BLUE: return ( GetTeamNumber() == TF_TEAM_RED );
+    ///   default: break;
+    ///   return false;
+    /// </code>
+    ///
+    /// **The default matters and is kept.** A recorder who is a spectator, unassigned or unknown is
+    /// on NEITHER team and the engine answers false — so a SourceTV recording sees every spy
+    /// undisguised, which is what a spectator sees in game.
+    ///
+    /// **The recorder's team is resolved BEFORE the player loop, not from the list being built.**
+    /// A first version searched the players added so far, so everybody with an entity index below
+    /// the recorder's answered false regardless of team — measured on `cp_fulgur`, entities 1 and 2
+    /// reported friendly while on the opposite side. That is an ordering bug of exactly the kind
+    /// this project keeps shipping, and it was caught by reading the output rather than by the
+    /// tests, which had no ordering to get wrong.
+    ///
+    /// **The coaching branch is not implemented**: the engine substitutes the student's team when
+    /// `m_hStudent` is set and `m_bIsCoaching`. Neither field is read here, so a coached recording
+    /// reports the coach's own team.
+    /// </remarks>
+    private static bool IsEnemyOfRecorder(int? recorderTeam, int? team) =>
+        (recorderTeam, team) switch
+        {
+            (SceneTeams.Red, SceneTeams.Blu) => true,
+            (SceneTeams.Blu, SceneTeams.Red) => true,
+            _ => false,
+        };
 
     /// <summary>Fills in the movement pose parameters, which are derived rather than sent.</summary>
     /// <param name="track">The entity's track, which is where the motion is.</param>

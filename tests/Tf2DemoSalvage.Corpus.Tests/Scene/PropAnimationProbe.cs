@@ -202,6 +202,42 @@ public sealed class PropAnimationProbe
         TestContext.Out.WriteLine(
             $"CENSUS {everything.Count} distinct properties carried by this recording");
 
+        // **Does the disguise reach a PLAYER, on the real recording?** The unit tests prove the
+        // rules; only this proves the wiring — the failure this project ships most often is a
+        // correct mechanism nothing calls (docs/memory/output-level-assertion-or-it-is-not-done.md).
+        DemoTimeline timeline = TimelineCache.For(Corpus.Demo(Recording));
+
+        List<ScenePlayer> seen = [];
+        HashSet<string> disguises = new(StringComparer.Ordinal);
+
+        for (int tick = timeline.FirstTick;
+            tick <= timeline.LastTick;
+            tick += Math.Max(1, (timeline.LastTick - timeline.FirstTick) / 400))
+        {
+            seen.Clear();
+            timeline.PlayersAt(tick, seen);
+
+            foreach (ScenePlayer player in seen
+                .Where(player => player.Conditions.Has(PlayerConditions.Disguised)))
+            {
+                disguises.Add(
+                    $"entity {player.EntityIndex.ToString(CultureInfo.InvariantCulture)} "
+                    + $"team {player.Team?.ToString(CultureInfo.InvariantCulture) ?? "?"} "
+                    + $"class {player.PlayerClass?.ToString(CultureInfo.InvariantCulture) ?? "?"} "
+                    + $"enemy {player.IsEnemy} "
+                    + $"as class "
+                    + $"{player.DisguiseClass?.ToString(CultureInfo.InvariantCulture) ?? "none"} "
+                    + $"team {player.DisguiseTeam?.ToString(CultureInfo.InvariantCulture) ?? "none"}");
+            }
+        }
+
+        foreach (string disguise in disguises.Order(StringComparer.Ordinal).Take(10))
+        {
+            TestContext.Out.WriteLine($"DISGUISE {disguise}");
+        }
+
+        TestContext.Out.WriteLine($"DISGUISES {disguises.Count} distinct disguised sightings");
+
         lines.Count.ShouldBeGreaterThan(0, "the walk saw no updates for the watched entities");
     }
 

@@ -679,6 +679,44 @@ public sealed class EntityState
     public int? NewSequenceParity() =>
         Integer($"{AnimatingTable}.m_nNewSequenceParity");
 
+    /// <summary>The five condition bitfields, read as <c>CTFPlayerShared::InCond</c> does.</summary>
+    /// <remarks>
+    /// **All five, because 31 of `DT_TFPlayerShared`'s 66 fields live past the first.**
+    /// `CConditionVars` (`tf_player_shared.cpp:1041`) picks the variable by the condition's range,
+    /// so a reader that took only `m_nPlayerCond` would answer correctly for conditions 0..31 and
+    /// silently wrongly for every one after — including most of what TF has added since 2007.
+    ///
+    /// Absent reads as zero rather than null: a player who sends no condition field is in no
+    /// condition, which is the same thing the engine's zero-initialised member means.
+    /// </remarks>
+    public PlayerConditions Conditions() => new(
+        Integer($"{PlayerSharedTable}.m_nPlayerCond") ?? 0,
+        Integer($"{PlayerSharedTable}.m_nPlayerCondEx") ?? 0,
+        Integer($"{PlayerSharedTable}.m_nPlayerCondEx2") ?? 0,
+        Integer($"{PlayerSharedTable}.m_nPlayerCondEx3") ?? 0,
+        Integer($"{PlayerSharedTable}.m_nPlayerCondEx4") ?? 0);
+
+    /// <summary>Which class a disguised spy appears to be — <c>m_nDisguiseClass</c>.</summary>
+    public int? DisguiseClass() => Integer($"{PlayerSharedTable}.m_nDisguiseClass");
+
+    /// <summary>Which team a disguised spy appears to be on — <c>m_nDisguiseTeam</c>.</summary>
+    public int? DisguiseTeam() => Integer($"{PlayerSharedTable}.m_nDisguiseTeam");
+
+    /// <summary>Whose mask a spy disguised AS a spy wears — <c>m_nMaskClass</c>.</summary>
+    /// <remarks>
+    /// Read in exactly one branch: <c>GetDisguiseMask</c> (<c>tf_player_shared.h:375</c>) supplies
+    /// it to `GetSkin`'s enemy mask offset when the disguise class is itself a spy.
+    /// </remarks>
+    public int? DisguiseMaskClass() => Integer($"{PlayerSharedTable}.m_nMaskClass");
+
+    /// <summary>Where a TF player's shared state lives on the wire.</summary>
+    /// <remarks>
+    /// **A table this project read NOTHING from until now** — `docs/WIRE-COVERAGE.md` reported it
+    /// at 0 of 66 declared properties, and it carries conditions, disguises, cloak, charge and
+    /// stuns.
+    /// </remarks>
+    private const string PlayerSharedTable = "DT_TFPlayerShared";
+
     /// <summary>Whether the CLIENT advances this entity's cycle rather than the server.</summary>
     /// <remarks>
     /// **<c>m_bClientSideAnimation</c>, and it selects between two different restart signals.**
