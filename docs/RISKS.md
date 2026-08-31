@@ -15439,6 +15439,52 @@ swap was applied**. The fix is merged and its unit tests pass, and the picture d
 its keys are SKINREFS while the batch carries a resolved material index — B229 records that those
 two were confused once before in this exact table. The `instance` probe is the place to print it.
 
-**Stated plainly: this entry is FIXED for the rule and OPEN for the effect.** A merged change with
-green tests and no observable difference is exactly the shape this week's other bugs had, and
-recording it as done because the suite is green would be the same mistake.
+### CLOSED — two faults, and the second was the diagnostic again
+
+**Fault one: the team came from the wrong entity.** The first fix passed the FOLLOWED player's team,
+and in first person the viewer follows *the recording's own camera* — `MomentInfo.Followed` is null,
+so `held` is null and nothing was passed. The arms still drew, because they are the networked
+viewmodel's own model rather than the `hands` lookup that needs a followed player, so the symptom
+was unchanged and the tests stayed green.
+
+Valve asks the WEAPON'S OWNER: `GetSkin( iTeam, … )` is called with `pOwner->GetTeamNumber()`.
+`ViewmodelScene` now takes a `Func<int, int?> teamOf` and asks it about `weapon.OwnerEntityIndex`,
+which the viewmodel carries. Null when the demo names no owner — era demos do not always send
+`m_hOwner`, which is why `DemoTimeline._viewmodelsNameOwners` exists — and family 0 is the honest
+answer there.
+
+**Fault two: there wasn't one.** With the owner lookup in place the viewer reported
+`viewmodel skin: 1` and a swap row of `0->1180, 1->1183, 2->1182` — correct — while the materials
+line still said `1181`, the red sleeves. An hour went into chasing that.
+
+**The draw was right the whole time.** `WorldRenderer` resolves a batch's material with
+`skin.TryGetValue( batch.MaterialSlot, … )` — the SKINREF, which is how a skin row is keyed. Two
+LOG lines forty lines below it looked the same row up by `each.MaterialIndex`, the resolved index,
+which misses every time and prints family zero's material. The renderer was binding
+`soldier_sleeves_blue` and telling us it had bound `soldier_sleeves_red`.
+
+Fixed, and the line now reads `1183:opaque(from 1181)`.
+
+**That is the THIRD lying instrument in one session**, after the illumination point read as a
+position (B241) and the cull census that passed on an accident of geometry (B240). All three shared
+a shape: a diagnostic that recomputes something the draw already decided, instead of reporting what
+the draw used. See B243.
+
+## B243 — a diagnostic that recomputes is a diagnostic that can disagree — OPEN as a rule
+
+Three log lines in one night reported something other than what the renderer did:
+
+| the line | said | actually |
+|---|---|---|
+| `<model> at (x, y, z)` | the model's position | the ILLUMINATION point, from the local pose |
+| `opaque draw order: N of N` | the cull ran | nothing about whether the frustum was built |
+| `<model> draws materials: …` | the bound materials | family zero's, keyed by the wrong field |
+
+Each was believed over the picture at least once, and each cost hours.
+
+**The rule they suggest:** a diagnostic should report the value the draw *used*, carried to it —
+never recompute it from the same inputs by a second route. The second route is free to be wrong, and
+when it is, it is wrong in a way that looks authoritative. Where a value cannot be carried, the line
+should say which question it is answering (`illumination point`, not `at`).
+
+Not yet enforced anywhere. Filed so the next diagnostic added is checked against it.

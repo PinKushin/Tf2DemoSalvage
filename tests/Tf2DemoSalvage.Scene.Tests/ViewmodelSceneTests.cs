@@ -42,13 +42,13 @@ public sealed class ViewmodelSceneTests
         // The player's own BODY has taken its skin from its team since `PlayerProps` was written.
         // The hands in front of the camera never did.
         ViewmodelSceneResult scene = new ViewmodelScene().Build(
-            new FakeViewmodels { MainHand = Weapon("models/weapons/v_rocketlauncher.mdl") },
+            new FakeViewmodels { MainHand = Weapon("models/weapons/v_rocketlauncher.mdl") with { OwnerEntityIndex = Player } },
             Tick,
             Player,
             At,
             hands: null,
             heldWeapon: null,
-            team: SceneTeams.Blu);
+            teamOf: _ => SceneTeams.Blu);
 
         scene.Props.ShouldNotBeEmpty();
         scene.Props[0].Pose.Skin.ShouldBe(1);
@@ -61,24 +61,25 @@ public sealed class ViewmodelSceneTests
         // is also what an unset skin gives — so a test with only the BLU case could be satisfied by
         // a rule that always returned 1, and one with only the RED case by changing nothing at all.
         ViewmodelSceneResult scene = new ViewmodelScene().Build(
-            new FakeViewmodels { MainHand = Weapon("models/weapons/v_rocketlauncher.mdl") },
+            new FakeViewmodels { MainHand = Weapon("models/weapons/v_rocketlauncher.mdl") with { OwnerEntityIndex = Player } },
             Tick,
             Player,
             At,
             hands: null,
             heldWeapon: null,
-            team: SceneTeams.Red);
+            teamOf: _ => SceneTeams.Red);
 
         scene.Props.ShouldNotBeEmpty();
         scene.Props[0].Pose.Skin.ShouldBe(0);
     }
 
     [Test]
-    public void Build_APlayerWhoseTeamIsNotKnownYet_DrawsInTheFirstFamily()
+    public void Build_AViewmodelThatNamesNoOwner_DrawsInTheFirstFamily()
     {
-        // A player entity can exist before the demo says which side they are on, and
-        // `PlayerSkin.ForTeam` answers 0 there deliberately rather than flashing them blue for a
-        // tick. The viewmodel follows the same rule as the body, which is the point.
+        // **An era demo does not always send `m_hOwner`** — `DemoTimeline._viewmodelsNameOwners`
+        // exists for exactly that — so the team cannot be asked for and family 0 is the honest
+        // answer. The same rule `PlayerSkin.ForTeam` applies to a player whose team is not yet
+        // known, rather than flashing them blue for a tick.
         ViewmodelSceneResult scene = new ViewmodelScene().Build(
             new FakeViewmodels { MainHand = Weapon("models/weapons/v_rocketlauncher.mdl") },
             Tick,

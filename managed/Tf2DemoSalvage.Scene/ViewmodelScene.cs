@@ -139,10 +139,16 @@ public sealed class ViewmodelScene
     /// </remarks>
     /// <param name="seconds">Demo time now, which the animation's own clock is measured back from.</param>
     /// <param name="intervalPerTick">Seconds per tick, for turning the restart tick into a time.</param>
-    /// <param name="team">
-    /// The owner's team, which chooses the skin family — RED draws in 0 and BLU in 1 on every
-    /// two-family <c>c_</c> model. Null leaves it at 0, which is what a viewer that does not yet
-    /// know the team should draw.
+    /// <param name="teamOf">
+    /// The team of an entity, asked about the WEAPON'S OWNER — `GetSkin( pOwner->GetTeamNumber() )`.
+    /// Null leaves the skin at family 0, which is what a viewer that cannot say should draw.
+    /// <para>
+    /// **Asked about the owner rather than handed the followed player's team, and the difference is
+    /// the whole bug** (B242). In first person the viewer follows *the recording's own camera* and
+    /// `MomentInfo.Followed` is null, so a caller passing the followed player's team passed nothing
+    /// — while the arms still drew, because they are the networked viewmodel's own model rather
+    /// than the `hands` lookup that needs a followed player. Green tests, correct rule, no effect.
+    /// </para>
     /// </param>
     public ViewmodelSceneResult Build(
         IViewmodelSource viewmodels,
@@ -153,7 +159,7 @@ public sealed class ViewmodelScene
         string? heldWeapon,
         double seconds = 0d,
         float intervalPerTick = 0f,
-        int? team = null)
+        Func<int, int?>? teamOf = null)
     {
         ArgumentNullException.ThrowIfNull(viewmodels);
 
@@ -174,7 +180,6 @@ public sealed class ViewmodelScene
         // and which a styled item overrides again. This takes RED 0 / BLU 1, which is what every
         // two-family `c_` model uses and what `PlayerSkin.ForTeam` already encodes for the body.
         // An item whose visuals name a third family draws its red one here.
-        int skin = PlayerSkin.ForTeam(team);
 
         if (viewmodels.MainHandAt(tick, follower) is not { } weapon)
         {
@@ -185,6 +190,19 @@ public sealed class ViewmodelScene
         // than by rebuilding demo time from the tick, so it holds whatever the caller's clock is.
         // `m_nAnimationParity` is what says it restarted at all; see `ViewmodelAnimation.RestartAt`.
         double started = seconds - ((tick - weapon.AnimationStartTick) * intervalPerTick);
+
+        // **The skin family, from the WEAPON'S OWNER** — `CEconItemView::GetSkin( iTeam, … )` takes
+        // `pOwner->GetTeamNumber()`. Family 0 is RED on every two-family `c_` model, measured:
+        // `c_medigun` skin0 `c_medigun` skin1 `c_medigun_blue`, `c_medic_arms` skin0 `medic_red`
+        // skin1 `medic_blue`. Nothing set it, so every viewmodel drew red (B242).
+        //
+        // **Below the viewmodel lookup deliberately**, because the owner comes from it. A first
+        // draft took the FOLLOWED player's team from the caller and had no effect at all: in first
+        // person the viewer follows the recording's own camera and `MomentInfo.Followed` is null.
+        // **Null when the viewmodel names no owner**, which era demos do — `_viewmodelsNameOwners`
+        // exists because `m_hOwner` is not always sent. Family 0 is the honest answer there.
+        int skin = PlayerSkin.ForTeam(
+            weapon.OwnerEntityIndex is { } owner ? teamOf?.Invoke(owner) : null);
 
         List<SceneProp> props =
         [

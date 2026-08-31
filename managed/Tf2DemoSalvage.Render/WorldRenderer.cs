@@ -4821,7 +4821,15 @@ internal sealed unsafe class WorldRenderer : IDisposable
             }
 
             // **Which material each batch of a model actually DRAWS with, said once per model**
-            // (B170). Everything read so far was the material table at BUILD time, where
+            // (B170).
+            //
+            // **Keyed by MaterialSlot, and it was keyed by MaterialIndex until 2026-08-31** (B243).
+            // A skin row is `skinref -> resolved material`, which is what the DRAW uses forty lines
+            // up (`skin.TryGetValue( batch.MaterialSlot, … )`); looking it up by the resolved index
+            // instead misses every time and reports family zero's material. So this line said
+            // `soldier_sleeves_red` while the draw was correctly binding `soldier_sleeves_blue`,
+            // and an hour went into chasing a fix that was already working. Third lying diagnostic
+            // of the night, after the illumination point and the cull census. Everything read so far was the material table at BUILD time, where
             // `c_shotgun` carries a tint of 0.05 — and the screenshots show the weapon changing by
             // far more than that tint can produce. The gap between those two facts is which
             // material index the draw resolves to, after the skin swap, which nothing has reported.
@@ -4846,7 +4854,19 @@ internal sealed unsafe class WorldRenderer : IDisposable
                         $"{System.IO.Path.GetFileNameWithoutExtension(modelPath)} draws at " +
                         $"({matrix[12]:0.#}, {matrix[13]:0.#}, {matrix[14]:0.#}) " +
                         $"diag ({matrix[0]:0.###}, {matrix[5]:0.###}, {matrix[10]:0.###}) " +
-                        $"bones {bones.ToString(System.Globalization.CultureInfo.InvariantCulture)}"));
+                        $"bones {bones.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
+
+                        // **Whether a skin row arrived at all, and how big it is.** A model drawn in
+                        // the wrong team's colours has three possible causes and the picture cannot
+                        // tell them apart: no row (the entity's skin never reached here), family
+                        // zero's row (the skin was zero), or a row whose keys do not match what the
+                        // batch carries. The first two are distinguishable here; the third shows as
+                        // a row present and the materials unchanged.
+                        $"skinrow {(skin is null
+                            ? "none"
+                            : string.Join(
+                                ",",
+                                skin.Select(pair => $"{pair.Key}->{pair.Value}")))}"));
 
                 _render.LogInformation(
                     "{Message}",
@@ -4857,7 +4877,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
                             .Select(each =>
                             {
                                 int drawn = skin is not null &&
-                                    skin.TryGetValue(each.MaterialIndex, out int swap)
+                                    skin.TryGetValue(each.MaterialSlot, out int swap)
                                     ? swap
                                     : each.MaterialIndex;
 
@@ -4936,7 +4956,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 $"in the {pass} pass, body {body}, " +
                 $"skin {(skin is null ? "own" : $"{skin.Count} swaps")}, " +
                 $"materials [{string.Join(", ", batches.Select(each =>
-                    skin is not null && skin.TryGetValue(each.MaterialIndex, out int swap)
+                    skin is not null && skin.TryGetValue(each.MaterialSlot, out int swap)
                         ? $"{swap}<-{each.MaterialIndex}:{DescribeMaterial(swap)}"
                         : $"{each.MaterialIndex}:{DescribeMaterial(each.MaterialIndex)}").Distinct())}]");
         }
