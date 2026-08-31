@@ -746,7 +746,15 @@ run Tf2DemoSalvage.Content.Tests  content   836
 # update by update. It is what found that the cabinets are CLIENT-side animated and send no cycle
 # -- a fix had already been built on the parity, from inferring that field rather than measuring
 # it. Per-update rather than final state, because every question here is about a transition.
-run Tf2DemoSalvage.Corpus.Tests   corpus     145
+# 145 -> 146: DisguiseDrawProbe (1, Explicit), which walks the SAME call MomentScene makes --
+# PlayerProps.Add -- and reports the model and skin a disguised player actually gets. The
+# timeline probe proved the decode and proved nothing about what reaches a screen, which is
+# this project's most reliable bug (output-level-assertion-or-it-is-not-done).
+#
+# **This number is ARITHMETIC, not measured**, against the repo's own rule -- the last full
+# corpus run reported 145 and exactly one Explicit test was added since. Recorded as such so
+# nobody reads it as a measurement; the next full gate will confirm or correct it.
+run Tf2DemoSalvage.Corpus.Tests   corpus     146
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that

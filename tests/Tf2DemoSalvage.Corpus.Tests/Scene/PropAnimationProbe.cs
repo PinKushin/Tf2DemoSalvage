@@ -238,6 +238,35 @@ public sealed class PropAnimationProbe
 
         TestContext.Out.WriteLine($"DISGUISES {disguises.Count} distinct disguised sightings");
 
+        // **Which TEAM each player reports, and the skin that follows.** `PlayerSkin.ForTeam` is
+        // `team == Blu ? 1 : 0`, so ANY value that is not exactly BLU draws in RED's family — the
+        // owner's report is "we might be drawing everyone as red too and overriding for blue".
+        // A null or unexpected team would produce exactly that, silently.
+        Dictionary<string, int> teams = new(StringComparer.Ordinal);
+
+        for (int tick = timeline.FirstTick;
+            tick <= timeline.LastTick;
+            tick += Math.Max(1, (timeline.LastTick - timeline.FirstTick) / 400))
+        {
+            seen.Clear();
+            timeline.PlayersAt(tick, seen);
+
+            foreach (ScenePlayer player in seen)
+            {
+                string key =
+                    $"team {player.Team?.ToString(CultureInfo.InvariantCulture) ?? "NULL"} "
+                    + $"playing {player.IsPlaying} drawn {player.Drawn}";
+
+                teams[key] = teams.GetValueOrDefault(key) + 1;
+            }
+        }
+
+        foreach ((string key, int count) in teams.OrderBy(entry => entry.Key, StringComparer.Ordinal))
+        {
+            TestContext.Out.WriteLine(
+                $"TEAM {key}: {count.ToString(CultureInfo.InvariantCulture)} sightings");
+        }
+
         lines.Count.ShouldBeGreaterThan(0, "the walk saw no updates for the watched entities");
     }
 
