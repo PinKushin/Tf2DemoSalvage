@@ -4827,6 +4827,27 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // material index the draw resolves to, after the skin swap, which nothing has reported.
             if (_reportedBatchMaterials.Add(modelPath))
             {
+                // **The matrix this draw actually uses, said once per model** (B241). The line
+                // above it — `<model> at (x, y, z) reflects cubemap N` — is the ILLUMINATION point,
+                // sampled from the entity's local pose to choose a cubemap, and for a PARENTED prop
+                // that is its offset from its parent rather than where it is drawn. It reads
+                // (0, 0, 0) whether the placement works or not, and an evening of the gates was
+                // argued from it as though it were the position.
+                //
+                // So the one number that cannot lie about where a model is drawn is the one handed
+                // to the draw call. Translation lives in the last row of the shader's row-vector
+                // matrix; the diagonal is printed with it because a matrix with a correct
+                // translation and a zero rotation collapses every vertex onto that point, which is
+                // a model that is placed, bounded, batched and invisible.
+                _render.LogInformation(
+                    "{Message}",
+                    string.Create(
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        $"{System.IO.Path.GetFileNameWithoutExtension(modelPath)} draws at " +
+                        $"({matrix[12]:0.#}, {matrix[13]:0.#}, {matrix[14]:0.#}) " +
+                        $"diag ({matrix[0]:0.###}, {matrix[5]:0.###}, {matrix[10]:0.###}) " +
+                        $"bones {bones.ToString(System.Globalization.CultureInfo.InvariantCulture)}"));
+
                 _render.LogInformation(
                     "{Message}",
                     $"{System.IO.Path.GetFileNameWithoutExtension(modelPath)} draws materials: " +

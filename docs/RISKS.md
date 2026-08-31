@@ -15290,7 +15290,38 @@ four of that class's draw-list filters were read and none can remove a `CDynamic
 `WeaponState` and an owner, `DisguiseVisibility` needs a disguised owner, `RespawnRoomVisibility`
 names one class.
 
-**The next experiment, stated so it is not guessed at again:** log the instance matrix at the point
-of DRAW, in `WorldRenderer`, beside the `draws materials` line. Every number above comes from
-rebuilding the scene outside the viewer; none of it is read out of the viewer's own draw call. That
-gap is exactly where five wrong conclusions have already come from tonight.
+### The draw-time matrix, logged — and the placement theory is dead
+
+`WorldRenderer.DrawModel` now reports the matrix it was actually handed, once per model, beside the
+materials line. The gates:
+
+```
+[render] door_grate003_top draws at (5416, -2168, 552) diag (1, 1, 1) bones 1
+[render] door_grate003_top draws materials: 960:opaque, 961:opaque
+```
+
+**The right position, an unscaled matrix, one bone, two opaque textured batches — and an empty
+doorway in the captured frame.**
+
+**The parented-placement fix was reverted, because the measurement refuted it.** `Instances` was
+changed to compose the parent chain for baked props on the theory that they drew at their local
+offset. With that change removed again the drawn matrix is *unchanged* — still (5416, −2168, 552) —
+so the pose reaching the draw loop already carries the world placement and composing would have
+applied it twice. An unverifiable change to where every prop is drawn is not worth carrying on a
+theory the evidence does not support.
+
+**What the new log line immediately showed, and it is the lead worth following:**
+
+```
+[render] demo draws at (0, 0, 0) diag (1, 1, 1) bones 84
+[render] windowed_door draws at (0, 0, 0) diag (1, 1, 1) bones 1
+[render] door_grate003_top draws at (5416, -2168, 552) diag (1, 1, 1) bones 1
+```
+
+A player draws at the origin with 84 bones because the BONES carry its placement. `windowed_door` —
+another `prop_dynamic` parented to a `func_door`, and one nobody has confirmed is visible either —
+does the same. The grate does not. **Two props of the same kind, parented the same way, are placed
+by different mechanisms**, and whichever of them is wrong, they cannot both be right.
+
+**So the question is no longer "where is it drawn" but "is its bone applied on top of its matrix".**
+That is a shader-side question and none of tonight's instruments can see it.
