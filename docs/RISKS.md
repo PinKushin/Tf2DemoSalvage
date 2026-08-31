@@ -15587,10 +15587,50 @@ reading a zero-property `ENTER` means *"nothing has changed since the baseline I
 which preserves the door's parent AND resets the bonesaw's state. B231's workaround may simply be
 obsolete.
 
-**Not attempted, because it reverses a recorded decision on core decode.** The experiment is cheap
-and specific: rebuild from the baseline on every `Enter` rather than only on creation, then check
-(a) `cp_fulgur`'s gates still hold their `moveparent`, and (b) entity 1138 reads holstered at tick
-14000. If both hold, B231's exception can go.
+### The experiment was run, and it FALSIFIED that theory — 2026-08-31
+
+Rebuilding from the baseline on every `Enter` rather than only on creation changed the answer not at
+all: entity 1138 still reads **2** at tick 14000. Reverted rather than kept, because a change to
+core decode with no measured benefit is exactly the kind that gets defended later on taste.
+
+**Why it could not have worked, which is the finding:** merging a baseline is not RESETTING the
+state. `EntityStateTable.Apply` walks the merged property list and calls `state.Set(...)` on an
+object it already holds, so a property present in neither the baseline nor the update keeps its old
+value. Whatever the enter-PVS delta is computed against, our accumulate step cannot express
+"and forget everything else".
+
+The measurements that stand, and they narrow it sharply:
+
+- **The wire's last word really is ACTIVE.** `m_iState` for entity 1138 was last sent at tick 8060,
+  value 2, and the final `ENTER` before 14000 — tick 10901, 28 properties including `moveparent`,
+  `m_hOwner`, `m_iWorldModelIndex` and the whole attribute list — carries **no `m_iState` at all**.
+- **Both weapons being transmitted is normal.** `CBaseCombatWeapon::UpdateTransmitState`
+  (`basecombatweapon.cpp:132`) sets `FL_EDICT_PVSCHECK` for any weapon with an owner, so a player's
+  holstered weapons travel exactly as their active one does.
+- **Not dormancy.** 1138's last PVS transition before 14000 is an `ENTER`, so it is live then.
+
+**And the server does say which weapon is held, twice.** `m_hActiveWeapon` and `m_hMyWeapons` are
+declared in the MAIN `DT_BaseCombatCharacter` table (`basecombatcharacter.cpp:203`), *outside* the
+`bcc_localdata` exclusive block — so both reach every client for every visible player. That is the
+owner's point and it is right: *"there has to be a way the server tells the client what weapon
+another person is holding"*. There are two ways, they agree in a real client, and **ours disagree
+with each other** — which makes this a decode defect with a built-in control rather than a
+rendering question (`docs/memory/two-recordings-of-one-value.md`).
+
+**Where to look next**, in order of cheapness:
+
+1. What our stored per-entity baseline for 1138 actually holds for `m_iState` — if it says 2, the
+   slot bookkeeping checkpointed it while active and never re-checkpointed, and the question moves
+   to whether `Update` is merging into the right slot.
+2. Whether the class baseline for `CTFBonesaw` declares `m_iState` at all. If it does not, nothing
+   in the pipeline can ever return the value to its default, and staleness is structural.
+3. Whether a real client would in fact draw both — testable by playing this demo in TF2 and looking
+   at that player at tick 14000, which is the only instrument here that cannot be wrong about what
+   the engine does.
+
+**Do NOT "fix" this by having `WeaponVisibility` prefer the player's `m_hActiveWeapon`.** It would
+hide the defect behind a rule Valve does not have (`ShouldDraw` reads `m_iState` and nothing else),
+and the disagreement between the two signals is currently the only thing that can detect it.
 
 **What is NOT the answer:** dormancy. `NotifyShouldTransmit` does set `SetDormant(true)` on
 `SHOULDTRANSMIT_END` and `c_baseentity.cpp:1422` gates drawing on `!IsDormant()` — but the bonesaw
