@@ -668,9 +668,22 @@ public sealed class MomentScene : IGameSystemPerFrame
                 info.Seconds,
                 info.IntervalPerTick,
 
-                // The owner's team, so the arms and the weapon draw in their own colours
-                // (B242). `GetSkin` takes it; nothing here was passing it.
-                held?.Team);
+                // **The team of the weapon's OWNER**, which is what `GetSkin` takes — not the
+                // followed player's (B242). In first person the viewer follows the recording's own
+                // camera and `info.Followed` is null, so `held` is null and passing its team passed
+                // nothing at all. The viewmodel knows who owns it; ask about that entity.
+                entity =>
+                {
+                    foreach (ScenePlayer player in players)
+                    {
+                        if (player.EntityIndex == entity)
+                        {
+                            return player.Team;
+                        }
+                    }
+
+                    return null;
+                });
 
         if (scene.Props.Count == 0)
         {
@@ -743,6 +756,18 @@ public sealed class MomentScene : IGameSystemPerFrame
             Lighting.LightingAt,
             Lighting.SunAt,
             info.Seconds);
+
+        // **Who owns the viewmodel and what team they are on, once per change** (B242). The skin
+        // family is decided from the OWNER, and every wrong answer so far has been about not
+        // knowing who that is: `MomentInfo.Followed` is null in first person because the viewer
+        // follows the recording's own camera, and a viewmodel that names no owner cannot be asked.
+        // A count of materials cannot tell those apart; this can.
+        if (scene.Changed && scene.Props.Count > 0)
+        {
+            _render.LogInformation(
+                "{Message}",
+                $"viewmodel skin: {scene.Props[0].Pose.Skin}");
+        }
 
         if (scene.Changed)
         {
