@@ -159,3 +159,4 @@
 - [Decoding a field is not honouring it](decoding-a-field-is-not-honouring-it.md) — grep the SDK for every use; one consumer of four is three quarters unimplemented.
 - [An open item is a defect report](an-open-item-is-a-defect-report.md) — a "still to read" note that predicts a symptom is an unfixed bug.
 - [A probe is a script, not a test](a-probe-is-a-script-not-a-test.md) — `[Explicit]` hides it from the run, not from the build or the floor.
+- [One look can be two mechanisms](one-look-can-be-two-mechanisms.md) — a skin AND a bodygroup; the right texture on a mesh nobody draws.
