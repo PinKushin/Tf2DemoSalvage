@@ -1015,7 +1015,14 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     146
 # Two of the three are controls -- an animation with no stamp must behave exactly as before, and a
 # stamp AHEAD of the moment being drawn must not run the animation backwards, which for a looping
 # sequence wraps to near the end and snaps a door shut for a frame.
-run Tf2DemoSalvage.Rendering.Tests rendering 716
+# 716 -> 718: the strobes and flickers test a value Valve truncates to an int first (B246). Valve
+# declares `int blend` and assigns `20 * sin(...)` to it, so a wave anywhere in (-1, 0) becomes 0 --
+# not less than zero -- and the entity draws at FULL alpha where we drew it invisible, for about
+# 1.6% of every cycle on all five effects. One of the two is a control: below -1 the int really is
+# negative and the strobe really is off, so an implementation that simply dropped the sign test
+# would pass the first and fail the second. Found by reading the engine function end to end during
+# the parity audit, not by any measurement of ours.
+run Tf2DemoSalvage.Rendering.Tests rendering 718
 # 101 -> 103 on 2026-08-29: LaunchOptionWiringTests (B223, D118). Two tests, and they cost about
 # seventeen seconds EACH, because each builds a real MainForm and loads a corpus demo — which reads
 # cp_badlands.bsp when Team Fortress 2 is installed. That is the most expensive pair in this file

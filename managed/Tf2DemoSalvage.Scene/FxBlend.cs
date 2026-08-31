@@ -344,5 +344,22 @@ public static class FxBlend
     }
 
     /// <summary>The strobe and flicker shape: a sign test that discards its own magnitude.</summary>
-    private static int Switched(float wave, byte alpha) => wave < 0f ? 0 : alpha;
+    /// <remarks>
+    /// **The cast is not tidying — it is the test Valve performs** (B246). `blend` is declared
+    /// <c>int</c> and the wave is assigned to it before the comparison:
+    ///
+    /// <code>
+    ///   blend = 20 * sin( gpGlobals->curtime * 4 + offset );
+    ///   if ( blend &lt; 0 ) blend = 0; else blend = m_clrRender->a;
+    /// </code>
+    ///
+    /// C++ truncates toward zero on that assignment, so a wave anywhere in (−1, 0) becomes 0 —
+    /// which is not less than zero, and the engine draws the entity at FULL alpha. Comparing the
+    /// float instead draws it invisible for about 1.6 % of every cycle, on all five effects that
+    /// come through here.
+    ///
+    /// C#'s <c>(int)</c> on a float truncates toward zero too, so the one cast reproduces it
+    /// exactly rather than approximating it.
+    /// </remarks>
+    private static int Switched(float wave, byte alpha) => (int)wave < 0 ? 0 : alpha;
 }

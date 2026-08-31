@@ -15596,7 +15596,7 @@ and specific: rebuild from the baseline on every `Enter` rather than only on cre
 `SHOULDTRANSMIT_END` and `c_baseentity.cpp:1422` gates drawing on `!IsDormant()` — but the bonesaw
 has re-entered by tick 14000 and is not dormant then. That was checked before opening this.
 
-## B246 — the strobes and flickers test a float Valve truncates to an int — OPEN
+## B246 — the strobes and flickers tested a float Valve truncates to an int — FIXED 2026-08-31
 
 `ComputeFxBlend` writes its wave into an **int** before testing the sign:
 
@@ -15612,3 +15612,18 @@ That window is about **1.6 %** of every strobe cycle, and it applies to `kRender
 
 Found by reading the function end to end during the parity audit, not by any measurement of ours —
 which is the point of the audit.
+
+### Fixed: one cast, and the condition is what made it testable
+
+`FxBlend.Switched` now compares `(int)wave`, which truncates toward zero in C# exactly as the C++
+assignment does.
+
+**The two existing strobe tests could never have caught this and no stronger assertion would have
+helped.** They use waves of +7.65 and −20, and at both of those correct and broken predict the same
+observation. The new test picks `curtime = 0.7904`, where the argument is 3.1616 radians — a hair
+past pi — and the wave is **−0.400**: the one region where the two implementations disagree. That is
+*wrong condition*, case 2 of the four in the testing rules, and the fix is the input rather than the
+assertion.
+
+The second new test is the control at `curtime = 0.8104`, wave **−1.999**, truncating to −1. It is
+what stops the fix overshooting into "drop the sign test altogether", which would pass the first.
