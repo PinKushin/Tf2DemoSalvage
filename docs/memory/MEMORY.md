@@ -158,3 +158,4 @@
 - [A bug is a divergence search first](a-bug-is-a-divergence-search-first.md) — our bugs are not new problems; read until the mechanism is whole.
 - [Decoding a field is not honouring it](decoding-a-field-is-not-honouring-it.md) — grep the SDK for every use; one consumer of four is three quarters unimplemented.
 - [An open item is a defect report](an-open-item-is-a-defect-report.md) — a "still to read" note that predicts a symptom is an unfixed bug.
+- [A probe is a script, not a test](a-probe-is-a-script-not-a-test.md) — `[Explicit]` hides it from the run, not from the build or the floor.

@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    **The probes, out of the test suite.** Owner, 2026-08-30: *"you can script a probe outside the
+    test suite, having a bunch of probe tests just slows the suite down and putting in a suite and
+    running the whole damn thing takes forever"*. D122.
+
+    A probe reports numbers and asserts nothing, so it was never a test — it was `[Explicit]`, which
+    keeps it out of a RUN but not out of the BUILD, and not out of the discovery every `dotnet test`
+    performs. Running one meant building an assembly that references NUnit, the adapter, Shouldly
+    and every production project, then starting a VSTest host to execute a single case.
+
+    Here it is a console program. See Program.cs for how it is invoked; a doubled hyphen cannot
+    appear in an XML comment (MSB4025), which is why the command line is not written out here.
+  -->
+  <PropertyGroup>
+    <!-- TargetFramework must stay here, not in Directory.Build.props - see the note there. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Tf2DemoSalvage.Probe</RootNamespace>
+
+    <!-- CA1515 wants an application's types internal, and `DemoCorpus` is deliberately public:
+         Tf2DemoSalvage.Corpus.Tests consumes it so the suite and the probes locate demos through
+         ONE implementation. Two copies of "where are the demos" is exactly the drift that makes a
+         probe answer a question about a different file than the test that motivated it. -->
+    <NoWarn>$(NoWarn);CA1515</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../managed/Tf2DemoSalvage.Core/Tf2DemoSalvage.Core.csproj" />
+    <ProjectReference Include="../../managed/Tf2DemoSalvage.Content/Tf2DemoSalvage.Content.csproj" />
+
+    <!-- Scene, for the draw-list rules a probe reports on: which of a disguised spy's cosmetics
+         survive, which weapon a player is holding. Plain net10.0, so this stays runnable
+         anywhere. -->
+    <ProjectReference Include="../../managed/Tf2DemoSalvage.Scene/Tf2DemoSalvage.Scene.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -6979,3 +6979,55 @@ risk entry that a search for the symptom will surface, not in the tail of a clos
 wrong theories was supported by correct measurements of correct decoded values — the numbers were
 never wrong, the question was. That is `read-the-spec-before-measuring-our-data` again, and it is the
 third time it has been the answer.
+
+---
+
+## D126 — a probe is a script, not a test; it lives in `tools/Tf2DemoSalvage.Probe`
+
+**The owner, 2026-08-30:**
+
+> *"btw, you can script a probe outside the test suite, having a bunch of probe tests just slows the
+> suite down and putting in a suite and running the whole damn thing takes forever"*
+
+**He is describing two separate costs, and the second is the one that was invisible.**
+
+The first is the suite's. There are about sixty `*Probe` files across the test projects. Every one
+is compiled into a test assembly, discovered by the adapter on every run, and listed in every
+`.trx`. `[Explicit]` keeps a probe out of the RUN; it does not keep it out of the build or the
+discovery, and it does not stop it counting towards a floor.
+
+The second is what it costs to ASK a probe something. Running one meant `dotnet test --filter` — a
+build of an assembly referencing NUnit, the adapter, Shouldly and every production project, then a
+VSTest host started to execute a single case whose output had to be dug out of `TestContext.Out`.
+And because the parameters were `const`, a second question meant editing a constant and paying the
+whole cost again. The `spy-draw` probe's tick window is the worked example: the owner named
+860–935, and asking about a different window should not require a rebuild of a test assembly.
+
+**So a probe is a console program.** `tools/Tf2DemoSalvage.Probe` discovers `IProbe`
+implementations by reflection, so adding one is adding a file — no dispatch table, no registration,
+which is the open/closed rule the standards ask for and which is also the only thing NUnit was
+buying us.
+
+```bash
+dotnet run --project tools/Tf2DemoSalvage.Probe
+```
+
+**Where a probe locates demos is shared, not copied.** `DemoCorpus` lives in the tool and
+`Tf2DemoSalvage.Corpus.Tests` consumes it, rather than the reverse — the tool must not drag NUnit
+into a program whose point is to build quickly. Two copies of "where are the demos" would let a
+probe answer a question about a different file than the test that motivated it, with nothing
+reporting the discrepancy (`one-place-or-it-drifts`).
+
+**This does not change D38, it completes it.** D38 already said a measurement is not a test, and
+that a harness worth keeping is `[Explicit]` and asserts nothing. What it did not say is where such
+a harness should LIVE, so the answer defaulted to "in the suite, marked Explicit" — which is how
+sixty of them accumulated there while each one individually followed the rule.
+
+**What stays a test.** Anything with a right answer: decode, arithmetic, a rule read from the SDK.
+Those are synthetic and belong in `Core.Tests` or a layer's own suite, exactly as D38 says. A probe
+is for questions whose answer is a number nobody knows yet.
+
+**The migration is incremental and deliberately so.** Sixty probes carry findings in their prose,
+and several answer questions that are now closed — those should be deleted with their finding
+promoted to `docs/findings/`, not ported. Porting them all in one pass would move the prose without
+reading it, which is the one outcome worse than leaving them where they are.
