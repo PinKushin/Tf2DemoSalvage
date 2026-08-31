@@ -15323,5 +15323,56 @@ another `prop_dynamic` parented to a `func_door`, and one nobody has confirmed i
 does the same. The grate does not. **Two props of the same kind, parented the same way, are placed
 by different mechanisms**, and whichever of them is wrong, they cannot both be right.
 
-**So the question is no longer "where is it drawn" but "is its bone applied on top of its matrix".**
-That is a shader-side question and none of tonight's instruments can see it.
+### FIXED — the bone AND the matrix were both placing it
+
+**`IStudioRender::DrawModel` takes bone-to-world matrices and nothing else** (`istudiorender.h:329`).
+Valve has no separate entity transform for a studio model, because `SetupBones` folds the placement
+into every bone before the draw. A non-identity matrix beside real bones therefore applies the
+placement **twice**.
+
+**This project already wrote the rule down and never enforced it.** `WorldRenderer.DrawModel`, in a
+comment about cubemaps:
+
+> *"A baked model is put in the world by its matrix, so the translation is its position. A SKINNED
+> model is put there by its bones and its matrix stays at identity."*
+
+It held only by accident. A player's pose is (0,0,0); a bone-merged item's is (0,0,0) by
+construction. Nothing broke until a **skinned prop with a real networked origin** arrived — and a
+setup gate's grate is exactly that: `CDynamicProp`, one bone, origin (5416 −2168 552). Bone and
+matrix each placed it there, so it drew about ten thousand units off the map. The doorway you could
+see straight through was the only symptom it had.
+
+`Instances` now sets the matrix to identity whenever the instance carries bones.
+
+### And the quarter turn, which was the SAME method missing Valve's third branch
+
+With the gates drawing, the owner: *"that one gate on the left in your SS, is rotated 90 degreed"* —
+the original symptom, reported before any of this was understood.
+
+`Absolute` returned the parent's pose outright for every parented prop. That is
+`CalcAbsolutePosition`'s **bone-merge** branch applied to entities that are not merged, and it throws
+the child's own ANGLES away. Branch 3 (`c_baseentity.cpp:4396`) composes:
+
+```cpp
+AngleMatrix( GetLocalAngles(), matEntityToParent );
+MatrixSetColumn( GetLocalOrigin(), 3, matEntityToParent );
+ConcatTransforms( GetParentToWorldTransform( … ), matEntityToParent, m_rgflCoordinateFrame );
+
+if ( m_angRotation == vec3_angle && m_iParentAttachment == 0 )
+    VectorCopy( m_pMoveParent->GetAbsAngles(), m_angAbsRotation );   // only THEN copy the parent's
+else
+    MatrixAngles( m_rgflCoordinateFrame, m_angAbsRotation );
+```
+
+**The angle shortcut is conditional and was being applied unconditionally.** `cp_fulgur`'s three
+setup gates face different ways, so the one whose grate carries its own yaw drew a quarter turn out.
+
+### The instrument this cost, and it is the reusable part
+
+A UI test asserted `kept < offered` on the cull census to catch a frustum that was never built.
+It passed for months because the scene happened to have models behind the camera — and placing
+parented props correctly brought them into view, so it read `20 of 20` and went red with nothing
+broken. `Culled` returns false outright when the frustum is unbuilt, so **an unbuilt frustum and a
+scene entirely on screen produce the identical line.** The census now reports `frustum built` and
+the test asserts that instead: the flag was always the thing it wanted, and the count never could
+be.

@@ -755,9 +755,59 @@ public sealed class EntityModelSet
             return prop.Pose;
         }
 
-        return _propsByEntity.TryGetValue(wearer, out SceneProp parent)
-            ? Absolute(parent, budget - 1)
-            : prop.Pose;
+        if (!_propsByEntity.TryGetValue(wearer, out SceneProp parent))
+        {
+            return prop.Pose;
+        }
+
+        ScenePose above = Absolute(parent, budget - 1);
+
+        // **Branch 2 — `EF_BONEMERGE`.** `MoveToAimEnt` gives the follower its parent's place
+        // outright, and its own origin is the zero `FollowEntity` wrote.
+        if (prop.BoneMerged)
+        {
+            return above;
+        }
+
+        // **Branch 3, which this method used to skip** (B241). `c_baseentity.cpp:4396`:
+        //
+        //   AngleMatrix( GetLocalAngles(), matEntityToParent );
+        //   MatrixSetColumn( GetLocalOrigin(), 3, matEntityToParent );
+        //   ConcatTransforms( GetParentToWorldTransform( … ), matEntityToParent, m_rgflCoordinateFrame );
+        //
+        // Returning the parent's pose for everything is the bone-merge branch applied to entities
+        // that are not merged, and it throws the child's own ANGLES away. A setup gate's grate is
+        // rotated to face its doorway and the three gates on `cp_fulgur` face different ways, so
+        // one of them drew a quarter turn out — the owner's *"that one gate on the left is rotated
+        // 90 degreed"*, reported before any of this was understood.
+        PropTransform composed = new PropTransform(
+                above.X, above.Y, above.Z, above.Pitch, above.Yaw, above.Roll, above.Scale)
+            .Concat(new PropTransform(
+                prop.Pose.X, prop.Pose.Y, prop.Pose.Z,
+                prop.Pose.Pitch, prop.Pose.Yaw, prop.Pose.Roll, prop.Pose.Scale));
+
+        (float x, float y, float z) = composed.Apply(0f, 0f, 0f);
+
+        // **The angle shortcut is Valve's and it is CONDITIONAL** (`:4406`): a child with no angles
+        // of its own and no parent attachment copies the parent's absolute angles; anything else
+        // extracts them from the composed matrix. Applying the shortcut unconditionally is what
+        // discarded the gate's quarter turn.
+        bool declaresNoAngles =
+            prop.Pose.Pitch == 0f && prop.Pose.Yaw == 0f && prop.Pose.Roll == 0f;
+
+        (float pitch, float yaw, float roll) = declaresNoAngles && prop.AttachmentPoint is null
+            ? (above.Pitch, above.Yaw, above.Roll)
+            : composed.Angles();
+
+        return prop.Pose with
+        {
+            X = x,
+            Y = y,
+            Z = z,
+            Pitch = pitch,
+            Yaw = yaw,
+            Roll = roll,
+        };
     }
 
     /// <summary>This frame's props by entity index, so a parent chain can be walked.</summary>
@@ -2160,6 +2210,33 @@ public sealed class EntityModelSet
                 {
                     ReportPosedExtents(prop.ModelPath, bones, prop.ModelPath + " WORN");
                 }
+            }
+
+            // **A model posed by BONES is placed by those bones, and its matrix is identity**
+            // (B241). `IStudioRender::DrawModel` takes bone-to-world matrices and nothing else
+            // (`istudiorender.h:329`); Valve has no separate entity transform for a studio model,
+            // because `SetupBones` folds the placement into every bone before the draw. So a
+            // non-identity matrix beside real bones applies the placement TWICE.
+            //
+            // **This project already wrote the rule down and did not enforce it.**
+            // `WorldRenderer.DrawModel`: *"A baked model is put in the world by its matrix … a
+            // SKINNED model is put there by its bones and its matrix stays at identity."* It held
+            // only by accident — a player's pose is (0,0,0) and a merged item's is (0,0,0) by
+            // construction — so nothing broke until a skinned prop arrived carrying a real origin.
+            //
+            // A setup gate's grate is exactly that: `CDynamicProp`, one bone, and a networked origin
+            // of (5416 −2168 552). Bone and matrix each placed it there, so it drew about ten
+            // thousand units off the map, and the doorway you could see straight through was the
+            // only symptom. Measured before this line existed:
+            //
+            //   demo               draws at (0, 0, 0)          bones 84
+            //   windowed_door      draws at (0, 0, 0)          bones 1
+            //   door_grate003_top  draws at (5416, -2168, 552) bones 1
+            //
+            // Two props of the same kind parented the same way, placed by two mechanisms.
+            if (bones is { Count: > 0 })
+            {
+                transform = PropTransform.Identity;
             }
 
             // **Hoisted out of the argument list**, because two arguments now want it: the body
