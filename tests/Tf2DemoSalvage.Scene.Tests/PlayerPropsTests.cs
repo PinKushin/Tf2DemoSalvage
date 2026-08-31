@@ -28,7 +28,7 @@ public sealed class PlayerPropsTests
     {
         List<SceneProp> drawn = [];
 
-        PlayerProps.Add([Soldier()], drawn, new Appearance());
+        PlayerProps.Add([Soldier()], drawn, new Appearance(), NoBodygroups);
 
         drawn.Count.ShouldBe(1);
         drawn[0].ModelPath.ShouldBe("models/player/soldier.mdl");
@@ -44,7 +44,7 @@ public sealed class PlayerPropsTests
         // convincing players where nobody is standing.
         List<SceneProp> drawn = [];
 
-        PlayerProps.Add([Soldier() with { Team = null }], drawn, new Appearance());
+        PlayerProps.Add([Soldier() with { Team = null }], drawn, new Appearance(), NoBodygroups);
 
         drawn.ShouldBeEmpty();
     }
@@ -57,7 +57,7 @@ public sealed class PlayerPropsTests
         // stack inside the living one they are watching.
         List<SceneProp> drawn = [];
 
-        PlayerProps.Add([Soldier() with { Drawn = false }], drawn, new Appearance());
+        PlayerProps.Add([Soldier() with { Drawn = false }], drawn, new Appearance(), NoBodygroups);
 
         drawn.ShouldBeEmpty();
     }
@@ -69,7 +69,7 @@ public sealed class PlayerPropsTests
         // as a missing asset, which reads as a loading fault rather than as a player we cannot name.
         List<SceneProp> drawn = [];
 
-        PlayerProps.Add([Soldier() with { PlayerClass = null }], drawn, new Appearance());
+        PlayerProps.Add([Soldier() with { PlayerClass = null }], drawn, new Appearance(), NoBodygroups);
 
         drawn.ShouldBeEmpty();
     }
@@ -85,7 +85,7 @@ public sealed class PlayerPropsTests
         PlayerProps.Add(
             [Soldier(), Soldier() with { EntityIndex = 4, Team = SceneTeams.Blu }],
             drawn,
-            new Appearance());
+            new Appearance(), NoBodygroups);
 
         drawn.Select(prop => prop.Pose.Skin).ShouldBe([0, 1]);
     }
@@ -98,7 +98,7 @@ public sealed class PlayerPropsTests
         // every time they look up, and the eye pitch still has to arrive for `body_pitch`.
         List<SceneProp> drawn = [];
 
-        PlayerProps.Add([Soldier() with { Yaw = 90f, EyePitch = -45f }], drawn, new Appearance());
+        PlayerProps.Add([Soldier() with { Yaw = 90f, EyePitch = -45f }], drawn, new Appearance(), NoBodygroups);
 
         drawn[0].Pose.Pitch.ShouldBe(0f);
         drawn[0].Pose.Roll.ShouldBe(0f);
@@ -117,7 +117,7 @@ public sealed class PlayerPropsTests
         PlayerProps.Add(
             [Soldier() with { Airwalking = true, PlayerClass = MedicClass }],
             drawn,
-            new Appearance());
+            new Appearance(), NoBodygroups);
 
         drawn[0].Pose.Airwalking.ShouldBeFalse();
     }
@@ -128,7 +128,7 @@ public sealed class PlayerPropsTests
         // The control for the pair. Without it, "never airwalks" passes the test above.
         List<SceneProp> drawn = [];
 
-        PlayerProps.Add([Soldier() with { Airwalking = true }], drawn, new Appearance());
+        PlayerProps.Add([Soldier() with { Airwalking = true }], drawn, new Appearance(), NoBodygroups);
 
         drawn[0].Pose.Airwalking.ShouldBeTrue();
     }
@@ -140,7 +140,7 @@ public sealed class PlayerPropsTests
         // survive the conversion rather than being looked up again.
         List<SceneProp> drawn = [];
 
-        PlayerProps.Add([Soldier() with { WeaponClass = "tf_weapon_rocketlauncher" }], drawn, new Appearance());
+        PlayerProps.Add([Soldier() with { WeaponClass = "tf_weapon_rocketlauncher" }], drawn, new Appearance(), NoBodygroups);
 
         drawn[0].Pose.Slot.ShouldBe("PRIMARY");
     }
@@ -168,6 +168,11 @@ public sealed class PlayerPropsTests
                 return "models/player/soldier.mdl";
             }
 
+            if (playerClass == SpyClass)
+            {
+                return "models/player/spy.mdl";
+            }
+
             return playerClass == MedicClass ? "models/player/medic.mdl" : null;
         }
 
@@ -179,4 +184,83 @@ public sealed class PlayerPropsTests
         public string? Hands(int playerClass) =>
             playerClass == SoldierClass ? "models/weapons/c_models/c_soldier_arms.mdl" : null;
     }
+
+    [Test]
+    public void Add_ADisguisedFriendlySpy_AsksForTheMaskBodygroupAndCarriesIt()
+    {
+        // **The wiring assertion for the mask, and it is the only kind that could have caught the
+        // bug.** `Disguise.WearsMask` had its own tests and `GetSkin`'s mask offset had its own
+        // tests, and between them the mask still never drew — because nothing set `m_nBody` and the
+        // mask mesh is alternative 1 of the `spyMask` part. A rule nobody applies is a rule that
+        // does nothing.
+        List<SceneProp> drawn = [];
+        List<(string Model, string Group, int Value)> asked = [];
+
+        PlayerProps.Add(
+            [DisguisedSpy()],
+            drawn,
+            new Appearance(),
+            (model, group, value) =>
+            {
+                asked.Add((model, group, value));
+                return 1;
+            });
+
+        asked.ShouldHaveSingleItem();
+        asked[0].Group.ShouldBe("spyMask", "the part is addressed by NAME; its index differs per model");
+        asked[0].Value.ShouldBe(1, "alternative 1 is the mask mesh on models/player/spy.mdl");
+        drawn.ShouldHaveSingleItem();
+        drawn[0].Pose.Body.ShouldBe(1, "the resolved body number has to reach the prop");
+    }
+
+    [Test]
+    public void Add_AnUndisguisedSpy_AsksForNoBodygroupAndDrawsAtBodyZero()
+    {
+        // **The control, and it is the branch that takes the mask OFF.** Without it a rule that
+        // always asked would pass the test above while leaving every spy in a mask for the rest of
+        // the round — and `Body` would be right for the wrong reason.
+        List<SceneProp> drawn = [];
+        List<string> asked = [];
+
+        PlayerProps.Add(
+            [DisguisedSpy() with { Conditions = default }],
+            drawn,
+            new Appearance(),
+            (_, group, _) =>
+            {
+                asked.Add(group);
+                return 1;
+            });
+
+        asked.ShouldBeEmpty();
+        drawn.ShouldHaveSingleItem();
+        drawn[0].Pose.Body.ShouldBe(0);
+    }
+
+    /// <summary><c>TF_CLASS_SPY</c>.</summary>
+    private const int SpyClass = 8;
+
+    /// <summary><c>TF_CLASS_DEMOMAN</c>.</summary>
+    private const int DemomanClass = 4;
+
+    /// <summary>A BLU spy disguised as a RED demoman, seen by a teammate.</summary>
+    private static ScenePlayer DisguisedSpy() =>
+        Soldier() with
+        {
+            PlayerClass = SpyClass,
+            Team = SceneTeams.Blu,
+            Conditions = new PlayerConditions(1 << PlayerConditions.Disguised, 0, 0, 0, 0),
+            DisguiseClass = DemomanClass,
+            DisguiseTeam = SceneTeams.Red,
+            IsEnemy = false,
+        };
+
+    /// <summary>A model with no body parts at all, which is what most of these tests want.</summary>
+    /// <remarks>
+    /// **Zero is the honest answer for a model that has not been loaded**, not a stand-in: a body
+    /// number cannot be computed without the .mdl, and the production resolver says the same thing
+    /// on the first frame a model is seen. Tests that care about the mask supply their own.
+    /// </remarks>
+    private static int NoBodygroups(string model, string group, int value) => 0;
+
 }

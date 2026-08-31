@@ -284,7 +284,24 @@ public static class SceneTeams
 /// <summary>Where everyone was at one tick.</summary>
 /// <param name="Tick">The demo tick this was recorded at.</param>
 /// <param name="Players">Every player with a known position.</param>
-public readonly record struct TimelineFrame(int Tick, IReadOnlyList<ScenePlayer> Players);
+/// <param name="RecorderTeam">
+/// The recording player's team at this tick, or <c>null</c> when there is no local player — a
+/// SourceTV recording, where the engine's own <c>pLocalPlayer &amp;&amp;</c> guards fall through.
+/// <para>
+/// **Per frame rather than per demo, because a player can switch teams mid-recording.** Everything
+/// that compares against the local player — <c>IsEnemyPlayer</c>, a spawn wall's own team — would
+/// otherwise answer with whichever team happened to be resolved last.
+/// </para>
+/// </param>
+/// <param name="RoundState">
+/// <c>m_iRoundState</c> from the game rules at this tick, or <c>null</c> when the demo carries no
+/// game rules entity. <c>GR_STATE_TEAM_WIN</c> is 5.
+/// </param>
+public readonly record struct TimelineFrame(
+    int Tick,
+    IReadOnlyList<ScenePlayer> Players,
+    int? RecorderTeam = null,
+    int? RoundState = null);
 
 /// <summary>
 /// A demo turned into player positions over time.
@@ -323,6 +340,18 @@ public sealed class DemoTimeline
 
     /// <summary>The entity that carries the atmosphere.</summary>
     private const string FogControllerClass = "CFogController";
+
+    /// <summary>The entity that carries the round.</summary>
+    /// <remarks>
+    /// **`CTFGameRulesProxy`, not the teamplay one it inherits from.** A demo's schema declares
+    /// three proxies — `CGameRulesProxy`, `CTeamplayRoundBasedRulesProxy` and `CTFGameRulesProxy` —
+    /// and TF2 instantiates the last, which reaches `m_iRoundState` through
+    /// `teamplayroundbased_gamerules_data`.
+    /// </remarks>
+    private const string GameRulesClass = "CTFGameRulesProxy";
+
+    /// <summary>Where the round state is, flattened.</summary>
+    private const string RoundStateProperty = "DT_TeamplayRoundBasedRules.m_iRoundState";
 
 
     private static readonly string[] TeamProperties =
@@ -1512,13 +1541,22 @@ public sealed class DemoTimeline
             // **Only when the tick advanced.** Several commands can share a tick, and recording a
             // frame for each would make the timeline's own ordering ambiguous — PlayersAt would
             // then depend on which of them it happened to find first.
+            // **The round, from the game rules entity there is exactly one of.** `m_iRoundState`
+            // is declared in `DT_TeamplayRoundBasedRules` and reaches `CTFGameRulesProxy` through
+            // `teamplayroundbased_gamerules_data` — confirmed present in a modern demo's own
+            // schema. Null when the demo has no such entity, which every pre-2009 era specimen
+            // does not.
+            int? roundState = entities.OfClass(GameRulesClass).FirstOrDefault()?
+                .Integer(RoundStateProperty);
+
             if (frames.Count > 0 && frames[^1].Tick >= command.Tick)
             {
-                frames[^1] = new TimelineFrame(frames[^1].Tick, players);
+                frames[^1] = new TimelineFrame(
+                    frames[^1].Tick, players, recorderTeam, roundState);
                 continue;
             }
 
-            frames.Add(new TimelineFrame(command.Tick, players));
+            frames.Add(new TimelineFrame(command.Tick, players, recorderTeam, roundState));
         }
 
         Backfill(frames);
@@ -1990,6 +2028,10 @@ public sealed class DemoTimeline
         // disguise goes up, and the flag arrives with it.
         track.OfDisguise = state.OfDisguise() || track.OfDisguise;
 
+        // Kept current for the same reason: a brush entity states its team on creation and an
+        // update that does not mention it must not erase it.
+        track.TeamNumber = First(state, TeamProperties) ?? track.TeamNumber;
+
         // **A parity change means this animation began again, so its clock restarts**
         // (`C_BaseAnimating::OnDataChanged`, `c_baseanimating.cpp:4737`). Everything downstream
         // measures `elapsed = seconds - AnimationStartSeconds`, and leaving that at zero made
@@ -2269,6 +2311,12 @@ public sealed class DemoTimeline
 
         into.Clear();
 
+        // **The recorder's team AT THIS TICK**, because a player can switch sides mid-recording and
+        // "is this my own team's spawn wall" then changes answer. Null for a SourceTV recording,
+        // which has no local player at all — and the engine's `pLocalPlayer &&` guard means that
+        // case DRAWS, so an entity of no known relation must come out false rather than true.
+        int? recorderTeam = FrameAt((int)Math.Floor(tick))?.RecorderTeam;
+
         foreach (ScenePropTrack track in _props)
         {
             // A hidden entity is not drawn but is still tracked: it is coming back.
@@ -2278,7 +2326,8 @@ public sealed class DemoTimeline
                     track.EntityIndex, track.ModelPath, track.Kind, Moving(track, tick, pose),
                     track.AttachedTo, track.AttachmentPoint, track.OwnedBy, track.WeaponState,
                     track.BoneMerged, track.ItemDefinitionIndex, track.ClassName,
-                    track.OfDisguise));
+                    track.OfDisguise,
+                    OfRecordersTeam: recorderTeam is { } mine && track.TeamNumber == mine));
             }
         }
     }
@@ -2360,29 +2409,9 @@ public sealed class DemoTimeline
     /// and the server sends no packet on most ticks. Requiring an exact tick would blink the map
     /// empty between updates.
     /// </remarks>
-    public IReadOnlyList<ScenePlayer> PlayersAt(int tick)
-    {
-        int low = 0;
-        int high = _frames.Count - 1;
-        int found = -1;
+    public IReadOnlyList<ScenePlayer> PlayersAt(int tick) =>
+        FrameAt(tick)?.Players ?? [];
 
-        while (low <= high)
-        {
-            int middle = low + ((high - low) / 2);
-
-            if (_frames[middle].Tick <= tick)
-            {
-                found = middle;
-                low = middle + 1;
-            }
-            else
-            {
-                high = middle - 1;
-            }
-        }
-
-        return found >= 0 ? _frames[found].Players : [];
-    }
 
     /// <summary>Where everyone was at a moment, with positions interpolated as the client does.</summary>
     /// <param name="tick">The moment being shown, which may fall between ticks.</param>
@@ -2445,6 +2474,47 @@ public sealed class DemoTimeline
                 MoveY = moveY,
             });
         }
+    }
+
+    /// <summary>The round the game rules were in, or <c>null</c> when the demo does not say.</summary>
+    /// <param name="tick">The moment being shown.</param>
+    /// <returns><c>m_iRoundState</c>; <c>GR_STATE_TEAM_WIN</c> is 5.</returns>
+    /// <remarks>
+    /// **Null is "the demo did not say", not a state.** Era demos predate the game rules proxy this
+    /// reads, and a consumer that treated absent as any particular state would apply that state's
+    /// behaviour to every one of them — which for the spawn walls means blanking all of them for a
+    /// whole recording (`RespawnRoomVisibility`).
+    /// </remarks>
+    public int? RoundStateAt(double tick) => FrameAt((int)Math.Floor(tick))?.RoundState;
+
+    /// <summary>The most recent frame at or before a tick.</summary>
+    /// <remarks>
+    /// **The server does not send a packet every tick**, so this answers with the last one rather
+    /// than requiring an exact match — the same rule <see cref="PlayersAt(int)"/> has always used,
+    /// lifted out so the round state and the props answer from the same frame the players do.
+    /// </remarks>
+    private TimelineFrame? FrameAt(int tick)
+    {
+        int low = 0;
+        int high = _frames.Count - 1;
+        int found = -1;
+
+        while (low <= high)
+        {
+            int middle = low + ((high - low) / 2);
+
+            if (_frames[middle].Tick <= tick)
+            {
+                found = middle;
+                low = middle + 1;
+            }
+            else
+            {
+                high = middle - 1;
+            }
+        }
+
+        return found >= 0 ? _frames[found] : null;
     }
 
     /// <summary>The interpolation track for one entity, when it has one.</summary>

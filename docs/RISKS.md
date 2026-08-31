@@ -14880,3 +14880,130 @@ not a divergence for anyone but the recorder: `GetItemStyle` ends at `GetSOCData
 `GetSOCData` finds an inventory only for an account the client subscribes to — its own
 (`econ_item_view.cpp:839`). A live client watching another player already gets
 `INVALID_STYLE_INDEX`. The style gap is exactly one attribute wide, and it is this entry.
+
+## B235 — the setup gates looked wrong because a spawn wall was drawn in front of them — FIXED 2026-08-30
+
+**The owner reported this three times and each report was about the gate**, which is why it took so
+long:
+
+> *"these are the wrong grates too btw … its blue spawn, the first spawn door is a regular rolling
+> door, while the actual locked before round starts spawn doors are the chickenwire texture/prop and
+> a yellow pipe like frame … our issue is we are dropping or not drawing the yellow pipe frame"*
+
+**The frame was never dropped, and the instrument that said so was the log.**
+`door_grate003_frame.mdl` loads with 120 vertices and 264 corners, and the map load reports
+*"ASKED FOR 1554 placements across 305 models … MISSING 0 models that would not load"* and
+*"0 will draw as the missing-material chequer"*. `map-near cp_fulgur 5416 -2168 472 200` lists the
+whole gate: a frame and two floorplates as static props, the grate's two halves as `prop_dynamic`s
+parented to the `func_door` pair — and a `func_respawnroomvisualizer` at (5416 -2168 512), standing
+in the doorway.
+
+**`C_FuncRespawnRoomVisualizer::DrawModel`, `c_func_respawnroom.cpp:47`**, whose Valve comment is
+the whole rule — *"Don't draw for friendly players"*:
+
+```cpp
+if ( TFGameRules()->State_Get() == GR_STATE_TEAM_WIN )   return 1;
+if ( pLocalPlayer && pLocalPlayer->GetTeamNumber() == GetTeamNumber() )   return 1;
+return BaseClass::DrawModel( flags );
+```
+
+`return 1` is "handled, drew nothing". Measured at tick 900 of the owner's demo: **nine of these in
+the draw list**, three of them inside the stage-one setup gates. This project drew every one to
+everybody, so a BLU player in BLU spawn had a team wall between them and their own gate.
+
+**After: seven hidden, three drawn, and the split is the map's own geometry.** Hidden are the three
+setup gates plus the four BLU doorways at (-568 -1240), (-128 -1368), (3168 -2280) and
+(3000 -1920); drawn are the three beside `door_red_large_*` and RED's resupply. Nothing but a
+visualizer changed verdict.
+
+**`pLocalPlayer &&` is load-bearing**, which is why the prop carries `OfRecordersTeam` rather than
+`IsEnemy`. A SourceTV recording has no local player, so the engine falls through and draws every
+wall; "on the recorder's team" is false there and gives that answer, while "is an enemy" is also
+false and gives the opposite one.
+
+**`m_iRoundState` is now decoded** — `DT_TeamplayRoundBasedRules.m_iRoundState`, reached through
+`CTFGameRulesProxy` — because the win-state branch comes first and applies to the enemy's wall as
+much as your own. Null means the demo carries no game rules entity, which every pre-2009 era
+specimen does not, and null must DRAW: reading absent as `GR_STATE_TEAM_WIN` would blank every
+spawn wall on every one of those recordings.
+
+**One arithmetic trap, caught by counting rather than by remembering.** `gamerules_roundstate_t`
+gives an explicit value only to `GR_STATE_INIT = 0`. `GR_STATE_TEAM_WIN` is the sixth member —
+**5** — and a first draft here said 4, which is `GR_STATE_RND_RUNNING`, the state a match spends
+almost all of its time in. That mistake hides every spawn wall for the whole round instead of for
+the seconds after a win, and every behavioural test would still have passed. There is now a test on
+the constant itself.
+
+**Still to check with the owner's eyes**, because this is a claim about what a screen looks like and
+the instruments here sit on the wrong side of that gap: whether the gate now reads correctly.
+
+## B236 — a disguised spy wore no mask, because the mask is a BODYGROUP and only its skin was done — FIXED 2026-08-30
+
+**The owner said it plainly and it went unfixed for days:** *"im seeing one of the spys in spawn
+that has a red player drawing inside his actual player model and is not wearing the mask"*. The
+first half was B232. This is the second half, and it was a different mechanism entirely.
+
+**What was implemented.** `C_TFPlayer::GetSkin` (`c_tf_player.cpp:7790`) adds
+`4 + ( ( disguiseClass - TF_FIRST_NORMAL_CLASS ) * 2 )` for a friendly spy. Measured on the owner's
+demo at his ticks: a BLU spy disguised as a RED soldier resolves to **skin family 9**, which is
+correct.
+
+**What the skin actually paints.** Measured on the shipped model with the new `model` probe:
+
+```
+models/player/spy.mdl: 5 meshes, 2 body parts, 26 skin families over 31 references
+PART 0 'spy':     place 1, 1 alternatives
+PART 1 'spyMask': place 1, 2 alternatives
+MESH part 1 alt 1 skinref 4 -> skin0 'models/player/spy/mask_spy' skin9 'mask_soldier' shownAtBody0 False
+```
+
+**The mask is alternative 1 of a body part.** `StudioModelInfo.Shows` is
+`mesh.BodyModel == ( body / place ) % count`, so at `m_nBody = 0` the mask mesh is not drawn — and
+this project drew every player at body 0. The skin was resolving `mask_soldier` onto a mesh nobody
+drew, which is as invisible as not computing it at all.
+
+**The other half, at the tail of `C_TFPlayer::ValidateModelIndex` (`c_tf_player.cpp:9024`):**
+
+```cpp
+if ( m_iSpyMaskBodygroup > -1 && GetModelPtr() != NULL && IsPlayerClass( TF_CLASS_SPY ) )
+{
+    if ( InCond( TF_COND_DISGUISED ) || InCond( TF_COND_DISGUISED_AS_DISPENSER ) )
+    {
+        if ( !IsEnemyPlayer() || ( GetDisguiseClass() == TF_CLASS_SPY ) )
+            SetBodygroup( m_iSpyMaskBodygroup, 1 );
+    }
+    else
+        SetBodygroup( m_iSpyMaskBodygroup, 0 );
+}
+```
+
+with `m_iSpyMaskBodygroup = FindBodygroupByName( "spyMask" )` (`:5371`), resolved only for a
+spy-class player.
+
+**Its two cases are exactly the two `GetSkin` adds an offset for.** That symmetry is the tell: a
+mechanism whose halves branch identically is one mechanism, and implementing either alone is
+guaranteed to be wrong somewhere. Reading `GetSkin` and stopping there is what happened.
+
+**Three things had to be built to honour it**, and none existed:
+
+- **Body part NAMES.** `mstudiobodyparts_t.sznameindex` was never read — the reader kept only each
+  part's place and count. A part is addressed by name and its index differs per model, so without
+  the name there is no way to say which part `spyMask` is.
+- **`FindBodygroupByName` and `SetBodygroup`** (`shared/animation.cpp:927` and `:863`). The second
+  is not an OR: parts share one integer like digits of a mixed-radix number, so setting one must
+  subtract what it currently holds or it corrupts every other part's digit.
+- **A resolver reaching the player prop.** The rule is in `Disguise`, the arithmetic needs the
+  `.mdl`, and the two meet in `MomentScene` — `PlayerProps.Add` now takes the lookup the same way
+  it already takes `IPlayerAppearance`.
+
+**`TF_COND_DISGUISED_AS_DISPENSER` IS honoured here** even though the dispenser MODEL is not. The
+model branch needs `FL_DUCKING` and a ground entity this project does not read; this branch needs
+neither, so leaving it out would have been a divergence for no reason.
+
+**Still unimplemented and named:** `bCheckSpyMask` is cleared by invulnerability and by
+`BRenderAsZombie`, which SUPPRESS the mask — an übered disguised spy wears one here where the engine
+draws none. That is the same gap `Disguise` already records for the skin, and it is now wrong in
+both halves rather than one, which is at least consistent.
+
+**Verified at the owner's ticks:** `wearsmask True` for the friendly spy, with skin family 9 painting
+`mask_soldier` onto the mesh that is now drawn.

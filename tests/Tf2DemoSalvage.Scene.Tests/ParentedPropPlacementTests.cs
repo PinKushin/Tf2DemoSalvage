@@ -121,6 +121,15 @@ public sealed class ParentedPropPlacementTests
                 // viewmodel's three, and the synthetic load-set prop are none of them a disguise's
                 // gear, and false is the true answer for all four rather than an absent one.
                 nameof(SceneProp.OfDisguise),
+
+                // **`OfRecordersTeam`, added for the spawn walls a team does not see through its
+                // own doorway.** Same answer as the three above, and for a sharper reason: the
+                // comparison is against the LOCAL player, which only `DemoTimeline` knows —
+                // `PropsAt` reads the recorder's team off the frame at that tick. A viewmodel, a
+                // player's own prop and the synthetic load-set prop have no team relation to
+                // report, and false is the value that DRAWS, which is what the engine does for
+                // every entity this rule does not name.
+                nameof(SceneProp.OfRecordersTeam),
             ],
             ignoreOrder: true,
             "a defaulted field on SceneProp is a claim every construction site makes silently. "

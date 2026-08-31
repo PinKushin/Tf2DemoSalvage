@@ -411,7 +411,25 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 # two weapons to somebody. Four of the eight are controls -- an enemy must still SEE the disguise,
 # an undisguised player's hats are untouched, the spy's own body is never removed, and an enemy spy
 # posing as one of OUR spies shows nothing.
-run Tf2DemoSalvage.Scene.Tests    scene     263
+# 263 -> 270: RespawnRoomVisibilityTests (7). A spawn's team wall is not drawn to the team that
+# spawns behind it -- C_FuncRespawnRoomVisualizer::DrawModel, c_func_respawnroom.cpp:47, whose own
+# comment is "Don't draw for friendly players". Measured on cp_fulgur at tick 900: NINE of these
+# were in the draw list, three standing inside the stage-one setup gates the owner reported as
+# wrong. Three of the seven are controls -- the enemy's wall must still draw, the gate itself must
+# never be touched, and an unknown round state must draw rather than being read as the win state.
+# The seventh asserts GR_STATE_TEAM_WIN is 5: the enum gives an explicit value only to its first
+# member, a first draft said 4, and 4 is GR_STATE_RND_RUNNING -- which would have hidden every
+# spawn wall for the whole match while all six other tests passed.
+# 270 -> 277: the spy's mask is a BODYGROUP as well as a skin, and only the skin was implemented
+# (B236). GetSkin picks WHICH mask is painted; ValidateModelIndex's tail (c_tf_player.cpp:9024) sets
+# the body part named spyMask, and on the shipped models/player/spy.mdl the mask mesh is alternative
+# 1 of that part -- so at m_nBody = 0 the texture was painted on a mesh nobody drew. Five cases for
+# the rule, two for the wiring. Three of the five are controls: an enemy seeing a demoman must NOT
+# see a mask, an undisguised spy must lose it, and a disguised player who is not a spy must be
+# refused because only the spy's model has that part. The two wiring cases are the only ones that
+# could have caught the bug -- WearsMask and the skin offset both had passing tests while nothing
+# set the body.
+run Tf2DemoSalvage.Scene.Tests    scene     277
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -544,7 +562,10 @@ run Tf2DemoSalvage.Audio.Tests    audio     183
 # draws the view rather than nothing. Plus three on `ToolsPanel`, which was `FpsOverlay` until this:
 # Valve's `CFPSPanel` draws both readouts and walks ONE line counter across them, so the position
 # sits below the frame rate and a panel that composed them separately would overlap them.
-run Tf2DemoSalvage.Presentation.Tests presentation 424
+# 424 -> 425: the presenter asks its source for the round state. A WIRING assertion, which is the
+# only kind that fails when a value is decoded, retained, unit-tested and never read -- exactly what
+# m_flPlaybackRate was for weeks while every animation played at rate 1 with a green suite.
+run Tf2DemoSalvage.Presentation.Tests presentation 425
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.

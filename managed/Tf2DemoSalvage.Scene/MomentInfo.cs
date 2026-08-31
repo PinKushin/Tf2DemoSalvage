@@ -15,6 +15,11 @@ namespace Tf2DemoSalvage.Scene;
 /// <c>ClientModeTFNormal::ShouldDrawViewModel</c> checks before anything else (B166). Defaulted to
 /// true because Valve ships it at <c>"1"</c>, which also keeps every existing construction valid.
 /// </param>
+/// <param name="RoundState">
+/// <c>m_iRoundState</c> from the game rules, or null when the demo carries none.
+/// <c>GR_STATE_TEAM_WIN</c> is 5, and it is the state in which a spawn's team wall is drawn to
+/// nobody (<c>c_func_respawnroom.cpp:47</c>). Null is "the demo did not say" rather than a state.
+/// </param>
 /// <remarks>
 /// **This is <c>SetupRenderInfo_t</c>'s shape, and the shape is the point.** Valve's renderables-list
 /// builder takes one:
@@ -59,7 +64,17 @@ public readonly record struct MomentInfo(
     FreeCamera? EyeCamera,
     float IntervalPerTick,
     float ViewmodelFieldOfView,
-    bool DrawViewmodel = true)
+    bool DrawViewmodel = true,
+
+    // **The round, because two drawing rules ask about it and neither can derive it.** A spawn's
+    // team wall is drawn to nobody once the round is won (`C_FuncRespawnRoomVisualizer::DrawModel`,
+    // `c_func_respawnroom.cpp:47`), which is what lets the winners chase the losers into their
+    // spawn.
+    //
+    // Null means the demo carries no game rules entity — every pre-2009 era specimen — and is NOT
+    // a state: a consumer that read absent as `GR_STATE_TEAM_WIN` would blank every spawn wall on
+    // every one of those recordings.
+    int? RoundState = null)
 {
     /// <summary>How far into the demo this moment is, in seconds.</summary>
     /// <remarks>

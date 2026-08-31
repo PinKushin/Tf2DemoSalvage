@@ -214,7 +214,9 @@ jobs:
           # are two lists of the same numbers, which is why one of them drifts.
           # 414 -> 424 on 2026-08-29: cl_showpos (D123) — 7 conformance cases off
           # vgui_fpspanel.cpp:316 and 3 on ToolsPanel's shared line counter. All device-free.
-          ./build/assert-test-count.sh '**/presentation.trx' 424 Presentation
+          # 424 -> 425 on 2026-08-30: the presenter asks its source for the round state (B235).
+          # A wiring assertion, on a stub - no game install, no demo.
+          ./build/assert-test-count.sh '**/presentation.trx' 425 Presentation
           ./build/assert-test-count.sh '**/logging.trx' 17 Logging
           # 10 is MEASURED locally and safe on a runner without the SDK, because a .trx total counts
           # skipped tests: the two conformance cases Assert.Ignore where source-sdk-2013 is absent
@@ -239,7 +241,11 @@ jobs:
           # 255 -> 263 on 2026-08-30: DisguiseVisibilityTests (7) plus the OfDisguise arm of the
           # SceneProp defaulted-field tripwire. Needs no game install: hand-built props and
           # players, no models loaded.
-          ./build/assert-test-count.sh '**/scene.trx' 263 Scene
+          # 263 -> 270 on 2026-08-30: RespawnRoomVisibilityTests (7), B235. Hand-built props, no
+          # models loaded, so all seven run on CI.
+          # 270 -> 277 on 2026-08-30: the spyMask bodygroup (B236). Hand-built players and a stub
+          # resolver, so all seven run without a game install.
+          ./build/assert-test-count.sh '**/scene.trx' 277 Scene
 
       # **Coverage, gated PER ASSEMBLY rather than per report.** A Cobertura file's root line-rate
       # averages every assembly the run loaded, including ones the suite never touches — measured

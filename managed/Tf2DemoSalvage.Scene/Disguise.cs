@@ -120,6 +120,58 @@ public static class Disguise
         return skin;
     }
 
+    /// <summary>The body part TF2 shows a disguised spy's mask on.</summary>
+    /// <remarks>
+    /// The literal string `C_TFPlayer::SetModelPointer` looks for — `m_iSpyMaskBodygroup =
+    /// FindBodygroupByName( "spyMask" )`, `c_tf_player.cpp:5371` — and only for a spy-class player.
+    /// Measured on the shipped `models/player/spy.mdl`: part 1 of 2, named `spyMask`, place 1, two
+    /// alternatives, and the mask mesh is alternative **1**. So at `m_nBody = 0` it does not draw.
+    /// </remarks>
+    public const string MaskBodygroup = "spyMask";
+
+    /// <summary>Whether this player's mask mesh is shown.</summary>
+    /// <param name="player">The player, with their conditions and disguise already decoded.</param>
+    /// <returns>Whether the <c>spyMask</c> body part shows its second alternative.</returns>
+    /// <remarks>
+    /// **The BODY half of the mask, which is a separate mechanism from the SKIN half and was
+    /// missing.** `GetSkin` picks WHICH mask is painted; this decides whether the mask mesh is drawn
+    /// at all. Implementing only the skin puts a soldier's mask texture on a mesh nobody draws, and
+    /// the symptom the owner reported is exactly that: *"is not wearing the mask"*.
+    ///
+    /// The tail of `C_TFPlayer::ValidateModelIndex`, `c_tf_player.cpp:9024`:
+    ///
+    /// <code>
+    ///   if ( m_iSpyMaskBodygroup &gt; -1 &amp;&amp; GetModelPtr() != NULL &amp;&amp; IsPlayerClass( TF_CLASS_SPY ) )
+    ///   {
+    ///       if ( InCond( TF_COND_DISGUISED ) || InCond( TF_COND_DISGUISED_AS_DISPENSER ) )
+    ///       {
+    ///           if ( !IsEnemyPlayer() || ( GetDisguiseClass() == TF_CLASS_SPY ) )
+    ///               SetBodygroup( m_iSpyMaskBodygroup, 1 );
+    ///       }
+    ///       else
+    ///           SetBodygroup( m_iSpyMaskBodygroup, 0 );
+    ///   }
+    /// </code>
+    ///
+    /// **Its two cases are the same two `GetSkin` adds an offset for**, which is what makes the two
+    /// halves one mechanism: a teammate always sees the mask, and an enemy sees it only when the
+    /// disguise is itself a spy. Having one without the other is guaranteed to be wrong somewhere.
+    ///
+    /// **The dispenser condition IS implemented here** even though the dispenser MODEL is not. The
+    /// model branch needs `FL_DUCKING` and a ground entity this project does not read; this branch
+    /// needs neither — it is `InCond` and nothing else, so implementing it costs nothing and
+    /// leaving it out would be a divergence for no reason.
+    ///
+    /// **`IsPlayerClass( TF_CLASS_SPY )` is checked**, not merely implied by the condition. Only the
+    /// spy's model has the part, and asking any other model for it is how a body number gets set on
+    /// a part that means something else entirely.
+    /// </remarks>
+    public static bool WearsMask(ScenePlayer player) =>
+        player.PlayerClass == SpyClass
+        && (player.Conditions.Has(PlayerConditions.Disguised)
+            || player.Conditions.Has(PlayerConditions.DisguisedAsDispenser))
+        && (!player.IsEnemy || player.DisguiseClass == SpyClass);
+
     /// <summary>The skin offset for one masked class.</summary>
     private static int Mask(int playerClass) =>
         FirstMaskSkin + ((playerClass - FirstNormalClass) * MaskStride);

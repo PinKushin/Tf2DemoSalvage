@@ -1136,6 +1136,7 @@ public static class PropModels
                     IlluminationOf(modelFile),
                     byFamily,
                     model.BodyParts,
+                    model.BodyPartNames,
 
                     // Read for every model rather than only for wearers: which models get worn is
                     // not known here, and a table of a few dozen entries costs nothing next to the
@@ -1889,6 +1890,7 @@ public static class PropModels
     /// <param name="Illumination">Where the model wants its light sampled, in model space.</param>
     /// <param name="SkinSwaps">Per extra skin family, how each material of family zero is replaced.</param>
     /// <param name="BodyParts">Each body part's place value and alternative count, for m_nBody.</param>
+    /// <param name="BodyPartNames">Each body part's name, in the same order.</param>
     /// <param name="Attachments">
     /// The named points other entities hang from, in the model's own order. Indexed ONE-based by
     /// <c>m_iParentAttachment</c>, because the engine stores them that way.
@@ -1919,6 +1921,11 @@ public static class PropModels
         (float X, float Y, float Z) Illumination = default,
         IReadOnlyList<IReadOnlyDictionary<int, int>>? SkinSwaps = null,
         IReadOnlyList<(int Base, int Count)>? BodyParts = null,
+
+        // **The parts' NAMES, because the code that matters addresses one by name.** TF2's spy mask
+        // is `FindBodygroupByName( "spyMask" )` (c_tf_player.cpp:5371) and the index differs per
+        // model, so the place/count pairs above cannot say which part that is.
+        IReadOnlyList<string>? BodyPartNames = null,
 
         // **The named points other entities hang from.** A hat merges bones by name; a halo, a
         // canteen, a spellbook and a spy's sapper share no bone name with their wearer and hang

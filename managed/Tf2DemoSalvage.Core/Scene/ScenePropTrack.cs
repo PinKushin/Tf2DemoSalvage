@@ -335,6 +335,10 @@ public readonly record struct ScenePose
 /// <param name="ClassName">
 /// Its networked class name, the stock fallback for an item that names no model of its own.
 /// </param>
+/// <param name="OfRecordersTeam">
+/// Whether this entity is on the RECORDER's team — <c>C_FuncRespawnRoomVisualizer::DrawModel</c>
+/// hides a spawn wall from the team that spawns behind it (<c>c_func_respawnroom.cpp:47</c>).
+/// </param>
 /// <param name="AttachmentPoint">
 /// Which of that entity's named attachment points it hangs from, one-based, or <c>null</c> when it
 /// is bone-merged instead.
@@ -394,7 +398,22 @@ public readonly record struct SceneProp(
     // (`tf_weaponbase.cpp:198`), both networked. The server sends a disguise's gear as its own
     // entities bone-merged to the spy so an ENEMY sees a convincing soldier; who may see it is
     // `DisguiseVisibility`.
-    bool OfDisguise = false);
+    bool OfDisguise = false,
+
+    // **Whether this entity is on the RECORDER's team**, which some entities are drawn or not drawn
+    // by. `C_FuncRespawnRoomVisualizer::DrawModel` (`c_func_respawnroom.cpp:47`) returns without
+    // drawing when `pLocalPlayer->GetTeamNumber() == GetTeamNumber()`, so a player standing in
+    // their own spawn does not see the team wall across their own doorway.
+    //
+    // **Computed here rather than in the scene, for the same reason `ScenePlayer.IsEnemy` is**: it
+    // compares against the local player, and in a recording that is whoever recorded it — which
+    // only the timeline knows.
+    //
+    // **Not `IsEnemy`, and the difference matters.** With no local player at all — a SourceTV
+    // recording — the engine's `pLocalPlayer &&` short-circuits and the visualizer DRAWS. "On the
+    // recorder's team" is false there, which is the same answer; "is an enemy" would also be false
+    // and would give the opposite one.
+    bool OfRecordersTeam = false);
 
 /// <summary>
 /// One entity's pose over the whole demo, stored as the moments it changed.
@@ -565,6 +584,18 @@ public sealed class ScenePropTrack
     /// creates a disguise's gear when the disguise goes up and the flag arrives with it.
     /// </remarks>
     public bool OfDisguise { get; internal set; }
+
+    /// <summary>Which team this entity belongs to, or null when it declares none.</summary>
+    /// <remarks>
+    /// **The entity's own team, not a relation to anybody.** Whether it is the RECORDER's team is a
+    /// question about a moment — a player can switch sides mid-demo — so the comparison happens in
+    /// <c>DemoTimeline.PropsAt</c> against the frame's recorder team rather than being baked in
+    /// here.
+    ///
+    /// Read for the spawn walls, which the team that spawns behind them does not see
+    /// (<c>C_FuncRespawnRoomVisualizer::DrawModel</c>, <c>c_func_respawnroom.cpp:47</c>).
+    /// </remarks>
+    public int? TeamNumber { get; internal set; }
 
     /// <summary>The parity counter last seen, so a change can be noticed.</summary>
     /// <remarks>

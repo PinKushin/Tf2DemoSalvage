@@ -168,6 +168,61 @@ public sealed class DisguiseConformanceTests
         Disguise.VisibleSkin(spy).ShouldBe(0, "a demoman disguise is just a demoman");
     }
 
+    [Test]
+    public void WearsMask_AFriendlyDisguisedSpy_IsTrue()
+    {
+        // **The half that was missing, and the owner's exact report:** *"is not wearing the mask"*.
+        // `GetSkin` picks WHICH mask is painted; `ValidateModelIndex`'s tail
+        // (`c_tf_player.cpp:9024`) decides whether the mask MESH is drawn at all, and on the
+        // shipped `models/player/spy.mdl` that mesh is alternative 1 of the part named `spyMask`.
+        // At `m_nBody = 0` it is not drawn — so a spy carried a soldier's mask texture on a mesh
+        // nobody drew.
+        Disguise.WearsMask(Disguised(SceneTeams.Blu, Demoman, SceneTeams.Red, enemy: false))
+            .ShouldBeTrue();
+    }
+
+    [Test]
+    public void WearsMask_AnEnemyDisguisedAsAnythingButASpy_IsFalse()
+    {
+        // `if ( !IsEnemyPlayer() || ( GetDisguiseClass() == TF_CLASS_SPY ) )`. **The control that
+        // keeps the disguise a disguise**: an enemy sees a demoman, and a demoman wearing a mask
+        // would give the spy away — which is the whole point of the feature.
+        Disguise.WearsMask(Disguised(SceneTeams.Blu, Demoman, SceneTeams.Red, enemy: true))
+            .ShouldBeFalse();
+    }
+
+    [Test]
+    public void WearsMask_AnEnemyDisguisedAsASpy_IsTrue()
+    {
+        // The second arm of the same condition, and it is the exact pair `GetSkin` offsets for.
+        // A spy impersonating a spy is drawn as a spy, and a spy in a disguise wears a mask.
+        Disguise.WearsMask(Disguised(SceneTeams.Blu, Spy, SceneTeams.Red, enemy: true))
+            .ShouldBeTrue();
+    }
+
+    [Test]
+    public void WearsMask_AnUndisguisedSpy_IsFalse()
+    {
+        // The `else SetBodygroup( m_iSpyMaskBodygroup, 0 )` branch. Without this the mask never
+        // comes off, and a spy who has just stabbed somebody still wears their face.
+        Disguise.WearsMask(Player(SceneTeams.Blu, Spy)).ShouldBeFalse();
+    }
+
+    [Test]
+    public void WearsMask_ADisguisedPlayerWhoIsNotASpy_IsFalse()
+    {
+        // **`IsPlayerClass( TF_CLASS_SPY )` is in the engine's condition and is not redundant.**
+        // Only the spy's model has a part named `spyMask`; asking another model for it and setting
+        // whatever index comes back sets a part that means something else. The condition can be set
+        // on a non-spy — a bot, a plugin — so this is a real input rather than a hypothetical.
+        Disguise.WearsMask(
+            Disguised(SceneTeams.Blu, Demoman, SceneTeams.Red, enemy: false) with
+            {
+                PlayerClass = Demoman,
+            })
+            .ShouldBeFalse();
+    }
+
     private static ScenePlayer Disguised(
         int team, int disguiseClass, int disguiseTeam, bool enemy) =>
         Player(team, Spy) with

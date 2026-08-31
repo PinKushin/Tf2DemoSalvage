@@ -121,7 +121,20 @@ public sealed class SpyDrawProbe : IProbe
             + $"team {spy.Team?.ToString(CultureInfo.InvariantCulture) ?? "?"} "
             + $"enemy {spy.IsEnemy} "
             + $"as {spy.DisguiseClass?.ToString(CultureInfo.InvariantCulture) ?? "none"}"
-            + $"/{spy.DisguiseTeam?.ToString(CultureInfo.InvariantCulture) ?? "none"}");
+            + $"/{spy.DisguiseTeam?.ToString(CultureInfo.InvariantCulture) ?? "none"} "
+            + $"mask {spy.DisguiseMaskClass?.ToString(CultureInfo.InvariantCulture) ?? "none"} "
+
+            // **What the body is actually drawn as**, which is the half a props listing cannot
+            // show: the spy's own model and skin are decided by `Disguise`, and `PlayerProps` adds
+            // that prop inside `MomentScene` rather than in the timeline.
+            + $"-> drawnclass "
+            + $"{Disguise.VisibleClass(spy)?.ToString(CultureInfo.InvariantCulture) ?? "none"} "
+            + $"skin {Disguise.VisibleSkin(spy).ToString(CultureInfo.InvariantCulture)} "
+
+            // **The other half of the mask.** The skin says which mask is painted; this says
+            // whether the mask MESH is drawn at all, and on models/player/spy.mdl it is
+            // alternative 1 of the part named spyMask, so at body 0 there is nothing to paint.
+            + $"wearsmask {Disguise.WearsMask(spy)}");
 
         // Another PLAYER standing in him, which is the only thing that can supply a class and a
         // team of its own — the owner's "a red player drawing inside his actual player model".

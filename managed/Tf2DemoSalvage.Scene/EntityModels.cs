@@ -1366,6 +1366,56 @@ public sealed class EntityModelSet
     public IReadOnlyList<IReadOnlyList<WorldBatch>> AllFrames(string modelPath) =>
         _byModel.TryGetValue(modelPath, out List<List<WorldBatch>>? frames) ? frames : [];
 
+    /// <summary>A body number with one named body part set to one of its alternatives.</summary>
+    /// <param name="modelPath">The model whose parts are being addressed.</param>
+    /// <param name="group">The part's name, as <c>FindBodygroupByName</c> takes it.</param>
+    /// <param name="value">Which alternative.</param>
+    /// <returns>The body number, or zero when this model has no such part.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **The pair of engine functions, together, because separately they invite the wrong
+    /// arithmetic.** `FindBodygroupByName` (`shared/animation.cpp:927`) turns a name into an index
+    /// and `SetBodygroup` (`:863`) folds a value into the number:
+    ///
+    /// <code>
+    ///   int iCurrent = ( body / pbodypart-&gt;base ) % pbodypart-&gt;nummodels;
+    ///   body = ( body - ( iCurrent * pbodypart-&gt;base ) + ( iValue * pbodypart-&gt;base ) );
+    /// </code>
+    ///
+    /// Parts share one integer like digits of a mixed-radix number, so this is not an OR.
+    ///
+    /// **Zero when the model is not loaded YET**, which is a real state: a model is packed on first
+    /// sight, so the first frame a spy appears on answers zero and the next answers correctly. The
+    /// alternative would be to block the scene on a model load, which is worse than one frame of an
+    /// unmasked spy.
+    /// </remarks>
+    public int WithBodygroup(string modelPath, string group, int value)
+    {
+        ArgumentNullException.ThrowIfNull(modelPath);
+        ArgumentNullException.ThrowIfNull(group);
+
+        if (!_frames.TryGetValue(modelPath, out PropModels.ModelFrames? model)
+            || model.BodyParts is not { Count: > 0 } parts
+            || model.BodyPartNames is not { Count: > 0 } names)
+        {
+            return 0;
+        }
+
+        for (int part = 0; part < names.Count && part < parts.Count; part++)
+        {
+            if (!string.Equals(names[part], group, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            (int place, int count) = parts[part];
+
+            return place > 0 && value >= 0 && value < count ? value * place : 0;
+        }
+
+        return 0;
+    }
+
     /// <summary>Which material paints which skinref, for one skin family.</summary>
     /// <param name="modelPath">The model's path.</param>
     /// <param name="skin">Which family; out of range falls back to zero, as the engine does.</param>

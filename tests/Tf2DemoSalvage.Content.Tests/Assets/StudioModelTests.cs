@@ -154,6 +154,7 @@ public sealed class StudioModelTests
             ["../../../etc/", "models/props/", "models/props/deep/"],
             [],
             [],
+            [],
             0);
 
         List<string> candidates = [.. hostile.MaterialPaths(0)];
@@ -176,7 +177,7 @@ public sealed class StudioModelTests
         // The expected value is arithmetic, not a guess: three segments, two of them popped, so
         // models/player/medic/ + ../../effects/invulnfx_red is models/effects/invulnfx_red.
         StudioModelInfo medic = new(
-            "medic", 0, ["../../effects/invulnfx_red"], ["models/player/medic/"], [], [], 0);
+            "medic", 0, ["../../effects/invulnfx_red"], ["models/player/medic/"], [], [], [], 0);
 
         medic.MaterialPaths(0).ShouldContain("models/effects/invulnfx_red");
     }

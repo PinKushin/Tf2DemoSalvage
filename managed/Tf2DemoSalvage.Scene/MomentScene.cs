@@ -230,7 +230,11 @@ public sealed class MomentScene : IGameSystemPerFrame
 
         ReportUndressedPlayers(players);
 
-        PlayerProps.Add(players, _drawn, Appearance);
+        // **The model set resolves the mask's body part**, because only it has the .mdl. A spy's
+        // mask is a bodygroup named `spyMask` whose index differs per model, so the rule
+        // (`Disguise.WearsMask`) and the arithmetic (`WithBodygroup`) meet here — the same shape as
+        // `Appearance`, which the player prop already asks for its model and weapon suffix.
+        PlayerProps.Add(players, _drawn, Appearance, _models.WithBodygroup);
 
         // **The engine does not draw the player whose eyes you are using**, and cosmetics merge onto
         // their wearer's bones, so the hat goes with them. Without this the first-person view is the
@@ -260,6 +264,13 @@ public sealed class MomentScene : IGameSystemPerFrame
         // After WeaponVisibility, which already hides a player's HOLSTERED weapons: that rule is
         // about which of your own weapons is out, this one about whose gear it is at all.
         DrawList.KeepOnly(_drawn, DisguiseVisibility.Visible(_drawn, players));
+
+        // **A spawn's team wall is not drawn to the team that spawns behind it** —
+        // `C_FuncRespawnRoomVisualizer::DrawModel`, `c_func_respawnroom.cpp:47`, whose own comment
+        // is *"Don't draw for friendly players"*. Measured on `cp_fulgur`: nine of these are in the
+        // draw list, three of them standing inside the stage-one setup gates, which is what the
+        // owner was looking through when he reported the gates as wrong.
+        DrawList.KeepOnly(_drawn, RespawnRoomVisibility.Visible(_drawn, info.RoundState));
 
         long rolesAt = Stopwatch.GetTimestamp();
 

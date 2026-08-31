@@ -125,15 +125,22 @@ public static class PlayerProps
     /// <param name="players">The players at this moment, from the timeline.</param>
     /// <param name="into">The draw list to add to.</param>
     /// <param name="appearance">What the installed game says they look like.</param>
+    /// <param name="bodygroup">
+    /// Resolves a model's named body part to a body number — <c>EntityModelSet.WithBodygroup</c> in
+    /// production. Passed in rather than reached for, because only the model set has the
+    /// <c>.mdl</c> and only it knows which index a part's name has on this model.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public static void Add(
         IReadOnlyList<ScenePlayer> players,
         ICollection<SceneProp> into,
-        IPlayerAppearance appearance)
+        IPlayerAppearance appearance,
+        Func<string, string, int, int> bodygroup)
     {
         ArgumentNullException.ThrowIfNull(players);
         ArgumentNullException.ThrowIfNull(into);
         ArgumentNullException.ThrowIfNull(appearance);
+        ArgumentNullException.ThrowIfNull(bodygroup);
 
         foreach (ScenePlayer player in players)
         {
@@ -206,6 +213,20 @@ public static class PlayerProps
                     // for an enemy and then adds a mask offset; `Disguise.VisibleSkin` carries
                     // those branches, with the ones it does not implement named at its declaration.
                     Skin = Disguise.VisibleSkin(player),
+
+                    // **The other half of the mask, and the half that was missing.** `GetSkin`
+                    // above decides WHICH mask is painted; the mask MESH is a body part, and at
+                    // `m_nBody = 0` it is not drawn at all — measured on the shipped
+                    // `models/player/spy.mdl`, part 1 named `spyMask`, two alternatives, mask at
+                    // alternative 1. So a spy drew with a soldier's mask texture on a mesh nobody
+                    // drew, which reached the owner as *"is not wearing the mask"*.
+                    //
+                    // `C_TFPlayer::ValidateModelIndex`'s tail (`c_tf_player.cpp:9024`) sets it in
+                    // exactly the two cases `GetSkin` adds an offset for, which is what makes the
+                    // two one mechanism.
+                    Body = Disguise.WearsMask(player)
+                        ? bodygroup(model, Disguise.MaskBodygroup, 1)
+                        : 0,
                 }));
         }
     }
