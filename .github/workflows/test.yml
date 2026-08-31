@@ -232,7 +232,10 @@ jobs:
           # fallback that keeps CI (no game installed) drawing what the wire said.
           # 247 -> 255 on 2026-08-30: DisguiseConformanceTests (8). Needs no game install: the
           # rules are arithmetic over decoded fields.
-          ./build/assert-test-count.sh '**/scene.trx' 255 Scene
+          # 255 -> 263 on 2026-08-30: DisguiseVisibilityTests (7) plus the OfDisguise arm of the
+          # SceneProp defaulted-field tripwire. Needs no game install: hand-built props and
+          # players, no models loaded.
+          ./build/assert-test-count.sh '**/scene.trx' 263 Scene
 
       # **Coverage, gated PER ASSEMBLY rather than per report.** A Cobertura file's root line-rate
       # averages every assembly the run loaded, including ones the suite never touches — measured

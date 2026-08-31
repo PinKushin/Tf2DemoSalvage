@@ -401,7 +401,17 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 # gated on InCond( TF_COND_DISGUISED ) && IsEnemyPlayer(). Half are controls, and the friendly
 # case is the one that matters: a teammate sees the spy AS a spy with a mask offset, so an
 # implementation without IsEnemyPlayer hides every friendly spy -- the opposite of the game.
-run Tf2DemoSalvage.Scene.Tests    scene     255
+# 255 -> 263: DisguiseVisibilityTests (7) and the OfDisguise arm of the SceneProp tripwire (1).
+# `ValidateModelIndex` decided which BODY a disguised spy wears; it said nothing about the gear,
+# and the gear is separate entities bone-merged onto him. So a friendly spy wore the disguise's
+# soldier hats and carried its rocket launcher -- the owner watched it at ticks 870-903 and named
+# them. CTFWearable::ShouldDraw (tf_item_wearable.cpp:344) and CTFWeaponBase::ShouldDraw
+# (tf_weaponbase.cpp:3226) are MIRROR IMAGES rather than one rule twice: an enemy loses the spy's
+# real weapon, a teammate loses the disguise's, and implementing one direction leaves him holding
+# two weapons to somebody. Four of the eight are controls -- an enemy must still SEE the disguise,
+# an undisguised player's hats are untouched, the spy's own body is never removed, and an enemy spy
+# posing as one of OUR spies shows nothing.
+run Tf2DemoSalvage.Scene.Tests    scene     263
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

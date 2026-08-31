@@ -113,6 +113,14 @@ public sealed class ParentedPropPlacementTests
                 nameof(SceneProp.BoneMerged),
                 nameof(SceneProp.ItemDefinitionIndex),
                 nameof(SceneProp.ClassName),
+
+                // **`OfDisguise`, added for the spy's borrowed cosmetics and weapon.** Every other
+                // construction site was visited and keeps the default deliberately, for the same
+                // reason as the two above: only `DemoTimeline` has the entity, and only an entity
+                // can say `m_bDisguiseWearable` or `m_bDisguiseWeapon`. A player's own prop, the
+                // viewmodel's three, and the synthetic load-set prop are none of them a disguise's
+                // gear, and false is the true answer for all four rather than an absent one.
+                nameof(SceneProp.OfDisguise),
             ],
             ignoreOrder: true,
             "a defaulted field on SceneProp is a claim every construction site makes silently. "

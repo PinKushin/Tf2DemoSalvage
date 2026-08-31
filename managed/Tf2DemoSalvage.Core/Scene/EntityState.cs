@@ -595,6 +595,16 @@ public sealed class EntityState
     /// <summary>The table a weapon's own properties arrive under.</summary>
     private const string WeaponTable = "DT_BaseCombatWeapon";
 
+    /// <summary>Where a TF cosmetic declares whether it belongs to a disguise.</summary>
+    /// <remarks>
+    /// `m_bDisguiseWearable` is on `CTFWearable`'s own table, not on the econ base — a disguise is
+    /// a TF concept and the econ layer knows nothing about it.
+    /// </remarks>
+    private const string WearableTable = "DT_TFWearable";
+
+    /// <summary>Where a TF weapon declares the same.</summary>
+    private const string TfWeaponTable = "DT_TFWeaponBase";
+
     /// <summary>Which player a viewmodel belongs to, or <c>null</c> when this is not one.</summary>
     /// <remarks>
     /// **<c>m_hOwner</c>, not <c>m_hOwnerEntity</c>** — a different property in a different table
@@ -708,6 +718,22 @@ public sealed class EntityState
     /// it to `GetSkin`'s enemy mask offset when the disguise class is itself a spy.
     /// </remarks>
     public int? DisguiseMaskClass() => Integer($"{PlayerSharedTable}.m_nMaskClass");
+
+    /// <summary>Whether this cosmetic or weapon belongs to its owner's DISGUISE.</summary>
+    /// <remarks>
+    /// **Two fields, one question.** A wearable declares <c>m_bDisguiseWearable</c> on
+    /// <c>DT_TFWearable</c> (<c>tf_item_wearable.cpp:36</c>) and a weapon declares
+    /// <c>m_bDisguiseWeapon</c> on <c>DT_TFWeaponBase</c> (<c>tf_weaponbase.cpp:198</c>); an entity
+    /// declares one or the other, never both, so asking for either and taking what answers is the
+    /// same question rather than a guess between two.
+    ///
+    /// The server creates a disguise's gear as its own entities bone-merged to the spy, so an ENEMY
+    /// sees a convincing soldier — and this flag is the only thing that separates them from the
+    /// spy's own. Without it, soldier hats and a rocket launcher draw on a spy's skeleton.
+    /// </remarks>
+    public bool OfDisguise() =>
+        (Integer($"{WearableTable}.m_bDisguiseWearable")
+            ?? Integer($"{TfWeaponTable}.m_bDisguiseWeapon")) is not (null or 0);
 
     /// <summary>Where a TF player's shared state lives on the wire.</summary>
     /// <remarks>

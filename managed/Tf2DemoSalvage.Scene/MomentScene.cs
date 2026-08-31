@@ -248,6 +248,19 @@ public sealed class MomentScene : IGameSystemPerFrame
         // holds one; without it all three bone-merge into the same hand.
         DrawList.KeepOnly(_drawn, WeaponVisibility.Visible(_drawn));
 
+        // **A disguise's gear is shown to the ENEMY and to nobody else**, and a spy's own cosmetics
+        // are hidden from everyone while he is disguised — `CTFWearable::ShouldDraw`
+        // (`tf_item_wearable.cpp:344`) and `CTFWeaponBase::ShouldDraw` (`tf_weaponbase.cpp:3226`),
+        // which are mirror images rather than one rule twice.
+        //
+        // Measured before this existed: a friendly spy disguised as a soldier carried three soldier
+        // cosmetics and a rocket launcher, all bone-merged onto a spy's skeleton. The owner saw it
+        // as "a soldier drawing inside the spy".
+        //
+        // After WeaponVisibility, which already hides a player's HOLSTERED weapons: that rule is
+        // about which of your own weapons is out, this one about whose gear it is at all.
+        DrawList.KeepOnly(_drawn, DisguiseVisibility.Visible(_drawn, players));
+
         long rolesAt = Stopwatch.GetTimestamp();
 
         Pack();

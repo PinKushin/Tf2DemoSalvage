@@ -1986,6 +1986,10 @@ public sealed class DemoTimeline
         track.ItemDefinitionIndex = item ?? track.ItemDefinitionIndex;
         track.ClassName = state.ClassName ?? track.ClassName;
 
+        // Kept current for the same reason the item is: a disguise's gear is created when the
+        // disguise goes up, and the flag arrives with it.
+        track.OfDisguise = state.OfDisguise() || track.OfDisguise;
+
         // **A parity change means this animation began again, so its clock restarts**
         // (`C_BaseAnimating::OnDataChanged`, `c_baseanimating.cpp:4737`). Everything downstream
         // measures `elapsed = seconds - AnimationStartSeconds`, and leaving that at zero made
@@ -2273,7 +2277,8 @@ public sealed class DemoTimeline
                 into.Add(new SceneProp(
                     track.EntityIndex, track.ModelPath, track.Kind, Moving(track, tick, pose),
                     track.AttachedTo, track.AttachmentPoint, track.OwnedBy, track.WeaponState,
-                    track.BoneMerged, track.ItemDefinitionIndex, track.ClassName));
+                    track.BoneMerged, track.ItemDefinitionIndex, track.ClassName,
+                    track.OfDisguise));
             }
         }
     }

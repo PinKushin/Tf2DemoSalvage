@@ -328,6 +328,10 @@ public readonly record struct ScenePose
 /// rather than the source of truth. Measured on `cp_fulgur`: every <c>CWeaponMedigun</c> networks
 /// neither <c>m_nModelIndex</c> nor <c>m_iWorldModelIndex</c>, and every one states item 211.
 /// </param>
+/// <param name="OfDisguise">
+/// Whether this cosmetic or weapon belongs to the owner's DISGUISE rather than to the owner —
+/// <c>m_bDisguiseWearable</c> and <c>m_bDisguiseWeapon</c>, both networked.
+/// </param>
 /// <param name="ClassName">
 /// Its networked class name, the stock fallback for an item that names no model of its own.
 /// </param>
@@ -383,7 +387,14 @@ public readonly record struct SceneProp(
     // Appended, like OwnedBy and WeaponState above and for the same reason: every parameter here
     // is positional, so inserting one silently re-maps every call site.
     int? ItemDefinitionIndex = null,
-    string ClassName = "");
+    string ClassName = "",
+
+    // **Whether this belongs to a DISGUISE rather than to its owner.**
+    // `m_bDisguiseWearable` (`tf_item_wearable.cpp:36`) and `m_bDisguiseWeapon`
+    // (`tf_weaponbase.cpp:198`), both networked. The server sends a disguise's gear as its own
+    // entities bone-merged to the spy so an ENEMY sees a convincing soldier; who may see it is
+    // `DisguiseVisibility`.
+    bool OfDisguise = false);
 
 /// <summary>
 /// One entity's pose over the whole demo, stored as the moments it changed.
@@ -547,6 +558,13 @@ public sealed class ScenePropTrack
     /// prefab is the case that needs it.
     /// </remarks>
     public string ClassName { get; internal set; } = string.Empty;
+
+    /// <summary>Whether this belongs to its owner's DISGUISE rather than to its owner.</summary>
+    /// <remarks>
+    /// `m_bDisguiseWearable` / `m_bDisguiseWeapon`. Kept current rather than set once: the server
+    /// creates a disguise's gear when the disguise goes up and the flag arrives with it.
+    /// </remarks>
+    public bool OfDisguise { get; internal set; }
 
     /// <summary>The parity counter last seen, so a change can be noticed.</summary>
     /// <remarks>

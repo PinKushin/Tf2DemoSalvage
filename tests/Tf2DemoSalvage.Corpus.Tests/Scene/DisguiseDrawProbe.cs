@@ -53,6 +53,7 @@ public sealed class DisguiseDrawProbe
         List<ScenePlayer> players = [];
         List<SceneProp> drawn = [];
         HashSet<string> reported = new(StringComparer.Ordinal);
+        HashSet<string> opening = new(StringComparer.Ordinal);
 
         int first = timeline.FirstTick;
         int last = timeline.LastTick;
@@ -187,6 +188,46 @@ public sealed class DisguiseDrawProbe
         TestContext.Out.WriteLine(
             $"LOWPROP {timeline.Props.Count(track => track.EntityIndex is > 0 and <= 33)} "
             + $"prop tracks sit in player slots");
+
+        // **The opening ticks, EVERY one of them.** The owner: the double-draw is "at the start".
+        // The sweep above steps by ~70 ticks from FirstTick, so it lands on 0, 70, 140 — and this
+        // session already measured entities being re-created in a burst at ticks 11..13, taking
+        // their class baseline's values until their own arrive. A sample every 70 ticks steps
+        // straight over that window, which makes the transient invisible to it by construction
+        // rather than by bad luck.
+        for (int tick = first; tick <= Math.Min(last, first + 200); tick++)
+        {
+            players.Clear();
+            timeline.PlayersAt(tick, players);
+
+            foreach (ScenePlayer player in players)
+            {
+                foreach (ScenePlayer other in players.Where(other =>
+                    other.EntityIndex > player.EntityIndex
+                    && Math.Abs(other.X - player.X) < 48f
+                    && Math.Abs(other.Y - player.Y) < 48f
+                    && Math.Abs(other.Z - player.Z) < 96f))
+                {
+                    opening.Add(
+                        $"tick {tick.ToString(CultureInfo.InvariantCulture)}: "
+                        + $"{player.EntityIndex.ToString(CultureInfo.InvariantCulture)} "
+                        + $"(class {player.PlayerClass?.ToString(CultureInfo.InvariantCulture) ?? "?"}"
+                        + $"/team {player.Team?.ToString(CultureInfo.InvariantCulture) ?? "?"}) "
+                        + $"and {other.EntityIndex.ToString(CultureInfo.InvariantCulture)} "
+                        + $"(class {other.PlayerClass?.ToString(CultureInfo.InvariantCulture) ?? "?"}"
+                        + $"/team {other.Team?.ToString(CultureInfo.InvariantCulture) ?? "?"}) "
+                        + $"both at ({player.X:0} {player.Y:0} {player.Z:0})");
+                }
+            }
+        }
+
+        foreach (string line in opening.Order(StringComparer.Ordinal).Take(14))
+        {
+            TestContext.Out.WriteLine($"OPENING {line}");
+        }
+
+        TestContext.Out.WriteLine(
+            $"OPENING {opening.Count} overlapping player pairs in the first 200 ticks");
 
         timeline.PlayerTracks.Count.ShouldBeGreaterThan(0, "the demo produced no players at all");
     }

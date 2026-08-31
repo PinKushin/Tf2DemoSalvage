@@ -14734,3 +14734,60 @@ nothing on the passing path.
 message was wanted it was gone and had to be recovered by reading which `throw` line 466 is. The
 gate's own rule — *"do not filter the gate's output down to summary lines while iterating"* —
 applies to the UI phase too, and `--logger trx` keeps the message whatever the pipe does.
+
+## B231 — the two per-entity baseline slots were one — FIXED 2026-08-30, entry written late
+
+`svc_PacketEntities` carries a `baseline` bit and an `update_baseline` bit, and the engine keeps
+**two** per-entity baseline arrays rather than one. This project kept one, so a delta against the
+other slot was decoded against the wrong reference. Symptom on screen: the medical cabinets in
+spawn held three different poses and stayed open.
+
+Fixed in `f4a7d11`, which is where the reasoning is; `EntityBaselineSlots` carries it in prose. The
+number was cited by that commit and by `ParentedPropPlacementTests` before an entry existed here —
+recorded now so the reference is not dangling.
+
+## B232 — a friendly spy wore his disguise's hats and carried its rocket launcher — FIXED 2026-08-30
+
+**Found by the owner watching the demo**, over three messages that each narrowed it:
+
+> *"the spy is still not right, im seeing one of the spys in spawn that has a red player drawing
+> inside his actual player model and is not wearing the mask"*
+
+> *"tick 870 is where i can see him, till 903, in 1st person, in free cam its still visible at 903
+> and it turns out its a soldier not a demo drawing inside the spy"*
+
+> *"yea he disguised as a demo later actually and hes holding a pipe launcher so yea"*
+
+**The half-implementation.** `C_TFPlayer::ValidateModelIndex` and `GetSkin` decide which BODY a
+disguised spy wears, and that pair was implemented (`Disguise`, D-entry and conformance tests).
+They say nothing about his GEAR — and a disguise's cosmetics and weapon are separate entities,
+bone-merged onto the spy, each deciding for itself whether to draw. This project drew all of them
+unconditionally, so a teammate saw a spy's own body wearing soldier cosmetics and holding a rocket
+launcher. Measured at the owner's ticks, six props: three soldier cosmetics, `c_rocketlauncher.mdl`,
+`c_spy_arms.mdl`, and one whose model path was empty.
+
+**Two engine functions, and they are mirror images rather than one rule twice.**
+
+- `CTFWearable::ShouldDraw` (`tf_item_wearable.cpp:344`) — while the owner is disguised **every**
+  third-person wearable is hidden, and the disguise's own are then shown back to an ENEMY. The
+  final `return false` of that outer branch is the line most easily missed: a spy's own hats go
+  too, so a teammate sees a bare spy rather than a spy in his own loadout.
+- `CTFWeaponBase::ShouldDraw` (`tf_weaponbase.cpp:3226`) — an enemy sees **only** the disguise
+  weapon, a teammate **never** sees it. Implementing one direction and not the other leaves the spy
+  holding two weapons to somebody.
+
+**Why the earlier probes could not find it, which is the reusable part.** Three instruments were
+blind in three different ways, and each looked like bad luck at the time:
+
+1. `FirstOrDefault` on the props at the spy — one match returned, so a second prop on the same
+   spy was invisible by construction.
+2. A proximity test against a **bone-merged** prop, whose pose is `(0,0,0)`. It can never match,
+   so the instrument reported nothing wherever the answer actually was.
+3. A sweep with a stride of about seventy ticks across a window 33 ticks wide. Saying "I probably
+   missed it" treated that as chance; it is a property of the instrument.
+
+**Not implemented, named rather than omitted:** the coaching substitution in both functions
+(`m_bIsCoaching` / `m_hStudent`), Halloween ghost mode's `ghost_wearable` tag, the sniper-zoom hide,
+the weapon rule's `GetWeaponAssociatedWith` branch, and `TEAM_SPECTATOR` — a SourceTV recording has
+no local player, and this treats that as "not an enemy", so a spectator sees the spy's own loadout
+rather than the disguise's.
