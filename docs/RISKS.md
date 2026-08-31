@@ -14881,7 +14881,7 @@ not a divergence for anyone but the recorder: `GetItemStyle` ends at `GetSOCData
 (`econ_item_view.cpp:839`). A live client watching another player already gets
 `INVALID_STYLE_INDEX`. The style gap is exactly one attribute wide, and it is this entry.
 
-## B235 — the setup gates looked wrong because a spawn wall was drawn in front of them — FIXED 2026-08-30
+## B235 — a spawn's team sign was drawn to its own team — FIXED 2026-08-30, and the title was WRONG
 
 **The owner reported this three times and each report was about the gate**, which is why it took so
 long:
@@ -14934,8 +14934,27 @@ almost all of its time in. That mistake hides every spawn wall for the whole rou
 the seconds after a win, and every behavioural test would still have passed. There is now a test on
 the constant itself.
 
-**Still to check with the owner's eyes**, because this is a claim about what a screen looks like and
-the instruments here sit on the wrong side of that gap: whether the gate now reads correctly.
+**This entry was filed as the explanation for the gates and that was wrong.** The owner, looking at
+the screen: *"there was no wall in the way wtf are you talking about? at least a wall wasnt being
+drawn"*. He is right, and the measurement that should have been taken before writing it says so:
+
+```
+*109: 1 faces from 24049, box (-8 -96 -80) to (8 96 80)
+   1 faces  'OVERLAYS/NO_ENTRY'  an ordinary material
+```
+
+**One face.** It is the "no entry" sign on the doorway, not a wall — a thin quad sixteen units
+thick. Drawing it to the wrong team is a real divergence and the fix stands on its own, but it
+cannot have hidden a gate frame and never did.
+
+**What went wrong in the reasoning, because it is a repeat.** A draw-list listing says an ENTITY is
+in the scene. It says nothing about how much of the screen that entity covers, and I turned "nine
+visualizers are in the draw list" into "a team wall was standing between you and your gate" without
+measuring a single face. That is the same shape as `docs/memory/measure-the-output-not-the-capability.md`
+and the same shape as reporting a probe's absence as a fact about the game. **The instrument that
+outranks all of them is the owner looking at it**, and he was sitting in front of it.
+
+The gates are therefore still unexplained. See B238.
 
 ## B236 — a disguised spy wore no mask, because the mask is a BODYGROUP and only its skin was done — FIXED 2026-08-30
 
@@ -15047,3 +15066,40 @@ that no instrument here has yet measured, and which a screenshot answers in a se
 
 **Verified by manipulation:** measuring from demo time again fails the late-start case and nothing
 else; removing the floor fails the future-stamp case and nothing else.
+
+## B238 — the blue-spawn setup gates still look wrong, and every theory so far has been refuted — OPEN
+
+**The owner's report, three times, unchanged:**
+
+> *"these are the wrong grates too btw … its blue spawn, the first spawn door is a regular rolling
+> door, while the actual locked before round starts spawn doors are the chickenwire texture/prop and
+> a yellow pipe like frame … our issue is we are dropping or not drawing the yellow pipe frame"*
+
+and after the spy was fixed: *"spys fixed, gates are not."*
+
+**What the map contains**, from `map-near cp_fulgur 5416 -2168 472 200` — this part is settled:
+
+| what | where | kind |
+|---|---|---|
+| `door_grate003_frame.mdl` | (5416 -2168 432) | static prop |
+| `door_grate003_floorplate.mdl` ×2 | (5416 -2168 432) and (…592) | static props |
+| `door_grate003_top.mdl` | (5416 -2168 552) | `prop_dynamic` on `setupgate_stage1_1_top` |
+| `door_grate003_bottom.mdl` | (5416 -2168 472) | `prop_dynamic` on `setupgate_stage1_1_bottom` |
+| `*16` / `*17` | same | `func_door`, rendermode 10 |
+| `*109` | (5416 -2168 512) | `func_respawnroomvisualizer`, ONE face of `OVERLAYS/NO_ENTRY` |
+
+**Theories refuted so far, each by measurement:**
+
+1. **"We drop the frame."** No. `viewer.log`: `pairing models/props_gameplay/door_grate003_frame.mdl:
+   [0] part 0 alt 0 mdl 120v vtx 264c mat 530`, and the map load reports *"MISSING 0 models that
+   would not load"* and *"0 will draw as the missing-material chequer"*.
+2. **"A team wall is in front of it."** No — B235. One face of a sign, and the owner confirms no wall
+   was drawn.
+3. **"The frame's material is wrong."** Not shown: it resolves to
+   `models/props_gameplay/door_grate001`, the same material the grate halves use, and no material on
+   this map falls back to the chequer.
+
+**What has NOT been measured, and is where to start next:** whether the frame is *drawn where it
+belongs*. Its placement is a static prop at (5416 -2168 432) with yaw 0 and scale 1; nothing has
+compared that against where the viewer puts it, and nothing has looked at the drawn result at all.
+The cheapest instrument is a screenshot of that doorway with `cl_showpos` on, next to TF2's own.
