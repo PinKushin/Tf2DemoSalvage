@@ -15103,3 +15103,43 @@ and after the spy was fixed: *"spys fixed, gates are not."*
 belongs*. Its placement is a static prop at (5416 -2168 432) with yaw 0 and scale 1; nothing has
 compared that against where the viewer puts it, and nothing has looked at the drawn result at all.
 The cheapest instrument is a screenshot of that doorway with `cl_showpos` on, next to TF2's own.
+
+## B239 — the menu told the owner to press F12 for weeks after the key became F5 — FIXED 2026-08-30
+
+**The owner:** *"f5 is the shortcut for ss's and the menu item saying f12 is actually wrong"*, and
+then the reason: *"we cahnged it for valve parity"*.
+
+B214 moved the screenshot to **F5**, which is TF2's own `screenshot` key — so a config that rebinds
+screenshots moves the viewer's with it, and F12 was doubly wrong because TF2 gives it to replay tips
+and Steam's overlay takes it as well. The binding moved. The label did not:
+
+```csharp
+ShortcutKeyDisplayString = "F12",
+```
+
+**A label is not a registration, and that is exactly why it drifts.** Nothing stops working when a
+`ShortcutKeyDisplayString` is wrong — no exception, no dead key, no failing test — so the only
+instrument that can notice is a person reading the menu and then pressing the key. It survived a
+rename of the very thing it describes.
+
+**The fix is not "change F12 to F5"**, which moves the same trap one build along. It is
+`bindings.KeyFor(ViewerAction.Screenshot)`. D101's rule is that every control comes from the binding
+table; a key a menu **prints** is no different from one it acts on, and this file already had the
+table in hand — `ViewerMenu`'s constructor takes `KeyBindings` and every other item's shortcut comes
+from it.
+
+**Why the display string exists at all**, since it looks like something to delete: the screenshot
+key is bound once in `ProcessCmdKey`, and giving the item a real `ShortcutKeys` registers it twice —
+which in WinForms makes the key do nothing at all. That happened here on F12, and B165 was the same
+mistake on F11, which silently broke full screen for days. So the item displays what the form owns,
+and now asks what that is.
+
+**The tripwire is over every item, not this one.** `Strip_EveryShortcutLabelItPrints_NamesAKeyThatIs
+ActuallyBound` walks the whole strip and refuses any printed shortcut that no binding produces, so
+the next hand-typed label fails in the suite rather than on someone's screen. Its control names the
+pairing, because "F9" would satisfy the tripwire — F9 is bound, to the surface colours — while still
+sending the owner to the wrong key.
+
+**And a memory said F12 too**, which is how it reached the owner a second time in this session:
+`docs/memory/viewer-screenshots-are-f5.md` replaces it, with the rule that a key is never named from
+memory.

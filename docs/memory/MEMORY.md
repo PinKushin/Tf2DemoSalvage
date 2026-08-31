@@ -46,7 +46,7 @@
 - [Bone merge sends no position](bone-merge-sends-no-position.md) — EF_BONEMERGE takes the owner's bones by name.
 - [Demo ticks do not start at zero](demo-ticks-do-not-start-at-zero.md) — a hardcoded probe tick reports a plausible count.
 - [Negative model indices are dynamic](negative-model-indices-are-dynamic.md) — the DynamicModels table holds cosmetics.
-- [Viewer screenshots are F12](viewer-screenshots-are-f12.md) — captures land beside viewer.log in %LOCALAPPDATA%.
+- [Viewer screenshots are F5](viewer-screenshots-are-f5.md) — TF2's own key since B214; never name a key from memory.
 - [Read the SDK for the whole mechanism](read-the-sdk-for-the-whole-mechanism.md) — finding the flag is the easy half.
 - [Lookups must match exactly](lookups-must-match-exactly.md) — a Contains lookup laid every player down.
 - [Build-time shortcuts assume the camera](build-time-shortcuts-assume-the-camera.md) — top-down culls broke the free camera.

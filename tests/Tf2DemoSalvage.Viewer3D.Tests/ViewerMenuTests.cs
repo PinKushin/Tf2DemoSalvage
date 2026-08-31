@@ -5,6 +5,8 @@ using System.Reflection;
 using System.Threading;
 using System.Windows.Forms;
 
+using Tf2DemoSalvage.Presentation;
+
 namespace Tf2DemoSalvage.Viewer3D.Tests;
 
 /// <summary>The menu still contains everything it is supposed to contain.</summary>
@@ -111,6 +113,56 @@ public sealed class ViewerMenuTests
                 && (field.Name.EndsWith("ItemId", StringComparison.Ordinal)
                     || field.Name.EndsWith("MenuId", StringComparison.Ordinal)))
             .Select(field => (string)field.GetRawConstantValue()!);
+
+    [Test]
+    public void Strip_EveryShortcutLabelItPrints_NamesAKeyThatIsActuallyBound()
+    {
+        // **A menu that names the wrong key is worse than a menu that names none** (B239). The
+        // owner: *"f5 is the shortcut for ss's and the menu item saying f12 is actually wrong"* —
+        // B214 moved the screenshot to F5 for Valve parity, because F5 is TF2's own screenshot key,
+        // and the label was left behind as the literal string "F12".
+        //
+        // **`ShortcutKeyDisplayString` is a LABEL, not a registration**, which is exactly why it can
+        // drift: nothing stops working when it is wrong. It exists here because the screenshot key
+        // is bound once in `ProcessCmdKey` and binding it twice makes it do nothing at all — B165
+        // on F11, then again on F12 — so the item displays what the form owns.
+        //
+        // This is written as a tripwire over EVERY item rather than as an assertion about one, so
+        // the next label added by hand fails here instead of on someone's screen.
+        using MainForm form = new();
+
+        HashSet<string> bound = new(
+            new KeyBindings().All().Select(entry => entry.Key),
+            StringComparer.OrdinalIgnoreCase);
+
+        List<string> printed =
+        [
+            .. Descendants(form.MainMenuStrip)
+                .Select(item => item.ShortcutKeyDisplayString ?? string.Empty)
+                .Where(label => label.Length > 0)
+                .Where(label => !bound.Contains(label)),
+        ];
+
+        printed.ShouldBeEmpty(
+            "a printed shortcut must be a key something is actually bound to; ask "
+            + "KeyBindings.KeyFor rather than typing one");
+    }
+
+    [Test]
+    public void ScreenshotItem_ItsShortcutLabel_IsTheKeyBoundToTheScreenshot()
+    {
+        // **The control on the tripwire above**, and it is not the same test. A label of "F9" would
+        // satisfy that one — F9 is bound, to the surface colours — while still telling the owner to
+        // press the wrong key. This names the pairing.
+        using MainForm form = new();
+
+        ToolStripMenuItem screenshot = Descendants(form.MainMenuStrip)
+            .Single(item => string.Equals(item.Name, MainForm.ScreenshotItemId, StringComparison.Ordinal));
+
+        screenshot.ShortcutKeyDisplayString.ShouldBe(
+            new KeyBindings().KeyFor(ViewerAction.Screenshot),
+            "the label and the binding are one fact and must have one source");
+    }
 
     private static IEnumerable<ToolStripMenuItem> Descendants(MenuStrip? strip)
     {
