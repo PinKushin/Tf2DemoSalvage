@@ -164,7 +164,8 @@ jobs:
           # 1592 -> 1593 on 2026-08-30: the client-side guard around the frame-reset toggle.
           # 1593 -> 1598 on 2026-08-30: PlayerConditionConformanceTests (5), the five condition
           # bitfields. Synthetic and file-free.
-          ./build/assert-test-count.sh '**/core.trx' 1598 Core
+          # 1598 -> 1600 on 2026-08-30: kRenderNone (B240), two synthetic cases.
+          ./build/assert-test-count.sh '**/core.trx' 1600 Core
           ./build/assert-test-count.sh '**/cli.trx' 74 Cli
           # 628 -> 645 is ARITHMETIC, not a measurement: 17 tests were added to Content on
           # 2026-08-24 (SchemeFont 6, GlyphAtlas 11), all self-contained, so every one of them

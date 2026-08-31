@@ -194,7 +194,12 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # project read none of them -- DT_TFPlayerShared was 0 of 66 in WIRE-COVERAGE. Three of the five
 # are controls: a bit set in the WRONG variable must not answer, an empty set answers nothing,
 # and bit 31 must read as set rather than as a negative int.
-run Tf2DemoSalvage.Core.Tests     core     1598
+# 1598 -> 1600: kRenderNone, which is ShouldDraw's FIRST test and had been missing since a revert
+# (B240). c_baseentity.cpp:1447 refuses rendermode 10 before it looks at anything else, and IsDrawn
+# tested only EF_NODRAW. The second case is the control and it is the one that keeps this safe:
+# every OTHER mode is a blend and still draws, so a rule written as "the mode is not normal" would
+# delete 410 of a real match's 1,973 entities instead of the 118 that ask for it.
+run Tf2DemoSalvage.Core.Tests     core     1600
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.

@@ -137,6 +137,45 @@ public sealed class EntityModelTests
         entity.IsDrawn.ShouldBeTrue();
     }
 
+    [Test]
+    public void AnEntityAtKRenderNone_IsHidden()
+    {
+        // **`C_BaseEntity::ShouldDraw`'s FIRST test, and it was missing** (B240):
+        //
+        //     // Some rendermodes prevent rendering
+        //     if ( m_nRenderMode == kRenderNone )
+        //         return false;
+        //     return (model != 0) && !IsEffectActive(EF_NODRAW) && (index != 0);
+        //
+        // `c_baseentity.cpp:1447`. This project had the EF_NODRAW half and not this one, so every
+        // entity the map tells the engine never to draw was drawn.
+        //
+        // **What it cost, measured on cp_fulgur:** each setup gate is an invisible `func_door` pair
+        // at `rendermode 10` with the visible grate props parented to it. The doors' brushwork is
+        // painted `METAL/CHICKEN_WIRE001` — a coarse wire — and we drew it, standing in front of
+        // the props and hiding the orange frame the owner kept reporting missing. Eighteen
+        // `func_door`s on that map alone; 118 entities in a real match are `kRenderNone`.
+        EntityState entity = State(
+            Property("DT_BaseEntity", "m_nModelIndex", PropertyValue.FromInt(3)),
+            Property("DT_BaseEntity", "m_nRenderMode", PropertyValue.FromInt(10)));
+
+        entity.IsDrawn.ShouldBeFalse();
+    }
+
+    [Test]
+    public void AnEntityAtAnyOtherRenderMode_IsStillDrawn()
+    {
+        // **The control, and it is the one that matters here.** Only `kRenderNone` refuses; every
+        // other mode is a BLEND, and an entity at `kRenderTransAlpha` or `kRenderGlow` still draws
+        // — it draws differently. A rule written as "mode is not normal" would delete every
+        // translucent entity in the game, which is 410 of 1,973 in a real match.
+        EntityState entity = State(
+            Property("DT_BaseEntity", "m_nModelIndex", PropertyValue.FromInt(3)),
+            Property("DT_BaseEntity", "m_nRenderMode", PropertyValue.FromInt(4)));
+
+        entity.IsDrawn.ShouldBeTrue();
+    }
+
     private static EntityState State(params DecodedProperty[] properties)
     {
         EntityStateTable table = new(EntityBaselines.None);

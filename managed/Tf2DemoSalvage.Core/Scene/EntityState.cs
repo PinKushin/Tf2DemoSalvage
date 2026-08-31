@@ -105,6 +105,15 @@ public sealed class EntityState
     /// <summary><c>EF_NODRAW</c> from <c>src/public/const.h</c>: "don't draw entity".</summary>
     private const int NoDraw = 0x020;
 
+    /// <summary><c>kRenderNone</c> — *"Don't render."* — <c>src/public/const.h:363</c>.</summary>
+    /// <remarks>
+    /// **Declared here rather than taken from `Tf2DemoSalvage.Scene.RenderModes`**, which holds the
+    /// full set: Scene depends on Core and not the other way round, so the one value the DECODE
+    /// needs lives with the decode. Eleven modes exist and only this one refuses to draw; the rest
+    /// are blends, and `RenderModes` is where they belong because blending is a drawing question.
+    /// </remarks>
+    private const int RenderNone = 10;
+
     /// <summary>Who an entity hangs off, when it is bone-merged rather than placed.</summary>
     private const string OwnerProperty = "m_hOwnerEntity";
 
@@ -448,8 +457,30 @@ public sealed class EntityState
     /// The visible set matters too: <see cref="IsVisible"/> is false while an entity has left the
     /// PVS, which is a different thing from being deleted and a different thing again from being
     /// told not to draw.
+    ///
+    /// **And `kRenderNone`, which is `ShouldDraw`'s FIRST test and was missing for weeks** (B240).
+    /// <c>c_baseentity.cpp:1437</c>:
+    ///
+    /// <code>
+    ///   // Some rendermodes prevent rendering
+    ///   if ( m_nRenderMode == kRenderNone )
+    ///       return false;
+    ///
+    ///   return (model != 0) &amp;&amp; !IsEffectActive(EF_NODRAW) &amp;&amp; (index != 0);
+    /// </code>
+    ///
+    /// **Only that one mode refuses.** Every other value is a BLEND — an entity at
+    /// `kRenderTransAlpha` or `kRenderGlow` still draws, differently — so a rule written as "the
+    /// mode is not normal" would delete 410 of a real match's 1,973 entities.
+    ///
+    /// **What it cost:** a setup gate is an invisible `func_door` pair at `rendermode 10` with the
+    /// visible grate props parented to it. The doors' brushwork is painted `METAL/CHICKEN_WIRE001`,
+    /// and drawing it put a coarse wire panel in front of the props — which is why the gate's orange
+    /// frame was reported missing three times while every measurement said it was drawn. Eighteen
+    /// `func_door`s on `cp_fulgur`; 118 entities at `kRenderNone` in a real match.
     /// </remarks>
-    public bool IsDrawn => IsVisible && (Effects() & NoDraw) == 0;
+    public bool IsDrawn =>
+        IsVisible && (Effects() & NoDraw) == 0 && RenderMode() != RenderNone;
 
     /// <summary>The effect flags, from whichever table this entity declares them in.</summary>
     /// <remarks>

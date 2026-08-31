@@ -15143,3 +15143,58 @@ sending the owner to the wrong key.
 **And a memory said F12 too**, which is how it reached the owner a second time in this session:
 `docs/memory/viewer-screenshots-are-f5.md` replaces it, with the rule that a key is never named from
 memory.
+
+## B240 — kRenderNone was lost in a revert, so eighteen invisible doors drew over the gates — FIXED 2026-08-30
+
+**The owner had already told me the answer and I did not hear it:** *"we actually did render the
+right grate before we 'fixed' the 90 degree turn problem that a single gate was doing, i let you
+keep going only because the 90 degree fix was suppose to be parity and be able to get us the fucking
+grates back, but you cant seem to figure it out"*.
+
+**`C_BaseEntity::ShouldDraw`'s FIRST test** (`c_baseentity.cpp:1437`):
+
+```cpp
+// Some rendermodes prevent rendering
+if ( m_nRenderMode == kRenderNone )
+    return false;
+
+return (model != 0) && !IsEffectActive(EF_NODRAW) && (index != 0);
+```
+
+`EntityState.IsDrawn` was `IsVisible && (Effects() & NoDraw) == 0`. The render-mode half was absent.
+
+**What that drew.** Each setup gate is a pair of `func_door` brush entities at `rendermode 10`, with
+the visible grate props parented to them. Their brushwork is painted `METAL/CHICKEN_WIRE001` — a
+coarse wire, 192×6×80 units — and we drew it, standing in the doorway in front of the props:
+
+```
+[render] *18 at (5568, -2552, 344) ... draws materials: 115:opaque
+[render] *19 at (5568, -2552, 424) ... draws materials: 115:opaque
+```
+
+So the owner's two symptoms were one bug wearing two faces. *"the chicken wire we are rendering has
+holes far too large"* — that is `CHICKEN_WIRE001`, the door's brush texture, not the prop's
+`door_grate001_metalgrate`. *"there is quite literally zero bars"* — the orange frame is behind it.
+
+**Eighteen `func_door`s on `cp_fulgur`; 118 entities at `kRenderNone` in a real match.**
+
+**It was implemented twice and lost twice, and that history is the finding.** `c491d911` wrote it;
+`7135d319` rewrote it beside the parented-entity transform, and its own message claims *"Measured
+after: the eighteen func_doors are gone from the scene"*. Then `ca017db3` reverted **"entity
+parenting, and kRenderNone with it"**, and `adf40fb6` brought back only the parenting half. `git log
+-S "kRenderNone" -- managed/` shows no commit touching it after the revert.
+
+**So a revert of a two-part merge silently shipped one part.** Nothing failed: the parenting tests
+came back with the parenting, and there was no test anywhere asserting that a `kRenderNone` entity
+is not drawn — the conformance suite that covered it went out with the revert as well. A test
+deleted by a revert leaves no trace in the suite that used to protect the code.
+
+**Why the first attempt looked wrong and was not.** `c491d911`'s note says hiding the doors *"deleted
+the gates"* — true at the time, because the grate props were still sitting at (0,0,0) and the door
+brushwork was the only thing standing where a gate should be. Once `7135d319` placed the props
+correctly, hiding the doors became safe. The two changes are only correct together, which is
+precisely why reverting them apart did this.
+
+**Not implemented and named:** `model != 0` and `index != 0`, the other two conjuncts. An entity with
+no model draws nothing here anyway, and entity 0 is the worldspawn, which this project never treats
+as a prop.
