@@ -55,6 +55,14 @@
          own copy of where the game is (D109). Plain net10.0 and no Windows dependency, so this does
          not change what this suite can run on. -->
     <ProjectReference Include="..\Tf2DemoSalvage.SdkReference\Tf2DemoSalvage.SdkReference.csproj" />
+
+    <!-- **For DemoCorpus, and the direction of this reference is the point** (D126). Locating the
+         demos is one implementation, and it lives in the probe tool rather than here because the
+         tool must not drag NUnit, the adapter and Shouldly into a program whose whole purpose is
+         to build quickly. Two copies of "where are the demos" would let a probe answer a question
+         about a different file than the test that motivated it, and nothing would report the
+         discrepancy. -->
+    <ProjectReference Include="..\..\tools\Tf2DemoSalvage.Probe\Tf2DemoSalvage.Probe.csproj" />
   </ItemGroup>
 
 </Project>

@@ -24,7 +24,22 @@ public static class DemoCorpus
     /// <summary>Anything smaller than this is a Git LFS pointer stub, not a demo.</summary>
     public const int SmallestPlausibleDemo = 4096;
 
-    /// <summary>Extra demos, present only on a developer's machine and never committed.</summary>
+    /// <summary>
+    /// Extra demos, present only on a developer's machine and never committed.
+    /// </summary>
+    /// <remarks>
+    /// The committed corpus is deliberately one specimen per category — era and point of view —
+    /// because GitHub's free Git LFS tier is 1 GiB of bandwidth a month and every CI job that
+    /// fetches it pays. A seventh protocol-24 SourceTV demo costs real budget to test nothing new.
+    ///
+    /// **Locally there is no such constraint**, and more real files is strictly better coverage.
+    /// Anything dropped in <c>tools/corpus/local/</c> joins the run automatically. The directory
+    /// is already git-ignored, and for a second reason worth keeping in mind: self-recorded demos
+    /// carry the recorder's screen name and SteamID.
+    ///
+    /// This makes a local run a superset of CI rather than a different thing, so a local pass
+    /// cannot hide a CI failure — only the reverse, which is the useful direction.
+    /// </remarks>
     private const string LocalDirectoryName = "local";
 
     /// <summary>Whether this run is restricted to the committed corpus.</summary>
