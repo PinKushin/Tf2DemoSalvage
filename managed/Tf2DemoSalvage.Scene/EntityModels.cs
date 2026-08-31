@@ -1857,6 +1857,26 @@ public sealed class EntityModelSet
                 continue;
             }
 
+            // **`C_BaseEntity::ShouldDraw`'s first test** (`c_baseentity.cpp:1447`): *"Some
+            // rendermodes prevent rendering"*, and `kRenderNone` is the one. Eighteen `func_door`s
+            // on `cp_fulgur` declare it, their brushwork is painted `METAL/CHICKEN_WIRE001`, and
+            // drawing it stood a coarse wire panel in the doorway in front of the grate props.
+            //
+            // **HERE and not in `EntityState.IsDrawn`, which is where it went first and broke the
+            // gates completely** (B240). That property decides whether an entity is in the scene at
+            // all; this decides whether it is drawn. Valve keeps them apart for a reason the gates
+            // demonstrate: every grate prop is PARENTED to one of those invisible doors, and
+            // `CalcAbsolutePosition` composes a child onto its parent's transform without asking
+            // whether the parent renders. Remove the parent from the scene and the child has
+            // nothing to hang off.
+            //
+            // Only this mode refuses. Every other value is a blend that still draws.
+            if (prop.Pose.RenderMode == RenderModes.None)
+            {
+                _tally.NotDrawn();
+                continue;
+            }
+
             if (Batches(prop.ModelPath, frame).Count == 0)
             {
                 _tally.NoGeometry(prop.ModelPath);

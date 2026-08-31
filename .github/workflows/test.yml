@@ -165,7 +165,7 @@ jobs:
           # 1593 -> 1598 on 2026-08-30: PlayerConditionConformanceTests (5), the five condition
           # bitfields. Synthetic and file-free.
           # 1598 -> 1600 on 2026-08-30: kRenderNone (B240), two synthetic cases.
-          ./build/assert-test-count.sh '**/core.trx' 1600 Core
+          ./build/assert-test-count.sh '**/core.trx' 1599 Core
           ./build/assert-test-count.sh '**/cli.trx' 74 Cli
           # 628 -> 645 is ARITHMETIC, not a measurement: 17 tests were added to Content on
           # 2026-08-24 (SchemeFont 6, GlyphAtlas 11), all self-contained, so every one of them
@@ -246,7 +246,7 @@ jobs:
           # models loaded, so all seven run on CI.
           # 270 -> 277 on 2026-08-30: the spyMask bodygroup (B236). Hand-built players and a stub
           # resolver, so all seven run without a game install.
-          ./build/assert-test-count.sh '**/scene.trx' 277 Scene
+          ./build/assert-test-count.sh '**/scene.trx' 280 Scene
 
       # **Coverage, gated PER ASSEMBLY rather than per report.** A Cobertura file's root line-rate
       # averages every assembly the run loaded, including ones the suite never touches — measured

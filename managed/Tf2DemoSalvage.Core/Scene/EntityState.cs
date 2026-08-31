@@ -105,15 +105,6 @@ public sealed class EntityState
     /// <summary><c>EF_NODRAW</c> from <c>src/public/const.h</c>: "don't draw entity".</summary>
     private const int NoDraw = 0x020;
 
-    /// <summary><c>kRenderNone</c> — *"Don't render."* — <c>src/public/const.h:363</c>.</summary>
-    /// <remarks>
-    /// **Declared here rather than taken from `Tf2DemoSalvage.Scene.RenderModes`**, which holds the
-    /// full set: Scene depends on Core and not the other way round, so the one value the DECODE
-    /// needs lives with the decode. Eleven modes exist and only this one refuses to draw; the rest
-    /// are blends, and `RenderModes` is where they belong because blending is a drawing question.
-    /// </remarks>
-    private const int RenderNone = 10;
-
     /// <summary>Who an entity hangs off, when it is bone-merged rather than placed.</summary>
     private const string OwnerProperty = "m_hOwnerEntity";
 
@@ -458,29 +449,20 @@ public sealed class EntityState
     /// PVS, which is a different thing from being deleted and a different thing again from being
     /// told not to draw.
     ///
-    /// **And `kRenderNone`, which is `ShouldDraw`'s FIRST test and was missing for weeks** (B240).
-    /// <c>c_baseentity.cpp:1437</c>:
+    /// **`kRenderNone` is deliberately NOT tested here, and that is the whole of B240's second
+    /// half.** It belongs to `ShouldDraw` (`c_baseentity.cpp:1447`) — but this property decides
+    /// whether an entity is in the scene AT ALL, and those are different questions. Valve's
+    /// `ShouldDraw` stops an entity being DRAWN; `CalcAbsolutePosition` still composes a child onto
+    /// its parent's transform without asking whether the parent renders (`:4350`).
     ///
-    /// <code>
-    ///   // Some rendermodes prevent rendering
-    ///   if ( m_nRenderMode == kRenderNone )
-    ///       return false;
+    /// Putting the test here removed the invisible `func_door`s from the scene entirely, and every
+    /// setup gate's grate props are PARENTED to one — so they lost the transform they hang off and
+    /// the gates vanished completely. That is the same trap `7135d319` recorded one layer down, and
+    /// it was walked into one layer up within the hour.
     ///
-    ///   return (model != 0) &amp;&amp; !IsEffectActive(EF_NODRAW) &amp;&amp; (index != 0);
-    /// </code>
-    ///
-    /// **Only that one mode refuses.** Every other value is a BLEND — an entity at
-    /// `kRenderTransAlpha` or `kRenderGlow` still draws, differently — so a rule written as "the
-    /// mode is not normal" would delete 410 of a real match's 1,973 entities.
-    ///
-    /// **What it cost:** a setup gate is an invisible `func_door` pair at `rendermode 10` with the
-    /// visible grate props parented to it. The doors' brushwork is painted `METAL/CHICKEN_WIRE001`,
-    /// and drawing it put a coarse wire panel in front of the props — which is why the gate's orange
-    /// frame was reported missing three times while every measurement said it was drawn. Eighteen
-    /// `func_door`s on `cp_fulgur`; 118 entities at `kRenderNone` in a real match.
+    /// The render mode is applied where drawing is decided: `EntityModelSet.Instances`.
     /// </remarks>
-    public bool IsDrawn =>
-        IsVisible && (Effects() & NoDraw) == 0 && RenderMode() != RenderNone;
+    public bool IsDrawn => IsVisible && (Effects() & NoDraw) == 0;
 
     /// <summary>The effect flags, from whichever table this entity declares them in.</summary>
     /// <remarks>

@@ -194,12 +194,12 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # project read none of them -- DT_TFPlayerShared was 0 of 66 in WIRE-COVERAGE. Three of the five
 # are controls: a bit set in the WRONG variable must not answer, an empty set answers nothing,
 # and bit 31 must read as set rather than as a negative int.
-# 1598 -> 1600: kRenderNone, which is ShouldDraw's FIRST test and had been missing since a revert
-# (B240). c_baseentity.cpp:1447 refuses rendermode 10 before it looks at anything else, and IsDrawn
-# tested only EF_NODRAW. The second case is the control and it is the one that keeps this safe:
-# every OTHER mode is a blend and still draws, so a rule written as "the mode is not normal" would
-# delete 410 of a real match's 1,973 entities instead of the 118 that ask for it.
-run Tf2DemoSalvage.Core.Tests     core     1600
+# 1598 -> 1599: kRenderNone, and the case here asserts where it does NOT belong (B240). Testing the
+# render mode in EntityState.IsDrawn removed the invisible func_doors from the SCENE, and every
+# grate prop is parented to one -- so the children lost the transform they hang off and every gate
+# vanished outright. ShouldDraw stops an entity DRAWING; CalcAbsolutePosition composes a child onto
+# its parent without asking whether the parent renders. The rule lives in Scene now.
+run Tf2DemoSalvage.Core.Tests     core     1599
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
@@ -434,7 +434,11 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 # refused because only the spy's model has that part. The two wiring cases are the only ones that
 # could have caught the bug -- WearsMask and the skin offset both had passing tests while nothing
 # set the body.
-run Tf2DemoSalvage.Scene.Tests    scene     277
+# 277 -> 280: kRenderNone applied where drawing is decided (B240). Two of the three are controls,
+# and the third is the one the first attempt broke: a child of a kRenderNone parent must still find
+# that parent, because the parent stays in the scene and only its drawing is refused. The other
+# control keeps this from deleting the game -- every mode but 10 is a blend that still draws.
+run Tf2DemoSalvage.Scene.Tests    scene     280
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

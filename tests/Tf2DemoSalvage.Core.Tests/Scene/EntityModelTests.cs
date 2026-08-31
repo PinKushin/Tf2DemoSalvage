@@ -138,42 +138,25 @@ public sealed class EntityModelTests
     }
 
     [Test]
-    public void AnEntityAtKRenderNone_IsHidden()
+    public void AnEntityAtKRenderNone_IsStillInTheScene()
     {
-        // **`C_BaseEntity::ShouldDraw`'s FIRST test, and it was missing** (B240):
+        // **`kRenderNone` does NOT belong here, and putting it here deleted the gates entirely**
+        // (B240). `ShouldDraw` (`c_baseentity.cpp:1447`) refuses rendermode 10 — but it decides
+        // whether an entity is DRAWN, and this property decides whether it is in the scene at all.
         //
-        //     // Some rendermodes prevent rendering
-        //     if ( m_nRenderMode == kRenderNone )
-        //         return false;
-        //     return (model != 0) && !IsEffectActive(EF_NODRAW) && (index != 0);
+        // Valve keeps those apart for a reason the setup gates demonstrate: every grate prop is
+        // PARENTED to an invisible `func_door`, and `CalcAbsolutePosition` (`:4350`) composes a
+        // child onto its parent's transform without asking whether the parent renders. Testing the
+        // mode here removed the doors from the scene, so the grates had nothing to hang off and
+        // vanished — the owner: *"now no gate is drawing at all"*.
         //
-        // `c_baseentity.cpp:1447`. This project had the EF_NODRAW half and not this one, so every
-        // entity the map tells the engine never to draw was drawn.
-        //
-        // **What it cost, measured on cp_fulgur:** each setup gate is an invisible `func_door` pair
-        // at `rendermode 10` with the visible grate props parented to it. The doors' brushwork is
-        // painted `METAL/CHICKEN_WIRE001` — a coarse wire — and we drew it, standing in front of
-        // the props and hiding the orange frame the owner kept reporting missing. Eighteen
-        // `func_door`s on that map alone; 118 entities in a real match are `kRenderNone`.
+        // The mode is applied in `EntityModelSet.Instances`, where drawing is decided.
         EntityState entity = State(
             Property("DT_BaseEntity", "m_nModelIndex", PropertyValue.FromInt(3)),
             Property("DT_BaseEntity", "m_nRenderMode", PropertyValue.FromInt(10)));
 
-        entity.IsDrawn.ShouldBeFalse();
-    }
-
-    [Test]
-    public void AnEntityAtAnyOtherRenderMode_IsStillDrawn()
-    {
-        // **The control, and it is the one that matters here.** Only `kRenderNone` refuses; every
-        // other mode is a BLEND, and an entity at `kRenderTransAlpha` or `kRenderGlow` still draws
-        // — it draws differently. A rule written as "mode is not normal" would delete every
-        // translucent entity in the game, which is 410 of 1,973 in a real match.
-        EntityState entity = State(
-            Property("DT_BaseEntity", "m_nModelIndex", PropertyValue.FromInt(3)),
-            Property("DT_BaseEntity", "m_nRenderMode", PropertyValue.FromInt(4)));
-
-        entity.IsDrawn.ShouldBeTrue();
+        entity.IsDrawn.ShouldBeTrue(
+            "an entity nobody draws is still an entity its children hang off");
     }
 
     private static EntityState State(params DecodedProperty[] properties)

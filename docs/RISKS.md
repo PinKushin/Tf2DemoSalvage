@@ -15198,3 +15198,27 @@ precisely why reverting them apart did this.
 **Not implemented and named:** `model != 0` and `index != 0`, the other two conjuncts. An entity with
 no model draws nothing here anyway, and entity 0 is the worldspawn, which this project never treats
 as a prop.
+
+### The first fix went in the wrong place and deleted the gates outright
+
+**The owner, one build later:** *"now no gate is drawing at all"*.
+
+`EntityState.IsDrawn` decides whether an entity is in the SCENE. `ShouldDraw` decides whether it is
+DRAWN. Those are different questions and Valve keeps them apart deliberately:
+`CalcAbsolutePosition` (`c_baseentity.cpp:4350`) composes a child onto its parent's transform
+**without ever asking whether the parent renders**. Every grate prop is parented to one of the
+invisible doors — so removing the doors from the scene left the children with nothing to hang off,
+and the gates went from wrong to absent.
+
+**`7135d319` recorded this exact trap one layer down** — *"`_drawnPlacements` holds only props that
+will be DRAWN … and wrong for a transform"* — and it was walked into one layer up within the hour,
+by someone who had read that sentence the same evening.
+
+The rule now lives in `EntityModelSet.Instances`, where drawing is decided, and the entity stays in
+the scene. `DrawTally` counts it apart from the two failures beside it, because this one is the map
+working as intended rather than something we could not draw.
+
+**The lesson is not "cite the source".** The citation was right both times, and both times it named
+`ShouldDraw`. What was wrong was the SEAM: a rule about drawing was applied to presence, and the two
+look identical from any test that only ever asks about an unparented entity. The test that tells
+them apart is the one with a parent and a child in it, and that is now in the suite.
