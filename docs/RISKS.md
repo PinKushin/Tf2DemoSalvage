@@ -15713,3 +15713,50 @@ assertion.
 
 The second new test is the control at `curtime = 0.8104`, wave **−1.999**, truncating to −1. It is
 what stops the fix overshooting into "drop the sign test altogether", which would pass the first.
+
+## B247 — `dem_stringtables` is never read, so most instance baselines are missing — OPEN
+
+Found while trying to fix B245, and it is the reason that fix cannot land yet.
+
+A TF2 demo carries string-table state in **two** places: the `svc_CreateStringTable` /
+`svc_UpdateStringTable` net messages, and a `dem_stringtables` **demo command** written at the
+start. `DemoTimeline` handles the first and not the second — `DemoCommandType.StringTables` appears
+nowhere in it, and the only files that mention the type at all are the text dumper and the trace
+writer, which map it to a name and print nothing.
+
+**Measured, and the second number is the one that gives it away:**
+
+| demo | classes | with an instance baseline |
+|---|---|---|
+| `tf2-2026-pub-pov-clean` | 363 | 68 |
+| `tf2-2007-build3258-pov` | 216 | **0** |
+
+Zero. An era demo whose entities enter the potentially visible set throughout, and not one class
+baseline — while the file carries exactly one `dem_stringtables` block at tick 0 that nothing opens.
+
+**Why it matters beyond the count.** An entity entering the visible set is a delta against its class
+baseline, so every property the baseline would have supplied is one this reader never receives.
+`CWeaponMedigun` (class 352) and `CTFBonesaw` (class 190) both have entities in
+`tf2-2026-pub-pov-clean` and **neither class id ever appears** in the table as we read it — not as
+an empty entry, not at all. The engine cannot be in that position: `engine.dll` still carries
+`CL_CopyNewEntity: GetClassBaseline(%d) failed.`, which is a `Host_Error`, so a class whose
+entities enter the PVS must have a baseline available to a real client.
+
+**This blocks B245.** The fix drafted there — an `Enter` forgets and re-decodes from its baseline,
+which is what `CL_CopyNewEntity` does — is correct in principle and *dangerous while this is open*,
+because forgetting state that a baseline we never read was supposed to restore deletes it outright.
+The branch `fix/enter-pvs-resets-from-baseline` holds that work, and it is deliberately not merged:
+
+- it makes the bonesaw read `WEAPON_NOT_CARRIED` and player 20 hold exactly one weapon, which is
+  the intended outcome, and
+- it fails two tests that encode B231 — `EntityState_LeavingTheVisibleSet_IsNotDestruction` and
+  `Apply_AnEntityReenteringWithTheSameSerial_KeepsWhatItAlreadyKnew` — both of which assert that a
+  re-entering entity keeps what it knew, using fixtures that supply no baseline at all.
+
+Whether those two tests are wrong or merely unrealistic cannot be settled until baselines are
+actually being read. That is the order of work: **read `dem_stringtables` first, then re-run the
+B245 experiment against real baselines, and only then judge the B231 tests.**
+
+**The parser does not exist yet.** `StringTableCodec` is the `svc_` message encoding, which is a
+different format from the demo command's — the command carries its own table count, per-table names,
+entry names, and optional user data.

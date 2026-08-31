@@ -223,6 +223,121 @@ internal static class SyntheticWeapon
         return SyntheticDemo.From(SyntheticDemo.DefaultProtocol, [.. commands]);
     }
 
+    /// <summary>A demo of a weapon that goes active, leaves the PVS, and comes back silent.</summary>
+    /// <param name="ownerEntity">The entity slot that owns it.</param>
+    /// <param name="active">What <c>m_iState</c> is before it leaves.</param>
+    /// <returns>The demo's bytes.</returns>
+    /// <remarks>
+    /// **The exact shape that leaves a weapon stuck ACTIVE for the rest of a recording** (B245).
+    /// Measured on `tf2-2026-pub-pov-clean`: a `CTFBonesaw` last stated `m_iState 2` at tick 8060
+    /// left and re-entered the PVS eight times, and every one of those `ENTER`s carried the owner,
+    /// the move parent, the world model index and the whole attribute list — and **no
+    /// `m_iState`**. So its owner drew a medigun and a melee weapon in the same hand.
+    ///
+    /// **The class deliberately gets no instance baseline here**, because the real one does not:
+    /// only 68 of that demo's 363 classes carry an entry, and `CTFBonesaw` is not among them. That
+    /// is the case where nothing but the reset itself can restore a default.
+    ///
+    /// The re-entry carries a single unrelated property, which is what makes this a test of the
+    /// RESET rather than of an empty update: a reader that simply ignored silent `ENTER`s would
+    /// still pass if the packet were empty.
+    /// </remarks>
+    public static byte[] DemoOfPvsCycle(int ownerEntity, int active)
+    {
+        DemoSchema schema = Schema();
+
+        EntityDecoder decoder = new(
+            schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        IReadOnlyList<FlatProperty> flat = decoder.FlattenedFor(WeaponClassId);
+
+        List<DemoCommand> commands =
+        [
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                0,
+                ServerInfo(),
+                SyntheticDemo.StringTable(
+                    ModelPrecache.TableName,
+                    [string.Empty, "models/unused.mdl", WorldModelPath],
+                    maxEntries: 8)),
+            SyntheticDemo.DataTables(schema),
+        ];
+
+        // Tick 100 — created, owned, merged, and ACTIVE.
+        List<DecodedProperty> created =
+        [
+            Property(flat, "m_hOwnerEntity", PropertyValue.FromInt(Handle(ownerEntity))),
+            Property(flat, "m_fEffects", PropertyValue.FromInt(BoneMerge)),
+            Property(flat, "m_iItemDefinitionIndex", PropertyValue.FromInt(Medigun)),
+            Property(flat, "m_iState", PropertyValue.FromInt(active)),
+        ];
+
+        created.Sort((left, right) => left.Index.CompareTo(right.Index));
+
+        commands.Add(Snapshot(
+            decoder,
+            tick: 100,
+            isDelta: false,
+            deltaFrom: null,
+            [
+                new DecodedEntity(
+                    ownerEntity, WeaponClassId, OwnerSerial, EntityUpdateType.Enter, []),
+                new DecodedEntity(
+                    WeaponEntityIndex, WeaponClassId, 3, EntityUpdateType.Enter, created),
+            ]));
+
+        // Tick 200 — out of the potentially visible set. Not a delete: it still exists.
+        commands.Add(Snapshot(
+            decoder,
+            tick: 200,
+            isDelta: true,
+            deltaFrom: 100,
+            [new DecodedEntity(WeaponEntityIndex, WeaponClassId, 3, EntityUpdateType.Leave, [])]));
+
+        // Tick 300 — back, and silent about its state, exactly as the real ones are.
+        List<DecodedProperty> returning =
+        [
+            Property(flat, "m_iWorldModelIndex", PropertyValue.FromInt(WorldModel)),
+        ];
+
+        commands.Add(Snapshot(
+            decoder,
+            tick: 300,
+            isDelta: true,
+            deltaFrom: 200,
+            [
+                new DecodedEntity(
+                    WeaponEntityIndex, WeaponClassId, 3, EntityUpdateType.Enter, returning),
+            ]));
+
+        return SyntheticDemo.From(SyntheticDemo.DefaultProtocol, [.. commands]);
+    }
+
+    /// <summary>One <c>svc_PacketEntities</c> carrying the given entities.</summary>
+    private static DemoCommand Snapshot(
+        EntityDecoder decoder,
+        int tick,
+        bool isDelta,
+        int? deltaFrom,
+        DecodedEntity[] entities)
+    {
+        byte[] body = decoder.EncodeEntities(entities, [], isDelta, 0, out int bits);
+
+        return SyntheticDemo.Packet(
+            SyntheticDemo.DefaultProtocol,
+            tick,
+            new PacketEntitiesMessage(
+                MaxEntries: 64,
+                IsDelta: isDelta,
+                DeltaFromTick: deltaFrom,
+                BaselineIndex: false,
+                UpdatedEntries: entities.Length,
+                LengthBits: bits,
+                UpdateBaseline: false,
+                Body: body));
+    }
+
     /// <summary>The stock Medi Gun's item definition index.</summary>
     public const int Medigun = 211;
 

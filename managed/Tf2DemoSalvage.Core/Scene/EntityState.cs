@@ -1372,6 +1372,29 @@ public sealed class EntityState
         _lastSet[key] = ++_sequence;
     }
 
+    /// <summary>Forgets every networked property, for an entity being decoded from a baseline.</summary>
+    /// <remarks>
+    /// **`CL_CopyNewEntity` decodes an entering entity FROM ITS BASELINE**, which is a starting
+    /// point rather than an overlay — the engine's own assert strings name three separate paths
+    /// (`CL_CopyNewEntity: GetClassBaseline(%d) failed.`, `CL_CopyExistingEntity: missing client
+    /// entity %d.`, `CL_PreserveExistingEntity`), and only the middle one is a delta against what
+    /// the client already holds.
+    ///
+    /// Without this an entity that leaves and re-enters the potentially visible set keeps every
+    /// value the baseline and the update both omit. Measured: a `CTFBonesaw` last stated
+    /// `m_iState 2` at tick 8060 was still ACTIVE six thousand ticks and eight PVS transitions
+    /// later, so its owner drew a medigun and a melee weapon in the same hand (B245).
+    ///
+    /// **The sequence counter is deliberately NOT reset.** It orders writes so the most recent
+    /// table wins for a value two exclusive tables both carry, and restarting it would make a
+    /// later write look older than one that survived in another key.
+    /// </remarks>
+    internal void Forget()
+    {
+        _properties.Clear();
+        _lastSet.Clear();
+    }
+
     /// <summary>When a key was last written, as a monotonic counter.</summary>
     /// <remarks>
     /// **Which table spoke most recently is the answer, not which table is listed first.** TF2
