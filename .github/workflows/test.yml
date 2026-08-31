@@ -467,7 +467,9 @@ jobs:
           # option is still observed. CI is the only machine without the game
           # (docs/memory/ci-is-the-machine-without-tf2.md), so it is also the only place that path
           # is exercised at all.
-          ./build/assert-test-count.sh '**/viewer.trx' 103 Viewer
+          # 103 -> 108 on 2026-08-30: B239's two menu-label cases, plus the three this copy had
+          # already drifted below. Both run headless-STA on the runner like the rest of this suite.
+          ./build/assert-test-count.sh '**/viewer.trx' 108 Viewer
           # 553 -> 582 on 2026-08-28: TwoPassConformanceTests (28) and TwoPassWiringTests (1).
           #
           # **This floor has drifted from the local gate's and the delta is all that was raised.**

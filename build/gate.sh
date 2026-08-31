@@ -1004,7 +1004,13 @@ run Tf2DemoSalvage.Rendering.Tests rendering 716
 # 103 -> 106: TransportBarTests. The control had no tests at all, which is how `SetDemoLength` came
 # to end with `Playing = false` — a decision about playback made inside the View, invisible from
 # `IPlaybackView`, and silent because that setter does not raise. D55's tell, and B223's cause.
-run Tf2DemoSalvage.Viewer3D.Tests viewer    106
+# 106 -> 108: the menu printed "F12" for the screenshot long after B214 moved the key to F5 for
+# Valve parity (B239). A ShortcutKeyDisplayString is a LABEL rather than a registration, so nothing
+# breaks when it lies and no test could see it -- the only instrument was the owner reading the menu
+# and pressing a dead key. The first case is a tripwire over EVERY item, so the next hand-typed
+# label fails here; the second is its control, because "F9" would satisfy the tripwire (F9 is bound,
+# to the surface colours) while still naming the wrong key for the screenshot.
+run Tf2DemoSalvage.Viewer3D.Tests viewer    108
 
 echo
 echo "The UI suite is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."
