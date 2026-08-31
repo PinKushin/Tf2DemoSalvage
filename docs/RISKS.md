@@ -15714,9 +15714,25 @@ assertion.
 The second new test is the control at `curtime = 0.8104`, wave **−1.999**, truncating to −1. It is
 what stops the fix overshooting into "drop the sign test altogether", which would pass the first.
 
-## B247 — `dem_stringtables` is never read, so most instance baselines are missing — OPEN
+## B247 — `dem_stringtables` is never read; the baselines are missing for a reason still unknown — OPEN
 
-Found while trying to fix B245, and it is the reason that fix cannot land yet.
+**The title of this entry was wrong for about ten minutes and is corrected here rather than
+quietly.** It first said the missing instance baselines are *because* `dem_stringtables` is unread.
+Both halves are facts; the causal link between them is not, and the check that would have
+established it says the opposite.
+
+Extracting that command's payload and searching its actual bytes — 711,266 of them — finds
+`downloadables` and **not** `instancebaseline`, `modelprecache`, `soundprecache` or `userinfo`. So
+whatever this project is failing to read there, the class baselines are not sitting in it waiting to
+be found.
+
+**And the search that first suggested otherwise was a broken instrument, which is the fourth
+tonight.** Grepping the hex text of the assembly dump reported "absent" for `modelprecache`,
+`soundprecache` and `userinfo` as well — three tables that certainly exist — so its "absent" meant
+nothing at all. The control is what caught it: searching for something that must be there, and
+finding it missing, says the instrument is broken rather than the subject.
+
+What remains established, and it is still worth acting on.
 
 A TF2 demo carries string-table state in **two** places: the `svc_CreateStringTable` /
 `svc_UpdateStringTable` net messages, and a `dem_stringtables` **demo command** written at the
@@ -15732,7 +15748,11 @@ writer, which map it to a name and print nothing.
 | `tf2-2007-build3258-pov` | 216 | **0** |
 
 Zero. An era demo whose entities enter the potentially visible set throughout, and not one class
-baseline — while the file carries exactly one `dem_stringtables` block at tick 0 that nothing opens.
+baseline.
+
+The file does carry exactly one `dem_stringtables` block at tick 0 that nothing opens — a separate
+gap, and a real one — but that block is **not** where these baselines are. Two facts, one paragraph,
+no arrow between them.
 
 **Why it matters beyond the count.** An entity entering the visible set is a delta against its class
 baseline, so every property the baseline would have supplied is one this reader never receives.
@@ -15742,21 +15762,34 @@ an empty entry, not at all. The engine cannot be in that position: `engine.dll` 
 `CL_CopyNewEntity: GetClassBaseline(%d) failed.`, which is a `Host_Error`, so a class whose
 entities enter the PVS must have a baseline available to a real client.
 
-**This blocks B245.** The fix drafted there — an `Enter` forgets and re-decodes from its baseline,
-which is what `CL_CopyNewEntity` does — is correct in principle and *dangerous while this is open*,
-because forgetting state that a baseline we never read was supposed to restore deletes it outright.
-The branch `fix/enter-pvs-resets-from-baseline` holds that work, and it is deliberately not merged:
+**This holds up B245, and the open question is now sharper.** The fix drafted there — an `Enter`
+forgets and re-decodes from its baseline, which is what `CL_CopyNewEntity` does — produces the
+intended outcome: the bonesaw reads `WEAPON_NOT_CARRIED` and player 20 holds exactly one weapon at
+tick 14000. It sits on the branch `fix/enter-pvs-resets-from-baseline`, unmerged, and it fails two
+tests that encode B231 — `EntityState_LeavingTheVisibleSet_IsNotDestruction` and
+`Apply_AnEntityReenteringWithTheSameSerial_KeepsWhatItAlreadyKnew` — both asserting that a
+re-entering entity keeps what it knew, using fixtures that supply no baseline at all.
 
-- it makes the bonesaw read `WEAPON_NOT_CARRIED` and player 20 hold exactly one weapon, which is
-  the intended outcome, and
-- it fails two tests that encode B231 — `EntityState_LeavingTheVisibleSet_IsNotDestruction` and
-  `Apply_AnEntityReenteringWithTheSameSerial_KeepsWhatItAlreadyKnew` — both of which assert that a
-  re-entering entity keeps what it knew, using fixtures that supply no baseline at all.
+**What has to be answered first is where a real client gets a baseline for a class this recording
+never names.** Two readings, and they differ in what our decoder should do:
 
-Whether those two tests are wrong or merely unrealistic cannot be settled until baselines are
-actually being read. That is the order of work: **read `dem_stringtables` first, then re-run the
-B245 experiment against real baselines, and only then judge the B231 tests.**
+1. **The client synthesises an empty one.** `GetClassBaseline` for a class whose
+   `m_InstanceBaselineIndex` is `INVALID_STRING_INDEX` returns a zero-length baseline rather than
+   failing, so an entering entity decodes from all-defaults. Under this reading the branch is
+   simply CORRECT, the two B231 tests assert a situation the engine never produces, and they want
+   rewriting with a baseline supplied.
+2. **The recording is lossy and a real client would be equally confused.** Then the branch invents
+   a behaviour Valve does not have, and B245 closes as "not a defect" — except that the owner's
+   judgement, from playing the game, is that a medic never visibly holds two weapons.
 
-**The parser does not exist yet.** `StringTableCodec` is the `svc_` message encoding, which is a
-different format from the demo command's — the command carries its own table count, per-table names,
-entry names, and optional user data.
+`server_class.h:77` documents `m_InstanceBaselineIndex` as *"INVALID_STRING_INDEX if not initialized
+yet"*, which is suggestive of the first and does not establish it: the client-side
+`CBaseClientState::GetClassBaseline` is engine code and not in the SDK. **That function is the next
+thing to read, in the decompiler**, and the `CL_CopyNewEntity: GetClassBaseline(%d) failed.` string
+in `engine.dll` is the anchor that finds it.
+
+**Separately, `dem_stringtables` should be parsed anyway.** It is 711 KB of unread state in every
+demo, and "we do not read it" is not a thing to leave standing whatever it turns out to hold.
+`StringTableCodec` is the `svc_` message encoding, which is a different format from the demo
+command's — the command carries its own table count, per-table names, entry names and optional user
+data.
