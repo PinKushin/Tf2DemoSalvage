@@ -28,9 +28,12 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 /// class has no entry of its own (<c>tf_item_schema.cpp:1058</c>), and the base is
 /// <c>model_player</c> (<c>econ_item_schema.cpp:2376</c>).
 ///
-/// **Styles are not implemented and this says so rather than leaving it silent.** A style is a
-/// per-item variant the owner chooses; the demo does carry the choice, but no weapon in the corpus
-/// uses one and building it untested would be a guess. A styled item draws its base model here.
+/// **Styles are not implemented, and the reason is narrower than it looks.** `GetItemStyle` ends at
+/// `GetSOCData()->GetStyle()`, and `GetSOCData` finds an inventory only for an account the client
+/// subscribes to — its own (`econ_item_view.cpp:839`). A live client watching another player gets
+/// `INVALID_STYLE_INDEX` and falls through to the per-class-then-base order below, which is what
+/// this does. The real gap is the `item style override` ATTRIBUTE, which is networked and which a
+/// demo carries; nothing here decodes attributes yet (`RISKS.md` B234).
 ///
 /// **The definition itself usually holds none of this.** A stock weapon is four lines and a
 /// <c>prefab</c>, and the model lives in the prefab — so resolution is a chain, and a reader that

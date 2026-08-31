@@ -160,10 +160,18 @@ public sealed class ItemSchema
     /// <param name="playerClass">Whose hands, as <c>m_iClass</c> gives it.</param>
     /// <returns>A model path, or <c>null</c> when the schema names none.</returns>
     /// <remarks>
-    /// **Styles are deliberately not implemented.** A style is a per-item variant its owner picks,
-    /// and the engine consults it first. Nothing in the corpus uses one, so building it would be a
-    /// guess with no way to check it — a styled item resolves to its base model here, which is the
-    /// right model in the wrong variant rather than nothing at all.
+    /// **Styles are not implemented, and this is very nearly what the engine does anyway** — which
+    /// is not what an earlier version of this note claimed. `CEconItemView::GetItemStyle`
+    /// (`econ_item_view.cpp:731`) ends at `GetSOCData()->GetStyle()`, and `GetSOCData` finds an
+    /// inventory only for an account the client is subscribed to — its own (`:839`). A live client
+    /// watching another player therefore gets `INVALID_STYLE_INDEX`, `GetStyleInfo` returns null,
+    /// and the lookup falls through to exactly the per-class-then-base order below. In a demo there
+    /// is no subscribed inventory at all.
+    ///
+    /// **The one real gap is the `item style override` attribute**, which is a networked attribute
+    /// rather than backpack state and which a demo does carry — see `RISKS.md` B234. Nothing here
+    /// decodes attributes yet, so an item wearing that attribute draws the wrong variant. Every
+    /// other styled item draws what the engine would have drawn.
     /// </remarks>
     public string? ModelFor(int definitionIndex, int playerClass)
     {

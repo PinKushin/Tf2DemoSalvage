@@ -14828,3 +14828,55 @@ shape: a mechanism with two halves, one implemented. A weapon's model from the w
 item; a disguise's body but not its gear; a per-class model's map form but not its pattern form.
 None was found by a test, because in each case the tests asserted the half that existed. All three
 were found by looking at what the program actually produced.
+
+## B234 — Valve networks item attributes FOR DEMOS and we decode none of them — OPEN
+
+**There is a send table named for this project's exact use case**, and reading its name is how this
+was found:
+
+```cpp
+SendPropDataTable( SENDINFO_DT( m_AttributeList ), &REFERENCE_SEND_TABLE( DT_AttributeList ) ),
+SendPropDataTable( SENDINFO_DT( m_NetworkedDynamicAttributesForDemos ), ... ),
+```
+
+`econ_item_view.cpp:191`. The server fills the second on every `CEconEntity::InitializeAttributes`
+(`econ_entity.cpp:251`) — unconditionally, not only while a demo is being recorded. Each entry is a
+definition index and thirty-two raw bits:
+
+```cpp
+SendPropInt( SENDINFO( m_iAttributeDefinitionIndex ), -1, SPROP_UNSIGNED ),
+SendPropInt( SENDINFO_NAME( m_flValue, m_iRawValue32 ), 32, SPROP_UNSIGNED ),
+```
+
+with an older float prop kept beside it and commented *"for demo compatibility only"*. That is paint
+colours, unusual effects, killstreak sheens and the style override, all sitting decoded-but-unread:
+`docs/WIRE-COVERAGE.md` lists `m_AttributeList` and `m_AttributeManager` among the fields this
+project ignores.
+
+**Measured across the era corpus** (`dotnet run --project tools/Tf2DemoSalvage.Probe -- item-attributes`),
+which dates the mechanism — Valve publishes what changed between protocols and never when:
+
+| protocol | year | what the schema declares |
+|---|---|---|
+| 11 | 2007 | nothing |
+| 14 | 2008 | nothing |
+| 15 | 2009 | `DT_ScriptCreatedAttribute`, `m_iAttributeDefinitionIndex` — value still a float |
+| 16 | 2011 | `DT_AttributeList` arrives |
+| 24 | 2013 | `m_iRawValue32` arrives — the value becomes 32 raw bits |
+| 24 | modern | `m_NetworkedDynamicAttributesForDemos`, `m_bOnlyIterateItemViewAttributes` |
+
+The array bound moves with it: `_LPT_m_Attributes_15` on every dated specimen and
+`_LPT_m_Attributes_20` on a modern one, so `MAX_ATTRIBUTES_PER_ITEM` went from 15 to 20 somewhere
+after 2013. *Measured on the corpus.* **Note the last two rows share a protocol number** — one more
+demonstration that a protocol number dates nothing.
+
+**What it would buy, in order of visibility:** paint (a hat drawn in the stock colour is visibly
+wrong on a painted loadout), unusual particle effects (drawn as nothing at all today), the style
+override, and killstreak sheens.
+
+**And it settles a question that was previously filed wrong.** `ItemSchema` used to say styles were
+unimplemented and that a styled item therefore "draws the right model in the wrong variant". That is
+not a divergence for anyone but the recorder: `GetItemStyle` ends at `GetSOCData()->GetStyle()` and
+`GetSOCData` finds an inventory only for an account the client subscribes to — its own
+(`econ_item_view.cpp:839`). A live client watching another player already gets
+`INVALID_STYLE_INDEX`. The style gap is exactly one attribute wide, and it is this entry.
