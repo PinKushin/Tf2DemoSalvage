@@ -44,6 +44,21 @@ public sealed class ItemSchemaTests
                         "spy"   "models/player/items/spy/hat_spy.mdl"
                     }
                 }
+                "cap"
+                {
+                    "model_player_per_class"
+                    {
+                        "basename" "models/player/items/%s/%s_cap.mdl"
+                    }
+                }
+                "badge"
+                {
+                    "model_player_per_class"
+                    {
+                        "basename" "models/player/items/%s/badge_%s.mdl"
+                        "spy" "models/player/items/spy/special_badge.mdl"
+                    }
+                }
             }
             "items"
             {
@@ -66,6 +81,16 @@ public sealed class ItemSchemaTests
                 {
                     "name" "SOMETHING_ITS_OWN"
                     "model_player" "models/weapons/c_models/c_special.mdl"
+                }
+                "261"
+                {
+                    "name" "MANN_CO_CAP"
+                    "prefab" "cap"
+                }
+                "262"
+                {
+                    "name" "A_BADGE"
+                    "prefab" "badge"
                 }
             }
         }
@@ -133,6 +158,80 @@ public sealed class ItemSchemaTests
         schema.AttachesToHands(13).ShouldBeTrue();
         schema.AttachesToHands(6).ShouldBeTrue();
         schema.AttachesToHands(99).ShouldBeFalse("a hat declares no attach_to_hands");
+    }
+
+    [Test]
+    public void ModelFor_APerClassBasename_SubstitutesTheClassName()
+    {
+        // **`model_player_per_class` has two forms and only one was read.** Besides a map of class
+        // to path it may carry a single `basename` with `%s` placeholders, which
+        // `InitPerClassStringArray` (`tf_item_schema.cpp:489`) expands per class:
+        //
+        //     fmtStr.sprintf( pszBaseName, ClassUsability[i], ClassUsability[i], ClassUsability[i] );
+        //
+        // Item 261 is the Mann Co. Cap, and it is the real shape: no `model_player` at all, only a
+        // basename. Reading one form and not the other resolved 47 of a real match's cosmetics to
+        // nothing at all.
+        Read().ModelFor(261, playerClass: 1)
+            .ShouldBe("models/player/items/scout/scout_cap.mdl");
+    }
+
+    [Test]
+    public void ModelFor_APerClassBasenameForTheDemoman_SaysDemoNotDemoman()
+    {
+        // **Valve's own special case, and it is in the source with an apology attached** — the
+        // usability string is "Demoman" and the model files say `demo`, so `InitPerClassStringArray`
+        // forces it: *"If this class is the TF_CLASS_DEMOMAN, just force 'demo'"*
+        // (`tf_item_schema.cpp:526`). Without it every demoman cosmetic with a basename names a
+        // path that does not exist, which is indistinguishable on screen from naming none.
+        Read().ModelFor(261, playerClass: 4)
+            .ShouldBe("models/player/items/demo/demo_cap.mdl");
+    }
+
+    [Test]
+    public void ModelFor_AClassNamedBesideABasename_PrefersItsOwnEntry()
+    {
+        // The order inside the block: *"If there's a class specific string defined, use that"*,
+        // and only otherwise the basename. Item 262 names one for the spy and leaves the rest to
+        // the pattern.
+        Read().ModelFor(262, playerClass: 8)
+            .ShouldBe("models/player/items/spy/special_badge.mdl");
+    }
+
+    [Test]
+    public void ModelFor_AClassNotNamedBesideABasename_TakesThePattern()
+    {
+        // **The control for the test above**, and the pair is what makes either meaningful: a
+        // reader that took the basename for everyone would pass the first assertion of this pair
+        // and fail this one's partner, and a reader that took only explicit entries would do the
+        // reverse.
+        Read().ModelFor(262, playerClass: 1)
+            .ShouldBe("models/player/items/scout/badge_scout.mdl");
+    }
+
+    [Test]
+    public void ModelFor_AnUnknownClassOnAPerClassItem_TakesTheFirstClassesModel()
+    {
+        // **Slot zero is not empty, it is a copy** — `InitPerClassStringArray` ends each iteration
+        // with `if ( outputArray[0] == NULL ) outputArray[0] = outputArray[i]`, so
+        // `TF_CLASS_UNDEFINED` answers with whichever class resolved first. `CEconItemView::
+        // GetPlayerDisplayModel` then returns it before ever reaching the base model
+        // (`econ_item_view.cpp:962`).
+        //
+        // This is not academic: a prop whose owner is not a player the moment knows about resolves
+        // with no class, and this project answered nothing for every one of them.
+        Read().ModelFor(261, playerClass: 0)
+            .ShouldBe("models/player/items/scout/scout_cap.mdl");
+    }
+
+    [Test]
+    public void ModelFor_AnUnknownClassOnAnItemWithNoPerClassBlock_IsStillTheBase()
+    {
+        // The control on that: slot zero only carries a per-class answer when there IS one. An
+        // ordinary weapon must keep resolving to `model_player` when the class is unknown, which
+        // is the common case for a weapon whose owner has left.
+        Read().ModelFor(500, playerClass: 0)
+            .ShouldBe("models/weapons/c_models/c_special.mdl");
     }
 
     private static ItemSchema Read() => ItemSchema.Read(Encoding.UTF8.GetBytes(Schema));

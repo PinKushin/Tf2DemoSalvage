@@ -45,7 +45,11 @@ namespace Tf2DemoSalvage.Scene;
 /// left open on the grounds that it has not bitten yet is the shape of every bug in this file's
 /// history.
 /// </remarks>
-internal sealed class WeaponPropModels
+// Public so a probe can measure the REAL resolution rather than a second copy of the rule written
+// in the probe. A probe that reimplemented "the item wins, the wire is the fallback" would agree
+// with whoever wrote it, not with what the viewer does — which is the whole failure
+// `measure-the-output-not-the-capability` names.
+public sealed class WeaponPropModels
 {
     /// <summary>What each (item, class, player class) resolved to last time it was asked.</summary>
     /// <remarks>

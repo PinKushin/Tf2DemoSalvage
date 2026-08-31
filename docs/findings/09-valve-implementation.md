@@ -281,3 +281,68 @@ move->random_seed = MD5_PseudoRandom( move->command_number ) & 0x7fffffff;
 So it is a pure function of a field already present. A parser reporting it is not reading anything
 out of the file — which is why this project does not report it, rather than deriving a number and
 presenting it alongside measured ones. *Sourced.*
+
+## `model_player_per_class` is two different keys wearing one name
+
+A cosmetic's model is looked up per class, and the schema block that says so has **two forms**. The
+obvious one is a map:
+
+```
+"model_player_per_class"
+{
+    "scout" "models/player/items/scout/hat_scout.mdl"
+    "spy"   "models/player/items/spy/hat_spy.mdl"
+}
+```
+
+The other is a single pattern, and it is by far the more common — **5,518 occurrences in the shipped
+`items_game.txt` against a few hundred of the map form**:
+
+```
+"model_player_per_class"
+{
+    "basename"	"models/player/items/%s/%s_cap.mdl"
+}
+```
+
+`InitPerClassStringArray` (`tf_item_schema.cpp:489`) resolves both at load, per class, explicit entry
+first:
+
+```cpp
+CUtlString strClassString( pPerClassData->GetString( ClassUsabilityStrings[i], NULL ) );
+if ( !strClassString.IsEmpty() )   ... use it
+else if ( pszBaseName )            fmtStr.sprintf( pszBaseName, name, name, name );
+```
+
+*Read from published source.*
+
+**Three details that are not guessable from the schema file**, and each one is the difference
+between a model and nothing:
+
+- **The name is supplied three times to one `sprintf`.** A pattern may therefore carry up to three
+  `%s`; the shipped file uses one or two. A fourth would read adjacent stack in the engine.
+- **The demoman is `demo`, and Valve's source apologises for it in a comment**: *"the vast majority
+  of his models are whatever_demo.mdl. The RIGHT fix would be to … change all the model and content
+  files"*, followed by `if ( i == TF_CLASS_DEMOMAN ) fmtStr.sprintf( pszBaseName, "demo", "demo",
+  "demo" )` (`:519`). The schema says `demoman` everywhere else, including in the same block's
+  explicit entries. A faithful substitution that used the schema's own word names a file that does
+  not exist for every demoman cosmetic in the game, and a missing file looks exactly like a missing
+  entry.
+- **Slot zero is a copy, not an absence.** Each iteration ends with
+  `if ( outputArray[0] == NULL ) outputArray[0] = outputArray[i]` (`:541`), so `TF_CLASS_UNDEFINED`
+  answers with whichever class resolved first, and `CEconItemView::GetPlayerDisplayModel` returns it
+  before it ever reaches `model_player` (`econ_item_view.cpp:962`). An item with a per-class block
+  and no base model is therefore *still* drawable when the class is unknown — which matters here,
+  because a prop whose owner is not a player the current moment knows about has no class to offer.
+
+**What it cost us.** This project read the map form and stored `basename` as a class name, so it sat
+in the table under a class nobody plays and was never looked up. Measured on a real match afterwards:
+**48 of 252 distinct (item, class) pairs resolved to no model at all, and every one was a cosmetic**.
+After the fix, two — both item 241, the Duel MiniGame, an action-slot tool whose `model_player` is
+literally `""` in the schema and which has no model to draw. *Measured on the corpus.*
+
+**The shape of the mistake is worth more than the mistake.** One key, two forms, one of them read —
+and the half that was missing failed silently, because a cosmetic that names no model and a cosmetic
+whose name was never parsed are the same empty string by the time anything downstream sees it. The
+same shape has now appeared three times in a fortnight: a weapon's model read from the wire but not
+from its item, a disguise's body honoured but not its gear, and this.

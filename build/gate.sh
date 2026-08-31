@@ -696,7 +696,15 @@ run Tf2DemoSalvage.Presentation.Tests presentation 424
 # their mean colour, which is how a claim about how something LOOKS gets a number: the frame is
 # R49 G33 B16 -- orange in a 3:2:1 ratio -- and the mesh R82 G77 B73, neutral grey. Both correct,
 # which is what moved the gate hunt off materials and onto something only a screenshot can settle.
-run Tf2DemoSalvage.Content.Tests  content   836
+# 836 -> 843: `model_player_per_class` has TWO forms and this read one (B233). Besides a map of
+# class to path the block may carry a single `basename` with `%s` placeholders, expanded per class
+# by InitPerClassStringArray (tf_item_schema.cpp:489) -- and the reader stored "basename" as though
+# it were a class nobody plays, so every item using that form resolved to no model. It appears 5,518
+# times in the shipped schema. Six unit cases plus one conformance case on the shipped file.
+# Three are controls: an explicitly named class must beat the pattern, a class NOT named must take
+# it, and an item with no per-class block at all must still answer its base model when the class is
+# unknown -- without that last one the slot-zero rule would swallow every weapon whose owner left.
+run Tf2DemoSalvage.Content.Tests  content   843
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2

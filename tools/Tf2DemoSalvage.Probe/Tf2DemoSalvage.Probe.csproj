@@ -34,6 +34,11 @@
          survive, which weapon a player is holding. Plain net10.0, so this stays runnable
          anywhere. -->
     <ProjectReference Include="../../managed/Tf2DemoSalvage.Scene/Tf2DemoSalvage.Scene.csproj" />
+
+    <!-- Presentation, for where Steam's library index is. That path is written down once
+         (MapProvider.SteamLibraryFile) and a probe that typed its own copy would find a different
+         install from the viewer. Plain net10.0, no toolkit. -->
+    <ProjectReference Include="../../managed/Tf2DemoSalvage.Presentation/Tf2DemoSalvage.Presentation.csproj" />
   </ItemGroup>
 
 </Project>

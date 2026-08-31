@@ -14791,3 +14791,40 @@ blind in three different ways, and each looked like bad luck at the time:
 the weapon rule's `GetWeaponAssociatedWith` branch, and `TEAM_SPECTATOR` — a SourceTV recording has
 no local player, and this treats that as "not an enemy", so a spectator sees the spy's own loadout
 rather than the disguise's.
+
+## B233 — 48 of 252 items drew nothing, because one schema key has two forms and we read one — FIXED 2026-08-30
+
+**Found by a probe, and only because the probe was cheap enough to write.** The owner had said the
+suite makes probes expensive (D126), so this one is a console program: it walks a real match, hands
+every item-bearing prop to the production resolver, and prints the ones that come back with no
+model. First run, before any theory existed: **48 of 252 distinct (item, class) pairs with nothing
+to draw, and every single one a `CTFWearable`.** No weapon at all — which killed the standing
+theory, since the open bug was filed as *"you never did fix the medigun"* and every weapon in the
+match resolved.
+
+**The cause.** `model_player_per_class` may be a map of class to path, or a single `basename`
+carrying `%s` placeholders that the engine expands per class. This project read the first form and
+stored `basename` as though it were a class name, where nothing ever looked it up. **It appears
+5,518 times in the shipped `items_game.txt`.**
+
+Three details, all from `InitPerClassStringArray` (`tf_item_schema.cpp:489`) and none guessable from
+the schema file — see `docs/findings/09-valve-implementation.md` for the citations:
+
+- the name is supplied three times to one `sprintf`, so a pattern may carry up to three `%s`;
+- the demoman is forced to `"demo"` rather than `"demoman"`, with an apology in the source;
+- slot zero is a copy of the first class's answer, not an absence, so an item with a per-class block
+  and no `model_player` still resolves when the class is unknown.
+
+**After the fix, two remain**, and both are correct: item 241 is the Duel MiniGame, an action-slot
+tool whose `model_player` is literally `""`.
+
+**Still not implemented, and it is the next thing here:** `styles`. A style is a per-item variant
+its owner picks, `CEconItemView::GetPlayerDisplayModel` consults it before anything else
+(`econ_item_view.cpp:931`), and a style may carry its own `model_player_per_class`. A styled item
+draws its base model — the right item in the wrong variant, rather than nothing.
+
+**What this says about the method.** The three most expensive bugs of the last fortnight are one
+shape: a mechanism with two halves, one implemented. A weapon's model from the wire but not from its
+item; a disguise's body but not its gear; a per-class model's map form but not its pattern form.
+None was found by a test, because in each case the tests asserted the half that existed. All three
+were found by looking at what the program actually produced.
