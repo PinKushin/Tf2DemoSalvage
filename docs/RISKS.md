@@ -15222,3 +15222,50 @@ working as intended rather than something we could not draw.
 `ShouldDraw`. What was wrong was the SEAM: a rule about drawing was applied to presence, and the two
 look identical from any test that only ever asks about an unparented entity. The test that tells
 them apart is the one with a parent and a child in it, and that is now in the suite.
+
+## B241 — a baked prop was placed by its own local pose, so every grate drew at the map origin — FIXED 2026-08-31, and the gates are STILL empty
+
+**`EntityModelSet.Instances` built each prop's transform from `prop.Pose` directly.** For a parented
+entity that pose is a LOCAL offset, and every setup gate's grate is a `CDynamicProp` on a `func_door`
+with a local origin of (0,0,0) — so all six drew at the map origin. `Simulate` composes the parent
+chain for a SKINNED model (`posed.EntityTransform = PlacementOf(prop)`) and the draw loop, which
+every baked prop takes, never did.
+
+Fixed by composing in Valve's order — `CalcAbsolutePosition`'s third branch,
+`ConcatTransforms( parentToWorld, entityToParent )` — and **verified on the demo**:
+
+```
+tf2-2026-pub-pov-clean.dem on cp_fulgur tick 870: 507 props, 35 instances
+  at (5720 -3248 504)  door_grate003_top.mdl
+  at (5416 -2168 552)  door_grate003_top.mdl
+  at (5568 -2552 424)  door_grate003_top.mdl
+```
+
+Those are the three gates' exact positions. **And the owner still reports the doorway empty.**
+
+### Two instruments that were lying, and both had been argued from
+
+- **The viewer's log line is the ILLUMINATION point.** `door_grate003_top at (-0.1, -0, 0) reflects
+  cubemap 19 of 45` — that "at" comes from `ModelLighting`'s sample position, taken from the prop's
+  local pose to choose a cubemap. It reads (0,0,0) for a parented prop whether the placement works
+  or not. Three rounds of this bug were reasoned from that number. `instance` is the probe that
+  reports `ModelInstance.Matrix` instead.
+- **The unit test cannot see the composition order.** Swapping `parent ∘ child` for
+  `child ∘ parent` leaves `Instances_ABakedPropOnAParent_IsPlacedByTheParent` passing, because the
+  fixture's model goes down `Simulate`'s skinned path where `Absolute` returns the parent's pose
+  outright — the branch under test never runs. It is marked in the file as not testing what its
+  name implies rather than left looking like proof. **A fixture that reaches the baked branch is
+  still owed.**
+
+### What is now known to be RIGHT, so the next attempt does not re-measure it
+
+| | |
+|---|---|
+| instance matrices | the three gates' exact positions |
+| render bounds | `WorldBoxFor` follows the parent for a parented prop |
+| batches | `drawing 2 of 2 batches — kept [960:opaque/textured, 961:opaque/textured]` |
+| materials | `VertexLitGeneric`, one texture each, 512×512 orange and 256×256 alpha-tested |
+| door brushwork | no longer drawn (B240), so nothing is in front of them |
+
+**Still unexplained.** Everything measurable says the grates are placed, bounded, batched and
+textured, and the doorway is empty on screen.

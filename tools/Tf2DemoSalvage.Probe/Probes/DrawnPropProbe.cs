@@ -105,7 +105,11 @@ public sealed class DrawnPropProbe : IProbe
                 + $"entities [{string.Join(
                     " ", group.Take(8).Select(prop =>
                         prop.EntityIndex.ToString(CultureInfo.InvariantCulture)))}] "
-                + $"first at ({first.Pose.X:0} {first.Pose.Y:0} {first.Pose.Z:0})");
+                + $"first at ({first.Pose.X:0} {first.Pose.Y:0} {first.Pose.Z:0}) "
+                + $"angles ({first.Pose.Pitch:0.#} {first.Pose.Yaw:0.#} {first.Pose.Roll:0.#}) "
+                + $"attached {first.AttachedTo?.ToString(CultureInfo.InvariantCulture) ?? "none"} "
+                + $"merged {first.BoneMerged} "
+                + $"mode {first.Pose.RenderMode.ToString(CultureInfo.InvariantCulture)}");
         }
     }
 }

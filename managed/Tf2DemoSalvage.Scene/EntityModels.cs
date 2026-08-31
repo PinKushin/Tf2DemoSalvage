@@ -736,6 +736,58 @@ public sealed class EntityModelSet
         return placement;
     }
 
+    /// <summary>Where a prop actually is, with its parent chain applied.</summary>
+    /// <remarks>
+    /// **`CalcAbsolutePosition`'s third branch** (`c_baseentity.cpp:4350`), the one for a parented
+    /// entity that is NOT bone-merged:
+    ///
+    /// <code>
+    ///   AngleMatrix( GetLocalAngles(), matEntityToParent );
+    ///   MatrixSetColumn( GetLocalOrigin(), 3, matEntityToParent );
+    ///   ConcatTransforms( GetParentToWorldTransform( tmp ), matEntityToParent, ... );
+    /// </code>
+    ///
+    /// Parent first, child second — the child's origin and angles are an offset FROM the parent,
+    /// never a world position. A bone-merged child is the other branch and keeps
+    /// <see cref="Absolute"/>: its own origin is the zero `FollowEntity` wrote and its parent's
+    /// place is the whole answer.
+    ///
+    /// **Bounded by the same depth for the same reason as `Absolute`:** the wire should carry no
+    /// cycle and a demo this project exists to open may carry anything. A chain that runs past the
+    /// budget keeps the prop's own transform, which draws it in the wrong place rather than not at
+    /// all.
+    /// </remarks>
+    private PropTransform WorldTransform(SceneProp prop, int budget)
+    {
+        ScenePose pose = prop.Pose;
+
+        PropTransform local = new(
+            pose.X, pose.Y, pose.Z, pose.Pitch, pose.Yaw, pose.Roll, pose.Scale);
+
+        if (prop.AttachedTo is not { } wearer || budget <= 0)
+        {
+            return local;
+        }
+
+        if (!_propsByEntity.TryGetValue(wearer, out SceneProp parent))
+        {
+            return local;
+        }
+
+        // A merged child rides the parent's skeleton, so its own transform is not composed at all —
+        // the parent's place IS its place, which is what `Absolute` already returns.
+        if (prop.BoneMerged)
+        {
+            ScenePose merged = Absolute(prop, budget);
+
+            return new PropTransform(
+                merged.X, merged.Y, merged.Z,
+                merged.Pitch, merged.Yaw, merged.Roll, merged.Scale);
+        }
+
+        return WorldTransform(parent, budget - 1).Concat(local);
+    }
+
     /// <summary>The pose a prop is actually AT, following its parent chain up.</summary>
     /// <remarks>
     /// **<c>CalcAbsolutePosition</c>'s bone-merge branch** (<c>c_baseentity.cpp:4387</c>): a
@@ -1885,10 +1937,14 @@ public sealed class EntityModelSet
 
             _tally.Drawn();
 
-            ScenePose pose = prop.Pose;
-
-            PropTransform transform = new(
-                pose.X, pose.Y, pose.Z, pose.Pitch, pose.Yaw, pose.Roll, pose.Scale);
+            // **A parented prop is placed by its PARENT's transform, and this loop never asked**
+            // (B241). `Simulate` above composes the chain for a SKINNED model — `posed.
+            // EntityTransform = PlacementOf(prop)` — and every BAKED prop came through here and was
+            // placed at its own pose, which for a parented entity is its LOCAL offset. Every setup
+            // gate's grate is a `CDynamicProp` on a `func_door` with a local origin of (0,0,0), so
+            // all six drew at the map origin. The door's brushwork stood where they should have
+            // been, which is why nobody could see it until `kRenderNone` stopped drawing that.
+            PropTransform transform = WorldTransform(prop, AnimatingEntity.MaximumFollowDepth);
 
             // **Lit, logged and counted by collaborators rather than here** (B181). Each of these
             // was sixty to eighty lines inside this loop, and none of them is about posing a model —
