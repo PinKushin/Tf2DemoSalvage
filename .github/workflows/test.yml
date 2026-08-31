@@ -246,7 +246,7 @@ jobs:
           # models loaded, so all seven run on CI.
           # 270 -> 277 on 2026-08-30: the spyMask bodygroup (B236). Hand-built players and a stub
           # resolver, so all seven run without a game install.
-          ./build/assert-test-count.sh '**/scene.trx' 280 Scene
+          ./build/assert-test-count.sh '**/scene.trx' 283 Scene
 
       # **Coverage, gated PER ASSEMBLY rather than per report.** A Cobertura file's root line-rate
       # averages every assembly the run loaded, including ones the suite never touches — measured

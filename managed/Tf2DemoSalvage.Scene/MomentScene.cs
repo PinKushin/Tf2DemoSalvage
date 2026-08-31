@@ -666,7 +666,11 @@ public sealed class MomentScene : IGameSystemPerFrame
                 hands,
                 weaponModel,
                 info.Seconds,
-                info.IntervalPerTick);
+                info.IntervalPerTick,
+
+                // The owner's team, so the arms and the weapon draw in their own colours
+                // (B242). `GetSkin` takes it; nothing here was passing it.
+                held?.Team);
 
         if (scene.Props.Count == 0)
         {

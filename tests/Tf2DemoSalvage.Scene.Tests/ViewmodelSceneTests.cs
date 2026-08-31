@@ -29,6 +29,69 @@ public sealed class ViewmodelSceneTests
     private const int Tick = 100;
 
     [Test]
+    public void Build_ABluPlayersViewmodel_DrawsInTheBlueSkinFamily()
+    {
+        // **The owner, watching his own demos:** *"the 1st person pov always showing a red player
+        // viewmodel"* (B242). `CEconItemView::GetSkin( iTeam, bViewmodel )` takes the owner's team;
+        // nothing here was passing one, so every viewmodel drew family 0 — and family 0 is RED on
+        // every two-family `c_` model. Measured on the shipped files:
+        //
+        //   c_medigun.mdl     skin0 'c_medigun'       skin1 'c_medigun_blue'
+        //   c_medic_arms.mdl  skin0 'medic_red'       skin1 'medic_blue'
+        //
+        // The player's own BODY has taken its skin from its team since `PlayerProps` was written.
+        // The hands in front of the camera never did.
+        ViewmodelSceneResult scene = new ViewmodelScene().Build(
+            new FakeViewmodels { MainHand = Weapon("models/weapons/v_rocketlauncher.mdl") },
+            Tick,
+            Player,
+            At,
+            hands: null,
+            heldWeapon: null,
+            team: SceneTeams.Blu);
+
+        scene.Props.ShouldNotBeEmpty();
+        scene.Props[0].Pose.Skin.ShouldBe(1);
+    }
+
+    [Test]
+    public void Build_ARedPlayersViewmodel_DrawsInTheRedSkinFamily()
+    {
+        // **The control, and it is the half that was accidentally right.** RED is family 0, which
+        // is also what an unset skin gives — so a test with only the BLU case could be satisfied by
+        // a rule that always returned 1, and one with only the RED case by changing nothing at all.
+        ViewmodelSceneResult scene = new ViewmodelScene().Build(
+            new FakeViewmodels { MainHand = Weapon("models/weapons/v_rocketlauncher.mdl") },
+            Tick,
+            Player,
+            At,
+            hands: null,
+            heldWeapon: null,
+            team: SceneTeams.Red);
+
+        scene.Props.ShouldNotBeEmpty();
+        scene.Props[0].Pose.Skin.ShouldBe(0);
+    }
+
+    [Test]
+    public void Build_APlayerWhoseTeamIsNotKnownYet_DrawsInTheFirstFamily()
+    {
+        // A player entity can exist before the demo says which side they are on, and
+        // `PlayerSkin.ForTeam` answers 0 there deliberately rather than flashing them blue for a
+        // tick. The viewmodel follows the same rule as the body, which is the point.
+        ViewmodelSceneResult scene = new ViewmodelScene().Build(
+            new FakeViewmodels { MainHand = Weapon("models/weapons/v_rocketlauncher.mdl") },
+            Tick,
+            Player,
+            At,
+            hands: null,
+            heldWeapon: null);
+
+        scene.Props.ShouldNotBeEmpty();
+        scene.Props[0].Pose.Skin.ShouldBe(0);
+    }
+
+    [Test]
     public void Build_APlayerHoldingNothing_DrawsNothing()
     {
         ViewmodelSceneResult scene = new ViewmodelScene().Build(

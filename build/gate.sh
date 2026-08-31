@@ -438,7 +438,14 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 # and the third is the one the first attempt broke: a child of a kRenderNone parent must still find
 # that parent, because the parent stays in the scene and only its drawing is refused. The other
 # control keeps this from deleting the game -- every mode but 10 is a blend that still draws.
-run Tf2DemoSalvage.Scene.Tests    scene     280
+# 280 -> 283: the viewmodel takes its owner's team skin (B242). CEconItemView::GetSkin takes the
+# team and nothing was passing one, so every viewmodel drew family 0 -- which is RED on every
+# two-family c_ model: c_medigun skin0 'c_medigun' skin1 'c_medigun_blue', c_medic_arms skin0
+# 'medic_red' skin1 'medic_blue'. The player's BODY has taken its skin from its team since
+# PlayerProps was written; the hands in front of the camera never did. Two of the three are controls
+# -- RED is family 0, which is ALSO what an unset skin gives, so a BLU-only test could be satisfied
+# by a rule that always returns 1 and a RED-only test by changing nothing.
+run Tf2DemoSalvage.Scene.Tests    scene     283
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
