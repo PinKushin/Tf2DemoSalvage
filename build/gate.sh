@@ -199,7 +199,13 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # grate prop is parented to one -- so the children lost the transform they hang off and every gate
 # vanished outright. ShouldDraw stops an entity DRAWING; CalcAbsolutePosition composes a child onto
 # its parent without asking whether the parent renders. The rule lives in Scene now.
-run Tf2DemoSalvage.Core.Tests     core     1599
+# 1599 -> 1602: a weapon's m_iState belongs to the MOMENT, not to the track (B244). It was a track
+# scalar, written while the demo was parsed, so every reader asking about a tick received the state
+# at the recording's LAST tick -- and a medic whose medigun happened to be holstered at the end drew
+# empty-handed for the entire demo. Two of the three are controls, and both are needed: asking only
+# about the early tick passes against a track frozen at the FIRST state, which is the same bug
+# mirrored, and only the holstered-then-drawn case exercises a weapon coming back into a hand.
+run Tf2DemoSalvage.Core.Tests     core     1602
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.

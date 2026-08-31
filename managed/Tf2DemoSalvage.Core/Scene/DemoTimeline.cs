@@ -2119,10 +2119,12 @@ public sealed class DemoTimeline
         // player's weapon by OWNER and a carried weapon that sends an origin is parented to nobody.
         track.OwnedBy = state.Owner();
 
-        // Kept current for the same reason as the others: a weapon is holstered and drawn again as
-        // the player switches, so a state fixed at the first delta would freeze whichever weapon
-        // happened to be out when the track began.
-        track.WeaponState = state.WeaponState();
+        // **The weapon state is written into the POSE below rather than here** (B244). The comment
+        // this replaces said "kept current … a state fixed at the first delta would freeze whichever
+        // weapon happened to be out when the track began" — which had the hazard exactly right and
+        // the cure exactly backwards. Keeping a scalar current while parsing does not make it
+        // current when READ: by then it holds the last value the whole demo wrote, so the state
+        // froze at the demo's end instead of at its beginning.
 
         // **Which point on the wearer, for the items that hang from one rather than merging.**
         // Kept current for the same reason the wearer is: it can arrive on a later delta than the
@@ -2209,6 +2211,19 @@ public sealed class DemoTimeline
                 // zero and no assertion could tell that from a demo where zero was correct.
                 Skin = state.Skin() ?? 0,
                 Cycle = state.Cycle() ?? 0f,
+
+                // **In the POSE because it changes while the entity lives, which is the test the
+                // other nine track scalars pass and this one does not** (B244). A weapon is
+                // holstered and drawn again as its owner switches, and `ShouldDraw` reduces to
+                // `m_iState == WEAPON_IS_ACTIVE` for another player's weapon — so a value read off
+                // the track answers with the state at the END of the recording and a medic whose
+                // medigun was away at the final tick drew empty-handed for the whole demo.
+                //
+                // Null rather than 0 for anything that is not a weapon: `m_iState` is declared by
+                // `DT_BaseCombatWeapon`, so a wearable never sends it, and 0 is `WEAPON_NOT_CARRIED`
+                // — a real state a dropped weapon has. Conflating the two would strip the shield
+                // off every demoman.
+                WeaponState = state.WeaponState(),
 
                 // EF_NODRAW, or gone from the visible set. A taken health pack is hidden rather
                 // than deleted because it respawns, so this is a property of the moment.
@@ -2324,7 +2339,13 @@ public sealed class DemoTimeline
             {
                 into.Add(new SceneProp(
                     track.EntityIndex, track.ModelPath, track.Kind, Moving(track, tick, pose),
-                    track.AttachedTo, track.AttachmentPoint, track.OwnedBy, track.WeaponState,
+
+                    // **From the POSE, because the weapon state is the one of these that changes
+                    // while an entity lives** (B244). The rest — the parent, the owner, the item,
+                    // the class — are fixed for a track's lifetime, so reading them off the track
+                    // is right; reading `m_iState` off it answered with the demo's final tick, and
+                    // a medic whose medigun was holstered at the end never drew it at all.
+                    track.AttachedTo, track.AttachmentPoint, track.OwnedBy, pose.WeaponState,
                     track.BoneMerged, track.ItemDefinitionIndex, track.ClassName,
                     track.OfDisguise,
                     OfRecordersTeam: recorderTeam is { } mine && track.TeamNumber == mine));

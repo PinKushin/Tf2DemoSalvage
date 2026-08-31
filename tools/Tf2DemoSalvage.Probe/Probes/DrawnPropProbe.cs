@@ -89,17 +89,26 @@ public sealed class DrawnPropProbe : IProbe
             + $"-{timeline.LastTick.ToString(CultureInfo.InvariantCulture)}, "
             + $"{props.Count.ToString(CultureInfo.InvariantCulture)} props, filter '{filter}'");
 
-        foreach (IGrouping<string, SceneProp> group in props
+        // **Grouped by model AND CLASS, and the pair is the whole point.** Grouping by model alone
+        // collapsed every prop whose model is not on the wire — 47 of them at one tick — into a
+        // single line labelled with whichever class happened to sort first, so a `CWeaponMedigun`
+        // read as a `CTFWearable` and the answer to "is the medigun a prop" was NO when it was yes.
+        //
+        // The filter matches either half for the same reason: a weapon whose model the item schema
+        // supplies has no path to search, and `medigun` is then only findable by its class.
+        foreach (IGrouping<(string Model, string Class), SceneProp> group in props
             .Where(prop => filter.Length == 0
-                || prop.ModelPath.Contains(filter, StringComparison.OrdinalIgnoreCase))
-            .GroupBy(prop => prop.ModelPath, StringComparer.OrdinalIgnoreCase)
-            .OrderBy(group => group.Key, StringComparer.Ordinal))
+                || prop.ModelPath.Contains(filter, StringComparison.OrdinalIgnoreCase)
+                || (prop.ClassName?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false))
+            .GroupBy(prop => (Model: prop.ModelPath, Class: prop.ClassName ?? string.Empty))
+            .OrderBy(group => group.Key.Model, StringComparer.Ordinal)
+            .ThenBy(group => group.Key.Class, StringComparer.Ordinal))
         {
             SceneProp first = group.First();
 
             output.WriteLine(
                 $"{(group.All(prop => kept.Contains(prop.EntityIndex)) ? "DRAWN " : "HIDDEN")} "
-                + $"{group.Count(),4}  '{group.Key}' "
+                + $"{group.Count(),4}  '{group.Key.Model}' "
                 + $"kind {first.Kind} "
                 + $"class '{first.ClassName}' "
                 + $"entities [{string.Join(

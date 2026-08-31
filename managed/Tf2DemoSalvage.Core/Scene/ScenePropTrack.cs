@@ -288,6 +288,24 @@ public readonly record struct ScenePose
     /// </remarks>
     public bool Hidden { get; init; }
 
+    /// <summary>Whether a weapon is the one in its owner's hands at this moment.</summary>
+    /// <remarks>
+    /// **<c>m_iState</c>, and it belongs to the MOMENT rather than to the entity** (B244). A player
+    /// switches weapons, so the same entity is `WEAPON_IS_ACTIVE` and then
+    /// `WEAPON_IS_CARRIED_BY_PLAYER` while remaining itself — which makes it unlike the nine other
+    /// facts a track keeps as scalars, every one of which is fixed for an entity's lifetime.
+    ///
+    /// It was a track scalar until it was measured: those are written while the demo is parsed, so
+    /// a reader asking about tick 14000 received the state at the demo's LAST tick. Every medic
+    /// whose medigun happened to be holstered at the end drew empty-handed throughout.
+    ///
+    /// Null means "not a weapon", not "state zero". `m_iState` is declared by
+    /// <c>DT_BaseCombatWeapon</c> (<c>basecombatweapon_shared.cpp:2871</c>) so a wearable never
+    /// sends it, and 0 is <c>WEAPON_NOT_CARRIED</c> — the real state of a weapon lying on the
+    /// floor, which draws.
+    /// </remarks>
+    public int? WeaponState { get; init; }
+
     /// <summary>Builds a pose at the world origin, unrotated and unanimated.</summary>
     public ScenePose()
     {
@@ -314,7 +332,8 @@ public readonly record struct ScenePose
 /// or <c>null</c> when this is not a combat weapon at all. Null is the meaningful case as often as
 /// not: <c>m_iState</c> comes from <c>DT_BaseCombatWeapon</c>, so a <c>CTFWearable</c> such as the
 /// Mantreads or a demoman's shield never sends it, and those are worn whatever is in the player's
-/// hands. See <see cref="ScenePropTrack.WeaponState"/>.
+/// hands. See <see cref="ScenePose.WeaponState"/>, which is where it is sampled from: it changes
+/// while the entity lives, so it belongs to the moment rather than to the track (B244).
 /// </param>
 /// <param name="BoneMerged">
 /// Whether it rides its parent's SKELETON — <c>EF_BONEMERGE</c>, the second branch of
@@ -366,7 +385,8 @@ public readonly record struct SceneProp(
 
     // **A combat weapon's carry state, null for anything that is not one.** The engine draws a
     // player's holstered weapons not at all and their wearables always, and the two are told apart
-    // by whether `DT_BaseCombatWeapon` was declared — see ScenePropTrack.WeaponState.
+    // by whether `DT_BaseCombatWeapon` was declared — see ScenePose.WeaponState, which is sampled
+    // per tick because a weapon is holstered and drawn again while the entity goes on being itself.
     //
     // Appended rather than inserted: every parameter here is positional, so putting it beside the
     // other attachment fields would silently re-map every call site that passes OwnedBy by
@@ -704,28 +724,17 @@ public sealed class ScenePropTrack
     /// </remarks>
     public int? OwnedBy { get; internal set; }
 
-    /// <summary>A combat weapon's carry state, or null when this is not a combat weapon.</summary>
-    /// <remarks>
-    /// **Null is the answer to "is this a weapon at all", and that is Valve's own distinction
-    /// rather than one invented here.** `m_iState` is declared by `DT_BaseCombatWeapon`
-    /// (<c>basecombatweapon_shared.cpp:2871</c>), so an entity that never derives from
-    /// `CBaseCombatWeapon` does not send it — and a `CTFWearable` is exactly that. The Mantreads,
-    /// a demoman's shield and a sniper's Razorback are wearables, and they are worn and visible
-    /// whether or not anything is "active".
-    ///
-    /// That matters because the visibility rule differs by class.
-    /// `C_BaseCombatWeapon::ShouldDraw` (<c>c_basecombatweapon.cpp:399</c>) reduces, for a weapon
-    /// owned by another player, to <c>return bIsActive</c> — so a player's holstered weapons are
-    /// not drawn. Applying that to wearables would strip the shields off every demoman.
-    ///
-    /// Values are <c>WEAPON_NOT_CARRIED 0</c>, <c>WEAPON_IS_CARRIED_BY_PLAYER 1</c> and
-    /// <c>WEAPON_IS_ACTIVE 2</c> (<c>shareddefs.h:296-298</c>).
-    ///
-    /// Carried on the track so a prop describes itself, rather than the renderer guessing from a
-    /// model path — which would be wrong in both directions here, since `c_rocketboots_soldier`
-    /// lives under <c>models/weapons/</c> and is a wearable.
-    /// </remarks>
-    public int? WeaponState { get; internal set; }
+    // **The weapon's carry state used to be a track scalar here, and that was the defect** (B244).
+    // It now lives on `ScenePose`, because it is the only one of these that CHANGES while an entity
+    // lives: a player switches weapons, so the same entity is active and then merely carried. A
+    // scalar is written as the demo is parsed and therefore answers with the recording's LAST tick,
+    // so every medic whose medigun happened to be holstered at the end drew empty-handed at every
+    // tick of the demo.
+    //
+    // The rest of the fields on this track are scalars legitimately: a weapon belongs to one
+    // player, is one item, is one class, and hangs from one parent. The test for whether a new
+    // field belongs here or in the pose is exactly that — can it change without the entity ceasing
+    // to be itself?
 
     /// <summary>Which named point on its wearer this hangs from, one-based, or null.</summary>
     /// <remarks>
@@ -1011,6 +1020,14 @@ public sealed class ScenePropTrack
             // between keyframes would look like an animation that speeds up whenever the viewer
             // scrubs, which is a symptom nobody would trace back to here.
             PlaybackRate = from.PlaybackRate,
+
+            // **Discrete, and the newest arrival on this list** (B244). A weapon is in a player's
+            // hands or it is not; there is no state part-way between holstered and drawn, and the
+            // earlier keyframe's is what a client holds until the next update contradicts it.
+            //
+            // Unlike the four above, this one was not forgotten here — it was never in the pose at
+            // all, and lived on the track as a scalar that answered with the end of the demo.
+            WeaponState = from.WeaponState,
 
             // **Fifth field on this list, and added deliberately rather than after a symptom.** Yaw,
             // Body, Skin and PlaybackRate were each forgotten here first and each defaulted to a

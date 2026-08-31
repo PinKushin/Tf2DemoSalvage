@@ -97,7 +97,15 @@ public sealed class MedigunPlacementProbe
                 + $"merged {track.BoneMerged} "
                 + $"keyframes {track.Keyframes.Count} "
                 + $"item {track.ItemDefinitionIndex?.ToString(CultureInfo.InvariantCulture) ?? "none"} "
-                + $"state {track.WeaponState?.ToString(CultureInfo.InvariantCulture) ?? "none"} "
+                // **The state at the LAST keyframe, and it is named that way on purpose** (B244).
+                // It used to be a track scalar and read as though it described the track; it is a
+                // property of each moment, because a weapon is holstered and drawn again while the
+                // entity goes on being itself. A track-level report can only pick one.
+                + $"finalstate "
+                + $"{(track.Keyframes.Count > 0
+                    ? track.Keyframes[^1].Pose.WeaponState?.ToString(CultureInfo.InvariantCulture)
+                        ?? "none"
+                    : "none")} "
                 + $"owner {track.OwnedBy?.ToString(CultureInfo.InvariantCulture) ?? "none"} "
                 + $"{track.ClassName} '{track.ModelPath}'");
         }
