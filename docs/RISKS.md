@@ -15409,5 +15409,36 @@ through `GetStyleSkin`. This takes RED 0 / BLU 1 — correct for every two-famil
 what `PlayerSkin.ForTeam` already does for the body. An item whose visuals name a third family draws
 its red one here.
 
-**Not yet verified by eye.** The rule has unit tests and a sabotage check; a first-person capture is
-still owed, and that is the instrument that matters for anything about a picture.
+### The capture says it is NOT yet taking effect, and that is recorded rather than assumed away
+
+A first-person capture at tick 870 of `tf2-2026-pub-pov-clean` — recorder on BLU — draws the arms
+with the family-ZERO materials:
+
+```
+[props]  pairing c_soldier_arms.mdl: mat 1180 'soldier_hands',
+                                     mat 1181 'soldier_sleeves_red',
+                                     mat 1182 'w_rocket01'
+[render] c_soldier_arms draws materials: 1180:opaque, 1181:opaque, 1182:opaque
+```
+
+The drawn indices are identical to the paired ones and 1181 is `soldier_sleeves_red`, so **no skin
+swap was applied**. The fix is merged and its unit tests pass, and the picture does not yet show it.
+
+**What has been ruled out**, so the next attempt does not repeat it:
+
+- All three viewmodel props receive the skin — there are exactly three `new SceneProp(` in
+  `ViewmodelScene` and each takes it through `PoseFor`.
+- The followed player is resolved (`held` is non-null; the arms model came from `Appearance.Hands`,
+  which needs it).
+- The viewmodel uses the same `EntityModelSet.Instances` path as everything else, so it reaches
+  `SkinSwap(prop.ModelPath, skin)` like any other prop.
+- Player BODIES do draw in their team colours in the same frame, so the swap machinery works for
+  them.
+
+**The next measurement** is what `SkinSwap("…/c_soldier_arms.mdl", 1)` actually returns, and whether
+its keys are SKINREFS while the batch carries a resolved material index — B229 records that those
+two were confused once before in this exact table. The `instance` probe is the place to print it.
+
+**Stated plainly: this entry is FIXED for the rule and OPEN for the effect.** A merged change with
+green tests and no observable difference is exactly the shape this week's other bugs had, and
+recording it as done because the suite is green would be the same mistake.
