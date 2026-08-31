@@ -192,6 +192,13 @@ public sealed class PoseCompletenessTests
         PlaybackRate = 1.75f,
         Hidden = true,
 
+        // **`WEAPON_IS_ACTIVE`, and neither of the two values it must be told apart from is safe
+        // here.** Null means "not a weapon" and 0 is `WEAPON_NOT_CARRIED`, so a rebuild that
+        // dropped this would read as a wearable or as a weapon on the floor — and both of those
+        // DRAW, which is why losing it was invisible for as long as it was (B244). Two is the one
+        // value whose loss changes what appears on screen.
+        WeaponState = 2,
+
         // Non-null and non-zero, because null is the "nothing said" case and zero would mean
         // airborne — neither is distinctive enough for this test to measure the field being lost.
         Flags = PlayerActivityState.OnGround | PlayerActivityState.Ducking,

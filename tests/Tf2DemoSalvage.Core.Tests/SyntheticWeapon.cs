@@ -135,6 +135,97 @@ internal static class SyntheticWeapon
                     Body: body)));
     }
 
+    /// <summary>A demo of one carried weapon that is holstered and drawn again.</summary>
+    /// <param name="ownerEntity">The entity slot that owns it.</param>
+    /// <param name="states">
+    /// The tick and <c>m_iState</c> of each snapshot. <c>WEAPON_NOT_CARRIED</c> is 0,
+    /// <c>WEAPON_IS_CARRIED_BY_PLAYER</c> 1 and <c>WEAPON_IS_ACTIVE</c> 2
+    /// (<c>shareddefs.h:296-298</c>).
+    /// </param>
+    /// <returns>The demo's bytes.</returns>
+    /// <remarks>
+    /// **The situation a real demo makes expensive to find.** A recording has to be searched for a
+    /// player who switched weapons, and the assertion then becomes whatever the search turned up —
+    /// where here the two states are put in deliberately and the test predicts each by value.
+    ///
+    /// The weapon sends an item and no model index, which is the medigun's shape: measured on
+    /// `cp_fulgur`, every `CWeaponMedigun` networks neither `m_nModelIndex` nor
+    /// `m_iWorldModelIndex` while stating item 211.
+    /// </remarks>
+    public static byte[] DemoOfStates(int ownerEntity, params (int Tick, int State)[] states)
+    {
+        ArgumentNullException.ThrowIfNull(states);
+
+        DemoSchema schema = Schema();
+
+        EntityDecoder decoder = new(
+            schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        IReadOnlyList<FlatProperty> flat = decoder.FlattenedFor(WeaponClassId);
+
+        List<DemoCommand> commands =
+        [
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                0,
+                ServerInfo(),
+                SyntheticDemo.StringTable(
+                    ModelPrecache.TableName,
+                    [string.Empty, "models/unused.mdl", WorldModelPath],
+                    maxEntries: 8)),
+            SyntheticDemo.DataTables(schema),
+        ];
+
+        for (int index = 0; index < states.Length; index++)
+        {
+            (int tick, int state) = states[index];
+
+            List<DecodedProperty> properties =
+            [
+                Property(flat, "m_hOwnerEntity", PropertyValue.FromInt(Handle(ownerEntity))),
+                Property(flat, "m_fEffects", PropertyValue.FromInt(BoneMerge)),
+                Property(flat, "m_iItemDefinitionIndex", PropertyValue.FromInt(Medigun)),
+                Property(flat, "m_iState", PropertyValue.FromInt(state)),
+            ];
+
+            properties.Sort((left, right) => left.Index.CompareTo(right.Index));
+
+            DecodedEntity weapon = new(
+                WeaponEntityIndex,
+                WeaponClassId,
+                3,
+                index == 0 ? EntityUpdateType.Enter : EntityUpdateType.Delta,
+                properties);
+
+            // The owner exists only on the first snapshot, because it is created there and the
+            // handle's serial is checked against the slot's occupant from then on (B231).
+            DecodedEntity[] entities = index == 0
+                ? [new DecodedEntity(
+                    ownerEntity, WeaponClassId, OwnerSerial, EntityUpdateType.Enter, []), weapon]
+                : [weapon];
+
+            byte[] body = decoder.EncodeEntities(entities, [], isDelta: index > 0, 0, out int bits);
+
+            commands.Add(SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                tick,
+                new PacketEntitiesMessage(
+                    MaxEntries: 64,
+                    IsDelta: index > 0,
+                    DeltaFromTick: index > 0 ? states[index - 1].Tick : null,
+                    BaselineIndex: false,
+                    UpdatedEntries: entities.Length,
+                    LengthBits: bits,
+                    UpdateBaseline: false,
+                    Body: body)));
+        }
+
+        return SyntheticDemo.From(SyntheticDemo.DefaultProtocol, [.. commands]);
+    }
+
+    /// <summary>The stock Medi Gun's item definition index.</summary>
+    public const int Medigun = 211;
+
     /// <summary>An entity handle: serial above the edict bits, slot below.</summary>
     private static int Handle(int slot) => (OwnerSerial << EdictBits) | slot;
 
@@ -199,6 +290,14 @@ internal static class SyntheticWeapon
             [
                 new SendProperty(
                     SendPropType.Int, "m_iWorldModelIndex", 1, string.Empty, 0f, 0f, 13, 0),
+
+                // **Eight bits unsigned, which is Valve's own declaration**:
+                // `SendPropInt( SENDINFO(m_iState), 8, SPROP_UNSIGNED )`,
+                // `basecombatweapon_shared.cpp:2871`. In the MAIN table rather than
+                // `DT_LocalWeaponData`, so it travels to every client — which is what makes
+                // `C_BaseCombatWeapon::ShouldDraw`'s `return bIsActive` answerable for another
+                // player's weapon at all.
+                new SendProperty(SendPropType.Int, "m_iState", 1, string.Empty, 0f, 0f, 8, 0),
                 new SendProperty(
                     SendPropType.DataTable, "baseentity", 1, "DT_BaseEntity", 0f, 0f, 0, 0),
                 new SendProperty(

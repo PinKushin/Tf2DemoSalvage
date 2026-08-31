@@ -15465,6 +15465,11 @@ which misses every time and prints family zero's material. The renderer was bind
 
 Fixed, and the line now reads `1183:opaque(from 1181)`.
 
+**Confirmed by eye, which is the only evidence class that closes this one.** The owner, looking at
+tick 870 of `tf2-2026-pub-pov-clean` in first person: *"blue sleeve was shown"*. Every claim before
+that sentence was a claim about a LOG — and the log had already been wrong once about this exact
+material, which is the whole of B243. A rendering fix is not verified until somebody has seen it.
+
 **That is the THIRD lying instrument in one session**, after the illumination point read as a
 position (B241) and the cull census that passed on an accident of geometry (B240). All three shared
 a shape: a diagnostic that recomputes something the draw already decided, instead of reporting what
@@ -15488,3 +15493,122 @@ when it is, it is wrong in a way that looks authoritative. Where a value cannot 
 should say which question it is answering (`illumination point`, not `at`).
 
 Not yet enforced anywhere. Filed so the next diagnostic added is checked against it.
+
+## B244 — a weapon's carry state was read from the END of the demo, so players held nothing — FIXED 2026-08-31
+
+**The owner:** *"the next thing i wanted to do was fix the missing medic weapon"*.
+
+`ScenePropTrack` samples its **pose** per tick and reads nine other fields off the track as scalars.
+Those scalars are written while the demo is parsed, so by the time anything asks for a tick they
+hold whatever the LAST update in the whole recording wrote.
+
+For eight of them that is harmless, because they cannot change while an entity lives: a weapon
+belongs to one player, is one item, is one class, hangs from one parent. **`WeaponState` was the
+exception, and it is the one that decides whether a weapon is drawn at all** —
+`C_BaseCombatWeapon::ShouldDraw` (`c_basecombatweapon.cpp:399`) reduces, for another player's
+weapon, to `return ( m_iState == WEAPON_IS_ACTIVE )`.
+
+So a medic whose medigun happened to be holstered at the recording's final tick had it holstered at
+**every** tick, and drew empty-handed for the whole demo.
+
+### The measurement, which took four instruments to get right
+
+Every one of the first four answered a different question than the one asked, and three of them
+answered it confidently:
+
+| instrument | said | actually |
+|---|---|---|
+| `props` probe | no medigun prop exists | grouped by model path, and 47 props share the empty path — the medigun was inside a group labelled `CTFWearable` |
+| `instance` probe | zero medigun instances | never runs `WeaponPropModels.Resolve`, so a weapon named only by its item cannot appear at all |
+| `weapon-models` probe | the medigun resolves | true, and about DISTINCT (class, item, owner class) over a stride — not about this player now |
+| viewer log | one medigun drawing | reports per MODEL, deduplicated: one drawing and two not looks identical to three drawing |
+
+The fifth was `carried`, written for this and reporting **per player and per entity at one tick with
+no deduplication anywhere**. It showed the contradiction immediately:
+
+```
+player 20  class 5  team 3  alive  holds 1137 (CWeaponMedigun item 211)
+   1137  HOLSTERED (ShouldDraw)  CWeaponMedigun  state 1
+   1138  HOLSTERED (ShouldDraw)  CTFBonesaw      state 1
+```
+
+The player's own `m_hActiveWeapon` names 1137 and the weapon calls itself holstered. Two to six
+players contradicted themselves that way at every tick sampled, and the same player held the same
+weapon across 18,000 ticks — not a mid-switch flicker.
+
+**The demo settled it.** A full entity trace says entity 1137's `m_iState` is **2** at tick 14000,
+last sent at tick 13417, with no `ENTER` between. We reported 1, which is the state at the end of
+the recording.
+
+### The fix
+
+`WeaponState` moved onto `ScenePose`, beside `Hidden`, `Body` and `Skin` — discrete, taken from the
+earlier keyframe, never blended. `PropsAt` reads it from the sampled pose. The track scalar is gone
+rather than left as a second route to the same question (B243).
+
+**The comment it replaces had the hazard right and the cure backwards:** *"kept current … a state
+fixed at the first delta would freeze whichever weapon happened to be out when the track began"*.
+Keeping a scalar current while PARSING does not make it current when READ.
+
+**`Add` collapses repeated poses by record equality**, so a state change makes two poses unequal and
+a keyframe is written. Nothing else was needed.
+
+**The tripwire earned its keep.** `PoseCompletenessTests` failed the moment the field existed —
+*"these fields are left at their default by Distinctive()"* — which is exactly what that test is
+for, and it is the fifth field it has caught.
+
+## B245 — a player can hold two active weapons at once, and B231 is why — OPEN
+
+Found while fixing B244, on the same tick. With the state sampled correctly, **player 20's bonesaw
+is ALSO `WEAPON_IS_ACTIVE`**, so he draws a medigun and a bonesaw merged into the same hand.
+
+The demo says so. Entity 1138's last `m_iState` before tick 14000 is **2**, sent at tick **8060** —
+six thousand ticks earlier. In between it left and re-entered the PVS repeatedly, and **the
+enter-PVS updates carry no `m_iState` at all**:
+
+```
+tick 8060  DELTA   m_iState 2
+tick 8080  LEAVE
+tick 8317  ENTER   (26 properties: owner, moveparent, world model, item, attributes — no m_iState)
+```
+
+So the value is either kept from before the leave, or reset to a baseline. **This project chose
+"kept", deliberately and with evidence** (B231): a `cp_fulgur` spawn door re-enters with **zero**
+properties, and rebuilding it from the baseline put `moveparent` back to its default and took every
+gate off its door — the owner's *"the things are showing up at tick 0, but immedietly dissapearing
+when you hit play"*.
+
+Both readings cannot be right, and the demo supports each on a different entity.
+
+**The reconciliation worth testing, and it did not exist when B231 was decided:** an enter-PVS delta
+is computed against the entity's **baseline slot**, and the server keeps that slot current — which
+is what `f4a7d11` ("honour the two per-entity baseline slots") implemented afterwards. Under that
+reading a zero-property `ENTER` means *"nothing has changed since the baseline I last set for you"*,
+which preserves the door's parent AND resets the bonesaw's state. B231's workaround may simply be
+obsolete.
+
+**Not attempted, because it reverses a recorded decision on core decode.** The experiment is cheap
+and specific: rebuild from the baseline on every `Enter` rather than only on creation, then check
+(a) `cp_fulgur`'s gates still hold their `moveparent`, and (b) entity 1138 reads holstered at tick
+14000. If both hold, B231's exception can go.
+
+**What is NOT the answer:** dormancy. `NotifyShouldTransmit` does set `SetDormant(true)` on
+`SHOULDTRANSMIT_END` and `c_baseentity.cpp:1422` gates drawing on `!IsDormant()` — but the bonesaw
+has re-entered by tick 14000 and is not dormant then. That was checked before opening this.
+
+## B246 — the strobes and flickers test a float Valve truncates to an int — OPEN
+
+`ComputeFxBlend` writes its wave into an **int** before testing the sign:
+
+```cpp
+blend = 20 * sin( gpGlobals->curtime * 4 + offset );   // int blend
+if ( blend < 0 ) blend = 0; else blend = m_clrRender->a;
+```
+
+`FxBlend.Switched` tests the float. Where `20·sin(θ)` falls in (−1, 0) the truncation gives **0**,
+which is not less than zero — so Valve draws the entity at full alpha and we draw it invisible.
+That window is about **1.6 %** of every strobe cycle, and it applies to `kRenderFxStrobeSlow`,
+`StrobeFast`, `StrobeFaster`, `FlickerSlow` and `FlickerFast`.
+
+Found by reading the function end to end during the parity audit, not by any measurement of ours —
+which is the point of the audit.
