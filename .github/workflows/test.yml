@@ -480,7 +480,11 @@ jobs:
           # the note above: the gap to the local gate's floor is still unreconciled and closing it
           # in passing would be either a silent tightening or a red CI.
           # 584 -> 599: FxBlendConformanceTests (15), raised by the measured delta as above.
-          ./build/assert-test-count.sh '**/rendering.trx' 599 Rendering
+          # **599 -> 716 on 2026-08-30, and 599 was drift rather than a measurement.** The local
+          # gate has been at 713 for days; a floor a hundred below the suite it guards catches
+          # neither of the two failures floors exist for, which is the warning this file already
+          # carries about Core and Viewer. 716 is the measured total after B237's three cases.
+          ./build/assert-test-count.sh '**/rendering.trx' 716 Rendering
           ./build/assert-test-count.sh '**/viewer-ui.trx' 14 ViewerUi
           # 117 -> 118 on 2026-08-28: ViewmodelAnimationParityCorpusTests, which asserts the parity
           # counter reaches the scene from a real demo and changes there.

@@ -1458,7 +1458,19 @@ public sealed class EntityModelSet
     /// <returns>The frame to draw, the one after it, and the blend between them.</returns>
     public (int Frame, int Next, float Blend) SelectFor(SceneProp prop, double seconds) =>
         _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? frames)
-            ? frames.Select(prop.Pose.Sequence, prop.Pose.Cycle, seconds, prop.Pose.PlaybackRate)
+            ? frames.Select(
+                prop.Pose.Sequence,
+                prop.Pose.Cycle,
+                seconds,
+                prop.Pose.PlaybackRate,
+
+                // **The stamp, which this call was not passing** (B237). The timeline records when
+                // each animation began — `AnimationStartSeconds`, from the parity counter and the
+                // client-side frame reset — and the SKINNED path in `Simulate` has used it since it
+                // was added. This one, which every baked prop takes, did not, so a cabinet's `open`
+                // was measured from the start of the recording and clamped to its final frame
+                // before it drew once.
+                prop.Pose.AnimationStartSeconds)
             : (0, 0, 0f);
 
     /// <summary>Whether a model kind has geometry this renderer can draw.</summary>

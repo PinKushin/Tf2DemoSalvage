@@ -15007,3 +15007,43 @@ both halves rather than one, which is at least consistent.
 
 **Verified at the owner's ticks:** `wearsmask True` for the friendly spy, with skin family 9 painting
 `mask_soldier` onto the mesh that is now drawn.
+
+## B237 — every baked prop's animation was measured from demo time zero — FIXED 2026-08-30
+
+**The owner, after the mask was fixed:** *"and the health cab is still stuck open"*. It had been
+reported before and closed twice — once by B231's baseline slots, once by the sequence-parity clock —
+and it was still wrong, which is the sign that the earlier fixes were somewhere else.
+
+**The animation clock reached one of two paths.** `AnimationStartSeconds` is stamped by the timeline
+whenever an animation restarts, and `EntityModels.Simulate` — the SKINNED path — has read it since it
+was added. `EntityModelSet.SelectFor`, which is the path every **baked** prop takes, called
+`ModelFrames.Select(sequence, cycle, seconds, playbackRate)` and never passed the stamp. So the cycle
+advanced from the start of the recording:
+
+```
+advanced = cycle + ( seconds * cyclesPerSecond * playbackRate )
+                    ^^^^^^^ absolute demo time
+```
+
+**Measured on the owner's demo.** `resupply_locker.mdl` bakes as *"61 frames across 3 animations …
+[anim 1: 30f @ 1.0345 cyc/s, period 0.967s]"*, and a spawn cabinet begins `open` **177.57 seconds**
+in. Absolute time gives a cycle of 183, which `ClampCycle` pins to 0.999 before the first frame is
+drawn — the door is fully open on the frame it starts and never moves again. A door that does not
+animate is a door stuck at whichever end it snapped to.
+
+Valve's own advance is over an interval, never from the origin: `flInterval = ( curtime -
+m_flAnimTime )` (`c_baseanimating.cpp:5480`), re-stamped on every restart.
+
+**Not negative.** The scene interpolates between packets and can ask for a moment fractionally
+before the packet that stamped the restart. A negative elapsed floors harmlessly for a one-shot but
+wraps a LOOPING sequence to near its end, which is a door snapping shut for one frame.
+
+**What this does NOT explain, stated because guessing at it twice already cost a day.** One cabinet
+in the owner's spawn (entity 312) is on `close` from tick 0 with **no stamp at all** — it arrived
+already playing, so nothing noticed a change and its start is legitimately zero. Its arithmetic is
+unchanged by this fix. If a cabinet is still open after this, that is the one, and the next question
+is whether the last frame of `close` is the closed pose — which is a fact about the shipped model
+that no instrument here has yet measured, and which a screenshot answers in a second.
+
+**Verified by manipulation:** measuring from demo time again fails the late-start case and nothing
+else; removing the floor fails the future-stamp case and nothing else.

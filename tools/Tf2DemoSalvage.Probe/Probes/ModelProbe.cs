@@ -83,6 +83,20 @@ public sealed class ModelProbe : IProbe
             + $"{families.ToString(CultureInfo.InvariantCulture)} skin families over "
             + $"{references.ToString(CultureInfo.InvariantCulture)} references");
 
+        // **Sequences with their LOOP flag**, because that flag decides what a finished animation
+        // holds. `ClampCycle` (`c_baseanimating.cpp:1431`) wraps a looping sequence and clamps a
+        // one-shot to 0.999, so a `close` marked looping never stops closing — it reopens.
+        foreach ((StudioSequence sequence, int at) in StudioSequences.Read(bytes)
+            .Select((sequence, at) => (sequence, at)))
+        {
+            output.WriteLine(
+                $"SEQ {at.ToString(CultureInfo.InvariantCulture),3} "
+                + $"'{sequence.Label}' "
+                + $"{(sequence.Loops ? "LOOPS" : "one-shot")} "
+                + $"flags 0x{sequence.Flags:X}"
+                + (sequence.Activity.Length > 0 ? $" act {sequence.Activity}" : string.Empty));
+        }
+
         for (int part = 0; part < model.BodyParts.Count; part++)
         {
             (int place, int count) = model.BodyParts[part];

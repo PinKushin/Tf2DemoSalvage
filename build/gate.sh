@@ -984,7 +984,16 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     146
 # SchemaGap's positive control on the other half of the diff. The disguise control earned its
 # keep immediately -- the first sweep read only src/game/client and TF's player state is
 # declared in src/game/shared/tf, so it reported 0 of 66 for a table it could not see.
-run Tf2DemoSalvage.Rendering.Tests rendering 713
+# 713 -> 716: the baked animation path measured its cycle from demo time ZERO (B237). Valve's
+# advance is over an interval -- flInterval = ( curtime - m_flAnimTime ), c_baseanimating.cpp:5480 --
+# and the timeline has stamped AnimationStartSeconds since the cabinets were first looked at, but
+# only Simulate's SKINNED path ever read it. Every BAKED prop went through ModelFrames.Select with
+# absolute seconds, so a cabinet whose `open` begins 177 seconds in computed a cycle of 183 and
+# clamped to the final frame before drawing once: a door already fully open, that never moves.
+# Two of the three are controls -- an animation with no stamp must behave exactly as before, and a
+# stamp AHEAD of the moment being drawn must not run the animation backwards, which for a looping
+# sequence wraps to near the end and snaps a door shut for a frame.
+run Tf2DemoSalvage.Rendering.Tests rendering 716
 # 101 -> 103 on 2026-08-29: LaunchOptionWiringTests (B223, D118). Two tests, and they cost about
 # seventeen seconds EACH, because each builds a real MainForm and loads a corpus demo — which reads
 # cp_badlands.bsp when Team Fortress 2 is installed. That is the most expensive pair in this file
