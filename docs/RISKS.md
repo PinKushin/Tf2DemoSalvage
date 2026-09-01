@@ -16628,3 +16628,31 @@ rejected as though it had been posed. That made the survivor ratio read `452 of 
 and look like a broken frustum — the true figure is **0 of 578**. `EntityModelSet.Posed` now counts
 where a prop actually reaches bone setup. The lesson is the usual one: a derived count is free to be
 wrong, and this one was wrong in the direction that invents a bug.
+
+### B259's reference numbers, measured in the game rather than assumed
+
+The owner captured TF2 itself on `cp_badlands`, with both overlays visible:
+
+| view | TF2 fps | frame | CPU | GPU |
+|---|---|---|---|---|
+| a room with props and a locker | 893 (min 297, max 1706) | 1.12 ms | 38% / 193% | **30%** |
+| facing a blank wall | 1135, TF2's own counter reading 1236 | 0.81-0.88 ms | 41% / 190% | **29%** |
+
+**The GPU figure is the one that reframes this.** TF2 is at thirty per cent of the card while
+turning in sub-millisecond frames — it is CPU-bound, and comfortably. This project moved skinning and
+bone transforms onto the GPU precisely to spend less on the processor than the engine does, so the
+comparison is not "we are 3x slower"; it is that we are slower **on the axis where we were supposed
+to be structurally ahead**, while drawing no projectiles, no particles and no ragdolls.
+
+**Against our own empty-view measurement of 3.3 ms, the gap facing a wall is about 4x.**
+
+**Two caveats, so the numbers are not quoted more precisely than they deserve.** The game capture is
+`cp_badlands` and ours is `cp_process` — a smaller, older map against a larger one, so this is an
+order-of-magnitude reference rather than a paired measurement. And the two overlays disagree with
+each other (Steam 1135, TF2 1236) on the same frame, which is a sampling-window difference and is
+the owner's own observation; ours reports a mean over roughly 280 frames, which is closest to the
+smoothed reading.
+
+**What it does not change:** the floor is ours and it is structural. TF2 facing a wall walks almost
+nothing, because `BuildRenderablesList` starts from the visible leaf list. We walk 578 props four
+times over to draw zero of them.
