@@ -117,9 +117,6 @@ public sealed class WeaponModels
     }
 
     /// <summary>Every weapon model any player holds at any point in a demo.</summary>
-    /// <param name="timeline">The decoded demo.</param>
-    /// <returns>Distinct model paths, in the order they are first seen.</returns>
-    /// <exception cref="ArgumentNullException"><paramref name="timeline"/> is null.</exception>
     /// <remarks>
     /// **Resolved up front for the same reason the class models are.** A player switches weapon
     /// constantly, and a set built from what is held right now is missing whatever they draw next —
@@ -132,6 +129,90 @@ public sealed class WeaponModels
     /// packed and the draw path decides which is shown, so a disagreement between them is a weapon
     /// that resolves and cannot be drawn.
     /// </remarks>
+    /// <summary>The extra models an item hangs on itself, for the team holding it.</summary>
+    /// <param name="item">Its <c>m_iItemDefinitionIndex</c>, or null when the demo names none.</param>
+    /// <param name="team">The owner's team, or null when it is not known.</param>
+    /// <returns>Model paths, in schema order. Empty for an item that declares none.</returns>
+    /// <remarks>
+    /// **`CEconEntity::UpdateAttachmentModels` (`econ_entity.cpp:1078`)**, which walks
+    /// `GetNumAttachedModels( GetTeamNumber() )` and appends each entry's model. Measured on the
+    /// shipped schema: 325 item definitions carry at least one, from 29 blocks — prefabs are the
+    /// multiplier, so counting blocks understates the reach by an order of magnitude.
+    ///
+    /// **Festivized items are not honoured yet, and the gate is deliberately shut rather than
+    /// open.** The second loop runs only when `CALL_ATTRIB_HOOK_INT( iFestivized, is_festivized )`
+    /// is non-zero, and this project decodes no attributes at all (B234) — so the honest answer is
+    /// "not festivized". Opening it instead would hang a festivizer on 314 entries' worth of
+    /// ordinary weapons, which is worse than missing them on the few that are.
+    /// </remarks>
+    public IReadOnlyList<string> AttachmentsFor(int? item, int? team)
+    {
+        if (item is not { } definition || Schema() is not { } schema)
+        {
+            return [];
+        }
+
+        List<string> models = [];
+
+        foreach (AttachedModel attached in
+            schema.AttachedModelsFor(definition, team, festivized: false))
+        {
+            models.Add(attached.Model);
+        }
+
+        return models;
+    }
+
+    /// <summary>Every attachment model the demo could ever show, for packing.</summary>
+    /// <param name="timeline">The decoded demo.</param>
+    /// <returns>Distinct model paths.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="timeline"/> is null.</exception>
+    /// <remarks>
+    /// **Both teams, because a prop's owner can change sides** and geometry is loaded once before
+    /// the first frame — the engine treats a mid-play load as a programming error (D86), so the
+    /// packing set is deliberately wider than any single moment needs.
+    /// </remarks>
+    public IEnumerable<string> AllAttachmentsIn(DemoTimeline timeline)
+    {
+        ArgumentNullException.ThrowIfNull(timeline);
+
+        return ResolveAttachments(timeline);
+    }
+
+    /// <summary>The attachment walk, once the argument is known good.</summary>
+    private IEnumerable<string> ResolveAttachments(DemoTimeline timeline)
+    {
+        if (Schema() is null)
+        {
+            yield break;
+        }
+
+        HashSet<int> asked = [];
+
+        foreach (ScenePropTrack track in timeline.Props)
+        {
+            if (track.ItemDefinitionIndex is not { } item || !asked.Add(item))
+            {
+                continue;
+            }
+
+            foreach (int team in Teams)
+            {
+                foreach (string model in AttachmentsFor(item, team))
+                {
+                    yield return model;
+                }
+            }
+        }
+    }
+
+    /// <summary>The two playing teams, so a per-team block is packed for either side.</summary>
+    private static readonly int[] Teams = [2, 3];
+
+    /// <summary>Every weapon model any player holds at any point in a demo.</summary>
+    /// <param name="timeline">The decoded demo.</param>
+    /// <returns>Distinct model paths, in the order they are first seen.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="timeline"/> is null.</exception>
     public IEnumerable<string> AllIn(DemoTimeline timeline)
     {
         // **Checked here rather than in the iterator below, which is not a style rule.** An

@@ -761,7 +761,13 @@ run Tf2DemoSalvage.Presentation.Tests presentation 425
 # Three are controls: an explicitly named class must beat the pattern, a class NOT named must take
 # it, and an item with no per-class block at all must still answer its base model when the class is
 # unknown -- without that last one the slot-zero rule would swallow every weapon whose owner left.
-run Tf2DemoSalvage.Content.Tests  content   843
+# 843 -> 851: `attached_models`, the extra models an item hangs on itself (B251). Eight, and they
+# are a conformance suite rather than a description of the parser: the display-flag constants by
+# value, the default that is MaskAll rather than zero, the festive gate in both directions, the
+# per-team split in both directions, prefab inheritance that ACCUMULATES rather than shadowing, and
+# an item declaring none. The default matters most — nearly every shipped entry omits the key, so
+# defaulting to zero would hide all 29 blocks silently.
+run Tf2DemoSalvage.Content.Tests  content   851
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2

@@ -228,6 +228,15 @@ public sealed class MomentScene : IGameSystemPerFrame
         // a name it has not been given yet.
         _weaponModels.Resolve(_drawn, players, Weapons.For);
 
+        // **An item's `attached_models`, asked per prop because the answer needs the owner's TEAM**
+        // — `GetNumAttachedModels( GetTeamNumber() )`, and the Quick-Fix's `c_overhealer.mdl` is
+        // declared once per side. The scene knows the players; the model set does not, which is why
+        // this is a delegate rather than a schema reference over there.
+        //
+        // Set every rebuild rather than once, because `players` is this moment's list.
+        _models.Attachments = prop => Weapons.AttachmentsFor(
+            prop.ItemDefinitionIndex, TeamOf(prop.OwnedBy ?? prop.AttachedTo, players));
+
         ReportUndressedPlayers(players);
 
         // **The model set resolves the mask's body part**, because only it has the .mdl. A spy's
@@ -448,6 +457,35 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// Mirrored, because a viewmodel is drawn mirrored and the cull flips with it. Getting that
     /// wrong does not fail, it draws the weapon inside out.
     /// </remarks>
+    /// <summary>The team of the player occupying an entity slot, or null.</summary>
+    /// <remarks>
+    /// **The OWNER'S team is what the engine asks for**, in two places that both used to get it
+    /// wrong or not ask at all: `CEconItemView::GetSkin( iTeam, … )` takes
+    /// `pOwner->GetTeamNumber()` (B242), and `GetNumAttachedModels( GetTeamNumber() )` takes the
+    /// same. Not the followed player's — in first person the viewer follows the recording's own
+    /// camera and there is no followed player at all.
+    ///
+    /// Null for an entity no player occupies, which is the honest answer for a dropped weapon and
+    /// leaves the caller to decide rather than guessing a side.
+    /// </remarks>
+    private static int? TeamOf(int? entity, IReadOnlyList<ScenePlayer> players)
+    {
+        if (entity is null)
+        {
+            return null;
+        }
+
+        foreach (ScenePlayer player in players)
+        {
+            if (player.EntityIndex == entity)
+            {
+                return player.Team;
+            }
+        }
+
+        return null;
+    }
+
     private void AddViewmodel(IReadOnlyList<ScenePlayer> players, in MomentInfo info)
     {
         // **Reported once when first person is on and the source is missing, because that pair is a
@@ -672,18 +710,7 @@ public sealed class MomentScene : IGameSystemPerFrame
                 // followed player's (B242). In first person the viewer follows the recording's own
                 // camera and `info.Followed` is null, so `held` is null and passing its team passed
                 // nothing at all. The viewmodel knows who owns it; ask about that entity.
-                entity =>
-                {
-                    foreach (ScenePlayer player in players)
-                    {
-                        if (player.EntityIndex == entity)
-                        {
-                            return player.Team;
-                        }
-                    }
-
-                    return null;
-                });
+                entity => TeamOf(entity, players));
 
         if (scene.Props.Count == 0)
         {

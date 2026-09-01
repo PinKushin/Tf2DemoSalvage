@@ -194,6 +194,19 @@ public sealed class EntityModelSet
         _loggers = factory;
     }
 
+    /// <summary>Extra models an item hangs on itself, asked per prop, or null for none.</summary>
+    /// <remarks>
+    /// **`CEconEntity::UpdateAttachmentModels` builds the list and
+    /// `DrawEconEntityAttachedModels` draws it on the item's own transform** — see the call site in
+    /// <see cref="Instances"/>. A delegate rather than a schema reference because the answer needs
+    /// the OWNER'S TEAM (`GetNumAttachedModels( GetTeamNumber() )`), and the players are the
+    /// scene's to know, not this set's.
+    ///
+    /// Null when nothing supplies it, which is every test that does not care and every viewer
+    /// without a game install.
+    /// </remarks>
+    public Func<SceneProp, IReadOnlyList<string>>? Attachments { get; set; }
+
     /// <summary>Where the entities this set builds report, so the bone merge can say what paired.</summary>
     private readonly ILoggerFactory _loggers;
 
@@ -2296,6 +2309,70 @@ public sealed class EntityModelSet
                 // `FullyOpaque` and `Normal`, so a cloaked spy drew solid and nothing could fade.
                 Alpha: fx.Blend,
                 RenderMode: prop.Pose.RenderMode));
+
+            // **The item's `attached_models`, drawn on the item's own transform and bones.**
+            // `DrawEconEntityAttachedModels` (`econ_entity.cpp:103`) copies the parent's
+            // `ClientModelRenderInfo_t` whole and swaps only `pModel`:
+            //
+            //     infoAttached = *pInfo;
+            //     infoAttached.pRenderable = pEnt;
+            //     infoAttached.pModel      = attachedModel.m_pModel;
+            //     modelrender->DrawModelSetup( infoAttached, &state, NULL, &pBoneToWorld );
+            //
+            // So an attachment is NOT a separate entity and names no attachment point — it is
+            // another mesh posed by the item's skeleton, which is why the Degreaser's pilot light
+            // sits where the Degreaser does without the schema saying where.
+            //
+            // Everything else is copied for the same reason the engine copies it: same light, same
+            // blend, same render mode, same skin. A pilot light on a cloaked spy's flamethrower
+            // fades with the flamethrower.
+            if (Attachments is not { } attachmentsFor)
+            {
+                continue;
+            }
+
+            foreach (string attachment in attachmentsFor(prop))
+            {
+                _ = _frames.TryGetValue(attachment, out PropModels.ModelFrames? attachedParts);
+
+                // **Says that an attachment was EMITTED, and whether it had geometry to emit** —
+                // the two failures look identical on screen and neither is an error. An attachment
+                // the schema does not declare draws nothing; one declared but never packed also
+                // draws nothing, and that second case shipped for an hour because the packing set
+                // and the asset loader are different lists (B195).
+                //
+                // Reports what this draw USED rather than re-deriving it (B243): the parent it
+                // rides, and whether frames were found for the attachment itself.
+                if (_props.IsEnabled(LogLevel.Debug) &&
+                    _reports.FirstTime(attachment + "#attached"))
+                {
+                    _props.LogDebug(
+                        "{Message}",
+                        $"{attachment} attached to {prop.ModelPath} (entity {prop.EntityIndex}, "
+                        + $"item {prop.ItemDefinitionIndex}), "
+                        + $"{(attachedParts is null ? "NO FRAMES — it was never packed" : "posed on its bones")}");
+                }
+
+                into.Add(new ModelInstance(
+                    attachment,
+                    transform.ToMatrix(),
+                    light,
+                    sun,
+                    frame,
+                    blend,
+                    bones,
+                    SkinSwap(attachment, skin),
+                    attachedParts?.BodyParts,
+                    prop.Pose.Body,
+                    Mirrored: false,
+                    Origin: origin,
+                    Tint: EntityTint(attachment),
+                    Locals: locals,
+                    WorldBounds: WorldBoxFor(prop),
+                    TwoPass: attachedParts?.TwoPass ?? false,
+                    Alpha: fx.Blend,
+                    RenderMode: prop.Pose.RenderMode));
+            }
         }
 
         _tally.Report();
