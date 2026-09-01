@@ -219,7 +219,12 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # CBaseDoor's baseline declares m_nRenderMode = 10 and nothing else restates it. One of the two is
 # the control: where BOTH know a property the checkpoint must still win, or a re-entering entity
 # gets dragged back to one representative entity's state, which is what B231 measured.
-run Tf2DemoSalvage.Core.Tests     core     1607
+# 1607 -> 1616: econ attributes decode (B234). Four on the STATE - the element collision (twenty
+# vector elements sharing one Table.Prop key, last write winning), the two lists kept apart, the
+# era float spelling folding into the same bits, and the empty control. Five on the RESOLUTION -
+# IterateAttributes' chain branch for branch, including the else-if that forecloses the definition's
+# attributes when the demos list is taken, and the all-ones INVALID_ITEM_ID gate.
+run Tf2DemoSalvage.Core.Tests     core     1616
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
@@ -767,7 +772,11 @@ run Tf2DemoSalvage.Presentation.Tests presentation 425
 # per-team split in both directions, prefab inheritance that ACCUMULATES rather than shadowing, and
 # an item declaring none. The default matters most — nearly every shipped entry omits the key, so
 # defaulting to zero would hide all 29 blocks silently.
-run Tf2DemoSalvage.Content.Tests  content   851
+# 851 -> 855: definition attributes, IterateAttributes' branch 4 (B234). Both shipped forms - the
+# named "attributes" block and the flat "static_attrs" pair - bridged name to index by the
+# top-level section, stored_as_integer deciding whether the 32-bit union holds the integer or the
+# float's bits, and prefab inheritance overriding per name rather than duplicating.
+run Tf2DemoSalvage.Content.Tests  content   855
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2

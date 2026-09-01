@@ -14,7 +14,7 @@ ignorance rather than proof of use — a name can be mentioned and still not hon
 which is its own recurring bug here. A property this report calls read may still be
 decoded and dropped.
 
-**94 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
+**95 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
 
 ## Tables an entity this viewer draws composes
 
@@ -74,12 +74,12 @@ m_bGlowEnabled, m_hMyWeapons, m_iPowerups
 
 ### DT_BasePlayer
 
-**5 of 19** mentioned.
+**6 of 19** mentioned.
 
 Not mentioned anywhere in a shipped assembly:
 
 ```
-m_AttributeList, m_flFOVTime, m_flMaxspeed, m_hObserverTarget, m_hUseEntity, m_hVehicle, m_hViewModel, m_hZoomOwner, m_iBonusChallenge, m_iBonusProgress, m_iDefaultFOV, m_iFOV, m_iFOVStart, m_szLastPlaceName
+m_flFOVTime, m_flMaxspeed, m_hObserverTarget, m_hUseEntity, m_hVehicle, m_hViewModel, m_hZoomOwner, m_iBonusChallenge, m_iBonusProgress, m_iDefaultFOV, m_iFOV, m_iFOVStart, m_szLastPlaceName
 ```
 
 ### DT_TFPlayer
