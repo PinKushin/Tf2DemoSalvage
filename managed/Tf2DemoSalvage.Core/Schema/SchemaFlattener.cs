@@ -13,10 +13,28 @@ namespace Tf2DemoSalvage.Core.Schema;
 /// <param name="ArrayElement">
 /// For an array, the element template describing how each element is encoded. Null otherwise.
 /// </param>
+/// <param name="Path">
+/// The dotted chain of datatable member names from the class root down to this property —
+/// <c>m_AttributeContainer.m_Item.m_AttributeList.m_Attributes.001.m_iRawValue32</c> — or empty
+/// for a property reached through no named hop worth distinguishing.
+///
+/// **Carried because <c>OwnerTable.Name</c> is LOSSY for repeated sub-tables** (B234).
+/// <c>SendPropUtlVectorDataTable</c> references the same element table twenty times under members
+/// named <c>000</c>–<c>019</c>, and <c>DT_ScriptCreatedItem</c> embeds <c>DT_AttributeList</c>
+/// twice — so fifty thousand attribute properties in one demo share two flat names, and only their
+/// paths tell them apart.
+/// </param>
+/// <param name="ElementScoped">
+/// Whether any hop on the path is a vector element (an all-digit member) or the vector's
+/// <c>lengthproxy</c> — the properties whose flat name collides by construction, and which state
+/// accumulation must therefore key by <see cref="Path"/>.
+/// </param>
 public readonly record struct FlatProperty(
     SendProperty Property,
     string OwnerTable,
-    SendProperty? ArrayElement);
+    SendProperty? ArrayElement,
+    string Path = "",
+    bool ElementScoped = false);
 
 /// <summary>
 /// Flattens a SendTable hierarchy into the ordered list that entity deltas index into.
@@ -62,7 +80,7 @@ public static class SchemaFlattener
 
         HashSet<(string Table, string Property)> excludes = GatherExcludes(schema, table);
         List<FlatProperty> flat = [];
-        Collect(schema, table, excludes, flat, []);
+        Collect(schema, table, excludes, flat, [], path: "", elementScoped: false);
 
         // Not a stable partition. An earlier version of this used one, on the reasoning that
         // preserving relative order within each group must be safer - and it produced the right
@@ -155,7 +173,9 @@ public static class SchemaFlattener
         SendTable table,
         HashSet<(string Table, string Property)> excludes,
         List<FlatProperty> output,
-        HashSet<string> stack)
+        HashSet<string> stack,
+        string path,
+        bool elementScoped)
     {
         if (!stack.Add(table.Name))
         {
@@ -165,7 +185,7 @@ public static class SchemaFlattener
         }
 
         List<FlatProperty> local = [];
-        Iterate(schema, table, excludes, local, output, stack);
+        Iterate(schema, table, excludes, local, output, stack, path, elementScoped);
         output.AddRange(local);
 
         stack.Remove(table.Name);
@@ -177,7 +197,9 @@ public static class SchemaFlattener
         HashSet<(string Table, string Property)> excludes,
         List<FlatProperty> local,
         List<FlatProperty> output,
-        HashSet<string> stack)
+        HashSet<string> stack,
+        string path,
+        bool elementScoped)
     {
         IReadOnlyList<SendProperty> properties = table.Properties;
 
@@ -205,19 +227,29 @@ public static class SchemaFlattener
                     continue;
                 }
 
+                // **The member NAME is the identity the flat list loses, so it is carried down
+                // here** (B234). A UtlVector's elements are members named `000`–`019` all
+                // referencing one table, and the vector's length travels through a member named
+                // `lengthproxy` — both are the point where twenty properties become one flat name.
+                string childPath = path.Length == 0 ? property.Name : path + "." + property.Name;
+
+                bool childScoped = elementScoped
+                    || string.Equals(property.Name, "lengthproxy", StringComparison.Ordinal)
+                    || IsAllDigits(property.Name);
+
                 if ((property.Flags & CollapsibleFlag) != 0)
                 {
                     // Inline: contributes at the point of reference, into this same list.
                     if (stack.Add(child.Name))
                     {
-                        Iterate(schema, child, excludes, local, output, stack);
+                        Iterate(schema, child, excludes, local, output, stack, childPath, childScoped);
                         stack.Remove(child.Name);
                     }
                 }
                 else
                 {
                     // Separate: the child's whole list lands before this table's own.
-                    Collect(schema, child, excludes, output, stack);
+                    Collect(schema, child, excludes, output, stack, childPath, childScoped);
                 }
 
                 continue;
@@ -231,7 +263,31 @@ public static class SchemaFlattener
                 element = properties[i - 1];
             }
 
-            local.Add(new FlatProperty(property, table.Name, element));
+            local.Add(new FlatProperty(
+                property,
+                table.Name,
+                element,
+                path.Length == 0 ? property.Name : path + "." + property.Name,
+                elementScoped));
         }
+    }
+
+    /// <summary>Whether a datatable member's name is a vector element ordinal.</summary>
+    private static bool IsAllDigits(string name)
+    {
+        if (name.Length == 0)
+        {
+            return false;
+        }
+
+        foreach (char letter in name)
+        {
+            if (letter is < '0' or > '9')
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

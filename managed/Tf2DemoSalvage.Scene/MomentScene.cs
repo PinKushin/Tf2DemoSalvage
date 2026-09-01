@@ -235,7 +235,12 @@ public sealed class MomentScene : IGameSystemPerFrame
         //
         // Set every rebuild rather than once, because `players` is this moment's list.
         _models.Attachments = prop => Weapons.AttachmentsFor(
-            prop.ItemDefinitionIndex, TeamOf(prop.OwnedBy ?? prop.AttachedTo, players));
+            prop.ItemDefinitionIndex,
+            TeamOf(prop.OwnedBy ?? prop.AttachedTo, players),
+
+            // The festive gate, answered from the decoded attributes exactly as
+            // `CALL_ATTRIB_HOOK_INT( iFestivized, is_festivized )` answers it (B234).
+            Weapons.IsFestivized(prop));
 
         ReportUndressedPlayers(players);
 

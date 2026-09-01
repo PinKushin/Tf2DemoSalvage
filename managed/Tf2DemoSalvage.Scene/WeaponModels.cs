@@ -129,9 +129,58 @@ public sealed class WeaponModels
     /// packed and the draw path decides which is shown, so a disagreement between them is a weapon
     /// that resolves and cannot be drawn.
     /// </remarks>
+    /// <summary>An entity's attributes, resolved exactly as <c>IterateAttributes</c> resolves.</summary>
+    /// <param name="prop">The prop, whose <see cref="SceneProp.Econ"/> is the wire's half.</param>
+    /// <returns>First-writer-wins per definition: local, then demos-or-definition.</returns>
+    /// <remarks>
+    /// The wire's two lists and the item-id gate come from the recording; branch 4 — the item
+    /// definition's own attributes — comes from `items_game.txt` here, which is why the resolution
+    /// completes in this layer rather than in Core (B234).
+    /// </remarks>
+    public IReadOnlyList<EconAttributeValue> AttributesFor(SceneProp prop)
+    {
+        IReadOnlyList<EconAttributeValue> definition =
+            prop.ItemDefinitionIndex is { } item && Schema() is { } schema
+                ? schema.DefinitionAttributesFor(item)
+                : [];
+
+        return EconAttributes.Resolve(
+            prop.Econ?.Local ?? [],
+            prop.Econ?.NetworkedForDemos ?? [],
+            prop.Econ?.HasValidItemId ?? false,
+            definition);
+    }
+
+    /// <summary>Whether this item is festivized — <c>CALL_ATTRIB_HOOK_INT( …, is_festivized )</c>.</summary>
+    /// <remarks>
+    /// **The index comes from the schema's own name bridge, not a constant** — 2053 today, but a
+    /// hook is spelled by name in the engine and a hardcoded number would survive a renumbering
+    /// silently. Measured on `tf2-2026-pub-pov-clean`: attribute 2053 appears 220 times, on the
+    /// same mediguns B244 fixed, so this gate opening is what puts `c_medigun_festivizer.mdl` on
+    /// them.
+    /// </remarks>
+    public bool IsFestivized(SceneProp prop)
+    {
+        if (Schema()?.AttributeDefinitionIndex("is_festivized") is not { } festivized)
+        {
+            return false;
+        }
+
+        foreach (EconAttributeValue attribute in AttributesFor(prop))
+        {
+            if (attribute.DefinitionIndex == festivized)
+            {
+                return attribute.RawBits != 0;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>The extra models an item hangs on itself, for the team holding it.</summary>
     /// <param name="item">Its <c>m_iItemDefinitionIndex</c>, or null when the demo names none.</param>
     /// <param name="team">The owner's team, or null when it is not known.</param>
+    /// <param name="festivized">Whether the item carries <c>is_festivized</c> — see <see cref="IsFestivized"/>.</param>
     /// <returns>Model paths, in schema order. Empty for an item that declares none.</returns>
     /// <remarks>
     /// **`CEconEntity::UpdateAttachmentModels` (`econ_entity.cpp:1078`)**, which walks
@@ -139,13 +188,13 @@ public sealed class WeaponModels
     /// shipped schema: 325 item definitions carry at least one, from 29 blocks — prefabs are the
     /// multiplier, so counting blocks understates the reach by an order of magnitude.
     ///
-    /// **Festivized items are not honoured yet, and the gate is deliberately shut rather than
-    /// open.** The second loop runs only when `CALL_ATTRIB_HOOK_INT( iFestivized, is_festivized )`
-    /// is non-zero, and this project decodes no attributes at all (B234) — so the honest answer is
-    /// "not festivized". Opening it instead would hang a festivizer on 314 entries' worth of
-    /// ordinary weapons, which is worse than missing them on the few that are.
+    /// **The festive gate is `CALL_ATTRIB_HOOK_INT( iFestivized, is_festivized )`**
+    /// (`econ_entity.cpp:1109`), which <see cref="IsFestivized"/> now answers from the decoded
+    /// attributes (B234). It spent a day hardcoded shut, with the reason recorded here: 314
+    /// festive entries against 42 plain means an open gate without the attribute decorates the
+    /// whole game for Christmas.
     /// </remarks>
-    public IReadOnlyList<string> AttachmentsFor(int? item, int? team)
+    public IReadOnlyList<string> AttachmentsFor(int? item, int? team, bool festivized)
     {
         if (item is not { } definition || Schema() is not { } schema)
         {
@@ -155,7 +204,7 @@ public sealed class WeaponModels
         List<string> models = [];
 
         foreach (AttachedModel attached in
-            schema.AttachedModelsFor(definition, team, festivized: false))
+            schema.AttachedModelsFor(definition, team, festivized))
         {
             models.Add(attached.Model);
         }
@@ -198,7 +247,10 @@ public sealed class WeaponModels
 
             foreach (int team in Teams)
             {
-                foreach (string model in AttachmentsFor(item, team))
+                // Festive included unconditionally HERE: this is the packing set, geometry loads
+                // once before the first frame, and whether an instance is festivized is a per-tick
+                // draw decision the pack must be a superset of.
+                foreach (string model in AttachmentsFor(item, team, festivized: true))
                 {
                     yield return model;
                 }

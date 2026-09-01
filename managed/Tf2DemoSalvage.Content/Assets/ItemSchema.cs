@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 
+using Tf2DemoSalvage.Core.Scene;
+
 namespace Tf2DemoSalvage.Content.Assets;
 
 /// <summary>An extra model an item hangs on itself, from the schema's <c>attached_models</c>.</summary>
@@ -99,6 +101,15 @@ public sealed class ItemSchema
         /// <summary>Its <c>attached_models</c> and <c>attached_models_festive</c>, in schema order.</summary>
         public List<AttachedModel> AttachedModels { get; } = [];
 
+        /// <summary>Its definition attributes by NAME, from both shipped forms.</summary>
+        /// <remarks>
+        /// The named block (<c>"attributes" { "damage bonus" { … "value" "1.1" } }</c>) and the
+        /// flat pair (<c>"static_attrs" { "is_festivized" "1" }</c>) both feed the engine's
+        /// definition iterator, so both land here. Name-keyed because that is how the file spells
+        /// them; the index arrives from the top-level <c>attributes</c> section at resolve time.
+        /// </remarks>
+        public List<(string Name, string Value)> DefinitionAttributes { get; } = [];
+
         /// <summary>Whether it is the stock item for its class, from <c>baseitem</c>.</summary>
         public bool IsBaseItem { get; set; }
     }
@@ -127,6 +138,13 @@ public sealed class ItemSchema
     private readonly Dictionary<int, Entry> _items = [];
 
     private readonly Dictionary<string, Entry> _prefabs = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The top-level <c>attributes</c> section's name → definition index bridge.</summary>
+    private readonly Dictionary<string, int> _attributeIndexByName =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Definition indices whose value is an integer in the 32-bit union, not a float.</summary>
+    private readonly HashSet<int> _attributeStoredAsInteger = [];
 
     private ItemSchema()
     {
@@ -162,6 +180,15 @@ public sealed class ItemSchema
         string attachedModel = string.Empty;
         int attachedFlags = AttachedModel.MaskAll;
 
+        // The top-level `attributes` section's walk: which definition index is open.
+        int attributeDefinition = -1;
+
+        // An item's two definition-attribute forms: the flat `static_attrs` pairs, and the named
+        // blocks whose value arrives a level deeper.
+        bool inStaticAttrs = false;
+        bool inItemAttributes = false;
+        string pendingAttributeName = string.Empty;
+
         KeyValuesReader.Read(schema, (key, value, depth) =>
         {
             switch (depth)
@@ -172,13 +199,44 @@ public sealed class ItemSchema
                     inPerClass = false;
                     inVisuals = false;
                     inAttached = false;
+                    inStaticAttrs = false;
+                    inItemAttributes = false;
+                    attributeDefinition = -1;
                     break;
 
                 case 2:
                     inPerClass = false;
                     inVisuals = false;
                     inAttached = false;
+                    inStaticAttrs = false;
+                    inItemAttributes = false;
                     entry = read.Begin(section, key);
+
+                    // The top-level `attributes` section: each child is one definition, keyed by
+                    // its index as text — the same spelling `instancebaseline` entries use.
+                    attributeDefinition =
+                        string.Equals(section, "attributes", StringComparison.OrdinalIgnoreCase)
+                        && value is null
+                        && int.TryParse(
+                            key, NumberStyles.Integer, CultureInfo.InvariantCulture, out int index)
+                            ? index
+                            : -1;
+
+                    break;
+
+                // The definition's own keys: `name` is the bridge the wire needs, and
+                // `stored_as_integer` decides what the 32-bit union HOLDS for this attribute.
+                case 3 when attributeDefinition >= 0 && value is not null:
+                    if (string.Equals(key, "name", StringComparison.OrdinalIgnoreCase))
+                    {
+                        read._attributeIndexByName[value] = attributeDefinition;
+                    }
+                    else if (string.Equals(key, "stored_as_integer", StringComparison.OrdinalIgnoreCase)
+                        && value != "0")
+                    {
+                        read._attributeStoredAsInteger.Add(attributeDefinition);
+                    }
+
                     break;
 
                 case 3 when entry is not null:
@@ -196,7 +254,31 @@ public sealed class ItemSchema
 
                     inAttached = false;
 
+                    // The two definition-attribute forms open here; every other depth-3 key closes
+                    // both, so a stray pair after the block cannot be swallowed into it.
+                    inStaticAttrs = value is null
+                        && string.Equals(key, "static_attrs", StringComparison.OrdinalIgnoreCase);
+
+                    inItemAttributes = value is null
+                        && string.Equals(key, "attributes", StringComparison.OrdinalIgnoreCase);
+
                     Apply(entry, key, value);
+                    break;
+
+                // `static_attrs` is flat: the pair IS the attribute.
+                case 4 when entry is not null && inStaticAttrs && value is not null:
+                    entry.DefinitionAttributes.Add((key, value));
+                    break;
+
+                // The named form opens a block per attribute; its `value` arrives a level deeper.
+                case 4 when entry is not null && inItemAttributes && value is null:
+                    pendingAttributeName = key;
+                    break;
+
+                case 5 when entry is not null && inItemAttributes && value is not null
+                    && pendingAttributeName.Length > 0
+                    && string.Equals(key, "value", StringComparison.OrdinalIgnoreCase):
+                    entry.DefinitionAttributes.Add((pendingAttributeName, value));
                     break;
 
                 case 4 when entry is not null && inVisuals && value is null:
@@ -530,6 +612,87 @@ public sealed class ItemSchema
             if (_prefabs.TryGetValue(name, out Entry? prefab))
             {
                 Collect(prefab, into, remaining - 1);
+            }
+        }
+    }
+
+    /// <summary>The definition index a named attribute resolves to, or null for an unknown name.</summary>
+    /// <remarks>
+    /// The top-level <c>attributes</c> section's bridge — <c>GetAttributeDefinitionByName</c> in
+    /// the engine. Consumers ask by name so a renumbered schema cannot silently retarget them.
+    /// </remarks>
+    public int? AttributeDefinitionIndex(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        return _attributeIndexByName.TryGetValue(name, out int index) ? index : null;
+    }
+
+    /// <summary>The attributes an item DEFINITION carries — <c>IterateAttributes</c>' branch 4.</summary>
+    /// <param name="definitionIndex">The item, as <c>m_iItemDefinitionIndex</c> gives it.</param>
+    /// <returns>The definition's attributes as wire-shaped values. Empty when it declares none.</returns>
+    /// <remarks>
+    /// **Per-NAME nearest-wins through the prefab chain**, because KeyValues prefab merging is
+    /// per-key with the item outermost — an item restating a prefab's attribute overrides it, one
+    /// entry rather than two. A name the top-level section does not know is skipped: nothing is
+    /// the honest answer, where a guessed index would collide with a real attribute.
+    ///
+    /// **The value string's reading depends on <c>stored_as_integer</c>.** The union holds 32 raw
+    /// bits; an integer attribute's <c>"64"</c> is the integer itself, a float attribute's
+    /// <c>"1.1"</c> is the float's bit pattern — and confusing the two produces a denormal, not a
+    /// number.
+    /// </remarks>
+    public IReadOnlyList<EconAttributeValue> DefinitionAttributesFor(int definitionIndex)
+    {
+        if (!_items.TryGetValue(definitionIndex, out Entry? item))
+        {
+            return [];
+        }
+
+        List<EconAttributeValue> found = [];
+        HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
+
+        CollectDefinitionAttributes(item, found, seen, LongestChain);
+
+        return found;
+    }
+
+    /// <summary>Gathers definition attributes, nearest declaration winning per name.</summary>
+    private void CollectDefinitionAttributes(
+        Entry entry, List<EconAttributeValue> into, HashSet<string> seen, int remaining)
+    {
+        foreach ((string name, string value) in entry.DefinitionAttributes)
+        {
+            if (!seen.Add(name) || !_attributeIndexByName.TryGetValue(name, out int index))
+            {
+                continue;
+            }
+
+            if (_attributeStoredAsInteger.Contains(index))
+            {
+                if (int.TryParse(
+                    value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int integer))
+                {
+                    into.Add(new EconAttributeValue(index, integer));
+                }
+            }
+            else if (float.TryParse(
+                value, NumberStyles.Float, CultureInfo.InvariantCulture, out float number))
+            {
+                into.Add(new EconAttributeValue(index, BitConverter.SingleToInt32Bits(number)));
+            }
+        }
+
+        if (remaining <= 0)
+        {
+            return;
+        }
+
+        foreach (string name in entry.Prefabs)
+        {
+            if (_prefabs.TryGetValue(name, out Entry? prefab))
+            {
+                CollectDefinitionAttributes(prefab, into, seen, remaining - 1);
             }
         }
     }

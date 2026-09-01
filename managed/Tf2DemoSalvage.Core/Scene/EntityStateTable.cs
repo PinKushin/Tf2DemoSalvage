@@ -204,8 +204,19 @@ public sealed class EntityStateTable
 
         foreach (DecodedProperty property in properties)
         {
+            // **Element-scoped properties key by PATH, because their flat name collides by
+            // construction** (B234). Every element of a `SendPropUtlVectorDataTable` references the
+            // same sub-table, so twenty attributes flatten to one `Table.Prop` name and the last
+            // write wins — 50,447 properties in one demo sharing two keys, nineteen twentieths of
+            // them silently discarded. The path — `…m_AttributeList.m_Attributes.001.m_iRawValue32`
+            // — is the identity the wire actually has.
+            //
+            // Everything else keeps the flat key, deliberately: every accessor in this file's
+            // consumers spells `DT_Table.m_Prop`, and no non-element key collides.
             state.Set(
-                $"{property.Definition.OwnerTable}.{property.Definition.Property.Name}",
+                property.Definition.ElementScoped && property.Definition.Path.Length > 0
+                    ? property.Definition.Path
+                    : $"{property.Definition.OwnerTable}.{property.Definition.Property.Name}",
                 property.Value);
         }
     }

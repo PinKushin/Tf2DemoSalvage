@@ -14829,7 +14829,7 @@ item; a disguise's body but not its gear; a per-class model's map form but not i
 None was found by a test, because in each case the tests asserted the half that existed. All three
 were found by looking at what the program actually produced.
 
-## B234 — Valve networks item attributes FOR DEMOS and we decode none of them — OPEN
+## B234 — Valve networks item attributes FOR DEMOS and we decode none of them — FIXED 2026-08-31
 
 **There is a send table named for this project's exact use case**, and reading its name is how this
 was found:
@@ -16031,3 +16031,66 @@ justified by insurance against a fault that no longer exists.
 Every wrong turn in B245, B247 and B249 came from reading part of a mechanism and reasoning across
 the gap — the enter-PVS read path was read, the store path was assumed. The store path took one
 script and five minutes to find, and it contradicted the assumption immediately. **`docs/memory/read-the-sdk-for-the-whole-mechanism.md` says exactly this, and it was not followed.**
+
+## B252 — first-person attachments: the viewmodel props carry no item, so no pilot light in your own hands — OPEN
+
+Split from B251/B234 the moment it was seen, rather than half-wired. The world side is complete: a
+carried Degreaser shows its pilot light and a festivized medigun its lights, emitted per prop
+through `EntityModelSet.Attachments` on the item's own bones.
+
+**The first-person view misses both, and the reason is recorded in the SceneProp tripwire itself**:
+`ViewmodelScene`'s three props deliberately keep `ItemDefinitionIndex` null — the model is resolved
+through `WeaponModels.For` from the viewmodel's own `m_hWeapon`, and setting the item "would give
+the same answer by a second route". Right for the MODEL; it also starves the attachments delegate,
+which keys on the item, and `Econ` is null there too.
+
+The engine's own draw for this case is the `kAttachedModelDisplayFlag_ViewModel` path —
+`C_ViewmodelAttachmentModel`/`tf_viewmodel.cpp:304` — so the mechanism is the same list filtered by
+the other flag bit.
+
+**The wiring, when picked up:** `TimelineViewmodels.MainHandAt` already finds the weapon's track,
+which now carries `ItemDefinitionIndex` and `Econ`; thread both through `SceneViewmodel` into
+`ViewmodelScene.PoseFor`'s held-weapon prop, and the existing delegate does the rest — including
+honouring the `ViewModel` display-flag bit, which `AttachedModelsFor` already returns and nothing
+yet filters on. That filter matters in both directions once the viewmodel case exists: a
+`model_display_flags 1` attachment must NOT appear in first person, nor a `2` in the world.
+
+### B234, closed: the whole chain, and the key that had to stop being lossy
+
+Three layers, each tested before the next was written:
+
+1. **Element identity.** All twenty elements of `SendPropUtlVectorDataTable`'s generated
+   `_ST_m_Attributes_20` reference one `DT_ScriptCreatedAttribute`, and `DT_ScriptCreatedItem`
+   embeds `DT_AttributeList` TWICE — so 50,447 attribute properties in this one demo flattened to
+   two `Table.Prop` keys and the last write won. `FlatProperty` now carries the dotted PATH
+   (`…m_AttributeList.m_Attributes.001.m_iRawValue32`) and `EntityStateTable` keys element-scoped
+   properties by it. Nothing else changes key: no non-element key collides, and no consumer read
+   the collided garbage — checked with a control (`m_iHealth` present) before trusting the empty
+   grep.
+2. **The value is 32 raw bits** — Valve's comment says so verbatim — with the era spelling
+   (`RecvPropFloat m_flValue, "for demo compatibility only"`) folded into the same bits.
+   `EconAttributeValue` stores bits; `Value`/`AsInteger` are readings, because a
+   `stored_as_integer` attribute read as float is a denormal, not a number.
+3. **Resolution is `IterateAttributes`' chain**, branch for branch: local overrides; SOC never in
+   a demo; the demos list gated on `GetItemID() != INVALID_ITEM_ID` (`(itemid_t)-1`, all-ones);
+   ELSE the definition's own attributes — an `else if`, so taking the demo list forecloses the
+   static one even for indices it lacks. Branch 4 reads both shipped forms (`attributes` blocks
+   and `static_attrs` pairs, 840 of them), bridged name→index by the top-level section, inherited
+   nearest-wins through prefabs.
+
+**The proof is the picture B251 set up as the target**: `is_festivized` (2053, resolved by NAME
+through the schema bridge, not hardcoded) appears 220 times in `tf2-2026-pub-pov-clean`, and the
+festive gate opening puts `c_medigun_festivizer.mdl` — battery and light string — on player 20's
+medigun at tick 14000, drawn and seen:
+
+```
+drawing c_medigun_festivizer.mdl: 2 of 2 batches — kept
+  [1205 'festivizer_battery', 1206 'festive_lights_red']
+```
+
+One false alarm along the way, kept because it is the session's recurring shape: a console `Total:
+820` against a floor of 851 read as 31 lost tests, and was the console total simply not counting
+what the trx counts — `docs/memory/read-the-trx-total-not-the-console.md`, compared anyway. The
+control (the same run on `main`: 816) closed it in one command.
+
+Still open from this work: B252, the first-person half.
