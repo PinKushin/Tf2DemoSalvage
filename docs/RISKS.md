@@ -16944,3 +16944,17 @@ between `At` and "the boundary" was wrong: 357 ns on one run, 696 on the next, a
 negative share of a total containing it. The two loops touch memory differently and the second ran
 warm, so it measured the benchmark. It has been removed. What survives is what does not move between
 runs — the size of the record, and how many tracks are constant.
+
+## B261 — translucent world surfaces and translucent entities are not interleaved — OPEN
+
+Filed while fixing the outside audit's finding 2. The engine draws its translucent frame as ONE
+back-to-front walk: `DrawTranslucentRenderables` traverses the leaf list backwards and, per leaf,
+draws the world's translucent surfaces up to that leaf (`DrawTranslucentWorldAndDetailPropsInLeaves`)
+then the entities sorted within it (`viewrender.cpp:4577` onward). Entities and glass therefore
+compose correctly against each other whichever is nearer.
+
+This viewer sorts translucent ENTITIES back to front against the view axis (finding 2's fix) but
+draws the world's translucent surfaces in a separate pass, so a cloaked spy behind a window and one
+in front of it draw in the same order either way. Noticing the difference needs an entity and a
+translucent brush surface overlapping on screen, which is why it has not been seen yet — the fix is
+per-leaf grouping of the translucent draw, which is the leaf-walk structure D131 already names.
