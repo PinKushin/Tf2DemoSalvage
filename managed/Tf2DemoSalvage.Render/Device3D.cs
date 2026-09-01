@@ -1007,13 +1007,21 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 // WRITTEN so it does not erase whatever is meant to show through it.
                 _context.OMSetDepthStencilState(_depthReadOnly, 0);
 
+                // **Back to front by the camera, never in input order** (the outside audit's
+                // finding 2). This loop used to draw in scene order under a comment that defended
+                // it with the sort's own argument — "blending is order-dependent" is exactly why
+                // the order must come from the camera. The engine sorts translucent entries
+                // ascending along the view axis (`CClientLeafSystem::SortEntities`,
+                // `clientleafsystem.cpp:1758`) and walks the list backwards
+                // (`viewrender.cpp:4577`), so the farthest blends first; this collects the
+                // survivors, sorts them the same way, and walks them the same way.
+                _translucentDraw.Clear();
+
                 foreach (ModelInstance instance in models ?? [])
                 {
-                    // **Culled too, but NOT reordered.** The engine culls in the leaf system before
-                    // it splits opaque from translucent, so both passes see the same visible set;
-                    // what differs is the order, and this one must stay as the scene produced it
-                    // because blending is order-dependent. Running the opaque list through here
-                    // would put a window in front of what should show through it.
+                    // Culled with the same frustum as the opaque pass: the engine culls in the
+                    // leaf system before it splits opaque from translucent, so both passes see
+                    // the same visible set.
                     if (Culled(instance))
                     {
                         continue;
@@ -1028,6 +1036,17 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                     {
                         continue;
                     }
+
+                    _translucentDraw.Add((
+                        TranslucentOrder.Along(instance, _translucentEye, _translucentForward),
+                        (instance, twoPass)));
+                }
+
+                TranslucentOrder.Sort(_translucentDraw);
+
+                for (int at = _translucentDraw.Count - 1; at >= 0; at--)
+                {
+                    (ModelInstance instance, bool twoPass) = _translucentDraw[at].Entry;
 
                     if (instance.Bones is { Count: > 0 } bones)
                     {
@@ -1268,6 +1287,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         ArgumentNullException.ThrowIfNull(camera);
 
         _frustum = camera.Frustum();
+
+        // For the translucent back-to-front sort: the same two values the engine hands
+        // `SortEntities` as vecRenderOrigin and vecRenderForward, read from the same camera the
+        // frustum came from — one camera or the cull lies, and so would the sort.
+        _translucentEye = camera.Origin;
+        _translucentForward = camera.Basis().Forward;
 
         SetCamera(camera.ToMatrix(), surfaceColours);
 
@@ -1666,6 +1691,20 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         _culling is { } culling ? culling.VisibleByLeaf : default;
 
     private ViewFrustum _frustum;
+
+    /// <summary>The view origin and forward axis the translucent sort measures against.</summary>
+    /// <remarks>
+    /// Captured in <see cref="SetCamera(FreeCamera, bool)"/> from the same camera as
+    /// <see cref="_frustum"/> — the engine's <c>vecRenderOrigin</c> and <c>vecRenderForward</c>,
+    /// which <c>SortEntities</c> takes from the view being rendered.
+    /// </remarks>
+    private (float X, float Y, float Z) _translucentEye;
+
+    private (float X, float Y, float Z) _translucentForward = (1f, 0f, 0f);
+
+    /// <summary>The translucent pass's reusable sort buffer: survivors with their view distance.</summary>
+    private readonly List<(float Along, (ModelInstance Instance, bool TwoPass) Entry)>
+        _translucentDraw = [];
 
     /// <summary>The view the current visible set was computed for, so a still camera pays nothing.</summary>
     private ((float X, float Y, float Z) Origin, (float Pitch, float Yaw, float Roll) Angles,

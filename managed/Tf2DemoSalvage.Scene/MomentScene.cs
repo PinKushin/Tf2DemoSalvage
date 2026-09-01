@@ -123,6 +123,13 @@ public sealed class MomentScene : IGameSystemPerFrame
 
         _drawn.Clear();
         _instances.Clear();
+
+        // **The model set forgets the level with the level** (the outside audit's finding 1). Its
+        // caches are path-keyed and a path is a map-scoped name — `*3` is a different door on the
+        // next map, and the loader reads the map's own pak first, so ANY path can be a per-map
+        // override. The engine frees the world's models with the map and unloads what nothing
+        // references at transition; here, at shutdown, that is everything.
+        _models.LevelShutdown();
     }
 
     private readonly EntityModelSet _models;

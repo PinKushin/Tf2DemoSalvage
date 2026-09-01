@@ -7219,3 +7219,28 @@ entered". The camera switched on screen while the waits watched for a line this 
 `ViewerSession.FirstPersonOn` (the shared prefix) already existed for exactly this; the suite now
 uses it everywhere the mechanism is not the claim, and asserts the full spectating sentence in the
 one test whose subject IS the mechanism.
+
+## D133 — the parity audit is automated at the commit, and by registration
+
+**2026-09-01, owner, after reading the outside audit reply:** *"does this run here and can we
+automate it to run on stuff that needs it?"* — which supersedes the keep-routing-manual
+recommendation recorded in the cross-agent log the same evening. The direction is the owner's; the
+mechanism below is the implementation of it.
+
+**What "stuff that needs it" is**: the parity buckets the outside auditor's routing table named and
+this repo's own history confirms — `managed/Tf2DemoSalvage.{Scene,Render,Viewer3D,Presentation}`,
+where every defect this project has shipped was a divergence from the engine.
+
+**The automation is a PreToolUse hook at the one gate every change already passes**:
+`.claude/hooks/parity-cited.ps1` refuses a `git commit` that stages `.cs` files in those buckets
+unless the commit text carries an engine citation (`file.cpp`/`.h` reference or a source-sdk path)
+or an explicit `[no-parity]` tag with its reason — the same refuse-until-the-reason-is-written
+shape as `build/gate.sh`'s floors. Verified live in both directions before being committed: an
+uncited staged parity change is denied, a cited one passes. Every legitimate renderer commit
+already cites the engine, so the gate costs nothing when the discipline is followed.
+
+**The deeper audit runs by name after a session restart**: `.claude/agents/engine-reader.md`,
+`sabotage-verifier.md` and `instrument-auditor.md`, and the `valve-parity-audit` and `measure`
+skills, register when a session starts, so the batch sweep the owner wants ("run the agents on the
+whole codebase") is a restart away. Until then the procedure runs inline — the audit-fix loop that
+produced findings 1/2/3/6 today IS the skill's procedure, executed by hand.

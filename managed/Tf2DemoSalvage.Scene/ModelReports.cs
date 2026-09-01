@@ -47,6 +47,19 @@ public sealed class ModelReports
     /// <summary>Models whose baked frame selection has been reported.</summary>
     private readonly HashSet<string> _reportedFrames = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Forgets the level's dedup state, so the next map reports as its own.</summary>
+    /// <remarks>
+    /// Entity indices and model paths are both per-level names; a brush height remembered for
+    /// entity N is the OLD map's brush, and a once-per-model line suppressed because the last map
+    /// said it would hide the next map's instance of the same problem.
+    /// </remarks>
+    public void LevelShutdown()
+    {
+        _brushHeight.Clear();
+        _reportedLight.Clear();
+        _reportedFrames.Clear();
+    }
+
     /// <summary>Where a brush entity actually lands, every time it moves.</summary>
     /// <param name="prop">The prop.</param>
     /// <param name="seconds">Demo time, so the trace reads against the demo's own keyframes.</param>

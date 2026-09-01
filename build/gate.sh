@@ -490,7 +490,7 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 # behind the camera is not posed, in front of it is, and no frustum culls nothing. Then three for
 # the Build/Pose split it needed - Build selects without posing, Pose produces the instances, and
 # the players survive the gap between them (B257, which took three attempts to make failable).
-run Tf2DemoSalvage.Scene.Tests    scene     298
+run Tf2DemoSalvage.Scene.Tests    scene     305
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -1084,7 +1084,7 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     146
 # negative and the strobe really is off, so an implementation that simply dropped the sign test
 # would pass the first and fail the second. Found by reading the engine function end to end during
 # the parity audit, not by any measurement of ours.
-run Tf2DemoSalvage.Rendering.Tests rendering 718
+run Tf2DemoSalvage.Rendering.Tests rendering 722
 # 101 -> 103 on 2026-08-29: LaunchOptionWiringTests (B223, D118). Two tests, and they cost about
 # seventeen seconds EACH, because each builds a real MainForm and loads a corpus demo — which reads
 # cp_badlands.bsp when Team Fortress 2 is installed. That is the most expensive pair in this file
