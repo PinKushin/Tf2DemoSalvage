@@ -16777,3 +16777,57 @@ things that have moved. The prize is the floor, which is most of the gap to TF2'
   `Speed`, so it `continue`s on its first line for every one of them.
 
 The floor is 2.6 → 2.4 ms across both. The rest is the decision above.
+
+### B259 fix 3, the plan — two stages, and only the second carries the hazard
+
+Approved as D131. The engine mechanism, read in full before designing:
+
+```cpp
+// C_BaseEntity::UpdateVisibility  (c_baseentity.cpp:1421)
+if ( ShouldDraw() && !IsDormant() && ( !ToolsEnabled() || IsEnabledInToolView() ) )
+    AddToLeafSystem();      // already present -> RenderableChanged() -> marks DIRTY
+else
+    RemoveFromLeafSystem();
+```
+
+```cpp
+// CClientLeafSystem::PreRender  (clientleafsystem.cpp:543)
+int nDirty = m_DirtyRenderables.Count();
+for ( i = nDirty; --i >= 0; ) RemoveFromTree( m_DirtyRenderables[i] );
+for ( i = nDirty; --i >= 0; ) InsertIntoTree( m_DirtyRenderables[i] );
+```
+
+`InsertIntoTree` computes `CalcRenderableWorldSpaceAABB_Fast` and calls
+`pQuery->EnumerateLeavesInBox`. **So the per-frame cost is O(dirty), not O(entities)** — an entity
+that neither moved nor changed visibility is not touched at all, and `RenderableChanged` is
+idempotent, so it joins the dirty list once however many times it is marked.
+
+**Stage A — per-track change detection. Cuts `sample`; no cross-frame index; seek-safe.**
+
+A track whose keyframes do not change between the previously sampled moment and this one produces an
+identical `SceneProp`. We hold the whole demo, so a track knows its own next change tick exactly —
+one integer comparison per track replaces a binary search, an interpolation and a record
+construction. Cache the last `SceneProp` per track and reuse it when nothing changed.
+
+This is the engine's dirty flag with the polarity our architecture allows: the engine is TOLD when an
+entity moves because it streams; we can ASK, because the future is already decoded. Seeking is safe
+because the cache is keyed by the tick it was built for.
+
+Expected: `sample` 0.8 -> ~0.2. **It does not touch `drawlist`, `models` or `pose`**, which walk the
+drawn list rather than the tracks.
+
+**Stage B — the drawn set becomes a maintained index. This is the prize and the hazard.**
+
+`drawlist`, `models` and placement are proportional to the drawn list, so they only shrink when the
+LIST does. That needs what the engine has: entities held per leaf, so the draw list is read from
+visible leaves rather than filtered down from everything.
+
+**The hazard, to be designed against rather than accepted** (D131): an index that survives frames is
+wrong the moment something moves without updating it, and a stale index draws things where they are
+not — a plausible picture, which is this project's worst failure mode. Two guards fall out of Stage
+A: the same change detection that decides "this track needs re-sampling" decides "this track needs
+re-inserting", so the two cannot disagree; and a seek invalidates the whole index, which the engine
+never has to do because it cannot seek.
+
+**Order matters: A before B.** A is independently valuable, independently verifiable, and produces
+the change signal B needs. Doing B first would mean inventing that signal twice.
