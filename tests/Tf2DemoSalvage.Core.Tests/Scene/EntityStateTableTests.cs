@@ -76,13 +76,22 @@ public sealed class EntityStateTableTests
     public void EntityState_LeavingTheVisibleSet_IsNotDestruction()
     {
         // `Leave` and `Delete` are different messages and mean different things: an entity that
-        // leaves the potentially-visible set still exists and will come back with a DELTA, not a
-        // fresh ENTER. Discarding its properties there loses everything that delta does not
-        // resend - which for a player who walked behind a wall is most of them.
+        // leaves the potentially-visible set still exists, and discarding its properties there
+        // loses everything - which for a player who walked behind a wall is all of them.
         //
         // A viewer still must not draw it, so visibility is tracked rather than the state being
         // thrown away. Those are two different questions and this is the test that keeps them
         // separate.
+        //
+        // **What this test used to claim past that point, and no longer does** (B245): that the
+        // entity "will come back with a DELTA, not a fresh ENTER", and therefore keeps its health
+        // through the return. The first half is wrong — a decompilation of `engine.dll` shows an
+        // entity re-entering the visible set goes through `CL_CopyNewEntity`, which decodes it
+        // against a baseline rather than against what the client holds, and the corpus agrees:
+        // entity 1138 of `tf2-2026-pub-pov-clean` re-ENTERS at ticks 8317 and 10901.
+        //
+        // The RETURN is therefore a question about baselines, and it is asked where a baseline can
+        // be modelled — `ReentryPreservesStateTests`. What belongs here is the leave itself.
         EntityStateTable table = new(EntityBaselines.None);
         table.Apply(Entity(4, EntityUpdateType.Enter,
             Property("DT_BasePlayer", "m_iHealth", PropertyValue.FromInt(125))));
@@ -96,11 +105,11 @@ public sealed class EntityStateTableTests
         left.IsVisible.ShouldBeFalse();
         left.Integer("DT_BasePlayer.m_iHealth").ShouldBe(125);
 
-        // And it comes back without re-sending anything.
+        // And coming back makes it visible again. What it is WORTH on return is decided by the
+        // baseline it is decoded against, which this fixture has none of — `EntityBaselines.None`.
         table.Apply(Entity(4, EntityUpdateType.Enter));
         table.TryGet(4, out EntityState? returned).ShouldBeTrue();
         returned.IsVisible.ShouldBeTrue();
-        returned.Integer("DT_BasePlayer.m_iHealth").ShouldBe(125);
     }
 
     [Test]

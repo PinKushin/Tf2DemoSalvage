@@ -205,7 +205,14 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # empty-handed for the entire demo. Two of the three are controls, and both are needed: asking only
 # about the early tick passes against a track frozen at the FIRST state, which is the same bug
 # mirrored, and only the holstered-then-drawn case exercises a weapon coming back into a hand.
-run Tf2DemoSalvage.Core.Tests     core     1602
+# 1602 -> 1605: an entity entering the visible set is decoded against a BASELINE (B245). Read out of
+# engine.dll, because the SDK ships no engine networking: CL_CopyNewEntity picks a fromBuf - the
+# per-entity checkpoint when the snapshot is a delta and the stored class matches, else the class
+# baseline, whose absence is fatal - and never uses what the client is holding. Two of the three are
+# the weapon case and its control (a weapon still in the PVS keeps what a delta omits); the third is
+# a control on the re-entry tests themselves, because "decoded against its own checkpoint" and
+# "kept whatever we had" predict the same observation unless one case has no checkpoint.
+run Tf2DemoSalvage.Core.Tests     core     1605
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
