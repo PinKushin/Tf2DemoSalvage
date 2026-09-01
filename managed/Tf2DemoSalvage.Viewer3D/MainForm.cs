@@ -1732,7 +1732,11 @@ internal class MainForm : Form, IFrameSteps
         // is placed from the recorded view or from the followed player at the CURRENT tick, so
         // switching before the clock moves photographs the right mode at the wrong instant — and
         // the picture looks like a camera bug rather than an ordering one.
-        if (_launch.FirstPerson)
+        //
+        // Skipped when the mode is already first person, because on a point-of-view recording the
+        // D128 lock entered it at load — and `ToggleFirstPerson` TOGGLES, so calling it again
+        // would be an attempt to leave, refused with a warning on every `--first-person` run.
+        if (_launch.FirstPerson && _cameraMode != CameraMode.FirstPerson)
         {
             _ = ToggleFirstPerson();
         }
@@ -1870,6 +1874,13 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private bool EnterCamera(CameraMode mode)
     {
+        // **Before anything else, because a refused mode must change nothing** (D128). The key was
+        // still ours — returning true stops it falling through to whatever else Space means.
+        if (RefusedByTheDemo(mode))
+        {
+            return true;
+        }
+
         CameraMode leftFrom = _cameraMode;
 
         if (mode == CameraMode.Free)
@@ -1941,6 +1952,40 @@ internal class MainForm : Form, IFrameSteps
             _ => CameraMode.Free,
         });
 
+    /// <summary>Refuses a camera this demo cannot answer, saying why — the D128 lock.</summary>
+    /// <param name="wanted">The mode about to be entered.</param>
+    /// <returns>True when the mode was refused and reported; the caller should change nothing.</returns>
+    /// <remarks>
+    /// **The rule is <see cref="SpectatorView.Refuses"/>; this is only the reporting.** A
+    /// point-of-view recording is locked to the recorder's view because entities outside his
+    /// visibility were never transmitted — the refusal names that, in the log and the status bar,
+    /// because a key that silently does nothing reads as a broken key.
+    ///
+    /// **The headless instrument is exempt, and deliberately.** `TF2VIEW_CAMERA` places a camera
+    /// for a capture or a measurement; refusing it would blind this project's own instruments on
+    /// every point-of-view specimen. An explicitly placed camera is a measurement, not playback —
+    /// the lock is about what a VIEWER offers, and the environment variable is not offered, it is
+    /// typed.
+    /// </remarks>
+    private bool RefusedByTheDemo(CameraMode wanted)
+    {
+        if (Environment.GetEnvironmentVariable(FreeCameraController.CameraVariable)
+            is { Length: > 0 })
+        {
+            return false;
+        }
+
+        if (_spectator.Refuses(wanted) is not { } refusal)
+        {
+            return false;
+        }
+
+        _renderLog.LogWarning("{Message}", refusal.Message);
+        _status.Text = refusal.Status;
+
+        return true;
+    }
+
     private bool ToggleFirstPerson()
     {
         // **The REQUESTED mode, not the effective one.** A dead target is drawn in third person, so
@@ -1949,6 +1994,14 @@ internal class MainForm : Form, IFrameSteps
         // become impossible for the whole of a death.
         if (_cameraMode == CameraMode.FirstPerson)
         {
+            // Leaving first person is entering the free camera, so the D128 lock applies to the
+            // exit exactly as it does to the cycle: on a point-of-view recording there is nowhere
+            // to leave TO.
+            if (RefusedByTheDemo(CameraMode.Free))
+            {
+                return true;
+            }
+
             _cameraMode = CameraMode.Free;
             _world.Invalidate();
             _viewport.Invalidate();
@@ -2488,6 +2541,21 @@ internal class MainForm : Form, IFrameSteps
             _audio,
             autoPlay,
             _launch.AutoPlay ? "--autoplay" : $"{AutoPlayVariable} is set");
+
+        // **A point-of-view recording opens through the recorder's eyes** (D128). TF2's playback
+        // of a POV demo is the recorded view and nothing else, so the free camera this viewer
+        // normally starts in does not exist for the demo kind — entering first person at load is
+        // not a preference, it is the only camera the file can answer. Through `EnterCamera` so
+        // the entry is logged and the target acquired exactly as a keypress would. The headless
+        // instrument (`TF2VIEW_CAMERA`) keeps the free camera, the same exemption every lock site
+        // honours.
+        if (_spectator.Refuses(CameraMode.Free) is { }
+            && _cameraMode != CameraMode.FirstPerson
+            && Environment.GetEnvironmentVariable(FreeCameraController.CameraVariable)
+                is not { Length: > 0 })
+        {
+            _ = EnterCamera(CameraMode.FirstPerson);
+        }
 
         // **`_transport.SetDemoLength(_demo.LastTick)` was here, and it was the bug** (B223, D118).
         // `Open` starts autoplay; this line ran immediately afterwards and its last act is
@@ -4555,6 +4623,14 @@ internal class MainForm : Form, IFrameSteps
 
         if (keyData == KeyNames.Resolve(_bindings.KeyFor(ViewerAction.ResetCamera)))
         {
+            // The reset lands in the free camera, so the D128 lock applies here too: on a
+            // point-of-view recording "show me the whole map" asks for a map that was never
+            // transmitted.
+            if (RefusedByTheDemo(CameraMode.Free))
+            {
+                return true;
+            }
+
             // **F now RESETS the camera to the overhead placement rather than switching mode.**
             // It used to toggle between the map view and the free camera; with the orthographic
             // camera gone (D49) there is no second mode to switch to, and the overhead view is a

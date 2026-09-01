@@ -126,6 +126,8 @@ public sealed class ObserverModeConformanceTests
     {
         public const int Player = 3;
 
+        public bool HasRecordedView => false;
+
         public int? RecorderEntityIndex => null;
 
         public RecordedView? RecordedViewAt(int tick) => null;

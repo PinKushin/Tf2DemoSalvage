@@ -251,6 +251,8 @@ public sealed class SpectatorViewTests
     private sealed class Demo(
         int? recorder, bool recorded, IReadOnlyList<ScenePlayer> players, float viewX) : IEyeSource
     {
+        public bool HasRecordedView => recorded;
+
         public int? RecorderEntityIndex => recorder;
 
         public RecordedView? RecordedViewAt(int tick) =>

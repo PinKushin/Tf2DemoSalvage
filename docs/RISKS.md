@@ -16309,7 +16309,19 @@ part that makes the per-frame cost proportional to what is visible rather than t
 **What is already correct and should not be disturbed:** the sampling half. Interpolation genuinely
 runs per frame in the engine and belongs in `Simulate`; only the pose belongs after the view.
 
-## B256 — a POV demo must be locked to the recorder's own view; we allow free camera and third person — OPEN
+## B256 — a POV demo must be locked to the recorder's own view; we allow free camera and third person — FIXED
+
+**Fixed 2026-09-01, as D128 decided and after D132 prepared the suite.** `SpectatorView.Refuses`
+holds the rule — every mode but first person is refused on a demo with a recorded view, with the
+reason in the refusal — and the window honours it at every mode-changing site: the cycle key, the
+first-person toggle's exit, the camera reset, and load, where a POV demo now opens straight through
+the recorder's eyes. `Cycle` refuses target switching outright, because the other players exist in
+the file only where the recorder saw them. The headless instrument (`TF2VIEW_CAMERA`) is exempt: an
+explicitly placed camera is a measurement, not playback, and refusing it would blind this project's
+own capture tooling on every POV specimen. Verified at the output: a POV demo opens with *"first
+person on, following the recording's own camera"* and no free-camera line; `z1800` (SourceTV) opens
+free with zero first-person lines; a POV run with `TF2VIEW_CAMERA` set places the free camera and
+writes its capture. The D132 demo move is what let the UI suite stay green across this change.
 
 **The owner, 2026-09-01, stating what TF2 actually does:** *"in real tf2 the camera in the pov demo
 follows and does exactly what the player recording it did, you cant see anything that player did not

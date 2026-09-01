@@ -213,6 +213,8 @@ public sealed class DemoSystemsTests
 
     private sealed class StubEyes : IEyeSource
     {
+        public bool HasRecordedView => false;
+
         public int? RecorderEntityIndex => null;
 
         public RecordedView? RecordedViewAt(int tick) => null;

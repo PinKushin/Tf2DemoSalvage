@@ -19,6 +19,15 @@ namespace Tf2DemoSalvage.Scene;
 /// </remarks>
 public interface IEyeSource
 {
+    /// <summary>Whether this demo carries a recorded camera at all — the demo-KIND question.</summary>
+    /// <remarks>
+    /// True for a point-of-view recording, whose <c>democmdinfo_t</c> holds the camera the client
+    /// computed; false for SourceTV, which leaves it zeroed. D128 hangs on this: a POV demo is
+    /// PVS-limited, so every camera except the recorded one shows a world that was never
+    /// transmitted.
+    /// </remarks>
+    public bool HasRecordedView { get; }
+
     /// <summary>The camera the recording client computed, when the demo carries one.</summary>
     /// <param name="tick">The tick being drawn.</param>
     /// <returns>The recorded view, or null for a SourceTV demo.</returns>
@@ -38,6 +47,9 @@ public interface IEyeSource
 /// <remarks>The whole adapter, mirroring <see cref="TimelineViewmodels"/>.</remarks>
 public sealed class TimelineEyes(DemoTimeline timeline) : IEyeSource
 {
+    /// <inheritdoc />
+    public bool HasRecordedView => timeline.HasRecordedView;
+
     /// <inheritdoc/>
     public RecordedView? RecordedViewAt(int tick) => timeline.RecordedViewAt(tick);
 
@@ -77,6 +89,11 @@ public readonly record struct FirstPersonEntry(bool Entered, string Message, str
 /// <param name="Switched">Whether the target actually moved.</param>
 /// <param name="Message">What happened, for the spectate log.</param>
 public readonly record struct SpectatorSwitch(bool Switched, string Message);
+
+/// <summary>Why a camera mode is refused on this demo, for the log and the status line.</summary>
+/// <param name="Message">The full sentence for the log, naming the reason.</param>
+/// <param name="Status">The short line for the status bar.</param>
+public readonly record struct CameraRefusal(string Message, string Status);
 
 public sealed class SpectatorView
 {
@@ -260,6 +277,19 @@ public sealed class SpectatorView
             return new SpectatorSwitch(Switched: false, "no demo open");
         }
 
+        // **A point-of-view demo follows its recorder, and there is nobody else to give** (D128).
+        // The other players exist in the file only where the recorder saw them — spectating one is
+        // a view the recording cannot answer. TF2's playback of a POV demo offers no target
+        // switching either; the spectator commands belong to SourceTV.
+        if (eyes.HasRecordedView)
+        {
+            return new SpectatorSwitch(
+                Switched: false,
+                "a point-of-view recording follows its recorder; the other players were only "
+                + "transmitted where the recorder saw them, so there is nobody else to spectate "
+                + "(D128)");
+        }
+
         IReadOnlyList<ScenePlayer> players = eyes.PlayersAt(tick);
 
         if (SpectatorTarget.Next(players, Spectating ?? Followed(tick), reverse) is not { } next)
@@ -276,6 +306,38 @@ public sealed class SpectatorView
             $"following entity {next.EntityIndex} (team {next.Team}) " +
             $"of {reachable} observable ({players.Count} on the roster) " +
             $"at tick {tick}");
+    }
+
+    /// <summary>Whether this demo refuses a camera mode outright, and why.</summary>
+    /// <param name="requested">The mode being asked for.</param>
+    /// <returns>The refusal, or null when the mode is available on this demo.</returns>
+    /// <remarks>
+    /// **A point-of-view demo is locked to the recorder's view, and that is a property of the
+    /// DEMO** (D128). The owner: *"we do exactly what tf2 does, because tryign to do anything else
+    /// whould be creating information we dont have."* A POV recording is PVS-limited — entities
+    /// outside the recorder's visibility were never transmitted — so a free camera pointed at the
+    /// rest of the map does not show a room the viewer renders badly, it shows a room that was
+    /// never recorded. TF2's own playback of a POV demo is the recorded view with no spectator UI
+    /// at all; SourceTV keeps every mode, because an STV recording carries the whole server.
+    ///
+    /// First person stays allowed because it IS the recorded view — one mode, two mechanisms, per
+    /// <see cref="CameraMode.FirstPerson"/> — and death inside it is already the engine's own
+    /// fallback through <see cref="Effective"/>, which is the recorded death cam rather than a
+    /// choice the viewer made.
+    /// </remarks>
+    public CameraRefusal? Refuses(CameraMode requested)
+    {
+        if (requested == CameraMode.FirstPerson || Eyes is not { HasRecordedView: true })
+        {
+            return null;
+        }
+
+        string mode = requested == CameraMode.ThirdPerson ? "third person" : "the free camera";
+
+        return new CameraRefusal(
+            $"{mode} is refused on a point-of-view recording: entities outside the recorder's "
+            + "view were never transmitted, so there is no world there to show (D128)",
+            "POV demo: the camera is the recorder's own.");
     }
 
     /// <summary>Which camera mode is actually available, which death can change.</summary>

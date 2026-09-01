@@ -91,6 +91,8 @@ public sealed class FirstPersonEntryTests
     /// <summary>An eye source with one player, at one tick only.</summary>
     private sealed class Eyes(int atTick, bool recorded = false) : IEyeSource
     {
+        public bool HasRecordedView => recorded;
+
         public int? RecorderEntityIndex => recorded ? 1 : null;
 
         public RecordedView? RecordedViewAt(int tick) =>

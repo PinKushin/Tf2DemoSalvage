@@ -124,6 +124,8 @@ public sealed class SpectatorEffectiveModeTests
 
         private const int Recorder = 7;
 
+        public bool HasRecordedView => true;
+
         public int? RecorderEntityIndex => Recorder;
 
         public RecordedView? RecordedViewAt(int tick) =>
@@ -156,6 +158,8 @@ public sealed class SpectatorEffectiveModeTests
     private sealed class FakeEyes(bool alive) : IEyeSource
     {
         public const int Player = 3;
+
+        public bool HasRecordedView => false;
 
         public int? RecorderEntityIndex => null;
 
