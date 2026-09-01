@@ -21,6 +21,15 @@ The lookup table; reasoning lives in the sections below, not here. Every path is
 | list the probes / run one | `dotnet run --project tools/Tf2DemoSalvage.Probe -c Release --` &nbsp;·&nbsp; `… -- carried <demo> <tick> [class]` |
 | decompile a demo to text | `dotnet run --project managed/Tf2DemoSalvage.Cli -c Release -- <demo> -t -e -o out.txt -q` |
 | viewer, headless screenshot | `TF2VIEW_CAMERA="x y z pitch yaw" pwsh …/run-exclusive.ps1 managed/Tf2DemoSalvage.Viewer3D/bin/Debug/net10.0-windows/tf2demoview.exe <demo> --tick <n> --shot out.png` |
+| what the viewer accepts | `tf2demoview --help` — every flag and env var, no window, one call |
+| **measure the frame** | `TF2VIEW_AUTOPLAY=1 pwsh …/run-exclusive.ps1 tf2demoview <demo> --tick <n> --first-person --measure 20 +fps_max 0` |
+
+**`--measure <seconds>` counts PLAYBACK, not wall clock, and prints to stdout.** Both halves of that
+matter and both were learned the hard way: a run timed from process start spends its first twenty
+seconds on archives and the map, so a "forty second" measurement was two seconds of frames; and the
+log is BUFFERED, so reading it while the viewer runs shows asset loading and nothing else — which
+was twice misread, once as the viewer having exited on its own. It replaces a six-call dance of
+build, launch, wait for the process, sleep, kill, grep.
 
 Never `--no-build` (a hook blocks it); never one `dotnet test` over the whole solution (assemblies
 run concurrently and the UI suite loses the desktop — the two-phase gate exists for that). The

@@ -625,7 +625,9 @@ run Tf2DemoSalvage.Audio.Tests    audio     183
 # 430 -> 434: MomentCostLog, the same treatment for the parts of `advance`, which the frame log
 # showed is 70% of the frame. Four tests, the load-bearing one being that it averages every rebuild
 # rather than reporting the one that crossed the count.
-run Tf2DemoSalvage.Presentation.Tests presentation 434
+# 434 -> 438: --measure and --help (LaunchOptions). Both malformed twins included, per that file's own
+# rule that a parser ignoring an option passes any test that only checks the bad input is refused.
+run Tf2DemoSalvage.Presentation.Tests presentation 438
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.

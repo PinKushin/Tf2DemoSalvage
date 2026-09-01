@@ -66,6 +66,16 @@ internal static class Program
         // the reader to skip warnings, which is the opposite of what the log is for.
         DecodeLog.Notes = loggers.LogTo();
 
+        // **Answered before anything is initialised, because the answer is the point.** A viewer
+        // that must open a window and read a map before it can list its own options is one nobody
+        // asks — which is how `--first-person` came to be reported as not existing while it was
+        // parsed one project along.
+        if (Help.Wanted(args))
+        {
+            Console.Write(Help.Text);
+            return;
+        }
+
         ApplicationConfiguration.Initialize();
         // Passed straight through: double-clicking a .dem, selecting several and pressing enter,
         // or dropping a folder on the executable all arrive here as paths, and all go through the

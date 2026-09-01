@@ -19,6 +19,11 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="SurfaceColours">Whether the capture uses the surface-category view.</param>
 /// <param name="Spectate">Which entity to follow, or null to choose automatically.</param>
 /// <param name="AutoPlay">Whether playback starts as soon as a demo is loaded.</param>
+/// <param name="MeasureSeconds">
+/// How many seconds of PLAYBACK to run before printing the frame-cost summary and exiting, or null
+/// for an ordinary interactive run.
+/// </param>
+/// <param name="ShowHelp">Whether to print the options and exit without opening anything.</param>
 public readonly record struct LaunchOptions(
     ViewerSettings Settings,
     IReadOnlyList<string> Paths,
@@ -29,7 +34,9 @@ public readonly record struct LaunchOptions(
     float Zoom = 1f,
     bool SurfaceColours = false,
     int? Spectate = null,
-    bool AutoPlay = false);
+    bool AutoPlay = false,
+    double? MeasureSeconds = null,
+    bool ShowHelp = false);
 
 /// <summary>Reads the viewer's launch options.</summary>
 /// <remarks>
@@ -146,6 +153,37 @@ public static class LaunchOptionsReader
             if (argument == "--first-person")
             {
                 read = read with { FirstPerson = true };
+                continue;
+            }
+
+            // **Seconds of PLAYBACK, not of wall clock** — the distinction that made every
+            // hand-driven measurement wrong. A run timed from process start spends its first twenty
+            // seconds reading archives and building the map, so a "forty second" measurement was
+            // about two seconds of frames. Only the viewer knows when playback began.
+            if (argument == "--measure" && pending.Count > 0)
+            {
+                string seconds = pending.Dequeue();
+
+                if (double.TryParse(
+                        seconds, NumberStyles.Float, CultureInfo.InvariantCulture, out double run)
+                    && run > 0)
+                {
+                    read = read with { MeasureSeconds = run };
+                }
+                else
+                {
+                    // Refused rather than absorbed, because a measurement that silently became an
+                    // ordinary run is one somebody waits on and then reads nothing from.
+                    log.LogWarning(
+                        "{Message}", $"--measure wants a number of seconds; '{seconds}' is not one");
+                }
+
+                continue;
+            }
+
+            if (argument is "--help" or "-h" or "-?" or "/?")
+            {
+                read = read with { ShowHelp = true };
                 continue;
             }
 

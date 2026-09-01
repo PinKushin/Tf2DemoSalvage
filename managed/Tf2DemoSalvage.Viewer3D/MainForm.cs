@@ -3612,6 +3612,35 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private double _frameSeconds;
 
+    /// <summary>Every per-second line this run produced, for <c>--measure</c> to print.</summary>
+    private readonly List<string> _measured = [];
+
+    /// <summary>Prints what <c>--measure</c> gathered and closes.</summary>
+    /// <remarks>
+    /// **To stdout, because the log is buffered.** Reading the log file while the viewer is still
+    /// running shows only what has been flushed — 52 lines of asset loading, and nothing about
+    /// frames — which was misread twice in one session, once as the viewer having exited on its own.
+    /// A measurement that has to be read out of a file nobody can read yet is not a measurement.
+    ///
+    /// **The first line is dropped.** It covers the second in which the map finished loading and
+    /// playback began, so it averages a handful of frames against a rebuild that included model
+    /// uploads; keeping it drags the mean toward a cost no steady frame pays.
+    /// </remarks>
+    private void FinishMeasuring()
+    {
+        Console.WriteLine(
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"measured {_frameSeconds:0.#} seconds of playback, {_measured.Count} samples"));
+
+        for (int at = _measured.Count > 1 ? 1 : 0; at < _measured.Count; at++)
+        {
+            Console.WriteLine("  " + _measured[at]);
+        }
+
+        Close();
+    }
+
     /// <summary>This frame's <c>cl_showpos</c> subject, gathered from the camera and the demo.</summary>
     /// <returns>The readout; hidden when the convar is off.</returns>
     /// <remarks>
@@ -3952,6 +3981,20 @@ internal class MainForm : Form, IFrameSteps
         if (_frameRateLog.Report(_overlayQuads.LastReading, phases, _frameSeconds) is { } rate)
         {
             _renderLog.LogInformation("{Message}", rate);
+
+            // **`--measure`, and the line it prints is the one just logged.** Reported from here
+            // rather than gathered separately so the two cannot differ: what stdout shows is
+            // literally what the log shows, which is the rule that stops a summary from being a
+            // second, disagreeing measurement.
+            _measured.Add(rate);
+        }
+
+        // **Counted in seconds of PLAYBACK.** A wall clock would spend the first twenty seconds on
+        // archives and the map, so `--measure 40` would be about two seconds of frames — which is
+        // exactly the mistake this replaces.
+        if (_launch.MeasureSeconds is { } run && _frameSeconds >= run)
+        {
+            FinishMeasuring();
         }
 
         // **NOT cleared here, and that was a real bug.** `Instances` clears the list it fills, so
