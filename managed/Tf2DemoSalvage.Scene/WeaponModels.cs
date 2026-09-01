@@ -139,6 +139,8 @@ public sealed class WeaponModels
     /// </remarks>
     public IReadOnlyList<EconAttributeValue> AttributesFor(SceneProp prop)
     {
+        ArgumentNullException.ThrowIfNull(prop);
+
         IReadOnlyList<EconAttributeValue> definition =
             prop.ItemDefinitionIndex is { } item && Schema() is { } schema
                 ? schema.DefinitionAttributesFor(item)

@@ -192,7 +192,7 @@ public sealed class ParentedPropDiagnostic
                     continue;
                 }
 
-                string where = here.TryGetValue(parent, out SceneProp found)
+                string where = here.TryGetValue(parent, out SceneProp? found)
                     ? $"{found.ModelPath} at ({found.Pose.X:0} {found.Pose.Y:0} {found.Pose.Z:0})"
                     : "ABSENT FROM THIS TICK";
 

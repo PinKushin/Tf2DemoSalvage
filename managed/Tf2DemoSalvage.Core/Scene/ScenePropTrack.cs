@@ -381,7 +381,7 @@ public readonly record struct ScenePose
 /// transform, which on a player is their feet (RISKS B82).
 /// </para>
 /// </param>
-public readonly record struct SceneProp(
+public sealed record SceneProp(
     int EntityIndex,
     string ModelPath,
     SceneModelKind Kind,

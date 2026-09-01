@@ -109,6 +109,8 @@ public sealed class ModelLighting
         Func<float, float, float, PointLighting>? lightAt,
         Func<float, float, float, SunLight?>? sunAt)
     {
+        ArgumentNullException.ThrowIfNull(prop);
+
         ScenePose pose = prop.Pose;
 
         (float x, float y, float z) = _illumination(prop, pose);

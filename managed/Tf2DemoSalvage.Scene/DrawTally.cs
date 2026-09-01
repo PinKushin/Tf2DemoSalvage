@@ -87,6 +87,8 @@ public sealed class DrawTally
     /// </remarks>
     public void NotDrawable(SceneProp prop)
     {
+        ArgumentNullException.ThrowIfNull(prop);
+
         _notStudio++;
 
         string name;

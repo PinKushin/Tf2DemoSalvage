@@ -64,6 +64,8 @@ public sealed class ModelReports
     /// </remarks>
     public void BrushMoved(SceneProp prop, double seconds)
     {
+        ArgumentNullException.ThrowIfNull(prop);
+
         if (prop.Kind != SceneModelKind.Brush)
         {
             return;
@@ -112,6 +114,8 @@ public sealed class ModelReports
     /// </remarks>
     public void Lit(SceneProp prop, ModelLight lit, int skin)
     {
+        ArgumentNullException.ThrowIfNull(prop);
+
         if (!_reportedLight.Add(prop.EntityIndex))
         {
             return;
@@ -157,6 +161,8 @@ public sealed class ModelReports
     /// <exception cref="ArgumentNullException"><paramref name="prop"/> is null.</exception>
     public void Animating(SceneProp prop, int frame, int frames, float blend)
     {
+        ArgumentNullException.ThrowIfNull(prop);
+
         if (!_reportedFrames.Add(prop.ModelPath))
         {
             return;

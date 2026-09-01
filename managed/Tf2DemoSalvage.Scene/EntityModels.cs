@@ -798,7 +798,7 @@ public sealed class EntityModelSet
             return prop.Pose;
         }
 
-        if (!_propsByEntity.TryGetValue(wearer, out SceneProp parent))
+        if (!_propsByEntity.TryGetValue(wearer, out SceneProp? parent))
         {
             return prop.Pose;
         }
@@ -1549,7 +1549,11 @@ public sealed class EntityModelSet
     /// <param name="prop">The prop, carrying the sequence and cycle the demo networked.</param>
     /// <param name="seconds">Demo time, for advancing the cycle the server does not send.</param>
     /// <returns>The frame to draw, the one after it, and the blend between them.</returns>
-    public (int Frame, int Next, float Blend) SelectFor(SceneProp prop, double seconds) =>
+    public (int Frame, int Next, float Blend) SelectFor(SceneProp prop, double seconds)
+    {
+        ArgumentNullException.ThrowIfNull(prop);
+
+        return
         _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? frames)
             ? frames.Select(
                 prop.Pose.Sequence,
@@ -1565,6 +1569,7 @@ public sealed class EntityModelSet
                 // before it drew once.
                 prop.Pose.AnimationStartSeconds)
             : (0, 0, 0f);
+    }
 
     /// <summary>Whether a model kind has geometry this renderer can draw.</summary>
     /// <param name="kind">What the model reference resolved to.</param>
@@ -2597,7 +2602,7 @@ public sealed class EntityModelSet
             prop.Pose.Scale);
 
         if (prop.AttachedTo is { } wearer &&
-            _propsByEntity.TryGetValue(wearer, out SceneProp parent))
+            _propsByEntity.TryGetValue(wearer, out SceneProp? parent))
         {
             return WorldSpaceBounds.Following(
                 Placed(parent),
