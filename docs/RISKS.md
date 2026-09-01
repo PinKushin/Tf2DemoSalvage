@@ -16159,3 +16159,63 @@ Left open from this work at the time: B252, the first-person half — since fixe
 
 **B234's fix confirmed by eye** — the owner, watching the same tick: *"the festival medigun was
 showing"*. Log, frame capture and a person agree, which is the full set.
+
+## B253 — the frame is 78% scene rebuild, and `pose` is half of it — OPEN
+
+**The owner, 2026-09-01:** *"our fps being way way too low, real tf2 plays every demo I have check
+so far at over like 600 fps"*, later measured by eye as *"the fps is sitting at 90-120, its not
+horrible"* on an RTX 4060/4070.
+
+**Nothing in the viewer could see this before today.** `StallReport` was the only frame-cost
+instrument and its threshold is `StallSeconds = 0.03`, so it reports only frames slower than 33 per
+second and is silent about every difference above that. At 8 ms a frame it never fires. Two
+instruments were written to close that, both averaging every frame rather than sampling one — see
+D127 and `FrameRateLog` / `MomentCostLog`.
+
+**Measured on `tf2-2026-pub-pov-clean` at tick 14000, uncapped (`+fps_max 0`), 9,100 rebuilds:**
+
+```
+frame rate 133 fps, 8.0 ms; mean over 131 frames:
+    sound 0.1, camera 0.3, project 0, advance 6.0, capture 0, hud 0, draw 0.9
+
+moment cost, mean over 100 rebuilds: 7.6 ms
+    = sample 1.9, drawlist 0.5, models 0.5, pose 4.6, weapons 0, viewmodel 0.3
+```
+
+| | ms | share of frame |
+|---|---|---|
+| `advance` — the scene rebuild | ~6.3 | **78 %** |
+| ↳ `pose` | ~4.8 | ~60 % of advance |
+| ↳ `sample` — `PlayersAt` + `PropsAt` | ~1.9 | |
+| ↳ `models`, `drawlist` | ~0.5 each | |
+| `draw` — everything the GPU is asked to do | ~1.1 | 14 % |
+
+**The GPU is not the problem and that is the finding.** TF2's whole 600 fps frame is 1.67 ms; our
+`draw` alone is about 1.1 ms, so the drawing is already in the right order of magnitude. The CPU-side
+rebuild is roughly four times TF2's entire frame budget on its own.
+
+**Where to look next, in order:** `pose` has sub-counters already measured and thrown away by the
+same threshold — `lighting`, `setup`, `simulate`, `wornlight`, `reports`, `skin`, `rest`. The only
+breakdown seen so far is from a loading frame (`lighting 3.9, setup 3, rest 1`), which is not
+evidence about the steady state. Averaging those the way the two columns above were averaged is the
+next measurement, not a guess about which one it is.
+
+**A structural question to answer alongside it, NOT yet established.** `PlaybackPresenter.Advance`
+raises `MomentChanged` every frame while playing, so the scene is rebuilt ~110 times a second for a
+demo whose snapshots change 66 times a second. Per-frame *interpolation* is correct and is what the
+engine does; a full rebuild — re-sampling every track, re-resolving models, rebuilding the draw list
+— may not be. Marked as a question because the engine also rebuilds its renderable list per frame
+(`CClientLeafSystem::CollateRenderablesInLeaf`), so "it runs every frame" is not by itself a defect.
+
+### Measuring this at all requires a FOCUSED window
+
+`FramePacer.NoFocusSleep` is the engine's own `engine_no_focus_sleep`, and it makes any unattended
+measurement wrong. The 150-second run above is cleanly bimodal — `min 15, p25 16, median 106, p75
+123, max 157` — because the window lost focus partway through. The clamped lines are recognisable
+without knowing that: their phases sum to ~10 ms while the reported frame is 63 ms, and
+`unaccounted 0` — the missing 53 ms is the sleep, which sits in the idle loop outside
+`FrameSequence.Run` and so is measured by nothing.
+
+The owner flagged this before the first run: *"the background fps clamp is going to be an issue with
+testing this"*. He was right, and the first attempt had been backgrounded. **Take the focused
+population, or run it in front of you.**

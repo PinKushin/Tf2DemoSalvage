@@ -3593,13 +3593,6 @@ internal class MainForm : Form, IFrameSteps
         // only be read by somebody watching and a headless run has nobody. Until this existed the
         // viewer's only frame-cost instrument was `StallReport`'s 30 ms threshold, which is silent
         // about every rate above 33 fps — so "no slow frames" and "600 fps" produced identical logs.
-        _frameRate += _clock.LastFrameSeconds;
-
-        if (_frameRateLog.Report(_overlayQuads.LastReading, _frameRate) is { } line)
-        {
-            _renderLog.LogInformation("{Message}", line);
-        }
-
         return quads;
     }
 
@@ -3617,7 +3610,7 @@ internal class MainForm : Form, IFrameSteps
     /// the same quantity the reading describes: a run paused at a breakpoint, or one whose window is
     /// hidden and drawing nothing, does not silently accrue an interval it never rendered.
     /// </remarks>
-    private double _frameRate;
+    private double _frameSeconds;
 
     /// <summary>This frame's <c>cl_showpos</c> subject, gathered from the camera and the demo.</summary>
     /// <returns>The readout; hidden when the convar is off.</returns>
@@ -3949,6 +3942,17 @@ internal class MainForm : Form, IFrameSteps
         _frames.Drawing(phases.Draw);
 
         StallReport.Frame(phases, _renderLog);
+
+        // **Every frame, averaged over the second — not sampled once a second.** `StallReport.Frame`
+        // above fires only past 30 ms, so at the 90 fps this actually runs at it never fires and
+        // nothing says where the 11 ms goes. Fed here rather than in `BuildOverlay` because this is
+        // where the whole frame's phases exist; the overlay only knows its own.
+        _frameSeconds += _clock.LastFrameSeconds;
+
+        if (_frameRateLog.Report(_overlayQuads.LastReading, phases, _frameSeconds) is { } rate)
+        {
+            _renderLog.LogInformation("{Message}", rate);
+        }
 
         // **NOT cleared here, and that was a real bug.** `Instances` clears the list it fills, so
         // it is emptied and refilled by the pose step exactly like the world's own list — and the

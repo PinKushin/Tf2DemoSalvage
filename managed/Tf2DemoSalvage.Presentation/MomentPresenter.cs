@@ -54,6 +54,9 @@ public sealed class MomentPresenter
     private readonly FrameLedger _ledger;
     private readonly ILogger _render;
 
+    /// <summary>Averages the rebuild cost, since the threshold report cannot see this rate.</summary>
+    private readonly MomentCostLog _cost = new();
+
     /// <summary>The players at a moment, refilled each time rather than reallocated.</summary>
     private readonly List<ScenePlayer> _players = [];
 
@@ -164,5 +167,13 @@ public sealed class MomentPresenter
         _ledger.Posed(phases.Pose);
 
         StallReport.Moment(phases, sampleTicks, playerTicks: 0, _render);
+
+        // **Every rebuild, averaged — the line above fires only past 30 ms and this runs at 8.**
+        // `advance` is seventy per cent of the frame at the rate this actually plays, and until this
+        // existed nothing said which part of it.
+        if (_cost.Report(phases, sampleTicks) is { } mean)
+        {
+            _render.LogInformation("{Message}", mean);
+        }
     }
 }
