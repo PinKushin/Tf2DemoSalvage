@@ -47,6 +47,10 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// cycle is measured from here, which is <c>UpdateAnimationParity</c>'s <c>m_flAnimTime = curtime</c>
 /// beside its <c>SetCycle( 0 )</c>.
 /// </param>
+/// <param name="WeaponEcon">
+/// The held weapon's attribute inputs, from the entity <c>m_hWeapon</c> names, or <c>null</c> when
+/// it has none (B252).
+/// </param>
 public readonly record struct SceneViewmodel(
     string ModelPath,
     int Sequence,
@@ -57,7 +61,13 @@ public readonly record struct SceneViewmodel(
     int? WeaponItem = null,
     string? WeaponClassName = null,
     int AnimationParity = 0,
-    int AnimationStartTick = 0)
+    int AnimationStartTick = 0,
+
+    // **The held weapon's attribute inputs, from the same entity `m_hWeapon` names** (B252).
+    // Null when the viewmodel names no weapon or that weapon carries no attributes — the arms
+    // themselves never have any. Rides here so the first-person weapon prop can answer
+    // `IsFestivized` and the attachments delegate exactly as its world twin does.
+    EconAttributeWire? WeaponEcon = null)
 {
     /// <summary>The slot TF2 puts the weapon in the player's hands in.</summary>
     public const int MainHand = 0;

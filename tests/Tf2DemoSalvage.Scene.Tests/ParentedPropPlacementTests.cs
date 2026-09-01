@@ -138,6 +138,11 @@ public sealed class ParentedPropPlacementTests
                 // than empty ones. Only `DemoTimeline` has the accumulated state the two lists and
                 // the item id live in.
                 nameof(SceneProp.Econ),
+
+                // **`FirstPerson`, the display-flag mask selector** (B252). False is true
+                // everywhere but `ViewmodelScene`'s three sites, which set it — the timeline, the
+                // players and the synthetic load-set prop are all world-view by construction.
+                nameof(SceneProp.FirstPerson),
             ],
             ignoreOrder: true,
             "a defaulted field on SceneProp is a claim every construction site makes silently. "

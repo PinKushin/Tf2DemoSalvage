@@ -42,7 +42,60 @@ public readonly record struct EconAttributeValue(int DefinitionIndex, int RawBit
 public sealed record EconAttributeWire(
     IReadOnlyList<EconAttributeValue> Local,
     IReadOnlyList<EconAttributeValue> NetworkedForDemos,
-    bool HasValidItemId);
+    bool HasValidItemId)
+{
+    /// <summary>Structural equality, because consumers dedup on it.</summary>
+    /// <remarks>
+    /// The record default compares the LISTS by reference, and `RecordViewmodels` keeps a sample
+    /// only when `before == weapon` says something changed — fresh lists every tick would make
+    /// every tick "changed" and record the entire demo as viewmodel samples. Sequence comparison
+    /// over lists of at most twenty is what the dedup actually means.
+    /// </remarks>
+    public bool Equals(EconAttributeWire? other) =>
+        other is not null
+        && HasValidItemId == other.HasValidItemId
+        && SameValues(Local, other.Local)
+        && SameValues(NetworkedForDemos, other.NetworkedForDemos);
+
+    /// <summary>Element-wise comparison, in the parse path where LINQ does not belong.</summary>
+    private static bool SameValues(
+        IReadOnlyList<EconAttributeValue> left, IReadOnlyList<EconAttributeValue> right)
+    {
+        if (left.Count != right.Count)
+        {
+            return false;
+        }
+
+        for (int index = 0; index < left.Count; index++)
+        {
+            if (left[index] != right[index])
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <inheritdoc/>
+    public override int GetHashCode()
+    {
+        HashCode hash = default;
+        hash.Add(HasValidItemId);
+
+        foreach (EconAttributeValue attribute in Local)
+        {
+            hash.Add(attribute);
+        }
+
+        foreach (EconAttributeValue attribute in NetworkedForDemos)
+        {
+            hash.Add(attribute);
+        }
+
+        return hash.ToHashCode();
+    }
+}
 
 /// <summary>Resolving which attribute list answers, as the engine resolves it.</summary>
 public static class EconAttributes

@@ -7,6 +7,7 @@ using System.Linq;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.GameSystems;
@@ -240,7 +241,14 @@ public sealed class MomentScene : IGameSystemPerFrame
 
             // The festive gate, answered from the decoded attributes exactly as
             // `CALL_ATTRIB_HOOK_INT( iFestivized, is_festivized )` answers it (B234).
-            Weapons.IsFestivized(prop));
+            Weapons.IsFestivized(prop),
+
+            // **The mask the engine draws this prop's view with** (B252):
+            // `kAttachedModelDisplayFlag_ViewModel` from the viewmodel path
+            // (`tf_viewmodel.cpp:304`), `WorldModel` from `CEconEntity::DrawModel`. A
+            // `model_display_flags 2` entry must not leak onto the world weapon, nor a `1` into
+            // the first-person hands.
+            prop.FirstPerson ? AttachedModel.ViewModel : AttachedModel.WorldModel);
 
         ReportUndressedPlayers(players);
 

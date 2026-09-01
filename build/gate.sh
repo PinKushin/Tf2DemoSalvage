@@ -470,7 +470,12 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 # PlayerProps was written; the hands in front of the camera never did. Two of the three are controls
 # -- RED is family 0, which is ALSO what an unset skin gives, so a BLU-only test could be satisfied
 # by a rule that always returns 1 and a RED-only test by changing nothing.
-run Tf2DemoSalvage.Scene.Tests    scene     283
+# 283 -> 285: the attachment display-flag mask (B252). DrawEconEntityAttachedModels is called with
+# WorldModel from the world draw and ViewModel from the viewmodel path, keeping entries whose
+# model_display_flags intersect - both directions asserted, because until the first-person props
+# carried an item every attachment was world-drawn and an unfiltered list was indistinguishable
+# from a filtered one.
+run Tf2DemoSalvage.Scene.Tests    scene     285
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

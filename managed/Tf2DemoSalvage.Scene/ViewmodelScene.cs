@@ -204,13 +204,22 @@ public sealed class ViewmodelScene
         int skin = PlayerSkin.ForTeam(
             weapon.OwnerEntityIndex is { } owner ? teamOf?.Invoke(owner) : null);
 
+        // **Whether the networked viewmodel IS the weapon** decides where the item lives. Under
+        // attach-to-hands the first prop is the ARMS — no item, no attributes — and the weapon is
+        // the second prop below; otherwise this one model is the weapon itself and the pilot light
+        // hangs off IT (B252).
+        bool isHands = AttachesToHands(weapon.ModelPath, hands);
+
         List<SceneProp> props =
         [
             new SceneProp(
                 ArmsEntityIndex,
                 weapon.ModelPath,
                 SceneModelKind.Studio,
-                at.PoseFor(weapon.Sequence, weapon.PlaybackRate, started, skin)),
+                at.PoseFor(weapon.Sequence, weapon.PlaybackRate, started, skin),
+                ItemDefinitionIndex: isHands ? null : weapon.WeaponItem,
+                Econ: isHands ? null : weapon.WeaponEcon,
+                FirstPerson: true),
         ];
 
         // **The comparison is a PATH comparison and the separators differ.** A model named in the
@@ -231,7 +240,7 @@ public sealed class ViewmodelScene
         //
         // The lesson is the one the owner had already given: check the SDK before swapping a hop,
         // rather than inferring the hop from a memory and measuring afterwards.
-        if (AttachesToHands(weapon.ModelPath, hands) && heldWeapon is { Length: > 0 } held)
+        if (isHands && heldWeapon is { Length: > 0 } held)
         {
             // **The weapon does NOT take the arms' sequence, and TF2 is explicit about it** (B222).
             // A `c_` weapon is a `C_ViewmodelAttachmentModel` parented to the viewmodel, and nothing
@@ -280,7 +289,14 @@ public sealed class ViewmodelScene
                 // was not, which is the shape `docs/memory/a-moves-regressions-are-wiring.md`
                 // records — the field arrived, one caller set it, and the rest silently took a
                 // default that is also a legitimate value.
-                BoneMerged: true));
+                BoneMerged: true,
+
+                // **The weapon's identity and attributes, so its attachments draw in first person
+                // exactly as they do on the world weapon** (B252) — the pilot light and the
+                // festivizer both key on these through the same delegate.
+                ItemDefinitionIndex: weapon.WeaponItem,
+                Econ: weapon.WeaponEcon,
+                FirstPerson: true));
         }
 
         // **A player has two viewmodels, and the second is not a duplicate of the first.** Slot 1 is
@@ -298,7 +314,10 @@ public sealed class ViewmodelScene
                 OffHandEntityIndex,
                 offHand.ModelPath,
                 SceneModelKind.Studio,
-                at.PoseFor(offHand.Sequence, offHand.PlaybackRate, offHandStarted, skin)));
+                at.PoseFor(offHand.Sequence, offHand.PlaybackRate, offHandStarted, skin),
+                ItemDefinitionIndex: offHand.WeaponItem,
+                Econ: offHand.WeaponEcon,
+                FirstPerson: true));
         }
 
         return new ViewmodelSceneResult(

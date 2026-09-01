@@ -1727,12 +1727,34 @@ public sealed class DemoTimeline
             // questions.
             int? weaponItem = null;
             string? weaponClass = null;
+            EconAttributeWire? weaponEcon = null;
 
             if (entity.ViewmodelWeapon() is { } weaponEntity &&
                 entities.TryGet(weaponEntity, out EntityState? carried))
             {
                 weaponItem = carried.ItemDefinitionIndex();
                 weaponClass = carried.ClassName;
+
+                // **The weapon's attributes travel with the viewmodel sample** (B252), read from
+                // the same entity `m_hWeapon` already resolved — the festivizer on the gun in your
+                // own hands is the same list the world draw reads. Null when both lists are empty,
+                // so a bare weapon costs the dedup nothing.
+                IReadOnlyList<EconAttributeValue> local =
+                    carried.EconAttributes(EconAttributeList.Local);
+                IReadOnlyList<EconAttributeValue> forDemos =
+                    carried.EconAttributes(EconAttributeList.NetworkedForDemos);
+
+                if (local.Count > 0 || forDemos.Count > 0)
+                {
+                    long? high = carried.Integer("DT_ScriptCreatedItem.m_iItemIDHigh");
+                    long? low = carried.Integer("DT_ScriptCreatedItem.m_iItemIDLow");
+
+                    weaponEcon = new EconAttributeWire(
+                        local,
+                        forDemos,
+                        high is { } h && low is { } l
+                            && !(h == uint.MaxValue && l == uint.MaxValue));
+                }
             }
 
             bool seen = last.TryGetValue(entity.EntityIndex, out SceneViewmodel before);
@@ -1764,7 +1786,8 @@ public sealed class DemoTimeline
                 weaponItem,
                 weaponClass,
                 parity,
-                startedAt);
+                startedAt,
+                weaponEcon);
 
             // Unchanged since this entity was last sampled, so there is nothing new to record.
             if (seen && before == weapon)

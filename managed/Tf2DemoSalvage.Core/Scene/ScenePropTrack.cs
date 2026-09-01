@@ -362,6 +362,10 @@ public readonly record struct ScenePose
 /// The wire's attribute inputs for <c>CEconItemView::IterateAttributes</c>, or <c>null</c> for an
 /// entity that carries none — see <see cref="EconAttributeWire"/> (B234).
 /// </param>
+/// <param name="FirstPerson">
+/// Whether this prop is part of the first-person scene, which selects the display-flag mask its
+/// attachments are filtered by (B252).
+/// </param>
 /// <param name="AttachmentPoint">
 /// Which of that entity's named attachment points it hangs from, one-based, or <c>null</c> when it
 /// is bone-merged instead.
@@ -443,7 +447,14 @@ public readonly record struct SceneProp(
     // for everything that is not an econ entity — a door has no attribute lists, not empty ones —
     // and only `DemoTimeline` can fill it, because only the accumulated entity state holds the
     // two lists and the item id. The consumer completes the resolution with the schema's branch 4.
-    EconAttributeWire? Econ = null);
+    EconAttributeWire? Econ = null,
+
+    // **Whether this prop is drawn in the first-person view** (B252), which decides the
+    // display-flag mask its attachments are filtered by — `kAttachedModelDisplayFlag_ViewModel`
+    // against `WorldModel`, the two masks `DrawEconEntityAttachedModels` is called with. False is
+    // the true answer everywhere but `ViewmodelScene`'s three construction sites, which are the
+    // first-person scene by definition.
+    bool FirstPerson = false);
 
 /// <summary>
 /// One entity's pose over the whole demo, stored as the moments it changed.

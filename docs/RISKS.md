@@ -16032,7 +16032,7 @@ Every wrong turn in B245, B247 and B249 came from reading part of a mechanism an
 the gap — the enter-PVS read path was read, the store path was assumed. The store path took one
 script and five minutes to find, and it contradicted the assumption immediately. **`docs/memory/read-the-sdk-for-the-whole-mechanism.md` says exactly this, and it was not followed.**
 
-## B252 — first-person attachments: the viewmodel props carry no item, so no pilot light in your own hands — OPEN
+## B252 — first-person attachments: the viewmodel props carry no item, so no pilot light in your own hands — FIXED
 
 Split from B251/B234 the moment it was seen, rather than half-wired. The world side is complete: a
 carried Degreaser shows its pilot light and a festivized medigun its lights, emitted per prop
@@ -16054,6 +16054,52 @@ which now carries `ItemDefinitionIndex` and `Econ`; thread both through `SceneVi
 honouring the `ViewModel` display-flag bit, which `AttachedModelsFor` already returns and nothing
 yet filters on. That filter matters in both directions once the viewmodel case exists: a
 `model_display_flags 1` attachment must NOT appear in first person, nor a `2` in the world.
+
+### Fixed, and the filter is now the engine's own expression
+
+The wiring above, taken as written. `SceneViewmodel` carries `WeaponEcon` beside `WeaponItem`,
+both read from the entity `m_hWeapon` already resolves to — the same attribute list the world draw
+reads, not a second derivation of it. `ViewmodelScene`'s three props each pass the pair through and
+set `FirstPerson: true`, and `MomentScene`'s delegate turns that into the mask:
+
+```csharp
+prop.FirstPerson ? AttachedModel.ViewModel : AttachedModel.WorldModel
+```
+
+which `WeaponModels.AttachmentsFor` applies as `(attached.DisplayFlags & displayFlagMask) != 0` —
+`DrawEconEntityAttachedModels`' own `(m_iModelDisplayFlags & iMatchDisplayFlags)`, verbatim.
+
+**Which prop is the weapon depends on the scheme, and getting that wrong would have hung the pilot
+light off a pair of hands.** Under attach-to-hands the first prop is the ARMS and the weapon is the
+second; otherwise the one networked viewmodel IS the weapon — the medigun case. The item and the
+attributes go on whichever is the weapon and never on the arms, so `AttachesToHands` is now read
+once into a local and used for both decisions rather than asked twice.
+
+**The mask test had to assert both directions, and the reason is the third row of the
+instrument-blindness casebook.** Until first-person props carried an item, every attachment in the
+repository was world-drawn — so an unfiltered list and a correctly filtered one predict the same
+observation for every input that existed. A single world-mask test would have been an experiment
+insensitive to the manipulation. The fixture therefore declares three entries (`c_both_views` at
+flags 3, `c_world_only` at 1, `c_viewmodel_only` at 2) and both tests name the exact pair they
+expect.
+
+**One trap, found by reasoning about the dedup rather than by a failure:** `RecordViewmodels`
+collapses repeated samples with record equality, and a `record` compares a list-typed member by
+REFERENCE. Fresh lists per tick would have made every tick a distinct sample and recorded the whole
+demo. `EconAttributeWire` now defines `Equals`/`GetHashCode` element-wise — hand-rolled rather than
+`SequenceEqual`, because this runs in the parse path where `docs/memory/linq-is-a-test-tool.md`
+applies.
+
+Gate green at every floor, `scene` raised 283 → 285 for the two mask tests.
+
+**What is NOT yet confirmed, stated plainly: nobody has SEEN this.** The headless `--shot` route
+cannot show it — the viewmodel pass is camera-gated and logs `viewmodel pass skipped: … camera
+False` on every headless frame, which is pre-existing and predates this work. And the demo used
+for B234's proof does not help either: the recorder's own launcher there is a stock
+`c_bet_rocketlauncher` with no festivizer, so even an interactive run would correctly show nothing.
+Per `docs/memory/take-your-own-screenshot.md` this would normally be self-served; here the
+instrument genuinely cannot reach the subject, so it is a QUESTION for the owner — an interactive
+first-person look while holding a Degreaser or a festivized weapon.
 
 ### B234, closed: the whole chain, and the key that had to stop being lossy
 
@@ -16093,7 +16139,7 @@ One false alarm along the way, kept because it is the session's recurring shape:
 what the trx counts — `docs/memory/read-the-trx-total-not-the-console.md`, compared anyway. The
 control (the same run on `main`: 816) closed it in one command.
 
-Still open from this work: B252, the first-person half.
+Left open from this work at the time: B252, the first-person half — since fixed, above.
 
 **B234's fix confirmed by eye** — the owner, watching the same tick: *"the festival medigun was
 showing"*. Log, frame capture and a person agree, which is the full set.
