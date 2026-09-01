@@ -1,145 +1,139 @@
-# Handoff — third person is real; displacement collision is what's left
+# Handoff — the project is a parity audit-and-fix loop, and the frame has a floor
 
-Written 2026-08-29. **Supersedes the previous handoff**, whose subject (a viewmodel that vanished)
-is fixed and merged.
+Written 2026-09-01. **Supersedes the previous handoff**, whose subjects — launch options, the chase
+camera, displacement collision — are done and merged.
 
-Everything below is on `main`, gate green: **4,202 across twelve assemblies, plus 29 UI.**
-
-## Read this first
-
-**The launch options are done** (B223, D118), and one sentence of what this section used to say was
-wrong: it claimed `--first-person` and autoplay both failed to reach the running viewer. **Only
-autoplay was broken.** `--first-person` works and was measured working — the claim about it was an
-inference from a bad invocation that was never checked and then written down as fact.
-
-Autoplay's defect was real and structural: `Apply` started playback and then called
-`SetDemoLength`, whose last act is `Playing = false` through a setter that deliberately does not
-raise. The viewer logged "playback started at load" and sat paused. It is the third time that
-ordering has broken; the length now lives inside `DemoSystems.Open`, so there is no gap left.
-
-**Displacement collision is done too** (B227), and the plan in this file for it was wrong in two
-places, both recorded: the primitive lives in `dispcoll_common.cpp` rather than `dispcoll.cpp`, and
-the narrowing is by BOUNDS rather than by leaf — `LUMP_LEAFFACES` reaches none of `cp_badlands`'
-1191 displacement faces, measured, with the 12,654 flat faces it does reach as the control. What
-remains of that plan is the per-displacement AABB tree, which is an optimisation and was always
-meant to be last. The chase camera's
-wall clip walks BRUSHES only, so terrain is invisible to it: on a map with displacement ground —
-which is most TF2 maps — the camera passes through the hillside behind a player. Its plan is below.
-
-Everything else on the chase camera is done and matches the engine.
-
-## What this session finished
-
-| piece | source |
-|---|---|
-| animation SECTIONS | `mstudioanimdesc_t::pAnim` — this is what tore the sticky launcher |
-| `m_nAnimationParity` | viewmodel animations restart instead of running off demo time |
-| liveness in the CAMERA | `CalcInEyeCamView`; a dead target changes the MODE, not the viewmodel |
-| `ChaseCamera` | `CalcChaseCamView` — placement, wall recovery, director parameters, second target |
-| `BspLeafTree.Sweep` | `CM_TraceToLeaf` / `CM_ClipBoxToBrush` — the project's first real trace |
-| `MASK_SOLID` | glass, grates and moving brushes stop the camera |
-| `hltv_chase` | the director's shots reach the timeline |
-| `CameraMode.ThirdPerson` | a real third mode, reached by Source's own command names |
-
-## After that: displacement collision
-
-**Geometry already exists.** `BspTerrain.ReadTriangles(BspSurface)` returns a displacement's
-triangles, and `BspDisplacements` reads the lumps. What is missing is the collision maths and the
-narrowing.
-
-Three parts, in the order they should be built:
-
-1. **The primitive** — `CDispCollTree::SweptAABBTriIntersect` (`public/dispcoll.cpp:869`). A swept
-   SAT: the box's three axial planes, then the triangle plane, then the nine edge cross-product
-   planes. About 400 lines in Valve's version. It returns a fraction exactly as
-   `CM_ClipBoxToBrush` does, so it plugs into `BspLeafTree.Sweep` beside the brush clip.
-2. **The narrowing** — leaf → `LUMP_LEAFFACES` → faces → `dispinfo`, so a trace tests the terrain
-   near it rather than every triangle on the map. `BspLumpIndex.LeafFaces` is already declared.
-3. **The per-displacement AABB tree** Valve walks inside one displacement
-   (`CDispCollTree::AABBTree_*`). Leave this last: it is an optimisation, and correctness without
-   it is testable.
-
-**Fixture, not corpus.** A real map cannot isolate one triangle, so the exact prediction needs a
-hand-built world — the same reason `BspTraceMaskConformanceTests` builds a single brush.
-`BspLeafTree.FromCollisionLumps` is the entry point that exists for this; displacements will need a
-sibling.
-
-**The trap that will cost an hour if it is not known**: the sweep's leaf walk splits the segment,
-but the brush clip is handed the WHOLE ray, because `CM_TraceToLeaf` clips the entire trace and the
-tree walk only chooses candidates. Handing a sub-segment to a clip finds no entry — the piece
-already begins inside the surface — and the sweep reports clear. Do the same for displacements.
-
-## Also open, smaller
-
-- **`--look` and `--zoom` are parsed and then ignored**, and say nothing about it. They meant
-  something only for the orthographic camera D98 removed. Either give them a meaning for a camera
-  placed in the world — fly to a point, at what distance — or refuse them with a message. A silently
-  dropped option is the class of defect B223 was.
-- **A blue medic draws with a red viewmodel.** Reported, untouched.
-- **Audio was lost at some point** in the days before this session. An output-level instrument was
-  added to `SoundPresenter` (submitted vs dropped for zero gain) and has never been read on a run.
-- **`bip_upperArm_L` jumps 3–9 units between frames** in `c_demo_animations`, down from 245 after
-  the section fix. Real motion or a second smaller decode fault — undetermined. Everything
-  structural was ruled out: sections, zeroframes, local hierarchy, chain order, posscale/rotscale
-  offsets, raw-vs-RLE mixing, encoding flags.
-- **`CTRL+b` has no UI coverage.** The harness cannot drive modifier combos (B216, established with
-  a control arm), so the third-person UI tests reach the mode through the SPACE cycle instead. The
-  mode is covered; the binding's resolution is not.
-- **No wall trace for the recovery while the demo is paused** is correct, not a gap — see below.
-
-## Things that were measured, so nobody re-measures them
-
-- **No demo within reach carries `hltv_chase`.** Searched the bytes: the string appears zero times
-  in `cp_process_f12` and the 2013 badlands specimen, while `player_death` appears in both. Every
-  demo here is point-of-view; only a SourceTV broadcast has a director. A corpus test asserts that
-  absence and will go red when it stops being true — that is the moment to point
-  `DirectorShotTests`' authored specimen at real bytes.
-- **`cp_process_f12` entity 1 is dead for the whole demo**, one transition. The badlands recorder is
-  alive 1295 of 2017 samples with seven clean transitions, so `m_lifeState` decodes correctly.
-- **The UI suite opens at tick 1900**, chosen because the recorder is alive there. It was 2500,
-  where he is dead — and the position that constant's comment praised as "out on the map" is the
-  freezecam, not the player. Alive spans: 0–2008, 3208–4944, 6228–7700.
-- **TF2's `config_default.cfg` binds 64 keys** and leaves exactly one letter free: `o`. All twelve
-  function keys are taken between TF2 and this viewer. CTRL combos are the only free space, since
-  Source's bind syntax has no modifiers.
-
-## Two rules this session produced
-
-- **D116 — an invariant is part of the mechanism.** Porting one half of a behaviour Valve split
-  across two systems breaks the invariant the other half relies on, silently. `ShouldDrawViewModel`
-  has no liveness term because the CAMERA guarantees it never needs one.
-- **D117 — implement the feature; do not omit it and document the omission.** The chase camera
-  shipped with five parts of `CalcChaseCamView` missing, each with an accurate comment. Accurate
-  notes are what made the shape hard to see.
-
-## How to run the gate
+Everything below is on `main` and pushed. Gate green: **4,501 across twelve assemblies, plus 30 UI.**
 
 ```bash
 TF2DEMOSALVAGE_GCOR_ONLY=1 bash build/gate.sh
 ```
 
 ```bash
-pwsh ../run-exclusive.ps1 dotnet test tests/Tf2DemoSalvage.Viewer3D.UiTests
+pwsh C:/Users/pinku/source/repos/PinKushin/run-exclusive.ps1 dotnet test tests/Tf2DemoSalvage.Viewer3D.UiTests
 ```
 
-Two phases, and one `dotnet test` on the solution is not a valid substitute — the UI suite drives a
-real window and must not run beside 4,000 other tests. **Set `MSBUILDDISABLENODEREUSE=1`**: MSBuild's
-node daemons and `VBCSCompiler` outlive the build and accumulate (589 MB found sitting idle this
-session; `dotnet build-server shutdown` reaps them, never `pkill -f`).
+## Read this first — what the project IS now
 
-**Read the trx total, never the console line.** A direct run printed `Total: 115` while the trx
-recorded `total="133"`. `assert-test-count.sh` reads the trx, and this session wasted several minutes
-chasing a "falling count" that came from believing the console.
+**The owner, this session:** *"this project is basically a parity audit and fix loop at this point,
+to make sure you dont mess up"*. That is the shape of the work. Everything below follows from it,
+and two decisions were recorded that change how a result is judged:
 
-## Verification practice that earned its keep tonight
+- **D129 — the target is BETTER than TF2, not equal to it.** We draw no projectiles, no particles and
+  no ragdolls, and skinning is on the GPU where Valve's `SetupBones` runs on the processor. So a
+  number that merely approaches Valve's is a number that will fall behind the moment a feature
+  lands. **Every frame measurement must state what is NOT being drawn when it quotes a rate.**
+- **D130 — finish decoding a Valve subsystem before building on it.** The demo wire IS completely
+  decoded, and this session kept finding fields sitting there unused: `m_bClientSideAnimation` with
+  3,319 occurrences in one recording, `m_nResetEventsParity` with zero consumers. **Decode complete,
+  consumption incomplete** is the pattern — and the better half to be missing.
 
-Three defects were found by **sabotage**, not by writing tests:
+## The reference numbers, measured in the game
 
-- Inverting the brush clip's convex test left all four of its tests GREEN — they were counting a
-  fraction of `0` as "the floor is right there", when `0` means startsolid, "the sweep never
-  started". Fixing that one assertion turned three false passes into an honest failure, and every
-  bug after it was found through that failure.
-- Restoring `CONTENTS_SOLID` in place of `MASK_SOLID` reddens exactly three cases — glass, grate,
-  moving brush — which is how the mask tests are known to measure the mask.
-- Disabling the section lookup reddens the continuity tests; one case, animation 76, survived it and
-  was replaced. A case that cannot fail is not a weak test, it is an absent one.
+Captured by the owner on `cp_badlands`, both overlays visible:
+
+| view | TF2 | frame | GPU |
+|---|---|---|---|
+| a room with props | 893 fps | 1.12 ms | **30%** |
+| facing a blank wall | 1135, TF2's own counter 1236 | 0.81–0.88 ms | **29%** |
+
+**The GPU figure is the one that matters.** TF2 is CPU-bound at thirty per cent of the card while
+turning in sub-millisecond frames. Ours, first person on `tf2-2026-pub-pov-clean`, is about 5.8 ms
+busy and 2.8–3.7 ms facing nothing. Badlands against process is not a paired measurement; treat it
+as an order of magnitude.
+
+## What is open, and the one thing that needs a decision
+
+### B259 fix 3 — the floor. THIS IS A DECISION, NOT A BUG FIX
+
+An empty view still costs **2.4 ms with zero props posed**. Traced to the end:
+
+| pass | ms | why it cannot start from the visible set |
+|---|---|---|
+| `sample` | 0.8 | the filters are downstream of the enumeration that builds the list they filter |
+| `drawlist` | 0.6 | same |
+| `models` | 0.3 | packing must see the broad set, or a model coming into view hitches — B163 measured 385 ms in one frame |
+| `pose` | 0.7 | placement is needed whether or not a prop is drawn |
+
+**The engine never enumerates.** `CClientLeafSystem` maintains per-leaf renderable lists
+INCREMENTALLY — inserted when an entity moves, removed when it leaves — so `BuildRenderablesList`
+reads only visible leaves. We rebuild from the timeline every frame, which is the honest cost of a
+design that can seek where the engine cannot.
+
+**Do not drift into this.** A per-leaf entity index surviving across frames and invalidated by a seek
+is real architecture with a correctness hazard the current design does not have: a stale index draws
+things that have moved. The prize is most of the gap to 0.85 ms. **Ask before starting it.**
+
+### Parity gaps still open, in the owner's rough order of interest
+
+1. **`C_BaseAnimating::DoAnimationEvents` is unimplemented and the MDL event array is never parsed.**
+   `mstudioevent_t` is unread; `m_nResetEventsParity` is decoded with zero consumers. Full account in
+   `docs/PARITY-AUDIT.md` finding 3, including the question that must be settled first — whether the
+   client-side events are transient overrides the networked state re-asserts. That reading is
+   probably wrong because delta compression means "the next time it is networked" can be never, and
+   it is filed as an interpolation rather than a measurement.
+2. **D128 — a POV demo must be locked to the recorder's view.** Decided and not implemented: no free
+   camera, no third person, because a POV demo is PVS-limited and a free camera shows a room that was
+   never recorded. SourceTV keeps the free camera.
+3. **Ragdolls are entirely undrawn** — 299 in one demo, all decoded. `DT_TFRagdoll` is
+   `IMPLEMENT_CLIENTCLASS_DT_NOBASE`, so nothing about how a corpse LOOKS is networked; every
+   appearance field is built by `CreateTFRagdoll`. **The owner does not want these** — he plays with
+   ragdolls off — so this is filed, not queued.
+4. **A prop with an EMPTY model path is reported DRAWN.** Noticed in a control run, unexamined, two
+   readings both guesses. `docs/PARITY-AUDIT.md` finding 5.
+
+## What landed this session
+
+Drawing: **B252** first-person attachments masked by display flags, and the econ attributes gating
+them. All 356 shipped attachment entries declare `model_display_flags 3`, so the mask filters nothing
+on real data — which is why the synthetic fixture was essential and a corpus test could never have
+caught a wrong mask.
+
+Parity/performance, all measured: **B254** cull entities before posing them (`CollateRenderablesInLeaf`
+order), **B255** pose after the view (`CViewRender`'s `SetUpView` → `BuildWorldLists` →
+`BuildRenderablesList`), **B258** derive player animation inputs only for players, **B259 fixes 1–2**
+the client-side animation gate and the interpolation list. Frame went 11 ms → 5.8 ms busy.
+
+Instruments, because none of this was visible before: `FrameRateLog` and `MomentCostLog` average
+every frame rather than sampling one, `--measure <seconds>` counts PLAYBACK and prints to stdout, and
+`--help` lists what the viewer accepts.
+
+## Gotchas that cost real time this session
+
+**The `--first-person` claim was made wrong AGAIN.** The previous handoff already corrected it —
+*"an inference from a bad invocation that was never checked and then written down as fact"* — and
+this session filed a parity-audit finding saying the flag does not exist and is silently swallowed.
+It exists, in `LaunchOptions.cs:145`. The grep ran over `Viewer3D` and launch options live in
+`Presentation`. **An absence claim needs a control, and a grep's scope is a claim about the grep.**
+Finding 1b in `docs/PARITY-AUDIT.md` is now marked WITHDRAWN.
+
+**Instruments lied five times, and every wrong turn started with one.** A cull counter the viewmodel
+pass reset before it was read, reporting zero while working. `posed 600 of 0 selected`, because a
+`with` expression copied the wrong record's fields. `posed 452 of 567` in an empty view — a derived
+`selected − culled` that counted undrawable props as posed, where the true figure was `0 of 578`, and
+it nearly sent an audit after a working frustum. A pose residual that subtracted `anim` twice and
+printed `rest -0.4`. A build checked with `grep -E "error C"`, which matches `error CS` and not the
+analyzer's `error S`, so a stale binary ran and reported the old format.
+
+**`--measure` exists so a measurement is one call.** It counts seconds of PLAYBACK, not wall clock —
+a run timed from process start spends its first twenty seconds on archives and the map, so a "forty
+second" measurement was two seconds of frames. And it prints to stdout because the log is BUFFERED:
+reading it mid-run shows asset loading and nothing else, which was twice misread, once as the viewer
+having exited on its own.
+
+**Measure only a FOCUSED window.** `NoFocusSleep` is the engine's own `engine_no_focus_sleep`, and an
+unattended run is clamped. A 150-second run came out cleanly bimodal — p25 16 fps, median 106 — and
+the clamped lines are recognisable on their own: phases summing to 10 ms under a 63 ms frame with
+`unaccounted 0`.
+
+**Inserting a member above an existing one splits it from its doc comment.** Seven build breaks in
+one session, and `CS1572` names the WRONG member every time. Anchor on the END of the preceding
+member. Recorded in `docs/memory/insert-below-the-member-not-above-it.md`.
+
+## Verification, which the owner believes is the weak point
+
+He is right, and this session is evidence: three sabotage runs found holes a green suite did not.
+Emptying the player list across the `Build`/`Pose` split left **290/290 passing** (B257 — it took
+three attempts to write a test that could fail, and the fix was the FIXTURE, not the assertion).
+Two defects in the interpolation list were caught by the numbers alone. **He has suggested subagent
+audits and they have not been run.** That is the standing offer to take up.
