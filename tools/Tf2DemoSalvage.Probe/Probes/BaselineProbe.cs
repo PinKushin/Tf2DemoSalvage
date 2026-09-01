@@ -91,7 +91,12 @@ public sealed class BaselineProbe : IProbe
 
         // **State is carried across commands**, because `UpdateStringTableMessage` names a table by
         // id and only the create that preceded it says which table that is.
-        NetDecodeState state = new();
+        //
+        // **And it carries the PROTOCOL, which is not optional** — `DemoTimeline` sets it from the
+        // header for the same reason. Without it an era demo decodes to nothing at all and the
+        // probe reports a confident zero: this one claimed `tf2-2007-build3258-pov` had no class
+        // baselines whatsoever, when its `instancebaseline` table is created with 26 entries.
+        NetDecodeState state = new() { NetworkProtocol = protocol };
 
         // **Every entry the table ever carried, and whether it had a payload.** `BaselineBuilder`
         // skips an entry whose `UserData` is empty, so a class whose baseline legitimately encodes

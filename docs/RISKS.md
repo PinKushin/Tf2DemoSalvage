@@ -15714,7 +15714,36 @@ assertion.
 The second new test is the control at `curtime = 0.8104`, wave **−1.999**, truncating to −1. It is
 what stops the fix overshooting into "drop the sign test altogether", which would pass the first.
 
-## B247 — `dem_stringtables` is never read; the baselines are missing for a reason still unknown — OPEN
+## B247 — `dem_stringtables` is never read, and on the evidence we do not need it — CLOSED 2026-08-31
+
+**Closed as "not required", with the measurement that says so and the two wrong turns that preceded
+it.** The command exists so a client can SEEK inside a demo without replaying it — it is a snapshot
+of string-table state to jump to. This project always replays from the start and rebuilds every
+table from the `svc_CreateStringTable` / `svc_UpdateStringTable` messages, which it does read.
+
+Measured, rather than reasoned:
+
+| demo | `dem_stringtables` | what is in it |
+|---|---|---|
+| `tf2-2026-pub-pov-clean` | one block, 711,266 bytes | `downloadables` only — a file list |
+| `tf2-2007-build3258-pov` | **no such command at all** | — |
+
+**The "0 of 216 baselines" that started this entry was an instrument fault**, and it is the fifth of
+the night. `DemoTimeline` builds its `NetDecodeState` with the demo's protocol — `new() {
+NetworkProtocol = header.NetworkProtocol }` — and the probe used a bare `new()`. At protocol 11 that
+decodes nothing, so the probe reported an era demo with no string tables whatsoever. It has sixteen,
+`instancebaseline` among them with 26 entries, and once the protocol is passed the same probe reads
+31 baselines out of it. **The production path was never wrong here.**
+
+What remains true and is filed on its own terms: the command is unparsed, and the class baseline
+count really is far below the class count on both demos (68 of 363; 31 of 216). That second number
+is not a defect either — see B245, where `CL_CopyNewEntity` shows the class baseline is a FALLBACK
+and a class with no entry is served by the per-entity checkpoint instead.
+
+Reopen this only if a demo turns up whose tables arrive *only* in the command — an era before
+`svc_CreateStringTable`, or a recorder that writes them differently. Nothing in the corpus does.
+
+### The original text, kept because two of its claims were wrong in instructive ways
 
 **The title of this entry was wrong for about ten minutes and is corrected here rather than
 quietly.** It first said the missing instance baselines are *because* `dem_stringtables` is unread.
