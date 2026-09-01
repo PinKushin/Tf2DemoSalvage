@@ -16656,3 +16656,39 @@ smoothed reading.
 **What it does not change:** the floor is ours and it is structural. TF2 facing a wall walks almost
 nothing, because `BuildRenderablesList` starts from the visible leaf list. We walk 578 props four
 times over to draw zero of them.
+
+### B259 is a PARITY finding, and the floor is one divergence wearing four faces
+
+**The owner's framing, which is the correct one:** *"this is all parity stuff, too if we are doing
+everything like valve does we should have higher fps"*. The floor was filed above as a performance
+problem. It is not. Every millisecond of it is a place this project does something the engine does
+not, and the engine's version is cheaper because of the structure rather than despite it.
+
+| our pass | ms | what the engine does instead |
+|---|---|---|
+| `sample` | 0.9 | `ProcessInterpolatedList` walks `g_InterpolationList` — a MAINTAINED list, joined only if `ShouldInterpolate` (visible, the view entity, or the parent of something visible) and left again when `Interpolate` reports `bNoMoreChanges` |
+| `drawlist` | 0.7 | `BuildRenderablesList` starts from `m_pWorldListInfo->m_pLeafList`, the visible leaves, and never enumerates the rest |
+| `models` | 0.4 | the model is resolved when the entity takes a data update — `SetModel` from `PostDataUpdate` — not once a frame for ever |
+| `simulate` | 0.4 | `UpdateClientSideAnimations` walks `g_ClientSideAnimationList`, also maintained, and skips even its own entries unless they carry `FCLIENTANIM_SEQUENCE_CYCLE` |
+
+**Three of the four are the same sentence: the engine maintains a list of the entities that need the
+work, and we walk every entity and filter.** The fourth, `models`, is the same idea in time rather
+than in space — work done once when something changes, against work redone every frame because
+nothing remembers.
+
+**Where the engine DOES walk everything, it costs nothing.** `SimulateEntities` really does iterate
+every `C_BaseEntity`, and `C_BaseEntity::Simulate()` is one line — `AddEntity()`, which is
+`CreateLightEffects()`. A full walk is free when the per-entity body is empty; ours rebuilds a
+dictionary of every prop and then does a model lookup, an entity lookup and a cycle advance for each.
+
+**So the fix list is a parity list, and it is short:**
+
+1. **A client-side animation list.** Only props whose sequence actually advances need the cycle work
+   — the engine's own `FCLIENTANIM_SEQUENCE_CYCLE` test, and the cheapest of the four to do.
+2. **An interpolation list**, gated on last frame's visibility as `ShouldInterpolate` is, and pruned
+   when a track has nothing left to move toward.
+3. **A draw list built from the visible set** rather than filtered down to it.
+4. **Model resolution moved to the update that changes it**, out of the frame entirely.
+
+None of these is an optimisation that trades anything away, which is what D89 would otherwise have to
+be weighed against. Each one is the engine's own arrangement, and the frame rate is what falls out.
