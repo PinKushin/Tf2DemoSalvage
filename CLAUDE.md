@@ -100,20 +100,20 @@ bash build/gate.sh
 pwsh run-exclusive.ps1 dotnet test tests/Tf2DemoSalvage.Viewer3D.UiTests
 ```
 
-The UI phase goes inside `run-exclusive.ps1`, since it takes the desktop. Green as of 2026-08-28:
-**4,059 across twelve assemblies**, plus 27 UI.
+The UI phase goes inside `run-exclusive.ps1`, since it takes the desktop. Twelve assemblies plus a
+UI suite; roughly 4,450 and 30 as of 2026-08-31.
 
-| assembly | count | | assembly | count |
-|---|---|---|---|---|
-| core | 1,539 | | content | 740 |
-| cli | 74 | | corpus | 117 |
-| audio | 183 | | rendering | 642 |
-| presentation | 396 | | viewer | 101 |
-| scene | 202 | | logging | 17 |
-| animation | 41 | | fonts | 7 |
+**The per-assembly counts are NOT reproduced here, and that is the correction.** This file used to
+carry a table of them under a warning that it would drift — and it drifted, by about four hundred
+tests, while the warning sat directly beneath it. A snapshot that says "this will go stale" is still
+a stale number that somebody reads.
 
-**Do not copy these numbers into a floor.** `build/gate.sh` holds the authoritative ones and prints
-them beside what it measured; this table is a snapshot for orientation and will drift.
+`build/gate.sh` holds the authoritative floors, prints each beside what it measured, and refuses a
+drop until the reason is written next to it. Ask it:
+
+```bash
+grep -E '^run Tf2DemoSalvage' build/gate.sh
+```
 
 `Tf2DemoSalvage.Audio.Tests` became part of the gate when the audio project stopped being
 unreachable (B168), and `Scene.Tests` exists because Scene had grown its own layer (B184). The UI
@@ -227,6 +227,42 @@ Read `docs/memory/MEMORY.md` at session start alongside this file. Several entri
 corrections to earlier wrong conclusions; those are deliberate, because a memory that keeps
 only the conclusion is the kind that gets confidently repeated.
 
+## Probes are scripts, not tests — `tools/Tf2DemoSalvage.Probe` (D126)
+
+**A question about one demo at one tick is a PROBE, not a test.** The owner: *"you can script a probe
+outside the test suite, having a bunch of probe tests just slows the suite down and putting in a
+suite and running the whole damn thing takes forever"*. An `[Explicit]` test still costs a build and
+still sits in a floor; a probe costs neither.
+
+```bash
+dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -- <name> [args]
+dotnet run --project tools/Tf2DemoSalvage.Probe -c Release --                # lists them
+```
+
+Seventeen of them. The ones worth knowing before writing an eighteenth:
+
+| probe | answers |
+|---|---|
+| `carried <demo> <tick> [class]` | per player, per entity: what they hold and WHICH RULE dropped the rest |
+| `props <demo> <tick> [filter]` | props at a tick, grouped by model AND class |
+| `instance <demo> <tick> <model>` | where the renderer puts a model — matrix and bone 0 |
+| `baseline <demo> [class] [prop]` | which classes carry an instance baseline, and what it declares |
+| `attachments [item|substring]` | items that hang extra models on themselves |
+| `weapon-models`, `viewmodels`, `spy-draw` | weapons that resolve to nothing; what the recorder holds |
+| `parity [filter]` | engine functions we cite, ranked by Valve's branch count |
+
+**Probes run the PRODUCTION path or they are worthless.** `DemoCorpus` lives here and
+`Corpus.Tests` references the tool rather than the reverse, so the probe and the test cannot disagree
+about which file they opened. A probe that reimplements the rule it is checking agrees with whoever
+wrote the probe.
+
+**And a probe is an instrument, so it needs a control.** Five separate probes gave confident wrong
+answers in one session — a grouping that hid a class, a probe that skipped the resolution step the
+viewer runs, a bare `new NetDecodeState()` that decodes nothing at protocol 11, a `Precache` return
+value that means "offered" rather than "packed", and a hex search that reported three tables as
+absent. **Before believing a probe's absence, ask it for something that must be there.** If that
+comes back missing too, the instrument is broken, not the subject.
+
 ## Where to start
 
 Phase 1 (see `ROADMAP.md` §3): `managed/Tf2DemoSalvage.Core`, pure C# — container parsing, then `dem_datatables`/`dem_stringtables`, then generic SendTable-driven entity delta decode, emitting a normalized event stream. Validate against `z1800.dem` end to end once the primitives are unit-tested individually. Output target: a Quake-style readable trace — the demo decompiled to text, message by message, in stream order — plus a summary dump and JSON Lines. **No SQLite**: removed 2026-08-10, see `docs/DECISIONS.md` D17. Do not create anything under `native/libtf2dem` for this phase.
@@ -303,6 +339,20 @@ it is the only one that can fail when the wiring is wrong.
 The same rule stated from the other side: a passing test whose inputs were written by the same
 person who wrote the code proves the two agree, not that either matches the demo.
 
+**A diagnostic is an instrument, and an instrument is proved with a control before it is believed.**
+Eight lied in two sessions, every one with a confident answer: a log line that reported the
+illumination point as a position, a cull census that passed on an accident of geometry, a materials
+line keyed by the wrong field, a probe grouping that hid a class inside another's label, a probe
+that skipped the resolution step production runs, a hex search whose "absent" was true of three
+tables that certainly exist, a `Precache` return meaning "offered" rather than "loaded", and a
+decode state built without the protocol that silently reads nothing. Two rules cover all eight:
+
+- **Report the value the code USED, carried to it — never recomputed by a second route** (B243). The
+  second route is free to be wrong, and when it is, it is wrong in a way that looks authoritative.
+- **Before believing an absence, ask the instrument for something that MUST be present.** An empty
+  answer for that too means the instrument is broken, not the subject
+  (`docs/memory/an-empty-search-needs-a-control.md`).
+
 **Four sources. This is a menu, not a ladder — pick the one that holds the answer and skip the rest.**
 
 | Source | Holds | Rules |
@@ -344,6 +394,33 @@ temp directory outside every git tree, and carry back only what is written by ha
 constant, a field order, a formula, a note saying where it came from. Never paste a decompiled
 function into source. The owner's position on the legal question is that it is not a practical
 concern here; the size problem is real and permanent.
+
+**It works, and here is the invocation that works, because getting there cost an hour.** Ghidra
+12.1.2 needs **JDK 21** — on JDK 25 it dies in its OSGi layer with
+`ERROR: Bundle org.apache.felix.framework [0] The data file must be inside the data dir.` followed by
+a `dataFile is null` abort. That reads like a corrupt bundle cache and is not: deleting the cache
+changes nothing, and `JAVA_TOOL_OPTIONS` does not reach it. Point it at a 21 instead.
+
+```bash
+JAVA_HOME="C:\Program Files\Eclipse Adoptium\jdk-21.0.12.101-hotspot" \
+  "/d/ghidra_12.1.2_PUBLIC/support/analyzeHeadless.bat" "D:\ghidra-proj" tf2engine \
+  -import "F:\SteamLibrary\steamapps\common\Team Fortress 2\bin\x64\engine.dll" -overwrite
+
+JAVA_HOME="…jdk-21…" "/d/ghidra_12.1.2_PUBLIC/support/analyzeHeadless.bat" "D:\ghidra-proj" \
+  tf2engine -process engine.dll -noanalysis \
+  -scriptPath "D:\ghidra-proj\scripts" -postScript DecompAt.java 1800683d0
+```
+
+Analysis of `engine.dll` is a few minutes; scripts against the analysed program are seconds.
+`D:\ghidra-proj\scripts` holds small `GhidraScript` helpers written for this — decompile at an
+address, find callers of an address, find the function holding a string, list functions in a range.
+**The string search is the way in**: Valve left the assert strings, so
+`CL_CopyNewEntity: GetClassBaseline(%d) failed.` names its own function and finding it is one script
+run.
+
+**A zero exit means nothing here.** `analyzeHeadless.bat` exits 0 on a Java stack trace, so grep the
+output for `ERROR` rather than trusting the status — the first attempt "succeeded" while having done
+nothing at all.
 
 **Two instruments measure conformance and they are not interchangeable.** `SdkCoverageTests`
 generates the denominator from the SDK — 489 shader parameters, 66 lumps, 54 studio structures — and
