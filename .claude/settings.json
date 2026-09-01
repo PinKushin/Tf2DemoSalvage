@@ -13,6 +13,20 @@
         ]
       }
     ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/parity-cited.ps1\"",
+            "shell": "powershell",
+            "timeout": 15,
+            "statusMessage": "checking parity commits cite the engine"
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Bash|PowerShell",
