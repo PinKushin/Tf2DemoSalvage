@@ -16308,3 +16308,39 @@ part that makes the per-frame cost proportional to what is visible rather than t
 
 **What is already correct and should not be disturbed:** the sampling half. Interpolation genuinely
 runs per frame in the engine and belongs in `Simulate`; only the pose belongs after the view.
+
+## B256 — a POV demo must be locked to the recorder's own view; we allow free camera and third person — OPEN
+
+**The owner, 2026-09-01, stating what TF2 actually does:** *"in real tf2 the camera in the pov demo
+follows and does exactly what the player recording it did, you cant see anything that player did not
+see, no camera except 1st person when alive, and when dead or spec the camera is whatever the
+recording player was in, seeing whatever the recording player saw."*
+
+So on a POV recording there is no free camera and no third-person fallback at all. Alive: first
+person. Dead or spectating: whatever the recorder was spectating, from where they were watching it.
+The demo carries this outright — `democmdinfo_t`, read here as `RecordedView`, whose own summary
+already says it "is what lets it show the match as the recorder saw it, which on a POV demo is the
+whole point of the recording."
+
+**This viewer currently drops into third person on death and offers the free camera throughout**,
+which is not a feature on a POV demo — it is a view of a world that was never recorded.
+
+**Three consequences, and only the first is cosmetic:**
+
+1. **It shows things the recorder never saw**, which is the parity break the owner names.
+2. **What it shows is WRONG rather than merely extra**, because a POV demo is PVS-limited
+   (`docs/memory/pov-demos-are-pvs-limited.md`): entities outside the recorder's visibility were
+   never sent, so a free camera looking at them draws an empty room rather than the room that was
+   there. A viewer that offers the camera cannot honour it.
+3. **It is a performance question too, which is how it came up.** B254 measured 600 props posed per
+   rebuild. A view locked to the recorder is a much smaller visible set than a free camera that may
+   be pointed anywhere, and — unlike the free camera — its frustum is known from the demo rather
+   than from what the user is doing this instant.
+
+**Not yet established, and it decides the shape of the fix:** whether the restriction is a property
+of the DEMO (POV recordings only, with SourceTV keeping the free camera, which is what TF2 does) or a
+mode the user can turn off. The engine's answer is the former — `C_BaseViewModel::ShouldDraw`'s HLTV
+branch already shows the two recording kinds being treated differently — but a demo TOOL has reasons
+to differ from the game, and D69's "a real config must work wholesale" cuts the other way here. Ask
+before choosing; this is a divergence to be asked about rather than documented
+(`docs/memory/a-divergence-is-asked-not-documented.md`).

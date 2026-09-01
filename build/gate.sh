@@ -475,7 +475,10 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 # model_display_flags intersect - both directions asserted, because until the first-person props
 # carried an item every attachment was world-drawn and an unfiltered list was indistinguishable
 # from a filtered one.
-run Tf2DemoSalvage.Scene.Tests    scene     285
+# 285 -> 288: the frustum cull moved ahead of the pose (B254), which is CollateRenderablesInLeaf's
+# order. Three tests and the middle one is the control: behind the camera is not posed, in front of
+# it is, and no frustum culls nothing.
+run Tf2DemoSalvage.Scene.Tests    scene     288
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
