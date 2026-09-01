@@ -947,13 +947,34 @@ public sealed class EntityDecoder : IEntityBaselines
         // Resolved in `Decode`, where the named slot and the delta flag are still in hand. An
         // entity with no entry — a hand-built one, or one the server has not checkpointed yet —
         // falls through to the class baseline, which is what this method always did.
-        IReadOnlyList<DecodedProperty>? baseline =
-            _snapshotBaselines.TryGetValue(
+        IReadOnlyList<DecodedProperty>? baseline = Baseline(entity.ClassId);
+
+        // **The checkpoint is LAYERED OVER the class baseline, not chosen instead of it** (B248).
+        // The engine picks one buffer and is right to: its checkpoints are complete packed
+        // entities, so anything the class baseline could add is already in them. Ours are built
+        // from the properties a snapshot carried, which is a subset — so choosing the checkpoint
+        // discarded whatever only the class baseline knew.
+        //
+        // Measured, and it is a defect this project shipped for about an hour: `CBaseDoor`'s class
+        // baseline declares `m_nRenderMode = 10`, `kRenderNone`. Entity 532 of
+        // `tf2-2026-pub-pov-clean` last stated that on the wire at tick 6440 and holds it
+        // throughout. With the checkpoint shadowing the baseline it came back as
+        // `kRenderNormal` — so `cp_fulgur`'s invisible spawn doors began drawing as solid
+        // brushwork, which is a regression the SIZE of a door and was introduced by the fix for a
+        // weapon's carry state.
+        //
+        // Layering is identical to choosing wherever a checkpoint is complete, so this is a
+        // superset of the engine's behaviour rather than a departure from it. It stops being
+        // needed the day the checkpoints hold full entity state.
+        if (_snapshotBaselines.TryGetValue(
                 entity.EntityIndex,
                 out (int ClassId, IReadOnlyList<DecodedProperty> Properties) resolved)
-                && resolved.ClassId == entity.ClassId
-                    ? resolved.Properties
-                    : Baseline(entity.ClassId);
+            && resolved.ClassId == entity.ClassId)
+        {
+            baseline = baseline is null || baseline.Count == 0
+                ? resolved.Properties
+                : BaselineMerge.Overlay(baseline, resolved.Properties);
+        }
 
         // Null and empty are treated alike here, unlike in Baseline itself: for this question
         // "no baseline" and "a baseline that sets nothing" produce the same merged state.

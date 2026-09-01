@@ -212,7 +212,14 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # the weapon case and its control (a weapon still in the PVS keeps what a delta omits); the third is
 # a control on the re-entry tests themselves, because "decoded against its own checkpoint" and
 # "kept whatever we had" predict the same observation unless one case has no checkpoint.
-run Tf2DemoSalvage.Core.Tests     core     1605
+# 1605 -> 1607: a per-entity checkpoint must LAYER over the class baseline, not replace it (B248).
+# The engine replaces and is right to, because its checkpoints are complete packed entities; ours
+# are built from whatever a snapshot carried, so a partial one shadowed a complete class baseline.
+# It shipped for an hour and turned cp_fulgur's invisible spawn doors into solid brushwork -
+# CBaseDoor's baseline declares m_nRenderMode = 10 and nothing else restates it. One of the two is
+# the control: where BOTH know a property the checkpoint must still win, or a re-entering entity
+# gets dragged back to one representative entity's state, which is what B231 measured.
+run Tf2DemoSalvage.Core.Tests     core     1607
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.

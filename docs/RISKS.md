@@ -15717,9 +15717,21 @@ what stops the fix overshooting into "drop the sign test altogether", which woul
 ## B247 — `dem_stringtables` is never read, and on the evidence we do not need it — CLOSED 2026-08-31
 
 **Closed as "not required", with the measurement that says so and the two wrong turns that preceded
-it.** The command exists so a client can SEEK inside a demo without replaying it — it is a snapshot
-of string-table state to jump to. This project always replays from the start and rebuilds every
-table from the `svc_CreateStringTable` / `svc_UpdateStringTable` messages, which it does read.
+it.** Every table this project needs — `modelprecache` for model paths, `instancebaseline` for class
+baselines, `userinfo` for the roster — arrives in the `svc_CreateStringTable` /
+`svc_UpdateStringTable` messages, which it reads.
+
+**The reason we can ignore the command is stronger than the one first written here, and it is the
+owner's correction.** This entry said *"this project always replays from the start"*. It does not:
+
+> no we dont, we parse the whole demo at once, instead of steaming it like tf2 so we can seek, tf2
+> cant actually seek it does restart at the beginning every time, unless they updated that, but we
+> avoid it by parsing the demo whole before rendering.
+
+So the demo is parsed eagerly and indexed, and any tick is served from the built timeline. A
+mid-stream snapshot of table state is exactly what an eager parse never needs — where a streaming
+client might, and TF2 answers `demo_gototick` by restarting and fast-forwarding rather than by
+jumping.
 
 Measured, rather than reasoned:
 
@@ -15882,3 +15894,48 @@ whatever we had" predict the same observation and no test can tell them apart.
 
 The leave test keeps its Leave assertions and no longer claims the return is a DELTA. It is not:
 entity 1138 re-ENTERS at ticks 8317 and 10901.
+
+## B248 — a partial checkpoint shadowed a complete class baseline — FIXED 2026-08-31
+
+**Shipped by the fix for B245 and live for about an hour**, which is the shortest-lived defect in
+this file and the one with the clearest lesson: a change that is correct against the engine can be
+wrong against *our* data structures, and the difference is not visible in the tests that motivated it.
+
+B245 made an `Enter` forget its accumulated properties and rebuild from the baseline that applies.
+`EffectiveProperties` then chose the entity's own checkpoint **instead of** the class baseline.
+`CL_CopyNewEntity` chooses too — and is right to, because the engine's checkpoints are complete
+packed entities, so everything a class baseline could contribute is already in them.
+
+**Ours are built from the properties a snapshot happened to carry, which is a subset.** So a partial
+checkpoint shadowed a complete class baseline and everything only the baseline knew was dropped.
+
+### What it cost, and why the obvious instrument nearly missed it
+
+`CBaseDoor`'s class baseline declares `m_nRenderMode = 10` — `kRenderNone`. Entity 532 of
+`tf2-2026-pub-pov-clean` last stated that on the wire at **tick 6440** and holds it for the rest of
+the recording, so the baseline is the only thing carrying it by tick 14000. With the checkpoint
+shadowing it, the door came back `kRenderNormal`: `cp_fulgur`'s invisible spawn doors drawing as
+solid brushwork, in a viewer whose gates had just been fixed.
+
+**The prop count went 559 → 549, and that number is a poor instrument for this.** It is a net figure
+over a composition that shifted underneath it — some entities gained, some lost, some merely changed
+render mode, which changes nothing about the count at all. Diffing the two full listings is what
+showed the doors; counting would never have.
+
+Found by comparing a number in this session's own scrollback against the same number an hour later,
+which is worth saying plainly: nothing in the suite noticed, and no test in the B245 change could
+have, because they all concern weapons.
+
+### The fix, and what it does not fix
+
+`EffectiveProperties` now LAYERS: class baseline, then the checkpoint over it, then the update.
+Where a checkpoint is complete this is identical to choosing, so it is a superset of the engine's
+behaviour rather than a departure from it.
+
+**It makes the real problem harmless rather than absent.** The checkpoints are still partial, and
+completing them is the open work: `EntityBaselineSlots` is filled from decoded snapshot deltas in
+the decoder, while the full accumulated state lives one layer above it in `EntityStateTable`.
+Widening the slot fill without that — storing every entity rather than only the entering ones, which
+is what the engine does — was tried during B245 and deleted three props outright, because it stored
+more partial baselines rather than complete ones. The layering can be dropped the day the slots hold
+full state.
