@@ -80,11 +80,33 @@ internal sealed partial class ViewerSession
         }
     }
 
-    /// <summary>A committed demo whose map ships with the game.</summary>
-    public static string DemoPath => Corpus("tf2-2013-build1729296-pov-cp_badlands.dem");
+    /// <summary>A committed SourceTV demo whose map ships with the game.</summary>
+    /// <remarks>
+    /// **SourceTV, and that is the whole reason it was changed** (B256). This suite spent months on
+    /// `tf2-2013-build1729296-pov-cp_badlands.dem`, a POV recording, and half of it drives the
+    /// camera: switching modes, cycling round to the overhead view, cycling the spectator target.
+    /// **TF2 allows none of that in a POV demo.** The camera is the recorder's eyes and `spec_mode`
+    /// and `spec_next` do nothing, because a POV recording carries no information about anywhere the
+    /// recorder was not looking — so there is nothing to switch TO. Locking our own POV playback the
+    /// same way is D128, and it would have turned five passing tests red for doing exactly what the
+    /// engine does.
+    ///
+    /// **A test that has to be rewritten by the fix it is meant to guard is not guarding it.** So
+    /// the demo moves first, on its own, while every one of these tests still passes — which is what
+    /// makes the POV lock a change with a green suite either side of it rather than a change that
+    /// arrives together with five edited assertions and no way to tell which broke what.
+    ///
+    /// **`z1800.dem` is the pick, and it is gcor** — committed, so CI sees it, which
+    /// `tools/corpus/local` would not be. SourceTV, network protocol 24, `koth_harvest_final` which
+    /// ships with the game, 57,551 ticks of a real FACEIT match. That last part matters more than it
+    /// sounds: every OTHER committed demo is one of the owner's own solo era recordings, with no
+    /// other players and no worn items at all, so a suite pointed at one would draw a nearly empty
+    /// map and assert against it. This one has twelve players, cosmetics and weapons.
+    /// </remarks>
+    public static string DemoPath => Corpus("z1800.dem");
 
     /// <summary>The file name of the demo the session opens with.</summary>
-    public const string DemoName = "tf2-2013-build1729296-pov-cp_badlands.dem";
+    public const string DemoName = "z1800.dem";
 
     private static string Corpus(string file) => Path.GetFullPath(Path.Combine(
         TestContext.CurrentContext.TestDirectory,
@@ -93,50 +115,33 @@ internal sealed partial class ViewerSession
 
     /// <summary>The tick the session opens at, chosen so a capture is worth looking at.</summary>
     /// <remarks>
-    /// **The suite used to photograph a wall, and the reason it did was a false premise.** The capture
-    /// test jumped to the END of this demo, justified like this: TF2 replaced the `v_` viewmodels with
-    /// `c_` models around 2011, so a 2013 recording names `v_scattergun_scout.mdl` at tick 0, "which
-    /// the current install no longer ships, and the renderer correctly draws nothing". The end tick
-    /// was picked because a `c_` model is named there.
+    /// **Measured on `z1800`, not guessed.** `carried z1800 20000` reports twelve players, seven of
+    /// them alive and holding a weapon, with cosmetics on nearly all of them — a Detonator, a
+    /// Minigun, a Quadball, a Flamethrower, a Scorch Shot, a Knife, and enough worn items to exercise
+    /// the bone-merge path. Two are dead, which keeps a `CTFAmmoPack` and the corpse handling in
+    /// frame as well.
     ///
-    /// **That claim is wrong, and checking it is what unstuck this.** `v_` models are shipped — inside
-    /// the VPKs, which is why looking for loose files says nothing — and this project already renders
-    /// them: every off-hand watch in `z1800` is `v_models/v_watch_*.mdl` and they draw. Verified
-    /// directly at this tick: `viewmodel pass: drawing 1 at v_rocketlauncher_soldier`.
+    /// **First person here follows a real player, which had to be checked rather than assumed.** A
+    /// SourceTV recording has no local player — entity 1 is the SourceTV slot itself and holds
+    /// nothing — so "first person" could plausibly have followed that and drawn no viewmodel at all,
+    /// which would have silently gutted two tests. Captured directly at this tick: the eye reports
+    /// (473.1, 1444, 245.5) against player 2's (475, 1450, 193) from the probe, and the frame draws
+    /// `c_detonator` with pyro hands. So the mode follows a spectated player and the viewmodel tests
+    /// keep their subject.
     ///
-    /// So the constraint that forced the end of the demo never existed, and the end of a solo
-    /// recording is a player parked against a spawn gate — which is shut for the whole demo whatever
-    /// they did, because brush entities draw at their COMPILED position (B71).
+    /// **The demo is not advanced by this suite** — it opens at a tick and stays there — so no margin
+    /// is needed around anything that happens later.
     ///
-    /// **2500 was measured, and it measured a corpse.** It was chosen for the frame it produced —
-    /// the recorder reported at (−2521, −2072, 478), "out on the map, above the ground, with sky and
-    /// buildings in frame". He is DEAD there. `m_lifeState` reads 2 from tick 2012 to 3208, and
-    /// through that whole span the position is frozen or alternates between two fixed points:
-    /// (−355, −3635, 68) is where he fell, and (−2521, −2072, 478) and (−337, −3485, 306) are
-    /// observer positions. The frame was rich precisely BECAUSE it was a freezecam looking across
-    /// the map, and the number praised above is the camera rather than the player.
-    ///
-    /// **That is why the first-person suite was anchored on a moment where this viewer and TF2
-    /// disagree** (B222). TF2 cannot show a dead player in first person at all — the camera switches
-    /// to third — so the viewmodel this test waits for is one the engine would never draw. The test
-    /// passed on a divergence.
-    ///
-    /// **1900 is measured the same way and the recorder is alive**: `m_lifeState` 0, at
-    /// (−140, −3435, 242) — elevated, and well clear of the spawn at y ≈ −4500 — holding
-    /// `v_models/v_rocketlauncher_soldier.mdl`, the same viewmodel 2500 named, so nothing keyed to
-    /// that model changes.
-    ///
-    /// **No margin is needed before the death at 2008, because the suite never advances the demo.**
-    /// It opens at a tick and stays there. The owner, on the earlier worry about running into the
-    /// death: *"the demo never runs in the UI suite"*, and *"theres really no scene richness that
-    /// wont be there 100 ticks before or something before I die"* — which is the whole argument for
-    /// simply stepping back to the nearest live tick rather than hunting for another rich frame.
-    ///
-    /// The alive spans, for anyone choosing differently: 0–2008, 3208–4944, 6228–7700. The two `c_`
-    /// ranges are poor for an unrelated reason — the pyro never leaves spawn (x −608..−279, z 192
-    /// throughout) and the sniper settles at (−157, −4260) by tick 7700 and does not move again.
+    /// **What the previous tick was, and why the note is kept.** The suite opened at 1900 of the 2013
+    /// POV demo, and that number was itself a correction: 2500 had been chosen before it for
+    /// producing a rich frame, and the frame was rich because the recorder was DEAD and the camera
+    /// was a freezecam looking across the map (`m_lifeState` 2 from tick 2012 to 3208). TF2 cannot
+    /// show a dead player in first person at all — it switches to third — so the first-person suite
+    /// had been anchored on a moment where this viewer and the engine disagree, and passed on the
+    /// divergence (B222). That is the mistake worth carrying forward: a tick was picked for how the
+    /// picture looked, and the thing that made it look good was the bug.
     /// </remarks>
-    public const int OpeningTick = 1900;
+    public const int OpeningTick = 20000;
 
     /// <summary>What the viewer logs when it projects the world through the camera.</summary>
     public const string WorldBuildLine = "building the world";

@@ -59,10 +59,29 @@ public sealed class FirstPersonUiTests
 
     /// <summary>How many camera-mode changes the viewer has announced, across all three modes.</summary>
     private static int Transitions() =>
-        Viewer.Count(FollowingRecorded) + Viewer.Count("third person on,") + Viewer.Count(BackToMap);
+        Viewer.Count(FirstPersonOn) + Viewer.Count("third person on,") + Viewer.Count(BackToMap);
 
-    /// <summary>What the viewer logs when the recorded camera is being followed.</summary>
-    private const string FollowingRecorded = "first person on, following the recording's own camera";
+    /// <summary>The shared prefix of both first-person entry lines.</summary>
+    /// <remarks>
+    /// **The prefix wherever the claim is only "first person was entered".** Most of this suite
+    /// asserts mode changes, not mechanisms, and pinning those waits to one mechanism's full
+    /// sentence is what silently broke five of them when the session demo changed from a POV
+    /// recording to a SourceTV one — the viewer switched modes on screen while every wait watched
+    /// for a sentence this demo never logs. <see cref="ViewerSession.FirstPersonOn"/> existed for
+    /// exactly this and this file did not use it.
+    /// </remarks>
+    private const string FirstPersonOn = ViewerSession.FirstPersonOn;
+
+    /// <summary>What the viewer logs when first person spectates a player.</summary>
+    /// <remarks>
+    /// **The full sentence, used only where the MECHANISM is the claim.** The session demo is
+    /// SourceTV (`z1800`), which carries no recorded camera, so the correct mechanism is spectating
+    /// a player — the engine does the same, `spec_mode` walking the roster because there is no
+    /// recorder to follow. A POV recording logs the other sentence, "first person on, following
+    /// the recording's own camera".
+    /// </remarks>
+    private const string SpectatingAPlayer =
+        "first person on, spectating a player (this demo has no recorded camera)";
 
     /// <summary>What it logs on the way back out, from either player mode.</summary>
     /// <remarks>
@@ -117,26 +136,29 @@ public sealed class FirstPersonUiTests
     }
 
     [Test]
-    public void FirstPerson_PressingSwitchCameraMode_FollowsTheRecordingsOwnCamera()
+    public void FirstPerson_PressingSwitchCameraMode_SpectatesAPlayer()
     {
         // **The demo decides which mechanism is used, and the viewer says which.** A message that
         // named neither would leave "it is following the recorder" and "it is spectating an
         // arbitrary player" indistinguishable in the log — and those look identical on screen
-        // until the recorder dies.
-        int before = Viewer.Count(FollowingRecorded);
+        // until the recorder dies. The session demo is SourceTV, so the right mechanism here is
+        // spectating; a viewer that logged "following the recording's own camera" against `z1800`
+        // would be claiming a camera the file does not carry.
+        int before = Viewer.Count(SpectatingAPlayer);
 
         PressSwitchCameraMode();
 
         Retry.WhileFalse(
-            () => Viewer.Count(FollowingRecorded) > before,
+            () => Viewer.Count(SpectatingAPlayer) > before,
             TimeSpan.FromSeconds(5),
             throwOnTimeout: true,
             timeoutMessage:
-                "Switching camera mode did not follow the recording's own camera.");
+                "Switching camera mode did not spectate a player, which is the only first-person "
+                + "mechanism a SourceTV demo has.");
 
         // Stated as an assertion as well as a wait: the retry establishes WHEN to look and this
         // establishes WHAT was found, and only the second appears in a failure report.
-        Viewer.Count(FollowingRecorded).ShouldBeGreaterThan(before);
+        Viewer.Count(SpectatingAPlayer).ShouldBeGreaterThan(before);
     }
 
     [Test]
@@ -160,7 +182,7 @@ public sealed class FirstPersonUiTests
         {
             Viewer.Find(MainForm.PlaylistId).Focus();
 
-            int before = Viewer.Count(FollowingRecorded);
+            int before = Viewer.Count(FirstPersonOn);
             int frames = Viewer.Count("viewmodel pass skipped");
 
             PressSwitchCameraMode();
@@ -181,7 +203,7 @@ public sealed class FirstPersonUiTests
                     "No free-camera frame was drawn after the press, so this test cannot tell a "
                     + "correctly ignored key from a viewer that stopped rendering.");
 
-            Viewer.Count(FollowingRecorded).ShouldBe(
+            Viewer.Count(FirstPersonOn).ShouldBe(
                 before, "the playlist keeps Space for type-ahead, so the camera must not switch");
         }
         finally
@@ -204,7 +226,7 @@ public sealed class FirstPersonUiTests
         PressSwitchCameraMode();
 
         Retry.WhileFalse(
-            () => Viewer.Count(FollowingRecorded) > 0,
+            () => Viewer.Count(FirstPersonOn) > 0,
             TimeSpan.FromSeconds(5),
             throwOnTimeout: true,
             timeoutMessage: "Switching camera mode did not enter the first-person view.");
@@ -295,7 +317,7 @@ public sealed class FirstPersonUiTests
         try
         {
             Retry.WhileFalse(
-                () => Viewer.Count(FollowingRecorded) > 0,
+                () => Viewer.Count(FirstPersonOn) > 0,
                 TimeSpan.FromSeconds(5),
                 throwOnTimeout: true,
                 timeoutMessage: "Switching camera mode did not enter the first-person view.");
@@ -363,7 +385,7 @@ public sealed class FirstPersonUiTests
         PressSwitchCameraMode();
 
         Retry.WhileFalse(
-            () => Viewer.Count(FollowingRecorded) > 0,
+            () => Viewer.Count(FirstPersonOn) > 0,
             TimeSpan.FromSeconds(5),
             throwOnTimeout: true,
             timeoutMessage: "Switching camera mode did not enter the first-person view, so there is nothing to capture.");
@@ -577,12 +599,12 @@ public sealed class FirstPersonUiTests
     /// <summary>Enters the first-person view, failing here rather than in the caller.</summary>
     private static void EnsureFirstPerson()
     {
-        int before = Viewer.Count(FollowingRecorded);
+        int before = Viewer.Count(FirstPersonOn);
 
         PressSwitchCameraMode();
 
         Retry.WhileFalse(
-            () => Viewer.Count(FollowingRecorded) > before,
+            () => Viewer.Count(FirstPersonOn) > before,
             TimeSpan.FromSeconds(5),
             throwOnTimeout: true,
             timeoutMessage: "The viewer did not enter the first-person view.");
@@ -595,7 +617,7 @@ public sealed class FirstPersonUiTests
     /// where cycling is *supposed* to work — and would pass only if the feature were broken.
     /// </remarks>
     private static void EnsureFreeCamera() =>
-        Viewer.Count(FollowingRecorded).ShouldBe(
+        Viewer.Count(FirstPersonOn).ShouldBe(
             Viewer.Count(BackToMap),
             "this test needs the free camera, and the teardown should have left it there");
 }

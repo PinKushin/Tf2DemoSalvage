@@ -7192,3 +7192,30 @@ leaves and never enumerates the rest.
 across frames is wrong the moment something moves without updating it, and a stale index draws things
 where they are not. This project can also SEEK, which the engine cannot, so any such index has to be
 invalidated by a scrub. That is the part to get right; it is not a reason to defer.
+
+## D132 — the UI suite runs against a SourceTV demo, ahead of the D128 fix
+
+**2026-09-01, owner:** *"we need to change the demo we are testing in UI tests btw, it needs to be a
+STV demo, because when we fix the 1st person POV demo camera diversion from valve, we are going to
+break all those tests that have anything to do witht he camera."*
+
+**The order is the decision.** D128 locks POV playback to the recorder's view, exactly as TF2 does —
+and half the UI suite drives the camera: switching modes, cycling round, cycling the spectator
+target. On a POV demo every one of those is a thing the engine refuses, so landing D128 against the
+old suite would have turned five tests red *for doing what the engine does*, and the fix and the
+test rewrites would have arrived in one commit with no way to tell which broke what. Moving the demo
+first means the camera tests assert behaviour that stays legal after D128, and the lock can land
+against a suite that is green on both sides of it.
+
+**The pick is `z1800.dem`** — the only SourceTV recording in gcor on a map that ships with the game
+(`koth_harvest_final`), and the only committed demo with other players in it at all: twelve, with
+weapons and cosmetics, where every era specimen is a solo recording with none. The session opens at
+tick 20000, chosen by measurement (`carried z1800 20000`: seven players alive and armed, two dead).
+
+**What the change flushed out, worth keeping:** the viewer names its first-person mechanism per demo
+— *"following the recording's own camera"* for POV, *"spectating a player"* for SourceTV — and five
+tests had pinned their waits to the POV sentence when their claim was only "first person was
+entered". The camera switched on screen while the waits watched for a line this demo never logs.
+`ViewerSession.FirstPersonOn` (the shared prefix) already existed for exactly this; the suite now
+uses it everywhere the mechanism is not the claim, and asserts the full spectating sentence in the
+one test whose subject IS the mechanism.
