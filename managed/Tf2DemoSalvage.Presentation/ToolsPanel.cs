@@ -35,6 +35,16 @@ public sealed class ToolsPanel
     /// <summary>The meter itself, which owns the smoothing and the watermarks.</summary>
     public FpsMeter Meter { get; } = new();
 
+    /// <summary>The most recent reading, whether or not it was drawn.</summary>
+    /// <remarks>
+    /// Exposed for <see cref="FrameRateLog"/>. The meter is sampled every frame regardless of mode
+    /// (see <see cref="Quads"/>), so this is the frame rate even with the overlay off and even with
+    /// no glyph atlas at all — which is the headless case, and the one where nothing else can report
+    /// it. <c>null</c> when the meter had nothing to say, which is the first frame after it is
+    /// shown.
+    /// </remarks>
+    public FpsReading? LastReading { get; private set; }
+
     /// <summary>Which readout to show: hidden, instantaneous or smoothed.</summary>
     /// <remarks>
     /// **Assigned every frame rather than on a change event**, because the setter is what notices a
@@ -91,6 +101,11 @@ public sealed class ToolsPanel
         // after being shown draws nothing" rule and the watermarks, and skipping the sample when
         // there is nothing to draw would hand it a frame duration covering however long that was.
         FpsReading? reading = Meter.Sample(lastFrameSeconds);
+
+        // **Kept whether or not anything is drawn**, because the log wants it in exactly the case
+        // the overlay does not: a headless run has no atlas, draws no panel, and is the run whose
+        // frame rate nobody can otherwise see. Assigned before the early return for that reason.
+        LastReading = reading;
 
         if (atlas is null)
         {

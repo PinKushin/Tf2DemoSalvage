@@ -338,6 +338,166 @@ public sealed class MomentSceneTests
         phases.Drawn.ShouldBe(1);
     }
 
+    /// <remarks>
+    /// **The engine's order is view, then visibility, then bones** — `CViewRender::RenderView` calls
+    /// `SetUpView` before `BuildWorldLists` and `BuildRenderablesList`, and `SetupBones` is reached
+    /// only from the draw of what survived (B255). This project posed inside `Simulate`, which
+    /// `FrameSequence.Run` executes BEFORE `PlaceCamera`, so the only frustum available at pose time
+    /// was the previous frame's — and culling against a stale view pops entities in at the screen
+    /// edge, which is a visible defect bought with a frame rate.
+    ///
+    /// **Simulation staying before the view is NOT the same question and is already correct**:
+    /// `UpdateAllSystems` runs from `CHLClient::HudUpdate` before the view is built at all, which
+    /// B203 established deliberately. Only the pose moves.
+    ///
+    /// So `Build` selects what is drawable and `Pose` turns it into instances, and this test is what
+    /// stops them being quietly recombined.
+    /// </remarks>
+    /// <remarks>
+    /// **The first version of this test passed before the split existed and was worthless.** The
+    /// default fixture has no geometry source, so `Instances` produced nothing whichever side of the
+    /// split it ran on — an input for which a correct implementation and the one being replaced
+    /// predict the same observation. The model set here is given geometry so that posing has
+    /// something to produce, which is what makes the assertion able to fail.
+    /// </remarks>
+    [Test]
+    public void Build_WithoutPose_SelectsPropsButProducesNoInstances()
+    {
+        MomentScene scene = Posable();
+
+        scene.Build([], [Prop("models/props/crate.mdl", entity: 5)], Info());
+
+        scene.Drawn.Select(prop => prop.EntityIndex).ShouldBe([5]);
+        scene.Instances.ShouldBeEmpty("the pose has not run yet");
+    }
+
+    /// <remarks>
+    /// The control for the test above: with the same fixture, posing DOES produce an instance. One
+    /// without the other cannot distinguish "the pose moved" from "the pose stopped working".
+    /// </remarks>
+    [Test]
+    public void Pose_AfterBuild_ProducesTheInstances()
+    {
+        MomentScene scene = Posable();
+
+        scene.Build([], [Prop("models/props/crate.mdl", entity: 5)], Info());
+        scene.Pose(Info());
+
+        scene.Instances.Count.ShouldBe(1);
+    }
+
+
+    /// <summary>
+    /// One weapon with a display model, so <c>Weapons.For</c> can answer in a unit test.
+    /// </summary>
+    /// <remarks>
+    /// **Written because its absence is what made B257 untestable.** `WeaponModels.For` returns null
+    /// with no schema, so the first-person weapon never became a prop and the arms could not be told
+    /// apart from it by counting. Synthetic rather than the real `items_game.txt` for the reason
+    /// `CLAUDE.md` gives: eight megabytes read per test, and no ground truth — here the test put the
+    /// model there and knows what to predict.
+    /// </remarks>
+    private const string WeaponSchema = """
+        "items_game"
+        {
+            "items"
+            {
+                "205"
+                {
+                    "name" "Rocket Launcher"
+                    "model_player" "models/weapons/w_models/w_rocketlauncher.mdl"
+                }
+            }
+        }
+        """;
+
+    /// <remarks>
+    /// **The players have to survive the gap between `Build` and `Pose`, and nothing tested it**
+    /// (B257). Splitting the two put the player list in a field, and emptying that field on purpose
+    /// left all 290 tests green — so the one piece of state the split introduced was unverified.
+    ///
+    /// `players` is how `AddViewmodel` finds the followed player, and from that player come the
+    /// class ARMS (`Appearance.Hands`, which is B242's sleeve) and the first-person WEAPON
+    /// (`Weapons.For`). Losing the list draws a first-person view with neither, silently.
+    ///
+    /// **Two earlier attempts were deleted for being insensitive**, and both failures are the same
+    /// shape: an input where a working list and a lost one predict the same observation. A `v_` model
+    /// gives one prop either way, because `AttachesToHands` compares the viewmodel's own path to the
+    /// hands path and only the `c_` scheme separates them; and without a schema `Weapons.For`
+    /// answers null whether or not the player was found. This setup fixes both — hands that match,
+    /// and a schema that resolves — so the arms and the weapon are two props when the list survives
+    /// and fewer when it does not.
+    /// </remarks>
+    [Test]
+    public void Pose_AfterBuild_StillKnowsThePlayersBuildWasGiven()
+    {
+        MomentScene scene = Posable();
+
+        scene.Weapons = new WeaponModels(
+            _ => System.Text.Encoding.UTF8.GetBytes(WeaponSchema),
+            new RecordingLogger());
+
+        // **The viewmodel's own model IS the arms**, which is what `AttachesToHands` tests for and
+        // what the `c_` scheme actually networks. The weapon then hangs off it as a second prop.
+        scene.Viewmodels = new FakeViewmodels
+        {
+            MainHand = new SceneViewmodel(
+                "models/weapons/c_models/c_soldier_arms.mdl",
+                Sequence: 0,
+                PlaybackRate: 1f,
+                OwnerEntityIndex: 3,
+                Slot: SceneViewmodel.MainHand),
+        };
+
+        MomentInfo info = Info() with
+        {
+            FirstPerson = true,
+            Followed = 3,
+            EyeCamera = Eye(),
+            DrawViewmodel = true,
+        };
+
+        scene.Build(
+            [Soldier(entity: 3) with { WeaponItem = 205 }],
+            [],
+            info);
+
+        scene.Pose(info);
+
+        scene.ViewmodelInstances.Count.ShouldBe(
+            2,
+            "arms and weapon — the followed player must still be findable when the pose runs");
+    }
+
+    /// <summary>A scene whose model set can actually produce an instance.</summary>
+    private static MomentScene Posable()
+    {
+        EntityModelSet models = new()
+        {
+            Geometry = _ => new PropModels.ModelFrames(
+                [
+                    new PropVertex[]
+                    {
+                        new(1f, 0f, 0f, 0f, 0f, MaterialIndex: 3),
+                        new(0f, 1f, 0f, 1f, 0f, MaterialIndex: 3),
+                        new(0f, 0f, 1f, 0f, 1f, MaterialIndex: 3),
+                    },
+                ],
+                new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)>
+                {
+                    [0] = (0, 1, 0f),
+                },
+                [0],
+                [true]),
+        };
+
+        return new MomentScene(models, new ViewmodelScene(), new RecordingLogger())
+        {
+            Upload = new Uploads(),
+            Appearance = new Appearance(),
+        };
+    }
+
     [Test]
     public void Build_WithNoPlayersOrProps_DrawsNothingAndDoesNotThrow()
     {
@@ -352,7 +512,7 @@ public sealed class MomentSceneTests
     }
 
     [Test]
-    public void Build_InFirstPersonWithNoViewmodelSource_SaysSoRatherThanDrawingNothingQuietly()
+    public void Pose_InFirstPersonWithNoViewmodelSource_SaysSoRatherThanDrawingNothingQuietly()
     {
         // **This is a regression that shipped, found two commits later.** When the scene rebuild
         // moved out of the form, nothing assigned `Viewmodels` — so `AddViewmodel` returned on its
@@ -368,17 +528,17 @@ public sealed class MomentSceneTests
             Appearance = new Appearance(),
         };
 
-        scene.Build(
-            [Soldier(entity: 3)],
-            [],
-            Info() with { FirstPerson = true, Followed = 3, EyeCamera = Eye() });
+        MomentInfo info = Info() with { FirstPerson = true, Followed = 3, EyeCamera = Eye() };
+
+        scene.Build([Soldier(entity: 3)], [], info);
+        scene.Pose(info);
 
         scene.ViewmodelCamera.ShouldBeNull();
         log.Count("no viewmodel source").ShouldBe(1);
     }
 
     [Test]
-    public void Build_OutOfFirstPersonWithNoViewmodelSource_SaysNothing()
+    public void Pose_OutOfFirstPersonWithNoViewmodelSource_SaysNothing()
     {
         // **The control.** Third person does not want a viewmodel at all, so an absent source is not
         // a fault there — and a warning every frame from a viewer nobody has put into first person
@@ -387,12 +547,13 @@ public sealed class MomentSceneTests
         MomentScene scene = new(new EntityModelSet(), new ViewmodelScene(), log);
 
         scene.Build([Soldier(entity: 3)], [], Info());
+        scene.Pose(Info());
 
         log.Count("no viewmodel source").ShouldBe(0);
     }
 
     [Test]
-    public void Build_OutOfFirstPerson_ClearsTheViewmodelCamera()
+    public void Pose_OutOfFirstPerson_ClearsTheViewmodelCamera()
     {
         // **Dropping the camera is how "draw none" is said.** The instance list is owned by the pose
         // step and survives paused frames on purpose, so leaving it populated while first person is
@@ -400,12 +561,13 @@ public sealed class MomentSceneTests
         MomentScene scene = Scene();
 
         scene.Build([], [], Info() with { FirstPerson = false });
+        scene.Pose(Info() with { FirstPerson = false });
 
         scene.ViewmodelCamera.ShouldBeNull();
     }
 
     [Test]
-    public void Build_InFirstPersonWithDrawViewmodelOff_DrawsNoWeaponEvenWithASource()
+    public void Pose_InFirstPersonWithDrawViewmodelOff_DrawsNoWeaponEvenWithASource()
     {
         // **The assertion that actually covers the gate**, and the first attempt did not. That one
         // built a scene with NO viewmodel source and asserted the camera was null with the switch
@@ -424,23 +586,23 @@ public sealed class MomentSceneTests
                 Slot: SceneViewmodel.MainHand),
         };
 
-        source.Build(
-            [Soldier(entity: 3)],
-            [],
-            Info() with
-            {
-                FirstPerson = true,
-                Followed = 3,
-                EyeCamera = Eye(),
-                DrawViewmodel = false,
-            });
+        MomentInfo info = Info() with
+        {
+            FirstPerson = true,
+            Followed = 3,
+            EyeCamera = Eye(),
+            DrawViewmodel = false,
+        };
+
+        source.Build([Soldier(entity: 3)], [], info);
+        source.Pose(info);
 
         source.ViewmodelCamera.ShouldBeNull(
             "r_drawviewmodel 0 means no weapon in hand, however much of one is available");
     }
 
     [Test]
-    public void Build_InFirstPersonWithDrawViewmodelOn_DrawsTheWeapon()
+    public void Pose_InFirstPersonWithDrawViewmodelOn_DrawsTheWeapon()
     {
         // **The control for the case above**, identical but for the switch. Without it, "the switch
         // turned it off" is indistinguishable from "this setup never draws anything" — which is
@@ -456,16 +618,16 @@ public sealed class MomentSceneTests
                 Slot: SceneViewmodel.MainHand),
         };
 
-        source.Build(
-            [Soldier(entity: 3)],
-            [],
-            Info() with
-            {
-                FirstPerson = true,
-                Followed = 3,
-                EyeCamera = Eye(),
-                DrawViewmodel = true,
-            });
+        MomentInfo info = Info() with
+        {
+            FirstPerson = true,
+            Followed = 3,
+            EyeCamera = Eye(),
+            DrawViewmodel = true,
+        };
+
+        source.Build([Soldier(entity: 3)], [], info);
+        source.Pose(info);
 
         source.ViewmodelCamera.ShouldNotBeNull(
             "the same setup with the switch on must reach the viewmodel");
@@ -482,7 +644,7 @@ public sealed class MomentSceneTests
     }
 
     [Test]
-    public void Build_InFirstPersonWithDrawViewmodelOff_SaysNothingAboutAMissingSource()
+    public void Pose_InFirstPersonWithDrawViewmodelOff_SaysNothingAboutAMissingSource()
     {
         // **With the viewmodel switched off, an absent source is not a wiring fault** — nothing was
         // going to be drawn. Warning anyway would be the same mistake the third-person clause above
@@ -499,7 +661,7 @@ public sealed class MomentSceneTests
     }
 
     [Test]
-    public void Build_InFirstPersonWithDrawViewmodelOn_StillReportsAMissingSource()
+    public void Pose_InFirstPersonWithDrawViewmodelOn_StillReportsAMissingSource()
     {
         // **The control, and it is the one that matters here.** Without it the assertion above is
         // satisfied by a scene that stopped reporting missing sources altogether — which is exactly
@@ -507,10 +669,10 @@ public sealed class MomentSceneTests
         RecordingLogger log = new();
         MomentScene scene = new(new EntityModelSet(), new ViewmodelScene(), log);
 
-        scene.Build(
-            [Soldier(entity: 3)],
-            [],
-            Info() with { FirstPerson = true, DrawViewmodel = true });
+        MomentInfo info = Info() with { FirstPerson = true, DrawViewmodel = true };
+
+        scene.Build([Soldier(entity: 3)], [], info);
+        scene.Pose(info);
 
         log.Count("no viewmodel source").ShouldBe(1, "the switch is on, so a missing source is a fault");
     }

@@ -3376,6 +3376,22 @@ argument.
 Neither blocks player animation. Filed so the distinction is not rediscovered as "we need a physics
 engine", which is the wrong conclusion for jiggle bones and only half the question for ragdolls.
 
+**2026-09-01: this entry reads the wire correctly and still misses why nothing draws.** The list
+above is the physics START CONDITION, and it is complete. The appearance is not in it, and it is not
+in the table either: `IMPLEMENT_CLIENTCLASS_DT_NOBASE( C_TFRagdoll, DT_TFRagdoll, CTFRagdoll )`
+inherits nothing, so a ragdoll carries no `m_nModelIndex`, no `m_nSkin`, no `m_nBody` and no
+`m_vecOrigin` — every one is built client-side by `CreateTFRagdoll` from `m_iClass`, `m_iTeam` and
+the player entity. So the corpses are not lost in the decode; they were never described, and a
+generic prop path asking for a model index is correct to draw nothing.
+
+Measured: **299 `CTFRagdoll` entities in `serveme-627619-stv-2026-08-07`, all decoded, none drawn.**
+The derivation table and the one branch that cannot be reproduced — the unnetworked `RandomFloat`
+that discards the death animation three times in four — are in `docs/PARITY-AUDIT.md` finding 4.
+
+The correction worth keeping: this entry asked "can we reproduce the FALL", which is a physics
+question and still open. The question that actually blocks a visible corpse is "can we reproduce the
+LOOK", which needs no physics at all.
+
 **B57 resolved 2026-08-14.** Players are skinned on the GPU from the merged sequence table, posed
 through Valve's bone remap, lit at their illumination centre, and advanced from demo time. The full
 account is `docs/findings/21-player-animation.md`, including the two wrong turns — an illumination
@@ -16032,7 +16048,7 @@ Every wrong turn in B245, B247 and B249 came from reading part of a mechanism an
 the gap — the enter-PVS read path was read, the store path was assumed. The store path took one
 script and five minutes to find, and it contradicted the assumption immediately. **`docs/memory/read-the-sdk-for-the-whole-mechanism.md` says exactly this, and it was not followed.**
 
-## B252 — first-person attachments: the viewmodel props carry no item, so no pilot light in your own hands — OPEN
+## B252 — first-person attachments: the viewmodel props carry no item, so no pilot light in your own hands — FIXED
 
 Split from B251/B234 the moment it was seen, rather than half-wired. The world side is complete: a
 carried Degreaser shows its pilot light and a festivized medigun its lights, emitted per prop
@@ -16054,6 +16070,52 @@ which now carries `ItemDefinitionIndex` and `Econ`; thread both through `SceneVi
 honouring the `ViewModel` display-flag bit, which `AttachedModelsFor` already returns and nothing
 yet filters on. That filter matters in both directions once the viewmodel case exists: a
 `model_display_flags 1` attachment must NOT appear in first person, nor a `2` in the world.
+
+### Fixed, and the filter is now the engine's own expression
+
+The wiring above, taken as written. `SceneViewmodel` carries `WeaponEcon` beside `WeaponItem`,
+both read from the entity `m_hWeapon` already resolves to — the same attribute list the world draw
+reads, not a second derivation of it. `ViewmodelScene`'s three props each pass the pair through and
+set `FirstPerson: true`, and `MomentScene`'s delegate turns that into the mask:
+
+```csharp
+prop.FirstPerson ? AttachedModel.ViewModel : AttachedModel.WorldModel
+```
+
+which `WeaponModels.AttachmentsFor` applies as `(attached.DisplayFlags & displayFlagMask) != 0` —
+`DrawEconEntityAttachedModels`' own `(m_iModelDisplayFlags & iMatchDisplayFlags)`, verbatim.
+
+**Which prop is the weapon depends on the scheme, and getting that wrong would have hung the pilot
+light off a pair of hands.** Under attach-to-hands the first prop is the ARMS and the weapon is the
+second; otherwise the one networked viewmodel IS the weapon — the medigun case. The item and the
+attributes go on whichever is the weapon and never on the arms, so `AttachesToHands` is now read
+once into a local and used for both decisions rather than asked twice.
+
+**The mask test had to assert both directions, and the reason is the third row of the
+instrument-blindness casebook.** Until first-person props carried an item, every attachment in the
+repository was world-drawn — so an unfiltered list and a correctly filtered one predict the same
+observation for every input that existed. A single world-mask test would have been an experiment
+insensitive to the manipulation. The fixture therefore declares three entries (`c_both_views` at
+flags 3, `c_world_only` at 1, `c_viewmodel_only` at 2) and both tests name the exact pair they
+expect.
+
+**One trap, found by reasoning about the dedup rather than by a failure:** `RecordViewmodels`
+collapses repeated samples with record equality, and a `record` compares a list-typed member by
+REFERENCE. Fresh lists per tick would have made every tick a distinct sample and recorded the whole
+demo. `EconAttributeWire` now defines `Equals`/`GetHashCode` element-wise — hand-rolled rather than
+`SequenceEqual`, because this runs in the parse path where `docs/memory/linq-is-a-test-tool.md`
+applies.
+
+Gate green at every floor, `scene` raised 283 → 285 for the two mask tests.
+
+**What is NOT yet confirmed, stated plainly: nobody has SEEN this.** The headless `--shot` route
+cannot show it — the viewmodel pass is camera-gated and logs `viewmodel pass skipped: … camera
+False` on every headless frame, which is pre-existing and predates this work. And the demo used
+for B234's proof does not help either: the recorder's own launcher there is a stock
+`c_bet_rocketlauncher` with no festivizer, so even an interactive run would correctly show nothing.
+Per `docs/memory/take-your-own-screenshot.md` this would normally be self-served; here the
+instrument genuinely cannot reach the subject, so it is a QUESTION for the owner — an interactive
+first-person look while holding a Degreaser or a festivized weapon.
 
 ### B234, closed: the whole chain, and the key that had to stop being lossy
 
@@ -16093,7 +16155,431 @@ One false alarm along the way, kept because it is the session's recurring shape:
 what the trx counts — `docs/memory/read-the-trx-total-not-the-console.md`, compared anyway. The
 control (the same run on `main`: 816) closed it in one command.
 
-Still open from this work: B252, the first-person half.
+Left open from this work at the time: B252, the first-person half — since fixed, above.
 
 **B234's fix confirmed by eye** — the owner, watching the same tick: *"the festival medigun was
 showing"*. Log, frame capture and a person agree, which is the full set.
+
+## B253 — the frame is 78% scene rebuild, and `pose` is half of it — OPEN
+
+**The owner, 2026-09-01:** *"our fps being way way too low, real tf2 plays every demo I have check
+so far at over like 600 fps"*, later measured by eye as *"the fps is sitting at 90-120, its not
+horrible"* on an RTX 4060/4070.
+
+**Nothing in the viewer could see this before today.** `StallReport` was the only frame-cost
+instrument and its threshold is `StallSeconds = 0.03`, so it reports only frames slower than 33 per
+second and is silent about every difference above that. At 8 ms a frame it never fires. Two
+instruments were written to close that, both averaging every frame rather than sampling one — see
+D127 and `FrameRateLog` / `MomentCostLog`.
+
+**Measured on `tf2-2026-pub-pov-clean` at tick 14000, uncapped (`+fps_max 0`), 9,100 rebuilds:**
+
+```
+frame rate 133 fps, 8.0 ms; mean over 131 frames:
+    sound 0.1, camera 0.3, project 0, advance 6.0, capture 0, hud 0, draw 0.9
+
+moment cost, mean over 100 rebuilds: 7.6 ms
+    = sample 1.9, drawlist 0.5, models 0.5, pose 4.6, weapons 0, viewmodel 0.3
+```
+
+| | ms | share of frame |
+|---|---|---|
+| `advance` — the scene rebuild | ~6.3 | **78 %** |
+| ↳ `pose` | ~4.8 | ~60 % of advance |
+| ↳ `sample` — `PlayersAt` + `PropsAt` | ~1.9 | |
+| ↳ `models`, `drawlist` | ~0.5 each | |
+| `draw` — everything the GPU is asked to do | ~1.1 | 14 % |
+
+**The GPU is not the problem and that is the finding.** TF2's whole 600 fps frame is 1.67 ms; our
+`draw` alone is about 1.1 ms, so the drawing is already in the right order of magnitude. The CPU-side
+rebuild is roughly four times TF2's entire frame budget on its own.
+
+**Where to look next, in order:** `pose` has sub-counters already measured and thrown away by the
+same threshold — `lighting`, `setup`, `simulate`, `wornlight`, `reports`, `skin`, `rest`. The only
+breakdown seen so far is from a loading frame (`lighting 3.9, setup 3, rest 1`), which is not
+evidence about the steady state. Averaging those the way the two columns above were averaged is the
+next measurement, not a guess about which one it is.
+
+**A structural question to answer alongside it, NOT yet established.** `PlaybackPresenter.Advance`
+raises `MomentChanged` every frame while playing, so the scene is rebuilt ~110 times a second for a
+demo whose snapshots change 66 times a second. Per-frame *interpolation* is correct and is what the
+engine does; a full rebuild — re-sampling every track, re-resolving models, rebuilding the draw list
+— may not be. Marked as a question because the engine also rebuilds its renderable list per frame
+(`CClientLeafSystem::CollateRenderablesInLeaf`), so "it runs every frame" is not by itself a defect.
+
+### Measuring this at all requires a FOCUSED window
+
+`FramePacer.NoFocusSleep` is the engine's own `engine_no_focus_sleep`, and it makes any unattended
+measurement wrong. The 150-second run above is cleanly bimodal — `min 15, p25 16, median 106, p75
+123, max 157` — because the window lost focus partway through. The clamped lines are recognisable
+without knowing that: their phases sum to ~10 ms while the reported frame is 63 ms, and
+`unaccounted 0` — the missing 53 ms is the sleep, which sits in the idle loop outside
+`FrameSequence.Run` and so is measured by nothing.
+
+The owner flagged this before the first run: *"the background fps clamp is going to be an issue with
+testing this"*. He was right, and the first attempt had been backgrounded. **Take the focused
+population, or run it in front of you.**
+
+## B254 — we pose every entity in the tick; the engine poses only what is in a visible leaf — OPEN
+
+**The divergence B253 went looking for.** Measured, `tf2-2026-pub-pov-clean` at tick 14000, uncapped,
+10,700 rebuilds, focused window:
+
+```
+moment cost, mean over 100 rebuilds: 7.8 ms
+    = sample 1.9, drawlist 0.5, models 0.5, pose 4.8, weapons 0, viewmodel 0.2
+  pose = lighting 0.9, simulate 0.4, wornlight 0.4, setup 1.8, skin 0.3, anim 1.3, rest 0.7
+  drawn 600 per rebuild
+```
+
+`props` at that tick is **560**. `drawn` is **600**. Nothing is being removed — every prop the tick
+carries is posed, lit, skinned and instanced, every frame.
+
+**The engine never does this, and the mechanism is not subtle.** `CClientLeafSystem::BuildRenderablesList`
+(`clientleafsystem.cpp:1813`) walks `info.m_pWorldListInfo->m_pLeafList` — the VISIBLE leaf list —
+and calls `CollateRenderablesInLeaf` once per leaf. A renderable that is not in a visible leaf never
+enters the render list, is never drawn, and therefore never reaches `C_BaseAnimating::SetupBones` at
+all. Bone setup, lighting and skinning are downstream of visibility; here they are upstream of it.
+
+**Every column above scales with that count**, which is why there is no single hotspot to fix:
+`setup` 1.8, `anim` 1.3, `lighting` 0.9, `skin` 0.3 are all per-entity work multiplied by 600
+instead of by however many are actually in front of the camera.
+
+**The PVS is already loaded and already used — for the world only.** `MapLevel.Culling` builds a
+`WorldCulling` from `BspVisibility` and the BSP tree, and `IWorldUpload.SetWorldCulling` hands it to
+the renderer for faces. No equivalent test exists anywhere in the entity path: `ModelCull` is
+backface winding (`MATERIAL_CULLMODE_*`), not visibility, and the pose loop in `EntityModels` is a
+bare `foreach (SceneProp prop in props)` whose only filters are drawability and render mode. So the
+data needed to do what the engine does is already in memory and is not consulted.
+
+### Two things checked and found FAITHFUL, recorded so they are not re-suspected
+
+- **The bone cache is correct.** `AnimatingEntity.SetupBones` clears `ReadableBones` unconditionally
+  once per frame, where `c_baseanimating.cpp:2874` clears it only `if ( LastBoneChangedTime() >=
+  m_flLastBoneSetupTime )`. That reads as a divergence and is not one: the base
+  `LastBoneChangedTime()` returns `FLT_MAX` (`c_baseanimating.h:475`), so the guard is always true
+  for everything except `C_ClientRagdoll`, which overrides it with the VPhysics update time and
+  which this project does not draw. Both guards — the per-frame reset and the subset test on the
+  requested mask — match.
+- **`fps_max 0` is honoured.** `FrameClock.IsDue(0)` returns true, which is Source's unlimited rather
+  than a zero-frame cap. The default cap is 300.
+
+### What this does NOT yet establish
+
+**How many of the 600 would survive a visibility test is unmeasured**, and it decides whether this is
+worth several milliseconds or a fraction of one. A point-of-view recording on a large map suggests
+most are out of sight, but "suggests" is not a number, and
+`docs/memory/measure-the-route-before-building-on-it.md` is about exactly this shape of assumption.
+The cheap version of that measurement is to run the existing `WorldCulling` over the prop origins and
+count, without changing what is drawn.
+
+Filed separately from B253, which is the measurement and the instruments; this is the cause it found.
+
+## B255 — we pose before the view is computed; the engine computes the view first — OPEN
+
+**Found while fixing B254, and it is why B254's fix is not yet wired.** The cull itself is built and
+tested (`EntityModelSet.Instances(..., frustum)`, `Culls`, `DrawTally.Culled`), and it is inert until
+a frustum is passed, which nothing does yet. This entry is the reason.
+
+**Our frame order**, `FrameSequence.Run`:
+
+```
+advance = Time(steps.Simulate);      // the scene rebuild, and the pose, happen inside this
+camera  = Time(steps.PlaceCamera);   // the view is computed here
+...
+draw    = Time(() => steps.Draw(overlay));
+```
+
+**The engine's**, `CViewRender::RenderView`: `SetUpView` computes the view, then `BuildWorldLists`,
+then `BuildRenderablesList` (`clientleafsystem.cpp:1813`) walks the visible leaves, and only what
+survives is drawn and so posed. View, then visibility, then bones.
+
+Ours is bones, then view. So a frustum handed to the pose today would be **last frame's**, and
+culling against a stale view shows as entities popping in at the edge of the screen during fast mouse
+movement — a visible defect traded for a frame rate, which is not a trade this project makes (D89),
+and not what the engine does.
+
+**The fix is a reorder, not a parameter.** The rebuild is driven by `PlaybackPresenter.Advance`
+raising `MomentChanged` from inside `Simulate`. Splitting it — the clock advancing in `Simulate`,
+the rebuild running after `PlaceCamera` — puts the pose on the render side of the view, where the
+engine has it. That also answers the open question at the end of B253 about rebuilding every frame:
+the engine rebuilds its renderable list every frame too, but it does so AFTER the view, which is the
+part that makes the per-frame cost proportional to what is visible rather than to what exists.
+
+**What is already correct and should not be disturbed:** the sampling half. Interpolation genuinely
+runs per frame in the engine and belongs in `Simulate`; only the pose belongs after the view.
+
+## B256 — a POV demo must be locked to the recorder's own view; we allow free camera and third person — OPEN
+
+**The owner, 2026-09-01, stating what TF2 actually does:** *"in real tf2 the camera in the pov demo
+follows and does exactly what the player recording it did, you cant see anything that player did not
+see, no camera except 1st person when alive, and when dead or spec the camera is whatever the
+recording player was in, seeing whatever the recording player saw."*
+
+So on a POV recording there is no free camera and no third-person fallback at all. Alive: first
+person. Dead or spectating: whatever the recorder was spectating, from where they were watching it.
+The demo carries this outright — `democmdinfo_t`, read here as `RecordedView`, whose own summary
+already says it "is what lets it show the match as the recorder saw it, which on a POV demo is the
+whole point of the recording."
+
+**This viewer currently drops into third person on death and offers the free camera throughout**,
+which is not a feature on a POV demo — it is a view of a world that was never recorded.
+
+**Three consequences, and only the first is cosmetic:**
+
+1. **It shows things the recorder never saw**, which is the parity break the owner names.
+2. **What it shows is WRONG rather than merely extra**, because a POV demo is PVS-limited
+   (`docs/memory/pov-demos-are-pvs-limited.md`): entities outside the recorder's visibility were
+   never sent, so a free camera looking at them draws an empty room rather than the room that was
+   there. A viewer that offers the camera cannot honour it.
+3. **It is a performance question too, which is how it came up.** B254 measured 600 props posed per
+   rebuild. A view locked to the recorder is a much smaller visible set than a free camera that may
+   be pointed anywhere, and — unlike the free camera — its frustum is known from the demo rather
+   than from what the user is doing this instant.
+
+**Not yet established, and it decides the shape of the fix:** whether the restriction is a property
+of the DEMO (POV recordings only, with SourceTV keeping the free camera, which is what TF2 does) or a
+mode the user can turn off. The engine's answer is the former — `C_BaseViewModel::ShouldDraw`'s HLTV
+branch already shows the two recording kinds being treated differently — but a demo TOOL has reasons
+to differ from the game, and D69's "a real config must work wholesale" cuts the other way here. Ask
+before choosing; this is a divergence to be asked about rather than documented
+(`docs/memory/a-divergence-is-asked-not-documented.md`).
+
+## B257 — the players handed from `Build` to `Pose` are untested, and the suite says nothing — FIXED
+
+Found by sabotage while splitting the scene rebuild for B255. Emptying `MomentScene._posing` — the
+list `Build` copies and `Pose` reads — leaves **all 290 Scene tests green**.
+
+**What the list actually feeds is not cosmetic.** `AddViewmodel` walks it to find the followed
+player, and from that player come two things: `Appearance.Hands(playerClass)`, which is the class
+arms and therefore B242's sleeve, and `Weapons.For(holder)`, which is the first-person weapon model.
+Losing the list draws a first-person view with no arms and no weapon, silently.
+
+**Two tests were written for it and both deleted rather than kept.** Neither could distinguish a
+working list from a lost one with the fixtures available:
+
+- **By instance count.** The arms only become their own prop when `AttachesToHands` is true, and that
+  compares the VIEWMODEL's own model path against the hands path — the `c_` scheme, where the
+  networked viewmodel model *is* the arms. A fixture holding a `v_` model produces one prop either
+  way, which is an input where correct and broken predict the same observation.
+- **By weapon model.** `Weapons.For` needs the item schema, and no unit fixture loads one, so it
+  answers null whether or not the player was found.
+
+**So this is a gap in the test SURFACE rather than a missing assertion**, which is why it is filed
+instead of fixed in passing. The honest options are a fixture whose viewmodel model equals the fake
+appearance's hands path, or an observable on `ViewmodelScene` that does not need the schema. Recorded
+at the field as well as here, because the field is where somebody will next assume it is covered.
+
+The wider point is the one `docs/memory/instrument-bugs-outnumber-decoder-bugs.md` keeps making: the
+suite passing after a refactor is evidence about the suite, not about the refactor. This one was
+caught only because the sabotage was run deliberately.
+
+### Fixed: the third attempt, and what the first two were missing
+
+A test now exists that reddens when the list is lost and nothing else does — sabotage run
+deliberately: `Failed: 1, Passed: 290`.
+
+**What made it possible was fixing the FIXTURE, not the assertion**, which is the general lesson.
+Both earlier attempts asserted on the viewmodel instance count, which was the right observable; they
+failed because the inputs could not produce a difference:
+
+- The viewmodel held a `v_` model. `AttachesToHands` compares the viewmodel's OWN path against the
+  hands path — under the `c_` scheme the networked viewmodel model *is* the arms — so a `v_` model
+  yields one prop whether or not the arms resolve.
+- `Weapons.For` had no item schema, so it answered null either way and the weapon never became the
+  second prop.
+
+The fixture now gives the viewmodel the arms path and hands `WeaponModels` a **synthetic
+`items_game.txt`** with one weapon in it, through the `Func<string, byte[]?>` its constructor already
+takes. Arms and weapon are then two props when the list survives and fewer when it does not.
+
+**Synthetic rather than the real schema, per `CLAUDE.md`'s standing rule** — eight megabytes read per
+test, and no ground truth. Here the test wrote the model in and knows exactly what to predict.
+
+**The rule this is a worked example of:** when a test cannot fail, the instinct is to strengthen the
+assertion and that is usually wrong. This was case 2 of the four in `CLAUDE.md` — *wrong condition*,
+an input for which correct and broken predict the same observation. Fix the input.
+
+### B254's second half: the PVS, wired and measured at almost nothing
+
+`BspLeafTree.TouchesAny` walks a box down the tree the way
+`CClientLeafSystem::InsertIntoTree` does, `WorldVisibility` now publishes its accepted leaves indexed
+BY leaf as well as listed, and that span reaches `EntityModelSet.Culls` through `WorldCulling` and
+`Device3D` — the same answer the world draw used, passed along rather than recomputed.
+
+**Measured on `tf2-2026-pub-pov-clean`, first person, 100-rebuild means:**
+
+```
+posed 514 of 600 selected, 0.4 hidden by pvs
+posed 520 of 589 selected, 0.1 hidden by pvs
+posed 499 of 607 selected, 0   hidden by pvs
+```
+
+**So the visibility half rejects essentially nothing, and the reason is not that it is broken.** The
+count is occasionally non-zero, which is the control: the tree arrived, the span arrived, and the
+walk can return true. What it means is that the frustum test — which runs first here — has already
+removed everything outside the view cone, and at this position nearly every entity left inside the
+cone is also inside the PVS.
+
+**Two honest caveats on that number:**
+
+- **It is one spot on one map.** A corridor map, or a camera facing a wall with a room behind it,
+  is exactly where the PVS earns its keep, and this measurement says nothing about those.
+- **An entity's box spans leaves, and `TouchesAny` keeps it if ANY of them is visible.** That is the
+  engine's rule, not a weakening of it — Valve inserts a renderable into every leaf its bounds touch
+  for precisely this reason — but it does mean large bounds make the test permissive by design.
+
+**Ordered frustum-first, which is not the engine's order.** `BuildRenderablesList` iterates visible
+leaves and frustum-tests what is in them; this tests the frustum and then visibility. The ANSWER is
+identical — a prop is kept only if it passes both — and the engine's ordering falls out of it
+maintaining per-leaf renderable lists across frames, which this does not. Recorded because it looks
+like a divergence and is not one.
+
+**Where the frame stands now**, first person, uncapped, against 96 fps / 11 ms at the start of this
+work:
+
+```
+frame rate 147 fps, 5.8 ms; sound 0.2, camera 0.3, project 2.3, advance 2.9, draw 1.1
+moment cost 5.2 ms = sample 2.0, drawlist 0.6, models 0.5, pose 2.1
+```
+
+`sample` and `pose` are now the same size, and `sample` is untouched by any of this: it interpolates
+every track every frame, where the engine interpolates entities as it meets them in the visible set.
+That is the next thing worth reading, and it is a decode-side question rather than a rendering one.
+
+## B258 — we interpolate every track every frame; the engine interpolates "the minimal set" — OPEN
+
+**Where the frame time now is.** After B254 and B255, first person on `tf2-2026-pub-pov-clean`:
+
+```
+moment cost 5.2 ms = sample 2.0, drawlist 0.6, models 0.5, pose 2.1
+```
+
+`sample` is `PlayersAt` + `PropsAt`, and it is the same size as `pose` while being untouched by
+everything the cull work did. It walks EVERY prop track and interpolates it, ~600 a frame.
+
+**The engine keeps a LIST and interpolates only what is on it.**
+`C_BaseEntity::ProcessInterpolatedList` (`c_baseentity.cpp:3123`), whose own comment is *"Interpolate
+the minimal set of entities that need it"*, walks `g_InterpolationList` rather than the entity array.
+Two separate rules decide membership.
+
+**Rule one, `ShouldInterpolate` (`c_baseentity.cpp:3029`)** — checked whenever an entity takes a data
+update, and the entity is added only if it passes:
+
+```cpp
+if ( render->GetViewEntity() == index ) return true;
+if ( index == 0 || !GetModel() )        return false;
+if ( IsVisible() )                      return true;   // always interpolate if visible
+// if any movement child needs interpolation, we have to interpolate too
+```
+
+**Rule two, and it is the one with no equivalent here at all:** `Interpolate` calls
+`RemoveFromInterpolationList()` when `BaseInterpolatePart1` reports `bNoMoreChanges`. An entity whose
+values have settled leaves the list and costs nothing until it is updated again. On a TF2 map most
+props never move, so most of them are permanently off the list after the first frame.
+
+**The ordering objection does not apply, and this is the part worth knowing.** `IsVisible()` reports
+the renderable's state from the LAST render, so the engine gates this frame's interpolation on the
+previous frame's visibility — and accepts that an entity becoming visible is interpolated one frame
+late. That means our own cull result, which lands in `Pose` after the view, is available to the next
+frame's `Build` exactly as Valve's is. No reorder is needed.
+
+**So the two gates are:**
+
+1. **Visible last frame**, from `EntityModelSet`'s own cull. One frame stale, as in the engine.
+2. **Settled**, which needs a per-track notion of "nothing changed between these keyframes". Cheaper
+   here than in the engine in one way and harder in another: the whole demo is already decoded, so a
+   track knows its own future — but the viewer can seek backwards, so a list mutated across frames
+   cannot simply be maintained.
+
+**Not started. What must NOT be assumed on the way in:** that `sample` is dominated by props rather
+than by players, and that a skipped interpolation is invisible. Both are measurable and neither has
+been measured — the first with the existing counters, the second by eye on a demo where something
+enters the view quickly.
+
+### B258, measured rather than assumed: props are 95% of it, and it is now the biggest column
+
+The entry above planned to gate prop interpolation on last-frame visibility and said what must not be
+assumed on the way in — *"that `sample` is dominated by props rather than by players"*. Split and
+measured:
+
+```
+moment cost 4.0 ms = sample 1.8 (players 0.11), drawlist 0.6, models 0.4, pose 1.2
+```
+
+**`PlayersAt` is 0.09 to 0.11 ms of a 1.8 ms sample** — about five per cent. So the plan targets the
+right work, and two dozen players who are nearly all visible anyway were never going to be worth
+gating.
+
+**And `sample` is now LARGER than `pose`.** B254 and B255 took pose from 4.8 ms to about 1.2; nothing
+touched sampling, so it is now the largest single column of the rebuild and the obvious next target
+rather than a co-equal one.
+
+**The measurement needed the tool built for it, and the tool had a hole.** `--measure` printed only
+the frame-rate lines; the rebuild breakdown — the more useful half — still went to the buffered log.
+Fixed in the same commit: `MomentPresenter` keeps its last cost line and the viewer prints it beside
+the rate, so one call now answers both halves.
+
+### B258, the actual divergence: we compute PLAYER animation inputs for every prop
+
+`PropsAt` calls `Moving(track, tick, pose)` for every track it emits, and `Moving` is:
+
+```csharp
+(float moveX, float moveY) = MoveParameters(track, tick, pose.EyeYaw ?? pose.Yaw);
+return pose with { Speed = SpeedAt(track, tick), MoveX = moveX, MoveY = moveY };
+```
+
+`MoveParameters` calls `HeadingAt(track, tick)`, and `SpeedAt` walks the track again — so **every
+prop pays three timeline lookups a frame** where one would do, about 1,800 searches per frame at 600
+props.
+
+**Both values are player animation inputs and the engine computes them nowhere else.** `move_x` and
+`move_y` drive the nine-way leg blend and `Speed` selects the sequence; both come from
+`CBasePlayerAnimState::ComputePoseParam_MoveYaw` (`base_playeranimstate.cpp:590`), and that function
+exists only in `base_playeranimstate.cpp` and `multiplayer_animstate.cpp`. A `C_BaseAnimating` prop
+has no animation state, so it never computes an estimate yaw, a move direction, or a speed.
+
+**So this is a parity divergence before it is a cost.** A resupply locker does not have legs. The fix
+is to compute these only for tracks that are players — which is what `PlayersAt` already does
+separately, at 0.09 ms for two dozen of them.
+
+**Filed rather than fixed, and the attempt to measure it first is worth recording.** A temporary
+timer split inside `PropsAt` was written, did not compile — the analyzers reject a mutable static
+field (S2223, S2696) — and the failure was missed because the build was checked with `grep -E "error
+C"`, which matches `error CS` and not `error S`. The stale binary then ran and reported the old
+format, which looked like the measurement simply not appearing. Two lessons, both already in this
+repo's notes: an absence needs a control, and a grep's scope is a claim about the grep.
+
+The cost split therefore remains unmeasured. It is also no longer needed to justify the change:
+the engine does not do this work for props at all.
+
+### B258 fixed: sample halved, and the frame is now 235 fps
+
+Measured the same way, first person, uncapped, one bounded `--measure` run:
+
+```
+frame rate 235 fps, 6.1 ms; sound 0.2, camera 0.1, project 1.3, advance 1.6, draw 0.8
+moment cost 2.9 ms = sample 0.8 (players 0.09), drawlist 0.5, models 0.2, pose 1.3
+```
+
+| | before this work | now |
+|---|---|---|
+| frame | 11 ms (96 fps) | 5.6–6.1 ms (232–235 fps) |
+| rebuild | 7.8 ms | 2.9 ms |
+| `sample` | 1.9 ms | 0.8 ms |
+| `pose` | 4.8 ms | 1.3 ms |
+| `draw` | 1.1 ms | 0.8 ms |
+
+**Every one of those came from doing what the engine does**, not from tuning: cull before posing
+(B254), pose after the view (B255), and derive player animation inputs only for players (B258).
+Nothing here traded a visible property for a number, which is D89's rule and the reason the work was
+framed as parity from the start.
+
+**`draw` barely moved and that is the point.** TF2's whole 600 fps frame is 1.67 ms; ours was already
+1.1 and is now 0.8. The GPU was never the problem, and every measurement that said so was measuring
+CPU work the engine does not do.
+
+**What remains in `sample`, unexamined:** 0.8 ms still walks every track every frame. The engine's
+second rule — `RemoveFromInterpolationList` on `bNoMoreChanges`, so a settled prop leaves the list
+until it moves — has no equivalent here and is the next thing if this ever needs to be smaller. It
+is not obviously worth it now.

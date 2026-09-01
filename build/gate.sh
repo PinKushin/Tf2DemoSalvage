@@ -224,7 +224,10 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # era float spelling folding into the same bits, and the empty control. Five on the RESOLUTION -
 # IterateAttributes' chain branch for branch, including the else-if that forecloses the definition's
 # attributes when the demos list is taken, and the all-ones INVALID_ITEM_ID gate.
-run Tf2DemoSalvage.Core.Tests     core     1616
+# 1616 -> 1617: B258 split the derived-pose test in two - PlayersAt fills move_x, move_y and
+# Speed, PropsAt leaves them alone, since ComputePoseParam_MoveYaw is player animation state and
+# the engine derives none of it for a prop.
+run Tf2DemoSalvage.Core.Tests     core     1617
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
@@ -470,7 +473,17 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 # PlayerProps was written; the hands in front of the camera never did. Two of the three are controls
 # -- RED is family 0, which is ALSO what an unset skin gives, so a BLU-only test could be satisfied
 # by a rule that always returns 1 and a RED-only test by changing nothing.
-run Tf2DemoSalvage.Scene.Tests    scene     283
+# 283 -> 285: the attachment display-flag mask (B252). DrawEconEntityAttachedModels is called with
+# WorldModel from the world draw and ViewModel from the viewmodel path, keeping entries whose
+# model_display_flags intersect - both directions asserted, because until the first-person props
+# carried an item every attachment was world-drawn and an unfiltered list was indistinguishable
+# from a filtered one.
+# 285 -> 291: the frustum cull moved ahead of the pose (B254, B255), which is
+# CollateRenderablesInLeaf's order. Three tests for the cull, the middle one being the control:
+# behind the camera is not posed, in front of it is, and no frustum culls nothing. Then three for
+# the Build/Pose split it needed - Build selects without posing, Pose produces the instances, and
+# the players survive the gap between them (B257, which took three attempts to make failable).
+run Tf2DemoSalvage.Scene.Tests    scene     291
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -606,7 +619,18 @@ run Tf2DemoSalvage.Audio.Tests    audio     183
 # 424 -> 425: the presenter asks its source for the round state. A WIRING assertion, which is the
 # only kind that fails when a value is decoded, retained, unit-tested and never read -- exactly what
 # m_flPlaybackRate was for weeks while every animation played at rate 1 with a green suite.
-run Tf2DemoSalvage.Presentation.Tests presentation 425
+# 425 -> 430: FrameRateLog (D127). The viewer's only frame-cost instrument was StallReport's 30 ms
+# threshold, which is silent about every rate above 33 fps - so a 20-second run logged nothing and
+# that read as "no slow frames" when it means "nothing exceeded 30 ms". Five tests: the interval,
+# the watermarks in the line, that the phases are a MEAN over the interval rather than the frame
+# that crossed it, that a reported interval's frames are forgotten, and that a frame with no
+# reading neither prints 0 fps nor starts the clock.
+# 430 -> 434: MomentCostLog, the same treatment for the parts of `advance`, which the frame log
+# showed is 70% of the frame. Four tests, the load-bearing one being that it averages every rebuild
+# rather than reporting the one that crossed the count.
+# 434 -> 438: --measure and --help (LaunchOptions). Both malformed twins included, per that file's own
+# rule that a parser ignoring an option passes any test that only checks the bad input is refused.
+run Tf2DemoSalvage.Presentation.Tests presentation 438
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.
@@ -776,7 +800,9 @@ run Tf2DemoSalvage.Presentation.Tests presentation 425
 # named "attributes" block and the flat "static_attrs" pair - bridged name to index by the
 # top-level section, stored_as_integer deciding whether the 32-bit union holds the integer or the
 # float's bits, and prefab inheritance overriding per name rather than duplicating.
-run Tf2DemoSalvage.Content.Tests  content   855
+# 855 -> 858: BspLeafTree.TouchesAny, the box walk the PVS half of B254 needs - one side, the other
+# side, and the straddling case that a point walk gets wrong, plus a no-leaf-wanted control.
+run Tf2DemoSalvage.Content.Tests  content   858
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2

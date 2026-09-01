@@ -214,6 +214,11 @@ public sealed class LevelSystems
         // system reads globals; ours are handed their data here and then told the level has begun.
         _moment.Lighting = map.Lighting;
 
+        // **The tree, for the visibility half of the entity cull** (B254). Assigned here with the
+        // lighting because it arrives with the map for the same reason, and left null by a map that
+        // carries none — which leaves the cull frustum-only rather than culling everything.
+        _models.Tree = map.Level.Leaves;
+
         _models.Geometry = map.Assets is { } content
             ? content.Geometry
             : EntityModelSet.NoGeometry;

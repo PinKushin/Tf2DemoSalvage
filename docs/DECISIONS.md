@@ -7031,3 +7031,74 @@ is for questions whose answer is a number nobody knows yet.
 and several answer questions that are now closed — those should be deleted with their finding
 promoted to `docs/findings/`, not ported. Porting them all in one pass would move the prose without
 reading it, which is the one outcome worse than leaving them where they are.
+
+## D127 — the audit means "is what we built RIGHT", not "what have we not built"
+
+**2026-09-01, owner, correcting the direction this audit had taken:** *"i wanted you to make sure
+everything we have implemented is right, had valve partity, and is not buggy. Theres far more
+useful thinks than ragdolls still available, like interp, and out fps being way way too low, real
+tf2 plays every demo I have check so far at over like 600 fps."*
+
+**What went wrong.** `docs/PARITY-AUDIT.md` was being worked as a hunt for MISSING mechanisms —
+rank the engine functions by branch count, find the ones with no implementation at all, file them.
+That produced findings 3, 4 and 5 in one evening, and finding 4 was presented as the biggest result
+of the audit: 299 corpses decoded and never drawn.
+
+**It was the least valuable thing found.** The owner does not want ragdolls at all — *"in real tf2
+i dont even have them on, players just disappear immediately on death in my real game running the
+comp/low config"*. So the audit's top-ranked, most-measured finding was aimed at a feature that
+would be switched off if it existed.
+
+**The distinction that matters, and it is not subtle once stated.** An unimplemented mechanism is
+VISIBLE — it is absent, somebody notices, and it can be filed any time. A wrong implementation is
+INVISIBLE: it draws something, the suite is green, and it looks finished. The second class is what
+an audit is for, and it is the class that branch-counting cannot find, because a function we
+implement badly and a function we implement well have the same branch count.
+
+**So the ranking is wrong at the root.** "How many branches does Valve's function have" ranks by how
+much work a full implementation would be. The audit should rank by **what we already draw**, and ask
+of each: does it match the engine, on every branch, and is the value it uses the one the engine
+would use.
+
+**Two named starting points**, both the owner's, both in the new lane rather than the old one:
+
+- **Interpolation.** Implemented, and detailed — Hermite curves, slerped angles, a causality rule.
+  It also hardcodes `InterpolationDelayTicks = 7` while `EngineConVars` declares `cl_interp`,
+  `cl_interp_ratio` and `cl_updaterate`, writes `MAX( cl_interp, cl_interp_ratio / cl_updaterate )`
+  into a conformance test, and says "Nothing consumes these yet, deliberately". Seven ticks is right
+  for stock defaults and wrong for the config the owner actually runs.
+- **Frame rate.** *"real tf2 plays every demo I have check so far at over like 600 fps"*, and this
+  viewer is nowhere near that. A performance gap that large is usually a defect rather than a
+  budget, and it is a fact about code we HAVE written.
+
+**The ragdoll findings are not deleted.** They are correct, and finding 4's NOBASE observation
+explains a real absence. They are simply not the priority they were written up as, and D89's
+"Valve parity is the first principle" does not mean every unimplemented function is equally worth
+implementing.
+
+## D128 — a POV demo is locked to the recorder's view, and that is a property of the DEMO
+
+**2026-09-01, owner, settling the question B256 left open:** *"the pov demo lock is going to be
+demo-kind, we do exactly what tf2 does, because tryign to do anything else whould be creating
+information we dont have, and the only thing we could even maybe do that for it the cap points, its
+just not worth it."*
+
+So: **POV recordings get no free camera and no third-person fallback.** Alive, first person; dead or
+spectating, whatever the recorder was watching, from where they watched it. SourceTV recordings keep
+the free camera, because an STV recording carries the whole server's view and there is something to
+fly around in.
+
+**The reason is not fidelity-as-taste, it is that the data does not exist.** A POV demo is
+PVS-limited (`docs/memory/pov-demos-are-pvs-limited.md`): entities outside the recorder's visibility
+were never transmitted. A free camera pointed at them does not show a room the viewer is rendering
+badly — it shows a room that was never recorded. Offering the camera is offering to fabricate.
+
+**The one exception considered and rejected**, in the owner's words: control points. Their state is
+networked globally rather than by visibility, so a viewer could in principle place them outside the
+recorder's view. *"its just not worth it"* — one class of entity does not make a free camera
+meaningful when everything around it is absent.
+
+**What this rules out for good:** any "enhanced" POV mode, any interpolated or inferred world outside
+the recorder's PVS, any camera that can see what the recording player could not. If a future
+question is of the form "could we show X that the recorder did not see", the answer is no and this
+is why.

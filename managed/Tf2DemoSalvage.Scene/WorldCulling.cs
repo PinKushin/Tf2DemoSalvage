@@ -74,6 +74,16 @@ public sealed class WorldCulling
     /// </remarks>
     public int TotalLeaves { get; }
 
+    /// <summary>Which leaves the last cull accepted, indexed by leaf, for the entity cull.</summary>
+    /// <remarks>
+    /// **The same answer the world draw used, passed along rather than recomputed** (B254). An
+    /// entity cull that walked the tree a second time would be free to disagree with the world about
+    /// what is visible, and the visible failure of that is an entity hidden inside a room the viewer
+    /// is drawing — `docs/memory/one-camera-or-the-cull-lies.md`, applied to visibility instead of
+    /// to the camera.
+    /// </remarks>
+    public ReadOnlySpan<bool> VisibleByLeaf => _visibility.VisibleByLeaf;
+
     /// <summary>How many corners the last call's runs cover, against the whole world's.</summary>
     /// <remarks>
     /// **The number that actually says what was saved.** Runs and batches are draw calls; corners

@@ -178,13 +178,34 @@ public sealed class MoveYawConformanceTests
     }
 
     /// <summary>The pose one interpolation delay after the second keyframe.</summary>
+    /// <remarks>
+    /// **Sampled through the PLAYER path, which is the only one that computes these** (B258). It
+    /// used to go through `PropsAt`, because `DemoTimeline.ForTracks` puts its tracks in the prop
+    /// list and that was the only way to reach them — but `move_x`, `move_y` and `Speed` come from
+    /// `CBasePlayerAnimState::ComputePoseParam_MoveYaw`, which the engine runs for players and for
+    /// nothing else. `PropsAt` computed them for every crate on the map and never for a player,
+    /// since player tracks are not in `_props` at all.
+    ///
+    /// So the vehicle changed and the assertions did not: the formula under test is the same
+    /// `MoveParameters`, reached the way production reaches it.
+    /// </remarks>
     private static ScenePose Sampled(ScenePropTrack track)
     {
-        DemoTimeline timeline = DemoTimeline.ForTracks([track]);
+        DemoTimeline timeline = DemoTimeline.ForPlayerTracks(
+            [track],
+            [new ScenePlayer(
+                EntityIndex: 3, X: 0f, Y: 0f, Z: 0f, Team: 2, Health: 100, PlayerClass: 1)]);
 
-        List<SceneProp> props = [];
-        timeline.PropsAt(13d, props);
+        List<ScenePlayer> players = [];
+        timeline.PlayersAt(13d, players);
 
-        return props.Single().Pose;
+        ScenePlayer sampled = players.Single();
+
+        return new ScenePose
+        {
+            MoveX = sampled.MoveX,
+            MoveY = sampled.MoveY,
+            Speed = sampled.Speed,
+        };
     }
 }

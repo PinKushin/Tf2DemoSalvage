@@ -943,6 +943,137 @@ public sealed class BspLeafTree
         }
     }
 
+    /// <summary>Whether a box reaches any leaf marked wanted — the engine's insert walk.</summary>
+    /// <param name="minX">The box, in world space.</param>
+    /// <param name="minY">The box, in world space.</param>
+    /// <param name="minZ">The box, in world space.</param>
+    /// <param name="maxX">The box, in world space.</param>
+    /// <param name="maxY">The box, in world space.</param>
+    /// <param name="maxZ">The box, in world space.</param>
+    /// <param name="wanted">One flag per leaf; a leaf outside the span counts as not wanted.</param>
+    /// <returns>True as soon as a wanted leaf is reached.</returns>
+    /// <remarks>
+    /// **`CClientLeafSystem::InsertIntoTree` in the shape a viewer needs it** (B254). The engine
+    /// puts a renderable into EVERY leaf its bounds touch, so that `BuildRenderablesList` — which
+    /// iterates visible leaves — reaches an entity straddling two of them. This asks the same
+    /// question from the other end: rather than maintaining per-leaf renderable lists across frames,
+    /// walk the box down the tree once and stop at the first leaf the caller cares about.
+    ///
+    /// **The straddling case is the whole reason it is a walk.** Testing only an entity's origin
+    /// culls anything whose middle sits in a leaf the camera cannot see while an end of it is in
+    /// plain sight — a doorway-shaped defect that appears and disappears as the player moves.
+    ///
+    /// **The plane comparison is <see cref="LeafAt"/>'s, deliberately duplicated rather than
+    /// shared**: `side &lt;= distance` takes child 1, including "on the plane". A box descends BOTH
+    /// children whenever its two corners disagree, which is the only difference between this and the
+    /// point walk.
+    ///
+    /// **A `bool` span rather than a predicate** so the hot path — six hundred props a frame —
+    /// allocates nothing and the tree stays ignorant of what visibility means.
+    /// </remarks>
+    public bool TouchesAny(
+        float minX,
+        float minY,
+        float minZ,
+        float maxX,
+        float maxY,
+        float maxZ,
+        ReadOnlySpan<bool> wanted)
+    {
+        if (IsEmpty || wanted.IsEmpty)
+        {
+            return false;
+        }
+
+        // Depth-first with an explicit stack: the recursion is bounded by tree depth, and a
+        // malformed tree must not be able to overflow the real one.
+        Span<int> pending = stackalloc int[MaximumBoxDescent];
+        int count = 0;
+
+        pending[count++] = 0;
+
+        ReadOnlySpan<byte> nodes = _nodes.Span;
+        ReadOnlySpan<byte> planes = _planes.Span;
+
+        while (count > 0)
+        {
+            int node = pending[--count];
+
+            if (node < 0)
+            {
+                int leaf = -node - 1;
+
+                if (leaf >= 0 && leaf < wanted.Length && wanted[leaf])
+                {
+                    return true;
+                }
+
+                continue;
+            }
+
+            int at = node * NodeStride;
+
+            if (at + NodeStride > nodes.Length)
+            {
+                continue;
+            }
+
+            int planeIndex = BinaryPrimitives.ReadInt32LittleEndian(nodes[at..]);
+            int planeAt = planeIndex * PlaneStride;
+
+            if (planeAt < 0 || planeAt + PlaneStride > planes.Length)
+            {
+                continue;
+            }
+
+            float normalX = BinaryPrimitives.ReadSingleLittleEndian(planes[planeAt..]);
+            float normalY = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 4)..]);
+            float normalZ = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 8)..]);
+            float distance = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 12)..]);
+
+            // The box's extreme corners along the normal: the nearest and farthest points of it.
+            // If both land the same side, only that child can contain any of the box.
+            float near =
+                (normalX * (normalX < 0 ? maxX : minX))
+                + (normalY * (normalY < 0 ? maxY : minY))
+                + (normalZ * (normalZ < 0 ? maxZ : minZ));
+
+            float far =
+                (normalX * (normalX < 0 ? minX : maxX))
+                + (normalY * (normalY < 0 ? minY : maxY))
+                + (normalZ * (normalZ < 0 ? minZ : maxZ));
+
+            int front = BinaryPrimitives.ReadInt32LittleEndian(nodes[(at + 4)..]);
+            int back = BinaryPrimitives.ReadInt32LittleEndian(nodes[(at + 8)..]);
+
+            // `side <= distance` takes the back child, matching LeafAt including the on-plane case.
+            bool touchesBack = near <= distance;
+            bool touchesFront = far > distance;
+
+            if (touchesBack && count < pending.Length)
+            {
+                pending[count++] = back;
+            }
+
+            if (touchesFront && count < pending.Length)
+            {
+                pending[count++] = front;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>How deep the box walk may go before it gives up.</summary>
+    /// <remarks>
+    /// A stack bound rather than a depth bound: the walk pushes both children, so the worst case is
+    /// the tree's depth plus one branch per level. Generous for any shipped map — cp_process's tree
+    /// is a few dozen deep — and finite for a malformed one, which is the point. Reaching it drops
+    /// unvisited branches, which can only make the answer "not wanted", and a prop drawn when it
+    /// could have been culled is the safe direction.
+    /// </remarks>
+    private const int MaximumBoxDescent = 256;
+
     /// <summary>Which leaf contains a point.</summary>
     /// <param name="x">World position.</param>
     /// <param name="y">World position.</param>

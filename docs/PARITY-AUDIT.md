@@ -34,7 +34,7 @@ reading is still the work.
 
 ## Findings
 
-### 1. `attached_models` is not implemented at all — OPEN
+### 1. `attached_models` is not implemented at all — CLOSED (B251 world, B252 first person)
 
 `CEconEntity::UpdateAttachmentModels` (`econ_entity.cpp:1078`) is this project's **most-cited**
 engine function — eleven citations — and the first thing it does is a mechanism we have never
@@ -64,6 +64,56 @@ Nothing reports it because nothing asks: the model is never named, so it never f
 unusual-effect and weapon-effect mechanism, and it is on the list of things to build next — the same
 function carries both, which is an argument for doing them together.
 
+#### Closed, and three things measured on the way out
+
+**The count was 29 occurrences of the string; the mechanism reaches 325 items.** `attached_models`
+is inherited through prefabs, so a block written once is carried by every item that names that
+prefab — 356 entries across 325 items, 42 of them plain and 314 festivizer-gated. A grep for the
+string undercounts the blast radius by an order of magnitude, which is the general hazard: the
+shipped schema is a language with inheritance, and counting its tokens is not counting its effects.
+
+**Every one of the 356 declares `model_display_flags 3`.** Not one is 1 or 2. So the mask B252 built
+— `DrawEconEntityAttachedModels`' `(m_iModelDisplayFlags & iMatchDisplayFlags)` — is correct parity
+and, on shipped data, filters nothing whatever. That is worth writing down twice over:
+
+- it is the exact case `CLAUDE.md`'s fixtures-before-corpus rule predicts. A corpus test could not
+  have caught a wrong mask, because **every real input predicts the same observation** whether the
+  filter works or is absent. The synthetic fixture — three entries at flags 3, 1 and 2 — has ground
+  truth precisely because no real file provides it.
+- it is a fact about **today's** `items_game.txt`, not about the engine. Valve reads the field, so a
+  future item may use it, and a reader who finds the filter apparently dead should not delete it.
+
+**Confirmed on the production path rather than by eye, and the distinction is stated because the
+picture is still owed.** `serveme-627619-stv-2026-08-07`, player 6: the viewmodel sample carries
+item 200 with attribute **2053** (`is_festivized`) from tick 1, so the item and its attributes reach
+the first-person prop and the delegate resolves `c_scattergun_festivizer.mdl`. What that does not
+show is the frame. See the instrument gap below, which is why.
+
+### 1b. WITHDRAWN — this finding was wrong, and the way it was wrong is the point
+
+**It claimed `--first-person` does not exist and is silently swallowed. It exists.**
+`LaunchOptions.cs:145` parses it and sets `FirstPerson`, with a comment explaining why it was added:
+*"The capture a person actually wants to look at is the first-person one, and until this flag existed
+the only route to it was the UI suite pressing V."*
+
+**The mistake was the search, not the reasoning.** The grep ran over
+`managed/Tf2DemoSalvage.Viewer3D/*.cs`, found `--autoplay` and nothing else, and the absence was
+believed. Launch options live in `Presentation`, one project along. That is
+`docs/memory/an-empty-search-needs-a-control.md` exactly — an absence claim with no control, where
+asking the same grep for something that MUST be there (`--first-person` itself, from the shell
+history that had already used it) would have shown the scope was wrong.
+
+**Worse, the wrong conclusion was load-bearing for a measurement.** Believing the flag was inert is
+why B253 and B254 were both measured in third-person free-camera mode and reported as though they
+described the viewer's ordinary state. For a POV demo that is not the ordinary state at all — see
+B256 — so those numbers describe a view TF2 never shows.
+
+**What survives of the finding**, and it is smaller: the viewmodel PASS still needs
+`info.Followed`, which `--first-person` alone does not set on a point-of-view recording, because
+there is no spectated entity to follow. So a headless first-person capture reaches the camera and
+still logs `viewmodel pass skipped … camera False`. That is B256's territory rather than a missing
+launch option: on a POV demo the followed entity is the recorder, and nothing tells the viewer so.
+
 ### 2. Where to read next, by concentration of branches
 
 From the ranked output, ignoring the shader helpers (a separate job):
@@ -76,6 +126,121 @@ From the ranked output, ignoring the shader helpers (a separate job):
 | 29 | `C_BaseAnimating::DoAnimationEvents` | not implemented at all; muzzle flashes and sounds |
 | 25 | `CClientLeafSystem::CollateRenderablesInLeaf` | what draws and in which list |
 | 19 | `CEconEntity::UpdateAttachmentModels` | finding 1 above |
+
+### 3. `C_BaseAnimating::DoAnimationEvents` is not implemented, and the MDL event array is never read — OPEN
+
+Next down the branch-count list, and it is the `attached_models` shape again: a whole mechanism
+absent rather than a branch missed. Two measurements, both from this repository:
+
+- **`mstudioevent_t` is never parsed.** `numevents` and `eventindex` appear in `managed/` exactly
+  once between them, inside a comment in `StudioLayout.cs` that names the eight preceding ints to
+  justify `SequenceBoundsMinOffset = 32`. The events array they point at is not read anywhere.
+- **`m_nResetEventsParity` is decoded and has ZERO consumers.** `EntityState.ViewmodelResetEventsParity`
+  has exactly one reference in the whole repository: its own declaration. That is
+  `docs/memory/decoding-a-field-is-not-honouring-it.md` exactly, and the same shape as
+  `m_flPlaybackRate`, which was decoded, retained, unit-tested, and read by nothing while every
+  animation played at rate 1.
+
+**The mechanism.** Events live in the MODEL, not the demo: each `mstudioseqdesc_t` carries
+`numevents` and `pevent[i].cycle`, and the client fires an event when the play cycle crosses that
+value. Only client-side events fire here — `AE_TYPE_CLIENT` under the new system, or `event >= 5000`
+under the old one, which is the `//Adrian - Support the old event system` branch. `resetEvents`
+re-arms them for a replay, which is what the orphaned parity field above is for, and a backwards
+cycle jump greater than 0.5 is treated as a loop so the tail events fire before the head ones.
+
+**What TF2 actually hangs off it**, from `c_tf_player.cpp:9132` onward: `AE_WPN_HIDE`/`AE_WPN_UNHIDE`,
+`AE_CL_BODYGROUP_SET_VALUE` and its `_CMODEL_WPN` forwarder, `AE_CL_PLAYSOUND`,
+`AE_WPN_PLAYWPNSOUND`, `AE_CL_EXCLUDE_PLAYER_SOUND`, `AE_TAUNT_ENABLE_MOVE`/`DISABLE_MOVE`, and the
+cigarette and head throws that `DispatchEffect` as particles.
+
+**Before implementing it, settle one question — and Valve raises it themselves.** Directly above
+`AE_WPN_HIDE` sits their own comment saying `SetWeaponVisible` "shouldn't even be callable on the
+client", because "on the client it just overrides whatever it was networked --- only until the next
+time it is networked". Both weapon visibility and `m_nBody` ARE networked, so on the surface every
+one of these client events is a transient override this project would decode correctly anyway.
+
+**That reading is probably wrong, and the reason is delta compression.** A networked property is
+re-sent when it CHANGES, not every tick. So "until the next time it is networked" can mean *never*
+for an entity whose `m_nBody` the server does not touch again — the client-side value persists for
+the rest of the round. Under that reading `AE_CL_BODYGROUP_SET_VALUE` has durable visible effect and
+belongs implemented.
+
+Marked as an INTERPOLATION rather than a measurement: it follows from how Source deltas work, and
+it has not been checked against a demo where an animation event sets a bodygroup the server never
+re-sends. That check is the first thing to do here, and it needs the event array parsed — which is
+step one of implementing the feature regardless, so nothing is wasted either way.
+
+**The sound events are a different question with a decision already attached.** `AE_CL_PLAYSOUND`
+and `AE_WPN_PLAYWPNSOUND` are generated by the client from the model, not carried by the demo —
+the same family as footsteps, where `docs/memory/sound-the-demo-does-not-carry.md` records that
+reproducing them is authoring rather than decoding. Whatever is decided for one should be decided
+for both, and separately from the visual half.
+
+### 4. Every corpse is missing, and it is an APPEARANCE gap rather than the physics one B58 filed — OPEN
+
+Top of the branch-count list at 40 branches, and the measurement is blunt:
+**`serveme-627619-stv-2026-08-07` contains 299 `CTFRagdoll` entities. We decode all of them and
+draw none.**
+
+**B58 already covers this and covers the wrong half.** It reads `DT_TFRagdoll`, lists the fields,
+and concludes correctly that the physics START CONDITION is fully networked — origin, force, force
+bone, on-ground, plus every death variant. What it does not say is that **nothing about how the
+corpse LOOKS is networked at all**, and that is the reason nothing draws:
+
+```cpp
+IMPLEMENT_CLIENTCLASS_DT_NOBASE( C_TFRagdoll, DT_TFRagdoll, CTFRagdoll )
+```
+
+`NOBASE`. The table inherits nothing, so there is no `m_nModelIndex`, no `m_nSkin`, no `m_nBody`,
+no `m_vecOrigin` and no `m_angRotation` — the same shape as `CBaseViewModel`, and for a viewer the
+same consequence: a generic prop path asks for a model index, gets none, and correctly draws
+nothing. The corpses are not lost in the decode. They were never described.
+
+`CreateTFRagdoll` is where the client builds every one of those fields, which is why the function is
+40 branches long:
+
+| what | derived from |
+|---|---|
+| model | the class model for `m_iClass` — or the PLAYER's current model when the player entity is still around and is not a spy being drawn as their disguise |
+| skin | `m_iTeam == TF_TEAM_RED ? 0 : 1`, adjusted again by `AdjustSkinIndexForZombie` |
+| body | copied off the player, after `RecalcBodygroupsIfDirty`, unless `m_bFeignDeath` without `m_bWasDisguised` |
+| origin | `m_vecRagdollOrigin`; angles from the player's render angles |
+| cosmetics | `CreateBoneAttachmentsFromWearables` — and `m_hRagWearables` IS networked, eight ehandles, so this half is reproducible |
+| head/torso/hand scale | read off the player, not off the wire, despite `m_flHeadScale` etc. being sent |
+
+**One branch cannot be reproduced, and it is worth knowing before anyone tries.** Whether a death
+plays a death ANIMATION or falls as physics is decided by an unnetworked client coin flip:
+
+```cpp
+if ( !m_bIceRagdoll && !tf_always_deathanim.GetBool() && (RandomFloat( 0, 1 ) > 0.25f) )
+    iDeathSeq = -1;
+```
+
+Three quarters of eligible deaths discard the animation, by a `RandomFloat` on the recording
+client's own stream, recorded nowhere. So a replay cannot know which of the two a given corpse
+showed. That is the same class as `docs/memory/sound-the-demo-does-not-carry.md` — a client-generated
+decision, not a decode gap — and the honest options are to pick one deterministically and say so, or
+to expose it as a viewer setting. It is a divergence to be ASKED about rather than chosen quietly
+(`docs/memory/a-divergence-is-asked-not-documented.md`).
+
+**Priority argument, from the owner's own scoping.** B59 records that ragdolls are wanted "for frag
+vid makers" and that deaths are much of what a frag video shows. 299 in one match, every one
+decoded and invisible, is the largest single visible gap this audit has measured.
+
+### 5. A prop with an EMPTY model path is reported DRAWN — OPEN, unexamined
+
+Noticed in the control run for finding 4 and recorded rather than chased, because it was not what
+that run was asking:
+
+```
+DRAWN 1 '' kind Studio class 'CTFWearable' entities [744] ... attached 6 merged True mode 0
+```
+
+An empty model path drawn as a Studio model. It may be the dynamic-model case
+(`docs/memory/negative-model-indices-are-dynamic.md`, where cosmetics come from the `DynamicModels`
+table rather than `modelprecache`) surfacing as an unresolved path, and it may be the probe
+reporting rather than the renderer doing. **Both readings are guesses.** Filed with its evidence so
+the next person starts from the observation instead of rediscovering it.
 
 ## The rule this audit exists to enforce
 

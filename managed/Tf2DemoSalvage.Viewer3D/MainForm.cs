@@ -3586,12 +3586,60 @@ internal class MainForm : Form, IFrameSteps
             EnsureOverlayAtlas();
         }
 
-        return _overlayQuads.Quads(
+        IReadOnlyList<HudQuad> quads = _overlayQuads.Quads(
             _hudAtlas, _viewport.ClientSize.Width, _demo?.MapName, _clock.LastFrameSeconds);
+
+        // **Logged once a second whatever the overlay is doing**, because the on-screen meter can
+        // only be read by somebody watching and a headless run has nobody. Until this existed the
+        // viewer's only frame-cost instrument was `StallReport`'s 30 ms threshold, which is silent
+        // about every rate above 33 fps — so "no slow frames" and "600 fps" produced identical logs.
+        return quads;
     }
 
     /// <summary>The frame-rate readout, which owns everything about it except the glyphs.</summary>
     private readonly ToolsPanel _overlayQuads = new();
+
+    /// <summary>Writes the frame rate to the log once a second.</summary>
+    private readonly FrameRateLog _frameRateLog = new();
+
+    /// <summary>
+    /// Seconds of drawn frames, accumulated from the clock rather than from a wall clock.
+    /// </summary>
+    /// <remarks>
+    /// Summing the frame durations rather than reading a stopwatch keeps the interval measured in
+    /// the same quantity the reading describes: a run paused at a breakpoint, or one whose window is
+    /// hidden and drawing nothing, does not silently accrue an interval it never rendered.
+    /// </remarks>
+    private double _frameSeconds;
+
+    /// <summary>Every per-second line this run produced, for <c>--measure</c> to print.</summary>
+    private readonly List<string> _measured = [];
+
+    /// <summary>Prints what <c>--measure</c> gathered and closes.</summary>
+    /// <remarks>
+    /// **To stdout, because the log is buffered.** Reading the log file while the viewer is still
+    /// running shows only what has been flushed — 52 lines of asset loading, and nothing about
+    /// frames — which was misread twice in one session, once as the viewer having exited on its own.
+    /// A measurement that has to be read out of a file nobody can read yet is not a measurement.
+    ///
+    /// **The first line is dropped.** It covers the second in which the map finished loading and
+    /// playback began, so it averages a handful of frames against a rebuild that included model
+    /// uploads; keeping it drags the mean toward a cost no steady frame pays.
+    /// </remarks>
+    private void FinishMeasuring()
+    {
+        Console.WriteLine(
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"measured {_frameSeconds:0.#} seconds of playback, {_measured.Count} samples"));
+
+        for (int at = _measured.Count > 1 ? 1 : 0; at < _measured.Count; at++)
+        {
+            Console.WriteLine("  " + _measured[at]);
+        }
+
+        Close();
+    }
 
     /// <summary>This frame's <c>cl_showpos</c> subject, gathered from the camera and the demo.</summary>
     /// <returns>The readout; hidden when the convar is off.</returns>
@@ -3924,6 +3972,39 @@ internal class MainForm : Form, IFrameSteps
 
         StallReport.Frame(phases, _renderLog);
 
+        // **Every frame, averaged over the second — not sampled once a second.** `StallReport.Frame`
+        // above fires only past 30 ms, so at the 90 fps this actually runs at it never fires and
+        // nothing says where the 11 ms goes. Fed here rather than in `BuildOverlay` because this is
+        // where the whole frame's phases exist; the overlay only knows its own.
+        _frameSeconds += _clock.LastFrameSeconds;
+
+        if (_frameRateLog.Report(_overlayQuads.LastReading, phases, _frameSeconds) is { } rate)
+        {
+            _renderLog.LogInformation("{Message}", rate);
+
+            // **`--measure`, and the line it prints is the one just logged.** Reported from here
+            // rather than gathered separately so the two cannot differ: what stdout shows is
+            // literally what the log shows, which is the rule that stops a summary from being a
+            // second, disagreeing measurement.
+            _measured.Add(rate);
+
+            // The rebuild breakdown beside the rate, since one without the other says where the
+            // frame went but not what it was doing.
+            if (_moments.LastCost is { } cost)
+            {
+                _measured.Add("    " + cost);
+                _moments.LastCost = null;
+            }
+        }
+
+        // **Counted in seconds of PLAYBACK.** A wall clock would spend the first twenty seconds on
+        // archives and the map, so `--measure 40` would be about two seconds of frames — which is
+        // exactly the mistake this replaces.
+        if (_launch.MeasureSeconds is { } run && _frameSeconds >= run)
+        {
+            FinishMeasuring();
+        }
+
         // **NOT cleared here, and that was a real bug.** `Instances` clears the list it fills, so
         // it is emptied and refilled by the pose step exactly like the world's own list — and the
         // pose step does not run on a paused frame. Clearing after the draw meant the viewmodel
@@ -4002,6 +4083,31 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     public void ProjectWorld()
     {
+        // **The pose, here and not in `Simulate`** (B255). The engine's order is `SetUpView`, then
+        // `BuildWorldLists`, then `BuildRenderablesList` — which is where `SetupBones` becomes
+        // reachable — so posing belongs after the view exists and beside the world lists, not before
+        // the camera has been placed. Posing in `Simulate` meant the newest frustum available was
+        // the previous frame's, and culling against a stale view pops entities in at the screen edge.
+        //
+        // **The frustum is the device's own**, the same one the world cull and the draw use, rather
+        // than a second one built from the camera here
+        // (`docs/memory/one-camera-or-the-cull-lies.md`).
+        //
+        // **Before the early return, because the two are unrelated.** `NeedsProjecting` asks whether
+        // the WORLD's screen-space projection is stale, which a camera move invalidates and a demo
+        // tick does not; the pose is due on every frame that built a moment.
+        // A span cannot be null-coalesced, so the device is tested once and both halves come from
+        // the same one — which is also what stops a frustum and a visible set from different frames
+        // reaching the cull together.
+        if (_device is { } device)
+        {
+            _moments.PoseNow(device.Frustum, device.VisibleByLeaf);
+        }
+        else
+        {
+            _moments.PoseNow();
+        }
+
         if (!_world.NeedsProjecting)
         {
             return;

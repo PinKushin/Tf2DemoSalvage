@@ -1859,6 +1859,14 @@ public sealed class EntityModelSet
     /// <param name="lightAt">The ambient cube at a world position, or null to leave models unlit.</param>
     /// <param name="sunAt">The sun at a world position, or null to apply no direct light.</param>
     /// <param name="seconds">Demo time, for advancing animation cycles.</param>
+    /// <param name="frustum">
+    /// The view being drawn, so a prop off screen is rejected before it is posed — the engine's
+    /// order (B254). The default culls nothing.
+    /// </param>
+    /// <param name="visibleByLeaf">
+    /// Which leaves the world cull accepted, indexed by leaf, for the visibility half (B254). An
+    /// empty span applies no visibility test.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// One matrix per entity, which is all that changes between frames. The geometry it points at
@@ -1869,12 +1877,16 @@ public sealed class EntityModelSet
         ICollection<ModelInstance> into,
         Func<float, float, float, PointLighting>? lightAt = null,
         Func<float, float, float, SunLight?>? sunAt = null,
-        double seconds = 0d)
+        double seconds = 0d,
+        ViewFrustum frustum = default,
+        ReadOnlySpan<bool> visibleByLeaf = default)
     {
         ArgumentNullException.ThrowIfNull(props);
         ArgumentNullException.ThrowIfNull(into);
 
         into.Clear();
+        Culled = 0;
+        CulledByVisibility = 0;
 
         // **There is no ordering here any more, and that is the change** (D88, B181). The engine has
         // none either: a merged entity asks its parent for bones where it stands
@@ -1917,6 +1929,29 @@ public sealed class EntityModelSet
             if (!IsDrawable(prop.Kind))
             {
                 _tally.NotDrawable(prop);
+                continue;
+            }
+
+            // **`CollateRenderablesInLeaf`'s frustum test, in the engine's ORDER** (B254,
+            // `clientleafsystem.cpp:1574`): `CalcRenderableWorldSpaceAABB` and then
+            // `engine->CullBox( absMins, absMaxs )`, with only the survivors reaching `DrawModel`
+            // and so `SetupBones`. Bone setup, lighting and skinning are downstream of visibility
+            // in the engine.
+            //
+            // **They were upstream of it here, and that is what this moves.** The cull existed —
+            // `Device3D.Culled`, same `ViewFrustum.Cull`, same empty-box rule — but it ran at draw
+            // time, after every prop in the tick had been posed. Measured on `tf2-2026-pub-pov-clean`:
+            // 600 props posed per rebuild, `pose` 4.8 ms of a 7.8 ms rebuild, every column of it
+            // per-entity work multiplied by a count visibility had not yet touched.
+            //
+            // **The box needs no bones**, which is what makes the move possible at all:
+            // `WorldBoxFor` reads the model's render bounds, the prop's own pose and its parent's
+            // placement, exactly as `CalcRenderableWorldSpaceAABB` reads render bounds and the
+            // entity's origin rather than its skeleton.
+            if (Culls(prop, frustum, visibleByLeaf))
+            {
+                Culled++;
+                _tally.Culled();
                 continue;
             }
 
@@ -2379,6 +2414,93 @@ public sealed class EntityModelSet
     }
 
 
+    /// <summary>How many props the frustum rejected on the last <see cref="Instances"/> call.</summary>
+    /// <remarks>
+    /// **Exposed so the cull can be proved to be doing something and not everything.** A cull that
+    /// rejects nothing is the bug this replaced; a cull that rejects everything is a black screen.
+    /// Both are the same code path with a wrong frustum, and only the count tells them apart.
+    /// </remarks>
+    public int Culled { get; private set; }
+
+    /// <summary>How many the VISIBILITY half rejected, of those the frustum kept (B254).</summary>
+    /// <remarks>
+    /// Counted apart from the frustum's share because the two answer different questions and only
+    /// the split says whether the PVS half is wired: a zero here with a non-zero <see cref="Culled"/>
+    /// means the tree or the visible set never arrived, which is indistinguishable from "everything
+    /// in the frustum is also in the PVS" without it.
+    /// </remarks>
+    public int CulledByVisibility { get; private set; }
+
+    /// <summary>Whether the view frustum rejects this prop — <c>engine->CullBox</c>.</summary>
+    /// <param name="prop">The prop about to be posed.</param>
+    /// <param name="frustum">The view being drawn, or the default when there is none.</param>
+    /// <param name="visibleByLeaf">The visible-leaf set, or empty to skip the visibility test.</param>
+    /// <returns>True when nothing of the prop can be seen, so it need not be posed.</returns>
+    /// <remarks>
+    /// **A model with no bounds is kept, never point-tested.** `WorldSpaceBounds.IsPlaced` is the
+    /// same guard `Device3D.Culled` applies, and it exists because a zero box is a point at the map
+    /// origin — which culls the model everywhere except one spot, and reads as a model that flickers
+    /// rather than as a cull that is wrong
+    /// (`docs/memory/an-empty-box-must-never-cull.md`).
+    ///
+    /// **An unbuilt frustum keeps everything**, which is what `ViewFrustum.Cull` already does and is
+    /// why every caller that passes no frustum is unaffected.
+    /// </remarks>
+    private bool Culls(SceneProp prop, ViewFrustum frustum, ReadOnlySpan<bool> visibleByLeaf)
+    {
+        if (!frustum.IsBuilt)
+        {
+            return false;
+        }
+
+        (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) box =
+            WorldBoxFor(prop);
+
+        if (!WorldSpaceBounds.IsPlaced(box))
+        {
+            return false;
+        }
+
+        if (frustum.Cull(box.MinX, box.MinY, box.MinZ, box.MaxX, box.MaxY, box.MaxZ))
+        {
+            return true;
+        }
+
+        // **The visibility half, and it is the one the engine leads with** (B254).
+        // `BuildRenderablesList` iterates the VISIBLE LEAF LIST and only frustum-tests what is
+        // already in it, so an entity behind a wall never enters the render list at all — the
+        // frustum alone keeps everything in the view cone, wall or no wall.
+        //
+        // **Ordered frustum-first here for cost rather than for parity**: the frustum test is six
+        // dot products and rejects most of the map, where this walks the tree. The ANSWER is the
+        // same either way — a box is kept only if it passes both — and the engine's ordering is a
+        // consequence of it maintaining per-leaf renderable lists across frames, which this does not.
+        //
+        // **An empty set culls nothing**, which is a map with no visibility data, or any frame
+        // before the first world cull has run.
+        if (visibleByLeaf.IsEmpty || Tree is not { } tree)
+        {
+            return false;
+        }
+
+        if (tree.TouchesAny(
+                box.MinX, box.MinY, box.MinZ, box.MaxX, box.MaxY, box.MaxZ, visibleByLeaf))
+        {
+            return false;
+        }
+
+        CulledByVisibility++;
+
+        return true;
+    }
+
+    /// <summary>The map's BSP tree, for the visibility half of the cull.</summary>
+    /// <remarks>
+    /// Null until a map is read, and null leaves the cull frustum-only rather than culling
+    /// everything — the safe direction this whole path takes.
+    /// </remarks>
+    public BspLeafTree? Tree { get; set; }
+
     /// <summary>The box the engine would cull this model by, placed — <c>CalcRenderableWorldSpaceAABB</c>.</summary>
     /// <param name="prop">The entity being drawn.</param>
     /// <returns>Its world-space box, or an empty one when the model carries no bounds.</returns>
@@ -2396,6 +2518,9 @@ public sealed class EntityModelSet
     /// `CalcRenderableWorldSpaceAABB_Fast`, which calls itself. One level is taken here because
     /// nothing in TF2 merges onto a merged item, and a cycle in demo data would otherwise hang the
     /// viewer; a wearer that is itself worn falls back to its own placed box.
+    ///
+    /// **Called once per prop BEFORE the pose now** (B254), which it can be because it reads render
+    /// bounds and placement rather than bones.
     /// </remarks>
     private (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) WorldBoxFor(
         SceneProp prop)

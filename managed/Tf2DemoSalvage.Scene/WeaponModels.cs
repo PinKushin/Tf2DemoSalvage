@@ -181,6 +181,11 @@ public sealed class WeaponModels
     /// <param name="item">Its <c>m_iItemDefinitionIndex</c>, or null when the demo names none.</param>
     /// <param name="team">The owner's team, or null when it is not known.</param>
     /// <param name="festivized">Whether the item carries <c>is_festivized</c> — see <see cref="IsFestivized"/>.</param>
+    /// <param name="displayFlagMask">
+    /// Which view is drawing — <see cref="AttachedModel.WorldModel"/> or
+    /// <see cref="AttachedModel.ViewModel"/> — matched against each entry's
+    /// <c>model_display_flags</c> exactly as <c>DrawEconEntityAttachedModels</c> masks them (B252).
+    /// </param>
     /// <returns>Model paths, in schema order. Empty for an item that declares none.</returns>
     /// <remarks>
     /// **`CEconEntity::UpdateAttachmentModels` (`econ_entity.cpp:1078`)**, which walks
@@ -194,7 +199,8 @@ public sealed class WeaponModels
     /// festive entries against 42 plain means an open gate without the attribute decorates the
     /// whole game for Christmas.
     /// </remarks>
-    public IReadOnlyList<string> AttachmentsFor(int? item, int? team, bool festivized)
+    public IReadOnlyList<string> AttachmentsFor(
+        int? item, int? team, bool festivized, int displayFlagMask)
     {
         if (item is not { } definition || Schema() is not { } schema)
         {
@@ -206,7 +212,12 @@ public sealed class WeaponModels
         foreach (AttachedModel attached in
             schema.AttachedModelsFor(definition, team, festivized))
         {
-            models.Add(attached.Model);
+            // `(m_iModelDisplayFlags & iMatchDisplayFlags)` — the draw's own test, verbatim. An
+            // entry that names neither bit of the mask belongs to the other view.
+            if ((attached.DisplayFlags & displayFlagMask) != 0)
+            {
+                models.Add(attached.Model);
+            }
         }
 
         return models;
@@ -250,7 +261,8 @@ public sealed class WeaponModels
                 // Festive included unconditionally HERE: this is the packing set, geometry loads
                 // once before the first frame, and whether an instance is festivized is a per-tick
                 // draw decision the pack must be a superset of.
-                foreach (string model in AttachmentsFor(item, team, festivized: true))
+                foreach (string model in AttachmentsFor(
+                    item, team, festivized: true, AttachedModel.MaskAll))
                 {
                     yield return model;
                 }

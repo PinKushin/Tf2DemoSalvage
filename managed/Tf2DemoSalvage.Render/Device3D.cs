@@ -1646,6 +1646,25 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// viewer drawing more than it needs is slow, and one drawing nothing is a black screen that
     /// reads as a much deeper fault.
     /// </remarks>
+    /// <summary>The view this frame is being drawn through.</summary>
+    /// <remarks>
+    /// **Exposed so the entity cull uses the SAME frustum as the world cull and the draw** (B254).
+    /// Built once in <c>SetCamera</c> from the camera itself; a caller that rebuilt one from the
+    /// camera's numbers would be a second derivation, free to disagree
+    /// (`docs/memory/one-camera-or-the-cull-lies.md`).
+    ///
+    /// Unbuilt before the first camera is set, and an unbuilt frustum culls nothing.
+    /// </remarks>
+    public ViewFrustum Frustum => _frustum;
+
+    /// <summary>Which leaves the world cull accepted this view, for the entity cull (B254).</summary>
+    /// <remarks>
+    /// Empty when the map carries no visibility data or no cull has run, and an empty span culls
+    /// nothing — the safe direction, as everywhere else in this path.
+    /// </remarks>
+    public ReadOnlySpan<bool> VisibleByLeaf =>
+        _culling is { } culling ? culling.VisibleByLeaf : default;
+
     private ViewFrustum _frustum;
 
     /// <summary>The view the current visible set was computed for, so a still camera pays nothing.</summary>

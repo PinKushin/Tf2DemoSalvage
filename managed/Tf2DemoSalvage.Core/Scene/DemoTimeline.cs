@@ -929,6 +929,25 @@ public sealed class DemoTimeline
     /// </remarks>
     internal static DemoTimeline ForTracks(List<ScenePropTrack> tracks) => new([], tracks);
 
+    /// <summary>A timeline whose tracks are PLAYERS, with one frame naming them.</summary>
+    /// <param name="tracks">The tracks, which go in the player list rather than the prop list.</param>
+    /// <param name="players">The players that frame carries, matched to the tracks by entity.</param>
+    /// <returns>A timeline whose <see cref="PlayersAt(double, ICollection{ScenePlayer})"/> answers.</returns>
+    /// <remarks>
+    /// **The distinction this exists to make is the one B258 turned on.** `ForTracks` puts its
+    /// tracks in `_props`, and `PropsAt` is therefore the only way to reach them — which is how two
+    /// tests came to assert that the PROP path computes `move_x`, `move_y` and `Speed`. It does not
+    /// any more, and in production it never saw a player to compute them for: player tracks live in
+    /// `_playerTracks` and `PropsAt` iterates `_props`. Measured on `tf2-2026-pub-pov-clean`, zero
+    /// of 79 prop groups are `CTFPlayer`.
+    /// </remarks>
+    internal static DemoTimeline ForPlayerTracks(
+        List<ScenePropTrack> tracks, IReadOnlyList<ScenePlayer> players) =>
+        new(
+            [new TimelineFrame(0, players), new TimelineFrame(13, players)],
+            props: null,
+            playerTracks: tracks);
+
     /// <summary>A timeline carrying nothing but these sounds, for testing the precache list.</summary>
     internal static DemoTimeline ForSounds(List<SceneSound> sounds) =>
         new([], props: null, playerTracks: null, recordedViews: null, viewmodels: null,
@@ -1727,12 +1746,34 @@ public sealed class DemoTimeline
             // questions.
             int? weaponItem = null;
             string? weaponClass = null;
+            EconAttributeWire? weaponEcon = null;
 
             if (entity.ViewmodelWeapon() is { } weaponEntity &&
                 entities.TryGet(weaponEntity, out EntityState? carried))
             {
                 weaponItem = carried.ItemDefinitionIndex();
                 weaponClass = carried.ClassName;
+
+                // **The weapon's attributes travel with the viewmodel sample** (B252), read from
+                // the same entity `m_hWeapon` already resolved — the festivizer on the gun in your
+                // own hands is the same list the world draw reads. Null when both lists are empty,
+                // so a bare weapon costs the dedup nothing.
+                IReadOnlyList<EconAttributeValue> local =
+                    carried.EconAttributes(EconAttributeList.Local);
+                IReadOnlyList<EconAttributeValue> forDemos =
+                    carried.EconAttributes(EconAttributeList.NetworkedForDemos);
+
+                if (local.Count > 0 || forDemos.Count > 0)
+                {
+                    long? high = carried.Integer("DT_ScriptCreatedItem.m_iItemIDHigh");
+                    long? low = carried.Integer("DT_ScriptCreatedItem.m_iItemIDLow");
+
+                    weaponEcon = new EconAttributeWire(
+                        local,
+                        forDemos,
+                        high is { } h && low is { } l
+                            && !(h == uint.MaxValue && l == uint.MaxValue));
+                }
             }
 
             bool seen = last.TryGetValue(entity.EntityIndex, out SceneViewmodel before);
@@ -1764,7 +1805,8 @@ public sealed class DemoTimeline
                 weaponItem,
                 weaponClass,
                 parity,
-                startedAt);
+                startedAt,
+                weaponEcon);
 
             // Unchanged since this entity was last sampled, so there is nothing new to record.
             if (seen && before == weapon)
@@ -2406,7 +2448,21 @@ public sealed class DemoTimeline
             if (track.At(tick) is { Hidden: false } pose)
             {
                 into.Add(new SceneProp(
-                    track.EntityIndex, track.ModelPath, track.Kind, Moving(track, tick, pose),
+                    // **The pose as sampled, with no player-animation inputs derived from it**
+                    // (B258). `Moving` was called here for every prop, and it computes `move_x`,
+                    // `move_y` and `Speed` — which come from
+                    // `CBasePlayerAnimState::ComputePoseParam_MoveYaw` and exist nowhere outside
+                    // `base_playeranimstate.cpp` and `multiplayer_animstate.cpp`. A
+                    // `C_BaseAnimating` prop has no animation state, so the engine derives none of
+                    // this for one: a resupply locker does not have legs.
+                    //
+                    // **And it never ran for a player here anyway.** Player tracks live in
+                    // `_playerTracks`; this walks `_props`. Measured on `tf2-2026-pub-pov-clean`,
+                    // zero of 79 prop groups are `CTFPlayer`, so every one of those three lookups
+                    // per prop per frame was derived for something that could not use it.
+                    // `PlayersAt` computes the same values for players, and `PlayerProps` carries
+                    // them onto the player's own `SceneProp`.
+                    track.EntityIndex, track.ModelPath, track.Kind, pose,
 
                     // **From the POSE, because the weapon state is the one of these that changes
                     // while an entity lives** (B244). The rest — the parent, the owner, the item,
@@ -2459,37 +2515,6 @@ public sealed class DemoTimeline
             (SceneTeams.Blu, SceneTeams.Red) => true,
             _ => false,
         };
-
-    /// <summary>Fills in the movement pose parameters, which are derived rather than sent.</summary>
-    /// <param name="track">The entity's track, which is where the motion is.</param>
-    /// <param name="tick">The moment being drawn.</param>
-    /// <param name="pose">The interpolated pose.</param>
-    /// <returns>The pose with <c>move_x</c> and <c>move_y</c> filled in.</returns>
-    /// <remarks>
-    /// **These were computed onto one type and read off another, so they were always zero.**
-    /// <c>PlayersAt</c> works them out and writes them to <see cref="ScenePlayer"/>; the renderer
-    /// reads them from <see cref="SceneProp"/>'s pose, which nothing ever wrote them to. A movement
-    /// blend at (0, 0) is the grid's standing corner, so a running player's legs stood still while
-    /// the body slid along — and the numbers were right the whole time, in a record nobody asked.
-    ///
-    /// Filled here rather than at the keyframe, because they are a function of where the entity was
-    /// a tenth of a second ago and that is a question about the TRACK rather than about one moment.
-    /// Recording them per keyframe would also be wrong at any tick between two.
-    ///
-    /// Found by a reflection test asserting that no field of a pose comes back at its default —
-    /// which is the same class as <c>Body</c> and <c>Skin</c> going missing from the same rebuild.
-    /// </remarks>
-    private static ScenePose Moving(ScenePropTrack track, double tick, ScenePose pose)
-    {
-        (float moveX, float moveY) = MoveParameters(track, tick, pose.EyeYaw ?? pose.Yaw);
-
-        // **Speed decides WHICH animation plays, and it was missing the same way.** The viewer picks
-        // a sequence from it — MainForm asks SequenceFor(model, speed) — and a null speed skips that
-        // block entirely, so a running player kept whatever sequence the demo last stated while the
-        // move parameters, had they arrived, would only have blended within it. Two layers of the
-        // same defect, from one value computed onto ScenePlayer and read from SceneProp.
-        return pose with { Speed = SpeedAt(track, tick), MoveX = moveX, MoveY = moveY };
-    }
 
     /// <summary>Where everyone was at a tick, or the most recent moment before it.</summary>
     /// <param name="tick">The tick being shown.</param>

@@ -174,6 +174,53 @@ public sealed class LaunchOptionsTests
             LaunchOptionsReader.Read([], ViewerSettings.Load(), log: null!));
     }
 
+    /// <remarks>
+    /// **Written after a session spent driving the viewer by hand.** Every measurement was build,
+    /// launch under the machine lock, wait for the process, sleep, kill it, grep the log — six calls
+    /// each time, and the sleep was wall-clock so a "forty second" run was about two seconds of
+    /// playback once loading had taken its share. `--measure` moves the clock to the only place that
+    /// knows when playback actually started.
+    /// </remarks>
+    [Test]
+    public void Read_WithMeasure_TakesTheSecondsToRunFor()
+    {
+        LaunchOptions read = Read("a.dem", "--measure", "45");
+
+        read.MeasureSeconds.ShouldBe(45d);
+        read.Paths.ShouldBe(["a.dem"]);
+    }
+
+    /// <remarks>
+    /// The malformed twin, per this file's own rule: a parser that ignored the option entirely would
+    /// pass the test above only if the bad case is checked too.
+    /// </remarks>
+    [Test]
+    public void Read_WithMeasureAndNoNumber_LeavesItOffAndKeepsThePath()
+    {
+        LaunchOptions read = Read("a.dem", "--measure", "soon");
+
+        read.MeasureSeconds.ShouldBeNull();
+    }
+
+    /// <remarks>
+    /// **`--help` answers and stops.** The flag it was written for is `--first-person`, which
+    /// existed and was reported in an audit as not existing, because the grep looking for it ran
+    /// over the wrong project. A viewer that lists its own options answers that in one call.
+    /// </remarks>
+    [Test]
+    public void Read_WithHelp_AsksForTheListAndOpensNoDemo()
+    {
+        LaunchOptions read = Read("a.dem", "--help");
+
+        read.ShowHelp.ShouldBeTrue();
+    }
+
+    [Test]
+    public void Read_WithoutHelp_DoesNotAskForTheList()
+    {
+        Read("a.dem").ShowHelp.ShouldBeFalse();
+    }
+
     private static LaunchOptions Read(params string[] arguments) =>
         LaunchOptionsReader.Read(arguments, ViewerSettings.Load(), NullLogger.Instance);
 }
