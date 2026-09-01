@@ -1919,6 +1919,7 @@ public sealed class EntityModelSet
         CulledByVisibility = 0;
         Unjudgeable = 0;
         Posed = 0;
+        _posedEntities.Clear();
 
         // **There is no ordering here any more, and that is the change** (D88, B181). The engine has
         // none either: a merged entity asks its parent for bones where it stands
@@ -2091,6 +2092,7 @@ public sealed class EntityModelSet
 
                 SetupTicks += System.Diagnostics.Stopwatch.GetTimestamp() - setupAt;
                 Posed++;
+                _posedEntities.Add(prop.EntityIndex);
 
                 if (!setUp)
                 {
@@ -2480,6 +2482,17 @@ public sealed class EntityModelSet
     /// as though it had been posed - brush models and sprites among them. That made the survivor
     /// ratio look flat whatever the camera did and nearly sent this audit after the frustum.
     /// </remarks>
+
+    /// <summary>Which entities reached bone setup, for the next frame's interpolation list.</summary>
+    /// <remarks>
+    /// **The engine gates interpolation on `IsVisible()`, which is the LAST render's answer** (B259,
+    /// `c_baseentity.cpp:3038`), so a one-frame-old visible set is not an approximation of what
+    /// Valve does - it is what Valve does. Published here because the cull runs after the view and
+    /// sampling runs before it, which is the same order the engine has.
+    /// </remarks>
+    public IReadOnlySet<int> PosedEntities => _posedEntities;
+
+    private readonly HashSet<int> _posedEntities = [];
     public int Posed { get; private set; }
 
     /// <summary>Whether the view frustum rejects this prop — <c>engine->CullBox</c>.</summary>

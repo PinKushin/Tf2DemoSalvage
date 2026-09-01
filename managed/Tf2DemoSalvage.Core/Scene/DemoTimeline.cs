@@ -2438,7 +2438,14 @@ public sealed class DemoTimeline
     /// Tracks are asked individually because each holds its own keyframes; a track that has not
     /// started or has already ended simply answers nothing.
     /// </remarks>
-    public void PropsAt(double tick, ICollection<SceneProp> into)
+    /// <param name="interpolate">
+    /// The entities to interpolate — the engine's <c>g_InterpolationList</c> (B259). Anything not
+    /// named holds its last stated pose instead of being blended, which is what the engine leaves a
+    /// non-member at. Null interpolates everything, which is the safe direction and what every
+    /// caller that does not care relies on.
+    /// </param>
+    public void PropsAt(
+        double tick, ICollection<SceneProp> into, IReadOnlySet<int>? interpolate = null)
     {
         ArgumentNullException.ThrowIfNull(into);
 
@@ -2453,7 +2460,21 @@ public sealed class DemoTimeline
         foreach (ScenePropTrack track in _props)
         {
             // A hidden entity is not drawn but is still tracked: it is coming back.
-            if (track.At(tick) is { Hidden: false } pose)
+            // **`ProcessInterpolatedList` walks a list, not the entity array** (B259,
+            // `c_baseentity.cpp:3123`), and its comment is the whole intent: *"Interpolate the
+            // minimal set of entities that need it."* `ShouldInterpolate` admits the view entity,
+            // anything visible, and the parent of anything visible; everything else is left holding
+            // whatever its variables last had.
+            //
+            // **The visibility it consults is the LAST render's**, which is what makes this
+            // implementable here — our own cull runs after the view, in `Pose`, so its answer is
+            // ready for the next frame's sampling exactly as `IsVisible()` is for the engine. An
+            // entity coming into view is interpolated one frame late in both.
+            ScenePose? sampled = interpolate is null || interpolate.Contains(track.EntityIndex)
+                ? track.At(tick)
+                : track.Held(tick);
+
+            if (sampled is { Hidden: false } pose)
             {
                 into.Add(new SceneProp(
                     // **The pose as sampled, with no player-animation inputs derived from it**

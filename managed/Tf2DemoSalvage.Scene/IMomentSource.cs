@@ -37,7 +37,12 @@ public interface IMomentSource
     /// <summary>Fills a buffer with the props at a moment, fraction included.</summary>
     /// <param name="tick">The moment, which may fall between ticks.</param>
     /// <param name="into">The buffer to fill; cleared first.</param>
-    public void PropsAt(double tick, ICollection<SceneProp> into);
+    /// <param name="interpolate">
+    /// The entities to interpolate - the engine's <c>g_InterpolationList</c> (B259). Anything not
+    /// named holds its last stated pose. Null interpolates everything.
+    /// </param>
+    public void PropsAt(
+        double tick, ICollection<SceneProp> into, IReadOnlySet<int>? interpolate = null);
 
     /// <summary>The round the game rules were in, or null when the demo does not say.</summary>
     /// <param name="tick">The moment being shown.</param>
@@ -68,8 +73,9 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
         timeline.PlayersAt(tick, into);
 
     /// <inheritdoc />
-    public void PropsAt(double tick, ICollection<SceneProp> into) =>
-        timeline.PropsAt(tick, into);
+    public void PropsAt(
+        double tick, ICollection<SceneProp> into, IReadOnlySet<int>? interpolate = null) =>
+        timeline.PropsAt(tick, into, interpolate);
 
     /// <inheritdoc />
     public int? RoundStateAt(double tick) => timeline.RoundStateAt(tick);

@@ -227,7 +227,10 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # 1616 -> 1617: B258 split the derived-pose test in two - PlayersAt fills move_x, move_y and
 # Speed, PropsAt leaves them alone, since ComputePoseParam_MoveYaw is player animation state and
 # the engine derives none of it for a prop.
-run Tf2DemoSalvage.Core.Tests     core     1617
+# 1617 -> 1620: the interpolation list (B259). Three tests: an entity on the list is blended, one
+# off it holds its last stated pose, and no list interpolates everything - the last being what every
+# caller that does not care relies on.
+run Tf2DemoSalvage.Core.Tests     core     1620
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.

@@ -207,6 +207,13 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// <summary>What this moment draws, after every visibility rule.</summary>
     public IReadOnlyList<SceneProp> Drawn => _drawn;
 
+    /// <summary>Which entities were posed last rebuild — the next one's interpolation list (B259).</summary>
+    /// <remarks>
+    /// Passed straight through from the model set rather than recomputed, so the set that decides
+    /// what is interpolated is the same one the cull produced.
+    /// </remarks>
+    public IReadOnlySet<int> PosedEntities => _models.PosedEntities;
+
     /// <summary>One matrix per drawn entity.</summary>
     public IReadOnlyList<ModelInstance> Instances => _instances;
 

@@ -16707,3 +16707,33 @@ set and leaves it when clear, and `UpdateClientSideAnimations` walks that list r
 array. This project advanced every prop's cycle from demo time; measured on one SourceTV recording,
 1,221 updates carry the flag as 0 against 2,098 as 1, so a real population of server-animated
 entities was being run at demo time on top of the cycle the server had already stated.
+
+### B259 fix 2: the interpolation list, and why it is worth less than it looks
+
+`PropsAt` now takes the engine's `g_InterpolationList` as a set. Entities on it are blended by `At`;
+entities off it get `Held`, their last STATED pose, which is what the engine leaves a non-member
+holding — its variables keep whatever they last had.
+
+**The set is the previous frame's posed entities, and that is not an approximation.**
+`ShouldInterpolate` consults `IsVisible()`, which reports the LAST render, so the engine gates this
+frame's interpolation on the previous frame's visibility and accepts one frame of staleness when
+something comes into view. Our cull runs after the view and sampling runs before it — the same order
+— so the same answer is available.
+
+**Measured, empty view: `sample` 0.9 → 0.8 ms, the rebuild 2.6 → 2.4.** Modest, and the reason
+matters more than the number: `Held` still does a binary search and still constructs a `SceneProp`
+for every track. The engine's list means it never TOUCHES the entity. **The enumeration is the cost,
+not the blending** — so fixes 2 and 3 on the list are really one job, and the remaining win is in
+making the draw list start from the visible set rather than walk everything and filter.
+
+**Two defects introduced and caught by the measurements rather than the suite:**
+
+- The first-frame guard read `PosedEntities.Count > 0 ? set : null`, so an EMPTY visible set fell
+  back to interpolating everything — defeating the gate in exactly the case it exists for. `sample`
+  came back unchanged, which is how it was found. A `_rebuilt` flag now separates "no data yet" from
+  "nothing was visible", which are different answers that an empty set cannot tell apart.
+- `Held` skipped the lifetime guard `At` applies at the RAW tick, so tracks that had already ended
+  came back holding their last pose for ever: `selected` went 566 to 850. An entity that is gone is
+  not an entity that stopped interpolating.
+
+Both would have passed a green suite. Only the numbers showed them.

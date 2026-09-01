@@ -246,7 +246,8 @@ public sealed class MomentPresenterTests
 
         private ICollection<ScenePlayer>? _firstBuffer;
 
-        public void PropsAt(double tick, ICollection<SceneProp> into)
+        public void PropsAt(
+            double tick, ICollection<SceneProp> into, IReadOnlySet<int>? interpolate = null)
         {
             PropCalls++;
             into.Clear();

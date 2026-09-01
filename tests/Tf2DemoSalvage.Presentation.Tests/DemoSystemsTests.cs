@@ -233,7 +233,9 @@ public sealed class DemoSystemsTests
 
         public void PlayersAt(double tick, ICollection<ScenePlayer> into) => into.Clear();
 
-        public void PropsAt(double tick, ICollection<SceneProp> into) => into.Clear();
+        public void PropsAt(
+            double tick, ICollection<SceneProp> into, IReadOnlySet<int>? interpolate = null) =>
+            into.Clear();
 
         // Null rather than a state: this stub carries no recording, and "the demo did not say" is
         // the honest answer for one.

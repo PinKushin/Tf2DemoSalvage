@@ -1131,6 +1131,42 @@ public sealed class ScenePropTrack
         };
     }
 
+    /// <summary>The last pose stated at or before the sampled moment, with no blending.</summary>
+    /// <param name="tick">The tick being drawn, before the interpolation delay is applied.</param>
+    /// <returns>That pose, or <c>null</c> when the track has not started.</returns>
+    /// <remarks>
+    /// **What the engine leaves an entity that is not on `g_InterpolationList`** (B259): its
+    /// variables keep whatever they last held, so it stands at its last stated position rather than
+    /// being blended toward the next one. Not an extrapolation and not a guess - a pose the demo
+    /// really stated.
+    ///
+    /// **The interpolation DELAY still applies**, which is the part that is easy to drop. `At`
+    /// samples `cl_interp` behind the requested tick, so holding the pose at the raw tick instead
+    /// would put an ungated entity a tenth of a second AHEAD of every gated one - and the two swap
+    /// as things come in and out of view, which reads as jitter rather than as a missing blend.
+    /// </remarks>
+    public ScenePose? Held(double tick)
+    {
+        // **The lifetime guard first, and it is `At`'s own** — asked at the RAW tick, because that
+        // is when the entity exists rather than when its pose is sampled. Leaving it out was a
+        // regression that shipped for one measurement: the prop count went 566 to 850, because
+        // tracks that had already ended came back holding their last pose for ever. An entity that
+        // is gone is not an entity that stopped interpolating.
+        if (AtKeyframe((int)Math.Floor(tick)) is null)
+        {
+            return null;
+        }
+
+        double target = tick - InterpolationDelayTicks;
+
+        if (_keyframes.Count > 0 && target <= _keyframes[0].Tick)
+        {
+            return _keyframes[0].Pose;
+        }
+
+        return AtKeyframe((int)Math.Floor(target));
+    }
+
     /// <summary>Advances the animation cycle, allowing for both wrapping and sequence changes.</summary>
     /// <remarks>
     /// **A sequence change is a cut, not a blend.** Two animations share no timeline, so a cycle

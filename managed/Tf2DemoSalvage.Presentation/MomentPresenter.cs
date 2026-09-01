@@ -72,6 +72,16 @@ public sealed class MomentPresenter
     /// <summary>Whether the held build has already been posed, so a repaint does not pose it again.</summary>
     private bool _posed;
 
+    /// <summary>Whether a rebuild has ever completed, so the first frame interpolates everything.</summary>
+    /// <remarks>
+    /// **Not "is the posed set empty", which is what this was and which defeated the gate.** An
+    /// empty set is a legitimate and common answer - it is what an empty view produces, and it is
+    /// exactly the frame where interpolating nothing matters most. Treating empty as "no information
+    /// yet" fell back to interpolating everything precisely there, and the measurement showed
+    /// `sample` unchanged (B259).
+    /// </remarks>
+    private bool _rebuilt;
+
     /// <summary>The players at a moment, refilled each time rather than reallocated.</summary>
     private readonly List<ScenePlayer> _players = [];
 
@@ -165,7 +175,13 @@ public sealed class MomentPresenter
         // barely at all against two dozen players, who are nearly all visible anyway.
         long playersAt = Stopwatch.GetTimestamp();
 
-        source.PropsAt(tick, _props);
+        // **Last rebuild's visible set, which is what `ShouldInterpolate` consults** (B259).
+        // `IsVisible()` reports the previous render, so gating this frame on the last one is the
+        // engine's own arrangement rather than an approximation of it. Empty on the first frame,
+        // and an empty set would interpolate nothing - so the first frame passes null and
+        // interpolates everything, which is also what a freshly created entity gets.
+        source.PropsAt(
+            tick, _props, _rebuilt ? _moment.PosedEntities : null);
 
         long sampleTicks = Stopwatch.GetTimestamp() - sampledAt;
 
@@ -220,6 +236,7 @@ public sealed class MomentPresenter
         }
 
         _posed = true;
+        _rebuilt = true;
 
         MomentPhases posing = _moment.Pose(info, frustum, visibleByLeaf);
 
