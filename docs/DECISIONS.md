@@ -7102,3 +7102,36 @@ meaningful when everything around it is absent.
 the recorder's PVS, any camera that can see what the recording player could not. If a future
 question is of the form "could we show X that the recorder did not see", the answer is no and this
 is why.
+
+## D129 — the performance target is BETTER than TF2, and the reason is the workload
+
+**2026-09-01, owner, on being shown 235 fps against TF2's 600 as though it were a result:** *"i would
+like to mention that we should be actually getting better than valve performance, because we are
+still not drawing a lot, like projectiles, and didnt we offload the bones and everything we could to
+the GPU, while valve still does some things on the CPU."*
+
+**Both halves of that are right and they compound.**
+
+**We draw less.** No projectiles, no particles, no ragdolls — 299 of them decoded and undrawn in a
+single demo (B254 finding 4) — no muzzle flashes, no shell ejection, none of
+`DoAnimationEvents`. Every one of those is work TF2 is doing inside its 1.67 ms frame and we are not.
+
+**And we do the work we DO differently, in our favour.** Skinning and bone transforms are uploaded
+and evaluated on the GPU; Valve's `C_BaseAnimating::SetupBones` runs on the processor, with a
+threaded pre-pass (`g_bDoThreadedBoneSetup`) precisely because it is expensive there. A viewer that
+moved that off the CPU should be spending LESS per frame than the engine, not more.
+
+**So parity with TF2's frame time is not the target — beating it is, and by a margin that grows as
+features land.** A number that merely approaches Valve's is a number that will fall behind it the
+moment projectiles are drawn.
+
+**How to read a measurement from here on.** "We are at 235 and TF2 is at 600" is not a good result
+reported honestly; it is a **2.5× deficit measured against a lighter workload**, and the gap is
+larger than the ratio suggests because the comparison is unfair in our favour. Every future frame
+measurement in `docs/RISKS.md` should state what we are NOT drawing when it quotes a rate, or it
+overstates the standing by exactly the amount of the missing work.
+
+**This does not change D89.** Valve parity is still the first principle and performance still never
+buys a departure — the last three fixes were all "do what the engine does" and all of them made it
+faster, which is the usual direction. The point here is the standard the result is judged against,
+not the method.
