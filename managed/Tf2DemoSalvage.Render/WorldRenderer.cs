@@ -3288,11 +3288,22 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         EnsureModelBuffer(context);
 
-        // Sixteen for the matrix, then six float4s for the cube: the faces in the shader's own
-        // order, with w on the first saying whether a cube was supplied at all.
-        float[] contents = new float[ModelConstants];
+        // **Written straight into the mapped buffer, because the engine does not build a managed
+        // array per draw** (the outside audit's finding 3). This staged through a fresh
+        // `new float[ModelConstants]` every call — one allocation per model per frame, in the
+        // inner draw loop — and then memcpy'd the lot; Valve locks the constant buffer and writes
+        // into it. WriteDiscard memory arrives UNDEFINED, so the clear below is load-bearing: the
+        // layout relies on unwritten slots reading as zero — the cube's "is this real" flag, the
+        // sun's, and every lamp slot past what was supplied.
+        MappedSubresource mapped = default;
 
-        Array.Copy(matrix, contents, 16);
+        SilkMarshal.ThrowHResult(context.Map(_model, 0, Map.WriteDiscard, 0, ref mapped));
+
+        Span<float> contents = new(mapped.PData, ModelConstants);
+
+        contents.Clear();
+
+        matrix.AsSpan(0, 16).CopyTo(contents);
 
         if (light is { } cube)
         {
@@ -3373,16 +3384,6 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 contents[falloff + 1] = lamp.Linear;
                 contents[falloff + 2] = lamp.Quadratic;
             }
-        }
-
-        MappedSubresource mapped = default;
-
-        SilkMarshal.ThrowHResult(context.Map(_model, 0, Map.WriteDiscard, 0, ref mapped));
-
-        fixed (float* source = contents)
-        {
-            System.Buffer.MemoryCopy(
-                source, mapped.PData, sizeof(float) * ModelConstants, sizeof(float) * ModelConstants);
         }
 
         context.Unmap(_model, 0);
@@ -3497,7 +3498,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
     }
 
     /// <summary>Writes one cube face, leaving its w alone.</summary>
-    private static void WriteFace(float[] into, int at, (float Red, float Green, float Blue) face)
+    private static void WriteFace(Span<float> into, int at, (float Red, float Green, float Blue) face)
     {
         into[at] = face.Red;
         into[at + 1] = face.Green;
@@ -3556,7 +3557,19 @@ internal sealed unsafe class WorldRenderer : IDisposable
             return;
         }
 
-        float[] contents = new float[BoneConstants];
+        // **Straight into the mapped buffer** (the outside audit's finding 3). This staged through
+        // `new float[BoneConstants]` — 1,536 floats, about six kilobytes, allocated once per
+        // SKINNED draw — where the engine locks and writes. The clear is load-bearing twice over:
+        // WriteDiscard memory is undefined, a model's unused bone slots must not carry the
+        // previous model's skeleton, and the short-matrix `continue` below has always meant "this
+        // slot stays zero".
+        MappedSubresource mapped = default;
+
+        SilkMarshal.ThrowHResult(context.Map(_bones, 0, Map.WriteDiscard, 0, ref mapped));
+
+        Span<float> contents = new(mapped.PData, BoneConstants);
+
+        contents.Clear();
 
         for (int bone = 0; bone < matrices.Count && bone < MaxBones; bone++)
         {
@@ -3567,17 +3580,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 continue;
             }
 
-            Array.Copy(matrix, 0, contents, bone * 12, 12);
-        }
-
-        MappedSubresource mapped = default;
-
-        SilkMarshal.ThrowHResult(context.Map(_bones, 0, Map.WriteDiscard, 0, ref mapped));
-
-        fixed (float* source = contents)
-        {
-            System.Buffer.MemoryCopy(
-                source, mapped.PData, sizeof(float) * BoneConstants, sizeof(float) * BoneConstants);
+            matrix.AsSpan(0, 12).CopyTo(contents.Slice(bone * 12, 12));
         }
 
         context.Unmap(_bones, 0);
