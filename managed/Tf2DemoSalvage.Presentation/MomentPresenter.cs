@@ -57,6 +57,18 @@ public sealed class MomentPresenter
     /// <summary>Averages the rebuild cost, since the threshold report cannot see this rate.</summary>
     private readonly MomentCostLog _cost = new();
 
+    /// <summary>What <see cref="Show"/> measured, waiting for <see cref="PoseNow"/> to complete it.</summary>
+    private MomentPhases _built;
+
+    /// <summary>The moment <see cref="_built"/> belongs to, or null before the first build.</summary>
+    private MomentInfo? _builtFor;
+
+    /// <summary>Sampling ticks for the build being held, reported with the pose.</summary>
+    private long _sampled;
+
+    /// <summary>Whether the held build has already been posed, so a repaint does not pose it again.</summary>
+    private bool _posed;
+
     /// <summary>The players at a moment, refilled each time rather than reallocated.</summary>
     private readonly List<ScenePlayer> _players = [];
 
@@ -147,31 +159,73 @@ public sealed class MomentPresenter
 
         LastInterval = source.IntervalPerTick;
 
-        MomentPhases phases = _moment.Build(
-            _players,
-            _props,
-            new MomentInfo(
-                tick,
-                view.CurrentTick,
-                view.FirstPerson,
-                view.Followed,
-                view.Eye,
-                LastInterval,
-                view.ViewmodelFieldOfView,
-                view.DrawViewmodel,
+        MomentInfo info = new(
+            tick,
+            view.CurrentTick,
+            view.FirstPerson,
+            view.Followed,
+            view.Eye,
+            LastInterval,
+            view.ViewmodelFieldOfView,
+            view.DrawViewmodel,
 
-                // From the recording, not from the window: the round is something the demo knows
-                // and the viewer cannot derive.
-                source.RoundStateAt(tick)));
+            // From the recording, not from the window: the round is something the demo knows
+            // and the viewer cannot derive.
+            source.RoundStateAt(tick));
+
+        // **Selection only. The pose is `Pose`, and it runs after the camera** (B255).
+        _built = _moment.Build(_players, _props, info);
+        _builtFor = info;
+        _sampled = sampleTicks;
+        _posed = false;
+    }
+
+    /// <summary>Poses the moment already built, once the view for this frame exists.</summary>
+    /// <param name="frustum">The view being drawn, for the cull that precedes the pose (B254).</param>
+    /// <remarks>
+    /// **Called after `PlaceCamera` and not from `Show`**, because the engine computes the view
+    /// before it decides what is visible and long before it sets up any bones — `SetUpView`, then
+    /// `BuildWorldLists`, then `BuildRenderablesList`, then the draw that reaches `SetupBones`
+    /// (B255). Posing inside `Show` meant the newest frustum available was the previous frame's.
+    ///
+    /// **Silent when there is nothing built**, which is every frame before a demo is open and every
+    /// frame a resize arrives on — the same reason <see cref="Show"/> is.
+    ///
+    /// **Guarded against posing twice for one build**, because the frame loop is not the only caller
+    /// of a repaint: a paused viewer draws repeatedly off one moment, and posing again per draw is
+    /// exactly the per-frame cost this change exists to remove.
+    /// </remarks>
+    public void PoseNow(ViewFrustum frustum = default)
+    {
+        if (_builtFor is not { } info || _posed)
+        {
+            return;
+        }
+
+        _posed = true;
+
+        MomentPhases posing = _moment.Pose(info, frustum);
+
+        // **One line per rebuild, not two.** The two halves are measured apart and read together;
+        // reporting each on its own would put `advance`'s parts in separate lines that a reader has
+        // to add up, and the residual columns would stop meaning anything.
+        MomentPhases phases = _built with
+        {
+            Total = _built.Total + posing.Total,
+            Pose = posing.Pose,
+            Weapons = posing.Weapons,
+            Viewmodel = posing.Viewmodel,
+            Counters = posing.Counters,
+        };
 
         _ledger.Posed(phases.Pose);
 
-        StallReport.Moment(phases, sampleTicks, playerTicks: 0, _render);
+        StallReport.Moment(phases, _sampled, playerTicks: 0, _render);
 
         // **Every rebuild, averaged — the line above fires only past 30 ms and this runs at 8.**
         // `advance` is seventy per cent of the frame at the rate this actually plays, and until this
         // existed nothing said which part of it.
-        if (_cost.Report(phases, sampleTicks) is { } mean)
+        if (_cost.Report(phases, _sampled) is { } mean)
         {
             _render.LogInformation("{Message}", mean);
         }

@@ -4032,6 +4032,21 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     public void ProjectWorld()
     {
+        // **The pose, here and not in `Simulate`** (B255). The engine's order is `SetUpView`, then
+        // `BuildWorldLists`, then `BuildRenderablesList` — which is where `SetupBones` becomes
+        // reachable — so posing belongs after the view exists and beside the world lists, not before
+        // the camera has been placed. Posing in `Simulate` meant the newest frustum available was
+        // the previous frame's, and culling against a stale view pops entities in at the screen edge.
+        //
+        // **The frustum is the device's own**, the same one the world cull and the draw use, rather
+        // than a second one built from the camera here
+        // (`docs/memory/one-camera-or-the-cull-lies.md`).
+        //
+        // **Before the early return, because the two are unrelated.** `NeedsProjecting` asks whether
+        // the WORLD's screen-space projection is stale, which a camera move invalidates and a demo
+        // tick does not; the pose is due on every frame that built a moment.
+        _moments.PoseNow(_device?.Frustum ?? default);
+
         if (!_world.NeedsProjecting)
         {
             return;

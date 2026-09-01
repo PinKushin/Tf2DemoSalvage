@@ -16344,3 +16344,58 @@ branch already shows the two recording kinds being treated differently — but a
 to differ from the game, and D69's "a real config must work wholesale" cuts the other way here. Ask
 before choosing; this is a divergence to be asked about rather than documented
 (`docs/memory/a-divergence-is-asked-not-documented.md`).
+
+## B257 — the players handed from `Build` to `Pose` are untested, and the suite says nothing — FIXED
+
+Found by sabotage while splitting the scene rebuild for B255. Emptying `MomentScene._posing` — the
+list `Build` copies and `Pose` reads — leaves **all 290 Scene tests green**.
+
+**What the list actually feeds is not cosmetic.** `AddViewmodel` walks it to find the followed
+player, and from that player come two things: `Appearance.Hands(playerClass)`, which is the class
+arms and therefore B242's sleeve, and `Weapons.For(holder)`, which is the first-person weapon model.
+Losing the list draws a first-person view with no arms and no weapon, silently.
+
+**Two tests were written for it and both deleted rather than kept.** Neither could distinguish a
+working list from a lost one with the fixtures available:
+
+- **By instance count.** The arms only become their own prop when `AttachesToHands` is true, and that
+  compares the VIEWMODEL's own model path against the hands path — the `c_` scheme, where the
+  networked viewmodel model *is* the arms. A fixture holding a `v_` model produces one prop either
+  way, which is an input where correct and broken predict the same observation.
+- **By weapon model.** `Weapons.For` needs the item schema, and no unit fixture loads one, so it
+  answers null whether or not the player was found.
+
+**So this is a gap in the test SURFACE rather than a missing assertion**, which is why it is filed
+instead of fixed in passing. The honest options are a fixture whose viewmodel model equals the fake
+appearance's hands path, or an observable on `ViewmodelScene` that does not need the schema. Recorded
+at the field as well as here, because the field is where somebody will next assume it is covered.
+
+The wider point is the one `docs/memory/instrument-bugs-outnumber-decoder-bugs.md` keeps making: the
+suite passing after a refactor is evidence about the suite, not about the refactor. This one was
+caught only because the sabotage was run deliberately.
+
+### Fixed: the third attempt, and what the first two were missing
+
+A test now exists that reddens when the list is lost and nothing else does — sabotage run
+deliberately: `Failed: 1, Passed: 290`.
+
+**What made it possible was fixing the FIXTURE, not the assertion**, which is the general lesson.
+Both earlier attempts asserted on the viewmodel instance count, which was the right observable; they
+failed because the inputs could not produce a difference:
+
+- The viewmodel held a `v_` model. `AttachesToHands` compares the viewmodel's OWN path against the
+  hands path — under the `c_` scheme the networked viewmodel model *is* the arms — so a `v_` model
+  yields one prop whether or not the arms resolve.
+- `Weapons.For` had no item schema, so it answered null either way and the weapon never became the
+  second prop.
+
+The fixture now gives the viewmodel the arms path and hands `WeaponModels` a **synthetic
+`items_game.txt`** with one weapon in it, through the `Func<string, byte[]?>` its constructor already
+takes. Arms and weapon are then two props when the list survives and fewer when it does not.
+
+**Synthetic rather than the real schema, per `CLAUDE.md`'s standing rule** — eight megabytes read per
+test, and no ground truth. Here the test wrote the model in and knows exactly what to predict.
+
+**The rule this is a worked example of:** when a test cannot fail, the instinct is to strengthen the
+assertion and that is usually wrong. This was case 2 of the four in `CLAUDE.md` — *wrong condition*,
+an input for which correct and broken predict the same observation. Fix the input.

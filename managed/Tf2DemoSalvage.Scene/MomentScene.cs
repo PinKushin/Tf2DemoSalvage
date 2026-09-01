@@ -120,6 +120,19 @@ public sealed class MomentScene : IGameSystemPerFrame
     private readonly WeaponPropModels _weaponModels = new();
 
     private readonly List<SceneProp> _drawn = [];
+
+    /// <summary>The players <see cref="Build"/> was given, held for <see cref="Pose"/>.</summary>
+    /// <remarks>
+    /// Copied rather than kept by reference: the caller reuses its list every rebuild, so holding it
+    /// would make this the same list and the pose would read whatever the NEXT sample wrote.
+    ///
+    /// **Covered by `Pose_AfterBuild_StillKnowsThePlayersBuildWasGiven`, and it took three attempts
+    /// to make one that could fail** (B257). Emptying this list left all 290 tests green, because
+    /// what it feeds — `Appearance.Hands` for the class arms and `Weapons.For` for the weapon —
+    /// needs a viewmodel whose own model path equals the hands path AND an item schema before either
+    /// becomes visible. The test now supplies both, and losing this list reddens it alone.
+    /// </remarks>
+    private readonly List<ScenePlayer> _posing = [];
     private readonly List<ModelInstance> _instances = [];
     private readonly List<ModelInstance> _viewmodelInstances = [];
 
@@ -300,10 +313,48 @@ public sealed class MomentScene : IGameSystemPerFrame
 
         long uploadedAt = Stopwatch.GetTimestamp();
 
+        // **The players this moment chose, kept for the pose.** `AddViewmodel` needs them and no
+        // longer runs in this call — see <see cref="Pose"/> for why the two halves are apart.
+        _posing.Clear();
+        _posing.AddRange(players);
+
+        return new MomentPhases(
+            Total: Stopwatch.GetTimestamp() - momentAt,
+            DrawList: rolesAt - momentAt,
+            Models: uploadedAt - rolesAt,
+            Pose: 0,
+            Weapons: 0,
+            Viewmodel: 0,
+            Counters: default,
+            Drawn: _drawn.Count);
+    }
+
+    /// <summary>Poses what <see cref="Build"/> selected, and produces the instances.</summary>
+    /// <param name="info">The moment, whose camera this call needs and <see cref="Build"/> does not.</param>
+    /// <param name="frustum">The view being drawn, for the cull that precedes the pose (B254).</param>
+    /// <returns>The phases this half measured, to be added to <see cref="Build"/>'s.</returns>
+    /// <remarks>
+    /// **Apart from <see cref="Build"/> because the engine's order is view, then visibility, then
+    /// bones** (B255). `CViewRender::RenderView` calls `SetUpView` before `BuildWorldLists` and
+    /// `BuildRenderablesList`, and `SetupBones` is reached only from the draw of what survived. This
+    /// project posed inside `Simulate`, which `FrameSequence.Run` runs BEFORE `PlaceCamera`, so the
+    /// only frustum available at pose time was the previous frame's — and culling against a stale
+    /// view pops entities in at the screen edge, which is a visible defect bought with a frame rate.
+    ///
+    /// **Selection is not simulation, and only the pose moved.** Everything in `Build` — turning
+    /// players into props, resolving weapon models, the visibility filters, packing — is the
+    /// engine's `UpdateAllSystems`, which `CHLClient::HudUpdate` runs before the view exists at all
+    /// (B203). Moving that too would put the camera a tick behind the world it follows, which is the
+    /// bug B203 fixed.
+    /// </remarks>
+    public MomentPhases Pose(MomentInfo info, ViewFrustum frustum = default)
+    {
+        long posingAt = Stopwatch.GetTimestamp();
+
         EntityModelSet.PoseCounters before = _models.Counters;
 
         _models.Instances(
-            _drawn, _instances, Lighting.LightingAt, Lighting.SunAt, info.Seconds);
+            _drawn, _instances, Lighting.LightingAt, Lighting.SunAt, info.Seconds, frustum);
 
         EntityModelSet.PoseCounters pose = _models.Counters.Since(before);
 
@@ -313,7 +364,7 @@ public sealed class MomentScene : IGameSystemPerFrame
         // inherits every error of the ones it is derived from (B191).
         long viewmodelAt = Stopwatch.GetTimestamp();
 
-        AddViewmodel(players, info);
+        AddViewmodel(_posing, info);
 
         long viewmodelTicks = Stopwatch.GetTimestamp() - viewmodelAt;
         long posedAt = Stopwatch.GetTimestamp();
@@ -325,10 +376,10 @@ public sealed class MomentScene : IGameSystemPerFrame
         ReportInstances();
 
         return new MomentPhases(
-            Total: Stopwatch.GetTimestamp() - momentAt,
-            DrawList: rolesAt - momentAt,
-            Models: uploadedAt - rolesAt,
-            Pose: posedAt - uploadedAt,
+            Total: Stopwatch.GetTimestamp() - posingAt,
+            DrawList: 0,
+            Models: 0,
+            Pose: posedAt - posingAt,
             Weapons: reportedAt - posedAt,
             Viewmodel: viewmodelTicks,
             Counters: pose,
