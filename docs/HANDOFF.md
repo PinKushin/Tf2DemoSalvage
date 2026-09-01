@@ -1,9 +1,39 @@
 # Handoff — the project is a parity audit-and-fix loop, and the frame has a floor
 
-Written 2026-09-01. **Supersedes the previous handoff**, whose subjects — launch options, the chase
-camera, displacement collision — are done and merged.
+Written 2026-09-01, **updated the same evening after B259 fix 3 landed in full and D128 shipped.**
+Supersedes the previous handoff, whose subjects — launch options, the chase camera, displacement
+collision — are done and merged.
 
-Everything below is on `main` and pushed. Gate green: **4,501 across twelve assemblies, plus 30 UI.**
+Everything below is on `main` and pushed. Gate green: **4,521 across twelve assemblies, plus 30 UI.**
+
+## Update, same day — the floor section below is RESOLVED
+
+The "ask before starting it" decision was made (D131, the owner: *"fix 3 is a needed fix its a real
+problem, bigger than pretty much any other since its such a low level change"*) and all three stages
+are merged:
+
+- **Stage A** — a single-keyframe track derives its prop once (677 of 1,165 tracks).
+- **Stage B** — `SceneProp` is a `sealed record`, eight bytes of reference where 232 bytes copied
+  per pass; the engine passes `C_BaseEntity*` and so do we now, in the only sense that translates.
+- **Stage C** — the persistent sample: `PropsAt` keeps each track's prop (`Live`), a wake queue
+  names the next tick a track's answer can change (`Motion` — `NoteChanged` computed ahead of time),
+  and a lerp list holds what is mid-interpolation (`g_InterpolationList`). A rebuild pays for
+  boundaries crossed plus tracks lerping; a seek or a recorder team switch resyncs from nothing.
+  Guarded by `PersistentSampleTests` — a stepped timeline must equal a freshly built one at every
+  half tick — which caught a real one-tick-stale hole during the build.
+
+Measured across the day, same demo, first person, `--measure 20`: **96 fps → 351–395 fps** (best
+640), `sample` 0.5 → 0.1–0.2 ms, probe `PropsAt` 939 → 56 ns/prop. `pose` (1.1–1.3 ms) is now the
+fat column.
+
+**D128 also shipped** (item 2 below): `SpectatorView.Refuses` + every window mode site; POV demos
+open through the recorder's eyes and refuse the free camera, third person and target cycling with
+the reason named. `TF2VIEW_CAMERA` is exempt — an explicitly placed camera is a measurement, not
+playback. **D132 made it land green**: the UI suite now runs `z1800` (SourceTV, twelve players,
+gcor) instead of a solo POV era specimen, so the camera tests exercise modes that stay legal — and
+five of them had been waiting on the exact POV log sentence where their claim was only "first
+person was entered"; they now wait on `ViewerSession.FirstPersonOn`, the shared prefix that existed
+for precisely this.
 
 ```bash
 TF2DEMOSALVAGE_GCOR_ONLY=1 bash build/gate.sh
