@@ -3376,6 +3376,22 @@ argument.
 Neither blocks player animation. Filed so the distinction is not rediscovered as "we need a physics
 engine", which is the wrong conclusion for jiggle bones and only half the question for ragdolls.
 
+**2026-09-01: this entry reads the wire correctly and still misses why nothing draws.** The list
+above is the physics START CONDITION, and it is complete. The appearance is not in it, and it is not
+in the table either: `IMPLEMENT_CLIENTCLASS_DT_NOBASE( C_TFRagdoll, DT_TFRagdoll, CTFRagdoll )`
+inherits nothing, so a ragdoll carries no `m_nModelIndex`, no `m_nSkin`, no `m_nBody` and no
+`m_vecOrigin` — every one is built client-side by `CreateTFRagdoll` from `m_iClass`, `m_iTeam` and
+the player entity. So the corpses are not lost in the decode; they were never described, and a
+generic prop path asking for a model index is correct to draw nothing.
+
+Measured: **299 `CTFRagdoll` entities in `serveme-627619-stv-2026-08-07`, all decoded, none drawn.**
+The derivation table and the one branch that cannot be reproduced — the unnetworked `RandomFloat`
+that discards the death animation three times in four — are in `docs/PARITY-AUDIT.md` finding 4.
+
+The correction worth keeping: this entry asked "can we reproduce the FALL", which is a physics
+question and still open. The question that actually blocks a visible corpse is "can we reproduce the
+LOOK", which needs no physics at all.
+
 **B57 resolved 2026-08-14.** Players are skinned on the GPU from the merged sequence table, posed
 through Valve's bone remap, lit at their illumination centre, and advanced from demo time. The full
 account is `docs/findings/21-player-animation.md`, including the two wrong turns — an illumination

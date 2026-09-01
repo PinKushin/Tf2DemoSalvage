@@ -172,6 +172,72 @@ the same family as footsteps, where `docs/memory/sound-the-demo-does-not-carry.m
 reproducing them is authoring rather than decoding. Whatever is decided for one should be decided
 for both, and separately from the visual half.
 
+### 4. Every corpse is missing, and it is an APPEARANCE gap rather than the physics one B58 filed — OPEN
+
+Top of the branch-count list at 40 branches, and the measurement is blunt:
+**`serveme-627619-stv-2026-08-07` contains 299 `CTFRagdoll` entities. We decode all of them and
+draw none.**
+
+**B58 already covers this and covers the wrong half.** It reads `DT_TFRagdoll`, lists the fields,
+and concludes correctly that the physics START CONDITION is fully networked — origin, force, force
+bone, on-ground, plus every death variant. What it does not say is that **nothing about how the
+corpse LOOKS is networked at all**, and that is the reason nothing draws:
+
+```cpp
+IMPLEMENT_CLIENTCLASS_DT_NOBASE( C_TFRagdoll, DT_TFRagdoll, CTFRagdoll )
+```
+
+`NOBASE`. The table inherits nothing, so there is no `m_nModelIndex`, no `m_nSkin`, no `m_nBody`,
+no `m_vecOrigin` and no `m_angRotation` — the same shape as `CBaseViewModel`, and for a viewer the
+same consequence: a generic prop path asks for a model index, gets none, and correctly draws
+nothing. The corpses are not lost in the decode. They were never described.
+
+`CreateTFRagdoll` is where the client builds every one of those fields, which is why the function is
+40 branches long:
+
+| what | derived from |
+|---|---|
+| model | the class model for `m_iClass` — or the PLAYER's current model when the player entity is still around and is not a spy being drawn as their disguise |
+| skin | `m_iTeam == TF_TEAM_RED ? 0 : 1`, adjusted again by `AdjustSkinIndexForZombie` |
+| body | copied off the player, after `RecalcBodygroupsIfDirty`, unless `m_bFeignDeath` without `m_bWasDisguised` |
+| origin | `m_vecRagdollOrigin`; angles from the player's render angles |
+| cosmetics | `CreateBoneAttachmentsFromWearables` — and `m_hRagWearables` IS networked, eight ehandles, so this half is reproducible |
+| head/torso/hand scale | read off the player, not off the wire, despite `m_flHeadScale` etc. being sent |
+
+**One branch cannot be reproduced, and it is worth knowing before anyone tries.** Whether a death
+plays a death ANIMATION or falls as physics is decided by an unnetworked client coin flip:
+
+```cpp
+if ( !m_bIceRagdoll && !tf_always_deathanim.GetBool() && (RandomFloat( 0, 1 ) > 0.25f) )
+    iDeathSeq = -1;
+```
+
+Three quarters of eligible deaths discard the animation, by a `RandomFloat` on the recording
+client's own stream, recorded nowhere. So a replay cannot know which of the two a given corpse
+showed. That is the same class as `docs/memory/sound-the-demo-does-not-carry.md` — a client-generated
+decision, not a decode gap — and the honest options are to pick one deterministically and say so, or
+to expose it as a viewer setting. It is a divergence to be ASKED about rather than chosen quietly
+(`docs/memory/a-divergence-is-asked-not-documented.md`).
+
+**Priority argument, from the owner's own scoping.** B59 records that ragdolls are wanted "for frag
+vid makers" and that deaths are much of what a frag video shows. 299 in one match, every one
+decoded and invisible, is the largest single visible gap this audit has measured.
+
+### 5. A prop with an EMPTY model path is reported DRAWN — OPEN, unexamined
+
+Noticed in the control run for finding 4 and recorded rather than chased, because it was not what
+that run was asking:
+
+```
+DRAWN 1 '' kind Studio class 'CTFWearable' entities [744] ... attached 6 merged True mode 0
+```
+
+An empty model path drawn as a Studio model. It may be the dynamic-model case
+(`docs/memory/negative-model-indices-are-dynamic.md`, where cosmetics come from the `DynamicModels`
+table rather than `modelprecache`) surfacing as an unresolved path, and it may be the probe
+reporting rather than the renderer doing. **Both readings are guesses.** Filed with its evidence so
+the next person starts from the observation instead of rediscovering it.
+
 ## The rule this audit exists to enforce
 
 **A rule written in our own comments is not an enforced rule.** `WorldRenderer` said *"a SKINNED
