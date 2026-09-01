@@ -16867,3 +16867,41 @@ the same shape as D131 and should be approved the same way rather than drifted i
 **What stage A already bought, and it is not nothing:** the 677 constant tracks now skip a binary
 search and a record construction each frame, which is the per-prop half. What remains is the
 per-LIST half — the copying and the four walks — and that is what a persistent list removes.
+
+## B260 — why we do not get Valve's performance "doing it the way they do" — OPEN
+
+**The owner's question, and it is the right one:** *"we should be copying valve, why cant we gets
+valves performance and do it the way they do?"*
+
+**We are not doing it the way they do, and the divergence is not in any algorithm.** It is in what
+the systems pass to each other.
+
+**`SceneProp` is 232 bytes. `ScenePose` inside it is 152. The engine passes `C_BaseEntity*` — eight
+bytes.** Every pass over the drawn list copies about 130 KB; there are several passes a frame. The
+engine copies none of it, because a renderable IS an object and the systems hold pointers to it.
+
+**And the engine never rebuilds that object.** `C_BaseEntity` lives across frames; `PostDataUpdate`
+mutates it in place, interpolation history hangs off it, and the leaf system, the interpolation list
+and the client-side animation list all hold handles. Ours is a value SYNTHESISED every frame by
+sampling a timeline.
+
+**That difference exists for a reason, and the reason is seeking.** The engine replays from the
+start and cannot scrub; this project decodes the whole demo up front so it can, which is the founding
+decision. But the two halves are separable, and conflating them is the mistake:
+
+- **Persistent state vs a timeline** is genuinely about seeking. Keeping live entities that are
+  stepped forward, with periodic snapshots for random access, is how editors do it — so even this is
+  not forced, only harder.
+- **Passing 232-byte values vs references is NOT about seeking at all.** It is a C# design choice
+  that nothing in the architecture requires, and it is the half that costs on every pass.
+
+**So the answer to the question is: we can, and the first step is not a rewrite.** Stage A already
+did it for the 677 of 1,165 tracks that can never change — their record is built once and handed
+back. Extending that until per-frame work is proportional to what changed converges on the engine's
+model without adopting its constraints.
+
+**A correction that belongs with this, because it redirected a design.** The probe reporting a split
+between `At` and "the boundary" was wrong: 357 ns on one run, 696 on the next, and finally −221 — a
+negative share of a total containing it. The two loops touch memory differently and the second ran
+warm, so it measured the benchmark. It has been removed. What survives is what does not move between
+runs — the size of the record, and how many tracks are constant.

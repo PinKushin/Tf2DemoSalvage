@@ -92,21 +92,6 @@ public sealed class SampleCostProbe : IProbe
 
         long whole = Stopwatch.GetTimestamp() - wholeAt;
 
-        // **The sampling alone**, asked track by track through the concrete type — no interface, no
-        // record construction, no list. Whatever separates this from the line above is the cost of
-        // the boundary rather than of deciding where anything is.
-        long sampledAt = Stopwatch.GetTimestamp();
-
-        for (int run = 0; run < repeats; run++)
-        {
-            foreach (ScenePropTrack track in timeline.Props)
-            {
-                _ = track.At(tick);
-            }
-        }
-
-        long sampled = Stopwatch.GetTimestamp() - sampledAt;
-
         output.WriteLine(
             $"{Path.GetFileName(path)} tick {tick.ToString(CultureInfo.InvariantCulture)}: "
             + $"{count.ToString(CultureInfo.InvariantCulture)} props from "
@@ -116,12 +101,15 @@ public sealed class SampleCostProbe : IProbe
         output.WriteLine($"  PropsAt whole   {Each(whole, repeats, count):0.0} ns/prop"
             + $"   ({Ms(whole, repeats):0.000} ms a call)");
 
-        output.WriteLine($"  At() alone      {Each(sampled, repeats, count):0.0} ns/prop"
-            + $"   ({Ms(sampled, repeats):0.000} ms a call)");
-
-        output.WriteLine($"  the boundary    {Each(whole - sampled, repeats, count):0.0} ns/prop"
-            + $"   ({Ms(whole - sampled, repeats):0.000} ms a call)"
-            + "   <- record construction, ICollection.Add, IReadOnlySet.Contains");
+        // **A split between `At` and the rest USED to be reported here and has been removed,
+        // because it was an instrument that lied.** Timing a bare loop over `track.At(tick)` and
+        // subtracting it from the whole call gave 357 ns on one run, 696 on the next, and finally
+        // −221 — a negative share of a total that contains it, which is impossible. The two loops
+        // touch memory in different orders and the second runs against a warmed cache, so the
+        // difference measured the benchmark rather than the code.
+        //
+        // It was believed long enough to redirect a design. What survives is what does not move
+        // between runs: the size of the record, and how many tracks can never change.
 
         // **How much of the work is provably constant.** A track holds every keyframe the demo ever
         // stated for it — nothing is added during playback — so one with a single keyframe answers
@@ -136,6 +124,16 @@ public sealed class SampleCostProbe : IProbe
                 constant++;
             }
         }
+
+        // **What a single prop weighs, because the engine's equivalent weighs eight bytes.** Valve
+        // passes `C_BaseEntity*` between its systems; every pass here takes `SceneProp` BY VALUE, so
+        // the same journey is a memcpy. This is the number that says whether that matters.
+        output.WriteLine(
+            $"  one SceneProp is "
+            + $"{System.Runtime.CompilerServices.Unsafe.SizeOf<SceneProp>().ToString(CultureInfo.InvariantCulture)}"
+            + $" bytes (a ScenePose alone is "
+            + $"{System.Runtime.CompilerServices.Unsafe.SizeOf<ScenePose>().ToString(CultureInfo.InvariantCulture)}"
+            + "); the engine passes an 8-byte pointer");
 
         output.WriteLine(
             $"  of {timeline.Props.Count.ToString(CultureInfo.InvariantCulture)} tracks, "
