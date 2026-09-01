@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 
 using Microsoft.Extensions.Logging;
 
@@ -73,7 +74,18 @@ public static class DemoModels
         {
             long packedAt = Stopwatch.GetTimestamp();
 
-            models.Precache(ToPack(timeline, game));
+            HashSet<string> packing = ToPack(timeline, game);
+
+            // **Said out loud because an attachment that is never packed looks exactly like an
+            // attachment the schema does not declare** — both draw nothing. The renderer's own
+            // "posed before its geometry was uploaded" names the model but not why, and the two
+            // causes are a missing pack and a missing upload.
+            int attachments = timeline is { } withItems
+                ? game.Weapons.AllAttachmentsIn(withItems)
+                    .Distinct(StringComparer.OrdinalIgnoreCase).Count()
+                : 0;
+
+            models.Precache(packing);
 
             double packedSeconds =
                 (Stopwatch.GetTimestamp() - packedAt) / (double)Stopwatch.Frequency;
@@ -83,7 +95,9 @@ public static class DemoModels
                 string.Create(
                     CultureInfo.InvariantCulture,
                     $"precached models in {packedSeconds * 1000d:0} ms " +
-                    $"({models.Count} packed, {models.Vertices.Count} vertices)"));
+                    $"({models.Count} packed of {packing.Count} offered, " +
+                    $"{attachments} of them item attachments, " +
+                    $"{models.Vertices.Count} vertices)"));
         }
         catch (Exception failure) when (
             failure is InvalidDataException or ArgumentException or KeyNotFoundException)
@@ -155,6 +169,22 @@ public static class DemoModels
             paths.Add(weapon);
         }
 
+        // **The extra models an item hangs on itself, which appear in no track and no string
+        // table.** `attached_models` names them in the item schema and the entity networks only its
+        // item index, so nothing above can find them — measured on the shipped schema, 325
+        // definitions declare at least one.
+        //
+        // **This list and the packing set are DIFFERENT lists, and that is B195.** Adding
+        // attachments to the packer alone put the Degreaser's pilot light in `EntityModelSet` with
+        // no geometry behind it: `Add` writes the model's key, sets `added`, and then drops out
+        // silently when the geometry lookup answers nothing — so the count rose, the draw emitted
+        // an instance, and the renderer reported "posed before its geometry was uploaded". The
+        // asset loader is what actually reads the file, so the path has to be here too.
+        foreach (string attachment in game.Weapons.AllAttachmentsIn(demo))
+        {
+            paths.Add(attachment);
+        }
+
         return paths;
     }
 
@@ -198,6 +228,22 @@ public static class DemoModels
             paths.Add(model);
         }
 
+        // **The extra models items hang on themselves**, which appear in no track and in no string
+        // table: `attached_models` names them in the item schema, and the entity that carries them
+        // networks only its item index. Measured on the shipped schema, 325 definitions declare at
+        // least one — the Degreaser's pilot light, the Quick-Fix's `c_overhealer.mdl`.
+        //
+        // Packed up front like everything else here, because the engine treats loading geometry
+        // during play as a programming error (D86) and an attachment is discovered exactly when the
+        // item is drawn.
+        if (timeline is { } withItems)
+        {
+            foreach (string attachment in game.Weapons.AllAttachmentsIn(withItems))
+            {
+                paths.Add(attachment);
+            }
+        }
+
         return paths;
     }
 
@@ -215,8 +261,23 @@ public static class DemoModels
     {
         ArgumentNullException.ThrowIfNull(game);
 
-        return timeline is { } demo
-            ? WornModels.From(demo.Props, game.Weapons.AllIn(demo))
-            : [];
+        if (timeline is not { } demo)
+        {
+            return [];
+        }
+
+        HashSet<string> worn = WornModels.From(demo.Props, game.Weapons.AllIn(demo));
+
+        // **An attachment is skinned for the same reason a worn item is: it has no transform of its
+        // own.** `DrawEconEntityAttachedModels` poses it with the ITEM's bone-to-world array
+        // (`econ_entity.cpp:103`), so baking its bones away leaves nothing to hang it from — the
+        // rule this set exists to enforce, applied to the one case that reaches the draw by a
+        // different route.
+        foreach (string attachment in game.Weapons.AllAttachmentsIn(demo))
+        {
+            worn.Add(attachment);
+        }
+
+        return worn;
     }
 }

@@ -4,6 +4,44 @@ using System.Globalization;
 
 namespace Tf2DemoSalvage.Content.Assets;
 
+/// <summary>An extra model an item hangs on itself, from the schema's <c>attached_models</c>.</summary>
+/// <param name="Model">The <c>.mdl</c> path, as the schema writes it.</param>
+/// <param name="DisplayFlags">
+/// <c>model_display_flags</c>: <c>kAttachedModelDisplayFlag_WorldModel</c> is 1 and
+/// <c>kAttachedModelDisplayFlag_ViewModel</c> is 2 (<c>econ_item_schema.h:881</c>). The draw is
+/// filtered on it — <c>DrawEconEntityAttachedModels</c> takes a mask and skips anything the mask
+/// does not match, so a pilot light meant for the viewmodel does not appear on the world weapon.
+/// </param>
+/// <param name="Team">
+/// <c>""</c> for a plain <c>visuals</c> block, or <c>red</c> / <c>blu</c> for the per-team ones.
+/// <c>GetNumAttachedModels( iTeam )</c> takes the team, and the shipped schema uses the split for
+/// exactly one item — rare, and free to honour.
+/// </param>
+/// <param name="Festive">
+/// Whether it came from <c>attached_models_festive</c>, which the engine adds only when the item
+/// carries the <c>is_festivized</c> attribute (<c>econ_entity.cpp:1109</c>). 310 blocks in the
+/// shipped schema against 29 plain ones, so treating the two alike would put a festive attachment
+/// on every ordinary weapon.
+/// </param>
+public readonly record struct AttachedModel(
+    string Model, int DisplayFlags, string Team, bool Festive)
+{
+    /// <summary><c>kAttachedModelDisplayFlag_WorldModel</c>.</summary>
+    public const int WorldModel = 0x01;
+
+    /// <summary><c>kAttachedModelDisplayFlag_ViewModel</c>.</summary>
+    public const int ViewModel = 0x02;
+
+    /// <summary><c>kAttachedModelDisplayFlag_MaskAll</c>, and the schema's default.</summary>
+    /// <remarks>
+    /// `pKVAttachedModelData->GetInt( "model_display_flags", kAttachedModelDisplayFlag_MaskAll )`
+    /// (<c>econ_item_schema.cpp:2503</c>) — so an entry that says nothing shows in both views.
+    /// Defaulting to zero instead would hide every one of them, silently.
+    /// </remarks>
+    public const int MaskAll = WorldModel | ViewModel;
+}
+
+
 /// <summary>
 /// TF2's item schema, reduced to the question "what model is this item".
 /// </summary>
@@ -58,6 +96,9 @@ public sealed class ItemSchema
         /// <summary>The entity class it is, such as <c>tf_weapon_scattergun</c>.</summary>
         public string? ItemClass { get; set; }
 
+        /// <summary>Its <c>attached_models</c> and <c>attached_models_festive</c>, in schema order.</summary>
+        public List<AttachedModel> AttachedModels { get; } = [];
+
         /// <summary>Whether it is the stock item for its class, from <c>baseitem</c>.</summary>
         public bool IsBaseItem { get; set; }
     }
@@ -110,6 +151,17 @@ public sealed class ItemSchema
         Entry? entry = null;
         bool inPerClass = false;
 
+        // **Where in a `visuals` block the walk is.** `attached_models` sits three levels below an
+        // entry — `visuals` / `attached_models` / an index / `model` — and the per-team variants
+        // are sibling blocks named `visuals_red` and `visuals_blu`, which is how
+        // `GetNumAttachedModels( iTeam )` gets a different answer per side.
+        string visualsTeam = string.Empty;
+        bool inVisuals = false;
+        bool inAttached = false;
+        bool attachedIsFestive = false;
+        string attachedModel = string.Empty;
+        int attachedFlags = AttachedModel.MaskAll;
+
         KeyValuesReader.Read(schema, (key, value, depth) =>
         {
             switch (depth)
@@ -118,10 +170,14 @@ public sealed class ItemSchema
                     section = key;
                     entry = null;
                     inPerClass = false;
+                    inVisuals = false;
+                    inAttached = false;
                     break;
 
                 case 2:
                     inPerClass = false;
+                    inVisuals = false;
+                    inAttached = false;
                     entry = read.Begin(section, key);
                     break;
 
@@ -130,7 +186,63 @@ public sealed class ItemSchema
                         value is null &&
                         string.Equals(key, "model_player_per_class", StringComparison.OrdinalIgnoreCase);
 
+                    // `visuals`, `visuals_red`, `visuals_blu`. The suffix IS the team.
+                    inVisuals = value is null
+                        && key.StartsWith("visuals", StringComparison.OrdinalIgnoreCase);
+
+                    visualsTeam = inVisuals && key.Length > "visuals".Length
+                        ? key["visuals_".Length..]
+                        : string.Empty;
+
+                    inAttached = false;
+
                     Apply(entry, key, value);
+                    break;
+
+                case 4 when entry is not null && inVisuals && value is null:
+                    inAttached =
+                        key.StartsWith("attached_models", StringComparison.OrdinalIgnoreCase);
+
+                    attachedIsFestive =
+                        key.EndsWith("_festive", StringComparison.OrdinalIgnoreCase);
+
+                    break;
+
+                // Each numbered child of the block is one attachment. Its fields arrive next, so
+                // the pending record is reset here and committed when the following one starts or
+                // the file ends — which is why `model` is written straight into the list below.
+                case 5 when entry is not null && inAttached && value is null:
+                    attachedModel = string.Empty;
+                    attachedFlags = AttachedModel.MaskAll;
+                    break;
+
+                case 6 when entry is not null && inAttached && value is not null:
+                    if (string.Equals(key, "model", StringComparison.OrdinalIgnoreCase))
+                    {
+                        attachedModel = value;
+
+                        entry.AttachedModels.Add(new AttachedModel(
+                            attachedModel, attachedFlags, visualsTeam, attachedIsFestive));
+                    }
+                    else if (string.Equals(
+                        key, "model_display_flags", StringComparison.OrdinalIgnoreCase)
+                        && int.TryParse(
+                            value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int flags))
+                    {
+                        attachedFlags = flags;
+
+                        // **The flags can arrive AFTER the model**, since KeyValues preserves file
+                        // order and the schema is not consistent about it. Rewriting the record
+                        // just added keeps both orders working; dropping this would leave every
+                        // such entry at the default mask and show a viewmodel-only attachment on
+                        // the world model.
+                        if (attachedModel.Length > 0 && entry.AttachedModels.Count > 0)
+                        {
+                            entry.AttachedModels[^1] = new AttachedModel(
+                                attachedModel, attachedFlags, visualsTeam, attachedIsFestive);
+                        }
+                    }
+
                     break;
 
                 case 4 when entry is not null && inPerClass && value is not null:
@@ -316,6 +428,110 @@ public sealed class ItemSchema
         }
 
         return anyOfThatClass is { } fallback ? ModelFor(fallback, playerClass) : null;
+    }
+
+    /// <summary>Every item definition index the schema declares.</summary>
+    /// <remarks>
+    /// For instruments that need a DENOMINATOR rather than an answer about one item — "how many
+    /// items carry an attachment" is a fact about the game, where a count of schema blocks is only
+    /// a fact about the file, and the two differ by however many definitions inherit each block.
+    /// </remarks>
+    public IEnumerable<int> DefinitionIndices => _items.Keys;
+
+    /// <summary>The extra models an item hangs on itself, filtered as the engine filters them.</summary>
+    /// <param name="definitionIndex">The item, as <c>m_iItemDefinitionIndex</c> gives it.</param>
+    /// <param name="team">
+    /// The owner's team — <c>SceneTeams.Red</c> or <c>SceneTeams.Blu</c> — or null when unknown.
+    /// `CEconEntity::UpdateAttachmentModels` reads `GetNumAttachedModels( GetTeamNumber() )`, so a
+    /// per-team block belongs to one side only.
+    /// </param>
+    /// <param name="festivized">
+    /// Whether the item carries <c>is_festivized</c>. The festive block is added only then
+    /// (<c>econ_entity.cpp:1109</c>), and there are ten times as many festive entries as plain
+    /// ones — so getting this wrong decorates the whole server for Christmas.
+    /// </param>
+    /// <returns>The attachments, in schema order. Empty for an item that declares none.</returns>
+    /// <remarks>
+    /// **Inherited through prefabs like every other item field.** A stock weapon says almost
+    /// nothing itself; the attachment can be on a prefab several levels up, which is the shape
+    /// `Inherited` already exists for.
+    /// </remarks>
+    public IReadOnlyList<AttachedModel> AttachedModelsFor(
+        int definitionIndex, int? team, bool festivized)
+    {
+        if (!_items.TryGetValue(definitionIndex, out Entry? item))
+        {
+            return [];
+        }
+
+        List<AttachedModel> found = [];
+
+        Collect(item, found, LongestChain);
+
+        if (found.Count == 0)
+        {
+            return [];
+        }
+
+        string wanted = team switch
+        {
+            RedTeam => "red",
+            BluTeam => "blu",
+            _ => string.Empty,
+        };
+
+        List<AttachedModel> kept = [];
+
+        foreach (AttachedModel attached in found)
+        {
+            if (attached.Festive && !festivized)
+            {
+                continue;
+            }
+
+            // An untagged block applies to both sides; a tagged one only to its own. An unknown
+            // team therefore takes the untagged blocks and nothing else, which is the honest answer
+            // rather than guessing a side.
+            if (attached.Team.Length > 0
+                && !string.Equals(attached.Team, wanted, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            kept.Add(attached);
+        }
+
+        return kept;
+    }
+
+    /// <summary><c>TF_TEAM_RED</c>, matching <c>SceneTeams.Red</c>.</summary>
+    private const int RedTeam = 2;
+
+    /// <summary><c>TF_TEAM_BLUE</c>, matching <c>SceneTeams.Blu</c>.</summary>
+    private const int BluTeam = 3;
+
+    /// <summary>Gathers attachments from an entry and its prefabs.</summary>
+    /// <remarks>
+    /// **Every level contributes, unlike <see cref="Search"/> which stops at the first answer.** A
+    /// model is one value and the nearest definition wins; attachments are a LIST, and an item that
+    /// adds one does not thereby discard what its prefab hangs on it.
+    /// </remarks>
+    private void Collect(Entry entry, List<AttachedModel> into, int remaining)
+    {
+        into.AddRange(entry.AttachedModels);
+
+        if (remaining <= 0)
+        {
+            return;
+        }
+
+        foreach (string name in entry.Prefabs)
+        {
+            if (_prefabs.TryGetValue(name, out Entry? prefab))
+            {
+                Collect(prefab, into, remaining - 1);
+            }
+        }
     }
 
     /// <summary>Searches an item and then its prefabs, in order, for the first answer.</summary>
