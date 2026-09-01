@@ -3987,6 +3987,14 @@ internal class MainForm : Form, IFrameSteps
             // literally what the log shows, which is the rule that stops a summary from being a
             // second, disagreeing measurement.
             _measured.Add(rate);
+
+            // The rebuild breakdown beside the rate, since one without the other says where the
+            // frame went but not what it was doing.
+            if (_moments.LastCost is { } cost)
+            {
+                _measured.Add("    " + cost);
+                _moments.LastCost = null;
+            }
         }
 
         // **Counted in seconds of PLAYBACK.** A wall clock would spend the first twenty seconds on

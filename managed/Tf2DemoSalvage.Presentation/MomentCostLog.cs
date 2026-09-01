@@ -56,6 +56,7 @@ public sealed class MomentCostLog
     private long _drawn;
     private long _selected;
     private long _hidden;
+    private long _playersSampled;
 
     /// <summary>Starts a log.</summary>
     /// <param name="every">
@@ -73,15 +74,17 @@ public sealed class MomentCostLog
 
     /// <summary>Offers one rebuild, and answers with a line when enough have accumulated.</summary>
     /// <param name="phases">What <c>MomentScene.Build</c> measured.</param>
+    /// <param name="playerTicks">What PlayersAt cost, of that total (B258).</param>
     /// <param name="sampleTicks">
     /// Reading the tick's players and props off the timeline, which is measured outside
     /// <paramref name="phases"/> and is its own column — 2 to 6.5 ms in the breakdowns seen so far,
     /// so dropping it would hide a real cost.
     /// </param>
     /// <returns>The line to log, or <c>null</c> when fewer than <see cref="DefaultEvery"/> have.</returns>
-    public string? Report(in MomentPhases phases, long sampleTicks)
+    public string? Report(in MomentPhases phases, long sampleTicks, long playerTicks = 0)
     {
         _sample += sampleTicks;
+        _playersSampled += playerTicks;
         _total += phases.Total;
         _drawList += phases.DrawList;
         _models += phases.Models;
@@ -115,7 +118,7 @@ public sealed class MomentCostLog
         string line = string.Create(
             CultureInfo.InvariantCulture,
             $"moment cost, mean over {over} rebuilds: {Mean(_total + _sample, over):0.#} ms"
-            + $" = sample {Mean(_sample, over):0.#}"
+            + $" = sample {Mean(_sample, over):0.#} (players {Mean(_playersSampled, over):0.##})"
             + $", drawlist {Mean(_drawList, over):0.#}"
             + $", models {Mean(_models, over):0.#}"
             + $", pose {Mean(_pose, over):0.#}"
@@ -153,6 +156,7 @@ public sealed class MomentCostLog
         _drawn = 0;
         _selected = 0;
         _hidden = 0;
+        _playersSampled = 0;
 
         return line;
     }

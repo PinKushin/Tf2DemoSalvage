@@ -66,6 +66,9 @@ public sealed class MomentPresenter
     /// <summary>Sampling ticks for the build being held, reported with the pose.</summary>
     private long _sampled;
 
+    /// <summary>What PlayersAt cost, of the sampling total, for B258.</summary>
+    private long _playerTicks;
+
     /// <summary>Whether the held build has already been posed, so a repaint does not pose it again.</summary>
     private bool _posed;
 
@@ -117,6 +120,10 @@ public sealed class MomentPresenter
     /// </remarks>
     public float LastInterval { get; private set; }
 
+    /// <summary>The most recent rebuild-cost line, or null before one has been produced.</summary>
+    /// <remarks>For <c>--measure</c>. Read and cleared by the caller so a line is printed once.</remarks>
+    public string? LastCost { get; set; }
+
     /// <summary>Shows the moment at a tick.</summary>
     /// <param name="tick">The moment, which may fall between ticks.</param>
     /// <param name="view">What the window knows and the recording does not.</param>
@@ -151,9 +158,18 @@ public sealed class MomentPresenter
         long sampledAt = Stopwatch.GetTimestamp();
 
         source.PlayersAt(tick, _players);
+
+        // **Split because the whole of B258 rests on which half this is**, and it was about to be
+        // assumed. `sample` is 2.0 ms of a 5.2 ms rebuild, and the plan — interpolate only what was
+        // visible last frame, as `ShouldInterpolate` does — pays off against six hundred PROPS and
+        // barely at all against two dozen players, who are nearly all visible anyway.
+        long playersAt = Stopwatch.GetTimestamp();
+
         source.PropsAt(tick, _props);
 
         long sampleTicks = Stopwatch.GetTimestamp() - sampledAt;
+
+        _playerTicks = playersAt - sampledAt;
 
         _ledger.Sampled(sampleTicks);
 
@@ -231,14 +247,18 @@ public sealed class MomentPresenter
 
         _ledger.Posed(phases.Pose);
 
-        StallReport.Moment(phases, _sampled, playerTicks: 0, _render);
+        StallReport.Moment(phases, _sampled, _playerTicks, _render);
 
         // **Every rebuild, averaged — the line above fires only past 30 ms and this runs at 8.**
         // `advance` is seventy per cent of the frame at the rate this actually plays, and until this
         // existed nothing said which part of it.
-        if (_cost.Report(phases, _sampled) is { } mean)
+        if (_cost.Report(phases, _sampled, _playerTicks) is { } mean)
         {
             _render.LogInformation("{Message}", mean);
+
+            // **Kept for `--measure`, which prints to stdout because the log is buffered.** The
+            // rebuild breakdown is the more useful half of a measurement and was missing from it.
+            LastCost = mean;
         }
     }
 }

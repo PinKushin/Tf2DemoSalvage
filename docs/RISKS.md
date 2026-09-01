@@ -16446,3 +16446,76 @@ moment cost 5.2 ms = sample 2.0, drawlist 0.6, models 0.5, pose 2.1
 `sample` and `pose` are now the same size, and `sample` is untouched by any of this: it interpolates
 every track every frame, where the engine interpolates entities as it meets them in the visible set.
 That is the next thing worth reading, and it is a decode-side question rather than a rendering one.
+
+## B258 — we interpolate every track every frame; the engine interpolates "the minimal set" — OPEN
+
+**Where the frame time now is.** After B254 and B255, first person on `tf2-2026-pub-pov-clean`:
+
+```
+moment cost 5.2 ms = sample 2.0, drawlist 0.6, models 0.5, pose 2.1
+```
+
+`sample` is `PlayersAt` + `PropsAt`, and it is the same size as `pose` while being untouched by
+everything the cull work did. It walks EVERY prop track and interpolates it, ~600 a frame.
+
+**The engine keeps a LIST and interpolates only what is on it.**
+`C_BaseEntity::ProcessInterpolatedList` (`c_baseentity.cpp:3123`), whose own comment is *"Interpolate
+the minimal set of entities that need it"*, walks `g_InterpolationList` rather than the entity array.
+Two separate rules decide membership.
+
+**Rule one, `ShouldInterpolate` (`c_baseentity.cpp:3029`)** — checked whenever an entity takes a data
+update, and the entity is added only if it passes:
+
+```cpp
+if ( render->GetViewEntity() == index ) return true;
+if ( index == 0 || !GetModel() )        return false;
+if ( IsVisible() )                      return true;   // always interpolate if visible
+// if any movement child needs interpolation, we have to interpolate too
+```
+
+**Rule two, and it is the one with no equivalent here at all:** `Interpolate` calls
+`RemoveFromInterpolationList()` when `BaseInterpolatePart1` reports `bNoMoreChanges`. An entity whose
+values have settled leaves the list and costs nothing until it is updated again. On a TF2 map most
+props never move, so most of them are permanently off the list after the first frame.
+
+**The ordering objection does not apply, and this is the part worth knowing.** `IsVisible()` reports
+the renderable's state from the LAST render, so the engine gates this frame's interpolation on the
+previous frame's visibility — and accepts that an entity becoming visible is interpolated one frame
+late. That means our own cull result, which lands in `Pose` after the view, is available to the next
+frame's `Build` exactly as Valve's is. No reorder is needed.
+
+**So the two gates are:**
+
+1. **Visible last frame**, from `EntityModelSet`'s own cull. One frame stale, as in the engine.
+2. **Settled**, which needs a per-track notion of "nothing changed between these keyframes". Cheaper
+   here than in the engine in one way and harder in another: the whole demo is already decoded, so a
+   track knows its own future — but the viewer can seek backwards, so a list mutated across frames
+   cannot simply be maintained.
+
+**Not started. What must NOT be assumed on the way in:** that `sample` is dominated by props rather
+than by players, and that a skipped interpolation is invisible. Both are measurable and neither has
+been measured — the first with the existing counters, the second by eye on a demo where something
+enters the view quickly.
+
+### B258, measured rather than assumed: props are 95% of it, and it is now the biggest column
+
+The entry above planned to gate prop interpolation on last-frame visibility and said what must not be
+assumed on the way in — *"that `sample` is dominated by props rather than by players"*. Split and
+measured:
+
+```
+moment cost 4.0 ms = sample 1.8 (players 0.11), drawlist 0.6, models 0.4, pose 1.2
+```
+
+**`PlayersAt` is 0.09 to 0.11 ms of a 1.8 ms sample** — about five per cent. So the plan targets the
+right work, and two dozen players who are nearly all visible anyway were never going to be worth
+gating.
+
+**And `sample` is now LARGER than `pose`.** B254 and B255 took pose from 4.8 ms to about 1.2; nothing
+touched sampling, so it is now the largest single column of the rebuild and the obvious next target
+rather than a co-equal one.
+
+**The measurement needed the tool built for it, and the tool had a hole.** `--measure` printed only
+the frame-rate lines; the rebuild breakdown — the more useful half — still went to the buffered log.
+Fixed in the same commit: `MomentPresenter` keeps its last cost line and the viewer prints it beside
+the rate, so one call now answers both halves.
