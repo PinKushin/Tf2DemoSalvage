@@ -1887,6 +1887,8 @@ public sealed class EntityModelSet
         into.Clear();
         Culled = 0;
         CulledByVisibility = 0;
+        Unjudgeable = 0;
+        Posed = 0;
 
         // **There is no ordering here any more, and that is the change** (D88, B181). The engine has
         // none either: a merged entity asks its parent for bones where it stands
@@ -2058,6 +2060,7 @@ public sealed class EntityModelSet
                 bool setUp = animating.SetupBones(StudioBoneFlags.UsedByAnything, seconds);
 
                 SetupTicks += System.Diagnostics.Stopwatch.GetTimestamp() - setupAt;
+                Posed++;
 
                 if (!setUp)
                 {
@@ -2431,6 +2434,24 @@ public sealed class EntityModelSet
     /// </remarks>
     public int CulledByVisibility { get; private set; }
 
+    /// <summary>How many props the cull could not judge, because their box is degenerate.</summary>
+    /// <remarks>
+    /// **A model with no render bounds is kept, never point-tested** — the empty-box rule. Counted
+    /// because if it is most of them the cull is nearly inert and the count is the only thing that
+    /// says so: a constant survivor ratio whatever the camera does looks identical to "everything
+    /// really is visible".
+    /// </remarks>
+    public int Unjudgeable { get; private set; }
+
+    /// <summary>How many props actually reached bone setup.</summary>
+    /// <remarks>
+    /// **The honest count, and it replaces one that was not.** `Drawn` was reported as
+    /// `selected - culled`, which counts every prop the drawability and render-mode filters rejected
+    /// as though it had been posed - brush models and sprites among them. That made the survivor
+    /// ratio look flat whatever the camera did and nearly sent this audit after the frustum.
+    /// </remarks>
+    public int Posed { get; private set; }
+
     /// <summary>Whether the view frustum rejects this prop — <c>engine->CullBox</c>.</summary>
     /// <param name="prop">The prop about to be posed.</param>
     /// <param name="frustum">The view being drawn, or the default when there is none.</param>
@@ -2458,6 +2479,7 @@ public sealed class EntityModelSet
 
         if (!WorldSpaceBounds.IsPlaced(box))
         {
+            Unjudgeable++;
             return false;
         }
 

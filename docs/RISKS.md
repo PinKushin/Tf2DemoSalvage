@@ -16583,3 +16583,48 @@ CPU work the engine does not do.
 second rule — `RemoveFromInterpolationList` on `bNoMoreChanges`, so a settled prop leaves the list
 until it moves — has no equivalent here and is the next thing if this ever needs to be smaller. It
 is not obviously worth it now.
+
+## B259 — the frame has a ~2.6 ms FLOOR that does not depend on what is visible — OPEN
+
+**The owner's observation is what found this:** *"i can literally see my framerate spike to 1000 if
+im just looking at a wall or empty room sometimes"*. TF2's frame collapses to about a millisecond
+when there is nothing to draw. Ours does not, and this is why.
+
+**Measured, camera placed at the floor so the view is nearly empty** — the world cull agrees, at
+**101 of 14,264 leaves visible**:
+
+```
+posed 0 of 578 selected, 0 hidden by pvs, 0 unjudgeable
+moment cost 2.6 ms = sample 0.9, drawlist 0.7, models 0.4, pose 0.6
+frame rate 282-290 fps (3.3-4.5 ms)
+```
+
+**Zero props reach bone setup and the rebuild still costs 2.6 ms.** The cull built for B254 is
+working exactly as intended; it is simply not where the remaining time is.
+
+**Four passes walk every prop regardless of visibility**, and together they are the floor:
+
+| pass | ms | what it walks |
+|---|---|---|
+| `sample` | 0.9 | every track, interpolated |
+| `drawlist` | 0.7 | every prop, through the visibility filters |
+| `models` | 0.4 | every prop, resolving models |
+| `pose`'s `simulate` | 0.4 | every prop — its own comment says *"a pass over EVERY prop, not just the animated ones"* (B189) |
+
+**The engine has no equivalent floor**, and the reason is structural rather than a matter of tuning.
+`BuildRenderablesList` starts from the VISIBLE LEAF LIST and touches only what is in it, so an empty
+view walks almost nothing; `ProcessInterpolatedList` walks a maintained list of entities that need
+interpolation rather than the entity array. Every one of our four passes starts from "all props" and
+filters, where the engine starts from "what is visible" and never enumerates the rest.
+
+**So the target is the SHAPE, not the cost of any one pass.** Making each pass faster leaves the
+floor proportional to the number of entities in the demo. Making the passes start from the visible
+set removes it — which is also what D129 requires, since a viewer that draws less than TF2 while
+costing more per empty frame is behind on both counts.
+
+**One instrument correction, recorded because it nearly sent this audit the wrong way.** `Drawn` was
+reported as `selected - culled`, which counts every prop the drawability and render-mode filters
+rejected as though it had been posed. That made the survivor ratio read `452 of 567` in an empty view
+and look like a broken frustum — the true figure is **0 of 578**. `EntityModelSet.Posed` now counts
+where a prop actually reaches bone setup. The lesson is the usual one: a derived count is free to be
+wrong, and this one was wrong in the direction that invents a bug.

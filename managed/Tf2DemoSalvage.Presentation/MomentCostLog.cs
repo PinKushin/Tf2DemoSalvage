@@ -56,6 +56,7 @@ public sealed class MomentCostLog
     private long _drawn;
     private long _selected;
     private long _hidden;
+    private long _unjudged;
     private long _playersSampled;
 
     /// <summary>Starts a log.</summary>
@@ -107,6 +108,7 @@ public sealed class MomentCostLog
         _drawn += phases.Drawn;
         _selected += phases.Selected;
         _hidden += phases.Hidden;
+        _unjudged += phases.Unjudgeable;
 
         if (++_rebuilds < _every)
         {
@@ -136,7 +138,8 @@ public sealed class MomentCostLog
             + $", anim {Mean(_animation, over):0.#}"
             + $", rest {Mean(Rest(), over):0.#}"
             + $"; posed {_drawn / (double)over:0.#} of {_selected / (double)over:0.#} selected"
-            + $", {_hidden / (double)over:0.#} hidden by pvs");
+            + $", {_hidden / (double)over:0.#} hidden by pvs"
+            + $", {_unjudged / (double)over:0.#} unjudgeable");
 
         _rebuilds = 0;
         _sample = 0;
@@ -156,6 +159,7 @@ public sealed class MomentCostLog
         _drawn = 0;
         _selected = 0;
         _hidden = 0;
+        _unjudged = 0;
         _playersSampled = 0;
 
         return line;

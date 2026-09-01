@@ -23,6 +23,7 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="Viewmodel">What the viewmodel cost, inside <paramref name="Pose"/> but outside the counters.</param>
 /// <param name="Counters">Every pose-phase counter for THIS moment, already differenced.</param>
 /// <param name="Drawn">How many props were posed, the control for <c>Counters.Built</c>.</param>
+/// <param name="Unjudgeable">How many the cull could not judge, for want of render bounds.</param>
 /// <param name="Hidden">How many the visibility half rejected, of those the frustum kept.</param>
 /// <param name="Selected">
 /// How many props <c>Build</c> chose, before the frustum rejected any (B254). The ratio against
@@ -56,7 +57,10 @@ public readonly record struct MomentPhases(
     int Selected = 0,
 
     // How many of the culled were rejected by VISIBILITY rather than by the frustum (B254).
-    int Hidden = 0)
+    int Hidden = 0,
+
+    // How many the cull could not judge for want of render bounds (B254).
+    int Unjudgeable = 0)
 {
     /// <summary>What the ledger measured but did not name, which is the column that matters.</summary>
     /// <remarks>
@@ -379,8 +383,9 @@ public sealed class MomentScene : IGameSystemPerFrame
         // reports zero for every frame — which it did, and the zero was believed for one
         // measurement before the second `Instances` call was noticed. Same shape as the counters
         // above, which are differenced across this call for the same reason.
-        int culled = _models.Culled;
         int hidden = _models.CulledByVisibility;
+        int unjudged = _models.Unjudgeable;
+        int posed = _models.Posed;
 
         // **Timed apart from the counters above, because the pose phase spans this too.** They are
         // read across `Instances` alone, so every millisecond spent building the viewmodel scene was
@@ -407,9 +412,10 @@ public sealed class MomentScene : IGameSystemPerFrame
             Weapons: reportedAt - posedAt,
             Viewmodel: viewmodelTicks,
             Counters: pose,
-            Drawn: _drawn.Count - culled,
+            Drawn: posed,
             Selected: _drawn.Count,
-            Hidden: hidden);
+            Hidden: hidden,
+            Unjudgeable: unjudged);
     }
 
     /// <summary>Reads whatever geometry this moment needs, and uploads it if the set grew.</summary>
