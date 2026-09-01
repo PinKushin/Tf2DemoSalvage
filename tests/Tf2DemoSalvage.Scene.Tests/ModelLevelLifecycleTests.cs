@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 
+using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Scene.Tests;
@@ -104,6 +106,159 @@ public sealed class ModelLevelLifecycleTests
         scene.LevelShutdownPreEntity();
 
         models.Vertices.ShouldBeEmpty("the scene's level teardown must flush the model set");
+    }
+
+    /// <remarks>
+    /// **A stationary wearer's lighting is sampled once, not once per item per frame** (the
+    /// outside audit's finding 6). The worn branch reads the wearer's light point and asked the
+    /// sampler EVERY frame — a code comment had already named the missing cache as a defect
+    /// (B189) — where `ModelLighting.For`'s contract is the engine's: a model at the identical
+    /// point cannot have changed brightness, so the sample is keyed on the entity and the exact
+    /// point and re-taken only when the point moves.
+    /// </remarks>
+    [Test]
+    public void Instances_AStationaryWearerAcrossTwoFrames_SamplesWornLightingOnce()
+    {
+        EntityModelSet models = Models();
+
+        List<ModelInstance> instances = [];
+
+        SceneProp[] props =
+        [
+            new(7, "models/player/scout.mdl",
+                ScenePropTrack.Classify("models/player/scout.mdl"),
+                new ScenePose { X = 500f }),
+            new(40, "models/player/items/hat.mdl",
+                ScenePropTrack.Classify("models/player/items/hat.mdl"),
+                new ScenePose(), AttachedTo: 7, BoneMerged: true),
+        ];
+
+        models.Add(props, _ => Triangle(x: 1f));
+
+        int sampled = 0;
+
+        PointLighting Count(float x, float y, float z)
+        {
+            sampled++;
+
+            return PointLighting.None;
+        }
+
+        models.Instances(props, instances, Count);
+
+        int first = sampled;
+
+        first.ShouldBeGreaterThan(0, "the first frame must sample, or the control proves nothing");
+
+        models.Instances(props, instances, Count);
+
+        sampled.ShouldBe(first, "nothing moved, so the second frame re-samples nothing");
+    }
+
+    /// <remarks>
+    /// **The POINT, not the count — this is the assertion the cache tests cannot make.** A
+    /// bone-merged item's own pose is the map origin, and sampling there was cached too, so a
+    /// counting test passes whichever point is used. The variable is WHERE: every quantity — the
+    /// cube and, crucially, the SUN, which the old downstream override never covered — must be
+    /// sampled where the wearer stands, and nothing may be sampled at the origin.
+    /// </remarks>
+    [Test]
+    public void Instances_ABoneMergedItem_IsLitAndSunnedAtItsWearersPoint()
+    {
+        EntityModelSet models = Models();
+
+        List<ModelInstance> instances = [];
+
+        SceneProp[] props =
+        [
+            new(7, "models/player/scout.mdl",
+                ScenePropTrack.Classify("models/player/scout.mdl"),
+                new ScenePose { X = 500f, Y = 320f, Z = 64f }),
+            new(40, "models/player/items/hat.mdl",
+                ScenePropTrack.Classify("models/player/items/hat.mdl"),
+                new ScenePose(), AttachedTo: 7, BoneMerged: true),
+        ];
+
+        models.Add(props, _ => Triangle(x: 1f));
+
+        List<(float X, float Y, float Z)> litAt = [];
+        List<(float X, float Y, float Z)> sunnedAt = [];
+
+        models.Instances(
+            props,
+            instances,
+            (x, y, z) =>
+            {
+                litAt.Add((x, y, z));
+
+                return PointLighting.None;
+            },
+            (x, y, z) =>
+            {
+                sunnedAt.Add((x, y, z));
+
+                return null;
+            });
+
+        static bool AtTheWearer((float X, float Y, float Z) point) =>
+            MathF.Abs(point.X - 500f) < 0.5f && MathF.Abs(point.Y - 320f) < 0.5f;
+
+        static bool AtTheOrigin((float X, float Y, float Z) point) =>
+            MathF.Abs(point.X) < 0.5f && MathF.Abs(point.Y) < 0.5f && MathF.Abs(point.Z) < 0.5f;
+
+        litAt.Exists(AtTheWearer)
+            .ShouldBeTrue("the hat's cube must be sampled where its wearer stands");
+
+        sunnedAt.Exists(AtTheWearer)
+            .ShouldBeTrue("the hat's SUN must be sampled there too - the old override never covered it");
+
+        litAt.Exists(AtTheOrigin)
+            .ShouldBeFalse("nothing may be lit at the map origin, where a merged item's own pose sits");
+
+        sunnedAt.Exists(AtTheOrigin)
+            .ShouldBeFalse("nor traced for sky visibility from it");
+    }
+
+    /// <remarks>
+    /// The control for the cache above: a wearer who MOVED must be re-sampled, because the leaf
+    /// under him changed. A cache keyed on the entity alone would pass the stationary test and
+    /// light a walking player by wherever he stood first.
+    /// </remarks>
+    [Test]
+    public void Instances_AWearerWhoMoved_IsSampledAgain()
+    {
+        EntityModelSet models = Models();
+
+        List<ModelInstance> instances = [];
+
+        static SceneProp[] At(float x) =>
+        [
+            new(7, "models/player/scout.mdl",
+                ScenePropTrack.Classify("models/player/scout.mdl"),
+                new ScenePose { X = x }),
+            new(40, "models/player/items/hat.mdl",
+                ScenePropTrack.Classify("models/player/items/hat.mdl"),
+                new ScenePose(), AttachedTo: 7, BoneMerged: true),
+        ];
+
+        models.Add(At(500f), _ => Triangle(x: 1f));
+
+        int sampled = 0;
+
+        PointLighting Count(float x, float y, float z)
+        {
+            sampled++;
+
+            return PointLighting.None;
+        }
+
+        models.Instances(At(500f), instances, Count);
+
+        int first = sampled;
+
+        models.Instances(At(900f), instances, Count);
+
+        sampled.ShouldBeGreaterThan(first, "the wearer moved, so his light must be re-sampled");
     }
 
     /// <remarks>

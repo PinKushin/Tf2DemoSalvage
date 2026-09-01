@@ -360,6 +360,21 @@ public sealed class EntityModelSet
     /// <summary>Where a model's light should be sampled, in world space.</summary>
     private (float X, float Y, float Z) IlluminationPoint(SceneProp prop, ScenePose pose)
     {
+        // **A bone-merged item is lit where its WEARER is, for every quantity at once** (B189; the
+        // outside audit's finding 6). Its own pose is (0,0,0) by construction — `FollowEntity`
+        // zeroes it and the client takes the parent's bones outright — so its own point is the map
+        // origin, whose leaf is usually solid and lightless. This used to be patched downstream:
+        // an override in the draw loop replaced the cube, the lamps and the reflection origin with
+        // wearer-point samples but NOT the sun, so every cosmetic's direct light was a sky ray
+        // traced from the map origin; and the override went past `ModelLighting.For`'s cache, so
+        // it re-traced per item per frame. Answering the wearer's point HERE sends all four
+        // quantities through the one sampler and its exact-point cache — one place or it drifts.
+        if (prop is { AttachedTo: { } wearer, BoneMerged: true } &&
+            _lightPoints.TryGetValue(wearer, out (float X, float Y, float Z) worn))
+        {
+            return worn;
+        }
+
         if (!_frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? entry))
         {
             return (pose.X, pose.Y, pose.Z);
@@ -2299,43 +2314,17 @@ public sealed class EntityModelSet
                     transform = stands;
                 }
 
-                // **Lit where its wearer stands, not where its own pose says.** A merged item's own
-                // pose is (0,0,0) by construction, so sampling the ambient cube from it asks the
-                // leaf at the map origin — usually solid, carrying no light, drawing every cosmetic
-                // in the match black. It showed in the log as "rocketboots is lit by nothing at
-                // (0,0,0)", which reads as a lighting quirk rather than as a light sampled before
-                // the item had been given a position.
-                if (_lightPoints.TryGetValue(wearer, out (float X, float Y, float Z) at))
-                {
-                    // **Timed separately because it is neither cached NOR counted, and both are
-                    // defects** (B189). `ModelLighting.For` exists to cache exactly this sample —
-                    // keyed on the entity and the quantised point, because a model that has not
-                    // moved cannot have changed brightness — and this call goes straight past it to
-                    // the sampler. So every worn item on every player re-traces its lighting every
-                    // frame, and because the call sits outside `LightingTicks` the cost was landing
-                    // in a column arrived at by subtraction.
-                    long wornAt = System.Diagnostics.Stopwatch.GetTimestamp();
-
-                    PointLighting worn =
-                        lightAt is null ? PointLighting.None : lightAt(at.X, at.Y, at.Z);
-
-                    light = worn.Cube;
-
-                    // **The local lights follow to the same place, for the same reason.** A worn
-                    // item takes its wearer's cube because its own pose is the origin; taking its
-                    // wearer's lamps and not its wearer's cube would light a hat by one and shade
-                    // it by the other.
-                    locals = worn.Locals;
-
-                    // **And the reflection follows the light to the same place.** A merged item's
-                    // own pose is (0,0,0) by construction — the comment above says why — so its
-                    // cubemap has to be chosen where its WEARER stands, exactly as its ambient cube
-                    // is. Leaving this behind would fix the lighting and leave a weapon reflecting
-                    // the map origin, which is B170.
-                    origin = at;
-
-                    WornLightTicks += System.Diagnostics.Stopwatch.GetTimestamp() - wornAt;
-                }
+                // **Lit where its wearer stands — and no longer patched HERE** (B189; the outside
+                // audit's finding 6). A merged item's own pose is (0,0,0) by construction, so an
+                // override in this loop used to replace the cube, the lamps and the reflection
+                // origin with wearer-point samples. It went past `ModelLighting.For`'s cache — so
+                // every worn item re-traced its lighting every frame — and it missed the SUN,
+                // which stayed sampled at the map origin, leaving every cosmetic without direct
+                // light while its wearer stood in it. `IlluminationPoint` now answers the wearer's
+                // point for a bone-merged prop, so the `For` call above samples cube, lamps, sun
+                // and reflection origin at the right place through the one exact-point cache.
+                // `WornLightTicks` still exists and now stays zero, which is the truth: the work
+                // moved into the `lighting` column with every other sample.
 
                 // Guarded before `FirstTime`, so a production run does not even build the
                 // `path + "#worn"` key — a string allocated per worn prop per frame (B191).
