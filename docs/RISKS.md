@@ -16219,3 +16219,58 @@ without knowing that: their phases sum to ~10 ms while the reported frame is 63 
 The owner flagged this before the first run: *"the background fps clamp is going to be an issue with
 testing this"*. He was right, and the first attempt had been backgrounded. **Take the focused
 population, or run it in front of you.**
+
+## B254 — we pose every entity in the tick; the engine poses only what is in a visible leaf — OPEN
+
+**The divergence B253 went looking for.** Measured, `tf2-2026-pub-pov-clean` at tick 14000, uncapped,
+10,700 rebuilds, focused window:
+
+```
+moment cost, mean over 100 rebuilds: 7.8 ms
+    = sample 1.9, drawlist 0.5, models 0.5, pose 4.8, weapons 0, viewmodel 0.2
+  pose = lighting 0.9, simulate 0.4, wornlight 0.4, setup 1.8, skin 0.3, anim 1.3, rest 0.7
+  drawn 600 per rebuild
+```
+
+`props` at that tick is **560**. `drawn` is **600**. Nothing is being removed — every prop the tick
+carries is posed, lit, skinned and instanced, every frame.
+
+**The engine never does this, and the mechanism is not subtle.** `CClientLeafSystem::BuildRenderablesList`
+(`clientleafsystem.cpp:1813`) walks `info.m_pWorldListInfo->m_pLeafList` — the VISIBLE leaf list —
+and calls `CollateRenderablesInLeaf` once per leaf. A renderable that is not in a visible leaf never
+enters the render list, is never drawn, and therefore never reaches `C_BaseAnimating::SetupBones` at
+all. Bone setup, lighting and skinning are downstream of visibility; here they are upstream of it.
+
+**Every column above scales with that count**, which is why there is no single hotspot to fix:
+`setup` 1.8, `anim` 1.3, `lighting` 0.9, `skin` 0.3 are all per-entity work multiplied by 600
+instead of by however many are actually in front of the camera.
+
+**The PVS is already loaded and already used — for the world only.** `MapLevel.Culling` builds a
+`WorldCulling` from `BspVisibility` and the BSP tree, and `IWorldUpload.SetWorldCulling` hands it to
+the renderer for faces. No equivalent test exists anywhere in the entity path: `ModelCull` is
+backface winding (`MATERIAL_CULLMODE_*`), not visibility, and the pose loop in `EntityModels` is a
+bare `foreach (SceneProp prop in props)` whose only filters are drawability and render mode. So the
+data needed to do what the engine does is already in memory and is not consulted.
+
+### Two things checked and found FAITHFUL, recorded so they are not re-suspected
+
+- **The bone cache is correct.** `AnimatingEntity.SetupBones` clears `ReadableBones` unconditionally
+  once per frame, where `c_baseanimating.cpp:2874` clears it only `if ( LastBoneChangedTime() >=
+  m_flLastBoneSetupTime )`. That reads as a divergence and is not one: the base
+  `LastBoneChangedTime()` returns `FLT_MAX` (`c_baseanimating.h:475`), so the guard is always true
+  for everything except `C_ClientRagdoll`, which overrides it with the VPhysics update time and
+  which this project does not draw. Both guards — the per-frame reset and the subset test on the
+  requested mask — match.
+- **`fps_max 0` is honoured.** `FrameClock.IsDue(0)` returns true, which is Source's unlimited rather
+  than a zero-frame cap. The default cap is 300.
+
+### What this does NOT yet establish
+
+**How many of the 600 would survive a visibility test is unmeasured**, and it decides whether this is
+worth several milliseconds or a fraction of one. A point-of-view recording on a large map suggests
+most are out of sight, but "suggests" is not a number, and
+`docs/memory/measure-the-route-before-building-on-it.md` is about exactly this shape of assumption.
+The cheap version of that measurement is to run the existing `WorldCulling` over the prop origins and
+count, without changing what is drawn.
+
+Filed separately from B253, which is the measurement and the instruments; this is the cause it found.

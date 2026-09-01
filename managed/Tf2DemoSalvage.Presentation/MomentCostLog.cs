@@ -44,6 +44,17 @@ public sealed class MomentCostLog
     private long _weapons;
     private long _viewmodel;
 
+    // The parts of `pose`, which is the largest column of the largest column. Measured every
+    // rebuild by EntityModelSet and discarded by the same threshold as everything else here.
+    private long _lighting;
+    private long _simulate;
+    private long _wornLight;
+    private long _setup;
+    private long _skin;
+    private long _animation;
+    private long _report;
+    private long _drawn;
+
     /// <summary>Starts a log.</summary>
     /// <param name="every">
     /// Rebuilds per line; <see cref="DefaultEvery"/> when not given. Taken as a parameter so a test
@@ -76,6 +87,20 @@ public sealed class MomentCostLog
         _weapons += phases.Weapons;
         _viewmodel += phases.Viewmodel;
 
+        _lighting += phases.Counters.Lighting;
+        _simulate += phases.Counters.Simulate;
+        _wornLight += phases.Counters.WornLight;
+        _setup += phases.Counters.Setup;
+        _skin += phases.Counters.Skin;
+        _animation += phases.Counters.Animation;
+        _report += phases.Counters.Report;
+
+        // **How many of the posed props survive to be drawn.** The engine never poses the others:
+        // `CClientLeafSystem::CollateRenderablesInLeaf` gathers renderables out of VISIBLE leaves,
+        // so `SetupBones` is reached only for what the PVS and frustum already kept. This project
+        // poses every prop the tick carries, so the ratio is the size of that divergence.
+        _drawn += phases.Drawn;
+
         if (++_rebuilds < _every)
         {
             return null;
@@ -91,7 +116,19 @@ public sealed class MomentCostLog
             + $", models {Mean(_models, over):0.#}"
             + $", pose {Mean(_pose, over):0.#}"
             + $", weapons {Mean(_weapons, over):0.#}"
-            + $", viewmodel {Mean(_viewmodel, over):0.#}");
+            + $", viewmodel {Mean(_viewmodel, over):0.#}"
+
+            // **`rest` is a residual and every other pose column is measured**, which is what makes
+            // it the one worth reading: all of them small with this large means the cost is in
+            // something no timer covers yet.
+            + $"; pose = lighting {Mean(_lighting, over):0.#}"
+            + $", simulate {Mean(_simulate, over):0.#}"
+            + $", wornlight {Mean(_wornLight, over):0.#}"
+            + $", setup {Mean(_setup, over):0.#}"
+            + $", skin {Mean(_skin, over):0.#}"
+            + $", anim {Mean(_animation, over):0.#}"
+            + $", rest {Mean(Rest(), over):0.#}"
+            + $"; drawn {_drawn / (double)over:0.#} per rebuild");
 
         _rebuilds = 0;
         _sample = 0;
@@ -101,9 +138,29 @@ public sealed class MomentCostLog
         _pose = 0;
         _weapons = 0;
         _viewmodel = 0;
+        _lighting = 0;
+        _simulate = 0;
+        _wornLight = 0;
+        _setup = 0;
+        _skin = 0;
+        _animation = 0;
+        _report = 0;
+        _drawn = 0;
 
         return line;
     }
+
+    /// <summary>The part of <c>pose</c> no timer covers, by subtraction.</summary>
+    /// <remarks>
+    /// **`anim` is deliberately not subtracted, and the first version of this subtracted it.** It
+    /// came out at `rest -0.4`, which is impossible for a residual and is how the mistake announced
+    /// itself: <c>Animation</c> is time already inside another column rather than a sibling of them,
+    /// so taking it out again counts it twice. The set subtracted here is exactly
+    /// <see cref="StallReport.Moment"/>'s, which is the formula that has been read against real
+    /// numbers.
+    /// </remarks>
+    private long Rest() =>
+        _pose - _lighting - _viewmodel - _simulate - _wornLight - _report - _setup - _skin;
 
     /// <summary>Mean milliseconds per rebuild.</summary>
     private static double Mean(long ticks, int rebuilds) =>
