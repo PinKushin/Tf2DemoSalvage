@@ -230,7 +230,11 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # 1617 -> 1620: the interpolation list (B259). Three tests: an entity on the list is blended, one
 # off it holds its last stated pose, and no list interpolates everything - the last being what every
 # caller that does not care relies on.
-run Tf2DemoSalvage.Core.Tests     core     1620
+# 1620 -> 1625: ConstantTrackTests (B259 fix 3 stage A). A track with one keyframe can never answer
+# differently, so its whole record is built once - 677 of 1,165 tracks on tf2-2026-pub-pov-clean.
+# The load-bearing test is the MOVING pair: a cache that never updates and one that never hits look
+# identical from outside, and only a track that must differ at two ticks separates them.
+run Tf2DemoSalvage.Core.Tests     core     1625
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.

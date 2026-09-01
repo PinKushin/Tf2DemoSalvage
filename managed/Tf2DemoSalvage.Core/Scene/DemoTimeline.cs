@@ -2451,6 +2451,24 @@ public sealed class DemoTimeline
 
         into.Clear();
 
+        // **The interface is tested ONCE here rather than dispatched twice per prop** (B259 fix 3).
+        // Measured before changing anything, which redirected the whole fix: at tick 14000 of
+        // `tf2-2026-pub-pov-clean`, `PropsAt` costs 939 ns a prop and `At` — the search and the
+        // interpolation, the part a change-detection scheme would have skipped — is 357 of it. The
+        // other 582 ns is this boundary: an `ICollection.Add` copying a sixteen-field struct through
+        // a call that cannot inline, and an `IReadOnlySet.Contains` doing the same for a hash lookup.
+        //
+        // **The signature stays abstract on purpose.** CA1002 refuses `List<T>` in a public API and
+        // is right to; `Collection<T>` would be slower still, since it wraps. Narrowing inside costs
+        // one type test for 560 dispatches, and a caller that passes something else keeps working
+        // through the slow path rather than being refused.
+        List<SceneProp>? fast = into as List<SceneProp>;
+        HashSet<int>? named = interpolate as HashSet<int>;
+
+        // The list is refilled to nearly the same length every frame, so growing it from empty
+        // re-allocates the backing array a dozen times a second for nothing.
+        fast?.EnsureCapacity(_props.Count);
+
         // **The recorder's team AT THIS TICK**, because a player can switch sides mid-recording and
         // "is this my own team's spawn wall" then changes answer. Null for a SourceTV recording,
         // which has no local player at all — and the engine's `pLocalPlayer &&` guard means that
@@ -2470,13 +2488,53 @@ public sealed class DemoTimeline
             // implementable here — our own cull runs after the view, in `Pose`, so its answer is
             // ready for the next frame's sampling exactly as `IsVisible()` is for the engine. An
             // entity coming into view is interpolated one frame late in both.
-            ScenePose? sampled = interpolate is null || interpolate.Contains(track.EntityIndex)
+            // **A track that can never change is derived once for the whole demo** (B259 fix 3,
+            // stage A). Nothing is added to a track during playback — the recording is decoded
+            // before a frame is drawn — so a single-keyframe track answers the same pose, and
+            // therefore the same record, at every tick of its life. Measured on
+            // `tf2-2026-pub-pov-clean`: 677 of 1,165 tracks, which is most of what a map contains.
+            //
+            // **This is `RenderableChanged` inverted.** The engine is TOLD an entity moved and marks
+            // it dirty, because it streams and cannot see ahead; we can ASK, because the future is
+            // already on disk. Same rule — do the work only for what changed — reached from the
+            // other side.
+            //
+            // **`Alive` is still consulted**, and it is not a formality: a constant track is not a
+            // permanent one. Serving a cached record past `End` is precisely the defect the
+            // interpolation list shipped, where ended tracks held their last pose and `selected`
+            // went 566 to 850.
+            if (track.NeverChanges)
+            {
+                if (!track.Alive(tick))
+                {
+                    continue;
+                }
+
+                if (track.Constant is { } already && track.ConstantTeam == recorderTeam)
+                {
+                    if (fast is not null)
+                    {
+                        fast.Add(already);
+                    }
+                    else
+                    {
+                        into.Add(already);
+                    }
+
+                    continue;
+                }
+            }
+
+            bool blend = interpolate is null
+                || (named is not null ? named.Contains(track.EntityIndex) : interpolate.Contains(track.EntityIndex));
+
+            ScenePose? sampled = blend
                 ? track.At(tick)
                 : track.Held(tick);
 
             if (sampled is { Hidden: false } pose)
             {
-                into.Add(new SceneProp(
+                SceneProp built = new(
                     // **The pose as sampled, with no player-animation inputs derived from it**
                     // (B258). `Moving` was called here for every prop, and it computes `move_x`,
                     // `move_y` and `Speed` — which come from
@@ -2503,7 +2561,26 @@ public sealed class DemoTimeline
                     track.OfDisguise,
                     OfRecordersTeam: recorderTeam is { } mine && track.TeamNumber == mine,
                     Econ: track.Econ,
-                    ClientSideAnimated: track.ClientSideAnimated));
+                    ClientSideAnimated: track.ClientSideAnimated);
+
+                // Kept for the whole demo when the track can never answer differently, with the
+                // team it was built for so a side switch cannot serve a stale one.
+                if (track.NeverChanges)
+                {
+                    track.Constant = built;
+                    track.ConstantTeam = recorderTeam;
+                }
+
+                // One virtual call saved per prop, 560 a frame. `fast` is the same object as
+                // `into`; the branch only chooses whether the add can inline.
+                if (fast is not null)
+                {
+                    fast.Add(built);
+                }
+                else
+                {
+                    into.Add(built);
+                }
             }
         }
     }

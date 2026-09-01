@@ -841,6 +841,54 @@ public sealed class ScenePropTrack
     /// <summary>How many moments the entity actually changed at.</summary>
     public int KeyframeCount => _keyframes.Count;
 
+    /// <summary>Whether this track can ever answer a different pose — B259 fix 3, stage A.</summary>
+    /// <remarks>
+    /// **A track holds every keyframe the demo ever stated for it.** Nothing is added during
+    /// playback: the whole recording is decoded before a frame is drawn, which is the design
+    /// decision that lets this project seek where the engine cannot. So a track with a single
+    /// keyframe answers that one pose at every tick between its first and its last, and both `At`
+    /// and `Held` are a binary search returning a constant.
+    ///
+    /// **Measured on `tf2-2026-pub-pov-clean`: 677 of 1,165 tracks.** Fifty-eight per cent of the
+    /// per-track work of every frame is re-deriving something that was decided when the demo was
+    /// read — the map's crates, lights, doors and signs, which are most of what a level contains.
+    ///
+    /// **This is the engine's dirty flag with the polarity our architecture allows.**
+    /// `CClientLeafSystem` is TOLD an entity changed, through `RenderableChanged`, because it
+    /// streams and cannot know the future. We can ASK, because the future is already on disk.
+    /// </remarks>
+    public bool NeverChanges => _keyframes.Count <= 1;
+
+    /// <summary>Whether a tick falls inside this track's life.</summary>
+    /// <remarks>
+    /// The two ends `IndexAt` already tests, exposed so a caller reusing a cached answer applies the
+    /// same bounds rather than a second reading of them. Before the first keyframe an entity does
+    /// not exist yet; from `End` it is gone, and a cache that ignored either would keep drawing a
+    /// prop the demo had removed — which is exactly the defect the interpolation list shipped with
+    /// (`selected` 566 to 850) before its lifetime guard was restored.
+    /// </remarks>
+    /// <param name="tick">The moment being sampled.</param>
+    /// <returns>Whether the track answers a pose at that tick.</returns>
+    public bool Alive(double tick) =>
+        _keyframes.Count > 0 && tick < _endTick && tick >= _keyframes[0].Tick;
+
+    /// <summary>The finished prop for a track that never changes, built once.</summary>
+    /// <remarks>
+    /// **The whole record, not just the pose.** Deriving it costs a binary search AND the
+    /// construction of a sixteen-field struct carrying a `ScenePose` of its own, and the two were
+    /// measured at the same order — 830 ns a prop between them, swinging run to run, which is why
+    /// this caches the result rather than either half.
+    ///
+    /// **Keyed by the recorder's team**, because one field of the record is not a property of the
+    /// track: `OfRecordersTeam` compares against who was recording, and a player can switch sides
+    /// mid-demo. Everything else here is fixed when the demo is read. Storing the team it was built
+    /// for costs four bytes and removes the only way this could go stale.
+    /// </remarks>
+    internal SceneProp? Constant { get; set; }
+
+    /// <summary>The recorder's team <see cref="Constant"/> was built for.</summary>
+    internal int? ConstantTeam { get; set; }
+
     /// <summary>The moments the demo stated, in order, with nothing added.</summary>
     /// <remarks>
     /// **What the recording said, as opposed to what gets drawn.** Anything reasoning about the
