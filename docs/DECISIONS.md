@@ -7165,3 +7165,30 @@ frame is slow.
 **Not a reproach to redo.** The owner names the meshes and materials as his own call, and the answer
 is a coverage denominator per subsystem rather than a rewrite — which is what `SdkCoverageTests`
 already does for three of them and could do for more.
+
+## D131 — B259 fix 3 is approved, and the reason is that it is low-level
+
+**2026-09-01, owner, answering the ask-before-starting flag on B259 fix 3:** *"fix 3 is a needed fix
+its a real problem, bigger than pretty much any other since its such a low level change."*
+
+**The previous entry treated it as a cost/benefit question and that was the wrong frame.** It was
+filed as "the prize is most of the gap to 0.85 ms, weighed against a correctness hazard" — a
+performance trade. The owner's argument is about ORDER, not size: a low-level structural change gets
+harder to retrofit with every feature built on top of it, and this project has a long list of things
+still to draw. He had already said the consequence: *"there is no way it stays that high after adding
+more, our setup would fucking crawl in a real whole game with everything tf2 has."*
+
+**So the cost of deferring is not "we stay at 235 fps". It is that every projectile, particle and
+ragdoll added first is another caller of the enumeration that has to be reworked afterwards.** The
+floor is proportional to entity count, so each feature makes both the problem and the fix bigger.
+
+**What is approved:** replacing the per-frame rebuild of the drawn set from the whole timeline with
+something the engine's shape allows — a maintained set that is asked what is visible rather than
+filtered down to it. `CClientLeafSystem` keeps per-leaf renderable lists incrementally, inserting an
+entity when it moves and removing it when it leaves, so `BuildRenderablesList` reads only visible
+leaves and never enumerates the rest.
+
+**The hazard stands and must be designed against rather than accepted:** an index that survives
+across frames is wrong the moment something moves without updating it, and a stale index draws things
+where they are not. This project can also SEEK, which the engine cannot, so any such index has to be
+invalidated by a scrub. That is the part to get right; it is not a reason to defer.
