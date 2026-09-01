@@ -1657,6 +1657,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// </remarks>
     public ViewFrustum Frustum => _frustum;
 
+    /// <summary>Which leaves the world cull accepted this view, for the entity cull (B254).</summary>
+    /// <remarks>
+    /// Empty when the map carries no visibility data or no cull has run, and an empty span culls
+    /// nothing — the safe direction, as everywhere else in this path.
+    /// </remarks>
+    public ReadOnlySpan<bool> VisibleByLeaf =>
+        _culling is { } culling ? culling.VisibleByLeaf : default;
+
     private ViewFrustum _frustum;
 
     /// <summary>The view the current visible set was computed for, so a still camera pays nothing.</summary>

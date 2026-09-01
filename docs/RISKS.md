@@ -16399,3 +16399,50 @@ test, and no ground truth. Here the test wrote the model in and knows exactly wh
 **The rule this is a worked example of:** when a test cannot fail, the instinct is to strengthen the
 assertion and that is usually wrong. This was case 2 of the four in `CLAUDE.md` — *wrong condition*,
 an input for which correct and broken predict the same observation. Fix the input.
+
+### B254's second half: the PVS, wired and measured at almost nothing
+
+`BspLeafTree.TouchesAny` walks a box down the tree the way
+`CClientLeafSystem::InsertIntoTree` does, `WorldVisibility` now publishes its accepted leaves indexed
+BY leaf as well as listed, and that span reaches `EntityModelSet.Culls` through `WorldCulling` and
+`Device3D` — the same answer the world draw used, passed along rather than recomputed.
+
+**Measured on `tf2-2026-pub-pov-clean`, first person, 100-rebuild means:**
+
+```
+posed 514 of 600 selected, 0.4 hidden by pvs
+posed 520 of 589 selected, 0.1 hidden by pvs
+posed 499 of 607 selected, 0   hidden by pvs
+```
+
+**So the visibility half rejects essentially nothing, and the reason is not that it is broken.** The
+count is occasionally non-zero, which is the control: the tree arrived, the span arrived, and the
+walk can return true. What it means is that the frustum test — which runs first here — has already
+removed everything outside the view cone, and at this position nearly every entity left inside the
+cone is also inside the PVS.
+
+**Two honest caveats on that number:**
+
+- **It is one spot on one map.** A corridor map, or a camera facing a wall with a room behind it,
+  is exactly where the PVS earns its keep, and this measurement says nothing about those.
+- **An entity's box spans leaves, and `TouchesAny` keeps it if ANY of them is visible.** That is the
+  engine's rule, not a weakening of it — Valve inserts a renderable into every leaf its bounds touch
+  for precisely this reason — but it does mean large bounds make the test permissive by design.
+
+**Ordered frustum-first, which is not the engine's order.** `BuildRenderablesList` iterates visible
+leaves and frustum-tests what is in them; this tests the frustum and then visibility. The ANSWER is
+identical — a prop is kept only if it passes both — and the engine's ordering falls out of it
+maintaining per-leaf renderable lists across frames, which this does not. Recorded because it looks
+like a divergence and is not one.
+
+**Where the frame stands now**, first person, uncapped, against 96 fps / 11 ms at the start of this
+work:
+
+```
+frame rate 147 fps, 5.8 ms; sound 0.2, camera 0.3, project 2.3, advance 2.9, draw 1.1
+moment cost 5.2 ms = sample 2.0, drawlist 0.6, models 0.5, pose 2.1
+```
+
+`sample` and `pose` are now the same size, and `sample` is untouched by any of this: it interpolates
+every track every frame, where the engine interpolates entities as it meets them in the visible set.
+That is the next thing worth reading, and it is a decode-side question rather than a rendering one.

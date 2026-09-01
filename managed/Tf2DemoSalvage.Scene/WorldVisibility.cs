@@ -45,6 +45,19 @@ public sealed class WorldVisibility
     /// <summary>Reused between views so a moving camera does not allocate a list a frame.</summary>
     private readonly List<int> _leaves = [];
 
+    /// <summary>The same answer as <see cref="Leaves"/>, indexed BY leaf rather than listed.</summary>
+    /// <remarks>
+    /// **Two shapes of one answer, because two callers ask opposite questions.** The world draw
+    /// walks the list — "which leaves do I draw" — and the entity cull tests membership — "is THIS
+    /// leaf visible", six hundred times a frame against a box that may touch several. Scanning the
+    /// list for each would be the quadratic read
+    /// `docs/memory/per-item-apis-hide-quadratic-reads.md` is about.
+    ///
+    /// Grown to the leaf count on first use and cleared per view, so a moving camera allocates
+    /// nothing.
+    /// </remarks>
+    private bool[] _visibleByLeaf = [];
+
     /// <summary>How deep the walk may go before it gives up on a malformed tree.</summary>
     /// <remarks>
     /// **A bound rather than trust, matching <see cref="BspLeafTree.LeafAt"/>'s own loop guard.** A
@@ -53,6 +66,14 @@ public sealed class WorldVisibility
     /// even a pathological map is nowhere near this.
     /// </remarks>
     private const int MaximumDepth = 256;
+
+    /// <summary>Which leaves the last <see cref="Leaves"/> call accepted, indexed by leaf.</summary>
+    /// <remarks>
+    /// For the entity cull, which asks "is this leaf visible" rather than "list the visible leaves"
+    /// (B254). Empty before the first view is set, and an empty span culls nothing — the same
+    /// direction of safety <see cref="ViewFrustum.Cull"/> takes for an unbuilt frustum.
+    /// </remarks>
+    public ReadOnlySpan<bool> VisibleByLeaf => _visibleByLeaf;
 
     /// <summary>Builds a visibility query over one map.</summary>
     /// <param name="tree">The map's nodes, planes and leaves.</param>
@@ -85,6 +106,7 @@ public sealed class WorldVisibility
     public IReadOnlyList<int> Leaves(float x, float y, float z, ViewFrustum frustum)
     {
         _leaves.Clear();
+        Array.Clear(_visibleByLeaf);
 
         if (_tree.IsEmpty)
         {
@@ -192,5 +214,15 @@ public sealed class WorldVisibility
         }
 
         _leaves.Add(leaf);
+
+        // **Both shapes filled at the one place a leaf is accepted**, so they cannot disagree about
+        // what is visible. Two separate walks would be two chances to answer differently, and the
+        // entity cull would then hide things the world draws.
+        if (leaf >= _visibleByLeaf.Length)
+        {
+            Array.Resize(ref _visibleByLeaf, Math.Max(leaf + 1, _visibleByLeaf.Length * 2));
+        }
+
+        _visibleByLeaf[leaf] = true;
     }
 }

@@ -4045,7 +4045,17 @@ internal class MainForm : Form, IFrameSteps
         // **Before the early return, because the two are unrelated.** `NeedsProjecting` asks whether
         // the WORLD's screen-space projection is stale, which a camera move invalidates and a demo
         // tick does not; the pose is due on every frame that built a moment.
-        _moments.PoseNow(_device?.Frustum ?? default);
+        // A span cannot be null-coalesced, so the device is tested once and both halves come from
+        // the same one — which is also what stops a frustum and a visible set from different frames
+        // reaching the cull together.
+        if (_device is { } device)
+        {
+            _moments.PoseNow(device.Frustum, device.VisibleByLeaf);
+        }
+        else
+        {
+            _moments.PoseNow();
+        }
 
         if (!_world.NeedsProjecting)
         {

@@ -182,6 +182,7 @@ public sealed class MomentPresenter
 
     /// <summary>Poses the moment already built, once the view for this frame exists.</summary>
     /// <param name="frustum">The view being drawn, for the cull that precedes the pose (B254).</param>
+    /// <param name="visibleByLeaf">The world cull's visible-leaf set, for the visibility half.</param>
     /// <remarks>
     /// **Called after `PlaceCamera` and not from `Show`**, because the engine computes the view
     /// before it decides what is visible and long before it sets up any bones — `SetUpView`, then
@@ -195,7 +196,7 @@ public sealed class MomentPresenter
     /// of a repaint: a paused viewer draws repeatedly off one moment, and posing again per draw is
     /// exactly the per-frame cost this change exists to remove.
     /// </remarks>
-    public void PoseNow(ViewFrustum frustum = default)
+    public void PoseNow(ViewFrustum frustum = default, ReadOnlySpan<bool> visibleByLeaf = default)
     {
         if (_builtFor is not { } info || _posed)
         {
@@ -204,7 +205,7 @@ public sealed class MomentPresenter
 
         _posed = true;
 
-        MomentPhases posing = _moment.Pose(info, frustum);
+        MomentPhases posing = _moment.Pose(info, frustum, visibleByLeaf);
 
         // **One line per rebuild, not two.** The two halves are measured apart and read together;
         // reporting each on its own would put `advance`'s parts in separate lines that a reader has
@@ -225,6 +226,7 @@ public sealed class MomentPresenter
             // neighbouring record happens to hold.
             Drawn = posing.Drawn,
             Selected = posing.Selected,
+            Hidden = posing.Hidden,
         };
 
         _ledger.Posed(phases.Pose);

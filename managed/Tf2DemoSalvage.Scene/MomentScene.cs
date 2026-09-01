@@ -23,6 +23,7 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="Viewmodel">What the viewmodel cost, inside <paramref name="Pose"/> but outside the counters.</param>
 /// <param name="Counters">Every pose-phase counter for THIS moment, already differenced.</param>
 /// <param name="Drawn">How many props were posed, the control for <c>Counters.Built</c>.</param>
+/// <param name="Hidden">How many the visibility half rejected, of those the frustum kept.</param>
 /// <param name="Selected">
 /// How many props <c>Build</c> chose, before the frustum rejected any (B254). The ratio against
 /// <paramref name="Drawn"/> is the measurement; either number alone says nothing about the cull.
@@ -52,7 +53,10 @@ public readonly record struct MomentPhases(
     // **What Build selected, before the frustum saw any of it** (B254). Reported beside `Drawn`
     // rather than instead of it, because the RATIO is the measurement: the two numbers together say
     // whether the cull is doing anything, and either alone says nothing.
-    int Selected = 0)
+    int Selected = 0,
+
+    // How many of the culled were rejected by VISIBILITY rather than by the frustum (B254).
+    int Hidden = 0)
 {
     /// <summary>What the ledger measured but did not name, which is the column that matters.</summary>
     /// <remarks>
@@ -341,6 +345,7 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// <summary>Poses what <see cref="Build"/> selected, and produces the instances.</summary>
     /// <param name="info">The moment, whose camera this call needs and <see cref="Build"/> does not.</param>
     /// <param name="frustum">The view being drawn, for the cull that precedes the pose (B254).</param>
+    /// <param name="visibleByLeaf">The world cull's visible-leaf set, for the visibility half.</param>
     /// <returns>The phases this half measured, to be added to <see cref="Build"/>'s.</returns>
     /// <remarks>
     /// **Apart from <see cref="Build"/> because the engine's order is view, then visibility, then
@@ -356,14 +361,16 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// (B203). Moving that too would put the camera a tick behind the world it follows, which is the
     /// bug B203 fixed.
     /// </remarks>
-    public MomentPhases Pose(MomentInfo info, ViewFrustum frustum = default)
+    public MomentPhases Pose(
+        MomentInfo info, ViewFrustum frustum = default, ReadOnlySpan<bool> visibleByLeaf = default)
     {
         long posingAt = Stopwatch.GetTimestamp();
 
         EntityModelSet.PoseCounters before = _models.Counters;
 
         _models.Instances(
-            _drawn, _instances, Lighting.LightingAt, Lighting.SunAt, info.Seconds, frustum);
+            _drawn, _instances, Lighting.LightingAt, Lighting.SunAt, info.Seconds, frustum,
+            visibleByLeaf);
 
         EntityModelSet.PoseCounters pose = _models.Counters.Since(before);
 
@@ -373,6 +380,7 @@ public sealed class MomentScene : IGameSystemPerFrame
         // measurement before the second `Instances` call was noticed. Same shape as the counters
         // above, which are differenced across this call for the same reason.
         int culled = _models.Culled;
+        int hidden = _models.CulledByVisibility;
 
         // **Timed apart from the counters above, because the pose phase spans this too.** They are
         // read across `Instances` alone, so every millisecond spent building the viewmodel scene was
@@ -400,7 +408,8 @@ public sealed class MomentScene : IGameSystemPerFrame
             Viewmodel: viewmodelTicks,
             Counters: pose,
             Drawn: _drawn.Count - culled,
-            Selected: _drawn.Count);
+            Selected: _drawn.Count,
+            Hidden: hidden);
     }
 
     /// <summary>Reads whatever geometry this moment needs, and uploads it if the set grew.</summary>

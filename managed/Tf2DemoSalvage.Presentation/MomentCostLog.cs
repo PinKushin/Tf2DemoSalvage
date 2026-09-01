@@ -55,6 +55,7 @@ public sealed class MomentCostLog
     private long _report;
     private long _drawn;
     private long _selected;
+    private long _hidden;
 
     /// <summary>Starts a log.</summary>
     /// <param name="every">
@@ -102,6 +103,7 @@ public sealed class MomentCostLog
         // poses every prop the tick carries, so the ratio is the size of that divergence.
         _drawn += phases.Drawn;
         _selected += phases.Selected;
+        _hidden += phases.Hidden;
 
         if (++_rebuilds < _every)
         {
@@ -130,7 +132,8 @@ public sealed class MomentCostLog
             + $", skin {Mean(_skin, over):0.#}"
             + $", anim {Mean(_animation, over):0.#}"
             + $", rest {Mean(Rest(), over):0.#}"
-            + $"; posed {_drawn / (double)over:0.#} of {_selected / (double)over:0.#} selected");
+            + $"; posed {_drawn / (double)over:0.#} of {_selected / (double)over:0.#} selected"
+            + $", {_hidden / (double)over:0.#} hidden by pvs");
 
         _rebuilds = 0;
         _sample = 0;
@@ -149,6 +152,7 @@ public sealed class MomentCostLog
         _report = 0;
         _drawn = 0;
         _selected = 0;
+        _hidden = 0;
 
         return line;
     }
