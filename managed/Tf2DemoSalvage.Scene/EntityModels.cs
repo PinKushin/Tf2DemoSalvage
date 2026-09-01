@@ -1617,6 +1617,53 @@ public sealed class EntityModelSet
     /// <summary>The source a viewer with no map open reads from, which has nothing in it.</summary>
     public static Func<string, PropModels.ModelFrames?> NoGeometry { get; } = _ => null;
 
+    /// <summary>Forgets everything the level put here — models, packed vertices, entity state.</summary>
+    /// <remarks>
+    /// **A model path is map-scoped, and this set outlives the map** (the outside audit's finding
+    /// 1). Two facts make the caches wrong to keep: an inline brush model is <c>*N</c>, a run of
+    /// faces in one particular BSP, so the same name on the next map is different geometry; and
+    /// the loader consults the map's own pak before the archives, so any stock path can be a
+    /// per-map override — including "this path is missing", which
+    /// <see cref="Add(IReadOnlyList{SceneProp}, Func{string, PropModels.ModelFrames?})"/>
+    /// deliberately caches so the loader is not re-asked every frame. Correct within a level, and
+    /// a permanent lie across one.
+    ///
+    /// **The engine's shape**: the world and its brush models are freed with the map, and level
+    /// transition unloads unreferenced models — at this viewer's shutdown, everything is
+    /// unreferenced. The next load repacks what its demo names (`DemoModels.Precache`), which puts
+    /// the cost on the load screen where the engine pays it too.
+    ///
+    /// **Entity state goes with the level as well**, not just path-keyed geometry: entity indices
+    /// are per-demo, and Valve destroys every entity at level shutdown. A surviving
+    /// animation-cycle or placement entry for entity 545 would greet the next demo's entity 545 as
+    /// though it had been here all along.
+    /// </remarks>
+    public void LevelShutdown()
+    {
+        _vertices.Clear();
+        _byModel.Clear();
+        _frames.Clear();
+        _swaps.Clear();
+        _raw.Clear();
+
+        _entities.Clear();
+        _entityModels.Clear();
+        _placements.Clear();
+        _lightPoints.Clear();
+        _drawnPlacements.Clear();
+        _parentPlacements.Clear();
+        _propsByEntity.Clear();
+        _skinning.Clear();
+        _posedEntities.Clear();
+
+        // Log dedup is per-level too: the next map's missing frames and poses deserve their own
+        // report, and a brush height cached for entity N is the OLD map's brush.
+        _reportedFrames.Clear();
+        _reportedPoses.Clear();
+        _posedSize.Clear();
+        _reports.LevelShutdown();
+    }
+
     /// <summary>Packs whatever a moment needs that is not packed already.</summary>
     /// <param name="props">What exists at this tick, from the timeline.</param>
     /// <returns>Whether anything was added, so the caller knows to re-upload.</returns>
