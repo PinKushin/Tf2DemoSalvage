@@ -224,7 +224,10 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # era float spelling folding into the same bits, and the empty control. Five on the RESOLUTION -
 # IterateAttributes' chain branch for branch, including the else-if that forecloses the definition's
 # attributes when the demos list is taken, and the all-ones INVALID_ITEM_ID gate.
-run Tf2DemoSalvage.Core.Tests     core     1616
+# 1616 -> 1617: B258 split the derived-pose test in two - PlayersAt fills move_x, move_y and
+# Speed, PropsAt leaves them alone, since ComputePoseParam_MoveYaw is player animation state and
+# the engine derives none of it for a prop.
+run Tf2DemoSalvage.Core.Tests     core     1617
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.

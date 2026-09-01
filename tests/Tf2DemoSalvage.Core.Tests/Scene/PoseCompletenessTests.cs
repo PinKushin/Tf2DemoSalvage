@@ -111,40 +111,68 @@ public sealed class PoseCompletenessTests
             "above cannot tell whether the code keeps them: " + string.Join(", ", untouched));
     }
 
+    /// <remarks>
+    /// **The other half of the exclusion above, moved to the path that actually computes them**
+    /// (B258). `Speed`, `move_x` and `move_y` come from
+    /// `CBasePlayerAnimState::ComputePoseParam_MoveYaw`, which the engine runs for players and for
+    /// nothing else — so `PropsAt` no longer derives them, and the test that asserted it did has
+    /// become the pair below: the player path fills them, and the prop path leaves them alone.
+    ///
+    /// The prop half is not a formality. It is the assertion that would fail if somebody restored
+    /// `Moving()` to `PropsAt` for a plausible-looking reason, and it is cheap to state.
+    /// </remarks>
     [Test]
-    public void PoseCompleteness_TheDerivedFields_AreFilledInByPropsAt()
+    public void PoseCompleteness_TheDerivedFields_AreFilledInByPlayersAt()
     {
-        // **The other half of the exclusion above, and without it that list is just new silence.**
-        // Speed, move_x and move_y are excluded from the survival test because they are properties
-        // of the TRACK rather than of a keyframe — so this asserts the place that does compute them
-        // actually does.
-        //
-        // They were computed onto ScenePlayer and read off SceneProp, so both were permanently
-        // zero: the viewer picks an animation from Speed and blends it with the move parameters, so
-        // a running player kept a standing sequence AND the standing corner of its blend grid. The
-        // numbers existed the whole time, on a record nobody asked.
         ScenePropTrack track = new(entityIndex: 3, "models/player/scout.mdl");
 
-        // Moving straight along +X, fast enough to be running rather than noise: MOVING_MINIMUM_SPEED
-        // is half a unit a second, and this is 200 units over a tenth of a second.
+        track.Add(0, new ScenePose { X = 0f, Y = 0f, Z = 0f, Yaw = 0f });
+        track.Add(7, new ScenePose { X = 200f, Y = 0f, Z = 0f, Yaw = 0f });
+
+        DemoTimeline timeline = DemoTimeline.ForPlayerTracks(
+            [track],
+            [new ScenePlayer(
+                EntityIndex: 3, X: 0f, Y: 0f, Z: 0f, Team: 2, Health: 100, PlayerClass: 1)]);
+
+        List<ScenePlayer> players = [];
+        timeline.PlayersAt(13d, players);
+
+        ScenePlayer sampled = players.Single();
+
+        sampled.Speed.ShouldBeGreaterThan(
+            0f, "a player that is moving must report a speed to choose an animation");
+
+        // Running straight forward is move_x = 1 in the body's own frame, which is the far end of
+        // the grid rather than its middle.
+        sampled.MoveX.ShouldBeGreaterThan(0.5f, "running forward should drive move_x towards 1");
+    }
+
+    /// <remarks>
+    /// **A prop is not a player and the engine derives none of this for one.** `PropsAt` computed
+    /// `Speed`, `move_x` and `move_y` for every crate on the map — three timeline lookups each, per
+    /// frame — and never for a player, since player tracks are not in the prop list at all.
+    /// Measured on `tf2-2026-pub-pov-clean`: zero of 79 prop groups are `CTFPlayer`.
+    /// </remarks>
+    [Test]
+    public void PoseCompleteness_TheDerivedFields_AreLeftAloneByPropsAt()
+    {
+        ScenePropTrack track = new(entityIndex: 3, "models/props/crate.mdl");
+
         track.Add(0, new ScenePose { X = 0f, Y = 0f, Z = 0f, Yaw = 0f });
         track.Add(7, new ScenePose { X = 200f, Y = 0f, Z = 0f, Yaw = 0f });
 
         DemoTimeline timeline = DemoTimeline.ForTracks([track]);
 
         List<SceneProp> props = [];
-        // Likewise one delay later, so the second update has landed and a speed can be derived.
         timeline.PropsAt(13d, props);
 
         ScenePose pose = props.Single().Pose;
 
-        pose.Speed.ShouldNotBeNull("an entity that is moving must report a speed to choose an animation");
-        pose.Speed.Value.ShouldBeGreaterThan(0f);
-
-        // Running straight forward is move_x = 1 in the body's own frame, which is the far end of
-        // the grid rather than its middle.
-        pose.MoveX.ShouldBeGreaterThan(0.5f, "running forward should drive move_x towards 1");
+        pose.Speed.ShouldBeNull("a prop has no animation state to derive a speed for");
+        pose.MoveX.ShouldBe(0f);
+        pose.MoveY.ShouldBe(0f);
     }
+
 
     /// <summary>A pose whose every field differs from the default for its type.</summary>
     /// <remarks>
