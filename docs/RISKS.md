@@ -16552,3 +16552,34 @@ repo's notes: an absence needs a control, and a grep's scope is a claim about th
 
 The cost split therefore remains unmeasured. It is also no longer needed to justify the change:
 the engine does not do this work for props at all.
+
+### B258 fixed: sample halved, and the frame is now 235 fps
+
+Measured the same way, first person, uncapped, one bounded `--measure` run:
+
+```
+frame rate 235 fps, 6.1 ms; sound 0.2, camera 0.1, project 1.3, advance 1.6, draw 0.8
+moment cost 2.9 ms = sample 0.8 (players 0.09), drawlist 0.5, models 0.2, pose 1.3
+```
+
+| | before this work | now |
+|---|---|---|
+| frame | 11 ms (96 fps) | 5.6–6.1 ms (232–235 fps) |
+| rebuild | 7.8 ms | 2.9 ms |
+| `sample` | 1.9 ms | 0.8 ms |
+| `pose` | 4.8 ms | 1.3 ms |
+| `draw` | 1.1 ms | 0.8 ms |
+
+**Every one of those came from doing what the engine does**, not from tuning: cull before posing
+(B254), pose after the view (B255), and derive player animation inputs only for players (B258).
+Nothing here traded a visible property for a number, which is D89's rule and the reason the work was
+framed as parity from the start.
+
+**`draw` barely moved and that is the point.** TF2's whole 600 fps frame is 1.67 ms; ours was already
+1.1 and is now 0.8. The GPU was never the problem, and every measurement that said so was measuring
+CPU work the engine does not do.
+
+**What remains in `sample`, unexamined:** 0.8 ms still walks every track every frame. The engine's
+second rule — `RemoveFromInterpolationList` on `bNoMoreChanges`, so a settled prop leaves the list
+until it moves — has no equivalent here and is the next thing if this ever needs to be smaller. It
+is not obviously worth it now.
