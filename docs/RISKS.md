@@ -16737,3 +16737,43 @@ making the draw list start from the visible set rather than walk everything and 
   not an entity that stopped interpolating.
 
 Both would have passed a green suite. Only the numbers showed them.
+
+### B259 fix 3 is not a fix, it is an architectural decision — and here is why
+
+Fixes 1 and 2 landed. The third, "build the draw list from the visible set", turns out not to be a
+change of the same kind, and the reason is worth writing down before somebody attempts it as one.
+
+**What the remaining 2.4 ms of an empty view is made of:**
+
+| pass | ms | what it does per prop | can it start from the visible set? |
+|---|---|---|---|
+| `sample` | 0.8 | binary search + build a `SceneProp` | **No** — the draw list needs every prop before anything knows which are visible |
+| `drawlist` | 0.6 | the `ShouldDraw` filters, one pass each | No — same reason |
+| `models` | 0.3 | one dictionary lookup to find nothing new | **No** — packing must see the broad set, or a model that comes into view hitches (B163, D86: 385 ms in one frame) |
+| `pose` | 0.7 | placement, which the engine also does for everything | No — `EntityTransform` is needed whether or not the prop is drawn |
+
+**So every one of them is "enumerate 566 props and do a little per prop", and the little cannot be
+removed by a filter, because the filter is downstream of the enumeration.**
+
+**The engine avoids this by never enumerating in the first place.** `CClientLeafSystem` maintains
+per-leaf renderable lists INCREMENTALLY — an entity is inserted when it moves or is created and
+removed when it leaves, so `BuildRenderablesList` reads only leaves the camera can see and never
+touches the rest. Ours rebuilds the whole set from the timeline every frame, which is the honest
+consequence of a different design: the engine streams and cannot seek, and this project decodes the
+whole demo so that it can.
+
+**That is the decision, and it belongs to the owner rather than to a bug fix.** Keeping a per-leaf
+entity index that survives across frames and is invalidated by a seek is a real piece of
+architecture, with a correctness hazard the current design does not have — a stale index draws
+things that have moved. The prize is the floor, which is most of the gap to TF2's 0.85 ms.
+
+**What has already been taken, and what it cost:**
+
+- Fix 1, the client-side animation gate: a correctness fix, 1,221 updates were being advanced that
+  should not have been.
+- Fix 2, the interpolation list: `sample` 0.9 → 0.8, and the measurement is what showed the win is
+  small because the enumeration rather than the blending is the cost.
+- `UpdateClientSideAnimations` became nearly free as a side effect of B258 — props now carry no
+  `Speed`, so it `continue`s on its first line for every one of them.
+
+The floor is 2.6 → 2.4 ms across both. The rest is the decision above.
