@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using Tf2DemoSalvage.Core.Schema;
 
 namespace Tf2DemoSalvage.Core.Scene;
@@ -415,6 +416,119 @@ public sealed class EntityState
 
     /// <summary>Every property this entity has ever been sent, keyed <c>Table.Name</c>.</summary>
     public IReadOnlyDictionary<string, PropertyValue> Properties => _properties;
+
+    /// <summary>The econ attributes this entity carries in one of its two networked lists.</summary>
+    /// <param name="list">Which list — local overrides, or the networked-for-demos fallback.</param>
+    /// <returns>The attributes, in element order. Empty when the entity carries none.</returns>
+    /// <remarks>
+    /// **Read from PATH-shaped keys, because the flat <c>Table.Prop</c> key is lossy for exactly
+    /// this data** (B234). Every element of <c>m_Attributes</c> references the same
+    /// <c>DT_ScriptCreatedAttribute</c>, so twenty elements share one flat name and the two lists
+    /// share it too. Properties under a repeated sub-table are therefore stored under their dotted
+    /// path — <c>…m_AttributeList.m_Attributes.001.m_iRawValue32</c> — and this walks them.
+    ///
+    /// **The length prop is honoured per group.** <c>SendPropUtlVectorDataTable</c> networks the
+    /// vector's size through <c>lengthproxy.lengthprop20</c>, and the engine resizes to it before
+    /// reading elements — an element at or past the length is a stale slot from before the vector
+    /// shrank, and reporting it would resurrect a removed attribute.
+    ///
+    /// **Two value spellings, one field.** Modern demos send the float's raw bits as an int under
+    /// <c>m_iRawValue32</c> (<c>SENDINFO_NAME(m_flValue, m_iRawValue32)</c>); era demos send a
+    /// genuine float under <c>m_flValue</c> (*"for demo compatibility only"*,
+    /// <c>econ_item_view.cpp:74</c>).
+    /// </remarks>
+    public IReadOnlyList<EconAttributeValue> EconAttributes(EconAttributeList list)
+    {
+        string marker = list == EconAttributeList.Local
+            ? ".m_AttributeList.m_Attributes."
+            : ".m_NetworkedDynamicAttributesForDemos.m_Attributes.";
+
+        // Group by everything before the ordinal, so a player's own list and a carried item's list
+        // — both legitimately named `m_AttributeList` — stay separate vectors with separate lengths.
+        Dictionary<string, SortedDictionary<int, (int? Definition, int? Bits)>> groups = [];
+        Dictionary<string, int> lengths = [];
+
+        foreach ((string key, PropertyValue value) in _properties)
+        {
+            // Keys are stored without a leading dot; the marker carries one so that
+            // `m_AttributeList` cannot match inside `…ForDemos`. Normalise by prefixing.
+            string dotted = "." + key;
+
+            int at = dotted.IndexOf(marker, StringComparison.Ordinal);
+            if (at < 0)
+            {
+                continue;
+            }
+
+            string group = dotted[..at];
+            string tail = dotted[(at + marker.Length)..];
+
+            if (tail.StartsWith("lengthproxy.", StringComparison.Ordinal))
+            {
+                lengths[group] = (int)value.AsInt;
+                continue;
+            }
+
+            int dot = tail.IndexOf('.', StringComparison.Ordinal);
+            if (dot <= 0 ||
+                !int.TryParse(tail[..dot], NumberStyles.None, CultureInfo.InvariantCulture,
+                    out int element))
+            {
+                continue;
+            }
+
+            string property = tail[(dot + 1)..];
+
+            if (!groups.TryGetValue(
+                group, out SortedDictionary<int, (int? Definition, int? Bits)>? elements))
+            {
+                elements = [];
+                groups[group] = elements;
+            }
+
+            (int? definition, int? held) = elements.TryGetValue(
+                element, out (int? Definition, int? Bits) existing) ? existing : (null, null);
+
+            if (string.Equals(property, "m_iAttributeDefinitionIndex", StringComparison.Ordinal))
+            {
+                definition = (int)value.AsInt;
+            }
+            else if (string.Equals(property, "m_iRawValue32", StringComparison.Ordinal))
+            {
+                held = unchecked((int)value.AsInt);
+            }
+            else if (string.Equals(property, "m_flValue", StringComparison.Ordinal))
+            {
+                // The era spelling is a genuine float; the union it fills is the same 32 bits.
+                held = BitConverter.SingleToInt32Bits(value.AsFloat);
+            }
+
+            elements[element] = (definition, held);
+        }
+
+        List<EconAttributeValue> found = [];
+
+        foreach ((string group, SortedDictionary<int, (int? Definition, int? Bits)> elements)
+            in groups)
+        {
+            int? length = lengths.TryGetValue(group, out int declared) ? declared : null;
+
+            foreach ((int element, (int? definition, int? bits)) in elements)
+            {
+                // `element >= length` is a LIFTED comparison: with no length ever declared it is
+                // false and the element is kept, which is the defensive reading — a vector whose
+                // size never arrived is reported whole rather than empty.
+                if (element >= length || definition is not { } index || bits is not { } raw)
+                {
+                    continue;
+                }
+
+                found.Add(new EconAttributeValue(index, raw));
+            }
+        }
+
+        return found;
+    }
 
     /// <summary>Reads an integer property.</summary>
     /// <param name="key">Qualified name, e.g. <c>DT_BasePlayer.m_iHealth</c>.</param>

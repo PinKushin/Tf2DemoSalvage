@@ -2051,6 +2051,34 @@ public sealed class DemoTimeline
         track.ItemDefinitionIndex = item ?? track.ItemDefinitionIndex;
         track.ClassName = state.ClassName ?? track.ClassName;
 
+        // **The wire's half of `IterateAttributes`, recomputed only when this update touched an
+        // attribute element** (B234). The accessor walks the whole property bag, so running it on
+        // every positional delta would pay for fifty thousand scans a demo; an update that carried
+        // no element-scoped property cannot have changed either list.
+        foreach (DecodedProperty carried in entity.Properties)
+        {
+            if (!carried.Definition.ElementScoped)
+            {
+                continue;
+            }
+
+            // `INVALID_ITEM_ID` is `(itemid_t)-1` (`econ_item_constants.h:443`): both networked
+            // halves all-ones. Never-sent reads as invalid, which routes an era demo — no econ
+            // system at all — to the definition's own attributes at resolve time.
+            long? high = state.Integer("DT_ScriptCreatedItem.m_iItemIDHigh");
+            long? low = state.Integer("DT_ScriptCreatedItem.m_iItemIDLow");
+
+            bool validId = high is { } h && low is { } l
+                && !(h == uint.MaxValue && l == uint.MaxValue);
+
+            track.Econ = new EconAttributeWire(
+                state.EconAttributes(EconAttributeList.Local),
+                state.EconAttributes(EconAttributeList.NetworkedForDemos),
+                validId);
+
+            break;
+        }
+
         // Kept current for the same reason the item is: a disguise's gear is created when the
         // disguise goes up, and the flag arrives with it.
         track.OfDisguise = state.OfDisguise() || track.OfDisguise;
@@ -2388,7 +2416,8 @@ public sealed class DemoTimeline
                     track.AttachedTo, track.AttachmentPoint, track.OwnedBy, pose.WeaponState,
                     track.BoneMerged, track.ItemDefinitionIndex, track.ClassName,
                     track.OfDisguise,
-                    OfRecordersTeam: recorderTeam is { } mine && track.TeamNumber == mine));
+                    OfRecordersTeam: recorderTeam is { } mine && track.TeamNumber == mine,
+                    Econ: track.Econ));
             }
         }
     }

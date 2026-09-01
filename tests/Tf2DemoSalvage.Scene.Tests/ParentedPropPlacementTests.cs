@@ -130,6 +130,14 @@ public sealed class ParentedPropPlacementTests
                 // report, and false is the value that DRAWS, which is what the engine does for
                 // every entity this rule does not name.
                 nameof(SceneProp.OfRecordersTeam),
+
+                // **`Econ`, the wire's half of `IterateAttributes`** (B234). Every other
+                // construction site keeps the default deliberately, and null is the TRUE answer at
+                // each: a player's body prop, the viewmodel's three and the synthetic load-set prop
+                // are not econ entities, and a brush hung on a door has no attribute lists rather
+                // than empty ones. Only `DemoTimeline` has the accumulated state the two lists and
+                // the item id live in.
+                nameof(SceneProp.Econ),
             ],
             ignoreOrder: true,
             "a defaulted field on SceneProp is a claim every construction site makes silently. "

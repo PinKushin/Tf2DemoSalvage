@@ -358,6 +358,10 @@ public readonly record struct ScenePose
 /// Whether this entity is on the RECORDER's team — <c>C_FuncRespawnRoomVisualizer::DrawModel</c>
 /// hides a spawn wall from the team that spawns behind it (<c>c_func_respawnroom.cpp:47</c>).
 /// </param>
+/// <param name="Econ">
+/// The wire's attribute inputs for <c>CEconItemView::IterateAttributes</c>, or <c>null</c> for an
+/// entity that carries none — see <see cref="EconAttributeWire"/> (B234).
+/// </param>
 /// <param name="AttachmentPoint">
 /// Which of that entity's named attachment points it hangs from, one-based, or <c>null</c> when it
 /// is bone-merged instead.
@@ -433,7 +437,13 @@ public readonly record struct SceneProp(
     // recording — the engine's `pLocalPlayer &&` short-circuits and the visualizer DRAWS. "On the
     // recorder's team" is false there, which is the same answer; "is an enemy" would also be false
     // and would give the opposite one.
-    bool OfRecordersTeam = false);
+    bool OfRecordersTeam = false,
+
+    // **The wire's half of `IterateAttributes`, unresolved** (B234). Null is the honest default
+    // for everything that is not an econ entity — a door has no attribute lists, not empty ones —
+    // and only `DemoTimeline` can fill it, because only the accumulated entity state holds the
+    // two lists and the item id. The consumer completes the resolution with the schema's branch 4.
+    EconAttributeWire? Econ = null);
 
 /// <summary>
 /// One entity's pose over the whole demo, stored as the moments it changed.
@@ -723,6 +733,15 @@ public sealed class ScenePropTrack
     /// this says who it belongs to. The engine keys a carried weapon's visibility on the second.
     /// </remarks>
     public int? OwnedBy { get; internal set; }
+
+    /// <summary>The wire's attribute inputs, or null for an entity that carries none.</summary>
+    /// <remarks>
+    /// **A track scalar by the B244 test — can it change while the entity stays itself?** — and it
+    /// passes where the weapon state failed: an item's applied attributes are fixed at creation.
+    /// Recomputed anyway on any update that touches an element-scoped property, because a rule
+    /// argued from "it never changes" is one stale delta away from being B244 again.
+    /// </remarks>
+    public EconAttributeWire? Econ { get; internal set; }
 
     // **The weapon's carry state used to be a track scalar here, and that was the defect** (B244).
     // It now lives on `ScenePose`, because it is the only one of these that CHANGES while an entity
