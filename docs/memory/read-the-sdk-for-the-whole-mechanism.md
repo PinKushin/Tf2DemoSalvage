@@ -30,3 +30,25 @@ The file was `src/game/client/bone_merge_cache.cpp`, about forty lines, and it a
 is only true of the specific routine that was opened. Related:
 [[read-the-encoder-not-the-decoder]] and [[research-before-code]] — same failure, one level deeper:
 the hypothesis was verified for the declaration and assumed for the mechanism.
+
+**It happened three times in one session on 2026-08-31, and the shape was READ-side versus
+WRITE-side.** A demo's per-entity baselines were being investigated. `CL_CopyNewEntity` — how an
+entering entity is DECODED against a baseline — was read out of a decompilation of `engine.dll`,
+carefully and correctly. How a baseline is STORED was then reasoned about rather than read, and
+produced three confident wrong answers in a row:
+
+- "rebuilding from the baseline on every Enter fixes it" — ran it, changed nothing;
+- "our missing baselines are in the unparsed `dem_stringtables`" — they are not in it;
+- "the engine checkpoints every entity it decoded" — it does not, and a conformance test citing the
+  reference parser said so before the experiment did.
+
+The store side was **twelve lines further down the same function already open**, and it settled all
+three in five minutes once looked at: the store lives in the entering path only, and it saves
+`RecvTable_MergeDeltas( table, fromBuf, update, newBuf )` — the merge against whichever baseline was
+used, class baseline included. That last clause was the actual defect, and no amount of reasoning
+from the read side would have produced it.
+
+**How to apply, sharpened:** when a mechanism has two sides — read/write, encode/decode, send/receive
+— reading one of them is half the research, and the half you skipped is where the surprise is. If an
+experiment falsifies a hypothesis about a mechanism, that is the signal to go and read the other
+side, not to form a second hypothesis. Related: [[a-bug-is-a-divergence-search-first]].

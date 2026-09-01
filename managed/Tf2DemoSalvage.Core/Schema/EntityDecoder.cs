@@ -280,7 +280,12 @@ public sealed class EntityDecoder : IEntityBaselines
         // stored is the merged state of the whole snapshot, not of one entity at a time.
         if (header.UpdateBaseline)
         {
-            _baselineSlots.Update(header.BaselineIndex, header.IsDelta, entities);
+            // **`EffectiveProperties` is what the engine stores**, not the update alone: its
+            // `RecvTable_MergeDeltas( table, fromBuf, update, newBuf )` merges against whichever
+            // buffer the entity was decoded from, and that is the class baseline whenever no
+            // per-entity slot applied. Handed as a delegate because the resolution lives here —
+            // `_snapshotBaselines` is filled above and cleared on the next `Decode`.
+            _baselineSlots.Update(header.BaselineIndex, entities, EffectiveProperties);
         }
 
         // Where the entity section ended, so an encoder can be checked against what the decoder
@@ -949,31 +954,24 @@ public sealed class EntityDecoder : IEntityBaselines
         // falls through to the class baseline, which is what this method always did.
         IReadOnlyList<DecodedProperty>? baseline = Baseline(entity.ClassId);
 
-        // **The checkpoint is LAYERED OVER the class baseline, not chosen instead of it** (B248).
-        // The engine picks one buffer and is right to: its checkpoints are complete packed
-        // entities, so anything the class baseline could add is already in them. Ours are built
-        // from the properties a snapshot carried, which is a subset — so choosing the checkpoint
-        // discarded whatever only the class baseline knew.
+        // **One buffer is CHOSEN, exactly as the engine chooses one** — the per-entity checkpoint
+        // when the snapshot named a slot holding this class, and the class baseline otherwise.
         //
-        // Measured, and it is a defect this project shipped for about an hour: `CBaseDoor`'s class
-        // baseline declares `m_nRenderMode = 10`, `kRenderNone`. Entity 532 of
-        // `tf2-2026-pub-pov-clean` last stated that on the wire at tick 6440 and holds it
-        // throughout. With the checkpoint shadowing the baseline it came back as
-        // `kRenderNormal` — so `cp_fulgur`'s invisible spawn doors began drawing as solid
-        // brushwork, which is a regression the SIZE of a door and was introduced by the fix for a
-        // weapon's carry state.
-        //
-        // Layering is identical to choosing wherever a checkpoint is complete, so this is a
-        // superset of the engine's behaviour rather than a departure from it. It stops being
-        // needed the day the checkpoints hold full entity state.
+        // **This briefly layered the two instead** (B248), because a checkpoint here used to be
+        // stored as the bare update and so could shadow a class baseline that knew more. That was a
+        // defect at the STORE, and it is fixed there now (B250): a checkpoint is written as the
+        // merged state the entity was decoded to, which is what
+        // `RecvTable_MergeDeltas( table, fromBuf, update, newBuf )` produces before
+        // `SetEntityBaseline` in `CL_CopyNewEntity`'s tail. With the source correct, layering and
+        // choosing give identical results — measured on `cp_fulgur` at tick 14000, 560 props either
+        // way, the doors `kRenderNone` either way — so the divergence was removed rather than kept
+        // as insurance.
         if (_snapshotBaselines.TryGetValue(
                 entity.EntityIndex,
                 out (int ClassId, IReadOnlyList<DecodedProperty> Properties) resolved)
             && resolved.ClassId == entity.ClassId)
         {
-            baseline = baseline is null || baseline.Count == 0
-                ? resolved.Properties
-                : BaselineMerge.Overlay(baseline, resolved.Properties);
+            baseline = resolved.Properties;
         }
 
         // Null and empty are treated alike here, unlike in Baseline itself: for this question

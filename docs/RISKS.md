@@ -15895,7 +15895,14 @@ whatever we had" predict the same observation and no test can tell them apart.
 The leave test keeps its Leave assertions and no longer claims the return is a DELTA. It is not:
 entity 1138 re-ENTERS at ticks 8317 and 10901.
 
-## B248 — a partial checkpoint shadowed a complete class baseline — FIXED 2026-08-31
+## B248 — a partial checkpoint shadowed a complete class baseline — FIXED 2026-08-31, then SUPERSEDED by B250
+
+**The fix described below was a workaround at the READ side, and it has since been removed.** It
+layered the class baseline under the checkpoint, which worked and was a divergence: the engine
+chooses one buffer. B250 found the actual fault at the STORE side — a checkpoint was written as the
+bare update, so it could know less than the class baseline — and with that corrected, layering and
+choosing give identical results and the divergence was deleted. The account below is kept because
+the symptom, the measurement and the wrong-instrument lesson all still stand.
 
 **Shipped by the fix for B245 and live for about an hour**, which is the shortest-lived defect in
 this file and the one with the clearest lesson: a change that is correct against the engine can be
@@ -15939,3 +15946,88 @@ Widening the slot fill without that — storing every entity rather than only th
 is what the engine does — was tried during B245 and deleted three props outright, because it stored
 more partial baselines rather than complete ones. The layering can be dropped the day the slots hold
 full state.
+
+## B249 — "the checkpoint should carry a delta's changes" — NOT A DEFECT, 2026-08-31
+
+Opened on my own reasoning, implemented, and then killed by a conformance test that was right. Kept
+because the reasoning sounded airtight and the correction is the interesting part.
+
+**The claim.** `EntityBaselineSlots` checkpoints only ENTERING entities, and stores the properties
+that snapshot carried. So a weapon deployed and holstered by DELTAS has a checkpoint frozen at
+whatever was true when it last came into view, and on its next `Enter` it reverts. The engine has no
+such problem, since it stores a `PackedEntity` — the entity's whole current state.
+
+**Why it is wrong, and the mechanism is one this file already describes.** The two baseline slots
+exist so the **server** knows which baseline each client holds; `clc_BaselineAck` is how the client
+says which one it has caught up to. An enter-PVS update is a delta against **that** baseline. If the
+client's checkpoint says one thing and the truth is another, the difference is *in the update*. A
+silent re-entry against a stale baseline is a packet the protocol never sends — and that is exactly
+what the test written to prove the claim had to hand-build.
+
+So the Enter-only filter is correct, and `EntityBaselineSlotConformanceTests` had it with the
+citation all along: `if entity.update_type == UpdateType::Enter`. **The implementation contradicted
+a conformance test and the conformance test won**, which is what those are for.
+
+**What the attempt cost, measured rather than guessed:** with live per-entity state fed into the
+slots, the corpus lost the bonesaw from player 20 at tick 14000 — the very entity B245 was about —
+and `Decode_ADeltaUpdateUnderTheFlag_StoresNothingForThatEntity` went red. Both reverted.
+
+**Where this leaves the checkpoints.** They are not "partial" in a way that needs repairing: they
+hold what the protocol intends them to hold. What remains is narrower and still open — see B248 —
+our reconstruction of the slots can lag the server's for a class with no class baseline, which is
+why the layering there earns its 560-against-558. That is a reconstruction gap, not a design error,
+and it needs evidence about which snapshots the server checkpointed rather than a wider store.
+
+**The general lesson, and it is the third time tonight.** An inference about the engine — here, "it
+checkpoints everything it decoded" — was treated as established when what had actually been READ was
+the engine's *read* side (`CL_CopyNewEntity`), never its write side. The other two were the
+enter-PVS baseline theory (B245) and B247's causal claim. Reading half a mechanism and reasoning
+across the gap has now produced three confident wrong answers in one session.
+
+## B250 — a checkpoint was stored as the bare update, so it could know less than the class baseline — FIXED 2026-08-31
+
+The real fault behind B248, found by reading the half of the engine that had been inferred rather
+than read: `CL_CopyNewEntity`'s STORE side.
+
+```c
+if ( updateBaselines ) {
+    bf_write( newBuf, "CL_CopyNewEntity->newBuf", ... );
+    RecvTable_MergeDeltas( table, fromBuf, update, newBuf );
+    SetEntityBaseline( clientState, baseline == 0, classId, entity, newBuf, len );
+}
+```
+
+**Two facts, and the project had one of them right and one wrong.**
+
+- **Right: the store is in the ENTERING path only.** It sits inside `CL_CopyNewEntity`, and
+  `CL_CopyExistingEntity` — the delta path — never touches the baseline array at all.
+  `EntityBaselineSlots.Update`'s `if (entity.UpdateType != EntityUpdateType.Enter) continue;` and
+  `EntityBaselineSlotConformanceTests` were correct, as was the reference parser they cite. **Three
+  separate attempts to widen that filter were wrong**, and the third is written up in B249.
+- **Wrong: what got stored.** The engine merges against `fromBuf` — whichever baseline the entity
+  was decoded against, which is **the class baseline whenever no per-entity slot applied**. This
+  stored `Overlay(slot, update)`, falling back to the bare update when there was no slot. So a
+  checkpoint could know strictly less than the class baseline, and then shadow it.
+
+That is what turned `cp_fulgur`'s invisible spawn doors into solid brushwork (B248):
+`CBaseDoor`'s class baseline is the only thing carrying `m_nRenderMode = 10` after tick 6440, and a
+checkpoint written without it hid it.
+
+### The fix, and the divergence it let us delete
+
+`Update` now stores `EffectiveProperties(entity)` — the same merge the engine writes — passed in as
+a delegate because resolving which baseline applied belongs to the decoder.
+
+**With the store correct, B248's layering became redundant and was removed.** Measured both ways on
+`tf2-2026-pub-pov-clean` at tick 14000: 560 props, doors `kRenderNone`, medigun active, bonesaw
+holstered — identical. So `EffectiveProperties` chooses ONE buffer again, exactly as the engine
+chooses one, and this project carries no extra rule of its own here.
+
+Keeping the layering would have been defensible and wrong: a divergence with no measured benefit,
+justified by insurance against a fault that no longer exists.
+
+### The lesson, since three of tonight's errors share it
+
+Every wrong turn in B245, B247 and B249 came from reading part of a mechanism and reasoning across
+the gap — the enter-PVS read path was read, the store path was assumed. The store path took one
+script and five minutes to find, and it contradicted the assumption immediately. **`docs/memory/read-the-sdk-for-the-whole-mechanism.md` says exactly this, and it was not followed.**
