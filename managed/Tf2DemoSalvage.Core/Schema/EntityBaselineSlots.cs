@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace Tf2DemoSalvage.Core.Schema;
@@ -85,8 +86,13 @@ internal sealed class EntityBaselineSlots
 
     /// <summary>Rebuilds the other array from this snapshot, as <c>update_baseline</c> asks.</summary>
     /// <param name="slot">The array the snapshot named; the OTHER one is rebuilt.</param>
-    /// <param name="isDelta">Whether the snapshot is a delta.</param>
     /// <param name="entities">Everything the snapshot described, in order.</param>
+    /// <param name="effective">
+    /// What an entering entity IS — the baseline it was decoded against, with its update laid over.
+    /// The engine's `RecvTable_MergeDeltas( table, fromBuf, update, newBuf )` produces exactly this
+    /// and stores the result, and `fromBuf` is the CLASS baseline whenever no per-entity slot
+    /// applied.
+    /// </param>
     /// <remarks>
     /// **The whole array is copied across before anything is written into it**, which is the step
     /// that is invisible until it is missing. Without it, one snapshot's entities would erase every
@@ -100,7 +106,10 @@ internal sealed class EntityBaselineSlots
     /// alone would make each baseline as sparse as the snapshot behind it, so a value would survive
     /// exactly one alternation and then vanish — which is a slow leak rather than a visible break.
     /// </remarks>
-    public void Update(bool slot, bool isDelta, IReadOnlyList<DecodedEntity> entities)
+    public void Update(
+        bool slot,
+        IReadOnlyList<DecodedEntity> entities,
+        Func<DecodedEntity, IReadOnlyList<DecodedProperty>> effective)
     {
         Dictionary<int, Stored> from = _slots[slot ? 1 : 0];
         Dictionary<int, Stored> into = _slots[slot ? 0 : 1];
@@ -119,12 +128,22 @@ internal sealed class EntityBaselineSlots
                 continue;
             }
 
-            IReadOnlyList<DecodedProperty> merged =
-                For(slot, entity.EntityIndex, entity.ClassId, isDelta) is { } had
-                    ? BaselineMerge.Overlay(had, entity.Properties)
-                    : entity.Properties;
-
-            into[entity.EntityIndex] = new Stored(entity.ClassId, merged);
+            // **Merged against whichever baseline the entity was DECODED against, which is not
+            // always this array.** Read out of `CL_CopyNewEntity`'s tail, where the engine does the
+            // store itself rather than leaving it to the parse loop:
+            //
+            //     bf_write( newBuf, "CL_CopyNewEntity->newBuf", ... );
+            //     RecvTable_MergeDeltas( table, fromBuf, update, newBuf );
+            //     SetEntityBaseline( clientState, baseline == 0, classId, entity, newBuf, len );
+            //
+            // `fromBuf` is the buffer chosen at the top of that same function — the per-entity slot
+            // when one applies, and **the class baseline when one does not**. So an entity entering
+            // without a slot is checkpointed as `class baseline ∪ update`, where this used to store
+            // the bare update and lose everything only the class baseline knew.
+            //
+            // That difference is what B248's layering was compensating for downstream. Taking the
+            // effective properties here fixes it at the source, which is where the engine fixes it.
+            into[entity.EntityIndex] = new Stored(entity.ClassId, effective(entity));
         }
     }
 }

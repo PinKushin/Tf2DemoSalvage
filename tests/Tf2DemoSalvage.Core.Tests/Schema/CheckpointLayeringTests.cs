@@ -8,29 +8,34 @@ using Tf2DemoSalvage.Core.Schema;
 namespace Tf2DemoSalvage.Core.Tests.Schema;
 
 /// <summary>
-/// A per-entity checkpoint layers over the class baseline rather than replacing it.
+/// A checkpoint is stored MERGED, so it never knows less than the class baseline did.
 /// </summary>
 /// <remarks>
-/// **This is a regression this project shipped, and it lasted about an hour** (B248). The fix for a
-/// weapon's carry state (B245) made an `Enter` FORGET its accumulated properties and rebuild from
-/// whatever baseline applies — which is what `CL_CopyNewEntity` does — and `EffectiveProperties`
-/// then chose the entity's own checkpoint *instead of* the class baseline.
+/// **These began as tests for a workaround and now test the real thing** (B248, then B250). The fix
+/// for a weapon's carry state (B245) made an `Enter` forget its accumulated properties and rebuild
+/// from whatever baseline applies — which is what `CL_CopyNewEntity` does — and the checkpoint it
+/// then chose was stored as the bare UPDATE. So a checkpoint could know less than the class
+/// baseline, shadow it, and drop everything only the baseline knew.
 ///
-/// The engine chooses, and is right to: its checkpoints are complete packed entities, so anything a
-/// class baseline could add is already in them. **Ours are built from the properties a snapshot
-/// happened to carry, which is a subset.** So a partial checkpoint shadowed a complete class
-/// baseline and everything only the baseline knew was dropped.
+/// What that cost, measured on `tf2-2026-pub-pov-clean`: `CBaseDoor`'s class baseline declares
+/// `m_nRenderMode = 10`, `kRenderNone`. Entity 532 last stated it on the wire at tick 6440 and
+/// holds it for the rest of the recording. With the checkpoint shadowing it the door came back
+/// `kRenderNormal`, so `cp_fulgur`'s invisible spawn doors drew as solid brushwork. Prop count at
+/// tick 14000 went 559 → 549 while the composition shifted underneath that number, which is why a
+/// bare count is a poor instrument for this.
 ///
-/// What it cost, measured on `tf2-2026-pub-pov-clean`: `CBaseDoor`'s class baseline declares
-/// `m_nRenderMode = 10`, `kRenderNone`. Entity 532 last stated that on the wire at tick 6440 and
-/// holds it for the rest of the recording. With the checkpoint shadowing it, the door came back as
-/// `kRenderNormal` — so `cp_fulgur`'s invisible spawn doors began drawing as solid brushwork.
-/// Prop count at tick 14000 went 559 → 549 and the composition shifted underneath that number,
-/// which is why a bare count is a poor instrument for this.
+/// **The first repair layered the two, which worked and was a divergence.** The engine chooses one
+/// buffer. Reading its store side settled where the real fault was:
 ///
-/// **Layering is a superset of the engine's behaviour, not a departure from it.** Where a checkpoint
-/// is complete the two are identical, because every baseline value is already present to be
-/// overwritten. It stops being necessary the day our checkpoints hold full entity state.
+/// <code>
+///   RecvTable_MergeDeltas( table, fromBuf, update, newBuf );
+///   SetEntityBaseline( clientState, baseline == 0, classId, entity, newBuf, len );
+/// </code>
+///
+/// `fromBuf` is whichever baseline the entity was decoded against — **the class baseline when no
+/// slot applied** — so the engine stores the merged state and its checkpoints can never know less.
+/// Fixing our store the same way made layering redundant: 560 props either way at tick 14000, doors
+/// `kRenderNone` either way. The divergence was removed rather than kept as insurance.
 /// </remarks>
 public sealed class CheckpointLayeringTests
 {
@@ -41,7 +46,7 @@ public sealed class CheckpointLayeringTests
     private const int EntityIndex = 3;
 
     [Test]
-    public void EffectiveProperties_APartialCheckpoint_KeepsWhatOnlyTheClassBaselineKnows()
+    public void EffectiveProperties_AnEntityCheckpointedWithoutASlot_StillCarriesTheClassBaseline()
     {
         EntityDecoder decoder = Decoder();
         IReadOnlyList<FlatProperty> flat = decoder.FlattenedFor(ClassId);
@@ -101,6 +106,23 @@ public sealed class CheckpointLayeringTests
             .Value.AsInt
             .ShouldBe(3, "the checkpoint is the later statement about this entity");
     }
+
+    // **A test was written here claiming a checkpoint must carry values a DELTA changed, and it was
+    // wrong about the protocol** — worth recording, because the reasoning behind it is the sort that
+    // sounds airtight. It said: a weapon is deployed and holstered by deltas, so a checkpoint built
+    // only from entering snapshots freezes at whatever was true when the entity last came into view,
+    // and the entity reverts on its next `Enter`.
+    //
+    // **The server does not let that happen, and the two baseline slots are the machinery by which
+    // it does not.** They exist so the SERVER knows which baseline each client is holding —
+    // `clc_BaselineAck` is the client saying which one it has caught up to — and an enter-PVS update
+    // is a delta against THAT. If the client's checkpoint says one thing and the truth is another,
+    // the difference is in the update. A silent re-entry against a stale baseline is a packet the
+    // protocol never produces, and that is exactly what the deleted test hand-built.
+    //
+    // `EntityBaselineSlotConformanceTests` already had this right, with the citation:
+    // `if entity.update_type == UpdateType::Enter` — the store covers entering entities only. The
+    // attempted "fix" contradicted a conformance test, and the conformance test won.
 
     /// <summary>Runs one snapshot through the decoder and hands back the entity it described.</summary>
     private static DecodedEntity Decode(
