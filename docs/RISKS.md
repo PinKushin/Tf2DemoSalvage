@@ -16094,3 +16094,6 @@ what the trx counts — `docs/memory/read-the-trx-total-not-the-console.md`, com
 control (the same run on `main`: 816) closed it in one command.
 
 Still open from this work: B252, the first-person half.
+
+**B234's fix confirmed by eye** — the owner, watching the same tick: *"the festival medigun was
+showing"*. Log, frame capture and a person agree, which is the full set.
