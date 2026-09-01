@@ -143,6 +143,12 @@ public sealed class ParentedPropPlacementTests
                 // everywhere but `ViewmodelScene`'s three sites, which set it — the timeline, the
                 // players and the synthetic load-set prop are all world-view by construction.
                 nameof(SceneProp.FirstPerson),
+
+                // **`m_bClientSideAnimation`, defaulting to false** (B259) - which is the engine's
+                // own default and means "the server states this cycle". Named here because a prop
+                // that quietly lost the flag would stop advancing its own animation and look like
+                // a frozen model rather than a missing field.
+                nameof(SceneProp.ClientSideAnimated),
             ],
             ignoreOrder: true,
             "a defaulted field on SceneProp is a claim every construction site makes silently. "

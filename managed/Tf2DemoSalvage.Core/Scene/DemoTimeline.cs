@@ -2177,6 +2177,14 @@ public sealed class DemoTimeline
         //
         // A server-animated entity that toggles the field would otherwise restart on it, which is
         // the same class of mistake as reading the toggle's VALUE instead of its change.
+        // **Kept current on every update, as PostDataUpdate joins and leaves the list on every
+        // update** (B259). A server-animated entity that is later told to animate itself must start
+        // being advanced, and one told to stop must stop.
+        if (state.ClientSideAnimation() is { } clientSide)
+        {
+            track.ClientSideAnimated = clientSide != 0;
+        }
+
         if (state.ClientSideFrameReset() is { } reset)
         {
             restarted |= track.LastFrameReset is not null
@@ -2473,7 +2481,8 @@ public sealed class DemoTimeline
                     track.BoneMerged, track.ItemDefinitionIndex, track.ClassName,
                     track.OfDisguise,
                     OfRecordersTeam: recorderTeam is { } mine && track.TeamNumber == mine,
-                    Econ: track.Econ));
+                    Econ: track.Econ,
+                    ClientSideAnimated: track.ClientSideAnimated));
             }
         }
     }

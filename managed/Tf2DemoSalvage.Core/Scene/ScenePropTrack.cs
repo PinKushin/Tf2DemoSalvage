@@ -366,6 +366,10 @@ public readonly record struct ScenePose
 /// Whether this prop is part of the first-person scene, which selects the display-flag mask its
 /// attachments are filtered by (B252).
 /// </param>
+/// <param name="ClientSideAnimated">
+/// Whether the CLIENT advances this entity's cycle — <c>m_bClientSideAnimation</c>, which is
+/// membership in the engine's client-side animation list (B259).
+/// </param>
 /// <param name="AttachmentPoint">
 /// Which of that entity's named attachment points it hangs from, one-based, or <c>null</c> when it
 /// is bone-merged instead.
@@ -454,7 +458,16 @@ public readonly record struct SceneProp(
     // against `WorldModel`, the two masks `DrawEconEntityAttachedModels` is called with. False is
     // the true answer everywhere but `ViewmodelScene`'s three construction sites, which are the
     // first-person scene by definition.
-    bool FirstPerson = false);
+    bool FirstPerson = false,
+
+    // **Whether the CLIENT advances this entity's cycle** - `m_bClientSideAnimation`, which is
+    // membership in the engine's client-side animation list (B259). `UpdateClientSideAnimations`
+    // walks that list rather than every entity, so a prop that did not ask takes its cycle off the
+    // wire and the client advances nothing for it.
+    //
+    // Appended for the reason every parameter above says: they are positional, so inserting one
+    // silently re-maps every call site.
+    bool ClientSideAnimated = false);
 
 /// <summary>
 /// One entity's pose over the whole demo, stored as the moments it changed.
@@ -653,6 +666,34 @@ public sealed class ScenePropTrack
     /// (`c_baseanimating.cpp:5021`) and `m_nNewSequenceParity` in either.
     /// </remarks>
     internal int? LastFrameReset { get; set; }
+
+    /// <summary>Whether the CLIENT advances this entity's cycle — <c>m_bClientSideAnimation</c>.</summary>
+    /// <remarks>
+    /// **Membership in the engine's client-side animation list, which is what it decides** (B259).
+    /// `C_BaseAnimating::PostDataUpdate` (`c_baseanimating.cpp:4689`) is the whole rule:
+    ///
+    /// <code>
+    /// if ( m_bClientSideAnimation )
+    /// {
+    ///     SetCycle( m_flOldCycle );
+    ///     AddToClientSideAnimationList();
+    /// }
+    /// else
+    /// {
+    ///     RemoveFromClientSideAnimationList();
+    /// }
+    /// </code>
+    ///
+    /// and `UpdateClientSideAnimations` then walks that list rather than the entity array. So an
+    /// entity that did not ask for it takes its cycle off the wire as an ordinary interpolated
+    /// value, and the client advances nothing for it at all.
+    ///
+    /// **It is networked**, `RecvPropInt( RECVINFO( m_bClientSideAnimation ) )` at
+    /// `c_baseanimating.cpp:190`, and a real demo is full of it: 3,319 occurrences in one SourceTV
+    /// recording. Kept on the track because it is a fact about the entity rather than about a
+    /// moment, and read once per rebuild instead of per prop.
+    /// </remarks>
+    public bool ClientSideAnimated { get; internal set; }
 
     /// <summary>When the animation now playing was stamped as having begun, in seconds.</summary>
     /// <remarks>

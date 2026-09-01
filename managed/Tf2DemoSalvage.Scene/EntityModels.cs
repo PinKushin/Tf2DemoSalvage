@@ -454,6 +454,7 @@ public sealed class EntityModelSet
 
         foreach (SceneProp prop in props)
         {
+
             if (!_frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? entry) ||
                 entry.Skinned is not { } skinned)
             {
@@ -467,6 +468,22 @@ public sealed class EntityModelSet
                 continue;
             }
 
+            // **The engine's list membership, applied as a test** (B259).
+            // `UpdateClientSideAnimations` walks `g_ClientSideAnimationList`, and
+            // `C_BaseAnimating::PostDataUpdate` puts an entity on that list only when
+            // `m_bClientSideAnimation` is set, taking it off again when it is not
+            // (`c_baseanimating.cpp:4689`). An entity that did not ask takes its cycle off the wire
+            // as an ordinary interpolated value and the client advances nothing for it.
+            //
+            // **BELOW `EntityFor`, and the first attempt put it above.** This loop does two jobs:
+            // it creates the animating entity that the pose step later looks up, and it advances
+            // the cycle. Only the second is `UpdateClientSideAnimation` — gating both stopped every
+            // prop being posed at all, which four tests said immediately.
+            //
+            // **A test rather than a maintained list, and the difference is honest.** The engine
+            // keeps a list because it streams; this project holds the whole demo and can seek, so a
+            // list mutated across frames would be wrong the moment somebody scrubs backwards. The
+            // membership RULE is the same and is what decides the work.
             ScenePose where = prop.Pose;
             int sequence = Math.Max(0, where.Sequence);
 
@@ -481,7 +498,20 @@ public sealed class EntityModelSet
             // be. Everything else leaves `AnimationStartSeconds` at zero and is unaffected.
             double elapsed = seconds - where.AnimationStartSeconds;
 
-            double advanced = where.Cycle + (elapsed * skinned.CyclesPerSecond(sequence));
+            // **Advanced only for an entity that asked the CLIENT to run its cycle** (B259).
+            // `UpdateClientSideAnimations` walks `g_ClientSideAnimationList`, which
+            // `C_BaseAnimating::PostDataUpdate` joins only when `m_bClientSideAnimation` is set and
+            // leaves when it is not (`c_baseanimating.cpp:4689`). Everything else takes `m_flCycle`
+            // off the wire as an ordinary interpolated value, so advancing it here runs a
+            // server-animated entity at demo time on top of the cycle the server already stated.
+            //
+            // **The gate is here and not around the loop, which the first attempt tried.** This
+            // body also creates the animating entity the pose step looks up and sets
+            // `EntityTransform`, the placement — both of which the engine does for every entity
+            // regardless. Skipping them stopped every prop being posed, and four tests said so.
+            double advanced = prop.ClientSideAnimated
+                ? where.Cycle + (elapsed * skinned.CyclesPerSecond(sequence))
+                : where.Cycle;
 
             // **Wrapped only if the sequence LOOPS** (`C_BaseAnimating::ClampCycle`,
             // `c_baseanimating.cpp:1431`). This was `advanced - Math.Floor(advanced)`, which is the

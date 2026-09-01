@@ -7135,3 +7135,33 @@ overstates the standing by exactly the amount of the missing work.
 buys a departure — the last three fixes were all "do what the engine does" and all of them made it
 faster, which is the usual direction. The point here is the standard the result is judged against,
 not the method.
+
+## D130 — decode a Valve subsystem COMPLETELY before moving on, and that was never limited to the wire
+
+**2026-09-01, owner:** *"the demos should have everything decoded, i told the Ai that worked on
+that, we were only moving on once the demo wire was completely decoded, the same should be done for
+everything valve really, but i didnt harp on it as much when it came to the meshes and tectures and
+materials and stuff, which was my stupidity"*.
+
+**The standard held where it was stated, and the evidence is that it worked.** The demo wire is
+completely decoded, and this session kept finding fields sitting there ready: `m_bClientSideAnimation`
+was decoded, documented with its citation, and consumed by nothing — 3,319 occurrences in one
+SourceTV recording, waiting. So were `m_nResetEventsParity`, the econ attribute lists before B234,
+and `m_flPlaybackRate` before the session that found it. **Decode complete, consumption incomplete**
+is the shape, and it is a much better position to be in than the reverse.
+
+**Where the standard was not pressed, the gap is a different kind.** Meshes, textures and materials
+were built to what a picture needed rather than to what the format holds, so the question "what does
+this subsystem contain that we have not read" has no written answer for them the way it does for the
+wire. `docs/SDK-COVERAGE.md` and `SdkCoverageTests` are the beginnings of one — 489 shader
+parameters, 66 lumps, 54 studio structures generated from the SDK so the denominator cannot go stale
+— and they exist for exactly this reason.
+
+**So the rule, stated for everything rather than for the wire alone:** finish reading a Valve
+subsystem before building on it. The cost of the other order is not that something is missing; it is
+that nothing can tell you it is missing, and the gap is only found when a picture looks wrong or a
+frame is slow.
+
+**Not a reproach to redo.** The owner names the meshes and materials as his own call, and the answer
+is a coverage denominator per subsystem rather than a rewrite — which is what `SdkCoverageTests`
+already does for three of them and could do for more.
