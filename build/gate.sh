@@ -1084,7 +1084,7 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     146
 # negative and the strobe really is off, so an implementation that simply dropped the sign test
 # would pass the first and fail the second. Found by reading the engine function end to end during
 # the parity audit, not by any measurement of ours.
-run Tf2DemoSalvage.Rendering.Tests rendering 718
+run Tf2DemoSalvage.Rendering.Tests rendering 722
 # 101 -> 103 on 2026-08-29: LaunchOptionWiringTests (B223, D118). Two tests, and they cost about
 # seventeen seconds EACH, because each builds a real MainForm and loads a corpus demo — which reads
 # cp_badlands.bsp when Team Fortress 2 is installed. That is the most expensive pair in this file
