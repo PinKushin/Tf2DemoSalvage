@@ -6,6 +6,26 @@ This project was planned in a Cowork conversation before any code existed. Every
 
 A standalone TF2 `.dem` parser that works across TF2's full history, including demos the live game client can no longer play due to Valve's own schema changes. The insight that makes this tractable: `.dem` files embed their own entity schema (`SendTables`, via the `dem_datatables` command), so a parser that decodes generically off whatever schema each file provides — rather than hardcoding one era's field layout — doesn't need to "know" every TF2 version, just the container/bit-packing quirks, which change far less often. Full explanation in `ROADMAP.md` §1.
 
+## Commands
+
+The lookup table; reasoning lives in the sections below, not here. Every path is from the repo root.
+
+| do | run |
+|---|---|
+| build everything | `MSBUILDDISABLENODEREUSE=1 dotnet build Tf2DemoSalvage.slnx` |
+| **the merge gate, phase 1** (twelve assemblies, count-floored) | `TF2DEMOSALVAGE_GCOR_ONLY=1 bash build/gate.sh` |
+| **the merge gate, phase 2** (UI — takes the desktop, so the machine-wide lock) | `pwsh C:/Users/pinku/source/repos/PinKushin/run-exclusive.ps1 dotnet test tests/Tf2DemoSalvage.Viewer3D.UiTests` |
+| full corpus superset (~30 min; decode changes only) | `bash build/gate.sh` (no `GCOR_ONLY`) |
+| one test project | `dotnet test tests/Tf2DemoSalvage.Core.Tests` |
+| one test | `dotnet test tests/<proj> --filter "FullyQualifiedName~<Name>"` — NOTE: any filter silently drops every `[Explicit]` test |
+| list the probes / run one | `dotnet run --project tools/Tf2DemoSalvage.Probe -c Release --` &nbsp;·&nbsp; `… -- carried <demo> <tick> [class]` |
+| decompile a demo to text | `dotnet run --project managed/Tf2DemoSalvage.Cli -c Release -- <demo> -t -e -o out.txt -q` |
+| viewer, headless screenshot | `TF2VIEW_CAMERA="x y z pitch yaw" pwsh …/run-exclusive.ps1 managed/Tf2DemoSalvage.Viewer3D/bin/Debug/net10.0-windows/tf2demoview.exe <demo> --tick <n> --shot out.png` |
+
+Never `--no-build` (a hook blocks it); never one `dotnet test` over the whole solution (assemblies
+run concurrently and the UI suite loses the desktop — the two-phase gate exists for that). The
+viewer/UI rows take `run-exclusive.ps1` because they take the desktop.
+
 ## Non-negotiable constraints (owner-stated, don't relitigate without asking)
 
 - **No Rust.** Explicitly rejected, don't suggest it.
