@@ -101,6 +101,28 @@ public sealed class SampleCostProbe : IProbe
         output.WriteLine($"  PropsAt whole   {Each(whole, repeats, count):0.0} ns/prop"
             + $"   ({Ms(whole, repeats):0.000} ms a call)");
 
+        // **The same call, advancing like playback, because stage C made the two different
+        // questions** (B259 fix 3). Repeating one tick measures a rebuild where nothing changed —
+        // the parked path, all collate. Playback crosses keyframe boundaries and drags the lerp
+        // list along, so this steps a quarter tick per call, which at 66.7 ticks a second is
+        // roughly a 270 fps cadence. Fresh timeline so the first probe's sampling state does not
+        // pre-pay this one's wakes.
+        DemoTimeline advancing = DemoTimeline.Build(File.ReadAllBytes(path));
+
+        advancing.PropsAt(tick, props);
+
+        long steppedAt = Stopwatch.GetTimestamp();
+
+        for (int run = 0; run < repeats; run++)
+        {
+            advancing.PropsAt(tick + ((run + 1) * 0.25d), props);
+        }
+
+        long steppedTicks = Stopwatch.GetTimestamp() - steppedAt;
+
+        output.WriteLine($"  PropsAt stepped {Each(steppedTicks, repeats, count):0.0} ns/prop"
+            + $"   ({Ms(steppedTicks, repeats):0.000} ms a call, +0.25 tick each)");
+
         // **A split between `At` and the rest USED to be reported here and has been removed,
         // because it was an instrument that lied.** Timing a bare loop over `track.At(tick)` and
         // subtracting it from the whole call gave 357 ns on one run, 696 on the next, and finally

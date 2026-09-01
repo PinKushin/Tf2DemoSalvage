@@ -16868,6 +16868,33 @@ the same shape as D131 and should be approved the same way rather than drifted i
 search and a record construction each frame, which is the per-prop half. What remains is the
 per-LIST half — the copying and the four walks — and that is what a persistent list removes.
 
+### B259 fix 3, stage C — sampling is proportional to what changed. LANDED
+
+**The persistent sample, built the engine's way.** `PropsAt` no longer re-derives 1,165 tracks per
+rebuild. Each track keeps the `SceneProp` it last answered (`Live` — the engine's persistent
+`C_BaseEntity`, with mutation replaced by replacement); a wake queue names the next tick each
+track's answer can change (`Motion` — `NoteChanged` computed ahead of time, possible because the
+future is on disk); and a lerp list holds the tracks mid-interpolation (`g_InterpolationList`,
+joined at a wake and left when the window closes — `bNoMoreChanges`). A rebuild pays for the
+boundaries it crossed plus the tracks mid-lerp, then collates references. A seek backwards or a
+recorder team switch resyncs everything from nothing, which is the invalidation D131 required.
+
+**One semantic change, and it is a parity ALIGNMENT**: whether a track blends or holds is decided
+at its wake from the interpolation set as it stands then, not per frame — `OnLatchInterpolatedVariables`
+consults `ShouldInterpolate()` when an update latches (`c_baseentity.cpp:2832`), so a prop granted
+visibility between keyframes joins the lerp at the next keyframe in both. The old code lerped it
+immediately. Pinned by `PropsAt_VisibilityGrantedMidSegment_JoinsTheLerpAtTheNextKeyframeNotInstantly`.
+
+**Guarded by a differential**: a stepped timeline must match a freshly built one at every half tick
+through overlapping lerp windows, holds, a hidden span, births, deaths and seeks
+(`PersistentSampleTests`). It earned its keep during the build — a boundary guard written `>` where
+the sampler behaves `>=` parked a mover one tick stale, and the differential named the tick.
+
+**Measured, `tf2-2026-pub-pov-clean`:** probe `PropsAt` 0.30 → **0.025 ms** parked / **0.031 ms**
+stepped a call (56 ns/prop, was 939 at B259's start). In the viewer, first person, same twenty
+seconds: `sample` 0.4–0.5 → **0.1–0.2 ms** (0.08 of which is players, untouched), `advance`
+0.7 → **0.4–0.5**, frame 329–426 → **351–395 fps**, best 615 → **640**.
+
 ## B260 — why we do not get Valve's performance "doing it the way they do" — OPEN
 
 **The owner's question, and it is the right one:** *"we should be copying valve, why cant we gets

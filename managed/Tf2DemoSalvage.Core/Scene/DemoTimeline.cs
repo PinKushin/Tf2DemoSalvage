@@ -927,7 +927,14 @@ public sealed class DemoTimeline
     /// Internal rather than public: this is not a way to build a timeline, it is a way to ask one a
     /// question. Nothing outside the tests should be assembling tracks by hand.
     /// </remarks>
-    internal static DemoTimeline ForTracks(List<ScenePropTrack> tracks) => new([], tracks);
+    /// <param name="frames">
+    /// Frames to answer <see cref="FrameAt"/> from, for tests whose subject is per-frame state —
+    /// the recorder's team, which stage C bakes into a persistent prop and must rebuild on a
+    /// switch. Empty when omitted, which answers a null team at every tick.
+    /// </param>
+    internal static DemoTimeline ForTracks(
+        List<ScenePropTrack> tracks, List<TimelineFrame>? frames = null) =>
+        new(frames ?? [], tracks);
 
     /// <summary>A timeline whose tracks are PLAYERS, with one frame naming them.</summary>
     /// <param name="tracks">The tracks, which go in the player list rather than the prop list.</param>
@@ -2451,23 +2458,12 @@ public sealed class DemoTimeline
 
         into.Clear();
 
-        // **The interface is tested ONCE here rather than dispatched twice per prop** (B259 fix 3).
-        // Measured before changing anything, which redirected the whole fix: at tick 14000 of
-        // `tf2-2026-pub-pov-clean`, `PropsAt` costs 939 ns a prop and `At` — the search and the
-        // interpolation, the part a change-detection scheme would have skipped — is 357 of it. The
-        // other 582 ns is this boundary: an `ICollection.Add` copying a sixteen-field struct through
-        // a call that cannot inline, and an `IReadOnlySet.Contains` doing the same for a hash lookup.
-        //
         // **The signature stays abstract on purpose.** CA1002 refuses `List<T>` in a public API and
         // is right to; `Collection<T>` would be slower still, since it wraps. Narrowing inside costs
-        // one type test for 560 dispatches, and a caller that passes something else keeps working
-        // through the slow path rather than being refused.
+        // one type test, and a caller that passes something else keeps working through the slow
+        // path rather than being refused.
         List<SceneProp>? fast = into as List<SceneProp>;
         HashSet<int>? named = interpolate as HashSet<int>;
-
-        // The list is refilled to nearly the same length every frame, so growing it from empty
-        // re-allocates the backing array a dozen times a second for nothing.
-        fast?.EnsureCapacity(_props.Count);
 
         // **The recorder's team AT THIS TICK**, because a player can switch sides mid-recording and
         // "is this my own team's spawn wall" then changes answer. Null for a SourceTV recording,
@@ -2475,115 +2471,206 @@ public sealed class DemoTimeline
         // case DRAWS, so an entity of no known relation must come out false rather than true.
         int? recorderTeam = FrameAt((int)Math.Floor(tick))?.RecorderTeam;
 
+        // **Sampling is proportional to what changed, not to what exists** (B259 fix 3, stage C).
+        // The engine never walks its entity array per frame: `ProcessInterpolatedList` walks
+        // `g_InterpolationList` — *"Interpolate the minimal set of entities that need it"*
+        // (`c_baseentity.cpp:3123`) — which an entity joins when an update latches a changed
+        // variable (`OnLatchInterpolatedVariables`, `:2832`) and leaves the moment its
+        // interpolation has nothing more to do (`bNoMoreChanges`, `:2927`).
+        //
+        // **Our updates are already on disk, so `NoteChanged` becomes arithmetic**: each track
+        // names the next tick at which its own answer can change (`Motion`), those wakes sit in
+        // one queue, and a rebuild pays for the boundaries it crossed plus the tracks mid-lerp.
+        // Everything else serves the prop it already built.
+        //
+        // **A seek is the case the engine does not have** (D131): state surviving across frames is
+        // wrong the moment the clock jumps backwards, so a rewind — and the rarer team switch,
+        // which is baked into every prop as `OfRecordersTeam` — rebuilds everything from nothing.
+        if (!_sampleSynced || tick < _sampledTo || recorderTeam != _sampledTeam)
+        {
+            ResyncSample(tick, interpolate, named, recorderTeam);
+        }
+        else
+        {
+            AdvanceSample(tick, interpolate, named, recorderTeam);
+        }
+
+        _sampleSynced = true;
+        _sampledTo = tick;
+        _sampledTeam = recorderTeam;
+
+        // The list is refilled to nearly the same length every frame, so growing it from empty
+        // re-allocates the backing array a dozen times a second for nothing.
+        fast?.EnsureCapacity(_props.Count);
+
+        // **The collate is the engine's own closing step** — `BuildRenderablesList` also emits a
+        // fresh per-frame list from its maintained structures. This walk touches one reference and
+        // one null test per track; the work a track used to cost here (a binary search, an
+        // interpolation, a sixteen-field construction) happens only when something changed.
         foreach (ScenePropTrack track in _props)
         {
-            // A hidden entity is not drawn but is still tracked: it is coming back.
-            // **`ProcessInterpolatedList` walks a list, not the entity array** (B259,
-            // `c_baseentity.cpp:3123`), and its comment is the whole intent: *"Interpolate the
-            // minimal set of entities that need it."* `ShouldInterpolate` admits the view entity,
-            // anything visible, and the parent of anything visible; everything else is left holding
-            // whatever its variables last had.
-            //
-            // **The visibility it consults is the LAST render's**, which is what makes this
-            // implementable here — our own cull runs after the view, in `Pose`, so its answer is
-            // ready for the next frame's sampling exactly as `IsVisible()` is for the engine. An
-            // entity coming into view is interpolated one frame late in both.
-            // **A track that can never change is derived once for the whole demo** (B259 fix 3,
-            // stage A). Nothing is added to a track during playback — the recording is decoded
-            // before a frame is drawn — so a single-keyframe track answers the same pose, and
-            // therefore the same record, at every tick of its life. Measured on
-            // `tf2-2026-pub-pov-clean`: 677 of 1,165 tracks, which is most of what a map contains.
-            //
-            // **This is `RenderableChanged` inverted.** The engine is TOLD an entity moved and marks
-            // it dirty, because it streams and cannot see ahead; we can ASK, because the future is
-            // already on disk. Same rule — do the work only for what changed — reached from the
-            // other side.
-            //
-            // **`Alive` is still consulted**, and it is not a formality: a constant track is not a
-            // permanent one. Serving a cached record past `End` is precisely the defect the
-            // interpolation list shipped, where ended tracks held their last pose and `selected`
-            // went 566 to 850.
-            if (track.NeverChanges)
+            if (track.Live is not { } prop)
             {
-                if (!track.Alive(tick))
-                {
-                    continue;
-                }
-
-                if (track.Constant is { } already && track.ConstantTeam == recorderTeam)
-                {
-                    if (fast is not null)
-                    {
-                        fast.Add(already);
-                    }
-                    else
-                    {
-                        into.Add(already);
-                    }
-
-                    continue;
-                }
+                continue;
             }
 
-            bool blend = interpolate is null
-                || (named is not null ? named.Contains(track.EntityIndex) : interpolate.Contains(track.EntityIndex));
-
-            ScenePose? sampled = blend
-                ? track.At(tick)
-                : track.Held(tick);
-
-            if (sampled is { Hidden: false } pose)
+            // One virtual call saved per prop. `fast` is the same object as `into`; the branch
+            // only chooses whether the add can inline.
+            if (fast is not null)
             {
-                SceneProp built = new(
-                    // **The pose as sampled, with no player-animation inputs derived from it**
-                    // (B258). `Moving` was called here for every prop, and it computes `move_x`,
-                    // `move_y` and `Speed` — which come from
-                    // `CBasePlayerAnimState::ComputePoseParam_MoveYaw` and exist nowhere outside
-                    // `base_playeranimstate.cpp` and `multiplayer_animstate.cpp`. A
-                    // `C_BaseAnimating` prop has no animation state, so the engine derives none of
-                    // this for one: a resupply locker does not have legs.
-                    //
-                    // **And it never ran for a player here anyway.** Player tracks live in
-                    // `_playerTracks`; this walks `_props`. Measured on `tf2-2026-pub-pov-clean`,
-                    // zero of 79 prop groups are `CTFPlayer`, so every one of those three lookups
-                    // per prop per frame was derived for something that could not use it.
-                    // `PlayersAt` computes the same values for players, and `PlayerProps` carries
-                    // them onto the player's own `SceneProp`.
-                    track.EntityIndex, track.ModelPath, track.Kind, pose,
-
-                    // **From the POSE, because the weapon state is the one of these that changes
-                    // while an entity lives** (B244). The rest — the parent, the owner, the item,
-                    // the class — are fixed for a track's lifetime, so reading them off the track
-                    // is right; reading `m_iState` off it answered with the demo's final tick, and
-                    // a medic whose medigun was holstered at the end never drew it at all.
-                    track.AttachedTo, track.AttachmentPoint, track.OwnedBy, pose.WeaponState,
-                    track.BoneMerged, track.ItemDefinitionIndex, track.ClassName,
-                    track.OfDisguise,
-                    OfRecordersTeam: recorderTeam is { } mine && track.TeamNumber == mine,
-                    Econ: track.Econ,
-                    ClientSideAnimated: track.ClientSideAnimated);
-
-                // Kept for the whole demo when the track can never answer differently, with the
-                // team it was built for so a side switch cannot serve a stale one.
-                if (track.NeverChanges)
-                {
-                    track.Constant = built;
-                    track.ConstantTeam = recorderTeam;
-                }
-
-                // One virtual call saved per prop, 560 a frame. `fast` is the same object as
-                // `into`; the branch only chooses whether the add can inline.
-                if (fast is not null)
-                {
-                    fast.Add(built);
-                }
-                else
-                {
-                    into.Add(built);
-                }
+                fast.Add(prop);
+            }
+            else
+            {
+                into.Add(prop);
             }
         }
     }
+
+    /// <summary>The wake queue: each scheduled track, keyed by the tick to re-derive it at.</summary>
+    /// <remarks>
+    /// At most one entry per track at any moment: a track is enqueued when it is derived and
+    /// dequeued exactly once before being derived again, so the queue cannot accumulate stale
+    /// entries — the engine's equivalent invariant is <c>AddToInterpolationList</c> checking
+    /// <c>m_InterpolationListEntry</c> before adding.
+    /// </remarks>
+    private readonly PriorityQueue<ScenePropTrack, double> _wakes = new();
+
+    /// <summary>Tracks whose pose changes continuously right now — <c>g_InterpolationList</c>.</summary>
+    private readonly List<ScenePropTrack> _lerping = [];
+
+    private bool _sampleSynced;
+    private double _sampledTo;
+    private int? _sampledTeam;
+
+    /// <summary>Rebuilds every track's sample from nothing, at one tick.</summary>
+    /// <remarks>
+    /// The cold path: the first call, any seek backwards, and a recorder team switch. It is the
+    /// old per-frame walk, demoted to the cases that genuinely need one.
+    /// </remarks>
+    private void ResyncSample(
+        double tick, IReadOnlySet<int>? interpolate, HashSet<int>? named, int? recorderTeam)
+    {
+        _wakes.Clear();
+
+        foreach (ScenePropTrack track in _lerping)
+        {
+            track.Lerping = false;
+        }
+
+        _lerping.Clear();
+
+        foreach (ScenePropTrack track in _props)
+        {
+            DeriveSample(track, tick, interpolate, named, recorderTeam);
+        }
+    }
+
+    /// <summary>Advances the samples to a later tick, paying only for what changed.</summary>
+    /// <remarks>
+    /// Two costs and nothing else: every wake whose tick has arrived is re-derived (a boundary
+    /// crossed — the engine's update latching), and every track mid-lerp is re-sampled (the
+    /// engine's `ProcessInterpolatedList` walk). A parked track is not touched.
+    /// </remarks>
+    private void AdvanceSample(
+        double tick, IReadOnlySet<int>? interpolate, HashSet<int>? named, int? recorderTeam)
+    {
+        // A re-derived track re-enqueues its NEXT wake, which a long forward jump may also have
+        // passed — the loop keeps popping until the head is in the future, so every crossed
+        // boundary is processed and `Motion` returning a wake strictly beyond the asked tick is
+        // what guarantees termination.
+        while (_wakes.TryPeek(out ScenePropTrack? due, out double at) && at <= tick)
+        {
+            _wakes.Dequeue();
+
+            DeriveSample(due, tick, interpolate, named, recorderTeam);
+        }
+
+        foreach (ScenePropTrack track in _lerping)
+        {
+            // Mid-lerp tracks are blend-sampled by construction: `Motion` only reports a track
+            // changing under blended sampling. Hidden is re-read because it is a field of the
+            // pose, discrete at the keyframe the lerp is walking away from.
+            track.Live = track.At(tick) is { Hidden: false } pose
+                ? BuildProp(track, pose, recorderTeam)
+                : null;
+        }
+    }
+
+    /// <summary>Re-derives one track's whole sampling state at a tick.</summary>
+    /// <remarks>
+    /// **This is the engine's latch, with the decision it takes there** —
+    /// <c>OnLatchInterpolatedVariables</c> consults <c>ShouldInterpolate()</c> when an update
+    /// arrives (`c_baseentity.cpp:2832`), so whether a track blends or holds is decided at its
+    /// wake, from the interpolation set as it stands then, and not revisited per frame. A prop
+    /// granted visibility between keyframes therefore joins the lerp at the next keyframe, which
+    /// is when the engine would re-latch it.
+    /// </remarks>
+    private void DeriveSample(
+        ScenePropTrack track,
+        double tick,
+        IReadOnlySet<int>? interpolate,
+        HashSet<int>? named,
+        int? recorderTeam)
+    {
+        bool blend = interpolate is null
+            || (named is not null
+                ? named.Contains(track.EntityIndex)
+                : interpolate.Contains(track.EntityIndex));
+
+        (bool changing, double nextWake) = track.Motion(tick, blend);
+
+        ScenePose? sampled = blend ? track.At(tick) : track.Held(tick);
+
+        // A hidden entity is not drawn but is still tracked: it is coming back.
+        track.Live = sampled is { Hidden: false } pose
+            ? BuildProp(track, pose, recorderTeam)
+            : null;
+
+        if (changing != track.Lerping)
+        {
+            if (changing)
+            {
+                _lerping.Add(track);
+            }
+            else
+            {
+                _lerping.Remove(track);
+            }
+
+            track.Lerping = changing;
+        }
+
+        if (!double.IsPositiveInfinity(nextWake))
+        {
+            _wakes.Enqueue(track, nextWake);
+        }
+    }
+
+    /// <summary>Builds the prop a track serves until something changes it.</summary>
+    private static SceneProp BuildProp(ScenePropTrack track, in ScenePose pose, int? recorderTeam) =>
+        new(
+            // **The pose as sampled, with no player-animation inputs derived from it** (B258).
+            // `Moving` was called here for every prop, and it computes `move_x`, `move_y` and
+            // `Speed` — which come from `CBasePlayerAnimState::ComputePoseParam_MoveYaw` and exist
+            // nowhere outside `base_playeranimstate.cpp` and `multiplayer_animstate.cpp`. A
+            // `C_BaseAnimating` prop has no animation state, so the engine derives none of this
+            // for one: a resupply locker does not have legs. And it never ran for a player here
+            // anyway — player tracks live in `_playerTracks`, and `PlayerProps` carries the values
+            // `PlayersAt` computes onto the player's own `SceneProp`.
+            track.EntityIndex, track.ModelPath, track.Kind, pose,
+
+            // **From the POSE, because the weapon state is the one of these that changes while an
+            // entity lives** (B244). The rest — the parent, the owner, the item, the class — are
+            // fixed for a track's lifetime, so reading them off the track is right; reading
+            // `m_iState` off it answered with the demo's final tick, and a medic whose medigun was
+            // holstered at the end never drew it at all.
+            track.AttachedTo, track.AttachmentPoint, track.OwnedBy, pose.WeaponState,
+            track.BoneMerged, track.ItemDefinitionIndex, track.ClassName,
+            track.OfDisguise,
+            OfRecordersTeam: recorderTeam is { } mine && track.TeamNumber == mine,
+            Econ: track.Econ,
+            ClientSideAnimated: track.ClientSideAnimated);
 
     /// <summary>Whether a player is on the opposite team from the recorder.</summary>
     /// <param name="recorderTeam">The recording player's team, or null when it is not known.</param>

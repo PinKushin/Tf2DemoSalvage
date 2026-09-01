@@ -872,22 +872,121 @@ public sealed class ScenePropTrack
     public bool Alive(double tick) =>
         _keyframes.Count > 0 && tick < _endTick && tick >= _keyframes[0].Tick;
 
-    /// <summary>The finished prop for a track that never changes, built once.</summary>
+    /// <summary>The prop this track currently answers, kept between rebuilds; null while absent.</summary>
     /// <remarks>
-    /// **The whole record, not just the pose.** Deriving it costs a binary search AND the
-    /// construction of a sixteen-field struct carrying a `ScenePose` of its own, and the two were
-    /// measured at the same order — 830 ns a prop between them, swinging run to run, which is why
-    /// this caches the result rather than either half.
+    /// **The engine's entity, in the only sense that survives the translation** (B259 fix 3,
+    /// stage C). `C_BaseEntity` lives across frames and is mutated in place by updates; nothing in
+    /// the client re-derives an entity per frame. This is the same object identity with the
+    /// mutation replaced by replacement — a fresh record is built only when a wake tick or a lerp
+    /// says the answer moved, and every quiet frame serves the one already here.
     ///
-    /// **Keyed by the recorder's team**, because one field of the record is not a property of the
-    /// track: `OfRecordersTeam` compares against who was recording, and a player can switch sides
-    /// mid-demo. Everything else here is fixed when the demo is read. Storing the team it was built
-    /// for costs four bytes and removes the only way this could go stale.
+    /// Null while the track answers nothing: before its first keyframe, from its `End`, and
+    /// through a hidden span. Stage A's `Constant` cache was this for single-keyframe tracks; it
+    /// generalises to every track and the special case folds in.
     /// </remarks>
-    internal SceneProp? Constant { get; set; }
+    internal SceneProp? Live { get; set; }
 
-    /// <summary>The recorder's team <see cref="Constant"/> was built for.</summary>
-    internal int? ConstantTeam { get; set; }
+    /// <summary>Whether the timeline currently holds this track in its lerp list.</summary>
+    /// <remarks>
+    /// **Valve's <c>m_InterpolationListEntry != 0xFFFF</c>** (`c_baseentity.h`): the entity itself
+    /// carries the marker for whether it is on <c>g_InterpolationList</c>, which is what makes
+    /// joining idempotent — <c>AddToInterpolationList</c> checks it and cannot double-add.
+    /// </remarks>
+    internal bool Lerping { get; set; }
+
+    /// <summary>Whether the pose is mid-lerp at this tick, and when its answer next changes.</summary>
+    /// <param name="tick">The moment being sampled.</param>
+    /// <param name="blend">Whether this track samples through <see cref="At"/> rather than <see cref="Held"/>.</param>
+    /// <returns>
+    /// <c>Changing</c>: the sampled pose varies continuously right now, so it must be re-sampled
+    /// every rebuild until the next wake. <c>NextWake</c>: the next tick at which the answer can
+    /// change shape — the tick to re-derive at — or infinity when nothing is left to happen.
+    /// </returns>
+    /// <remarks>
+    /// **This is <c>NoteChanged</c> computed ahead of time.** The engine is told when an update
+    /// changes a variable and marks the entity for interpolation; a demo's future is on disk, so a
+    /// track can name every tick where its own <see cref="At"/> changes behaviour: a keyframe
+    /// arriving (the causality gate at <c>toTick &gt; tick</c> opening), a lerp window opening
+    /// (`heldUntil + delay`) or closing (`keyframe + delay`), and the track's own birth and death.
+    ///
+    /// **The set is a deliberate SUPERSET, padded one tick past each boundary.** `At` mixes
+    /// closed and open comparisons and floors its target, and deriving each edge's exact side is
+    /// precisely the arithmetic that would silently drift from the sampler it describes. A wake
+    /// that fires a tick early re-derives, finds nothing changed, and schedules the next
+    /// candidate — a wasted lookup. A wake that fires a tick late serves a stale pose. The two
+    /// costs are not comparable, so every boundary appears at its tick and one past it.
+    ///
+    /// **<c>Changing</c> errs the same way**: true means only "re-sample every frame", so a
+    /// window judged slightly wide re-samples a constant answer, while one judged narrow freezes
+    /// a moving prop. It is true from the gate opening to a tick past the window closing.
+    /// </remarks>
+    internal (bool Changing, double NextWake) Motion(double tick, bool blend)
+    {
+        if (_keyframes.Count == 0)
+        {
+            return (false, double.PositiveInfinity);
+        }
+
+        int born = _keyframes[0].Tick;
+
+        if (tick < born)
+        {
+            return (false, born);
+        }
+
+        if (tick >= _endTick)
+        {
+            return (false, double.PositiveInfinity);
+        }
+
+        double next = _endTick;
+
+        void Candidate(double at)
+        {
+            if (at > tick && at < next)
+            {
+                next = at;
+            }
+        }
+
+        // The exit from the "nothing had arrived yet" branch, which serves the first pose while
+        // the delayed target still sits at or before the first keyframe.
+        Candidate(born + InterpolationDelayTicks);
+        Candidate(born + InterpolationDelayTicks + 1);
+
+        int index = IndexAt((int)Math.Floor(tick - InterpolationDelayTicks));
+
+        bool changing = false;
+
+        if (index >= 0 && index + 1 < _keyframes.Count)
+        {
+            int toTick = _keyframes[index + 1].Tick;
+            int fromTick = _heldUntil.Count > index ? _heldUntil[index] : _keyframes[index].Tick;
+
+            // The causality gate opening: until the destination keyframe's own tick, `At` holds
+            // the earlier pose however far the delayed target has crept into the segment.
+            Candidate(toTick);
+
+            // The lerp starting (the restated tick plus the delay) and ending (the destination
+            // plus the delay), each padded one past for the floor.
+            Candidate(fromTick + InterpolationDelayTicks);
+            Candidate(fromTick + InterpolationDelayTicks + 1);
+            Candidate(toTick + InterpolationDelayTicks);
+            Candidate(toTick + InterpolationDelayTicks + 1);
+
+            // The last term is the "nothing had arrived yet" branch still being in force: while
+            // the delayed target sits at or before the first keyframe, `At` serves that keyframe
+            // whatever the segment is doing. `>=` and not `>`, per the superset rule above — at
+            // exactly `born + delay` the lerp begins within the same tick, and judging the track
+            // parked there held it one tick stale.
+            changing = blend
+                && tick >= toTick
+                && tick < toTick + InterpolationDelayTicks + 1
+                && tick >= born + InterpolationDelayTicks;
+        }
+
+        return (changing, next);
+    }
 
     /// <summary>The moments the demo stated, in order, with nothing added.</summary>
     /// <remarks>
