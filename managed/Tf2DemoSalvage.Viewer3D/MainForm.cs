@@ -3586,12 +3586,38 @@ internal class MainForm : Form, IFrameSteps
             EnsureOverlayAtlas();
         }
 
-        return _overlayQuads.Quads(
+        IReadOnlyList<HudQuad> quads = _overlayQuads.Quads(
             _hudAtlas, _viewport.ClientSize.Width, _demo?.MapName, _clock.LastFrameSeconds);
+
+        // **Logged once a second whatever the overlay is doing**, because the on-screen meter can
+        // only be read by somebody watching and a headless run has nobody. Until this existed the
+        // viewer's only frame-cost instrument was `StallReport`'s 30 ms threshold, which is silent
+        // about every rate above 33 fps — so "no slow frames" and "600 fps" produced identical logs.
+        _frameRate += _clock.LastFrameSeconds;
+
+        if (_frameRateLog.Report(_overlayQuads.LastReading, _frameRate) is { } line)
+        {
+            _renderLog.LogInformation("{Message}", line);
+        }
+
+        return quads;
     }
 
     /// <summary>The frame-rate readout, which owns everything about it except the glyphs.</summary>
     private readonly ToolsPanel _overlayQuads = new();
+
+    /// <summary>Writes the frame rate to the log once a second.</summary>
+    private readonly FrameRateLog _frameRateLog = new();
+
+    /// <summary>
+    /// Seconds of drawn frames, accumulated from the clock rather than from a wall clock.
+    /// </summary>
+    /// <remarks>
+    /// Summing the frame durations rather than reading a stopwatch keeps the interval measured in
+    /// the same quantity the reading describes: a run paused at a breakpoint, or one whose window is
+    /// hidden and drawing nothing, does not silently accrue an interval it never rendered.
+    /// </remarks>
+    private double _frameRate;
 
     /// <summary>This frame's <c>cl_showpos</c> subject, gathered from the camera and the demo.</summary>
     /// <returns>The readout; hidden when the convar is off.</returns>

@@ -162,3 +162,4 @@
 - [One look can be two mechanisms](one-look-can-be-two-mechanisms.md) — a skin AND a bodygroup; the right texture on a mesh nobody draws.
 - [Parity is the search, not the defence](parity-is-the-search-not-the-defence.md) — read every branch of the engine function; a rule in a comment is not enforced.
 - [Take your own screenshot](take-your-own-screenshot.md) — TF2VIEW_CAMERA plus --shot; stop asking for F5.
+- [Audit means verify what exists](audit-means-verify-what-exists.md) — branch count ranks the wrong axis; a wrong implementation is invisible.

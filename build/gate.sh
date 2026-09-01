@@ -611,7 +611,12 @@ run Tf2DemoSalvage.Audio.Tests    audio     183
 # 424 -> 425: the presenter asks its source for the round state. A WIRING assertion, which is the
 # only kind that fails when a value is decoded, retained, unit-tested and never read -- exactly what
 # m_flPlaybackRate was for weeks while every animation played at rate 1 with a green suite.
-run Tf2DemoSalvage.Presentation.Tests presentation 425
+# 425 -> 429: FrameRateLog (D127). The viewer's only frame-cost instrument was StallReport's 30 ms
+# threshold, which is silent about every rate above 33 fps - so a 20-second run logged nothing and
+# that read as "no slow frames" when it means "nothing exceeded 30 ms". Four tests: the interval,
+# the watermarks in the line, the wait for a whole second after reporting, and that a frame with no
+# reading neither prints 0 fps nor starts the clock.
+run Tf2DemoSalvage.Presentation.Tests presentation 429
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.

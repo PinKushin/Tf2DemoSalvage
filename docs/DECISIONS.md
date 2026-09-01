@@ -7031,3 +7031,47 @@ is for questions whose answer is a number nobody knows yet.
 and several answer questions that are now closed — those should be deleted with their finding
 promoted to `docs/findings/`, not ported. Porting them all in one pass would move the prose without
 reading it, which is the one outcome worse than leaving them where they are.
+
+## D127 — the audit means "is what we built RIGHT", not "what have we not built"
+
+**2026-09-01, owner, correcting the direction this audit had taken:** *"i wanted you to make sure
+everything we have implemented is right, had valve partity, and is not buggy. Theres far more
+useful thinks than ragdolls still available, like interp, and out fps being way way too low, real
+tf2 plays every demo I have check so far at over like 600 fps."*
+
+**What went wrong.** `docs/PARITY-AUDIT.md` was being worked as a hunt for MISSING mechanisms —
+rank the engine functions by branch count, find the ones with no implementation at all, file them.
+That produced findings 3, 4 and 5 in one evening, and finding 4 was presented as the biggest result
+of the audit: 299 corpses decoded and never drawn.
+
+**It was the least valuable thing found.** The owner does not want ragdolls at all — *"in real tf2
+i dont even have them on, players just disappear immediately on death in my real game running the
+comp/low config"*. So the audit's top-ranked, most-measured finding was aimed at a feature that
+would be switched off if it existed.
+
+**The distinction that matters, and it is not subtle once stated.** An unimplemented mechanism is
+VISIBLE — it is absent, somebody notices, and it can be filed any time. A wrong implementation is
+INVISIBLE: it draws something, the suite is green, and it looks finished. The second class is what
+an audit is for, and it is the class that branch-counting cannot find, because a function we
+implement badly and a function we implement well have the same branch count.
+
+**So the ranking is wrong at the root.** "How many branches does Valve's function have" ranks by how
+much work a full implementation would be. The audit should rank by **what we already draw**, and ask
+of each: does it match the engine, on every branch, and is the value it uses the one the engine
+would use.
+
+**Two named starting points**, both the owner's, both in the new lane rather than the old one:
+
+- **Interpolation.** Implemented, and detailed — Hermite curves, slerped angles, a causality rule.
+  It also hardcodes `InterpolationDelayTicks = 7` while `EngineConVars` declares `cl_interp`,
+  `cl_interp_ratio` and `cl_updaterate`, writes `MAX( cl_interp, cl_interp_ratio / cl_updaterate )`
+  into a conformance test, and says "Nothing consumes these yet, deliberately". Seven ticks is right
+  for stock defaults and wrong for the config the owner actually runs.
+- **Frame rate.** *"real tf2 plays every demo I have check so far at over like 600 fps"*, and this
+  viewer is nowhere near that. A performance gap that large is usually a defect rather than a
+  budget, and it is a fact about code we HAVE written.
+
+**The ragdoll findings are not deleted.** They are correct, and finding 4's NOBASE observation
+explains a real absence. They are simply not the priority they were written up as, and D89's
+"Valve parity is the first principle" does not mean every unimplemented function is equally worth
+implementing.
