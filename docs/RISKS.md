@@ -16692,3 +16692,18 @@ dictionary of every prop and then does a model lookup, an entity lookup and a cy
 
 None of these is an optimisation that trades anything away, which is what D89 would otherwise have to
 be weighed against. Each one is the engine's own arrangement, and the frame rate is what falls out.
+
+### B259 fix 1 landed in a commit titled `docs:` — where to find it
+
+`a3164d08`, titled *"docs: D130 - finish decoding a Valve subsystem before building on it"*, also
+carries the first parity fix: the `m_bClientSideAnimation` gate on cycle advancement. A `git add -A`
+swept the code in with the decision it happens to illustrate, and the title was not corrected because
+the commit had already been pushed — rewriting shared history to fix a subject line is a worse trade
+than a note saying where the change is.
+
+**The fix itself**, for anyone reading `git log` and not finding it:
+`C_BaseAnimating::PostDataUpdate` joins `g_ClientSideAnimationList` when `m_bClientSideAnimation` is
+set and leaves it when clear, and `UpdateClientSideAnimations` walks that list rather than the entity
+array. This project advanced every prop's cycle from demo time; measured on one SourceTV recording,
+1,221 updates carry the flag as 0 against 2,098 as 1, so a real population of server-animated
+entities was being run at demo time on top of the cycle the server had already stated.
