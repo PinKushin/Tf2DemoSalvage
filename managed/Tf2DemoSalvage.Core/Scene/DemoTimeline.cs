@@ -341,6 +341,14 @@ public sealed class DemoTimeline
     /// <summary>The entity that carries the atmosphere.</summary>
     private const string FogControllerClass = "CFogController";
 
+    /// <summary>The table that declares <c>m_iState</c>, so a class reaching it is a weapon.</summary>
+    /// <remarks>
+    /// `SendPropInt( SENDINFO(m_iState), 8, SPROP_UNSIGNED )` lives in the MAIN
+    /// `DT_BaseCombatWeapon` table (`basecombatweapon_shared.cpp:2871`) rather than in
+    /// `DT_LocalWeaponData`, which is what makes another player's weapon answerable at all.
+    /// </remarks>
+    private const string CombatWeaponTable = "DT_BaseCombatWeapon";
+
     /// <summary>The entity that carries the round.</summary>
     /// <remarks>
     /// **`CTFGameRulesProxy`, not the teamplay one it inherits from.** A demo's schema declares
@@ -988,6 +996,19 @@ public sealed class DemoTimeline
         // one class, and the walk is over send tables rather than over anything cheap.
         HashSet<int> mergesItself = [];
 
+        // **Which classes ARE combat weapons, so an absent `m_iState` can mean its default rather
+        // than "not a weapon"** (B245). The two readings of absence want opposite answers: a
+        // `CTFWearable` never sends the property and must always draw, while a weapon that has not
+        // restated it since re-entering the visible set is at `WEAPON_NOT_CARRIED` and must not.
+        //
+        // Only the schema can tell them apart, and it can: `m_iState` is declared by
+        // `DT_BaseCombatWeapon` (`basecombatweapon_shared.cpp:2871`), so a class whose table chain
+        // reaches that table has the field and a class that does not never had it.
+        //
+        // Per class for the same reason `mergesItself` is: the answer cannot vary between two
+        // instances, and the walk is over send tables rather than over anything cheap.
+        HashSet<int> combatWeapons = [];
+
         foreach (ServerClass serverClass in schema.ServerClasses)
         {
             entities.SetClassName(serverClass.Id, serverClass.ClassName);
@@ -995,6 +1016,11 @@ public sealed class DemoTimeline
             if (SchemaClasses.BoneMergesItself(schema, serverClass.TableName))
             {
                 mergesItself.Add(serverClass.Id);
+            }
+
+            if (SchemaClasses.Inherits(schema, serverClass.TableName, CombatWeaponTable))
+            {
+                combatWeapons.Add(serverClass.Id);
             }
         }
 
@@ -1231,7 +1257,7 @@ public sealed class DemoTimeline
                     entities.Apply(entity);
                     RecordProp(
                         entity, entities, precache, tracks, props, playerTracks,
-                        mergesItself, protocol, command.Tick, interval);
+                        mergesItself, combatWeapons, protocol, command.Tick, interval);
                 }
 
                 moved = true;
@@ -1804,6 +1830,7 @@ public sealed class DemoTimeline
         List<ScenePropTrack> props,
         List<ScenePropTrack> players,
         HashSet<int> mergesItself,
+        HashSet<int> combatWeapons,
         int protocol,
         int tick,
         float interval)
@@ -2223,7 +2250,20 @@ public sealed class DemoTimeline
                 // `DT_BaseCombatWeapon`, so a wearable never sends it, and 0 is `WEAPON_NOT_CARRIED`
                 // — a real state a dropped weapon has. Conflating the two would strip the shield
                 // off every demoman.
-                WeaponState = state.WeaponState(),
+                // **Absent means the DEFAULT for a weapon, and "not a weapon" for anything else**
+                // (B245). `CL_CopyNewEntity` decodes an entering entity from its baseline, so a
+                // weapon that has not restated `m_iState` since re-entering the visible set is at
+                // `WEAPON_NOT_CARRIED` — a real value, and one `ShouldDraw` refuses.
+                //
+                // Reading absence as null instead makes it "this is not a weapon", which is the
+                // answer that DRAWS, and it is right for a `CTFWearable`: the Mantreads, a
+                // demoman's shield and a sniper's Razorback are worn whatever is in the hands. The
+                // schema is what separates them, because `m_iState` is declared by
+                // `DT_BaseCombatWeapon` and a class that never reaches that table never had it.
+                WeaponState = state.WeaponState()
+                    ?? (combatWeapons.Contains(entity.ClassId)
+                        ? EntityState.WeaponNotCarried
+                        : null),
 
                 // EF_NODRAW, or gone from the visible set. A taken health pack is hidden rather
                 // than deleted because it respawns, so this is a property of the moment.

@@ -15557,7 +15557,7 @@ a keyframe is written. Nothing else was needed.
 *"these fields are left at their default by Distinctive()"* — which is exactly what that test is
 for, and it is the fifth field it has caught.
 
-## B245 — a player can hold two active weapons at once, and B231 is why — OPEN
+## B245 — a player could hold two active weapons at once — FIXED 2026-08-31
 
 Found while fixing B244, on the same tick. With the state sampled correctly, **player 20's bonesaw
 is ALSO `WEAPON_IS_ACTIVE`**, so he draws a medigun and a bonesaw merged into the same hand.
@@ -15713,3 +15713,143 @@ assertion.
 
 The second new test is the control at `curtime = 0.8104`, wave **−1.999**, truncating to −1. It is
 what stops the fix overshooting into "drop the sign test altogether", which would pass the first.
+
+## B247 — `dem_stringtables` is never read; the baselines are missing for a reason still unknown — OPEN
+
+**The title of this entry was wrong for about ten minutes and is corrected here rather than
+quietly.** It first said the missing instance baselines are *because* `dem_stringtables` is unread.
+Both halves are facts; the causal link between them is not, and the check that would have
+established it says the opposite.
+
+Extracting that command's payload and searching its actual bytes — 711,266 of them — finds
+`downloadables` and **not** `instancebaseline`, `modelprecache`, `soundprecache` or `userinfo`. So
+whatever this project is failing to read there, the class baselines are not sitting in it waiting to
+be found.
+
+**And the search that first suggested otherwise was a broken instrument, which is the fourth
+tonight.** Grepping the hex text of the assembly dump reported "absent" for `modelprecache`,
+`soundprecache` and `userinfo` as well — three tables that certainly exist — so its "absent" meant
+nothing at all. The control is what caught it: searching for something that must be there, and
+finding it missing, says the instrument is broken rather than the subject.
+
+What remains established, and it is still worth acting on.
+
+A TF2 demo carries string-table state in **two** places: the `svc_CreateStringTable` /
+`svc_UpdateStringTable` net messages, and a `dem_stringtables` **demo command** written at the
+start. `DemoTimeline` handles the first and not the second — `DemoCommandType.StringTables` appears
+nowhere in it, and the only files that mention the type at all are the text dumper and the trace
+writer, which map it to a name and print nothing.
+
+**Measured, and the second number is the one that gives it away:**
+
+| demo | classes | with an instance baseline |
+|---|---|---|
+| `tf2-2026-pub-pov-clean` | 363 | 68 |
+| `tf2-2007-build3258-pov` | 216 | **0** |
+
+Zero. An era demo whose entities enter the potentially visible set throughout, and not one class
+baseline.
+
+The file does carry exactly one `dem_stringtables` block at tick 0 that nothing opens — a separate
+gap, and a real one — but that block is **not** where these baselines are. Two facts, one paragraph,
+no arrow between them.
+
+**Why it matters beyond the count.** An entity entering the visible set is a delta against its class
+baseline, so every property the baseline would have supplied is one this reader never receives.
+`CWeaponMedigun` (class 352) and `CTFBonesaw` (class 190) both have entities in
+`tf2-2026-pub-pov-clean` and **neither class id ever appears** in the table as we read it — not as
+an empty entry, not at all. The engine cannot be in that position: `engine.dll` still carries
+`CL_CopyNewEntity: GetClassBaseline(%d) failed.`, which is a `Host_Error`, so a class whose
+entities enter the PVS must have a baseline available to a real client.
+
+**This holds up B245, and the open question is now sharper.** The fix drafted there — an `Enter`
+forgets and re-decodes from its baseline, which is what `CL_CopyNewEntity` does — produces the
+intended outcome: the bonesaw reads `WEAPON_NOT_CARRIED` and player 20 holds exactly one weapon at
+tick 14000. It sits on the branch `fix/enter-pvs-resets-from-baseline`, unmerged, and it fails two
+tests that encode B231 — `EntityState_LeavingTheVisibleSet_IsNotDestruction` and
+`Apply_AnEntityReenteringWithTheSameSerial_KeepsWhatItAlreadyKnew` — both asserting that a
+re-entering entity keeps what it knew, using fixtures that supply no baseline at all.
+
+**What has to be answered first is where a real client gets a baseline for a class this recording
+never names.** Two readings, and they differ in what our decoder should do:
+
+1. **The client synthesises an empty one.** `GetClassBaseline` for a class whose
+   `m_InstanceBaselineIndex` is `INVALID_STRING_INDEX` returns a zero-length baseline rather than
+   failing, so an entering entity decodes from all-defaults. Under this reading the branch is
+   simply CORRECT, the two B231 tests assert a situation the engine never produces, and they want
+   rewriting with a baseline supplied.
+2. **The recording is lossy and a real client would be equally confused.** Then the branch invents
+   a behaviour Valve does not have, and B245 closes as "not a defect" — except that the owner's
+   judgement, from playing the game, is that a medic never visibly holds two weapons.
+
+`server_class.h:77` documents `m_InstanceBaselineIndex` as *"INVALID_STRING_INDEX if not initialized
+yet"*, which is suggestive of the first and does not establish it: the client-side
+`CBaseClientState::GetClassBaseline` is engine code and not in the SDK. **That function is the next
+thing to read, in the decompiler**, and the `CL_CopyNewEntity: GetClassBaseline(%d) failed.` string
+in `engine.dll` is the anchor that finds it.
+
+**Separately, `dem_stringtables` should be parsed anyway.** It is 711 KB of unread state in every
+demo, and "we do not read it" is not a thing to leave standing whatever it turns out to hold.
+`StringTableCodec` is the `svc_` message encoding, which is a different format from the demo
+command's — the command carries its own table count, per-table names, entry names and optional user
+data.
+
+### B245, closed: an `Enter` forgets and decodes from its baseline
+
+The engine settled it, read out of `engine.dll` because the SDK ships no engine networking. Written
+up in full in `docs/findings/09-valve-implementation.md`; the operative part is that
+`CL_CopyNewEntity` picks a buffer to decode FROM and never uses what the client is holding.
+
+**Three changes, and the third is the one that is easy to miss:**
+
+1. `EntityState.Forget()` — an `Enter` drops its accumulated properties before baseline ∪ update are
+   written, because a baseline is a starting point rather than an overlay.
+2. `EntityStateTable.Apply` calls `EffectiveProperties` on **every** `Enter`, not only on creation.
+   That was B231's exception, and what has changed under it is that `EffectiveProperties` now
+   prefers the entity's OWN checkpoint and falls back to the class baseline only when the snapshot
+   named no slot — so the door keeps its parent by the mechanism the protocol actually uses.
+3. **A weapon's absent `m_iState` means its DEFAULT, not "this is not a weapon".** Forgetting alone
+   made the bug worse: the bonesaw's state read null, `WeaponVisibility` reads null as "not a
+   weapon", and a wearable always draws — so it drew unconditionally instead of stalely. The schema
+   is what separates the two, because `m_iState` is declared by `DT_BaseCombatWeapon` and a class
+   whose table chain never reaches it never had the field. `DemoTimeline` now walks that chain once
+   per class, beside the bone-merge walk it already did.
+
+Measured on `tf2-2026-pub-pov-clean` at tick 14000, player 20:
+
+```
+1137  drawn                   CWeaponMedigun  state 2
+1138  HOLSTERED (ShouldDraw)  CTFBonesaw      state 0
+```
+
+One weapon in the hand, and 549 props — unchanged, so nothing else was lost on the way.
+
+### What was tried and did NOT work, kept because both were plausible
+
+- **Rebuilding from the baseline without forgetting.** Changed the answer not at all: `Apply` writes
+  onto an object it already holds, so a property in neither baseline nor update keeps its old value.
+  Merging is not resetting.
+- **Checkpointing every entity in `EntityBaselineSlots.Update`, not only the ones entering.** The
+  engine does checkpoint everything it decoded, and the Enter-only filter really is close to a
+  no-op — `update_baseline` is set on about 2,300 of ~26,000 snapshots, so an entity entering in
+  exactly one of those is rare. But our slots are built from decoded snapshot deltas rather than
+  from the full packed entity the engine stores, so widening it stored PARTIAL baselines, and with
+  forgetting in place those deleted real state: three props vanished outright, the bonesaw among
+  them. Reverted. **Making our checkpoints as complete as the engine's is a separate piece of work**
+  — the full state lives in `EntityStateTable`, one layer above where the slots are filled.
+
+### The two B231 tests were not wrong about the outcome, only about the mechanism
+
+`Apply_AnEntityReenteringWithTheSameSerial_KeepsWhatItAlreadyKnew` and
+`EntityState_LeavingTheVisibleSet_IsNotDestruction` both asserted that a re-entering entity keeps
+what it knew, using fixtures with no per-entity baseline at all — a situation the protocol does not
+produce. The parent surviving is right; surviving *because the reader kept it* is not.
+
+So the fixture now models the checkpoint the snapshot names, and a **new control** covers the case
+B231 actually measured: with no checkpoint, the class baseline applies, and `CDynamicProp`'s real
+class baseline declares `moveparent = 2097151` — the invalid-handle sentinel, which is exactly how
+the gate came off its door. Without that control, "decoded against its own checkpoint" and "kept
+whatever we had" predict the same observation and no test can tell them apart.
+
+The leave test keeps its Leave assertions and no longer claims the return is a DELTA. It is not:
+entity 1138 re-ENTERS at ticks 8317 and 10901.

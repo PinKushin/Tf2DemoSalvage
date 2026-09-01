@@ -113,13 +113,9 @@ public sealed class EntityStateTable
         // which is a value the decoder never produces, so correct and broken agreed on it.
         bool statesSerial = entity.UpdateType == EntityUpdateType.Enter;
 
-        bool created = false;
-
         if (!_entities.TryGetValue(entity.EntityIndex, out EntityState? state) ||
             (statesSerial && state.SerialNumber != entity.SerialNumber))
         {
-            created = true;
-
             // A different serial number in the same slot is a different entity. Merging into the
             // old one leaves the newcomer holding whichever properties it has not happened to
             // resend - a player who is on the previous occupant's team until they next change it,
@@ -175,9 +171,36 @@ public sealed class EntityStateTable
         // **This is not a door bug.** Every entity that leaves and re-enters the PVS was losing
         // team, skin, parent, render mode and anything else sent once — which on a point-of-view
         // recording is most of the map, repeatedly.
-        IReadOnlyList<DecodedProperty> properties = created
-            ? _baselines.EffectiveProperties(entity)
-            : entity.Properties;
+        // **Every Enter decodes from a BASELINE, and a baseline is a starting point rather than an
+        // overlay** (B245). The engine keeps three paths and `engine.dll` still carries their names:
+        // `CL_CopyNewEntity: GetClassBaseline(%d) failed.` for an entity entering the visible set,
+        // `CL_CopyExistingEntity: missing client entity %d.` for an ordinary delta, and
+        // `CL_PreserveExistingEntity` for one that did not change. Only the middle one is a delta
+        // against what the client already holds.
+        //
+        // **So an Enter forgets first.** Anything the baseline and the update both omit is at its
+        // default, not at whatever this reader last accumulated — which is the rule
+        // `docs/memory/sentinels-conflate-unknown-with-answer.md` states for the wire generally.
+        //
+        // Measured cost of not doing it: a `CTFBonesaw` last stated `m_iState 2` at tick 8060 was
+        // still ACTIVE six thousand ticks and eight PVS transitions later, because its class has no
+        // instance baseline at all — 68 of 363 do — and every `ENTER` carried the owner, the move
+        // parent, the world model and the whole attribute list while saying nothing about the
+        // state. Its owner drew a medigun and a melee weapon in the same hand.
+        //
+        // **The paragraphs above are B231 and they were RIGHT about what they measured.** Rebuilding
+        // a door from the CLASS baseline does take the gate off its door — `CDynamicProp`'s
+        // baseline declares `moveparent = 2097151`, which is `0x1FFFFF`, the invalid-handle
+        // sentinel. What has changed since is that `EffectiveProperties` prefers the entity's OWN
+        // stored baseline and falls back to the class one only when the snapshot named no slot for
+        // it, so the door is described against itself and keeps its parent.
+        IReadOnlyList<DecodedProperty> properties = entity.Properties;
+
+        if (entity.UpdateType == EntityUpdateType.Enter)
+        {
+            properties = _baselines.EffectiveProperties(entity);
+            state.Forget();
+        }
 
         foreach (DecodedProperty property in properties)
         {

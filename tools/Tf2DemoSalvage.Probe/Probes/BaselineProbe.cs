@@ -93,6 +93,34 @@ public sealed class BaselineProbe : IProbe
         // id and only the create that preceded it says which table that is.
         NetDecodeState state = new();
 
+        // **Every entry the table ever carried, and whether it had a payload.** `BaselineBuilder`
+        // skips an entry whose `UserData` is empty, so a class whose baseline legitimately encodes
+        // NOTHING — every property at its default — is indistinguishable from a class the table
+        // never mentions. Those are different facts and the difference decides B245: the engine
+        // `Host_Error`s when `GetClassBaseline` fails, so a class whose entities enter the visible
+        // set must have an entry, and an empty one means "all defaults".
+        Dictionary<string, int> entriesSeen = new(StringComparer.Ordinal);
+
+        // **Routing counters, because "no entries" has three different causes.** The table's create
+        // may never be seen, its updates may never be routed to it, or they may be routed and yield
+        // nothing. Only counting each hop separately tells them apart, and a bare entry count reads
+        // the same way for all three.
+        int creates = 0;
+        int updatesRouted = 0;
+        int updatesTotal = 0;
+        int entriesOffered = 0;
+
+        void Record(IReadOnlyList<StringTableEntry> entries)
+        {
+            foreach (StringTableEntry seen in entries)
+            {
+                if (seen.Text is { } text)
+                {
+                    entriesSeen[text] = seen.UserData.Count;
+                }
+            }
+        }
+
         foreach (DemoCommand command in commands.Where(
             command => command.Type is DemoCommandType.Packet or DemoCommandType.Signon))
         {
@@ -102,12 +130,23 @@ public sealed class BaselineProbe : IProbe
                 switch (message)
                 {
                     case CreateStringTableMessage { Name: BaselineBuilder.TableName } create:
+                        creates++;
+                        entriesOffered += create.Entries.Count;
+                        Record(create.Entries);
                         BaselineBuilder.Apply(create.Entries, decoder);
                         break;
 
                     case UpdateStringTableMessage update
                         when state.StringTableName(update.TableId) == BaselineBuilder.TableName:
+                        updatesRouted++;
+                        updatesTotal++;
+                        entriesOffered += update.Entries.Count;
+                        Record(update.Entries);
                         BaselineBuilder.Apply(update.Entries, decoder);
+                        break;
+
+                    case UpdateStringTableMessage:
+                        updatesTotal++;
                         break;
 
                     default:
@@ -143,7 +182,17 @@ public sealed class BaselineProbe : IProbe
             // empty was checkpointed as "all defaults".
             if (baseline is null)
             {
-                output.WriteLine($"  {entry.ClassName,-32} NO BASELINE");
+                // **Three states, not two.** No entry at all is a fact about the recording; an
+                // entry with an empty payload is a baseline of all defaults, which the engine
+                // treats as a perfectly good baseline and this reader discards.
+                string id = entry.Id.ToString(CultureInfo.InvariantCulture);
+
+                output.WriteLine(
+                    $"  {entry.ClassName,-32} "
+                    + (entriesSeen.TryGetValue(id, out int payload)
+                        ? $"ENTRY id {id} with {payload.ToString(CultureInfo.InvariantCulture)} "
+                            + "bytes of payload — SKIPPED as empty"
+                        : $"NO ENTRY (id {id} never appears in the table)"));
                 continue;
             }
 
@@ -170,8 +219,22 @@ public sealed class BaselineProbe : IProbe
             }
         }
 
+        // **The entry count is the check that matters, not the baseline count.** `GetClassBaseline`
+        // — `GetDynamicBaseline` in the binary — formats the class id as a string, looks it up in
+        // `instancebaseline`, and calls `Error(...)` when `FindStringIndex` misses. That is fatal,
+        // so a class whose entities enter the visible set MUST have an entry in a recording the
+        // game can play. Fewer entries here than classes-that-enter means this reader is losing
+        // them, not that the recording lacks them.
         output.WriteLine(
             $"BASELINES {withBaseline.ToString(CultureInfo.InvariantCulture)} of "
-            + $"{schema.ServerClasses.Count.ToString(CultureInfo.InvariantCulture)} classes carry one");
+            + $"{schema.ServerClasses.Count.ToString(CultureInfo.InvariantCulture)} classes carry one; "
+            + $"the table yielded {entriesSeen.Count.ToString(CultureInfo.InvariantCulture)} distinct "
+            + $"entries, {entriesSeen.Values.Count(bytes => bytes == 0).ToString(CultureInfo.InvariantCulture)} of them empty");
+
+        output.WriteLine(
+            $"ROUTING creates {creates.ToString(CultureInfo.InvariantCulture)}, "
+            + $"updates {updatesRouted.ToString(CultureInfo.InvariantCulture)} routed here of "
+            + $"{updatesTotal.ToString(CultureInfo.InvariantCulture)} seen, "
+            + $"{entriesOffered.ToString(CultureInfo.InvariantCulture)} entries offered");
     }
 }

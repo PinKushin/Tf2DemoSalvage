@@ -59,7 +59,25 @@ public sealed class ReentryPreservesStateTests
     public void Apply_AnEntityReenteringWithTheSameSerial_KeepsWhatItAlreadyKnew()
     {
         // The measured sequence, reduced: a full enter, a leave, then an enter carrying nothing.
-        EntityStateTable table = new(Baselines(Property("moveparent", NoParent)));
+        //
+        // **The outcome this asserts has not changed; the MECHANISM it models has** (B245). The
+        // parent survives because the entity is decoded against its OWN checkpoint — the per-entity
+        // baseline slot the snapshot names — and not because the reader kept what it had.
+        // `CL_CopyNewEntity`, read out of `engine.dll`, prefers exactly that:
+        //
+        //     if ( !asDelta || (stored = LookupEntityBaseline(...)) == NULL
+        //                   || stored->classId != thisClass )
+        //         GetClassBaseline( classId, ... );        // fatal if missing
+        //     else
+        //         use stored;
+        //
+        // The fixture used to supply only a CLASS baseline, which is the one case where the parent
+        // is genuinely lost — `CDynamicProp`'s real class baseline declares
+        // `moveparent = 2097151`, the invalid-handle sentinel, which is precisely how B231's gate
+        // came off its door. Modelling the checkpoint is what makes this test describe the
+        // protocol rather than our old workaround.
+        EntityStateTable table = new(
+            new CheckpointingBaselines([Property("moveparent", NoParent)]));
 
         table.Apply(Enter(serial: 91, Property("moveparent", 1587610)));
         table.Apply(Leave(serial: 0));
@@ -69,7 +87,30 @@ public sealed class ReentryPreservesStateTests
 
         state.Attachment().ShouldBe(
             410,
-            "the entity never changed identity, so re-entering the visible set cannot un-parent it");
+            "the server checkpointed this entity WITH its parent, and that is what it re-enters against");
+    }
+
+    [Test]
+    public void Apply_AnEntityReenteringAgainstOnlyItsClassBaseline_TakesTheClassBaselineValue()
+    {
+        // **The control, and it is the case B231 measured.** With no per-entity checkpoint — a full
+        // snapshot, or an entity the server has not checkpointed for this client — the class
+        // baseline is what applies, and a class baseline is one representative entity's state
+        // rather than a table of defaults. For `CDynamicProp` on `cp_fulgur` that means
+        // `moveparent = 2097151`: no parent.
+        //
+        // Without this case, "re-entry uses the checkpoint" and "re-entry keeps whatever we had"
+        // predict the same observation, and the test above cannot tell them apart.
+        EntityStateTable table = new(Baselines(Property("moveparent", NoParent)));
+
+        table.Apply(Enter(serial: 91, Property("moveparent", 1587610)));
+        table.Apply(Leave(serial: 0));
+        table.Apply(Enter(serial: 91));
+
+        table.TryGet(1, out EntityState? state).ShouldBeTrue();
+
+        state.Attachment().ShouldBeNull(
+            "the class baseline says no parent, and with no checkpoint that is what it decodes against");
     }
 
     [Test]
@@ -148,6 +189,51 @@ public sealed class ReentryPreservesStateTests
             PropertyValue.FromInt(value));
 
     /// <summary>One class baseline, for a table that needs nothing else.</summary>
+    /// <summary>A baseline source that checkpoints each entity, as the server does.</summary>
+    /// <remarks>
+    /// **Models the per-entity baseline slots rather than only the class baseline.** The real
+    /// `svc_PacketEntities` names one of two per-entity arrays and periodically asks the client to
+    /// rebuild the other, so an entity re-entering the visible set is described against its own
+    /// last checkpoint — which is why two properties can describe a door completely.
+    ///
+    /// Kept deliberately simple: one checkpoint per entity, updated from every update it carries,
+    /// and the class baseline when there is none. That is enough to tell "decoded against its own
+    /// checkpoint" apart from "kept what the reader had", which is the distinction the tests using
+    /// it exist to make.
+    /// </remarks>
+    private sealed class CheckpointingBaselines(IReadOnlyList<DecodedProperty> classBaseline)
+        : IEntityBaselines
+    {
+        private readonly Dictionary<int, Dictionary<int, DecodedProperty>> _checkpoints = [];
+
+        public IReadOnlyList<DecodedProperty> EffectiveProperties(DecodedEntity entity)
+        {
+            ArgumentNullException.ThrowIfNull(entity);
+
+            if (!_checkpoints.TryGetValue(
+                entity.EntityIndex, out Dictionary<int, DecodedProperty>? checkpoint))
+            {
+                checkpoint = [];
+
+                foreach (DecodedProperty property in classBaseline)
+                {
+                    checkpoint[property.Index] = property;
+                }
+
+                _checkpoints[entity.EntityIndex] = checkpoint;
+            }
+
+            foreach (DecodedProperty property in entity.Properties)
+            {
+                checkpoint[property.Index] = property;
+            }
+
+            return entity.UpdateType == EntityUpdateType.Enter
+                ? [.. checkpoint.Values]
+                : entity.Properties;
+        }
+    }
+
     private sealed class FixedBaselines(IReadOnlyList<DecodedProperty> baseline) : IEntityBaselines
     {
         public IReadOnlyList<DecodedProperty> EffectiveProperties(DecodedEntity entity)

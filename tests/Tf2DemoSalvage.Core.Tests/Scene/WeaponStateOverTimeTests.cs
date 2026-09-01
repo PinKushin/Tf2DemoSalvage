@@ -93,6 +93,49 @@ public sealed class WeaponStateOverTimeTests
         WeaponAt(timeline, 250 + Delay).ShouldBe(EntityState.WeaponActive);
     }
 
+    [Test]
+    public void PropsAt_AWeaponReenteringThePvsWithoutRestatingItsState_IsNoLongerActive()
+    {
+        // **`CL_CopyNewEntity` decodes an entering entity FROM ITS BASELINE, not from whatever the
+        // client was holding** (B245). The engine's own assert strings say so — `engine.dll`
+        // retains `CL_CopyNewEntity: GetClassBaseline(%d) failed.` beside
+        // `CL_CopyExistingEntity: missing client entity %d.` and
+        // `CL_PreserveExistingEntity`, three separate paths — so an enter-PVS update is a delta
+        // against a baseline and everything it omits comes from there rather than from before.
+        //
+        // This class has no instance baseline, which is the real case: 68 of 363 classes in
+        // `tf2-2026-pub-pov-clean` carry one and `CTFBonesaw` is not among them. So the baseline is
+        // all defaults, and `m_iState` returns to `WEAPON_NOT_CARRIED`.
+        //
+        // Left as it was, the weapon stays ACTIVE for the rest of the recording and its owner draws
+        // two weapons in one hand — measured on a real bonesaw across six thousand ticks and eight
+        // PVS transitions.
+        DemoTimeline timeline = DemoTimeline.Build(
+            SyntheticWeapon.DemoOfPvsCycle(ownerEntity: 3, active: EntityState.WeaponActive));
+
+        WeaponAt(timeline, 350 + Delay).ShouldNotBe(
+            EntityState.WeaponActive,
+            "the re-entry is a delta against a baseline that never says ACTIVE");
+    }
+
+    [Test]
+    public void PropsAt_AWeaponStillInThePvs_KeepsTheStateItWasLastGiven()
+    {
+        // **The control, and it is the one that keeps the fix from becoming "forget everything".**
+        // A weapon that never leaves is described by ordinary deltas, and a delta omitting
+        // `m_iState` means "unchanged" — `CL_CopyExistingEntity`, the other path in that same
+        // switch. A reader that reset on every update would lose the state between switches and
+        // draw nobody holding anything.
+        DemoTimeline timeline = DemoTimeline.Build(
+            SyntheticWeapon.DemoOfStates(
+                ownerEntity: 3,
+                (100, EntityState.WeaponActive),
+                (200, EntityState.WeaponActive)));
+
+        WeaponAt(timeline, 250 + Delay).ShouldBe(
+            EntityState.WeaponActive, "no leave, no reset — a delta that omits a value means it held");
+    }
+
     /// <summary><c>WEAPON_IS_CARRIED_BY_PLAYER</c>, <c>shareddefs.h:297</c>.</summary>
     private const int WeaponCarried = 1;
 

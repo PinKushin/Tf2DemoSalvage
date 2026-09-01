@@ -346,3 +346,55 @@ and the half that was missing failed silently, because a cosmetic that names no 
 whose name was never parsed are the same empty string by the time anything downstream sees it. The
 same shape has now appeared three times in a fortnight: a weapon's model read from the wire but not
 from its item, a disguise's body honoured but not its gear, and this.
+
+## `CL_CopyNewEntity` — what an entity entering the PVS is decoded against
+
+*Evidence class: read from a decompilation of `engine.dll` (TF2, x64, May 2026 build). The SDK ships
+no engine networking, so this is the only source; the function names come from the binary's own
+assert strings, which Valve left in.*
+
+The client has **three** paths for an entity in `svc_PacketEntities`, and their names survive in the
+binary: `CL_CopyNewEntity` (entering the visible set), `CL_CopyExistingEntity` (an ordinary delta),
+and `CL_PreserveExistingEntity`. Only the middle one is a delta against what the client is holding.
+
+`CL_CopyNewEntity` chooses a buffer to decode FROM — the binary names it `CL_CopyNewEntity->fromBuf`
+— and never uses the entity's current state:
+
+```c
+if ( !asDelta
+     || (stored = LookupEntityBaseline( table, baselineIndex, entityIndex )) == NULL
+     || stored->classId != thisClass )
+{
+    if ( !GetClassBaseline( classId, &data, &bytes ) )
+        Error( "CL_CopyNewEntity: GetClassBaseline(%d) failed." );   // fatal
+    bits = bytes * 8;
+}
+else
+{
+    data = stored->data;
+    bits = stored->bits & 0x7fffffff;
+}
+```
+
+**Three things follow, and the third is the one that resolves an argument this project had with
+itself.**
+
+1. **An entering entity is REPLACED, not merged into.** Whatever the baseline and the update do not
+   between them state is at the baseline's value, not at what the reader last accumulated.
+2. **The per-entity baseline is preferred, and it is checked against the class.** That is
+   `EntityBaselineSlots.For(slot, entityIndex, classId, isDelta)` line for line — including the
+   delta condition, which exists because a full snapshot is the server saying "forget what you had".
+3. **The class baseline is a FALLBACK, and missing one is fatal only on that path.** So a class with
+   no `instancebaseline` entry is not a contradiction: its entities can enter for ever, provided the
+   snapshot is a delta and the per-entity slot holds them. Measured on `tf2-2026-pub-pov-clean`,
+   which the game plays: 363 classes, 68 with a class baseline, and `CWeaponMedigun` and
+   `CTFBonesaw` among the ones without.
+
+`GetClassBaseline` itself is `GetDynamicBaseline` in the binary. It formats the class id as a
+decimal string, looks that up in the `instancebaseline` table, and on a miss dumps every entry to
+`DevMsg` before `Error( "GetDynamicBaseline: FindStringIndex(%s-%s) failed." )`. It does **not**
+synthesise an empty baseline — which was the reading this project needed to rule out, because under
+it an absent entry would have meant "all defaults" and a very different fix.
+
+The class id as the entry's TEXT confirms `BaselineBuilder`'s rule from the other side: the engine
+writes `snprintf( name, 64, "%d", classId )` and looks it up by that name.
