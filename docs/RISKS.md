@@ -16958,3 +16958,19 @@ draws the world's translucent surfaces in a separate pass, so a cloaked spy behi
 in front of it draw in the same order either way. Noticing the difference needs an entity and a
 translucent brush surface overlapping on screen, which is why it has not been seen yet — the fix is
 per-leaf grouping of the translucent draw, which is the leaf-walk structure D131 already names.
+
+## B262 — the draw side re-culls, re-classifies and comparison-sorts what collation could have handed it — OPEN
+
+The outside audit's findings 4, 5 and 7, filed together because they are one divergence: Valve
+builds its render buckets DURING leaf collation and the draw consumes them
+(`viewrender.cpp:4188` onward); our draw rebuilds order and classification per frame from a flat
+list. Concretely: `OpaqueBuckets.InDrawOrder` culls survivors a second time against the same
+frustum and comparison-sorts with per-frame allocations; `Classify` and its `ModelBatches` lookups
+run once per pass per model; `Culls` computes `WorldBoxFor` and the instance construction computes
+it again; rotated placements allocate through `PropTransform.ToMatrix`.
+
+**The fix is the same structure B261 needs** — per-leaf grouping maintained at collate time, the
+`CClientLeafSystem` shape D131 already names — so these are not to be picked off one by one with
+caches; they fall out of the restructure, and measuring each first (the audit gives the protocol:
+count second-cull rejections, Classify calls per pass, allocations per warmed frame) is what
+decides when it is worth building.
