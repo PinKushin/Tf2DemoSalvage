@@ -16831,3 +16831,39 @@ never has to do because it cannot seek.
 
 **Order matters: A before B.** A is independently valuable, independently verifiable, and produces
 the change signal B needs. Doing B first would mean inventing that signal twice.
+
+### B259 stage B — the plan was wrong, and what the floor actually needs
+
+Stage A landed: `PropsAt` 0.50 -> 0.30 ms. Stage B was described as "build the draw list from the
+visible set", and on inspection **that would move almost nothing.** Recorded before attempting it,
+because the reasoning is the finding.
+
+**Three of the four passes legitimately need every prop, and not by accident:**
+
+| pass | why it cannot be culled first |
+|---|---|
+| `Simulate` | builds `_propsByEntity`, the parent map `WorldBoxFor` needs — and `WorldBoxFor` is what the CULL calls. The cull depends on it, so it cannot run after it. |
+| `models` (`Add`) | packing must see everything that could come into view, or a model appearing hitches (B163: 385 ms in one frame). |
+| `_weaponModels.Resolve` | assigns the model path that packing then reads. Before packing, therefore before the cull. |
+
+**They are all asking "what COULD be drawn", and the cull answers "what IS".** The first question is
+genuinely about every entity. So the only movable part of `drawlist` is the `KeepOnly` filter passes,
+which are a handful of predicate evaluations over 560 props — tens of microseconds of a 600.
+
+**What the floor actually needs is a different change: the drawn LIST itself should persist.**
+Every pass above is cheap per prop and expensive only because the list is rebuilt from the timeline
+every frame and then re-walked four times. `_drawn.AddRange(props)` alone copies 560 sixteen-field
+structs on top of the ones `PropsAt` just built.
+
+The engine does none of this per frame: a renderable's model is resolved when it takes a data
+update, its leaves when it moves, and `BuildRenderablesList` reads a structure that was already
+correct. **Stage A's `NeverChanges` is the signal that makes the same thing possible here** — 677 of
+1,165 tracks never change, so their entry in a persistent drawn list would never need patching.
+
+**That is a larger restructure than stage B was described as**, and it touches the boundary between
+`MomentPresenter`, which owns the sampled list, and `MomentScene`, which owns the drawn one. It is
+the same shape as D131 and should be approved the same way rather than drifted into. **Not started.**
+
+**What stage A already bought, and it is not nothing:** the 677 constant tracks now skip a binary
+search and a record construction each frame, which is the per-prop half. What remains is the
+per-LIST half — the copying and the four walks — and that is what a persistent list removes.
