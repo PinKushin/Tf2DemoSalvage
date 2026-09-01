@@ -216,6 +216,15 @@ public sealed class MomentPresenter
             Weapons = posing.Weapons,
             Viewmodel = posing.Viewmodel,
             Counters = posing.Counters,
+
+            // **From the POSE's record, because only the pose has seen the frustum.** Taking these
+            // from `_built` reported the selection count as though it were the survivor count and
+            // the survivor count as zero — a line that read "posed 600 of 0 selected" and was
+            // believed for one measurement. `docs/memory/log-the-event-not-a-sample-of-it.md`'s
+            // sibling rule: report the value the code USED, carried to it, never the one a
+            // neighbouring record happens to hold.
+            Drawn = posing.Drawn,
+            Selected = posing.Selected,
         };
 
         _ledger.Posed(phases.Pose);

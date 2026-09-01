@@ -54,6 +54,7 @@ public sealed class MomentCostLog
     private long _animation;
     private long _report;
     private long _drawn;
+    private long _selected;
 
     /// <summary>Starts a log.</summary>
     /// <param name="every">
@@ -100,6 +101,7 @@ public sealed class MomentCostLog
         // so `SetupBones` is reached only for what the PVS and frustum already kept. This project
         // poses every prop the tick carries, so the ratio is the size of that divergence.
         _drawn += phases.Drawn;
+        _selected += phases.Selected;
 
         if (++_rebuilds < _every)
         {
@@ -128,7 +130,7 @@ public sealed class MomentCostLog
             + $", skin {Mean(_skin, over):0.#}"
             + $", anim {Mean(_animation, over):0.#}"
             + $", rest {Mean(Rest(), over):0.#}"
-            + $"; drawn {_drawn / (double)over:0.#} per rebuild");
+            + $"; posed {_drawn / (double)over:0.#} of {_selected / (double)over:0.#} selected");
 
         _rebuilds = 0;
         _sample = 0;
@@ -146,6 +148,7 @@ public sealed class MomentCostLog
         _animation = 0;
         _report = 0;
         _drawn = 0;
+        _selected = 0;
 
         return line;
     }

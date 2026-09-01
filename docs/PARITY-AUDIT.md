@@ -89,26 +89,30 @@ item 200 with attribute **2053** (`is_festivized`) from tick 1, so the item and 
 the first-person prop and the delegate resolves `c_scattergun_festivizer.mdl`. What that does not
 show is the frame. See the instrument gap below, which is why.
 
-### 1b. There is no headless first-person capture, and an unknown flag is accepted silently — OPEN
+### 1b. WITHDRAWN — this finding was wrong, and the way it was wrong is the point
 
-Found while trying to photograph the above. Two separate defects, both in the instrument rather than
-in the renderer:
+**It claimed `--first-person` does not exist and is silently swallowed. It exists.**
+`LaunchOptions.cs:145` parses it and sets `FirstPerson`, with a comment explaining why it was added:
+*"The capture a person actually wants to look at is the first-person one, and until this flag existed
+the only route to it was the UI suite pressing V."*
 
-**`MomentScene` drops `ViewmodelCamera` unless `info.FirstPerson`, `info.Followed` and
-`info.EyeCamera` are all set**, and nothing outside the interactive UI can set them. The viewer's
-headless knobs are `TF2VIEW_CAMERA`, `TF2VIEW_AUTOPLAY`, `TF2VIEW_CAPTURE_FOLDER`,
-`TF2VIEW_MODEL_CULL`, `TF2VIEW_WINDOW_POS` and `TF2VIEW_WINDOW_SIZE` — every one of them positions a
-FREE camera. So `--shot` can photograph any third-person question and no first-person one, and every
-viewmodel change ever made has been verified by asking the owner to look. A `TF2VIEW_FOLLOW=<entity>`
-in the shape of the existing knobs would close it.
+**The mistake was the search, not the reasoning.** The grep ran over
+`managed/Tf2DemoSalvage.Viewer3D/*.cs`, found `--autoplay` and nothing else, and the absence was
+believed. Launch options live in `Presentation`, one project along. That is
+`docs/memory/an-empty-search-needs-a-control.md` exactly — an absence claim with no control, where
+asking the same grep for something that MUST be there (`--first-person` itself, from the shell
+history that had already used it) would have shown the scope was wrong.
 
-**And the viewer accepted `--first-person`, which does not exist.** The only `--` flag the viewer
-parses is `--autoplay`; an unrecognised argument produces no error, no warning, and no log line, so
-a headless run configured wrongly reports exactly what a correctly configured one reports. That is
-how the first attempt at the capture above looked like a rendering fault for several minutes. An
-unknown argument should be refused, not ignored — the config parser deliberately ignores unknown
-`cl_*` commands (D69) and that reasoning does not transfer, because a `.cfg` is a foreign file and
-argv is ours.
+**Worse, the wrong conclusion was load-bearing for a measurement.** Believing the flag was inert is
+why B253 and B254 were both measured in third-person free-camera mode and reported as though they
+described the viewer's ordinary state. For a POV demo that is not the ordinary state at all — see
+B256 — so those numbers describe a view TF2 never shows.
+
+**What survives of the finding**, and it is smaller: the viewmodel PASS still needs
+`info.Followed`, which `--first-person` alone does not set on a point-of-view recording, because
+there is no spectated entity to follow. So a headless first-person capture reaches the camera and
+still logs `viewmodel pass skipped … camera False`. That is B256's territory rather than a missing
+launch option: on a POV demo the followed entity is the recorder, and nothing tells the viewer so.
 
 ### 2. Where to read next, by concentration of branches
 

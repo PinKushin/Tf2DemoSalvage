@@ -23,6 +23,10 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="Viewmodel">What the viewmodel cost, inside <paramref name="Pose"/> but outside the counters.</param>
 /// <param name="Counters">Every pose-phase counter for THIS moment, already differenced.</param>
 /// <param name="Drawn">How many props were posed, the control for <c>Counters.Built</c>.</param>
+/// <param name="Selected">
+/// How many props <c>Build</c> chose, before the frustum rejected any (B254). The ratio against
+/// <paramref name="Drawn"/> is the measurement; either number alone says nothing about the cull.
+/// </param>
 /// <remarks>
 /// **Durations, not timestamps.** The version this replaced mixed the two — a total in ticks beside
 /// five absolute marks — and every consumer had to subtract them back into what it wanted. Naming
@@ -43,7 +47,12 @@ public readonly record struct MomentPhases(
     long Weapons,
     long Viewmodel,
     EntityModelSet.PoseCounters Counters,
-    int Drawn)
+    int Drawn,
+
+    // **What Build selected, before the frustum saw any of it** (B254). Reported beside `Drawn`
+    // rather than instead of it, because the RATIO is the measurement: the two numbers together say
+    // whether the cull is doing anything, and either alone says nothing.
+    int Selected = 0)
 {
     /// <summary>What the ledger measured but did not name, which is the column that matters.</summary>
     /// <remarks>
@@ -358,6 +367,13 @@ public sealed class MomentScene : IGameSystemPerFrame
 
         EntityModelSet.PoseCounters pose = _models.Counters.Since(before);
 
+        // **Read HERE, because `AddViewmodel` poses too and `Instances` resets the counter.** The
+        // viewmodel's own call clears `Culled` and adds none of its own, so reading it after that
+        // reports zero for every frame — which it did, and the zero was believed for one
+        // measurement before the second `Instances` call was noticed. Same shape as the counters
+        // above, which are differenced across this call for the same reason.
+        int culled = _models.Culled;
+
         // **Timed apart from the counters above, because the pose phase spans this too.** They are
         // read across `Instances` alone, so every millisecond spent building the viewmodel scene was
         // landing in the "bones" column — which is arrived at by subtraction, and a derived column
@@ -383,7 +399,8 @@ public sealed class MomentScene : IGameSystemPerFrame
             Weapons: reportedAt - posedAt,
             Viewmodel: viewmodelTicks,
             Counters: pose,
-            Drawn: _drawn.Count);
+            Drawn: _drawn.Count - culled,
+            Selected: _drawn.Count);
     }
 
     /// <summary>Reads whatever geometry this moment needs, and uploads it if the set grew.</summary>
