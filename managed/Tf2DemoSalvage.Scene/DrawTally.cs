@@ -40,6 +40,7 @@ public sealed class DrawTally
 
     private int _askedFor;
     private int _notStudio;
+    private int _culled;
     private int _noBatches;
     private int _drawn;
     private int _notDrawn;
@@ -53,6 +54,7 @@ public sealed class DrawTally
     {
         _askedFor = askedFor;
         _notStudio = 0;
+        _culled = 0;
         _noBatches = 0;
         _drawn = 0;
         _notDrawn = 0;
@@ -60,6 +62,20 @@ public sealed class DrawTally
         _noBatchesBy.Clear();
         _notStudioBy.Clear();
     }
+
+    /// <summary>Records a prop the view frustum rejected before it was posed.</summary>
+    /// <remarks>
+    /// **Takes no prop, unlike its neighbours.** They group their rejections by model name because
+    /// each names a gap somebody has to go and close; this one is the map working, and a list of
+    /// which crates were off screen this frame is noise.
+    ///
+    /// **Counted apart from every other reason, because it is the only one that is not a gap.** A
+    /// prop off screen is the map working: `CollateRenderablesInLeaf` rejects it too, and a viewer
+    /// that drew it would be the one diverging. Reported so the number can be READ — a cull that
+    /// suddenly rejects everything looks exactly like a rendering failure, and the count is what
+    /// separates them (B254).
+    /// </remarks>
+    public void Culled() => _culled++;
 
     /// <summary>Records a prop whose model kind this renderer cannot draw.</summary>
     /// <param name="prop">The prop.</param>
@@ -128,8 +144,8 @@ public sealed class DrawTally
     /// <summary>Records a prop that will be drawn.</summary>
     public void Drawn() => _drawn++;
 
-    private (int AskedFor, int Drawn, int NotStudio, int NoBatches, int NotDrawn) _last =
-        (-1, -1, -1, -1, -1);
+    private (int AskedFor, int Drawn, int NotStudio, int NoBatches, int NotDrawn, int Culled) _last =
+        (-1, -1, -1, -1, -1, -1);
     private long _reportedAt;
 
     /// <summary>Reports the frame's counts, when they have changed and not too often.</summary>
@@ -145,7 +161,8 @@ public sealed class DrawTally
     /// </remarks>
     public void Report()
     {
-        (int, int, int, int, int) state = (_askedFor, _drawn, _notStudio, _noBatches, _notDrawn);
+        (int, int, int, int, int, int) state =
+            (_askedFor, _drawn, _notStudio, _noBatches, _notDrawn, _culled);
 
         long now = Stopwatch.GetTimestamp();
 
@@ -169,7 +186,11 @@ public sealed class DrawTally
             // Counted and REPORTED apart from the two failures beside it: this one is the map
             // working as intended, and a number that never moves is how a reader tells the
             // difference between "we cannot draw it" and "it asked not to be drawn".
-            $"{_notDrawn} kRenderNone");
+            $"{_notDrawn} kRenderNone, " +
+
+            // The engine's own rejection rather than a gap, and the one number here that SHOULD be
+            // large: everything off screen (B254).
+            $"{_culled} off-screen");
     }
 
     private static string Named(Dictionary<string, int> by) =>

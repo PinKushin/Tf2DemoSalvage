@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Scene.Tests;
@@ -557,6 +558,95 @@ public sealed class EntityModelsTests
     /// <summary>A pose at <c>kRenderNone</c> — the mode eighteen of cp_fulgur's doors declare.</summary>
     private static ScenePose Hidden(float x = 0f) =>
         new() { X = x, Scale = 1f, RenderMode = 10 };
+
+    /// <summary>One triangle with a real render box, so the cull has something to test.</summary>
+    /// <remarks>
+    /// **<see cref="OneTriangle"/> declares no bounds and therefore cannot be culled**, which is
+    /// correct — `WorldSpaceBounds.IsPlaced` keeps a model whose box is degenerate rather than
+    /// point-testing it at the map origin. The first version of the cull test used it and failed for
+    /// that reason, which is the empty-box rule working rather than the cull being broken
+    /// (`docs/memory/an-empty-box-must-never-cull.md`).
+    /// </remarks>
+    private static PropModels.ModelFrames BoxedTriangle(string path) =>
+        OneTriangle(path) with { HeaderBounds = new StudioBox(-16f, -16f, 0f, 16f, 16f, 64f) };
+
+    /// <summary>A frustum looking down +X from the origin, as the engine builds one.</summary>
+    private static ViewFrustum LookingAlongX() =>
+        ViewFrustum.Perspective(
+            origin: (0f, 0f, 0f),
+            forward: (1f, 0f, 0f),
+            right: (0f, -1f, 0f),
+            up: (0f, 0f, 1f),
+            nearZ: 1f,
+            farZ: 10000f,
+            fovX: 90f,
+            fovY: 60f);
+
+    /// <remarks>
+    /// **`CollateRenderablesInLeaf` culls BEFORE anything is posed** — `CalcRenderableWorldSpaceAABB`
+    /// then `engine->CullBox`, and only what survives is ever handed to `DrawModel` and so to
+    /// `SetupBones` (`clientleafsystem.cpp:1574`). This project culled at draw time instead, so bone
+    /// setup, lighting and skinning ran for every prop in the tick and the survivors were chosen
+    /// afterwards — 600 posed per rebuild on `tf2-2026-pub-pov-clean` (B254).
+    ///
+    /// The prop here is a long way behind the camera, so a correct implementation never reaches its
+    /// pose and a draw-time one poses it and discards the instance. Both end with no instance, which
+    /// is why the assertion is on the pose counter rather than on the output.
+    /// </remarks>
+    [Test]
+    public void Instances_WithAPropBehindTheCamera_DoesNotPoseItAtAll()
+    {
+        EntityModelSet models = new();
+        List<ModelInstance> instances = [];
+
+        SceneProp[] props = [Prop("models/props/crate.mdl", x: -5000f)];
+
+        models.Add(props, BoxedTriangle);
+        models.Instances(props, instances, frustum: LookingAlongX());
+
+        instances.ShouldBeEmpty();
+        models.Culled.ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// The control for the test above: the same prop in front of the camera must survive, or an
+    /// implementation that culled everything would pass it. `docs/memory/instrument-bugs-outnumber-decoder-bugs.md`
+    /// — "no control" is one of the four ways a test goes blind.
+    /// </remarks>
+    [Test]
+    public void Instances_WithAPropInFrontOfTheCamera_PosesItAndDrawsIt()
+    {
+        EntityModelSet models = new();
+        List<ModelInstance> instances = [];
+
+        SceneProp[] props = [Prop("models/props/crate.mdl", x: 500f)];
+
+        models.Add(props, BoxedTriangle);
+        models.Instances(props, instances, frustum: LookingAlongX());
+
+        instances.Count.ShouldBe(1);
+        models.Culled.ShouldBe(0);
+    }
+
+    /// <remarks>
+    /// **An unbuilt frustum culls nothing**, matching <see cref="ViewFrustum.Cull"/>'s own rule: the
+    /// failure of drawing too much is a frame rate, and the failure of drawing nothing is a black
+    /// screen that reads as a much deeper fault. Every existing caller passes no frustum.
+    /// </remarks>
+    [Test]
+    public void Instances_WithNoFrustum_PosesEverything()
+    {
+        EntityModelSet models = new();
+        List<ModelInstance> instances = [];
+
+        SceneProp[] props = [Prop("models/props/crate.mdl", x: -5000f)];
+
+        models.Add(props, BoxedTriangle);
+        models.Instances(props, instances);
+
+        instances.Count.ShouldBe(1);
+        models.Culled.ShouldBe(0);
+    }
 
     private static SceneProp Prop(
         string model,

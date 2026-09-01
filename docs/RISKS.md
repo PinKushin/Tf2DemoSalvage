@@ -16274,3 +16274,37 @@ The cheap version of that measurement is to run the existing `WorldCulling` over
 count, without changing what is drawn.
 
 Filed separately from B253, which is the measurement and the instruments; this is the cause it found.
+
+## B255 — we pose before the view is computed; the engine computes the view first — OPEN
+
+**Found while fixing B254, and it is why B254's fix is not yet wired.** The cull itself is built and
+tested (`EntityModelSet.Instances(..., frustum)`, `Culls`, `DrawTally.Culled`), and it is inert until
+a frustum is passed, which nothing does yet. This entry is the reason.
+
+**Our frame order**, `FrameSequence.Run`:
+
+```
+advance = Time(steps.Simulate);      // the scene rebuild, and the pose, happen inside this
+camera  = Time(steps.PlaceCamera);   // the view is computed here
+...
+draw    = Time(() => steps.Draw(overlay));
+```
+
+**The engine's**, `CViewRender::RenderView`: `SetUpView` computes the view, then `BuildWorldLists`,
+then `BuildRenderablesList` (`clientleafsystem.cpp:1813`) walks the visible leaves, and only what
+survives is drawn and so posed. View, then visibility, then bones.
+
+Ours is bones, then view. So a frustum handed to the pose today would be **last frame's**, and
+culling against a stale view shows as entities popping in at the edge of the screen during fast mouse
+movement — a visible defect traded for a frame rate, which is not a trade this project makes (D89),
+and not what the engine does.
+
+**The fix is a reorder, not a parameter.** The rebuild is driven by `PlaybackPresenter.Advance`
+raising `MomentChanged` from inside `Simulate`. Splitting it — the clock advancing in `Simulate`,
+the rebuild running after `PlaceCamera` — puts the pose on the render side of the view, where the
+engine has it. That also answers the open question at the end of B253 about rebuilding every frame:
+the engine rebuilds its renderable list every frame too, but it does so AFTER the view, which is the
+part that makes the per-frame cost proportional to what is visible rather than to what exists.
+
+**What is already correct and should not be disturbed:** the sampling half. Interpolation genuinely
+runs per frame in the engine and belongs in `Simulate`; only the pose belongs after the view.
