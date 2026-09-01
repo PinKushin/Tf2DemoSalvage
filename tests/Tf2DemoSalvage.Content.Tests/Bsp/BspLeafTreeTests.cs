@@ -86,6 +86,51 @@ public sealed class BspLeafTreeTests
         tree.SeesSky(0f, 0f, -100f, 0f, 0f, 1f).ShouldBeTrue();
     }
 
+    /// <remarks>
+    /// **The engine puts a renderable in EVERY leaf its bounds touch**, which is what
+    /// `CClientLeafSystem::InsertIntoTree` walks the tree to do, and why
+    /// `BuildRenderablesList` can iterate visible leaves and reach an entity that straddles two of
+    /// them. A viewer testing only the entity's origin would cull anything whose middle sits in a
+    /// leaf the camera cannot see while an end of it is in plain view (B254).
+    ///
+    /// So the straddling case below is the whole point; the two single-sided cases exist to prove
+    /// the walk is not simply answering true.
+    /// </remarks>
+    [Test]
+    public void TouchesAny_WithABoxOnOneSideOnly_ReachesThatLeafAlone()
+    {
+        BspLeafTree tree = OneSplit(above: 2, below: 0);
+
+        bool[] wanted = [false, false, true];
+
+        tree.TouchesAny(-8f, -8f, 10f, 8f, 8f, 20f, wanted).ShouldBeTrue("wholly above, leaf 2");
+        tree.TouchesAny(-8f, -8f, -20f, 8f, 8f, -10f, wanted).ShouldBeFalse("wholly below, leaf 0");
+    }
+
+    [Test]
+    public void TouchesAny_WithABoxAcrossThePlane_ReachesBothLeaves()
+    {
+        BspLeafTree tree = OneSplit(above: 2, below: 0);
+
+        // Wanting ONLY the far-side leaf. A walk that descended one side would answer false for
+        // whichever side it picked, and this box is in both.
+        tree.TouchesAny(-8f, -8f, -10f, 8f, 8f, 10f, [false, false, true]).ShouldBeTrue();
+        tree.TouchesAny(-8f, -8f, -10f, 8f, 8f, 10f, [true, false, false]).ShouldBeTrue();
+    }
+
+    /// <remarks>
+    /// The control. Without it, an implementation that answered true unconditionally would pass
+    /// every case above — "affected everything" and "affected the target" being indistinguishable
+    /// with no bystander (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md`).
+    /// </remarks>
+    [Test]
+    public void TouchesAny_WithNoLeafWanted_IsFalse()
+    {
+        BspLeafTree tree = OneSplit(above: 2, below: 0);
+
+        tree.TouchesAny(-8f, -8f, -10f, 8f, 8f, 10f, [false, false, false]).ShouldBeFalse();
+    }
+
     /// <summary>A tree of one node splitting on the z = 0 plane.</summary>
     private static BspLeafTree OneSplit(int above, int below, int solidLeaf = -1)
     {

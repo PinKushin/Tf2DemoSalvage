@@ -7075,3 +7075,30 @@ would use.
 explains a real absence. They are simply not the priority they were written up as, and D89's
 "Valve parity is the first principle" does not mean every unimplemented function is equally worth
 implementing.
+
+## D128 — a POV demo is locked to the recorder's view, and that is a property of the DEMO
+
+**2026-09-01, owner, settling the question B256 left open:** *"the pov demo lock is going to be
+demo-kind, we do exactly what tf2 does, because tryign to do anything else whould be creating
+information we dont have, and the only thing we could even maybe do that for it the cap points, its
+just not worth it."*
+
+So: **POV recordings get no free camera and no third-person fallback.** Alive, first person; dead or
+spectating, whatever the recorder was watching, from where they watched it. SourceTV recordings keep
+the free camera, because an STV recording carries the whole server's view and there is something to
+fly around in.
+
+**The reason is not fidelity-as-taste, it is that the data does not exist.** A POV demo is
+PVS-limited (`docs/memory/pov-demos-are-pvs-limited.md`): entities outside the recorder's visibility
+were never transmitted. A free camera pointed at them does not show a room the viewer is rendering
+badly — it shows a room that was never recorded. Offering the camera is offering to fabricate.
+
+**The one exception considered and rejected**, in the owner's words: control points. Their state is
+networked globally rather than by visibility, so a viewer could in principle place them outside the
+recorder's view. *"its just not worth it"* — one class of entity does not make a free camera
+meaningful when everything around it is absent.
+
+**What this rules out for good:** any "enhanced" POV mode, any interpolated or inferred world outside
+the recorder's PVS, any camera that can see what the recording player could not. If a future
+question is of the form "could we show X that the recorder did not see", the answer is no and this
+is why.

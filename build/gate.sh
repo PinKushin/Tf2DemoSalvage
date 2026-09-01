@@ -795,7 +795,9 @@ run Tf2DemoSalvage.Presentation.Tests presentation 434
 # named "attributes" block and the flat "static_attrs" pair - bridged name to index by the
 # top-level section, stored_as_integer deciding whether the 32-bit union holds the integer or the
 # float's bits, and prefab inheritance overriding per name rather than duplicating.
-run Tf2DemoSalvage.Content.Tests  content   855
+# 855 -> 858: BspLeafTree.TouchesAny, the box walk the PVS half of B254 needs - one side, the other
+# side, and the straddling case that a point walk gets wrong, plus a no-leaf-wanted control.
+run Tf2DemoSalvage.Content.Tests  content   858
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
