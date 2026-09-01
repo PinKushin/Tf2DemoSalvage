@@ -16519,3 +16519,36 @@ rather than a co-equal one.
 the frame-rate lines; the rebuild breakdown — the more useful half — still went to the buffered log.
 Fixed in the same commit: `MomentPresenter` keeps its last cost line and the viewer prints it beside
 the rate, so one call now answers both halves.
+
+### B258, the actual divergence: we compute PLAYER animation inputs for every prop
+
+`PropsAt` calls `Moving(track, tick, pose)` for every track it emits, and `Moving` is:
+
+```csharp
+(float moveX, float moveY) = MoveParameters(track, tick, pose.EyeYaw ?? pose.Yaw);
+return pose with { Speed = SpeedAt(track, tick), MoveX = moveX, MoveY = moveY };
+```
+
+`MoveParameters` calls `HeadingAt(track, tick)`, and `SpeedAt` walks the track again — so **every
+prop pays three timeline lookups a frame** where one would do, about 1,800 searches per frame at 600
+props.
+
+**Both values are player animation inputs and the engine computes them nowhere else.** `move_x` and
+`move_y` drive the nine-way leg blend and `Speed` selects the sequence; both come from
+`CBasePlayerAnimState::ComputePoseParam_MoveYaw` (`base_playeranimstate.cpp:590`), and that function
+exists only in `base_playeranimstate.cpp` and `multiplayer_animstate.cpp`. A `C_BaseAnimating` prop
+has no animation state, so it never computes an estimate yaw, a move direction, or a speed.
+
+**So this is a parity divergence before it is a cost.** A resupply locker does not have legs. The fix
+is to compute these only for tracks that are players — which is what `PlayersAt` already does
+separately, at 0.09 ms for two dozen of them.
+
+**Filed rather than fixed, and the attempt to measure it first is worth recording.** A temporary
+timer split inside `PropsAt` was written, did not compile — the analyzers reject a mutable static
+field (S2223, S2696) — and the failure was missed because the build was checked with `grep -E "error
+C"`, which matches `error CS` and not `error S`. The stale binary then ran and reported the old
+format, which looked like the measurement simply not appearing. Two lessons, both already in this
+repo's notes: an absence needs a control, and a grep's scope is a claim about the grep.
+
+The cost split therefore remains unmeasured. It is also no longer needed to justify the change:
+the engine does not do this work for props at all.
