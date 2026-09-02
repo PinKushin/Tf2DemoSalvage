@@ -19,6 +19,20 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 /// keyframe boundary is an update arriving, so every track can compute its own wake-up ticks ahead
 /// of time, and between wakes a non-lerping track is not touched at all.
 ///
+/// **Sabotage-verified 2026-09-01, and the coverage is PARTIAL — read this before trusting the
+/// file.** Three manipulations, each restored: discarding `AdvanceSample`'s lerp re-sample
+/// reddened four; removing `Motion`'s `Candidate(toTick)` reddened three, diverging exactly at the
+/// destination-keyframe ticks (150 and 240); neutralising `PropsAt`'s backward-seek term reddened
+/// `AfterASeekBackwards` ALONE, with every forward-only test green — which is the narrow result
+/// that says the seek path is genuinely separable.
+///
+/// **Four tests were reddened by none of them** — `SteppedAcrossATracksEnd`,
+/// `SteppedAcrossAHiddenSpan`, `SteppedAcrossARecorderTeamSwitch` and
+/// `VisibilityGrantedMidSegment`. That is not evidence they are insensitive; no sabotage targeted
+/// their mechanisms. Falsifying them needs edits aimed at those: inverting `Alive`'s
+/// `tick &lt; _endTick`, the `Hidden` test in `DeriveSample`/`AdvanceSample`, the `recorderTeam`
+/// comparison in the resync condition, and the wake-time latch that decides blend-or-hold.
+///
 /// **The contract these tests hold is equivalence**: a timeline stepped forward tick by tick must
 /// answer exactly what a freshly built timeline answers cold, at every tick, through births,
 /// deaths, hidden spans, held spans and seeks. The one deliberate divergence from the OLD
