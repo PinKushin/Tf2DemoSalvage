@@ -56,6 +56,16 @@ public sealed class ThirdPersonUiTests
     {
         ViewerSession.RequireTheGame();
 
+        // **Taken BEFORE arriving, because arriving is the event being waited for** (B266). The
+        // viewmodel pass reports a CHANGE the moment it happens and throttles only an unchanged
+        // repeat, so entering third person writes the skip line at once. Sampling the baseline
+        // after arrival consumed that line and left the test waiting a full throttle interval for
+        // the next one — a second, for evidence that had already been written.
+        //
+        // The cycle passes through first person, where the pass DRAWS, so no skip line can arrive
+        // between here and third person: the one this waits for is the one arrival produced.
+        int skips = Viewer.Count("viewmodel pass skipped");
+
         Reach();
 
         Retry.WhileFalse(
@@ -74,15 +84,12 @@ public sealed class ThirdPersonUiTests
         // when they have: the skip line is written every time the pass declines. Waiting for the
         // drawing count to stay put would be a negative retry, which cannot succeed early and
         // therefore always costs its whole timeout.
-        // **One skip line, not two, and the difference is a whole rate-limit interval.** That line
-        // is deliberately throttled — a pass that declines every frame would otherwise write it a
-        // hundred times a second — so each one waited for costs the throttle, not a frame. One is
-        // the evidence the assertion needs: the pass ran after arriving here, and declined.
-        int skips = Viewer.Count("viewmodel pass skipped");
-
+        // One skip line is the evidence the assertion needs: the pass ran after the camera reached
+        // third person, and declined. Its baseline was taken before `Reach` — see above.
         Retry.WhileFalse(
             () => Viewer.Count("viewmodel pass skipped") > skips,
             TimeSpan.FromSeconds(5),
+            ViewerSession.PollInterval,
             throwOnTimeout: true,
             timeoutMessage: "The viewmodel pass never reported skipping, so nothing was observed.");
 
@@ -132,6 +139,7 @@ public sealed class ThirdPersonUiTests
         Retry.WhileFalse(
             () => Transitions() > before,
             TimeSpan.FromSeconds(5),
+            ViewerSession.PollInterval,
             throwOnTimeout: true,
             timeoutMessage: "Pressing the camera-mode key logged no mode change at all.");
     }

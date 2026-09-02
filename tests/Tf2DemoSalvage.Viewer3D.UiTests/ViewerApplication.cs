@@ -533,7 +533,25 @@ internal sealed partial class ViewerApplication : IDisposable
     /// <param name="key">The key about to be pressed, for the message.</param>
     private void Ready(VirtualKeyShort key)
     {
-        Window.SetForeground();
+        // **Asked before acting, because the answer is almost always yes and the two calls cost
+        // very different amounts** (B266). `HasFocus` is `GetForegroundWindow` plus a thread-id
+        // compare — a Win32 call in the microseconds; `SetForeground` is a UIA round-trip that
+        // measured 50 to 107 ms, and 1,275 ms the first time. This suite drives one window and
+        // nothing else takes focus during a run, so the foreground call was being paid on every
+        // press to re-assert something already true.
+        //
+        // Measured on `ThirdPersonUiTests`, where five presses cost 1,555 ms of press against
+        // 239 ms of waiting: the press was the whole cost of these tests, and three earlier
+        // guesses at it — the log reader, a throttled log line, the poll interval — each moved
+        // almost nothing. Instrumenting one method settled it in a single run.
+        //
+        // **Nothing is weakened.** The focus retry below still has to pass, so a press into an
+        // unfocused window is refused exactly as before; this only skips re-asserting a state
+        // that already holds.
+        if (!HasFocus())
+        {
+            Window.SetForeground();
+        }
 
         if (!HasFocus())
         {
