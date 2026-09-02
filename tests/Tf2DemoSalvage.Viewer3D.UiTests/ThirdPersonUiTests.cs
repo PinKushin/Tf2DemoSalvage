@@ -132,6 +132,7 @@ public sealed class ThirdPersonUiTests
         Retry.WhileFalse(
             () => Transitions() > before,
             TimeSpan.FromSeconds(5),
+            ViewerSession.PollInterval,
             throwOnTimeout: true,
             timeoutMessage: "Pressing the camera-mode key logged no mode change at all.");
     }

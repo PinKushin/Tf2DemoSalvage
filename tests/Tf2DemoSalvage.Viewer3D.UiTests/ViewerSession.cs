@@ -80,6 +80,22 @@ internal sealed partial class ViewerSession
         }
     }
 
+    /// <summary>How often a wait re-asks its condition.</summary>
+    /// <remarks>
+    /// **Every `Retry` in this suite ran at FlaUI's default interval, which nothing here chose**
+    /// (B266). The conditions these tests wait on are log lines written by a viewer that flushes
+    /// on every write (`AutoFlush = true`) and reads that are now incremental, so the answer is
+    /// available within a frame — but the poll only asked at the library's own pace, and a test
+    /// doing four sequential waits paid that four times over.
+    ///
+    /// **Still synchronising on the CONDITION, never on the clock** — this changes how often the
+    /// question is asked, not what is being waited for, so the project's rule is untouched. Twenty
+    /// milliseconds is comfortably longer than a frame at the rates the viewer now runs at, and a
+    /// poll is cheap: reading the log is incremental and a `Count` looks only at lines that have
+    /// arrived since it last asked.
+    /// </remarks>
+    public static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(20);
+
     /// <summary>A committed SourceTV demo whose map ships with the game.</summary>
     /// <remarks>
     /// **SourceTV, and that is the whole reason it was changed** (B256). This suite spent months on

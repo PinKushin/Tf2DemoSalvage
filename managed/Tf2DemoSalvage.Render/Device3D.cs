@@ -552,7 +552,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             // Rate limited for the same reason as the line below: a first-person view with nothing
             // to draw reports this EVERY frame otherwise, and a fault that persists does not become
             // more true for being said a hundred times a second.
-            if (ViewmodelReportIsDue())
+            if (ViewmodelReportIsDue(drawing: false))
             {
                 // Debug rather than Information: per-frame detail, which is what `developer 1`
                 // admits and `developer 0` does not (B191). Rate limiting reduced how often this
@@ -578,7 +578,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         // a log reaching 64,425 lines and 8.2 MB at roughly 1,280 writes a second. What it answers
         // is "where did the viewmodel end up", which is a question about a PLACE and does not need
         // a fresh answer sixty times a second.
-        if (_render.IsEnabled(LogLevel.Debug) && ViewmodelReportIsDue())
+        if (_render.IsEnabled(LogLevel.Debug) && ViewmodelReportIsDue(drawing: true))
         {
             _render.LogDebug(
                 "viewmodel pass: drawing {Count} at {Where}",
@@ -763,9 +763,37 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     ///
     /// One a second keeps the answer available and costs nothing measurable.
     /// </remarks>
-    private bool ViewmodelReportIsDue()
+    /// <summary>Whether the viewmodel pass should report, given what it is about to say.</summary>
+    /// <param name="drawing">Whether the pass drew this frame, as opposed to declining.</param>
+    /// <returns>Whether to write the line.</returns>
+    /// <remarks>
+    /// **A CHANGE reports at once; only an unchanged state waits for the throttle** (B266). This
+    /// was a bare one-second timer, so the first frame after the pass started or stopped drawing
+    /// could sit unreported for most of a second — and that is the moment the line exists to
+    /// record. `docs/memory/log-the-event-not-a-sample-of-it.md` is the rule: transition logs, not
+    /// samples.
+    ///
+    /// **It also priced four tests.** Every negative viewmodel test synchronises by waiting for
+    /// this line to appear after a camera change — the honest way to observe "the pass ran and
+    /// declined" — so each paid a throttle interval rather than a frame. Measured on the UI suite:
+    /// `ThirdPerson_WhileChasing_DrawsNoViewmodel` 1.96s,
+    /// `SwitchCameraModeWhileThePlaylistHasFocus` 1.92s, `CycleTargetButton_InTheFreeCamera` 1.90s
+    /// and `TheViewmodel_IsNotDrawnInTheFreeCamera` 1.63s, out of 20.9s of test time.
+    ///
+    /// The throttle is kept for the repeat, which is what it was for: a pass that declines every
+    /// frame still says so at most once a second rather than a hundred times.
+    /// </remarks>
+    private bool ViewmodelReportIsDue(bool drawing)
     {
         long now = System.Diagnostics.Stopwatch.GetTimestamp();
+
+        if (drawing != _viewmodelWasDrawing)
+        {
+            _viewmodelWasDrawing = drawing;
+            _viewmodelReportedAt = now;
+
+            return true;
+        }
 
         if (now - _viewmodelReportedAt < System.Diagnostics.Stopwatch.Frequency)
         {
@@ -775,6 +803,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         _viewmodelReportedAt = now;
         return true;
     }
+
+    /// <summary>Whether the pass drew last time it reported, so a flip can report at once.</summary>
+    /// <remarks>
+    /// Starts as though it had drawn, so the first SKIP of a run is itself a change and is
+    /// reported — which is the case a viewer with no demo open is in.
+    /// </remarks>
+    private bool _viewmodelWasDrawing = true;
 
     /// <summary>The last world camera set, so the viewmodel pass can put it back.</summary>
     /// <remarks>Carried a `HeightCut` until 2026-08-26 (B213).</remarks>
