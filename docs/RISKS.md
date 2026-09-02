@@ -17590,3 +17590,47 @@ told apart from the last three.
 **Not attempted here**: event 7001, TF2's footstep, which needs the ground surface under the foot
 (B172), and event 5004 `AE_CL_PLAYSOUND`, which names a sound script outright and is what the audio
 layer could honour first.
+
+## B276 — a client-side-animated entity's cycle was interpolated; the engine refuses to — FIXED
+
+**The owner saw it: viewmodel animation stopped.** His read was right — *"i figure thats because you
+refactored something to parity and its not done yet"* — but the deviation is older than the refactor.
+
+**The engine excludes that cycle from interpolation structurally, not with a test.**
+`C_BaseAnimating::AddBaseAnimatingInterpolatedVars` (`c_baseanimating.cpp:887`):
+
+```
+int flags = LATCH_ANIMATION_VAR;
+if ( m_bClientSideAnimation )
+    flags |= EXCLUDE_AUTO_INTERPOLATE;
+AddVar( &m_flCycle, &m_iv_flCycle, flags, true );
+```
+
+and `AddVar` appends such a variable to the TAIL of the var map, past `m_nInterpolatedEntries`
+(`c_baseentity.cpp:6405`) — which is exactly the bound `Interp_Interpolate` loops to, with
+`Assert( !( watcher->GetType() & EXCLUDE_AUTO_INTERPOLATE ) )` inside the loop (`:875`). The
+variable is registered and then deliberately placed where the interpolator cannot reach it. The
+client owns that cycle: it advances it in `FrameAdvance` and treats the networked value as a
+correction.
+
+**This project interpolated it for every entity, and always had.** At `44cb9130` — before today's
+two-clock work — `At` called `InterpolateCycle(previous, from, to, fraction)` unconditionally, with
+no `ClientSideAnimated` gate. So the defect predates B273 and B274.
+
+**What B274 did was stop it being invisible.** The cycle used to be blended on the SAME pair as the
+position: wrong, but smooth, and `EntityModelSet.Simulate` adds `elapsed × rate` on top for exactly
+these entities, so the advance dominated and a slightly-wrong base did not show. B274 gave the cycle
+its own clock, its own neighbours and its own fraction — for a viewmodel a different pair again —
+and the error stopped being smooth.
+
+**How it was missed, which is the part worth keeping.** Those four lines were printed to the
+terminal twice today while reading which variables are animation-latched. The question asked was
+"which vars", the answer taken was "cycle, pose parameters, encoded controller", and the `flags`
+assignment two lines up was read past both times — while
+`docs/memory/read-the-SDK-for-the-whole-mechanism.md`, *"finding the flag is the easy half"*, was
+being cited elsewhere in the same session.
+
+**The signal was in what was READ, not in what was written**, which is why no review of the diff
+would have caught it: the dangerous line never appeared in any comment or commit. That is the
+detectable thing — a flag being SET or TESTED in engine source that has just been read and never
+looked up — and it is what `.claude/hooks/flag-unread.ps1` now watches for.

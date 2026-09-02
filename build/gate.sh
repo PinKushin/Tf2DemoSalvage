@@ -249,7 +249,10 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # 1663 -> 1665: the animation clock's own history (B274). One where the two clocks disagree and
 # each field follows its own, and the control where they agree - without which the first passes
 # against code that simply holds the cycle back.
-run Tf2DemoSalvage.Core.Tests     core     1665
+# 1665 -> 1667: EXCLUDE_AUTO_INTERPOLATE on a client-side-animated entity's cycle (B276), and the
+# control that a SERVER-animated one still blends - without which the fix is indistinguishable from
+# having stopped interpolating the cycle for everything.
+run Tf2DemoSalvage.Core.Tests     core     1667
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.

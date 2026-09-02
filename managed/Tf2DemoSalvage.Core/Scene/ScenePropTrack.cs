@@ -1405,8 +1405,35 @@ public sealed class ScenePropTrack
             ? AnimationNeighbours(target, from, to, previous, fraction)
             : (from, to, previous, fraction);
 
-        float cycle = InterpolateCycle(
-            animationPrevious, animationFrom, animationTo, animationFraction);
+        // **A client-side-animated entity's cycle is NOT interpolated, and the engine enforces that
+        // structurally rather than with a test** (B276).
+        // `C_BaseAnimating::AddBaseAnimatingInterpolatedVars` (`c_baseanimating.cpp:887`):
+        //
+        //     int flags = LATCH_ANIMATION_VAR;
+        //     if ( m_bClientSideAnimation )
+        //         flags |= EXCLUDE_AUTO_INTERPOLATE;
+        //     AddVar( &m_flCycle, &m_iv_flCycle, flags, true );
+        //
+        // and `AddVar` appends an EXCLUDE_AUTO_INTERPOLATE variable to the TAIL of the var map,
+        // past `m_nInterpolatedEntries` — which is the bound `Interp_Interpolate` loops to, with
+        // `Assert( !( watcher->GetType() & EXCLUDE_AUTO_INTERPOLATE ) )` inside the loop
+        // (`c_baseentity.cpp:6405` and `:875`). The variable is registered and then deliberately
+        // placed where the interpolator cannot reach it.
+        //
+        // **The client owns that cycle.** It advances it every frame in `FrameAdvance` and treats
+        // what the wire says as a correction; blending two corrections produces a third value the
+        // engine never held. `EntityModelSet.Simulate` already runs that advance for exactly these
+        // entities, so the value this hands it must be the stated one.
+        //
+        // **This deviation predates the two clocks and was invisible until they arrived.** The
+        // cycle used to be blended on the same pair as the position — wrong, but smooth, and the
+        // advance on top dominated it. B274 gave it its own clock, its own neighbours and its own
+        // fraction, which for a viewmodel is a different pair again, and the error stopped being
+        // smooth.
+        float cycle = ClientSideAnimated
+            ? animationFrom.Cycle
+            : InterpolateCycle(
+                animationPrevious, animationFrom, animationTo, animationFraction);
 
         return new ScenePose
         {

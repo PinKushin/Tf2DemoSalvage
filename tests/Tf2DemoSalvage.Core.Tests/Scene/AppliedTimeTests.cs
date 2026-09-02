@@ -123,6 +123,70 @@ public sealed class AppliedTimeTests
     }
 
     /// <remarks>
+    /// **A client-side-animated entity's cycle is never interpolated, and the engine enforces that
+    /// structurally** (B276). `C_BaseAnimating::AddBaseAnimatingInterpolatedVars`
+    /// (`c_baseanimating.cpp:887`):
+    ///
+    /// <code>
+    /// int flags = LATCH_ANIMATION_VAR;
+    /// if ( m_bClientSideAnimation )
+    ///     flags |= EXCLUDE_AUTO_INTERPOLATE;
+    /// AddVar( &amp;m_flCycle, &amp;m_iv_flCycle, flags, true );
+    /// </code>
+    ///
+    /// and `AddVar` puts an `EXCLUDE_AUTO_INTERPOLATE` variable at the TAIL of the map, past
+    /// `m_nInterpolatedEntries` — which is the bound `Interp_Interpolate` loops to, with
+    /// `Assert( !( watcher->GetType() &amp; EXCLUDE_AUTO_INTERPOLATE ) )` inside it
+    /// (`c_baseentity.cpp:6405`, `:875`). The client owns that cycle: it advances it every frame
+    /// and treats what the wire says as a correction.
+    ///
+    /// This project interpolated it for every entity. It went unnoticed while the cycle was blended
+    /// on the same pair as the position — wrong but smooth — and B274 made it visible by giving the
+    /// cycle its own clock and its own fraction, which for a viewmodel is a different pair again.
+    /// The owner saw it as viewmodel animation stopping.
+    /// </remarks>
+    [Test]
+    public void At_ForAClientSideAnimatedEntity_DoesNotInterpolateTheCycle()
+    {
+        ScenePropTrack track = new(entityIndex: 3, "models/weapons/v_rocketlauncher.mdl")
+        {
+            ClientSideAnimated = true,
+        };
+
+        track.Add(0, new ScenePose { X = 0f, Cycle = 0f });
+        track.Add(20, new ScenePose { X = 100f, Cycle = 0.4f });
+
+        ScenePose at = track.At(20d)!.Value;
+
+        at.X.ShouldBeGreaterThan(0f, "the POSITION is still interpolated");
+        at.X.ShouldBeLessThan(100f);
+
+        at.Cycle.ShouldBe(
+            0f,
+            "the client owns this cycle and advances it itself; the wire value is a correction, " +
+            "and blending two corrections invents a third the engine never had");
+    }
+
+    /// <remarks>
+    /// **The control**: an entity the SERVER animates — a door, a building — takes its cycle off
+    /// the wire as an ordinary interpolated variable, and must still be blended. Without this the
+    /// test above passes against code that stopped interpolating the cycle for everything.
+    /// </remarks>
+    [Test]
+    public void At_ForAServerAnimatedEntity_StillInterpolatesTheCycle()
+    {
+        ScenePropTrack track = new(entityIndex: 3, "models/props_gameplay/door_slide_door.mdl");
+
+        track.Add(0, new ScenePose { X = 0f, Cycle = 0f });
+        track.Add(20, new ScenePose { X = 100f, Cycle = 0.4f });
+
+        ScenePose at = track.At(20d)!.Value;
+
+        at.Cycle.ShouldBeGreaterThan(0f);
+        at.Cycle.ShouldBeLessThan(0.4f);
+    }
+
+    /// <remarks>
     /// **A repeat records the applied time of the RESTATEMENT**, which is what keeps the hold
     /// interval on the same clock as the endpoints. Mixing an arrival tick into that fraction is
     /// the class of defect this whole entry is about, one level down.
