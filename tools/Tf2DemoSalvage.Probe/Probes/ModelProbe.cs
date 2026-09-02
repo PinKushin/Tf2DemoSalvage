@@ -83,6 +83,14 @@ public sealed class ModelProbe : IProbe
             + $"{families.ToString(CultureInfo.InvariantCulture)} skin families over "
             + $"{references.ToString(CultureInfo.InvariantCulture)} references");
 
+        // **The models this one includes**, because a sequence list read from the root alone is
+        // only half the answer for anything that animates — and "the root has no events" reads
+        // identically to "this model has no events" until the include list is on screen (B275).
+        foreach (string included in StudioModelGroups.Read(bytes))
+        {
+            output.WriteLine($"INCLUDE '{included}'");
+        }
+
         // **The pose parameters, with their RANGE**, because the range decides what a missing value
         // looks like. The wire sends `m_flPoseParameter` normalised 0..1
         // (`baseanimating.cpp:243`); this project fills an uncomputed one with a raw zero and

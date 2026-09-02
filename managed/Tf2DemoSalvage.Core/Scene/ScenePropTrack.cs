@@ -110,6 +110,16 @@ public readonly record struct ScenePose
     /// </remarks>
     public IReadOnlyList<float> PoseParameters { get; init; } = [];
 
+    /// <summary>The counter that re-arms this entity's animation events.</summary>
+    /// <remarks>
+    /// **Discrete, and compared rather than read** (B275). <c>DoAnimationEvents</c> does not care
+    /// what the number IS; it restarts the event walk when it differs from the one it saw last
+    /// (<c>c_baseanimating.cpp:3618</c>), which is how a taunt played twice in a row sounds twice
+    /// while its sequence number never moves. A value part-way between two counters names nothing,
+    /// so it takes the earlier keyframe's like the other discrete fields.
+    /// </remarks>
+    public int ResetEventsParity { get; init; }
+
     /// <summary>How fast the animation advances, as a multiple of its authored rate.</summary>
     /// <remarks>
     /// **The third factor in Valve's cycle advance** (<c>c_baseanimating.cpp:5493</c>):
@@ -1488,6 +1498,9 @@ public sealed class ScenePropTrack
             // (`c_baseanimating.cpp:890`). A sentry's barrel would otherwise step between updates.
             PoseParameters = BlendPoses(
                 animationFrom.PoseParameters, animationTo.PoseParameters, animationFraction),
+
+            // Discrete: a counter part-way between two values names neither.
+            ResetEventsParity = from.ResetEventsParity,
 
             Slot = from.Slot,
             AirborneSeconds = from.AirborneSeconds,

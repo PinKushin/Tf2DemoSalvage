@@ -2671,6 +2671,11 @@ public sealed class DemoTimeline
                 // computes theirs — so this cannot override the ones `PoseValues` derives.
                 PoseParameters = state.PoseParameters(),
 
+                // **Compared, not read** (B275). `DoAnimationEvents` restarts its walk when this
+                // differs from the value it saw last, which is how a taunt played twice sounds
+                // twice while its sequence number never moves.
+                ResetEventsParity = state.ResetEventsParity() ?? 0,
+
                 // **Skin defaults to 0 because 0 is a real skin**, the model's first family, and a
                 // delta-compressed format only sends what changed from it.
                 //

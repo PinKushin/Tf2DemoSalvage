@@ -222,6 +222,11 @@ public sealed class PoseCompletenessTests
         // truncated it is distinguishable from one that kept it whole.
         PoseParameters = [0.25f, 0.75f],
 
+        // Non-zero, because zero is both the default and a legal counter value — an entity that
+        // has never replayed an animation sits at it, so a rebuild that dropped this would look
+        // right on everything except the taunt it exists for.
+        ResetEventsParity = 3,
+
         // Not 1, which is the default and would make the completeness assertion compare a default
         // against a default. This pair caught PlaybackRate the moment it was added, which is the
         // entire point of the control.

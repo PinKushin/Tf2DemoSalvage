@@ -13,6 +13,21 @@ using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Scene;
 
+/// <summary>One animation event an entity's cycle crossed this frame.</summary>
+/// <param name="EntityIndex">Whose animation fired it.</param>
+/// <param name="Event">The event, as the model declares it.</param>
+/// <param name="Origin">Where that entity stands, which is where the engine plays it from.</param>
+/// <remarks>
+/// **<c>FireEvent( GetAbsOrigin(), GetAbsAngles(), event, options )</c>** — the engine hands the
+/// handler the entity's place along with the event, and for <c>AE_CL_PLAYSOUND</c> that is the
+/// position the sound is emitted at when the model has no attachments
+/// (<c>c_baseanimating.cpp:3988</c>).
+/// </remarks>
+public readonly record struct FiredAnimationEvent(
+    int EntityIndex,
+    StudioEvent Event,
+    (float X, float Y, float Z) Origin);
+
 /// <summary>One model to draw, where it stands, and the light reaching it.</summary>
 /// <param name="ModelPath">Which packed model to draw.</param>
 /// <param name="Matrix">Sixteen floats, row major, for the shader's model constant.</param>
@@ -462,6 +477,9 @@ public sealed class EntityModelSet
         // point anywhere in the list. This is what CalcAbsolutePosition walks (c_baseentity.cpp:4387).
         _propsByEntity.Clear();
 
+        // Events are a per-frame answer; the WALK's state is per entity and survives.
+        _fired.Clear();
+
         foreach (SceneProp prop in props)
         {
             _propsByEntity[prop.EntityIndex] = prop;
@@ -543,6 +561,17 @@ public sealed class EntityModelSet
             posed.Sequence = sequence;
             posed.Frame = StudioSequences.FrameFor(
                 phase, skinned.Frames(sequence), skinned.Loops(sequence));
+
+            // **`DoAnimationEvents`, and it has to be HERE** (B275). The walk asks what the cycle
+            // crossed since last frame, and for a player the cycle is not on the wire at all — the
+            // client advances it, which is the `phase` computed a few lines up. A probe reading
+            // `m_flCycle` off the pose instead reported zero events on a demo full of them, because
+            // for every player that value is a constant.
+            //
+            // The engine's own call site is the same place: `C_BaseAnimating::FrameAdvance` runs
+            // the cycle forward and then dispatches, so an event is noticed on the frame the
+            // animation reached it rather than on the packet that mentioned the sequence.
+            AnimationEvents(prop, skinned, sequence, phase);
             posed.PoseValues = PoseValues(skinned, where, sequence);
 
             // **The placement, which is what makes the built bones WORLD space.** A merged item
@@ -759,6 +788,70 @@ public sealed class EntityModelSet
         animating.Pose is SkeletonPose posed
             ? posed.PoseValues
             : [];
+
+    /// <summary>What an entity's event walk remembers, and the parity it last saw.</summary>
+    private readonly Dictionary<int, (AnimationEventState State, int Parity)> _eventStates = [];
+
+    /// <summary>Scratch for one entity's events, so the walk allocates nothing per frame.</summary>
+    private readonly List<StudioEvent> _firedScratch = [];
+
+    /// <summary>Every client animation event that fired this frame, with where it fired.</summary>
+    private readonly List<FiredAnimationEvent> _fired = [];
+
+    /// <summary>Every client animation event this frame crossed.</summary>
+    /// <remarks>
+    /// **Rebuilt per frame, in the order the engine fires them** — which on a loop is the tail of
+    /// the old lap before the head of the new one. A consumer reads it after `Instances` and
+    /// before the next frame; nothing retains it.
+    ///
+    /// **The first consumer is a probe, and the intended one is sound.** Event 5004 is
+    /// `AE_CL_PLAYSOUND` and names a sound script outright — `Taunt.Soldier01HeelClick` and its
+    /// like — so a viewer can honour it with what the audio layer already has. Event 7001 is TF2's
+    /// footstep and needs the ground surface under the foot, which is B172.
+    /// </remarks>
+    public IReadOnlyList<FiredAnimationEvent> FiredEvents => _fired;
+
+    /// <summary>Walks one entity's events for this frame.</summary>
+    /// <param name="prop">The entity.</param>
+    /// <param name="skinned">Its model, for the MERGED sequence list.</param>
+    /// <param name="sequence">The sequence it is playing.</param>
+    /// <param name="phase">Its cycle now, after the client's own advance.</param>
+    private void AnimationEvents(
+        SceneProp prop, PropModels.SkinnedModel skinned, int sequence, float phase)
+    {
+        // **Through the merged table, because a TF2 player model declares no events at all.** They
+        // live in the included `<class>_animations.mdl`, so asking the root model answers "none"
+        // for every player in every demo.
+        IReadOnlyList<StudioEvent> events = skinned.Events(sequence);
+
+        if (events.Count == 0)
+        {
+            return;
+        }
+
+        _eventStates.TryGetValue(
+            prop.EntityIndex, out (AnimationEventState State, int Parity) remembered);
+
+        _firedScratch.Clear();
+
+        AnimationEventState next = AnimationEventFiring.Fired(
+            events,
+            sequence,
+            remembered.State,
+            phase,
+            resetEvents: remembered.Parity != prop.Pose.ResetEventsParity,
+            into: _firedScratch);
+
+        _eventStates[prop.EntityIndex] = (next, prop.Pose.ResetEventsParity);
+
+        foreach (StudioEvent fired in _firedScratch)
+        {
+            _fired.Add(new FiredAnimationEvent(
+                prop.EntityIndex,
+                fired,
+                (prop.Pose.X, prop.Pose.Y, prop.Pose.Z)));
+        }
+    }
 
     /// <summary>Told when an entity's model is resolved, with which pose parameters wrap.</summary>
     /// <remarks>
@@ -1755,6 +1848,8 @@ public sealed class EntityModelSet
         _propsByEntity.Clear();
         _skinning.Clear();
         _posedEntities.Clear();
+        _eventStates.Clear();
+        _fired.Clear();
 
         // Log dedup is per-level too: the next map's missing frames and poses deserve their own
         // report, and a brush height cached for entity N is the OLD map's brush.

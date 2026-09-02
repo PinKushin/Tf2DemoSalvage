@@ -17513,3 +17513,63 @@ animation stamping reddens it and nothing else.
 ran a cycle from 0 to 1 and read 0 however the interpolation was timed — because `LoopingLerp`
 treats a gap of half a cycle or more as an animation that wrapped past 1, which is correct and made
 the test blind. A gap under half is what measures the clock rather than the wrap.
+
+## B275 — animation events were read and never fired — TRAVERSAL DONE, firing UNPROVEN on the corpus
+
+**`C_BaseAnimating::DoAnimationEvents` did not exist here.** `StudioSequence.FiredEvents` has
+carried a sequence's events since the sequence reader learned about `mstudioevent_t`, and the only
+thing that ever read them was a probe printing them — so a taunt played silently and no foot ever
+landed. `EntityState.ViewmodelResetEventsParity`'s own doc said as much: *"Decoded and not yet acted
+on — this viewer does not dispatch animation events at all, so the consumer does not exist yet."*
+
+### What was built
+
+The traversal is transcribed from `c_baseanimating.cpp:3550`, with the entity state returned rather
+than mutated so it is a function of its inputs. Eleven conformance tests, and **one of them records
+a branch whose first version asserted the opposite**: on a loop the engine sets
+`m_flPrevEventCycle = flEventCycle - 0.001f` BEFORE the ordinary pass, so head events below that
+backtrack do not fire for that lap. The natural expectation is `["tail", "head"]` and the engine
+gives `["tail"]`.
+
+It is wired into `EntityModelSet.Simulate`, immediately after the cycle is advanced — which is where
+it has to be, and a probe that read `m_flCycle` off the pose instead reported zero on a demo full of
+motion, because **a player's cycle is not on the wire at all**. `m_nResetEventsParity` is now decoded
+per entity and carried on the pose, since it is what makes a taunt played twice sound twice.
+
+`PropModels.SkinnedModel.Events` resolves through the MERGED sequence table, which matters: a TF2
+player model declares no events of its own and the animations live in the included
+`<class>_animations.mdl`. Reading the root answers "none" for every player in every demo.
+
+### What is NOT established, and it is the honest state
+
+**No client animation event has been observed firing on any corpus demo.** Measured with the new
+`animevents` probe, which carries its own controls:
+
+```
+z1800 ticks 20000-20300: 57941 entity walks, 0 on a sequence that HAS events,
+                         25904 client-animated, cycles 0 to 0.999
+foundry ticks 11000-11400: 65579 walks, 401 with events (0 of them CLIENT),
+                           available on: CDynamicProp models/player/soldier.mdl
+```
+
+So the walk runs, the cycles advance, and **nothing an entity is playing carries a client event**.
+The 401 on foundry are a map standee using a player model, whose events are all server-side.
+
+**The specific open question**, and the measurements that frame it: `heavy.mdl` declares **259
+sequences of its own with zero events** and includes `heavy_animations.mdl`, which has **317
+sequences carrying 155 events, 22 of them footsteps**. Valve's `AppendSequences`
+(`studio_virtualmodel.cpp`) appends a label only when it is not already present — `if (k ==
+numCheck)` — so the ROOT model's copy wins any collision, and the root's copies have no events.
+Whether a player is ever on one of the animation model's entries, and whether our merged numbering
+agrees with the engine's, is the next thing to establish.
+
+**Three probe faults were found and fixed getting this far**, all the same family: it read the root
+model's sequences instead of the merged ones, it read the wire cycle instead of the advanced one,
+and it walked `PropsAt` without the players — which come from `PlayersAt` and are made into props
+by `MomentScene`. Each reported a confident zero. The controls printed now — walks, walks on an
+event-bearing sequence, client-animated count, and the cycle range — exist so the next zero can be
+told apart from the last three.
+
+**Not attempted here**: event 7001, TF2's footstep, which needs the ground surface under the foot
+(B172), and event 5004 `AE_CL_PLAYSOUND`, which names a sound script outright and is what the audio
+layer could honour first.

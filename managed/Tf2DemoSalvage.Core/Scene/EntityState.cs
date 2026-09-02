@@ -1188,12 +1188,23 @@ public sealed class EntityState
         Integer($"{AnimatingTable}.m_bClientSideFrameReset");
 
 
+    /// <summary>The counter that re-arms an ENTITY's animation events.</summary>
+    /// <returns><c>m_nResetEventsParity</c>, or null when the entity never sent one.</returns>
+    /// <remarks>
+    /// <c>c_baseanimating.cpp:3618</c>: <c>bool resetEvents = m_nResetEventsParity !=
+    /// m_nPrevResetEventsParity;</c>, and <c>DoAnimationEvents</c> treats a change exactly as it
+    /// treats a sequence change — the walk restarts at cycle zero. It is what lets a taunt played
+    /// twice in a row sound twice, since the sequence number never moves between them (B275).
+    /// </remarks>
+    public int? ResetEventsParity() =>
+        Integer($"{AnimatingTable}.m_nResetEventsParity");
+
     /// <summary>The counter that re-arms animation events — <c>m_nResetEventsParity</c>.</summary>
     /// <remarks>
     /// <c>c_baseanimating.cpp:3618</c>: <c>bool resetEvents = m_nResetEventsParity !=
     /// m_nPrevResetEventsParity;</c>, which lets an animation's events fire again when it replays.
-    /// Decoded and not yet acted on — this viewer does not dispatch animation events at all, so the
-    /// consumer does not exist yet.
+    /// The viewmodel's own copy; <see cref="ResetEventsParity"/> is the one every other entity
+    /// sends.
     /// </remarks>
     public int? ViewmodelResetEventsParity() =>
         Integer($"{ViewModelTable}.m_nResetEventsParity");

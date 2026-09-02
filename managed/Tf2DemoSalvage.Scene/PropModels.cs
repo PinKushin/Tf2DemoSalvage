@@ -1790,6 +1790,23 @@ public static class PropModels
             where.Local < Groups[where.Group].Sequences.Count &&
             Groups[where.Group].Sequences[where.Local].Loops;
 
+        /// <summary>The events a merged sequence carries, resolved through the include chain.</summary>
+        /// <param name="sequence">The merged sequence number.</param>
+        /// <returns>Its events, or empty when the number names nothing.</returns>
+        /// <remarks>
+        /// **Through the MERGED table, which is the whole point of this accessor** (B275). A TF2
+        /// player model declares no events at all — `heavy.mdl` reports zero — because the
+        /// animations and their events live in the included `heavy_animations.mdl`, where 22 of
+        /// them are footsteps. Reading the root model's own sequence list answers "no events" for
+        /// every player in every demo, which is a fact about the reader.
+        /// </remarks>
+        public IReadOnlyList<StudioEvent> Events(int sequence) =>
+            Sequences.At(sequence) is { } where &&
+            where.Group < Groups.Count &&
+            where.Local < Groups[where.Group].Sequences.Count
+                ? Groups[where.Group].Sequences[where.Local].FiredEvents
+                : [];
+
         /// <summary>The first merged sequence whose activity contains a fragment.</summary>
         /// <param name="fragment">Part of an activity name, such as <c>VM_IDLE</c>.</param>
         /// <returns>The merged sequence number, or −1 when no sequence claims it.</returns>
