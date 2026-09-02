@@ -27,8 +27,9 @@ public sealed class SyntheticInterpolationTests
 {
     private const float Interval = 1f / 66.67f;
 
-    /// <summary>The track's fixed render delay, <c>InterpolationDelayTicks</c>.</summary>
-    private const int Delay = 7;
+    /// <summary>The track's render delay, taken from it rather than restated (B267).</summary>
+    private static readonly int Delay =
+        ScenePropTrack.DelayTicksFor(ScenePropTrack.Tf2TickInterval);
 
     /// <summary><c>EF_NODRAW</c>, bit 5 of <c>m_fEffects</c>.</summary>
     private const int NoDraw = 0x020;
@@ -51,7 +52,8 @@ public sealed class SyntheticInterpolationTests
         List<ScenePlayer> shown = [];
         timeline.PlayersAt(120.0, shown);
 
-        shown.ShouldHaveSingleItem().X.ShouldBe(130f, 1f);
+        // `120 - Delay` ticks into the ten-tick span from 110 to 120, over 100 units (B267).
+        shown.ShouldHaveSingleItem().X.ShouldBe(100f + (100f * ((10 - Delay) / 10f)), 1f);
     }
 
     [Test]
@@ -176,7 +178,9 @@ public sealed class SyntheticInterpolationTests
         List<ScenePlayer> shown = [];
         wide.PlayersAt(140.0, shown);
 
-        // Target 133, thirteen ticks into the twenty-tick span from 120 to 140, over 100 units.
-        shown.ShouldHaveSingleItem().X.ShouldBe(165f, 1f);
+        // The drawn moment is `140 - Delay`, that many ticks into the twenty-tick span from 120 to
+        // 140, over 100 units — derived rather than written out, because a literal here is a second
+        // home for the delay and it had one (B267).
+        shown.ShouldHaveSingleItem().X.ShouldBe(100f + (100f * ((20 - Delay) / 20f)), 1f);
     }
 }

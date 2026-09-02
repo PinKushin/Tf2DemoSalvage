@@ -61,10 +61,14 @@ public sealed class SyntheticDeadPlayerTests
 
         ScenePlayer alive = drawn.Single(player => player.EntityIndex == Alive);
 
-        // **Predicted rather than bounded.** The sample is taken seven ticks behind the tick asked
-        // for, matching cl_interp, so tick 200 draws tick 193 — 93% of the way from 100 to 200,
-        // which on a 0-to-512 move is 476.16.
-        alive.X.ShouldBe(476.16f, 0.5f);
+        // **Predicted rather than bounded.** The sample is taken `Delay` ticks behind the tick
+        // asked for — `GetInterpolationAmount`'s `TIME_TO_TICKS(cl_interp) + serverTickMultiple` —
+        // so tick 200 draws `200 - Delay`, that far through the span from 100 to 200, on a 0-to-512
+        // move. Derived because the literal 476.16 encoded a seven-tick delay and the engine's is
+        // eight (B267).
+        int delay = ScenePropTrack.DelayTicksFor(ScenePropTrack.Tf2TickInterval);
+
+        alive.X.ShouldBe(512f * ((100f - delay) / 100f), 0.5f);
     }
 
     [Test]

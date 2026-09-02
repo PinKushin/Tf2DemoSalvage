@@ -25,8 +25,14 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 /// </remarks>
 public sealed class SceneTrackCycleTests
 {
-    /// <summary>How far behind the asked-for tick a pose is sampled, matching <c>cl_interp</c>.</summary>
-    private const int Delay = 7;
+    /// <summary>How far behind the asked-for tick a pose is sampled; taken from the track.</summary>
+    /// <remarks>
+    /// Read from production rather than copied (B267) — these tests are about cycle behaviour, not
+    /// about the offset, and `InterpolationDelayConformanceTests` is what asserts the offset is
+    /// the engine's.
+    /// </remarks>
+    private static readonly int Delay =
+        ScenePropTrack.DelayTicksFor(ScenePropTrack.Tf2TickInterval);
 
     [Test]
     public void At_ACycleCrossingTheLoopBoundary_MovesForwardsRatherThanBackwards()

@@ -17021,3 +17021,41 @@ lookup is wired for `CTFWearable` at all, since it was written for weapons
 `CTFWearableRobotArm` is worth noting separately: it is the Gunslinger's arm, so a class with one
 instance and its own entity type is a plausible place for a resolution rule to have been missed
 outright rather than to be failing generically.
+
+## B267 — the interpolation delay was one tick short of the engine's — FIXED
+
+**Found by auditing something already implemented, which is what D127 asks for.** The track's render
+delay was `7`, derived as "0.1 seconds at 66.67 ticks is 6.67, rounded" — correct as far as it went
+and one term short. `C_BaseEntity::GetInterpolationAmount` (`client/c_baseentity.cpp:5920`) returns
+
+```
+TICKS_TO_TIME( TIME_TO_TICKS( GetClientInterpAmount() ) + serverTickMultiple )
+```
+
+on the branch that names demo playback outright, so the rounding is followed by a whole extra tick.
+`TIME_TO_TICKS` is `(int)( 0.5f + dt / TICK_INTERVAL )` (`shareddefs.h:17`) — nearest, not
+truncated — and `GetClientInterpAmount` is `MAX( cl_interp, cl_interp_ratio / cl_updaterate )`
+(`cdll_bounded_cvars.cpp:127`), 0.1 at TF2's defaults. **So the engine draws eight ticks behind and
+this project drew seven**: every interpolated entity sat one tick — 15 ms — nearer the present than
+the engine puts it.
+
+**Both branches of that function end at the same expression for an ordinary entity**, which is why
+the fix does not depend on whether a demo counts as locally recorded. The early return
+(`TICK_INTERVAL * serverTickMultiple`, one tick) needs `IsAnimatedEveryTick()` and
+`IsSimulatedEveryTick()`, per-entity networked flags that ordinary entities do not set. **Those
+flags are not decoded here and that is a separate, narrower gap** — an entity that does set them is
+interpolated over one tick rather than eight, and this project would give it eight.
+
+**The tick rate is now an input rather than a constant.** `DelayTicksFor(intervalPerTick,
+interpolation)` is Valve's arithmetic term for term, so a 33-tick recording gets four ticks rather
+than eight for the same eighth of a second. This cannot bite on the current corpus — every demo in
+it measures 66.67 ticks a second, era specimens included — so it is correctness kept rather than a
+bug fixed, and the interval is not yet plumbed from the demo header into the track.
+
+**Three test files kept their own copy of `7`**, and nineteen tests failed for a correct change.
+They now read the value from production, because they are about the SHAPE of the interpolation
+rather than its offset; `InterpolationDelayConformanceTests` pins the offset against the engine
+independently, so the number still has something asserting it. Two tests had the old delay baked
+into an expected VALUE as well (`726.35`, `476.16`) and one into a sample TICK — that last one is
+the interesting failure, because a fixed tick silently moved the drawn moment from halfway to 40%
+and the test would have gone on measuring something it was not written to measure.

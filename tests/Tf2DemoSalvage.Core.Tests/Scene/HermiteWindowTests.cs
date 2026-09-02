@@ -124,15 +124,24 @@ public sealed class HermiteWindowTests
         door.At(600).ShouldNotBeNull().Z.ShouldBe(584f, 0.01f);
 
         // And it does arrive: the later keyframe is not discarded, only deferred by the
-        // interpolation delay. At tick 610 the client is drawing tick 603, which is 98.8% of the way
-        // through a gap whose earlier end is ancient — so it is nearly there — and it lands exactly
-        // on the new value once the delay has passed.
+        // interpolation delay. At tick 610 the client is drawing `610 - delay`, nearly the whole
+        // way through a gap whose earlier end is ancient — so it is almost there — and it lands
+        // exactly on the new value once the delay has passed.
         //
-        // That near-jump IS the engine: its history holds the same two entries, and a frac of 0.988
-        // is what `(targettime - older) / (newer - older)` gives. A real door never reaches this
+        // That near-jump IS the engine: its history holds the same two entries, and the fraction is
+        // what `(targettime - older) / (newer - older)` gives. A real door never reaches this
         // shape, because a moving entity is updated every tick and its gaps are one.
-        door.At(610).ShouldNotBeNull().Z.ShouldBe(726.35f, 0.1f);
-        door.At(617).ShouldNotBeNull().Z.ShouldBe(728f, 0.01f);
+        //
+        // **Derived from the delay rather than written out** (B267). This read 726.35 with a
+        // comment saying "drawing tick 603", both of which encoded a seven-tick delay; the engine's
+        // is eight (`GetInterpolationAmount` adds `serverTickMultiple` after the rounding), so the
+        // literal was a second place the old value lived.
+        int delay = ScenePropTrack.DelayTicksFor(ScenePropTrack.Tf2TickInterval);
+
+        float almost = 584f + ((728f - 584f) * ((610f - delay) / 610f));
+
+        door.At(610).ShouldNotBeNull().Z.ShouldBe(almost, 0.1f);
+        door.At(610 + delay).ShouldNotBeNull().Z.ShouldBe(728f, 0.01f);
     }
 
     [Test]

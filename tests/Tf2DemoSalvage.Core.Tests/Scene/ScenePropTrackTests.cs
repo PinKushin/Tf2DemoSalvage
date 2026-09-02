@@ -46,8 +46,18 @@ public sealed class ScenePropTrackTests
     private static double Between(int firstTick, double fraction) =>
         firstTick + InterpolationDelay + (fraction * UpdateGap);
 
-    /// <summary>Matches <c>ScenePropTrack</c>'s own delay, which is <c>cl_interp</c> in ticks.</summary>
-    private const int InterpolationDelay = 7;
+    /// <summary>The track's own render delay, taken from it rather than restated.</summary>
+    /// <remarks>
+    /// **Read from production on purpose, and the conformance test is what stops that being
+    /// circular** (B267). These tests position their samples relative to the delay — they are
+    /// about the SHAPE of the interpolation, not its offset — so a copied number only means they
+    /// break when the offset legitimately changes. It was copied as 7, the engine's answer is 8,
+    /// and nineteen tests failed for a correct change. `InterpolationDelayConformanceTests` pins
+    /// the value against `C_BaseEntity::GetInterpolationAmount` independently, so the number still
+    /// has something asserting it is right.
+    /// </remarks>
+    private static readonly int InterpolationDelay =
+        ScenePropTrack.DelayTicksFor(ScenePropTrack.Tf2TickInterval);
 
     [Test]
     public void At_BeforeTheFirstKeyframe_IsNothing()

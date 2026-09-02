@@ -234,7 +234,7 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # differently, so its whole record is built once - 677 of 1,165 tracks on tf2-2026-pub-pov-clean.
 # The load-bearing test is the MOVING pair: a cache that never updates and one that never hits look
 # identical from outside, and only a track that must differ at two ticks separates them.
-run Tf2DemoSalvage.Core.Tests     core     1633
+run Tf2DemoSalvage.Core.Tests     core     1638
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.

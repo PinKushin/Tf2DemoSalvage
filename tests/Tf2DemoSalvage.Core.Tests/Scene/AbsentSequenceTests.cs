@@ -58,7 +58,14 @@ public sealed class AbsentSequenceTests
 
         // One interpolation delay past the midpoint: the engine renders the recent past, so the
         // second update has to have arrived before it can be blended toward.
-        ScenePose middle = track.At(12).ShouldNotBeNull();
+        //
+        // **Asked at midpoint-plus-delay rather than at a literal 12** (B267). The tick was chosen
+        // so the DRAWN moment lands halfway, which is what the assertion below reasons about — so
+        // when the delay went from seven to the engine's eight, a fixed tick quietly moved the
+        // sample to 40% and the test measured something it was not written to measure.
+        int delay = ScenePropTrack.DelayTicksFor(ScenePropTrack.Tf2TickInterval);
+
+        ScenePose middle = track.At(5 + delay).ShouldNotBeNull();
 
         // Halfway between the two keyframes, so halfway through the cycle. A cut would report the
         // first keyframe's 0.0 for the whole span.

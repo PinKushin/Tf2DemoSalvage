@@ -506,16 +506,59 @@ public sealed class ScenePropTrack
     /// How far behind the requested tick a pose is sampled — the engine's <c>cl_interp</c>.
     /// </summary>
     /// <remarks>
-    /// **This is the delay a client renders at, not a smoothing fudge.** <c>cl_interp</c> defaults
-    /// to 0.1 seconds, which at TF2's 66.67 ticks per second is 6.67 ticks; seven is that rounded.
-    /// Drawing the recent past is what lets a client interpolate at all — at the present moment
-    /// there is nothing yet to interpolate toward.
+    /// **This is the delay a client renders at, not a smoothing fudge.** Drawing the recent past
+    /// is what lets a client interpolate at all — at the present moment there is nothing yet to
+    /// interpolate toward.
     ///
-    /// **Ticks rather than seconds is a known simplification.** A 33-tick server's 0.1 seconds is
-    /// half as many ticks, and this class is not told the tick rate; the honest form takes the
-    /// interval from the demo header, which is a change to how tracks are constructed.
+    /// **It was seven and the engine's answer is eight** (B267). The old derivation was right as
+    /// far as it went — 0.1 seconds at 66.67 ticks is 6.67, rounded to seven — and stopped one
+    /// term early. <c>C_BaseEntity::GetInterpolationAmount</c> (`c_baseentity.cpp:5920`) returns
+    /// <c>TICKS_TO_TIME( TIME_TO_TICKS( GetClientInterpAmount() ) + serverTickMultiple )</c> on the
+    /// branch that names demo playback, so the rounding is followed by a whole extra tick. Every
+    /// interpolated entity was drawn one tick nearer the present than the engine draws it.
+    ///
+    /// Derived through <see cref="DelayTicksFor"/> rather than stated, so the reasoning is code
+    /// and the tick interval is an input.
     /// </remarks>
-    private const int InterpolationDelayTicks = 7;
+    private int InterpolationDelayTicks { get; set; } = DelayTicksFor(Tf2TickInterval);
+
+    /// <summary>TF2's tick interval, and the fallback when a demo states none.</summary>
+    /// <remarks>
+    /// Every demo in the corpus measures 66.67 ticks a second, era specimens included, so this is
+    /// the observed rate rather than an assumed one — and a header that states nothing is a real
+    /// case (`docs/memory/a-header-written-last-is-absent.md`).
+    /// </remarks>
+    public const double Tf2TickInterval = 0.015d;
+
+    /// <summary>TF2's <c>cl_interp</c> default, which is what a demo is replayed at.</summary>
+    /// <remarks>
+    /// <c>GetClientInterpAmount</c> (`cdll_bounded_cvars.cpp:127`) takes
+    /// <c>MAX( cl_interp, cl_interp_ratio / cl_updaterate )</c>; at TF2's defaults that is
+    /// <c>MAX( 0.1, 2/66 )</c> = 0.1. A recording does not carry the recorder's own cvars, so this
+    /// is the setting a viewer has to assume.
+    /// </remarks>
+    public const double DefaultInterpolation = 0.1d;
+
+    /// <summary>How many ticks behind the present an entity is drawn.</summary>
+    /// <param name="intervalPerTick">The demo's seconds per tick; non-positive falls back to TF2's.</param>
+    /// <param name="interpolation">The client's interp amount in seconds.</param>
+    /// <returns>The delay in ticks.</returns>
+    /// <remarks>
+    /// **Valve's arithmetic, term for term** — <c>TIME_TO_TICKS( dt )</c> is
+    /// <c>(int)( 0.5f + dt / TICK_INTERVAL )</c> (`shareddefs.h:17`), which rounds to NEAREST
+    /// rather than truncating, and <c>GetInterpolationAmount</c> adds <c>serverTickMultiple</c>
+    /// afterwards — one, except on a server simulating alternate ticks.
+    ///
+    /// Kept in TICKS rather than converted back to time because this class indexes keyframes by
+    /// tick; the engine's `TICKS_TO_TIME` on the way out is for a caller that wants seconds.
+    /// </remarks>
+    public static int DelayTicksFor(
+        double intervalPerTick, double interpolation = DefaultInterpolation)
+    {
+        double interval = intervalPerTick > 0d ? intervalPerTick : Tf2TickInterval;
+
+        return (int)(0.5d + (interpolation / interval)) + 1;
+    }
 
     private int _endTick = int.MaxValue;
 
