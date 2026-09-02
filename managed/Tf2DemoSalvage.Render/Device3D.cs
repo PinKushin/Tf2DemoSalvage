@@ -795,7 +795,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             return true;
         }
 
-        if (now - _viewmodelReportedAt < System.Diagnostics.Stopwatch.Frequency)
+        if (now - _viewmodelReportedAt < ViewmodelRepeatTicks)
         {
             return false;
         }
@@ -803,6 +803,22 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         _viewmodelReportedAt = now;
         return true;
     }
+
+    /// <summary>How long an UNCHANGED viewmodel state waits before repeating itself.</summary>
+    /// <remarks>
+    /// **A tenth of a second rather than a whole one** (B266). The throttle exists because a pass
+    /// that declines every frame would otherwise write this a hundred times a second; at a tenth
+    /// it writes ten, which is a few hundred lines across a whole test run and still nothing next
+    /// to the 21,745 that one model produced before the flood was fixed.
+    ///
+    /// **The second was priced by anything asking "is it STILL declining".** A change reports at
+    /// once, so a test observing a transition is already fast; a test asserting a steady state has
+    /// to see a fresh line after its own baseline, and that could only arrive on the throttle.
+    /// Measured: three such tests at 1.5-1.6s each out of 17s of test time, nearly all of it this
+    /// interval.
+    /// </remarks>
+    private static readonly long ViewmodelRepeatTicks =
+        System.Diagnostics.Stopwatch.Frequency / 10;
 
     /// <summary>Whether the pass drew last time it reported, so a flip can report at once.</summary>
     /// <remarks>
