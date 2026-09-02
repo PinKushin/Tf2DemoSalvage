@@ -17234,3 +17234,35 @@ different experiments, and only the second one tests what the wrap is for.
 own copy, and a viewmodel here takes the same `PoseValues` path as anything else — so it gets the
 wire's array when it sends one. Untested, because no corpus demo has been checked for a viewmodel
 that sends a non-default value.
+
+## B270 — bone controllers are unimplemented, and that is measured rather than outstanding — CLOSED
+
+**Filed and closed in one pass, which is the point of writing it down.** `DT_BaseAnimating` sends
+`m_flEncodedController` (four slots, eleven bits over 0..1, `server/baseanimating.cpp:248`), this
+project decodes none of it, and `CalcBoneAdj` (`public/bone_setup.cpp:2320`) — the multiply that
+turns that fraction into a bone adjustment — does not exist here. `docs/WIRE-COVERAGE.md` lists the
+field under "not mentioned anywhere in a shipped assembly", which is how it surfaced.
+
+**It is unimplemented because no TF2 model this project draws declares a bone controller.** Measured
+2026-09-02 on every model drawn at tick 12000 of `tf2-2013-build1729296-stv-cp_foundry` — sixteen:
+`sentry3` and `dispenser_lvl3_light`, heavy, scout and soldier, four pickups, three sliding doors,
+`cap_point_base` and its hologram, `resupply_locker`, and the builder viewmodel. Every one declares
+**zero**. Six further guesses aimed at the likeliest users — the payload cart, the tank boss, an HL2
+door — are the same.
+
+**The instrument was proved before the absence was believed.** `StudioBoneControllerTests` builds
+models that DO declare controllers and reads their ranges back; the header offsets 164 and 168 match
+`studiohdr_t`'s field order by arithmetic (`studio.h:2165`); and the reader throws on an
+inconsistent table rather than returning empty. So a count of zero is the header's answer, not a
+silent bail — the rule from `docs/memory/an-empty-search-needs-a-control.md`, applied because
+sixteen zeroes in a row is exactly what a broken offset looks like.
+
+**Why this is closed rather than left open.** An unread field on a coverage list reads as a gap
+every time somebody audits, and it had already cost one investigation. The distinction that matters
+is between "not done" and "does not apply to this content": the model table is already read, so if a
+model ever turns up using one, the missing half is the wire value and the multiply, and the count
+line the model probe now prints makes it visible immediately.
+
+The prior note in `StudioBoneControllers` measured only three PLAYER models. That denominator was
+too narrow to support the conclusion, and B269 had just shown why: buildings use pose parameters
+that players are explicitly excluded from, so "players declare none" says nothing about buildings.

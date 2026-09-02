@@ -97,6 +97,21 @@ public sealed class ModelProbe : IProbe
                 + (parameter.Loop != 0f ? $" loops at {parameter.Loop:0.##}" : string.Empty));
         }
 
+        // **The bone controllers, for the same reason as the pose parameters above**: the wire
+        // sends `m_flEncodedController` as a fraction over 0..1 and the model says what the
+        // fraction spans, so neither half means anything alone (`CalcBoneAdj`). Printed because the
+        // claim "TF2 models declare none" was measured on three PLAYER models, and a player is not
+        // the denominator that decides whether the mechanism matters.
+        foreach ((StudioBoneController controller, int at) in StudioBoneControllers.Read(bytes)
+            .Select((controller, at) => (controller, at)))
+        {
+            output.WriteLine(
+                $"CTRL {at.ToString(CultureInfo.InvariantCulture),2} "
+                + $"bone {controller.Bone.ToString(CultureInfo.InvariantCulture)} "
+                + $"type 0x{controller.Type:X} "
+                + $"{controller.Start:0.##} to {controller.End:0.##}");
+        }
+
         // **Sequences with their LOOP flag**, because that flag decides what a finished animation
         // holds. `ClampCycle` (`c_baseanimating.cpp:1431`) wraps a looping sequence and clamps a
         // one-shot to 0.999, so a `close` marked looping never stops closing — it reopens.

@@ -32,6 +32,26 @@ public readonly record struct StudioBoneController(
 /// the 474 controller slots across the heavy's 79 bones is −1, and the scout and soldier are the
 /// same. So <c>CalcBoneAdj</c> is close to dead weight for the models this viewer draws today.
 ///
+/// **Re-measured 2026-09-02 against a denominator that is not three player models**, because a
+/// player is not what decides whether a mechanism matters — B269 had just found buildings using
+/// pose parameters that players are excluded from. Every model drawn at tick 12000 of the 2013
+/// SourceTV foundry demo, sixteen of them, declares **zero** bone controllers: both buildings, the
+/// three player models, four pickups, three sliding doors, the capture point, its hologram, the
+/// resupply locker and the builder viewmodel. Six further guesses — the payload cart among them —
+/// are the same.
+///
+/// **The reader is proved capable before that absence is believed.**
+/// <c>StudioBoneControllerTests</c> builds models that DO declare controllers and reads their
+/// ranges back, and the header offsets 164/168 match <c>studiohdr_t</c>'s field order by arithmetic
+/// (<c>studio.h:2165</c>). A count of zero here is the header's own answer, and the reader throws
+/// rather than returning empty when the table is inconsistent — so this is a fact about TF2's
+/// content rather than about the parser
+/// (<c>docs/memory/an-empty-search-needs-a-control.md</c>).
+///
+/// So <c>m_flEncodedController</c> being unread and <c>CalcBoneAdj</c> unimplemented is a MEASURED
+/// exclusion, not an outstanding gap. The day a model turns up that uses one, this table is already
+/// loaded and the missing half is the wire value and the multiply.
+///
 /// It is read anyway for two reasons. The table is what makes that claim CHECKABLE rather than an
 /// assumption — <c>BoneFlagContentTests</c> asserts the emptiness, so a model that does use one
 /// shows up as a failing test rather than as a silent wrong pose. And the parser is upstream of
