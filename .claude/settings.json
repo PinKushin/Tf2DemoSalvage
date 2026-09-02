@@ -73,6 +73,13 @@
             "shell": "powershell",
             "timeout": 15,
             "statusMessage": "checking the build actually succeeded"
+          },
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/flag-unread.ps1\"",
+            "shell": "powershell",
+            "timeout": 15,
+            "statusMessage": "checking engine flags were looked up"
           }
         ]
       }
