@@ -36,3 +36,17 @@ first question tells you whether the feature is load-bearing.
 See [[instrument-bugs-outnumber-decoder-bugs]] for the family this belongs to, and
 [[one-subagent-and-prefer-cheap-models]] for what a cheap model is fine to be trusted with —
 sabotage still qualifies, provided the result is read rather than accepted.
+
+## A sabotage also tells you what a test was actually measuring
+
+Same session, B273. Two corpus tests were written to cover the applied-time stamping and both
+looked right. Severing the stamping — dropping the lag from `track.Add` — left **both green**: they
+asserted on the lag HISTOGRAM, which is measured beside the stamping rather than through it.
+
+Nothing about reading those tests suggests that. They name the right subject, use real demos, and
+would have been believed. The sabotage is what separated "covers the change" from "mentions the
+change", and the fix was a third test reading the number the interpolation actually used out of the
+track — which reddens.
+
+So run the sabotage even when the tests are yours and you are confident. The question it answers is
+not "did I write a test" but "does anything fail when the feature stops working".

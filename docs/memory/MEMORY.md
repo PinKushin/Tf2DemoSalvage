@@ -168,3 +168,4 @@
 - [A dropped field falls to a computed default](a-dropped-field-falls-to-a-computed-default.md) — the last transform sets the symptom; predicting from the wire's range was wrong.
 - [An inverted flag is not a disabled flag](an-inverted-flag-is-not-a-disabled-flag.md) — the delegated sabotage measured the control, not the claim.
 - [A tick-encoded value expires](a-tick-encoded-value-expires.md) — convert at receipt against the SERVER's tick; bimodal-at-the-clamp is a wrong base.
+- [One keyframe bundles what the engine keeps apart](one-keyframe-bundles-what-the-engine-keeps-apart.md) — key by arrival, carry the applied time alongside.
