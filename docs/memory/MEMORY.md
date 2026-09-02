@@ -59,7 +59,7 @@
 - [An uncoverable gap is usually your reader](an-uncoverable-gap-is-usually-your-reader.md) — exclusions are facts about your parser.
 - [Output-level assertion or it is not done](output-level-assertion-or-it-is-not-done.md) — only it catches wiring.
 - [An empty search needs a control](an-empty-search-needs-a-control.md) — absence claims are often facts about the grep.
-- [Wire names are strings](wire-names-are-strings.md) — SENDINFO_NAME sends under its second argument.
+- [Wire names are strings](wire-names-are-strings.md) — SENDINFO_NAME sends under its second argument; RECVINFO_NAME is the only record of a RETIRED name, and the SDK is one build's snapshot.
 - [A running client caches its config](a-running-client-caches-its-config.md) — a stale .cfg read makes a correct fix look failed.
 - [POV demos are PVS-limited](pov-demos-are-pvs-limited.md) — missing props imitate a regression; verify on STV.
 - [Nothing is closed](nothing-is-closed.md) — the search order: SDK, its public headers, shipped data, the binaries, then a decompiler.
