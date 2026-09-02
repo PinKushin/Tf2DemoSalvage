@@ -20,14 +20,30 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// chosen even though the name is present.
 /// </param>
 /// <param name="Blend">The grid of animations it blends between, or null for a plain sequence.</param>
+/// <param name="Events">
+/// The animation events it fires, or null for a sequence declaring none. Read
+/// <see cref="FiredEvents"/> instead, which answers empty rather than null.
+/// </param>
 public readonly record struct StudioSequence(
     int Animation,
     int Flags,
     string Label = "",
     StudioBlendGrid? Blend = null,
     string Activity = "",
-    int ActivityWeight = 0)
+    int ActivityWeight = 0,
+    IReadOnlyList<StudioEvent>? Events = null)
 {
+    /// <summary>The events this sequence fires, in file order; never null.</summary>
+    /// <remarks>
+    /// **On the sequence because that is where the model puts them** — `mstudioseqdesc_t` carries
+    /// `numevents` and `eventindex` (`studio.h:817`), and `C_BaseAnimating::DoAnimationEvents`
+    /// reads them off the sequence it is currently playing.
+    ///
+    /// Empty rather than null for a sequence that declares none, which is most of them: a caller
+    /// walking events should not have to ask whether there are any first.
+    /// </remarks>
+    public IReadOnlyList<StudioEvent> FiredEvents => Events ?? [];
+
     /// <summary>Whether the sequence loops.</summary>
     /// <remarks>
     /// <c>STUDIO_LOOPING</c>, which <c>studio.h</c> documents as "ending frame should be the same
@@ -155,7 +171,13 @@ public static class StudioSequences
                         sequence[SequenceActivityNameOffset..])),
 
                 BinaryPrimitives.ReadInt32LittleEndian(
-                    sequence[SequenceActivityWeightOffset..])));
+                    sequence[SequenceActivityWeightOffset..]),
+
+                // **Read from the whole file, not from the sequence slice**, because `eventindex`
+                // points outside the description: the events sit elsewhere in the model and the
+                // offset is measured from the sequence's own start. Passing the slice would bound
+                // the read to 212 bytes and find nothing.
+                StudioEvent.Read(bytes, start)));
         }
 
         return sequences;

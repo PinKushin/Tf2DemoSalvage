@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Text;
 
@@ -73,7 +74,6 @@ public readonly record struct StudioEvent(float Cycle, int Id, int Type, string 
     /// <param name="model">The whole <c>.mdl</c> file.</param>
     /// <param name="sequence">Byte offset of the <c>mstudioseqdesc_t</c>.</param>
     /// <returns>The events, or empty when there are none or the file cannot hold them.</returns>
-    /// <exception cref="ArgumentNullException"><paramref name="model"/> is null.</exception>
     /// <remarks>
     /// **Order is preserved because the engine depends on it.** `DoAnimationEvents` walks the array
     /// forwards and fires everything whose cycle falls in the span since the last check, so two
@@ -87,21 +87,19 @@ public readonly record struct StudioEvent(float Cycle, int Id, int Type, string 
     /// like any other number in a model, and a truncated or hostile file must produce nothing
     /// rather than a read past the end.
     /// </remarks>
-    public static IReadOnlyList<StudioEvent> Read(byte[] model, int sequence)
+    public static IReadOnlyList<StudioEvent> Read(ReadOnlySpan<byte> model, int sequence)
     {
-        ArgumentNullException.ThrowIfNull(model);
-
         if (sequence < 0 ||
             sequence > model.Length - StudioLayout.SequenceEventIndexOffset - sizeof(int))
         {
             return [];
         }
 
-        int count = BitConverter.ToInt32(
-            model, sequence + StudioLayout.SequenceEventCountOffset);
+        int count = BinaryPrimitives.ReadInt32LittleEndian(
+            model[(sequence + StudioLayout.SequenceEventCountOffset)..]);
 
-        int at = sequence + BitConverter.ToInt32(
-            model, sequence + StudioLayout.SequenceEventIndexOffset);
+        int at = sequence + BinaryPrimitives.ReadInt32LittleEndian(
+            model[(sequence + StudioLayout.SequenceEventIndexOffset)..]);
 
         if (count <= 0 || at < 0)
         {
@@ -124,10 +122,13 @@ public readonly record struct StudioEvent(float Cycle, int Id, int Type, string 
             int each = at + (index * StudioLayout.EventStride);
 
             events.Add(new StudioEvent(
-                BitConverter.ToSingle(model, each + StudioLayout.EventCycleOffset),
-                BitConverter.ToInt32(model, each + StudioLayout.EventIdOffset),
-                BitConverter.ToInt32(model, each + StudioLayout.EventTypeOffset),
-                OptionsAt(model, each + StudioLayout.EventOptionsOffset)));
+                BinaryPrimitives.ReadSingleLittleEndian(
+                    model[(each + StudioLayout.EventCycleOffset)..]),
+                BinaryPrimitives.ReadInt32LittleEndian(
+                    model[(each + StudioLayout.EventIdOffset)..]),
+                BinaryPrimitives.ReadInt32LittleEndian(
+                    model[(each + StudioLayout.EventTypeOffset)..]),
+                OptionsAt(model[(each + StudioLayout.EventOptionsOffset)..])));
         }
 
         return events;
@@ -141,15 +142,15 @@ public readonly record struct StudioEvent(float Cycle, int Id, int Type, string 
     /// (`docs/memory/padding-is-not-zero.md`), so taking the whole field would append rubbish to
     /// every short option.
     /// </remarks>
-    private static string OptionsAt(byte[] model, int at)
+    private static string OptionsAt(ReadOnlySpan<byte> options)
     {
         int length = 0;
 
-        while (length < StudioLayout.EventOptionsLength && model[at + length] != 0)
+        while (length < StudioLayout.EventOptionsLength && options[length] != 0)
         {
             length++;
         }
 
-        return Encoding.ASCII.GetString(model, at, length);
+        return Encoding.ASCII.GetString(options[..length]);
     }
 }
