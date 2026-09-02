@@ -97,6 +97,19 @@ public readonly record struct ScenePose
     /// <summary>Where this entity becomes invisible — <c>m_fadeMaxDist</c>.</summary>
     public float FadeMaximumDistance { get; init; }
 
+    /// <summary>What the wire says this entity's pose parameters are, normalised.</summary>
+    /// <remarks>
+    /// **Empty for a player and populated for everything else animating**, which is the send
+    /// table's split rather than a rule invented here: <c>CBaseAnimating</c> networks all 24
+    /// (<c>server/baseanimating.cpp:243</c>) and <c>tf_player.cpp:769</c> excludes them, because a
+    /// player's are computed by <c>CBasePlayerAnimState</c> on the client.
+    ///
+    /// **Treated as immutable.** <c>ScenePropTrack.At</c> hands the same array through when two keyframes
+    /// agree rather than allocating a copy per sampled frame, so a caller that wrote into one would
+    /// be writing into the track's stored keyframe.
+    /// </remarks>
+    public IReadOnlyList<float> PoseParameters { get; init; } = [];
+
     /// <summary>How fast the animation advances, as a multiple of its authored rate.</summary>
     /// <remarks>
     /// **The third factor in Valve's cycle advance** (<c>c_baseanimating.cpp:5493</c>):
@@ -1329,6 +1342,11 @@ public sealed class ScenePropTrack
             FadeMinimumDistance = from.FadeMinimumDistance,
             FadeMaximumDistance = from.FadeMaximumDistance,
 
+            // **Interpolated, because the engine puts them in the interpolation list**:
+            // `AddVar( m_flPoseParameter, &m_iv_flPoseParameter, LATCH_ANIMATION_VAR, true )`
+            // (`c_baseanimating.cpp:890`). A sentry's barrel would otherwise step between updates.
+            PoseParameters = BlendPoses(from.PoseParameters, to.PoseParameters, fraction),
+
             Slot = from.Slot,
             AirborneSeconds = from.AirborneSeconds,
             Airwalking = from.Airwalking,
@@ -1628,7 +1646,83 @@ public sealed class ScenePropTrack
         return low;
     }
 
-    /// <summary>Interpolates an animation cycle, allowing for it having wrapped past 1.</summary>
+    /// <summary>Which pose parameters of this entity's model wrap, by index.</summary>
+    /// <remarks>
+    /// **The model supplies these, exactly as it does in the engine.**
+    /// <c>C_BaseAnimating::OnNewModel</c> (<c>c_baseanimating.cpp:1130</c>) walks the studio header
+    /// and calls <c>m_iv_flPoseParameter.SetLooping( Pose.loop != 0.0f, i )</c> — so the flags live
+    /// on the interpolator, set once when the model becomes known, and this is that.
+    ///
+    /// **Empty until somebody sets it, and empty means nothing loops**, which is the right answer
+    /// for the overwhelming majority: of a sentry's two parameters only <c>aim_yaw</c> loops. This
+    /// layer cannot open a model, so the scene layer sets it when it resolves one — a frame later
+    /// than the entity's first appearance, which is also when the engine's history is empty.
+    /// </remarks>
+    public IReadOnlyList<bool> PoseParameterLoops { get; set; } = [];
+
+    /// <summary>Interpolates each pose parameter, wrapping the ones the model says wrap.</summary>
+    /// <remarks>
+    /// **Returns one of the inputs when they agree, rather than allocating a copy.** Interpolation
+    /// runs per sampled entity per frame, and the common case by far is two keyframes carrying the
+    /// same values — a sentry that has not moved, or an entity whose parameters never change. The
+    /// arrays are treated as immutable throughout, which is what makes handing one out safe.
+    ///
+    /// **A length mismatch takes the earlier keyframe's**, since that is the one the caller would
+    /// have got with no interpolation at all. It happens when an entity's model changes under it,
+    /// and blending a two-parameter model's values into a five-parameter one would pair values by
+    /// position across two unrelated orderings.
+    /// </remarks>
+    private IReadOnlyList<float> BlendPoses(
+        IReadOnlyList<float> from, IReadOnlyList<float> to, float fraction)
+    {
+        if (from.Count == 0 || from.Count != to.Count)
+        {
+            return from;
+        }
+
+        if (ReferenceEquals(from, to) || Same(from, to))
+        {
+            return from;
+        }
+
+        float[] blended = new float[from.Count];
+
+        for (int index = 0; index < blended.Length; index++)
+        {
+            blended[index] = index < PoseParameterLoops.Count && PoseParameterLoops[index]
+                ? LoopingLerp(from[index], to[index], fraction)
+                : from[index] + ((to[index] - from[index]) * fraction);
+        }
+
+        return blended;
+    }
+
+    /// <summary>Whether two equal-length parameter lists hold the same values.</summary>
+    /// <remarks>
+    /// Compared BIT for bit, which is the question being asked: not "are these two numbers close"
+    /// but "did this entity send anything different between the two keyframes". A tolerance would
+    /// be wrong here — a parameter that moved by a hair still moved, and the answer decides whether
+    /// an allocation is skipped rather than what any value becomes.
+    /// </remarks>
+    private static bool Same(IReadOnlyList<float> from, IReadOnlyList<float> to)
+    {
+        for (int index = 0; index < from.Count; index++)
+        {
+            if (BitConverter.SingleToInt32Bits(from[index])
+                != BitConverter.SingleToInt32Bits(to[index]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>Interpolates a normalised value that wraps, allowing for it having passed 1.</summary>
+    /// <param name="from">The earlier value, 0..1.</param>
+    /// <param name="to">The later one.</param>
+    /// <param name="fraction">How far between them.</param>
+    /// <returns>The blend, back inside 0..1.</returns>
     /// <remarks>
     /// **Valve's <c>LoopingLerp&lt;float&gt;</c>**, from <c>src/game/client/lerp_functions.h</c>:
     ///
@@ -1644,8 +1738,18 @@ public sealed class ScenePropTrack
     ///
     /// The half-cycle threshold is the whole trick: a large gap means the animation looped rather
     /// than jumped, so the smaller value belongs to the next repetition.
+    ///
+    /// **The same function serves a looping POSE PARAMETER**, which is the other place the engine
+    /// reaches for it: <c>CInterpolatedVarArray::_Interpolate</c> (<c>interpolatedvar.h:1333</c>)
+    /// picks it per element from the model's <c>Pose.loop</c> flag. There the 0.5 is half the
+    /// parameter's whole range rather than half a cycle — 180 degrees for a sentry's
+    /// <c>aim_yaw</c>, crossed every time one tracks a target past due south.
+    ///
+    /// The comparison is <c>&gt;=</c>, so a gap of exactly half wraps. Both directions are the same
+    /// distance there and the engine picks this one, which makes it arbitrary and worth pinning
+    /// rather than tidying.
     /// </remarks>
-    private static float LoopingLerp(float from, float to, float fraction)
+    internal static float LoopingLerp(float from, float to, float fraction)
     {
         if (Math.Abs(to - from) >= 0.5f)
         {

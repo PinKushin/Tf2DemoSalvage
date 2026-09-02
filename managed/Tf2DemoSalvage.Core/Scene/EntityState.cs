@@ -530,6 +530,91 @@ public sealed class EntityState
         return found;
     }
 
+    /// <summary>The sub-table an animating entity's pose parameters arrive under.</summary>
+    public const string PoseParameterTable = "m_flPoseParameter";
+
+    /// <summary>Every pose parameter this entity sent, normalised, in the model's own order.</summary>
+    /// <returns>Empty when the entity sends none, which is what a player does.</returns>
+    /// <remarks>
+    /// **<c>CBaseAnimating</c> networks all 24** (<c>server/baseanimating.cpp:243</c>):
+    /// <c>SendPropArray3( SENDINFO_ARRAY3(m_flPoseParameter), SendPropFloat( …,
+    /// ANIMATION_POSEPARAMETER_BITS, 0, 0.0f, 1.0f ) )</c> — so the wire value is NORMALISED to
+    /// 0..1 and is stored that way, which is the range the blend grid wants
+    /// (<c>C_BaseAnimating::GetPoseParameters</c>, <c>c_baseanimating.cpp:1401</c>).
+    ///
+    /// **Empty for a player, and that is the send table's doing rather than a special case here.**
+    /// <c>tf_player.cpp:769</c> is <c>SendPropExclude( "DT_BaseAnimating", "m_flPoseParameter" )</c>,
+    /// so a player's flattened class carries none of the elements at all and the client computes
+    /// them in <c>CBasePlayerAnimState</c> instead. Returning 24 zeroes would be indistinguishable
+    /// from a real entity aimed at the bottom of every range, and would override that computation.
+    ///
+    /// **The length follows the highest index SENT, not the number of keys present.** A delta names
+    /// only what changed, so an entity can reach us having sent element 3 and not element 1 —
+    /// packing the present ones would hand element 3's value to the blend grid under element 1's
+    /// name. The engine's array is a fixed 24 with every unsent slot holding its last value; an
+    /// unsent slot here reads as zero, which is what the engine leaves an unset parameter at
+    /// (<c>c_baseanimating.cpp:1134</c>, <c>SetPoseParameter( hdr, i, 0.0 )</c> on a new model).
+    /// </remarks>
+    public IReadOnlyList<float> PoseParameters()
+    {
+        int highest = -1;
+
+        foreach ((string key, PropertyValue value) in _properties)
+        {
+            if (IndexOfPoseParameter(key) is { } index && value.Kind == PropertyValueKind.Float)
+            {
+                highest = Math.Max(highest, index);
+            }
+        }
+
+        if (highest < 0)
+        {
+            return [];
+        }
+
+        float[] values = new float[highest + 1];
+
+        foreach ((string key, PropertyValue value) in _properties)
+        {
+            if (IndexOfPoseParameter(key) is { } index && value.Kind == PropertyValueKind.Float)
+            {
+                values[index] = value.AsFloat;
+            }
+        }
+
+        return values;
+    }
+
+    /// <summary>Which element of the pose parameter array a property key names, if any.</summary>
+    /// <remarks>
+    /// Keys are the demo's own: the array is a sub-table named <c>m_flPoseParameter</c> whose
+    /// children are <c>000</c> through <c>023</c>. Matched with a suffix test rather than a prefix
+    /// one because the table can arrive qualified or bare depending on where it was declared, and
+    /// the ordinal is the part that identifies it either way.
+    /// </remarks>
+    private static int? IndexOfPoseParameter(string key)
+    {
+        const int OrdinalLength = 3;
+
+        if (key.Length < PoseParameterTable.Length + 1 + OrdinalLength)
+        {
+            return null;
+        }
+
+        int dot = key.Length - OrdinalLength - 1;
+
+        if (key[dot] != '.' ||
+            !key.AsSpan(0, dot).EndsWith(PoseParameterTable, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        return int.TryParse(
+            key.AsSpan(dot + 1), NumberStyles.None, CultureInfo.InvariantCulture, out int index)
+            ? index
+            : null;
+    }
+
     /// <summary>Reads an integer property.</summary>
     /// <param name="key">Qualified name, e.g. <c>DT_BasePlayer.m_iHealth</c>.</param>
     /// <returns>The value, or <c>null</c> if absent or not an integer.</returns>

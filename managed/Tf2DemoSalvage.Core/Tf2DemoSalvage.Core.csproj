@@ -28,6 +28,12 @@
          Same reason as the entry above: `ScenePropTrack.AttachedTo` has an internal setter, so the
          bone-merge rule cannot be set up through the public API. -->
     <InternalsVisibleTo Include="Tf2DemoSalvage.Rendering.Tests" />
+
+    <!-- `TimelineMoments` lives in the scene and is the one adapter that writes back INTO a
+         timeline - `OnNewModel`, which teaches a track which pose parameters wrap (B269). Testing
+         that hop needs a timeline built from tracks, and `DemoTimeline.ForTracks` is internal
+         because assembling one by hand is a test affordance rather than an API. -->
+    <InternalsVisibleTo Include="Tf2DemoSalvage.Scene.Tests" />
   </ItemGroup>
 
   <ItemGroup>

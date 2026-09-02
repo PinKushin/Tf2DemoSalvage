@@ -774,6 +774,14 @@ internal class MainForm : Form, IFrameSteps
         FrameLedger ledger = new();
 
         _moments = new MomentPresenter(_moment, ledger, _renderLog);
+
+        // **The one fact that travels from the models back to the demo** (B269). Only a model says
+        // which pose parameters wrap, and only the interpolator needs to know — `OnNewModel` in the
+        // engine, where `m_iv_flPoseParameter.SetLooping` is called. Read through the property
+        // rather than captured, because the source arrives with a demo and this runs before one is
+        // open.
+        _models.ModelResolved = (entity, looping) =>
+            _moments.Source?.OnNewModel(entity, looping);
         _frames = new FrameReporter(ledger, _models, new StopwatchTime(), _renderLog);
 
         // **Registered here, after every system exists, and this is the only place the list is

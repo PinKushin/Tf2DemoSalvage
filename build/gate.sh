@@ -234,7 +234,11 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # differently, so its whole record is built once - 677 of 1,165 tracks on tf2-2026-pub-pov-clean.
 # The load-bearing test is the MOVING pair: a cache that never updates and one that never hits look
 # identical from outside, and only a track that must differ at two ticks separates them.
-run Tf2DemoSalvage.Core.Tests     core     1638
+# 1638 -> 1648: the wire's pose parameters (B269). Seven for the decode and the looping
+# interpolation LoopingLerp already implemented for the animation cycle, three for how a track
+# blends them - including the control that a NON-looping parameter must not wrap, without which the
+# looping test passes against code that wraps everything.
+run Tf2DemoSalvage.Core.Tests     core     1648
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
@@ -495,7 +499,11 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 # where the defect actually was: FxBlend.Compute took clientSideFade all along and no caller ever
 # passed it, so the conformance half would have passed throughout. The wiring five assert on
 # ModelInstance.Alpha coming out of EntityModelSet.Instances.
-run Tf2DemoSalvage.Scene.Tests    scene     321
+# 321 -> 329: the wire's pose parameters reaching the blend (B269). Six on `PoseValuesOf`, which
+# reports the array the skeleton was posed with, and two on `TimelineMoments.OnNewModel` - the one
+# call that travels from the scene INTO the demo, and the only hop in that chain that can fail
+# silently.
+run Tf2DemoSalvage.Scene.Tests    scene     329
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

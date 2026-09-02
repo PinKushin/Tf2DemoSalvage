@@ -2479,6 +2479,11 @@ public sealed class DemoTimeline
                 FadeMinimumDistance = state.FadeMinimumDistance() ?? 0f,
                 FadeMaximumDistance = state.FadeMaximumDistance() ?? 0f,
 
+                // **What the entity says its pose parameters are.** Empty for a player, because
+                // `tf_player.cpp:769` excludes the array from their send table and the client
+                // computes theirs — so this cannot override the ones `PoseValues` derives.
+                PoseParameters = state.PoseParameters(),
+
                 // **Skin defaults to 0 because 0 is a real skin**, the model's first family, and a
                 // delta-compressed format only sends what changed from it.
                 //

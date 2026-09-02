@@ -17131,3 +17131,90 @@ conformance eight would all have passed against the broken code**, because the b
 arithmetic was already right; only the wiring five can fail when nothing calls it. Sabotage
 confirmed both directions: severing `clientSideFade: fade` reddened two wiring tests and no
 conformance test, and swapping the squared falloff for a linear one reddened one of each.
+
+## B269 — every sentry gun aimed straight ahead, because the wire's pose parameters were dropped — FIXED
+
+**`CBaseAnimating` networks its whole pose-parameter array and this project read none of it.**
+`server/baseanimating.cpp:243`:
+
+```
+SendPropArray3( SENDINFO_ARRAY3(m_flPoseParameter),
+    SendPropFloat( SENDINFO_ARRAY(m_flPoseParameter),
+                   ANIMATION_POSEPARAMETER_BITS, 0, 0.0f, 1.0f ) ),
+```
+
+so the value is NORMALISED to 0..1 on the wire and the client stores it that way —
+`C_BaseAnimating::GetPoseParameters` (`c_baseanimating.cpp:1401`) hands `m_flPoseParameter[i]`
+straight to the blend `StandardBlendingRules` runs. `docs/WIRE-COVERAGE.md` listed
+`m_flPoseParameter` under "not mentioned anywhere in a shipped assembly", which is where this
+started.
+
+**Players were already right, and that is the send table's doing rather than luck.**
+`tf_player.cpp:769` is `SendPropExclude( "DT_BaseAnimating", "m_flPoseParameter" )`, so a player
+sends none at all and the client computes theirs in `CBasePlayerAnimState` — which is exactly what
+`EntityModelSet.PoseValues` does. **The split is a fact about the FILES, not a reading of the SDK**:
+measured on the 2013 SourceTV foundry demo, the flattened `CTFPlayer` baseline carries **0** of the
+24 elements while `CObjectSentrygun` and `CObjectDispenser` carry **24** each, so the exclusion
+still holds at protocol 24.
+
+**The prediction about severity was WRONG and the correction is the interesting part.** The obvious
+arithmetic says an unsupplied parameter sits at a normalised zero, which is the START of its range —
+so a sentry would draw with `aim_pitch` at −50 and `aim_yaw` at −180, barrel swung fully round.
+That is not what happened, because `PoseValues.Filled` leaves an uncomputed parameter at a RAW zero
+and normalises it afterwards. `sentry3.mdl` declares `aim_pitch` over −50..50 and `aim_yaw` over
+−180..180, both symmetric, so a dropped value landed **dead centre**: every sentry in every demo
+drew level and pointing straight ahead.
+
+That is why it survived. A barrel at −180 is a bug report; a barrel pointing forwards is a sentry.
+**A defect whose failure mode is a plausible value is invisible to everything except a test that
+predicts the right one**, which is the same shape as `Body`, `Skin` and `PlaybackRate` before it.
+
+**Measured after the fix, on the same demo at tick 12000** — entity 876, `sentry3.mdl`, wire sent 24
+slots for a model with 2:
+
+```
+    aim_pitch      0.502 normalised = 0.2 (range -50 to 50)
+    aim_yaw        0.377 normalised = -44.12 (range -180 to 180, loops)
+```
+
+`aim_pitch` at 0.502 is the trap in miniature — near enough the centre to be indistinguishable from
+the old answer — while `aim_yaw` at −44 degrees is decisively not 0.
+
+**Interpolating them needs the model, which is a layer the interpolator cannot reach.**
+`AddVar( m_flPoseParameter, &m_iv_flPoseParameter, LATCH_ANIMATION_VAR, true )`
+(`c_baseanimating.cpp:890`) puts the array in the interpolation list, and
+`CInterpolatedVarArray::_Interpolate` (`interpolatedvar.h:1333`) uses `LoopingLerp` for any element
+whose model marks it looping — a flag set in `OnNewModel`:
+
+```
+m_iv_flPoseParameter.SetLooping( Pose.loop != 0.0f, i );
+```
+
+Only the MDL knows, and interpolation happens in `Tf2DemoSalvage.Core`, which cannot open one. So
+the fact is pushed the other way: `EntityModelSet` fires `ModelResolved` where it already notices an
+entity's model has changed, and `TimelineMoments.OnNewModel` teaches the track. That is the only
+call in this project that travels from the scene INTO the demo, and it exists because the
+alternative is a sentry crossing due south sweeping 358 degrees backwards for a whole interpolation
+window — 179 degrees normalises to 0.997 and −179 to 0.003.
+
+**`LoopingLerp` was already here**, written for the animation cycle and byte-identical to
+`lerp_functions.h`. It was made `internal` rather than copied; the pose-parameter cases pin the two
+properties the cycle tests never asked for — that exactly half a range wraps (Valve's `>=`), and
+that a result past 1 comes back into range.
+
+**Thirteen tests, and the shape is the same as B268's.** The decode and the arithmetic would have
+passed against the broken code; only the wiring can fail when nothing calls it. Sabotage:
+severing the wire values reddened four `WirePoseParameterTests`; emptying `OnNewModel` reddened
+`OnNewModel_ForAnEntityWithATrack_TeachesItWhichParametersWrap`; and widening `LoopingLerp`'s
+threshold so nothing wraps reddened `At_ALoopingPoseParameterAcrossTheWrap_TakesTheShortWay`
+alongside three cycle tests.
+
+**One of those sabotages was reported wrong by a subagent and re-run by hand**, which is worth
+recording: asked to force the plain-lerp branch, it inverted the condition instead — reddening the
+NON-looping control and leaving the looping case unproven. An inverted flag and a disabled flag are
+different experiments, and only the second one tests what the wrap is for.
+
+**Still open: `m_flPoseParameter` on `DT_BaseViewModel`.** `baseviewmodel_shared.cpp:575` sends its
+own copy, and a viewmodel here takes the same `PoseValues` path as anything else — so it gets the
+wire's array when it sends one. Untested, because no corpus demo has been checked for a viewmodel
+that sends a non-default value.

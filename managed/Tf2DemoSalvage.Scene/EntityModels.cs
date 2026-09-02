@@ -736,7 +736,59 @@ public sealed class EntityModelSet
         _entities[prop.EntityIndex] = animating;
         _entityModels[prop.EntityIndex] = prop.ModelPath;
 
+        // **`C_BaseAnimating::OnNewModel`'s pose-parameter half** (`c_baseanimating.cpp:1130`),
+        // fired from the one place that knows an entity's model has just been resolved. Only the
+        // model says which parameters wrap, and the interpolation that needs to know runs a layer
+        // below models — so it is told rather than left to look.
+        ModelResolved?.Invoke(prop.EntityIndex, LoopingPoseParameters(skinned));
+
         return animating;
+    }
+
+    /// <summary>The pose parameters an entity was last posed with.</summary>
+    /// <param name="entityIndex">Slot in the entity table.</param>
+    /// <returns>The values the blend received, or empty if the entity has not been posed.</returns>
+    /// <remarks>
+    /// **The value CARRIED, not a second computation of it** (B243). This reports the array
+    /// `Simulate` handed to the skeleton, so a probe or a test reading it is asking what the blend
+    /// actually used rather than re-deriving what it should have been — the distinction that made
+    /// eight diagnostics lie in two sessions.
+    /// </remarks>
+    public IReadOnlyList<float> PoseValuesOf(int entityIndex) =>
+        _entities.TryGetValue(entityIndex, out AnimatingEntity? animating) &&
+        animating.Pose is SkeletonPose posed
+            ? posed.PoseValues
+            : [];
+
+    /// <summary>Told when an entity's model is resolved, with which pose parameters wrap.</summary>
+    /// <remarks>
+    /// **A callback rather than a call, because this layer must not know what is listening.** The
+    /// only consumer is the interpolator, which lives under the scene rather than beside it; the
+    /// window wires the two together where it already registers every other system.
+    /// </remarks>
+    public Action<int, IReadOnlyList<bool>>? ModelResolved { get; set; }
+
+    /// <summary>Which of a model's pose parameters wrap, or empty when none do.</summary>
+    /// <remarks>
+    /// **Empty is the common answer and is cheaper than an array of false.** Of a sentry gun's two
+    /// parameters only <c>aim_yaw</c> loops, and most models have none at all — the caller reads a
+    /// missing index as "does not wrap", which is what <c>SetLooping(false)</c> leaves it at.
+    /// </remarks>
+    private static bool[] LoopingPoseParameters(PropModels.SkinnedModel model)
+    {
+        IReadOnlyList<StudioPoseParameter> parameters = model.PoseParameters;
+        bool[]? looping = null;
+
+        for (int index = 0; index < parameters.Count; index++)
+        {
+            if (parameters[index].Loop != 0f)
+            {
+                looping ??= new bool[parameters.Count];
+                looping[index] = true;
+            }
+        }
+
+        return looping ?? [];
     }
 
     /// <summary>Where a prop stands, as a row-major 3×4, reusing the array it had last frame.</summary>
@@ -2786,6 +2838,22 @@ public sealed class EntityModelSet
             return [];
         }
 
+        // **What the entity itself sent wins, and for most animating entities that is everything**
+        // (B269). `CBaseAnimating` networks the whole array (`server/baseanimating.cpp:243`) and
+        // `C_BaseAnimating::GetPoseParameters` (`c_baseanimating.cpp:1401`) hands it straight to
+        // the blend, so a sentry's aim comes off the wire and nothing below this line applies to
+        // one. The derivation underneath is `CBasePlayerAnimState`, which exists precisely because
+        // `tf_player.cpp:769` EXCLUDES the array for players — so the two paths are the engine's
+        // own split rather than a preference between them, and an entity can only be on one side.
+        //
+        // Indexed directly, because the wire's index IS the model's: `GetNumPoseParameters` counts
+        // the virtual model's merged list, whose first entries are the root model's own in order
+        // (`CVirtualModel::AppendPoseParameters`).
+        if (pose.PoseParameters.Count > 0)
+        {
+            return Sent(parameters.Count, pose.PoseParameters);
+        }
+
         float[] values = Filled(parameters, pose.MoveX, pose.MoveY, pose.EyePitch, pose.AimYaw);
 
         // **The speed scaling, and it happens HERE rather than in the scene layer because only this
@@ -2821,6 +2889,26 @@ public sealed class EntityModelSet
 
         return Filled(
             parameters, pose.MoveX * scale, pose.MoveY * scale, pose.EyePitch, pose.AimYaw);
+    }
+
+    /// <summary>The values an entity sent, sized to the model that will consume them.</summary>
+    /// <remarks>
+    /// **The two counts can legitimately differ**, and neither direction is an error. The array is
+    /// a fixed 24 slots on the server (`MAXSTUDIOPOSEPARAM`) of which only the model's own are
+    /// meaningful, so more values than parameters is the ordinary case; fewer happens when a delta
+    /// has named only the low elements of an entity whose model wants more, and the engine's
+    /// unsent slots read as the zero `OnNewModel` left them at (`c_baseanimating.cpp:1134`).
+    /// </remarks>
+    private static float[] Sent(int count, IReadOnlyList<float> values)
+    {
+        float[] sized = new float[count];
+
+        for (int index = 0; index < count && index < values.Count; index++)
+        {
+            sized[index] = values[index];
+        }
+
+        return sized;
     }
 
     /// <summary>Every pose parameter's stored value, given the two this project computes.</summary>

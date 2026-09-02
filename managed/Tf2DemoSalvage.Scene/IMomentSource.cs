@@ -54,6 +54,24 @@ public interface IMomentSource
     /// entity at all.
     /// </remarks>
     public int? RoundStateAt(double tick);
+
+    /// <summary>Tells the source what an entity's model says about its pose parameters.</summary>
+    /// <param name="entityIndex">The entity whose model has been resolved.</param>
+    /// <param name="looping">Which of its pose parameters wrap, by index.</param>
+    /// <remarks>
+    /// **This is <c>C_BaseAnimating::OnNewModel</c>'s pose-parameter half** — the engine walks the
+    /// studio header there and calls <c>m_iv_flPoseParameter.SetLooping( Pose.loop != 0.0f, i )</c>
+    /// (<c>c_baseanimating.cpp:1130</c>), teaching the interpolator which elements may not be
+    /// blended the short way. It has to be told rather than to look, because only the model knows
+    /// and the interpolation happens where models cannot be opened.
+    ///
+    /// **The direction of the call is what makes it worth having on this interface.** Everything
+    /// else here is the presenter ASKING the demo for a moment; this is the one fact that travels
+    /// the other way, and it exists because a wrapping parameter interpolated the plain way sweeps
+    /// the long way round — for a sentry crossing due south, 358 degrees backwards over an
+    /// interpolation window.
+    /// </remarks>
+    public void OnNewModel(int entityIndex, IReadOnlyList<bool> looping);
 }
 
 /// <summary>A demo's timeline, as a moment source.</summary>
@@ -79,4 +97,13 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
 
     /// <inheritdoc />
     public int? RoundStateAt(double tick) => timeline.RoundStateAt(tick);
+
+    /// <inheritdoc />
+    public void OnNewModel(int entityIndex, IReadOnlyList<bool> looping)
+    {
+        if (timeline.TrackFor(entityIndex) is { } track)
+        {
+            track.PoseParameterLoops = looping;
+        }
+    }
 }

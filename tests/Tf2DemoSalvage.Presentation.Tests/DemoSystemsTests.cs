@@ -242,6 +242,12 @@ public sealed class DemoSystemsTests
         // Null rather than a state: this stub carries no recording, and "the demo did not say" is
         // the honest answer for one.
         public int? RoundStateAt(double tick) => null;
+
+        // Nothing to tell: this stub has no tracks to teach, and dropping the fact is what a source
+        // with no interpolator does.
+        public void OnNewModel(int entityIndex, IReadOnlyList<bool> looping)
+        {
+        }
     }
 
     private static SoundPresenter Sound() =>

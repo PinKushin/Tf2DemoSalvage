@@ -216,6 +216,12 @@ public sealed class PoseCompletenessTests
         FadeMinimumDistance = 826f,
         FadeMaximumDistance = 900f,
 
+        // **Non-empty, because empty is the default AND the answer for every player** — so a
+        // rebuild that dropped this would look correct on the entities this project draws most and
+        // wrong only on buildings. Two values rather than one, so a rebuild that kept the array but
+        // truncated it is distinguishable from one that kept it whole.
+        PoseParameters = [0.25f, 0.75f],
+
         // Not 1, which is the default and would make the completeness assertion compare a default
         // against a default. This pair caught PlaybackRate the moment it was added, which is the
         // entire point of the control.

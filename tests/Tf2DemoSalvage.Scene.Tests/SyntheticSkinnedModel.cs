@@ -127,4 +127,44 @@ internal static class SyntheticSkinnedModel
             PoseParameters: [],
             MasterPose: []);
     }
+
+    /// <summary>One bone, and the pose parameters named — a building rather than a player.</summary>
+    /// <param name="parameters">Each one's name, start, end and loop.</param>
+    /// <remarks>
+    /// **A sentry gun's shape, which is the case the wire's pose parameters exist for.** The
+    /// values callers pass match `models/buildables/sentry3.mdl` as the model probe reports it:
+    /// `aim_pitch` over −50..50 and `aim_yaw` over −180..180 looping at 360. The symmetric ranges
+    /// are load-bearing rather than decorative — an uncomputed parameter normalises to 0.5 there,
+    /// so a fixture built this way distinguishes "the wire's value arrived" from "the centre of the
+    /// range", which is what a missing value looks like.
+    /// </remarks>
+    public static PropModels.SkinnedModel WithPoseParameters(
+        params StudioPoseParameter[] parameters)
+    {
+        List<StudioBone> bones =
+        [
+            new StudioBone(
+                Name: "root",
+                Parent: -1,
+                Position: (0f, 0f, 0f),
+                Rotation: (0f, 0f, 0f, 1f),
+                PoseToBone: new float[] { 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f },
+                Flags: ~0),
+        ];
+
+        List<(int Group, IReadOnlyList<StudioSequence> Sequences)> groups =
+        [
+            (0, [new StudioSequence(
+                Animation: 0, Flags: 0, Label: "idle", Blend: null,
+                Activity: "idle", ActivityWeight: Weight)]),
+        ];
+
+        return new PropModels.SkinnedModel(
+            Bones: bones,
+            Models: [[]],
+            Sequences: StudioSequenceTable.Merge(groups),
+            Groups: groups,
+            PoseParameters: parameters,
+            MasterPose: [[.. Enumerable.Range(0, parameters.Length)]]);
+    }
 }

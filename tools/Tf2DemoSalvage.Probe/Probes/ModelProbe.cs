@@ -83,6 +83,20 @@ public sealed class ModelProbe : IProbe
             + $"{families.ToString(CultureInfo.InvariantCulture)} skin families over "
             + $"{references.ToString(CultureInfo.InvariantCulture)} references");
 
+        // **The pose parameters, with their RANGE**, because the range decides what a missing value
+        // looks like. The wire sends `m_flPoseParameter` normalised 0..1
+        // (`baseanimating.cpp:243`); this project fills an uncomputed one with a raw zero and
+        // normalises afterwards, so a symmetric range like a sentry's −180..180 `aim_yaw` puts it
+        // dead centre — plausible, and never what the entity was actually doing.
+        foreach ((StudioPoseParameter parameter, int at) in StudioSequences.PoseParameters(bytes)
+            .Select((parameter, at) => (parameter, at)))
+        {
+            output.WriteLine(
+                $"POSE {at.ToString(CultureInfo.InvariantCulture),2} "
+                + $"'{parameter.Name}' {parameter.Start:0.##} to {parameter.End:0.##}"
+                + (parameter.Loop != 0f ? $" loops at {parameter.Loop:0.##}" : string.Empty));
+        }
+
         // **Sequences with their LOOP flag**, because that flag decides what a finished animation
         // holds. `ClampCycle` (`c_baseanimating.cpp:1431`) wraps a looping sequence and clamps a
         // one-shot to 0.999, so a `close` marked looping never stops closing — it reopens.
