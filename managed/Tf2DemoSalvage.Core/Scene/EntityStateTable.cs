@@ -88,6 +88,20 @@ public sealed class EntityStateTable
         }
     }
 
+    /// <summary>The tick of the packet being applied.</summary>
+    /// <remarks>
+    /// **Ambient rather than a parameter, which is what the engine does too** (B273).
+    /// <c>m_flSimulationTime</c> carries <c>SPROP_ENCODED_AGAINST_TICKCOUNT</c> — eight bits of
+    /// offset from a base derived from the packet's own tick — so it cannot be decoded without
+    /// knowing when it arrived, and this table retains properties across packets by design.
+    /// <c>RecvProxy_SimulationTime</c> reads <c>gpGlobals->tickcount</c> the same way rather than
+    /// being handed it.
+    ///
+    /// Zero is a legitimate starting value and means the base is zero, which is right for a caller
+    /// that has not started reading a demo.
+    /// </remarks>
+    public int PacketTick { get; set; }
+
     /// <summary>Applies one snapshot's view of an entity.</summary>
     /// <param name="entity">The entity as a snapshot described it.</param>
     /// <exception cref="System.ArgumentNullException"><paramref name="entity"/> is null.</exception>
@@ -219,6 +233,11 @@ public sealed class EntityStateTable
                     : $"{property.Definition.OwnerTable}.{property.Definition.Property.Name}",
                 property.Value);
         }
+
+        // **After the loop and before anything can read it**, which is where the engine's receive
+        // proxy sits. A tick-encoded offset that survives into the next packet is a number about
+        // the wrong base, and this is the only moment the right one is in hand.
+        state.NoteSimulationTick(PacketTick);
     }
 
     /// <summary>Looks up an entity's accumulated state.</summary>

@@ -535,6 +535,50 @@ public sealed class DemoTimeline
     }
 
     /// <summary>Every model-bearing entity the demo carried, with its pose over time.</summary>
+    /// <summary>How far behind the packet each entity's simulation tick was, bucketed.</summary>
+    private int[] _simulationLag = new int[LagBuckets];
+
+    /// <summary>Buckets in <see cref="SimulationLag(int)"/>, covering −8 to +8 ticks.</summary>
+    public const int LagBuckets = 17;
+
+    /// <summary>Where a lag of zero sits in the histogram.</summary>
+    public const int LagZero = 8;
+
+    /// <summary>The slot counting updates that carried no simulation time, past the buckets.</summary>
+    private const int LagUnknownBucket = LagBuckets;
+
+    /// <summary>How many entity updates lagged the packet by a given number of ticks.</summary>
+    /// <param name="bucket">0 to <see cref="LagBuckets"/> − 1; <see cref="LagZero"/> is no lag.</param>
+    /// <returns>The count, with the end buckets holding everything beyond ±8.</returns>
+    /// <remarks>
+    /// **The engine timestamps an interpolation history entry with the entity's SIMULATION time,
+    /// not with the packet's tick** — <c>C_BaseEntity::GetLastChangeTime</c> returns
+    /// <c>GetSimulationTime()</c> for simulation-latched variables, which is origin and angles
+    /// among others, and <c>OnLatchInterpolatedVariables</c> hands that to every watcher
+    /// (<c>c_baseentity.cpp:2806</c>). This project stamps every keyframe with the packet tick, so
+    /// this histogram is the size of that divergence, measured rather than argued (B273).
+    ///
+    /// **Measured 2026-09-02.** On the 2013 SourceTV foundry demo, 32% of updates carry a
+    /// simulation tick equal to the packet's, 31% are four ticks ahead of it, and 35% lag by eight
+    /// or more — the last group being entities that do not simulate every tick, whose stale
+    /// timestamp costs nothing because they are not moving. On the 2011 viaduct point-of-view
+    /// recording the four-tick cluster is 81%.
+    ///
+    /// **Kept because the follow-up needs it.** Changing what a keyframe is stamped with alters
+    /// what is on screen, so it is the owner's call rather than a silent correction — and this is
+    /// the number that call should be made on.
+    /// </remarks>
+    public int SimulationLag(int bucket) => _simulationLag[bucket];
+
+    /// <summary>Entity updates whose entity never sent a simulation time.</summary>
+    /// <remarks>
+    /// **The control for the histogram.** A count of zero here says every update carried the value,
+    /// so the distribution above describes the demo rather than describing which entities happened
+    /// to answer. Measured as zero on both demos it was first run against — which is what makes the
+    /// clusters in it worth reading.
+    /// </remarks>
+    public int SimulationLagUnknown { get; private set; }
+
     public IReadOnlyList<ScenePropTrack> Props => _props;
 
     /// <summary>Every sound the recording plays, in tick order.</summary>
@@ -1008,6 +1052,10 @@ public sealed class DemoTimeline
         long commandTicks;
         long schemaTicks;
         long messageTicks = 0;
+
+        // Seventeen buckets for −8 to +8 ticks, and one past them for updates that said nothing —
+        // the control that tells a real distribution from a partial one (B273).
+        int[] simulationLag = new int[LagBuckets + 1];
         long entityTicks = 0;
         long samplingTicks = 0;
         long viewmodelTicks = 0;
@@ -1321,6 +1369,14 @@ public sealed class DemoTimeline
 
                         continue;
 
+                    // **The SERVER's tick, which is not the demo's** (B273). `net_Tick` carries
+                    // `gpGlobals->tickcount` as the server had it, and that is the number
+                    // `m_flSimulationTime`'s offset was encoded against — a demo's own command tick
+                    // starts near zero while a server has been up for hours.
+                    case NetTickMessage netTick:
+                        entities.PacketTick = netTick.Tick;
+                        continue;
+
                     case UpdateStringTableMessage update
                         when state.StringTableName(update.TableId) == ModelPrecache.TableName:
                         precache.Apply(update.Entries);
@@ -1372,7 +1428,8 @@ public sealed class DemoTimeline
 
                     RecordProp(
                         entity, entities, precache, tracks, props, playerTracks,
-                        mergesItself, combatWeapons, protocol, command.Tick, interval);
+                        mergesItself, combatWeapons, protocol, command.Tick, interval,
+                        simulationLag);
                 }
 
                 entityTicks += Stopwatch.GetTimestamp() - entityFrom;
@@ -1765,6 +1822,8 @@ public sealed class DemoTimeline
             ServerConVars = serverConVars,
             MapCrc = mapCrc,
             MapHash = mapHash,
+            _simulationLag = simulationLag,
+            SimulationLagUnknown = simulationLag[LagUnknownBucket],
             Phases = new TimelinePhases(
                 Milliseconds(commandTicks),
                 Milliseconds(schemaTicks),
@@ -2042,7 +2101,8 @@ public sealed class DemoTimeline
         HashSet<int> combatWeapons,
         int protocol,
         int tick,
-        float interval)
+        float interval,
+        int[] simulationLag)
     {
         if (entity.UpdateType == EntityUpdateType.Delete)
         {
@@ -2427,6 +2487,19 @@ public sealed class DemoTimeline
         if (state.EyeAngles() is { } eyes)
         {
             (pitch, yaw) = (eyes.Pitch, eyes.Yaw);
+        }
+
+        // **The size of a divergence, counted where the two numbers are both in hand** (B273). The
+        // engine stamps an interpolation history entry with the entity's simulation time and this
+        // project stamps a keyframe with the packet; the difference is what this bucket holds.
+        if (state.SimulatedAtTick is { } simulated)
+        {
+            simulationLag[Math.Clamp(state.SimulationBaseTick - simulated, -LagZero, LagZero)
+                + LagZero]++;
+        }
+        else
+        {
+            simulationLag[LagUnknownBucket]++;
         }
 
         track.Add(

@@ -240,7 +240,10 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # looping test passes against code that wraps everything.
 # 1648 -> 1650: the model scale's pre-2013 wire name (B271). One for reading it and one for the
 # modern name winning when both arrive.
-run Tf2DemoSalvage.Core.Tests     core     1650
+# 1650 -> 1657: m_flSimulationTime's tick encoding (B273). Three for GetNetworkBase, including the
+# every-index round trip that is the control against a plain tick/100, and four for the recentring
+# that makes eight bits able to name a tick.
+run Tf2DemoSalvage.Core.Tests     core     1657
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.

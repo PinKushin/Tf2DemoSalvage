@@ -17348,3 +17348,63 @@ this is "three of 56 readable" and never "three of 234".
 this project's own BSP reader would settle it, and the three that were found are real. Priority is
 low — the effect is where a handful of props sample their lighting, on maps this corpus does not
 contain, and MvM is outside what the project is aimed at.
+
+## B273 — keyframes are stamped with the packet tick; the engine stamps with the SIMULATION tick — OPEN, needs a decision
+
+**The engine does not timestamp an interpolation history entry with the packet it arrived in.**
+`C_BaseEntity::PostDataUpdate` calls `OnLatchInterpolatedVariables` (`c_baseentity.cpp:2806`), which
+takes `GetLastChangeTime( flags )` and hands the SAME time to every watcher:
+
+| latch | time taken from |
+|---|---|
+| `LATCH_SIMULATION_VAR` — origin, angles | `GetSimulationTime()`, falling back to `curtime` when zero |
+| `LATCH_ANIMATION_VAR` — pose parameters, bone controllers, flexes, animation layers | `GetAnimTime()` |
+
+This project stamps every keyframe with the tick of the packet that carried it. **That is a
+divergence in WHEN a value is considered to have applied**, which is the input to every
+interpolation the viewer performs.
+
+**`m_flSimulationTime` is now decoded, and neither half of getting there was obvious.**
+
+- **It is not a time.** `server/baseentity.cpp:265` sends it as eight unsigned bits with
+  `SPROP_ENCODED_AGAINST_TICKCOUNT`, holding an offset from a per-entity base:
+  `100 * floor( (tick − entindex % 32) / 100 )`. The client inverts it and re-centres the result
+  within ±127 ticks of now. **It must be converted at receipt**, because this decoder retains
+  properties across packets and an offset read one packet later is decoded against the wrong base.
+  The engine has no such hazard: `RecvProxy_SimulationTime` runs during decode and the raw offset
+  never survives the packet.
+- **The base is the SERVER's tick, not the demo's.** `net_Tick` carries `gpGlobals->tickcount` and
+  was decoded by this project and used by nothing; a demo's own command tick starts near zero while
+  a server has been up for hours.
+
+**Both mistakes produced the same symptom and it is worth recognising**: a histogram bimodal at the
+two ends of its clamp, roughly fifty-fifty. That is noise wearing the shape of a distribution, and
+it is what a value decoded against the wrong base looks like. With both fixed the shape is
+structured — clusters, not a spread.
+
+**Measured 2026-09-02**, packet tick minus simulation tick, over every entity update
+(`simlag <demo>`; the "did not carry one" count is zero on both, which is the control):
+
+| lag | 2013 STV foundry | 2011 POV viaduct |
+|---|---|---|
+| −4 ticks (simulated AFTER the packet's tick) | 31.3% | 80.8% |
+| 0 | 32.2% | 5.5% |
+| ≥ +8 | 35.2% | 13.3% |
+| everything else | ~1.2% | ~0.4% |
+
+**What the three clusters mean.** The `0` group simulated on the packet's own tick and is already
+stamped correctly. The `≥ +8` group is entities that do not simulate every tick — props at rest,
+whose stale timestamp costs nothing because nothing about them is moving. **The −4 group is the one
+that matters**: a third of foundry's updates and four fifths of viaduct's carry a simulation tick
+four ticks AHEAD of the `net_Tick` in the same packet, so this project places those values 60 ms
+later than the engine would.
+
+**Left open deliberately, because the fix changes what is on screen.** Stamping keyframes with the
+simulation tick is what the engine does and is therefore where parity points (D89), but it moves
+every interpolated entity by up to four ticks — visible, and the owner's call rather than a silent
+correction. The number above is what that call should be made on, and `simlag` reproduces it.
+
+**Not yet measured: `m_flAnimTime`, the other half.** It is `DT_AnimTimeMustBeFirst`'s only property
+and is unread. It timestamps the animation-latched variables — including the pose parameters B269
+just implemented — so the same question applies to them and the answer may differ, since a server
+stamps animation and simulation at different moments.

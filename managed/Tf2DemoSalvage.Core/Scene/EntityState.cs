@@ -127,6 +127,13 @@ public sealed class EntityState
     /// </summary>
     private const string ParentProperty = "moveparent";
 
+    /// <summary>The tick offset an entity's simulation time is sent as.</summary>
+    /// <remarks>
+    /// Named a "time" and sent as eight bits of tick offset — see
+    /// <see cref="NoteSimulationTick(int)"/>, which is the only thing entitled to read it.
+    /// </remarks>
+    private const string SimulationTimeProperty = "m_flSimulationTime";
+
     /// <summary><c>MAX_EDICT_BITS</c> — the low bits of a handle are the entity's slot.</summary>
     private const int EdictBits = 11;
 
@@ -627,6 +634,116 @@ public sealed class EntityState
             ? index
             : null;
     }
+
+    /// <summary>Where the offset in <c>m_flSimulationTime</c> is measured from.</summary>
+    /// <param name="tick">The tick the packet carrying it was sent on.</param>
+    /// <param name="entityIndex">The entity's slot, which shifts the base.</param>
+    /// <returns>The tick the eight-bit offset counts up from.</returns>
+    /// <remarks>
+    /// **<c>CGlobalVarsBase::GetNetworkBase</c>, <c>public/globalvars_base.h:95</c>:**
+    ///
+    /// <code>
+    /// int nEntityMod = nEntity % nTimestampRandomizeWindow;          // 32
+    /// int nBaseTick  = nTimestampNetworkingBase *                    // 100
+    ///                  (int)( ( nTick - nEntityMod ) / nTimestampNetworkingBase );
+    /// </code>
+    ///
+    /// **The entity index is in there on purpose**, and Valve's comment beside the field says why:
+    /// it "prevents them from getting lockstepped", so that every entity's eight-bit offset does not
+    /// wrap on the same tick. A version using a plain <c>tick / 100</c> agrees for entity 0 and for
+    /// every entity most of the time — it goes wrong only within <c>entindex % 32</c> ticks of a
+    /// hundred-tick boundary, and then by a whole base.
+    /// </remarks>
+    public static int NetworkBase(int tick, int entityIndex)
+    {
+        const int TimestampNetworkingBase = 100;
+        const int TimestampRandomizeWindow = 32;
+
+        return TimestampNetworkingBase
+            * ((tick - (entityIndex % TimestampRandomizeWindow)) / TimestampNetworkingBase);
+    }
+
+    /// <summary>Converts this packet's simulation-time offset into a tick and stores it.</summary>
+    /// <param name="tick">The tick the packet carrying the value was sent on.</param>
+    /// <remarks>
+    /// **<c>m_flSimulationTime</c> is not a time and cannot be read as one.** It is sent as eight
+    /// unsigned bits with <c>SPROP_ENCODED_AGAINST_TICKCOUNT</c>
+    /// (<c>server/baseentity.cpp:265</c>), holding an offset from
+    /// <see cref="NetworkBase(int, int)"/> — so its meaning depends on the tick it arrived on, and
+    /// a decoder that stores the raw number has stored a number about nothing.
+    ///
+    /// This is <c>RecvProxy_SimulationTime</c> (<c>client/c_baseentity.cpp:344</c>):
+    ///
+    /// <code>
+    /// t = tickbase + addt;
+    /// while (t &lt; gpGlobals->tickcount - 127) t += 256;
+    /// while (t > gpGlobals->tickcount + 127) t -= 256;
+    /// pEntity->m_flSimulationTime = ( t * TICK_INTERVAL );
+    /// </code>
+    ///
+    /// **The re-centring is what makes eight bits able to name a tick**, and it is not defensive:
+    /// the offset wraps every 256 ticks, so without it a value sent just across a base boundary
+    /// decodes 256 ticks — nearly four seconds — away from where it belongs.
+    ///
+    /// Stored in TICKS rather than seconds because that is what this project indexes keyframes by;
+    /// the engine's final multiply by <c>TICK_INTERVAL</c> is for a caller that wants a time.
+    ///
+    /// **Converted AT RECEIPT and stored, never recomputed later**, which is the whole reason this
+    /// is a method that writes rather than a property that reads. The offset only means something
+    /// against the tick of the packet that carried it, and this decoder RETAINS properties across
+    /// packets — so an offset read three packets later is decoded against the wrong base and gives
+    /// a plausible tick that is up to 128 out. Measured while getting this wrong: half the values
+    /// landed at each end of a ±8 clamp, which is noise wearing a distribution (B273).
+    ///
+    /// The engine has no equivalent hazard because <c>RecvProxy_SimulationTime</c> runs during
+    /// decode and stores a time; the raw offset never survives the packet.
+    /// </remarks>
+    public void NoteSimulationTick(int tick)
+    {
+        if (Integer($"{BaseEntityTable}.{SimulationTimeProperty}") is not { } offset)
+        {
+            return;
+        }
+
+        const int Window = 256;
+        const int Half = 127;
+
+        int simulated = NetworkBase(tick, EntityIndex) + offset;
+
+        while (simulated < tick - Half)
+        {
+            simulated += Window;
+        }
+
+        while (simulated > tick + Half)
+        {
+            simulated -= Window;
+        }
+
+        SimulatedAtTick = simulated;
+        SimulationBaseTick = tick;
+    }
+
+    /// <summary>The server tick <see cref="SimulatedAtTick"/> was decoded against.</summary>
+    /// <remarks>
+    /// **Kept beside the answer rather than recomputed by whoever wants the difference** (B243).
+    /// The lag between an entity's simulation and the packet carrying it is only meaningful against
+    /// the tick that decoded it, and a caller re-deriving that tick from a demo command would get
+    /// the demo's numbering rather than the server's — the exact mistake that made this histogram
+    /// noise on its first run.
+    /// </remarks>
+    public int SimulationBaseTick { get; private set; }
+
+    /// <summary>The tick this entity last simulated on, or null before any packet said.</summary>
+    /// <remarks>
+    /// **What the engine timestamps an interpolation history entry with**, for anything latched as
+    /// a simulation variable — origin and angles among them.
+    /// <c>C_BaseEntity::GetLastChangeTime</c> returns <c>GetSimulationTime()</c> for those, and
+    /// <c>OnLatchInterpolatedVariables</c> hands it to every watcher
+    /// (<c>c_baseentity.cpp:2806</c>). This project stamps keyframes with the packet tick instead;
+    /// whether that diverges is what this exists to measure.
+    /// </remarks>
+    public int? SimulatedAtTick { get; private set; }
 
     /// <summary>Reads an integer property.</summary>
     /// <param name="key">Qualified name, e.g. <c>DT_BasePlayer.m_iHealth</c>.</param>
