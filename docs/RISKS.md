@@ -17665,6 +17665,21 @@ on a mini-sentry being built, or anything else TF2 rescales while it exists.
 | `EXCLUDE_AUTO_LATCH` | `c_npc_hydra` only | nothing to do |
 | `INTERPOLATE_LINEAR_ONLY` | `m_viewtarget` on `C_BaseFlex`, one use | flexes are not implemented, so nothing to do |
 | `INTERPOLATE_OMIT_UPDATE_LAST_NETWORKED` | passed by `OnLatchInterpolatedVariables`' caller, never set on a var | nothing to do |
+| extrapolation past the newest sample | `_Extrapolate` when `info.newer == info.older` (`interpolatedvar.h:953`), `cl_extrapolate` defaulting to 1 | **cannot fire on a demo** — see below |
+
+**Extrapolation is the one branch of `Interpolate` this project does not have, and it is
+unreachable here rather than missing.** Valve's own comment says what it is for: *"we only want to
+extrapolate if the server is choking. We don't want to extrapolate if the object legitimately
+stopped moving and the server stopped sending updates for it."* The test that distinguishes those
+is `CInterpolationContext::GetLastTimeStamp() <= m_LastNetworkedTime` — nothing has been heard from
+the server since this entity's own last update. **A demo never chokes**: every packet is in the
+file, and playback advances the last-received timestamp past every entity's update as it goes. The
+condition cannot hold, so holding the newest value — which is what this project does — is the same
+branch the engine takes.
+
+`pInfo->frac = MIN( pInfo->frac, 2.0f )` is defensive for the same reason and never binds: the walk
+only reaches that line with `targettime` strictly between two changetimes, so the fraction is
+already within [0, 1], which is what this project clamps to.
 
 So the family is two real defects, both now fixed, and three entries that are genuinely inapplicable
 — which is worth writing down, because "we do not honour these flags at all" reads as a large open
