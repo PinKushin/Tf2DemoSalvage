@@ -17039,12 +17039,25 @@ truncated — and `GetClientInterpAmount` is `MAX( cl_interp, cl_interp_ratio / 
 this project drew seven**: every interpolated entity sat one tick — 15 ms — nearer the present than
 the engine puts it.
 
-**Both branches of that function end at the same expression for an ordinary entity**, which is why
-the fix does not depend on whether a demo counts as locally recorded. The early return
-(`TICK_INTERVAL * serverTickMultiple`, one tick) needs `IsAnimatedEveryTick()` and
-`IsSimulatedEveryTick()`, per-entity networked flags that ordinary entities do not set. **Those
-flags are not decoded here and that is a separate, narrower gap** — an entity that does set them is
-interpolated over one tick rather than eight, and this project would give it eight.
+**The other branch was chased down and does NOT apply to us. That is a decision, not an oversight.**
+
+The early return is not the rare case it first looks like: `CBaseEntity::SetMoveType`
+(`server/baseentity.cpp:3917`) sets **both** flags for `MOVETYPE_WALK`, which is every player. So
+an entity reaching that branch is interpolated over ONE tick rather than eight — about 105 ms of
+difference in where a player is drawn, which is plainly visible. Both props are on the wire in our
+demos (`m_bAnimatedEveryTick`, `m_bSimulatedEveryTick` in `DT_BaseEntity`, confirmed against
+`z1800`), and this project decodes neither.
+
+**It is still right not to.** The branch is gated on the demo being LOCALLY RECORDED — Valve's own
+comment is *"Always fully interpolate during multi-player or during demo playback, if the recorded
+demo was recorded locally"* — and the reason a local recording needs less interpolation is that the
+client replaying it has its own prediction history for the player it recorded. **A third-party
+viewer never has that**, whoever recorded the file: we hold a stream of updates and nothing else,
+which is structurally the position of a client watching someone else's demo. That is the branch we
+take, and it is the branch whose preconditions we actually meet.
+
+So the flags are not decoded because nothing here would read them, rather than because they were
+missed — and if a future feature ever needs them, they are present on the wire.
 
 **The tick rate is now an input rather than a constant.** `DelayTicksFor(intervalPerTick,
 interpolation)` is Valve's arithmetic term for term, so a 33-tick recording gets four ticks rather
