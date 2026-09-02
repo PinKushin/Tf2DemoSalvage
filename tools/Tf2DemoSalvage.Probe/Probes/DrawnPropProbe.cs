@@ -4,7 +4,11 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 
+using Microsoft.Extensions.Logging.Abstractions;
+
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
+using Tf2DemoSalvage.Presentation;
 using Tf2DemoSalvage.Scene;
 
 namespace Tf2DemoSalvage.Probe.Probes;
@@ -69,6 +73,27 @@ public sealed class DrawnPropProbe : IProbe
 
         List<ScenePlayer> players = [];
         timeline.PlayersAt(tick, players);
+
+        // **The item schema resolves the models the WIRE never carries, and this probe skipped it**
+        // (B263). A cosmetic's model comes from `model_player` in `items_game.txt` — Valve's
+        // `CEconEntity::SetModel` asking `pItem->GetPlayerDisplayModel` — so its `SceneProp` leaves
+        // the timeline with an empty path and `MomentScene.Build` fills it in through
+        // `WeaponPropModels.Resolve`. Reporting before that step made 24 cosmetics on `z1800` read
+        // as naming no model at all, while the viewer's own log showed them drawing: the probe was
+        // describing an intermediate state and calling it the answer.
+        //
+        // `CarriedProbe` already ran the resolution and its own notes already warn that a probe
+        // skipping it "cannot report a weapon named only by its item". Same rule, applied here:
+        // **a probe runs the production path or it is worthless.**
+        string? folder = new MapLocator(
+            MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder();
+
+        output.WriteLine(
+            $"game {folder ?? "NOT FOUND - every schema-named model will read as absent"}");
+
+        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
+
+        new WeaponPropModels().Resolve(props, players, game.Weapons.For);
 
         // **Through the scene's own visibility rules, so this reports what a screen shows.** The
         // timeline holds everything the demo mentions; `MomentScene` then applies the engine's

@@ -16975,7 +16975,35 @@ caches; they fall out of the restructure, and measuring each first (the audit gi
 count second-cull rejections, Classify calls per pass, allocations per warmed frame) is what
 decides when it is worth building.
 
-## B263 — 24 bone-merged cosmetics name no model at all — OPEN
+## B263 — 24 bone-merged cosmetics name no model at all — CLOSED: the probe was reporting
+
+**Nothing was wrong with the rendering, and the viewer's own log said so all along** — 1,045
+wearable draw lines in a single run, workshop cosmetics among them. Two separate causes behind the
+count, neither a decode or draw defect.
+
+**Twenty-three were the probe skipping a production step.** A cosmetic's model comes from
+`model_player` in `items_game.txt` — Valve's `CEconEntity::SetModel` asking
+`pItem->GetPlayerDisplayModel` — so the wire never carries it, the `SceneProp` leaves the timeline
+with an empty path, and `MomentScene.Build` fills it in through `WeaponPropModels.Resolve`.
+`DrawnPropProbe` reported before that step and called the intermediate state the answer.
+`CarriedProbe` already ran the resolution and its own notes already warned that a probe skipping it
+"cannot report a weapon named only by its item" — the warning existed and the neighbouring probe
+did not heed it. Now it resolves too, and 23 of the 24 report their real models.
+
+**The twenty-fourth is correct as it stands.** `CTFWearableRobotArm` (the Gunslinger's arm) carries
+item 65535 — `0xFFFF`, the invalid-item sentinel — because it is not an item. `CTFRobotArm::Equip`
+(`tf_weapon_wrench.cpp:400`) creates it with `CreateEntityByName( "tf_wearable_robot_arm" )` and
+never calls `SetModel`; its entire visible purpose is the next line,
+`pArmItem->AddHiddenBodyGroup( "rightarm" )`. `CTFWearable` then applies that to the OWNER —
+`pOwner->SetBodygroup( iBodyGroup, iState )`, `tf_item_wearable.cpp:616` — and `m_nBody` is
+networked, so the engineer arrives at the client with his flesh arm already hidden. Drawing nothing
+for the wearable is what the engine does; the visible effect travels on the player's body, which
+this project already decodes and honours.
+
+**The lesson is the one this project keeps relearning**: an instrument that stops short of the
+production path reports an intermediate state with total confidence. Second time today for this
+same probe — the first was its `DRAWN` label meaning "survived visibility" (PARITY-AUDIT
+finding 5).
 
 Measured on `z1800` at tick 20000 while answering PARITY-AUDIT finding 5: **23 `CTFWearable` and
 one `CTFWearableRobotArm` carry an empty model path**, drawn as nothing. At the same tick most
