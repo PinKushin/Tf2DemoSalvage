@@ -17100,11 +17100,27 @@ of the mechanism were missing and each hid the other: adding the decode alone wo
 nothing on screen, and wiring the parameter alone would have passed a constant zero.
 
 **`GetClientSideFade` reaches `UTIL_ComputeEntityFade`** (`client/cdll_util.cpp:1103`), which takes
-the minimum of a DISTANCE fade and two SCREEN-SIZE fades. Only the distance half is implemented, and
-that is deliberate rather than partial: the screen-size fades sit behind `modelinfo` and are driven
-by `r_screenfademinsize`/`r_screenfademaxsize`, engine convars a demo does not carry. Taking a
-minimum against an unknowable is inventing the other half, so it is left out and said so
-(`EntityFade`'s remarks carry this).
+the minimum of a DISTANCE fade and two SCREEN-SIZE fades. Only the distance half is implemented.
+
+**The reason given for that was WRONG, and it was corrected the same day by measuring instead of
+arguing.** The original note here said both screen fades are "driven by
+`r_screenfademinsize`/`r_screenfademaxsize`, engine convars a demo does not carry", and therefore
+unknowable. Half of that holds — of the VIEW fade, whose range is exactly those two convars,
+declared `"0"` at `viewrender.cpp:166`. The LEVEL fade's range is **on the wire**: `CWorld` networks
+`m_flMinPropScreenSpaceWidth` and `m_flMaxPropScreenSpaceWidth` (`world.cpp:406`) and
+`C_World::OnDataChanged` hands them to `SetLevelScreenFadeRange` (`c_world.cpp:121`).
+
+Measured across the committed corpus — nine maps whose schema can be read, five protocols, 2007 to
+the present — **every one sends min 0 and max −1**. A maximum below the minimum is a disabled
+sentinel rather than a narrow band, which settles it without the closed implementation. The tenth
+specimen decodes no entities at all (its `dem_datatables` is truncated), and is excluded for that
+reason rather than silently.
+
+So the outcome is unchanged and the claim now has a shelf life: "unknowable" is terminal and nobody
+re-reads it, while "measured as −1 on nine maps" invites the check that matters if a map ever sets
+it. `m_flFadeScale` is unread for the same reason — it is `UTIL_ComputeEntityFade`'s fourth argument
+and reaches only those two screen fades, never `ComputeDistanceFade`. Full account in
+`docs/findings/46-what-fades-and-what-does-not.md`.
 
 **Three details of `ComputeDistanceFade` are the engine's and would each be wrong if guessed:**
 

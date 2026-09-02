@@ -30,11 +30,28 @@ namespace Tf2DemoSalvage.Scene;
 /// SourceTV foundry demo: 8 entities declare an 826→900 fade band and 28 declare
 /// <c>m_fadeMinDist -1</c>, the branch that derives the minimum from the maximum.
 ///
-/// **What is deliberately absent**: <c>UTIL_ComputeEntityFade</c> takes the minimum of this and two
-/// SCREEN-SIZE fades — <c>ComputeLevelScreenFade</c> and <c>ComputeViewScreenFade</c> — which sit
-/// behind <c>modelinfo</c> and are driven by <c>r_screenfademinsize</c>/<c>maxsize</c>, engine
-/// convars a demo does not carry. The distance fade is the half the wire gives us, and taking a
-/// minimum with something unknowable would be inventing the other half.
+/// **What is absent, and the reason is MEASURED rather than assumed.**
+/// <c>UTIL_ComputeEntityFade</c> (<c>cdll_util.cpp:1103</c>) takes the minimum of this and two
+/// SCREEN-SIZE fades, <c>ComputeLevelScreenFade</c> and <c>ComputeViewScreenFade</c>. Both are off:
+///
+/// - The **view** fade's range is <c>r_screenfademinsize</c>/<c>r_screenfademaxsize</c>
+///   (<c>viewrender.cpp:166</c>), both declared <c>"0"</c> — client convars a demo does not carry,
+///   at a default that disables them.
+/// - The **level** fade's range IS on the wire: <c>CWorld</c> networks
+///   <c>m_flMinPropScreenSpaceWidth</c> and <c>m_flMaxPropScreenSpaceWidth</c>
+///   (<c>world.cpp:406</c>), and <c>C_World::OnDataChanged</c> hands them to
+///   <c>SetLevelScreenFadeRange</c> (<c>c_world.cpp:121</c>). **Nine corpus maps of nine that can be
+///   read — 2007 to the present, five protocols — send min 0 and max −1**, a maximum below the
+///   minimum, which is a disabled sentinel rather than a narrow band.
+///
+/// **So the first version of this note was wrong in its reasoning while right in its outcome**: it
+/// called both halves unknowable, and one of them is on the wire. That is the difference between
+/// "we cannot" and "we measured, and it does nothing" — the second can be re-checked when a map
+/// turns up that sets it, and the first is the kind of claim nobody re-reads.
+///
+/// <c>m_flFadeScale</c> is unread for the same reason. It is passed to <c>UTIL_ComputeEntityFade</c>
+/// as its fourth argument and reaches only those two screen fades, never
+/// <c>ComputeDistanceFade</c> — so it has no consumer here, and that is the whole of it.
 /// </remarks>
 public static class EntityFade
 {
