@@ -168,6 +168,41 @@ public sealed class AppliedTimeTests
     }
 
     /// <remarks>
+    /// **The model scale is not an interpolated variable at all** (B277). The engine's whole
+    /// interpolated list is what `AddVar` registers — origin, angles, eye angles, velocity, view
+    /// offset, punch, cycle, pose parameters, encoded controllers, flex weights, lean, shift, ragdoll
+    /// position, the overlay layers — and `m_flModelScale` is not among them. A networked scale
+    /// change SNAPS.
+    ///
+    /// **The client does ramp it, and that is a different mechanism entirely.**
+    /// `C_BaseAnimating::SetModelScale( scale, change_duration )` (`c_baseanimating.cpp:6140`)
+    /// creates a `MODELSCALE` data object holding a start, a goal and two times, and
+    /// `UpdateModelScale` lerps between them — but that object exists only when game code asks for
+    /// a duration. Receiving a new value over the wire assigns `m_flModelScale` directly.
+    ///
+    /// So blending it is inventing a ramp the recording never contained, which is the same shape as
+    /// B276 one field along.
+    /// </remarks>
+    [Test]
+    public void At_TheModelScale_IsNotInterpolated()
+    {
+        ScenePropTrack track = new(entityIndex: 3, "models/buildables/sentry1.mdl");
+
+        track.Add(0, new ScenePose { X = 0f, Scale = 1f });
+        track.Add(20, new ScenePose { X = 100f, Scale = 0.75f });
+
+        ScenePose at = track.At(20d)!.Value;
+
+        at.X.ShouldBeGreaterThan(0f, "the POSITION is interpolated");
+        at.X.ShouldBeLessThan(100f);
+
+        at.Scale.ShouldBe(
+            1f,
+            "m_flModelScale has no interpolator; a networked change snaps, and the only ramp the " +
+            "client has is a MODELSCALE data object game code creates with an explicit duration");
+    }
+
+    /// <remarks>
     /// **The control**: an entity the SERVER animates — a door, a building — takes its cycle off
     /// the wire as an ordinary interpolated variable, and must still be blended. Without this the
     /// test above passes against code that stopped interpolating the cycle for everything.

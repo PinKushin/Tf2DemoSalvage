@@ -1443,7 +1443,19 @@ public sealed class ScenePropTrack
             Pitch = pitch,
             Yaw = yaw,
             Roll = roll,
-            Scale = Curve(previous?.Scale, from.Scale, to.Scale, fraction),
+            // **Not interpolated, because the engine does not interpolate it** (B277). The whole
+            // interpolated list is what `AddVar` registers on the client — origin, angles, eye
+            // angles, velocity, view offset, punch, cycle, pose parameters, encoded controllers,
+            // flex weights, lean, shift, ragdoll position, the overlay layers — and
+            // `m_flModelScale` is not among them. A networked scale change SNAPS.
+            //
+            // The client does ramp it, by a different mechanism that no recording can trigger:
+            // `SetModelScale( scale, change_duration )` (`c_baseanimating.cpp:6140`) creates a
+            // `MODELSCALE` data object with a start, a goal and two times, and `UpdateModelScale`
+            // lerps between them. That object exists only when game code asks for a duration;
+            // receiving a value over the wire assigns the member directly. Blending here would
+            // invent a ramp the demo never contained.
+            Scale = from.Scale,
 
             Sequence = from.Sequence,
             Cycle = cycle,

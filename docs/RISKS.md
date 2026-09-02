@@ -17634,3 +17634,43 @@ being cited elsewhere in the same session.
 would have caught it: the dangerous line never appeared in any comment or commit. That is the
 detectable thing — a flag being SET or TESTED in engine source that has just been read and never
 looked up — and it is what `.claude/hooks/flag-unread.ps1` now watches for.
+
+## B277 — the model scale was interpolated; the engine has no interpolator for it — FIXED
+
+**Found by auditing the rest of B276's family**, which is the useful part: the question "what else do
+we blend that the engine does not" turns out to have a short, checkable answer.
+
+**The engine's interpolated set is exactly what `AddVar` registers on the client.** Enumerated from
+every call in `src/game/client`: `m_vecOrigin`, `m_angRotation`, `m_angEyeAngles`, `m_vecVelocity`,
+`m_vecViewOffset`, `m_Local.m_vecPunchAngle` and its velocity, `m_flCycle`, `m_flPoseParameter`,
+`m_flEncodedController`, `m_flexWeight`, `m_viewtarget`, `m_vecLean`, `m_vecShift`, `m_vecIKTarget`,
+the ragdoll's position and angles, and the animation overlay layers. **`m_flModelScale` is not among
+them**, so a networked scale change SNAPS.
+
+**The client does ramp a scale, by a mechanism no recording can trigger.**
+`C_BaseAnimating::SetModelScale( scale, change_duration )` (`c_baseanimating.cpp:6140`) creates a
+`MODELSCALE` data object holding a start, a goal and two times, and `UpdateModelScale` lerps between
+them until the finish time. That object exists only when game code asks for a duration; the receive
+path assigns `m_flModelScale` directly. Blending it here invented a ramp the demo never contained.
+
+**Latent on the current corpus**, and that is stated rather than glossed: B271 measured every entity
+of the 2007, 2009 and 2011 specimens at scale 1, so nothing on screen changes today. It would show
+on a mini-sentry being built, or anything else TF2 rescales while it exists.
+
+### What the audit found in the rest of the family, which is little
+
+| flag | where it is used | us |
+|---|---|---|
+| `EXCLUDE_AUTO_INTERPOLATE` | `m_flCycle` when `m_bClientSideAnimation`; `c_npc_hydra` | B276, fixed. The hydra is an HL2 NPC and cannot appear in TF2. |
+| `EXCLUDE_AUTO_LATCH` | `c_npc_hydra` only | nothing to do |
+| `INTERPOLATE_LINEAR_ONLY` | `m_viewtarget` on `C_BaseFlex`, one use | flexes are not implemented, so nothing to do |
+| `INTERPOLATE_OMIT_UPDATE_LAST_NETWORKED` | passed by `OnLatchInterpolatedVariables`' caller, never set on a var | nothing to do |
+
+So the family is two real defects, both now fixed, and three entries that are genuinely inapplicable
+— which is worth writing down, because "we do not honour these flags at all" reads as a large open
+gap until someone counts them.
+
+**The inverse check is the one that found B277**, and it is the one to repeat when a new field is
+interpolated: not "which flags does the engine set" but "is this field in `AddVar`'s list at all".
+Everything this project blends — position, angles, eye angles, cycle, pose parameters — is on that
+list. Scale was the only one that was not.

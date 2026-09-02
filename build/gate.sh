@@ -252,7 +252,9 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # 1665 -> 1667: EXCLUDE_AUTO_INTERPOLATE on a client-side-animated entity's cycle (B276), and the
 # control that a SERVER-animated one still blends - without which the fix is indistinguishable from
 # having stopped interpolating the cycle for everything.
-run Tf2DemoSalvage.Core.Tests     core     1667
+# 1667 -> 1668: the model scale is not an interpolated variable (B277), found by asking the inverse
+# question - not which flags the engine sets, but whether a field is in AddVar's list at all.
+run Tf2DemoSalvage.Core.Tests     core     1668
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
