@@ -130,9 +130,21 @@ public sealed class EntityState
     /// <summary>The tick offset an entity's simulation time is sent as.</summary>
     /// <remarks>
     /// Named a "time" and sent as eight bits of tick offset — see
-    /// <see cref="NoteSimulationTick(int)"/>, which is the only thing entitled to read it.
+    /// <see cref="NoteTickEncodedTimes(int)"/>, which is the only thing entitled to read it.
     /// </remarks>
     private const string SimulationTimeProperty = "m_flSimulationTime";
+
+    /// <summary>The table an entity's animation timestamp arrives in.</summary>
+    /// <remarks>
+    /// Named for the ordering the engine requires of it, and it has to be spelled out because three
+    /// other tables also declare an <c>m_flAnimTime</c> — <c>DT_TFPlayer</c>,
+    /// <c>DT_LocalWeaponData</c> and <c>DT_LocalActiveWeaponData</c>. Confirmed against the
+    /// flattened <c>CObjectSentrygun</c> on a real demo rather than chosen from the list.
+    /// </remarks>
+    private const string AnimTimeTable = "DT_AnimTimeMustBeFirst";
+
+    /// <summary>The tick offset an entity's animation time is sent as.</summary>
+    private const string AnimTimeProperty = "m_flAnimTime";
 
     /// <summary><c>MAX_EDICT_BITS</c> — the low bits of a handle are the entity's slot.</summary>
     private const int EdictBits = 11;
@@ -698,30 +710,57 @@ public sealed class EntityState
     /// The engine has no equivalent hazard because <c>RecvProxy_SimulationTime</c> runs during
     /// decode and stores a time; the raw offset never survives the packet.
     /// </remarks>
-    public void NoteSimulationTick(int tick)
+    public void NoteTickEncodedTimes(int tick)
     {
-        if (Integer($"{BaseEntityTable}.{SimulationTimeProperty}") is not { } offset)
+        SimulatedAtTick = TickFromOffset(
+            Integer($"{BaseEntityTable}.{SimulationTimeProperty}"), tick);
+
+        AnimatedAtTick = TickFromOffset(
+            Integer($"{AnimTimeTable}.{AnimTimeProperty}"), tick);
+
+        SimulationBaseTick = tick;
+    }
+
+    /// <summary>Turns one eight-bit tick offset into the tick it names.</summary>
+    /// <param name="offset">What the wire carried, or null when nothing did.</param>
+    /// <param name="tick">The server tick of the packet that carried it.</param>
+    /// <returns>The tick, or null when the entity said nothing.</returns>
+    /// <remarks>
+    /// **One routine for both, because the engine's two receive proxies are byte-identical** —
+    /// <c>RecvProxy_AnimTime</c> (<c>c_baseentity.cpp:316</c>) and
+    /// <c>RecvProxy_SimulationTime</c> (<c>:344</c>) differ only in which member they assign. The
+    /// SEND proxies do differ, in the guard deciding whether a value is encodable at all
+    /// (<c>ticknumber >= tickbase - 100</c> for animation against <c>>= tickbase</c> for
+    /// simulation), and a decoder never runs those.
+    ///
+    /// **Null stays null and never falls back to the other clock.** A resting prop simulates
+    /// without animating, and a player using client-side animation sends no meaningful animation
+    /// time at all — <c>SendProxy_AnimTime</c> asserts <c>!IsUsingClientSideAnimation()</c>.
+    /// Substituting one for the other would be a plausible number from the wrong source.
+    /// </remarks>
+    private int? TickFromOffset(int? offset, int tick)
+    {
+        if (offset is not { } addt)
         {
-            return;
+            return null;
         }
 
         const int Window = 256;
         const int Half = 127;
 
-        int simulated = NetworkBase(tick, EntityIndex) + offset;
+        int stamped = NetworkBase(tick, EntityIndex) + addt;
 
-        while (simulated < tick - Half)
+        while (stamped < tick - Half)
         {
-            simulated += Window;
+            stamped += Window;
         }
 
-        while (simulated > tick + Half)
+        while (stamped > tick + Half)
         {
-            simulated -= Window;
+            stamped -= Window;
         }
 
-        SimulatedAtTick = simulated;
-        SimulationBaseTick = tick;
+        return stamped;
     }
 
     /// <summary>The server tick <see cref="SimulatedAtTick"/> was decoded against.</summary>
@@ -744,6 +783,20 @@ public sealed class EntityState
     /// whether that diverges is what this exists to measure.
     /// </remarks>
     public int? SimulatedAtTick { get; private set; }
+
+    /// <summary>The tick this entity's animation was last stamped at, or null.</summary>
+    /// <remarks>
+    /// **The other of the engine's two latch clocks.** <c>GetLastChangeTime</c> returns this for
+    /// <c>LATCH_ANIMATION_VAR</c> — the pose parameters, the bone controllers, the flexes and the
+    /// animation overlay layers — where <see cref="SimulatedAtTick"/> serves the simulation ones.
+    /// Two clocks because a server sets them at different moments: an entity can move without
+    /// re-stamping its animation, and animate without moving.
+    ///
+    /// Null for a player, and that is the send proxy's own rule rather than an accident: TF2's
+    /// players use client-side animation and <c>SendProxy_AnimTime</c> asserts they are not
+    /// encoding one.
+    /// </remarks>
+    public int? AnimatedAtTick { get; private set; }
 
     /// <summary>Reads an integer property.</summary>
     /// <param name="key">Qualified name, e.g. <c>DT_BasePlayer.m_iHealth</c>.</param>

@@ -237,7 +237,7 @@ public sealed class EntityStateTable
         // **After the loop and before anything can read it**, which is where the engine's receive
         // proxy sits. A tick-encoded offset that survives into the next packet is a number about
         // the wrong base, and this is the only moment the right one is in hand.
-        state.NoteSimulationTick(PacketTick);
+        state.NoteTickEncodedTimes(PacketTick);
     }
 
     /// <summary>Looks up an entity's accumulated state.</summary>

@@ -243,7 +243,10 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # 1650 -> 1657: m_flSimulationTime's tick encoding (B273). Three for GetNetworkBase, including the
 # every-index round trip that is the control against a plain tick/100, and four for the recentring
 # that makes eight bits able to name a tick.
-run Tf2DemoSalvage.Core.Tests     core     1657
+# 1657 -> 1663: m_flAnimTime, the second latch clock (3), and the applied-time stamping (3) - the
+# last including the control that the SAME two keyframes with no lag are still part way through,
+# without which the correction is indistinguishable from clamping early.
+run Tf2DemoSalvage.Core.Tests     core     1663
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
@@ -899,7 +902,10 @@ run Tf2DemoSalvage.Content.Tests  content   865
 # bytes can answer - the SDK is one build's snapshot and cannot say what an older client sent. The
 # pair pins the exclusion SendTableConformanceTests now carries, so the exclusion goes red the day
 # it stops being true rather than being justified by prose forever.
-run Tf2DemoSalvage.Corpus.Tests   corpus     148
+# 148 -> 151: the applied-time correction on real bytes (B273). Two measure the lag itself; the
+# third is the only one that reddens when the STAMPING is severed, which a sabotage found - the
+# other two assert on a histogram measured beside the stamping rather than through it.
+run Tf2DemoSalvage.Corpus.Tests   corpus     151
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that

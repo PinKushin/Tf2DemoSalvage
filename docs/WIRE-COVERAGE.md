@@ -14,7 +14,7 @@ ignorance rather than proof of use — a name can be mentioned and still not hon
 which is its own recurring bug here. A property this report calls read may still be
 decoded and dropped.
 
-**101 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
+**102 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
 
 ## Tables an entity this viewer draws composes
 
@@ -30,13 +30,9 @@ m_Collision, m_CollisionGroup, m_bAlternateSorting, m_bAnimatedEveryTick, m_bSim
 
 ### DT_AnimTimeMustBeFirst
 
-**0 of 1** mentioned.
+**1 of 1** mentioned.
 
-Not mentioned anywhere in a shipped assembly:
-
-```
-m_flAnimTime
-```
+Nothing unread.
 
 ### DT_BaseAnimating
 

@@ -528,6 +528,24 @@ public sealed class ScenePropTrack
     private readonly List<int> _heldUntil = [];
 
     /// <summary>
+    /// For each keyframe, when the entity said the value applied.
+    /// </summary>
+    /// <remarks>
+    /// **The engine's <c>changetime</c>, which is not the packet's tick** (B273).
+    /// <c>OnLatchInterpolatedVariables</c> stamps every simulation-latched variable with the
+    /// entity's own <c>GetSimulationTime()</c> (<c>c_baseentity.cpp:2806</c>), and this project
+    /// used the packet tick for both purposes.
+    ///
+    /// Carried alongside rather than replacing the keyframe's tick, because the two answer
+    /// different questions: the tick orders the list and dates the state changes a pose carries,
+    /// while this dates the interpolated quantities inside it. Measured on the 2013 SourceTV
+    /// foundry recording, `CTFPlayer` splits exactly 50/50 between a lag of 0 and 4 ticks — so the
+    /// players, the fastest things on screen, were sampled with 60 ms of jitter that no other
+    /// entity shared.
+    /// </remarks>
+    private readonly List<int> _appliedAt = [];
+
+    /// <summary>
     /// How far behind the requested tick a pose is sampled — the engine's <c>cl_interp</c>.
     /// </summary>
     /// <remarks>
@@ -1068,6 +1086,17 @@ public sealed class ScenePropTrack
     /// </remarks>
     public IReadOnlyList<(int Tick, ScenePose Pose)> Keyframes => _keyframes;
 
+    /// <summary>When the value in a keyframe applied, which may precede its arrival.</summary>
+    /// <param name="index">Which keyframe, indexed as <see cref="Keyframes"/> is.</param>
+    /// <returns>The applied tick, or the keyframe's own when nothing said otherwise.</returns>
+    /// <remarks>
+    /// **Exposed so the correction can be asserted on real bytes, carried rather than recomputed**
+    /// (B243). A test that re-derived this from the demo would be checking its own arithmetic
+    /// twice; this is the number the interpolation used.
+    /// </remarks>
+    public int AppliedAt(int index) =>
+        _appliedAt.Count > index ? _appliedAt[index] : _keyframes[index].Tick;
+
     /// <summary>The first tick this entity was seen at.</summary>
     public int FirstTick => _keyframes.Count > 0 ? _keyframes[0].Tick : int.MaxValue;
 
@@ -1115,13 +1144,28 @@ public sealed class ScenePropTrack
     }
 
     /// <summary>Records a pose, if it differs from the one before it.</summary>
-    /// <param name="tick">When the demo stated it.</param>
+    /// <param name="tick">When the demo stated it — the packet's own tick.</param>
     /// <param name="pose">The pose.</param>
+    /// <param name="appliedAt">When the entity says the value applied, on the same axis.</param>
     /// <remarks>
     /// **Identical means the whole pose, not just the position.** An entity animating on the spot
     /// changes every frame while standing still, and comparing only position would freeze it.
+    ///
+    /// **Two ticks, and which one is the LIST KEY matters more than it looks** (B273).
+    /// <paramref name="tick"/> orders the list, because it is the only one that is monotonic and
+    /// because a pose carries more than the interpolated quantities: visibility, render mode, skin
+    /// and body all change on their own schedule and must stay in the order the demo stated them.
+    /// <paramref name="appliedAt"/> is the entity's own simulation time carried onto the demo's
+    /// axis, and it is what the interpolation arithmetic uses — the engine's
+    /// <c>GetLastChangeTime</c>, which is what a history entry is stamped with
+    /// (<c>c_baseentity.cpp:2806</c>).
+    ///
+    /// **Keying the list by the applied time was tried first and a corpus test caught it.** An
+    /// entity that does not simulate — a prop at rest — keeps one simulation time for minutes, so
+    /// every state change it made collapsed onto a single tick and an entity that was hidden and
+    /// later shown was never handed back: *"hiding that never ends is deletion wearing a flag"*.
     /// </remarks>
-    public void Add(int tick, ScenePose pose)
+    public void Add(int tick, ScenePose pose, int appliedAt)
     {
         if (_keyframes.Count > 0 && _keyframes[^1].Pose == pose)
         {
@@ -1135,13 +1179,23 @@ public sealed class ScenePropTrack
             // from the first keyframe to the step. On screen that is a door drifting upward for no
             // reason for ten seconds, and then, on the way back, sinking below its own frame into
             // the floor.
-            _heldUntil[^1] = tick;
+            _heldUntil[^1] = appliedAt;
             return;
         }
 
         _keyframes.Add((tick, pose));
-        _heldUntil.Add(tick);
+        _heldUntil.Add(appliedAt);
+        _appliedAt.Add(appliedAt);
     }
+
+    /// <summary>Adds a keyframe stated and applying at the same tick.</summary>
+    /// <param name="tick">When the demo stated it, and when it applied.</param>
+    /// <param name="pose">The pose.</param>
+    /// <remarks>
+    /// For callers with no lag to account for — every test that builds a track by hand, and any
+    /// entity whose recording never said when it simulated.
+    /// </remarks>
+    public void Add(int tick, ScenePose pose) => Add(tick, pose, tick);
 
     /// <summary>Records that the entity ceased to exist.</summary>
     /// <param name="tick">The first tick it was gone.</param>
@@ -1222,13 +1276,21 @@ public sealed class ScenePropTrack
         }
 
         (int statedTick, ScenePose from) = _keyframes[index];
-        (int toTick, ScenePose to) = _keyframes[index + 1];
+        (int arrivedAt, ScenePose to) = _keyframes[index + 1];
+
+        // **The interpolation runs on when the value APPLIED, not on when the packet arrived**
+        // (B273). The engine stamps a simulation-latched variable's history entry with the entity's
+        // own `GetSimulationTime()` (`OnLatchInterpolatedVariables`, `c_baseentity.cpp:2806`), and
+        // for a player on a SourceTV recording that is up to four ticks from the packet's own tick,
+        // on half the updates. The list is still keyed by arrival, which is what keeps the state a
+        // pose carries in the order the demo stated it.
+        int toTick = _appliedAt.Count > index + 1 ? _appliedAt[index + 1] : arrivedAt;
 
         // **A keyframe later than the tick being asked for has not arrived yet.** This is the whole
         // of the causality rule: a client at tick 100 cannot be pulled toward an update stated at
         // tick 610, and a reader holding the entire demo can. Holding the earlier pose is what the
         // client shows, and skipping this check is what walked a shutter open over ten seconds.
-        if (toTick > tick)
+        if (arrivedAt > tick)
         {
             return from;
         }

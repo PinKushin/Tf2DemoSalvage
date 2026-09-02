@@ -115,6 +115,77 @@ public sealed class SimulationTimeConformanceTests
         }
     }
 
+    /// <remarks>
+    /// **<c>m_flAnimTime</c> is the same encoding on a different table**, and the client's proxy is
+    /// byte-identical to the simulation one — <c>RecvProxy_AnimTime</c>
+    /// (<c>c_baseentity.cpp:316</c>) against <c>RecvProxy_SimulationTime</c>
+    /// (<c>:344</c>). Only the SEND guards differ, and a decoder never runs those:
+    /// <c>SendProxy_AnimTime</c> encodes when <c>ticknumber >= tickbase - 100</c> where the
+    /// simulation one wants <c>>= tickbase</c>.
+    ///
+    /// **It lives in its own table**, <c>DT_AnimTimeMustBeFirst</c>, named for the ordering the
+    /// engine needs — and confirmed against a real demo rather than assumed, since three other
+    /// tables also declare an <c>m_flAnimTime</c>: the flattened <c>CObjectSentrygun</c> on the
+    /// 2013 foundry recording carries <c>DT_AnimTimeMustBeFirst.m_flAnimTime</c>.
+    /// </remarks>
+    [Test]
+    public void AnimationTick_ForAnEntityAnimatingEarlier_IsTheEarlierTick()
+    {
+        EntityState state = new(entityIndex: 7, 0, 0, "CObjectSentrygun");
+
+        int tickbase = EntityState.NetworkBase(tick: 1234, entityIndex: 7);
+
+        state.Set(
+            "DT_AnimTimeMustBeFirst.m_flAnimTime",
+            PropertyValue.FromInt((1230 - tickbase) & 0xff));
+
+        state.NoteTickEncodedTimes(1234);
+
+        state.AnimatedAtTick.ShouldBe(1230);
+    }
+
+    /// <remarks>
+    /// **The control that keeps the two apart.** They share a decode and are read from different
+    /// tables, so an implementation that keyed both off one property would pass every case above —
+    /// this is the one where the two values differ and each must come back as itself.
+    /// </remarks>
+    [Test]
+    public void AnimationAndSimulationTicks_WhenTheyDiffer_AreEachTheirOwn()
+    {
+        EntityState state = new(entityIndex: 7, 0, 0, "CObjectSentrygun");
+
+        int tickbase = EntityState.NetworkBase(tick: 1234, entityIndex: 7);
+
+        state.Set(
+            "DT_BaseEntity.m_flSimulationTime", PropertyValue.FromInt((1234 - tickbase) & 0xff));
+        state.Set(
+            "DT_AnimTimeMustBeFirst.m_flAnimTime", PropertyValue.FromInt((1226 - tickbase) & 0xff));
+
+        state.NoteTickEncodedTimes(1234);
+
+        state.SimulatedAtTick.ShouldBe(1234);
+        state.AnimatedAtTick.ShouldBe(1226);
+    }
+
+    /// <remarks>
+    /// An entity that sends one and not the other is ordinary — a resting prop simulates without
+    /// animating, and a client-side-animated player sends no meaningful anim time at all
+    /// (<c>SendProxy_AnimTime</c> asserts <c>!IsUsingClientSideAnimation()</c>). Null must stay
+    /// null rather than falling back to the other, which would be a plausible number from the
+    /// wrong clock.
+    /// </remarks>
+    [Test]
+    public void AnimationTick_WhenOnlySimulationWasSent_StaysUnknown()
+    {
+        EntityState state = new(entityIndex: 7, 0, 0, "CObjectSentrygun");
+
+        state.Set("DT_BaseEntity.m_flSimulationTime", PropertyValue.FromInt(0));
+        state.NoteTickEncodedTimes(1234);
+
+        state.SimulatedAtTick.ShouldNotBeNull();
+        state.AnimatedAtTick.ShouldBeNull();
+    }
+
     /// <summary>Encodes as the server does, then decodes as this project must.</summary>
     /// <remarks>
     /// **A round trip rather than a table of expected bytes**, because the encoding is the half
@@ -130,7 +201,7 @@ public sealed class SimulationTimeConformanceTests
         EntityState state = new(entityIndex, 0, 0, "CBaseEntity");
 
         state.Set("DT_BaseEntity.m_flSimulationTime", PropertyValue.FromInt(addt));
-        state.NoteSimulationTick(tick);
+        state.NoteTickEncodedTimes(tick);
 
         return state.SimulatedAtTick ?? int.MinValue;
     }

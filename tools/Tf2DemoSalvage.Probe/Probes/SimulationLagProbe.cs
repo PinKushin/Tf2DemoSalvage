@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 
 using Tf2DemoSalvage.Core.Scene;
 
@@ -62,21 +63,71 @@ public sealed class SimulationLagProbe : IProbe
 
         DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
 
+        output.WriteLine(Path.GetFileName(path));
+
+        Report(output, "SIMULATION", timeline.SimulationLag, timeline.SimulationLagUnknown);
+        Report(output, "ANIMATION", timeline.AnimationLag, timeline.AnimationLagUnknown);
+        Report(output, "SIMULATION MINUS ANIMATION, where both were sent", timeline.ClockGap, 0);
+
+        output.WriteLine("BY CLASS, simulation lag — the same bucket everywhere is a clock offset:");
+
+        foreach ((string className, int[] counts) in timeline.SimulationLagByClass
+            .OrderByDescending(entry => Total(entry.Value))
+            .Take(12))
+        {
+            int total = Total(counts);
+            List<string> parts = [];
+
+            for (int bucket = 0; bucket < DemoTimeline.LagBuckets; bucket++)
+            {
+                if (counts[bucket] > 0)
+                {
+                    parts.Add(
+                        $"{Label(bucket)}:{100.0 * counts[bucket] / Math.Max(1, total):0}%");
+                }
+            }
+
+            output.WriteLine(
+                $"  {className,-28} {total.ToString(CultureInfo.InvariantCulture),7} updates  "
+                + string.Join("  ", parts));
+        }
+    }
+
+    /// <summary>Everything in one class's histogram.</summary>
+    private static int Total(int[] counts)
+    {
+        int total = 0;
+
+        foreach (int count in counts)
+        {
+            total += count;
+        }
+
+        return total;
+    }
+
+    /// <summary>Prints one clock's histogram with its own control line.</summary>
+    /// <param name="output">Where to write.</param>
+    /// <param name="clock">Which of the engine's two latch clocks this is.</param>
+    /// <param name="lag">The histogram.</param>
+    /// <param name="unknown">Updates that carried no value for this clock.</param>
+    private static void Report(
+        TextWriter output, string clock, Func<int, int> lag, int unknown)
+    {
         int total = 0;
 
         for (int bucket = 0; bucket < DemoTimeline.LagBuckets; bucket++)
         {
-            total += timeline.SimulationLag(bucket);
+            total += lag(bucket);
         }
 
         output.WriteLine(
-            $"{Path.GetFileName(path)}: "
-            + $"{total.ToString(CultureInfo.InvariantCulture)} entity updates carried a simulation "
-            + $"tick, {timeline.SimulationLagUnknown.ToString(CultureInfo.InvariantCulture)} did not");
+            $"{clock}: {total.ToString(CultureInfo.InvariantCulture)} entity updates carried a "
+            + $"tick, {unknown.ToString(CultureInfo.InvariantCulture)} did not");
 
         for (int bucket = 0; bucket < DemoTimeline.LagBuckets; bucket++)
         {
-            int count = timeline.SimulationLag(bucket);
+            int count = lag(bucket);
 
             if (count == 0)
             {

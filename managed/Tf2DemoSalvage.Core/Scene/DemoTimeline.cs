@@ -579,6 +579,56 @@ public sealed class DemoTimeline
     /// </remarks>
     public int SimulationLagUnknown { get; private set; }
 
+    /// <summary>The same, for the animation clock.</summary>
+    private int[] _animationLag = new int[LagBuckets];
+
+    /// <summary>How many entity updates' animation stamp lagged the packet by a given amount.</summary>
+    /// <param name="bucket">0 to <see cref="LagBuckets"/> − 1; <see cref="LagZero"/> is no lag.</param>
+    /// <returns>The count, with the end buckets holding everything beyond ±8.</returns>
+    /// <remarks>
+    /// **The engine's OTHER latch clock**, and it is a separate measurement because the two answer
+    /// separately: <c>GetLastChangeTime</c> returns <c>GetAnimTime()</c> for
+    /// <c>LATCH_ANIMATION_VAR</c> — pose parameters, bone controllers, flexes, overlay layers —
+    /// where the simulation clock serves origin and angles.
+    /// </remarks>
+    public int AnimationLag(int bucket) => _animationLag[bucket];
+
+    /// <summary>Entity updates whose entity never sent an animation time.</summary>
+    /// <remarks>
+    /// **Expected to be LARGE where the simulation equivalent is zero**, and that is not a fault:
+    /// a resting prop simulates without animating, and a player using client-side animation sends
+    /// none at all — <c>SendProxy_AnimTime</c> asserts <c>!IsUsingClientSideAnimation()</c>.
+    /// </remarks>
+    public int AnimationLagUnknown { get; private set; }
+
+    /// <summary>The gap between the two clocks, where an update carried both.</summary>
+    private int[] _clockGap = new int[LagBuckets];
+
+    /// <summary>Simulation tick minus animation tick, for updates that sent both.</summary>
+    /// <param name="bucket">0 to <see cref="LagBuckets"/> − 1; <see cref="LagZero"/> is agreement.</param>
+    /// <returns>The count, with the end buckets holding everything beyond ±8.</returns>
+    /// <remarks>
+    /// **The measurement that decides whether one keyframe can serve both clocks.** The engine
+    /// keeps a separate interpolation history per variable and stamps each with its own
+    /// <c>GetLastChangeTime</c>; this project keeps ONE keyframe per entity per packet, carrying
+    /// simulation-latched fields and animation-latched fields together. That is faithful exactly to
+    /// the extent that the two clocks agree when both are sent — so the answer is measured rather
+    /// than assumed, and it is here for anyone who later wonders whether the single history was a
+    /// shortcut.
+    /// </remarks>
+    public int ClockGap(int bucket) => _clockGap[bucket];
+
+    /// <summary>The simulation-lag histogram split by server class.</summary>
+    /// <remarks>
+    /// **What tells a clock offset from a real disagreement.** If every class sits in the same
+    /// bucket the difference between the packet tick and the simulation tick is a constant, which
+    /// moves the whole scene together and is invisible; if classes sit in DIFFERENT buckets the
+    /// entities disagree with each other by that many ticks, which is what a viewer sees.
+    /// </remarks>
+    public IReadOnlyDictionary<string, int[]> SimulationLagByClass { get; private set; } =
+        new Dictionary<string, int[]>();
+
+
     public IReadOnlyList<ScenePropTrack> Props => _props;
 
     /// <summary>Every sound the recording plays, in tick order.</summary>
@@ -1056,6 +1106,9 @@ public sealed class DemoTimeline
         // Seventeen buckets for −8 to +8 ticks, and one past them for updates that said nothing —
         // the control that tells a real distribution from a partial one (B273).
         int[] simulationLag = new int[LagBuckets + 1];
+        int[] animationLag = new int[LagBuckets + 1];
+        int[] clockGap = new int[LagBuckets + 1];
+        Dictionary<string, int[]> lagByClass = [];
         long entityTicks = 0;
         long samplingTicks = 0;
         long viewmodelTicks = 0;
@@ -1373,6 +1426,12 @@ public sealed class DemoTimeline
                     // `gpGlobals->tickcount` as the server had it, and that is the number
                     // `m_flSimulationTime`'s offset was encoded against — a demo's own command tick
                     // starts near zero while a server has been up for hours.
+                    // **The SERVER's tick, which is not the demo's.** `net_Tick` carries
+                    // `gpGlobals->tickcount` as the server had it — the number
+                    // `m_flSimulationTime` and `m_flAnimTime` are encoded against — while a demo's
+                    // own commands are numbered from the start of the recording. The two axes are
+                    // never mixed: what leaves this decode is a LAG, the difference between two
+                    // server-axis numbers, which is then applied to a demo tick (B273).
                     case NetTickMessage netTick:
                         entities.PacketTick = netTick.Tick;
                         continue;
@@ -1429,7 +1488,7 @@ public sealed class DemoTimeline
                     RecordProp(
                         entity, entities, precache, tracks, props, playerTracks,
                         mergesItself, combatWeapons, protocol, command.Tick, interval,
-                        simulationLag);
+                        simulationLag, animationLag, clockGap, lagByClass);
                 }
 
                 entityTicks += Stopwatch.GetTimestamp() - entityFrom;
@@ -1824,6 +1883,10 @@ public sealed class DemoTimeline
             MapHash = mapHash,
             _simulationLag = simulationLag,
             SimulationLagUnknown = simulationLag[LagUnknownBucket],
+            _animationLag = animationLag,
+            AnimationLagUnknown = animationLag[LagUnknownBucket],
+            _clockGap = clockGap,
+            SimulationLagByClass = lagByClass,
             Phases = new TimelinePhases(
                 Milliseconds(commandTicks),
                 Milliseconds(schemaTicks),
@@ -2102,7 +2165,10 @@ public sealed class DemoTimeline
         int protocol,
         int tick,
         float interval,
-        int[] simulationLag)
+        int[] simulationLag,
+        int[] animationLag,
+        int[] clockGap,
+        Dictionary<string, int[]> lagByClass)
     {
         if (entity.UpdateType == EntityUpdateType.Delete)
         {
@@ -2494,14 +2560,62 @@ public sealed class DemoTimeline
         // project stamps a keyframe with the packet; the difference is what this bucket holds.
         if (state.SimulatedAtTick is { } simulated)
         {
-            simulationLag[Math.Clamp(state.SimulationBaseTick - simulated, -LagZero, LagZero)
-                + LagZero]++;
+            int lag = Math.Clamp(state.SimulationBaseTick - simulated, -LagZero, LagZero);
+
+            simulationLag[lag + LagZero]++;
+
+            // **Which entities sit in which cluster, because that decides whether the divergence is
+            // visible at all.** A constant offset shared by everything is a clock difference and
+            // moves nothing on screen; entities disagreeing with EACH OTHER is what a viewer sees.
+            if (state.ClassName is { } className)
+            {
+                if (!lagByClass.TryGetValue(className, out int[]? counts))
+                {
+                    counts = new int[LagBuckets];
+                    lagByClass[className] = counts;
+                }
+
+                counts[lag + LagZero]++;
+            }
         }
         else
         {
             simulationLag[LagUnknownBucket]++;
         }
 
+        if (state.AnimatedAtTick is { } animated)
+        {
+            animationLag[Math.Clamp(state.SimulationBaseTick - animated, -LagZero, LagZero)
+                + LagZero]++;
+
+            // **The question that decides whether one keyframe can serve both clocks.** The engine
+            // keeps a separate interpolation history per variable and stamps each with its own
+            // clock; this project keeps ONE keyframe per entity per packet. If the two clocks agree
+            // whenever both are sent, that single keyframe is faithful and no split is needed.
+            if (state.SimulatedAtTick is { } alsoSimulated)
+            {
+                clockGap[Math.Clamp(alsoSimulated - animated, -LagZero, LagZero) + LagZero]++;
+            }
+        }
+        else
+        {
+            animationLag[LagUnknownBucket]++;
+        }
+
+        // **Stamped with when the value APPLIED, not with the packet that carried it** (B273).
+        // `OnLatchInterpolatedVariables` gives every simulation-latched variable — origin and
+        // angles among them — the entity's own `GetSimulationTime()` as its history timestamp
+        // (`c_baseentity.cpp:2806`), and this project stamped the packet tick.
+        //
+        // **The lag is applied to the demo's tick because it is a DIFFERENCE**, taken between two
+        // numbers on the server's axis. The two axes are never mixed: the server's tickcount and
+        // the demo's command numbering are unrelated, and subtracting one from the other is what
+        // made the first attempt at this measurement pure noise.
+        //
+        // Measured on the 2013 SourceTV foundry recording, this moves `CTFPlayer` samples by four
+        // ticks on exactly half of their updates — the two clusters are 50/50 — so the players,
+        // which are the fastest things on screen, were being sampled with 60 ms of jitter that no
+        // other entity shared.
         track.Add(
             tick,
             new ScenePose
@@ -2597,7 +2711,10 @@ public sealed class DemoTimeline
                 // EF_NODRAW, or gone from the visible set. A taken health pack is hidden rather
                 // than deleted because it respawns, so this is a property of the moment.
                 Hidden = !state.IsDrawn,
-            });
+            },
+            appliedAt: state.SimulatedAtTick is { } simulatedAt
+                ? tick - (state.SimulationBaseTick - simulatedAt)
+                : tick);
     }
 
     /// <summary>Gives a player their earliest known team and class before it was first stated.</summary>

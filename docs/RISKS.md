@@ -17349,7 +17349,7 @@ this project's own BSP reader would settle it, and the three that were found are
 low — the effect is where a handful of props sample their lighting, on maps this corpus does not
 contain, and MvM is outside what the project is aimed at.
 
-## B273 — keyframes are stamped with the packet tick; the engine stamps with the SIMULATION tick — OPEN, needs a decision
+## B273 — keyframes were stamped with the packet tick; the engine stamps with the entity's own clock — FIXED
 
 **The engine does not timestamp an interpolation history entry with the packet it arrived in.**
 `C_BaseEntity::PostDataUpdate` calls `OnLatchInterpolatedVariables` (`c_baseentity.cpp:2806`), which
@@ -17358,53 +17358,107 @@ takes `GetLastChangeTime( flags )` and hands the SAME time to every watcher:
 | latch | time taken from |
 |---|---|
 | `LATCH_SIMULATION_VAR` — origin, angles | `GetSimulationTime()`, falling back to `curtime` when zero |
-| `LATCH_ANIMATION_VAR` — pose parameters, bone controllers, flexes, animation layers | `GetAnimTime()` |
+| `LATCH_ANIMATION_VAR` — pose parameters, bone controllers, flexes, animation layers, the cycle | `GetAnimTime()` |
 
-This project stamps every keyframe with the tick of the packet that carried it. **That is a
-divergence in WHEN a value is considered to have applied**, which is the input to every
-interpolation the viewer performs.
+This project stamped every keyframe with the tick of the packet that carried it — a divergence in
+WHEN a value is considered to have applied, which is the input to every interpolation the viewer
+performs.
 
-**`m_flSimulationTime` is now decoded, and neither half of getting there was obvious.**
+## Decoding the two clocks, and the two ways it went wrong first
 
-- **It is not a time.** `server/baseentity.cpp:265` sends it as eight unsigned bits with
-  `SPROP_ENCODED_AGAINST_TICKCOUNT`, holding an offset from a per-entity base:
-  `100 * floor( (tick − entindex % 32) / 100 )`. The client inverts it and re-centres the result
-  within ±127 ticks of now. **It must be converted at receipt**, because this decoder retains
-  properties across packets and an offset read one packet later is decoded against the wrong base.
-  The engine has no such hazard: `RecvProxy_SimulationTime` runs during decode and the raw offset
-  never survives the packet.
-- **The base is the SERVER's tick, not the demo's.** `net_Tick` carries `gpGlobals->tickcount` and
-  was decoded by this project and used by nothing; a demo's own command tick starts near zero while
-  a server has been up for hours.
+Both `m_flSimulationTime` (`server/baseentity.cpp:265`) and `m_flAnimTime` (`:166`) are eight
+unsigned bits with `SPROP_ENCODED_AGAINST_TICKCOUNT`, holding an offset from a per-entity base of
+`100 * floor( (tick − entindex % 32) / 100 )`, re-centred within ±127 ticks. The client's two
+receive proxies are byte-identical, so one routine serves both; only the SEND guards differ
+(`ticknumber >= tickbase - 100` for animation against `>= tickbase`), and a decoder never runs those.
 
-**Both mistakes produced the same symptom and it is worth recognising**: a histogram bimodal at the
-two ends of its clamp, roughly fifty-fifty. That is noise wearing the shape of a distribution, and
-it is what a value decoded against the wrong base looks like. With both fixed the shape is
-structured — clusters, not a spread.
+- **Convert at receipt, never on read.** This decoder retains properties across packets by design,
+  so an offset read one packet later is decoded against the wrong base. The engine cannot make this
+  mistake: its proxy runs during decode and the raw offset never survives the packet.
+- **The base is the SERVER's tick from `net_Tick`, not the demo's command tick.** A demo's commands
+  are numbered from the start of the recording; the server's `gpGlobals->tickcount` has been running
+  since the map loaded. `net_Tick` was decoded by this project and used by nothing.
 
-**Measured 2026-09-02**, packet tick minus simulation tick, over every entity update
-(`simlag <demo>`; the "did not carry one" count is zero on both, which is the control):
+**Both mistakes produce the same picture, and it is worth recognising**: a histogram bimodal at the
+two ends of its clamp, roughly fifty-fifty. That is noise wearing the shape of a distribution.
 
-| lag | 2013 STV foundry | 2011 POV viaduct |
+## What the demos say
+
+`simlag <demo>` — packet tick minus the entity's own tick, with the "carried no value" count as the
+control:
+
+| clock | 2013 STV foundry | 2011 POV viaduct |
 |---|---|---|
-| −4 ticks (simulated AFTER the packet's tick) | 31.3% | 80.8% |
-| 0 | 32.2% | 5.5% |
-| ≥ +8 | 35.2% | 13.3% |
-| everything else | ~1.2% | ~0.4% |
+| simulation, 0 ticks | 32.2% | 5.5% |
+| simulation, −4 ticks | 31.3% | 80.8% |
+| simulation, ≥ +8 | 35.2% | 13.3% |
+| animation, sent at all | 3,261 of 19,067 | 119 of 3,005 |
+| animation, 0 / +1 / +2 ticks | 40% / 31% / 23% | — |
 
-**What the three clusters mean.** The `0` group simulated on the packet's own tick and is already
-stamped correctly. The `≥ +8` group is entities that do not simulate every tick — props at rest,
-whose stale timestamp costs nothing because nothing about them is moving. **The −4 group is the one
-that matters**: a third of foundry's updates and four fifths of viaduct's carry a simulation tick
-four ticks AHEAD of the `net_Tick` in the same packet, so this project places those values 60 ms
-later than the engine would.
+**Split by class, the finding is the players.** `CTFPlayer` divides **exactly 50/50** between a lag
+of 0 and of 4 ticks — per UPDATE, not per entity — while `CObjectSentrygun`, `CDynamicProp`,
+`CObjectTeleporter` and the rest sit at ≥ +8, which is simply "has not simulated lately" and costs
+nothing for something that is not moving.
 
-**Left open deliberately, because the fix changes what is on screen.** Stamping keyframes with the
-simulation tick is what the engine does and is therefore where parity points (D89), but it moves
-every interpolated entity by up to four ticks — visible, and the owner's call rather than a silent
-correction. The number above is what that call should be made on, and `simlag` reproduces it.
+That 50/50 split is what makes this a defect rather than a clock offset. A constant difference
+between the packet tick and the simulation tick would move the whole scene together and be
+invisible; a split means the fastest things on screen were sampled with **60 ms of jitter that no
+other entity shared**.
 
-**Not yet measured: `m_flAnimTime`, the other half.** It is `DT_AnimTimeMustBeFirst`'s only property
-and is unread. It timestamps the animation-latched variables — including the pose parameters B269
-just implemented — so the same question applies to them and the answer may differ, since a server
-stamps animation and simulation at different moments.
+## The fix, and the shape that did NOT work
+
+**Keying the keyframe list by the applied time was tried first and a corpus test caught it.** An
+entity that does not simulate keeps one simulation time for minutes, so every state change it made
+collapsed onto a single tick — and `NoDrawTrackTests` failed with *"entity 654 was never handed over
+— hiding that never ends is deletion wearing a flag"*. A pose carries more than the interpolated
+quantities: visibility, render mode, skin and body change on their own schedule and must stay in the
+order the demo stated them.
+
+So the list stays keyed by ARRIVAL, and a parallel `_appliedAt` carries the engine's `changetime`.
+`At` interpolates between applied times while the causality rule — a client cannot be pulled toward
+an update it has not received — still tests the arrival. Two questions, two numbers, neither
+standing in for the other.
+
+## The animation clock is decoded and NOT yet stamped, which is deliberate and measured
+
+`m_flAnimTime` is read, tested and reported, and the keyframes are not stamped with it. **Where both
+clocks are sent they disagree by more than eight ticks on 95.5% of updates**, so one keyframe cannot
+serve both and honouring the animation clock needs a second history. The cost of not doing it is
+bounded and small: the animation clock lags the packet by 0, 1 or 2 ticks on 94% of the updates that
+carry one, against the simulation clock's four, and it applies only to server-animated entities —
+doors, buildings, the resupply locker. Filed as B274.
+
+## What proves it
+
+A sabotage found that the two corpus tests written first **could not fail** if the stamping were
+severed: they assert on the histogram, which is measured beside the stamping rather than through it.
+`Keyframes_OnASourceTvRecording_CarryAnAppliedTimeAwayFromTheirArrival` reads the number the
+interpolation actually used, out of the track, and reddens when the lag is dropped. That is the
+whole argument for running a sabotage on tests that look like they cover a change.
+
+The visible effect is a timing one, so a screenshot cannot show it: the frame at tick 12000 of the
+foundry demo is unchanged and still 290 fps. What changed is when a moving entity's position sample
+is considered to apply, which is watched rather than photographed.
+
+## B274 — the animation clock is decoded but keyframes are not stamped with it — OPEN, small
+
+**Split out of B273 once the size of it was measured.** `m_flAnimTime` is decoded, tested and
+reported by `simlag`; what is missing is a second interpolation history, because a keyframe can
+carry only one timestamp and the two clocks disagree.
+
+**Why one keyframe cannot serve both.** Measured on the 2013 SourceTV foundry recording, where an
+update carried both clocks they differed by more than eight ticks on **95.5%** of them. That is
+dominated by entities that animate without moving — a door or a building whose simulation time is
+pinned at the moment it last shifted while its animation time keeps advancing.
+
+**Why it is small.** The animation clock applies only to server-animated entities: TF2's players use
+client-side animation and `SendProxy_AnimTime` asserts they are not encoding one, so the fast-moving
+things are unaffected. Of the 3,261 foundry updates that carry an animation time, 40% lag the packet
+by 0 ticks, 31% by 1 and 23% by 2 — so the error is bounded at about 30 ms, against the four ticks
+B273 fixed on players.
+
+**What it would take.** A second keyframe list per track holding the animation-latched fields —
+which for this project is exactly two, `Cycle` and `PoseParameters`, since bone controllers are
+unused in TF2 content (B270) and flexes and overlay layers are not implemented. `At` would sample
+both lists and merge. The cost is a second binary search per sampled entity per frame on the hottest
+path, for a 30 ms correction on doors and buildings, which is why it is filed rather than done.
