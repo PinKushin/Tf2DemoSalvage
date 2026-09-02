@@ -16974,3 +16974,22 @@ it again; rotated placements allocate through `PropTransform.ToMatrix`.
 caches; they fall out of the restructure, and measuring each first (the audit gives the protocol:
 count second-cull rejections, Classify calls per pass, allocations per warmed frame) is what
 decides when it is worth building.
+
+## B263 — 24 bone-merged cosmetics name no model at all — OPEN
+
+Measured on `z1800` at tick 20000 while answering PARITY-AUDIT finding 5: **23 `CTFWearable` and
+one `CTFWearableRobotArm` carry an empty model path**, drawn as nothing. At the same tick most
+wearables resolve normally — the `carried` probe shows full workshop paths for jungle ops, hot
+case, readers choice and the rest — so the item-schema resolution works and simply does not reach
+these entities.
+
+**What to check first, in order:** whether these entities carry an `ItemDefinitionIndex` at all (if
+not, the gap is upstream in the decode, not in the resolution); whether their model index is
+NEGATIVE, which is the `DynamicModels` string table rather than `modelprecache`
+(`docs/memory/negative-model-indices-are-dynamic.md`); and whether `WeaponPropModels`' schema
+lookup is wired for `CTFWearable` at all, since it was written for weapons
+(`GetPlayerDisplayModel`, `econ_entity.cpp:1167`) and the wearable path may simply never ask.
+
+`CTFWearableRobotArm` is worth noting separately: it is the Gunslinger's arm, so a class with one
+instance and its own entity type is a plausible place for a resolution rule to have been missed
+outright rather than to be failing generically.

@@ -227,7 +227,29 @@ to expose it as a viewer setting. It is a divergence to be ASKED about rather th
 vid makers" and that deaths are much of what a frag video shows. 299 in one match, every one
 decoded and invisible, is the largest single visible gap this audit has measured.
 
-### 5. A prop with an EMPTY model path is reported DRAWN — OPEN, unexamined
+### 5. A prop with an EMPTY model path is reported DRAWN — ANSWERED: the probe, and a miscount
+
+**Both readings were right about different halves, and neither was the renderer failing.**
+
+**Why it said DRAWN — the probe.** `DrawnPropProbe` built its `kept` set from the ShouldDraw
+visibility rules alone (`DisguiseVisibility`, `RespawnRoomVisibility`) and never consulted whether
+the prop names anything drawable, so "DRAWN" meant "survived visibility". A prop with no model
+passes that trivially. Fixed by extracting production's own predicate — `EntityModelSet.CanDraw`,
+adopted at both production call sites, not a copy — and giving the probe a third state. It now
+reads `NOMODEL`.
+
+**What the renderer actually did — nothing, but it counted it wrong.** `Instances` tested the model
+KIND only, so an empty-path Studio prop fell through to the `no batches` count, which is the label
+for a model that failed to LOAD. `DrawTally.NotDrawable` already carried a `<no model>` case that
+nothing could reach. Now it can. **The pose was never paid** — the geometry test sits before the
+bone work, which is the engine's own order, so this was a miscount rather than wasted work.
+
+**The residue is a real content gap, and it is B263**: measured on `z1800` at tick 20000, **24
+bone-merged cosmetics name no model at all** — 23 `CTFWearable` and one `CTFWearableRobotArm` —
+while most wearables at the same tick resolve their paths fine. So the item-schema/dynamic-model
+resolution works and does not cover these.
+
+### 5a. The original filing, kept
 
 Noticed in the control run for finding 4 and recorded rather than chased, because it was not what
 that run was asking:

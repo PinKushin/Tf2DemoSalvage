@@ -262,6 +262,59 @@ public sealed class ModelLevelLifecycleTests
     }
 
     /// <remarks>
+    /// **A prop with no model at all is undrawable, not a load failure** (PARITY-AUDIT finding 5).
+    /// An entity whose <c>GetModel()</c> is null never joins a renderable list in the engine; here
+    /// an empty path used to pass the kind test and be counted as "no batches", which is the label
+    /// for a model that failed to LOAD. Measured on `z1800` at tick 20000: 24 bone-merged
+    /// cosmetics name no model, so the two counts have to mean different things.
+    /// </remarks>
+    [Test]
+    public void CanDraw_AStudioPropWithNoModelPath_IsFalse()
+    {
+        SceneProp nameless = new(
+            40, string.Empty, SceneModelKind.Studio, new ScenePose(), AttachedTo: 7, BoneMerged: true);
+
+        EntityModelSet.CanDraw(nameless).ShouldBeFalse("a drawable kind with no path names nothing");
+
+        SceneProp named = new(
+            41, "models/player/items/hat.mdl", SceneModelKind.Studio, new ScenePose());
+
+        EntityModelSet.CanDraw(named).ShouldBeTrue("the control: a real path is drawable");
+
+        SceneProp sprite = new(42, "sprites/glow.vmt", SceneModelKind.Sprite, new ScenePose());
+
+        EntityModelSet.CanDraw(sprite).ShouldBeFalse("the other half of the rule: kind still counts");
+    }
+
+    /// <remarks>
+    /// The output-level half: an empty-path prop must produce no instance, whatever the counters
+    /// call it. A unit test on the predicate proves the rule; only this proves production applies
+    /// it (`docs/memory/output-level-assertion-or-it-is-not-done.md`).
+    /// </remarks>
+    [Test]
+    public void Instances_APropWithNoModelPath_DrawsNothing()
+    {
+        EntityModelSet models = Models();
+
+        List<ModelInstance> instances = [];
+
+        SceneProp[] props =
+        [
+            new(7, "models/player/scout.mdl",
+                ScenePropTrack.Classify("models/player/scout.mdl"),
+                new ScenePose { X = 500f }),
+            new(40, string.Empty, SceneModelKind.Studio, new ScenePose(),
+                AttachedTo: 7, BoneMerged: true),
+        ];
+
+        models.Add(props, _ => Triangle(x: 1f));
+        models.Instances(props, instances);
+
+        instances.Count.ShouldBe(1, "only the scout has a model; the nameless cosmetic draws nothing");
+        instances[0].ModelPath.ShouldBe("models/player/scout.mdl");
+    }
+
+    /// <remarks>
     /// **The growth case.** Every load packs into one vertex list; without the flush the list only
     /// ever grows, so a session that walks a playlist accumulates every map it has ever shown.
     /// Three cycles of the same map must cost what one costs.
