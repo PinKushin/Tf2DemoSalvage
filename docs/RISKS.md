@@ -12114,11 +12114,44 @@ ambience, physics impacts, doors and voice lines. TF2 predicts these on the clie
 networks them — `svc_Sounds` carries what the SERVER chose to send. The owner's own observation fits
 exactly: the fall-damage voice line IS heard, because that one is server-sent.
 
-So this is not a decode fault and not a playback fault. Reproducing it would mean **synthesising
-audio the demo does not contain** — deriving a footstep from a player's movement, surface and speed,
-the way the client does. That is a real feature and a defensible one for a viewer whose stated bar
-is "at least as good as the demo originally looked" (D77), but it is authoring rather than replay
-and should be decided deliberately rather than slipped in.
+So this is not a decode fault and not a playback fault.
+
+#### "Synthesising audio" was the wrong word for it, and the correction changes what this costs — 2026-09-02
+
+The original text here said reproducing footsteps would mean *"synthesising audio the demo does not
+contain — deriving a footstep from a player's movement"*, and called it **authoring rather than
+replay**. That framing is wrong, and it matters because it is the reason this stayed parked.
+
+**A footstep is not derived from movement. It is an ANIMATION EVENT authored into the model**, at a
+fixed cycle, and the client's job is to notice it and pick a sound. Measured on
+`models/player/heavy_animations.mdl`: 155 events across 317 sequences, of which **44 are event 7001
+with options `left` or `right`**, alternating through the walk and run cycles.
+
+`C_TFPlayer::FireEvent` (`c_tf_player.cpp:9066`) is the whole handler:
+
+```
+if ( event == 7001 )
+{
+    m_flStepSoundTime = 0;
+    Vector vel;  EstimateAbsVelocity( vel );
+    surfacedata_t *t_pSurface = GetGroundSurface();
+    UpdateStepSound( t_pSurface, GetAbsOrigin(), vel );
+    …
+}
+```
+
+So the inputs are the model's own event list, the map's own surface under the foot, and the
+player's velocity — all of which this project either has or can read. That is the same kind of
+replay as everything else the viewer draws, not invention.
+
+**What it actually costs, having read it**: `DoAnimationEvents` (`c_baseanimating.cpp:3550`) for the
+traversal, a ground trace plus `surfaceproperties` for the material, and `UpdateStepSound`
+(`baseplayer_shared.cpp:506`) for the interval guard, the walk/run volume split and the water cases.
+The audio layer already has sound scripts, attenuation, gain and a positional player, so the
+missing pieces are the event traversal and the surface lookup.
+
+**Still open, but now for its size rather than for a category error.** It is a multi-part feature
+and no part of it is authoring.
 
 Filed here so nobody spends another session looking for a bug in the sound path.
 
