@@ -1521,9 +1521,25 @@ public sealed class ScenePropTrack
     }
 
     /// <summary>Position of the last keyframe at or before a tick, or −1 when there is none.</summary>
+    /// <remarks>
+    /// **The lifetime test is <see cref="Alive"/>, not a second copy of it.** This guard spelled
+    /// out the empty, ended and not-yet-born cases inline, which is exactly
+    /// <c>!Alive(tick)</c> — two expressions that had to agree and nothing making them.
+    ///
+    /// **They can drift, and a sabotage run showed what it costs.** Loosening this one alone to
+    /// `tick > _endTick` did not merely misjudge the end tick: `Motion` carries its own
+    /// end-of-life check, so the two disagreed about whether a track was finished, no further
+    /// wake was scheduled, and the stepped sampler froze on a stale pose while a cold timeline
+    /// answered correctly. The failure was in the DISAGREEMENT, not in either value.
+    ///
+    /// `Alive` was written for stage A's constant-track cache and orphaned by stage C, which
+    /// routed everything through `At`/`Held` and therefore through this guard — it had a test and
+    /// no production caller, which is `docs/memory/a-superseded-type-keeps-its-tests.md`. Making
+    /// it the one definition gives it a caller and removes the pair that could disagree.
+    /// </remarks>
     private int IndexAt(int tick)
     {
-        if (_keyframes.Count == 0 || tick >= _endTick || tick < _keyframes[0].Tick)
+        if (!Alive(tick))
         {
             return -1;
         }
