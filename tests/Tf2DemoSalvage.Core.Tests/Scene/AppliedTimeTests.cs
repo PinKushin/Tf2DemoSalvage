@@ -60,6 +60,69 @@ public sealed class AppliedTimeTests
     }
 
     /// <remarks>
+    /// **The engine keeps a SEPARATE history per variable, stamped with its own clock** (B274).
+    /// <c>GetLastChangeTime</c> returns <c>GetAnimTime()</c> for <c>LATCH_ANIMATION_VAR</c> — which
+    /// for this project is exactly the cycle and the pose parameters — where the simulation clock
+    /// serves origin and angles. Measured on the 2013 SourceTV foundry recording, the two disagree
+    /// by more than eight ticks on 95.5% of the updates that carry both, so one clock cannot stand
+    /// in for the other.
+    ///
+    /// Here the position finished moving at tick 10 while the animation did not reach its next
+    /// stated cycle until 50. Sampling between them must show the move complete and the cycle
+    /// part-way.
+    /// </remarks>
+    [Test]
+    public void At_WhenTheTwoClocksDisagree_EachFieldFollowsItsOwn()
+    {
+        ScenePropTrack track = new(entityIndex: 3, "models/props/door.mdl");
+
+        track.Add(
+            0, new ScenePose { X = 0f, Cycle = 0f }, appliedAt: 0, animationAppliedAt: 0);
+
+        // **A cycle gap under half, deliberately.** `LoopingLerp` reads half a cycle or more as an
+        // animation that wrapped past 1, so a fixture running 0 to 1 would be asserting the wrap
+        // rather than the clock — and lands back on 0 however the interpolation is timed.
+        track.Add(
+            20,
+            new ScenePose { X = 100f, Cycle = 0.4f },
+            appliedAt: 10,
+            animationAppliedAt: 50);
+
+        // Drawn at 12: past the position's applied time of 10, less than a quarter of the way
+        // through the animation's span of 0 to 50.
+        ScenePose at = track.At(20d)!.Value;
+
+        at.X.ShouldBe(100f, "the position applied at tick 10 and the drawn moment is past it");
+
+        at.Cycle.ShouldBeGreaterThan(0f);
+        at.Cycle.ShouldBeLessThan(
+            0.2f, "the cycle is stated at tick 50 and the drawn moment is 12");
+    }
+
+    /// <remarks>
+    /// **The control**: with both clocks equal, the cycle must reach the same place the position
+    /// does. Without it the test above passes against code that simply holds the cycle back.
+    /// </remarks>
+    [Test]
+    public void At_WhenTheTwoClocksAgree_TheCycleFollowsThePosition()
+    {
+        ScenePropTrack track = new(entityIndex: 3, "models/props/door.mdl");
+
+        track.Add(0, new ScenePose { X = 0f, Cycle = 0f }, appliedAt: 0, animationAppliedAt: 0);
+
+        track.Add(
+            20,
+            new ScenePose { X = 100f, Cycle = 0.4f },
+            appliedAt: 10,
+            animationAppliedAt: 10);
+
+        ScenePose at = track.At(20d)!.Value;
+
+        at.X.ShouldBe(100f);
+        at.Cycle.ShouldBe(0.4f, 1e-4f, "both clocks say tick 10, so the cycle arrived too");
+    }
+
+    /// <remarks>
     /// **A repeat records the applied time of the RESTATEMENT**, which is what keeps the hold
     /// interval on the same clock as the endpoints. Mixing an arrival tick into that fraction is
     /// the class of defect this whole entry is about, one level down.

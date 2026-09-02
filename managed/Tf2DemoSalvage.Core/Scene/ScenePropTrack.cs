@@ -546,6 +546,38 @@ public sealed class ScenePropTrack
     private readonly List<int> _appliedAt = [];
 
     /// <summary>
+    /// For each keyframe, when the entity said its ANIMATION applied.
+    /// </summary>
+    /// <remarks>
+    /// **The engine's second latch clock, and it is a second history rather than a second stamp**
+    /// (B274). <c>GetLastChangeTime</c> returns <c>GetAnimTime()</c> for <c>LATCH_ANIMATION_VAR</c>
+    /// — which for this project is exactly <see cref="ScenePose.Cycle"/> and
+    /// <see cref="ScenePose.PoseParameters"/> — where <see cref="_appliedAt"/> serves origin and
+    /// angles. Measured on the 2013 SourceTV foundry recording, the two disagree by more than eight
+    /// ticks on 95.5% of the updates carrying both, so neither can stand in for the other: an
+    /// entity that animates without moving keeps one simulation time while its animation time runs
+    /// on.
+    ///
+    /// **One list, two search keys, and both are non-decreasing** — which is what makes this cheap.
+    /// A server stamps both clocks monotonically, so the keyframes are ordered by animation time as
+    /// well as by arrival, and the second lookup is another binary search over the same array
+    /// rather than a second list to maintain.
+    /// </remarks>
+    private readonly List<int> _animationAppliedAt = [];
+
+    /// <summary>For each keyframe, the animation time of the last restatement of that pose.</summary>
+    private readonly List<int> _animationHeldUntil = [];
+
+    /// <summary>Whether any keyframe carried an animation clock of its own.</summary>
+    /// <remarks>
+    /// **False for a player and for most props, and that is the fast path.** TF2's players use
+    /// client-side animation and <c>SendProxy_AnimTime</c> asserts they encode no animation time,
+    /// so their tracks skip the second lookup entirely. It is set only when a keyframe arrives with
+    /// an animation time away from its arrival tick — anything else has nothing to correct.
+    /// </remarks>
+    private bool _hasAnimationClock;
+
+    /// <summary>
     /// How far behind the requested tick a pose is sampled — the engine's <c>cl_interp</c>.
     /// </summary>
     /// <remarks>
@@ -1097,6 +1129,16 @@ public sealed class ScenePropTrack
     public int AppliedAt(int index) =>
         _appliedAt.Count > index ? _appliedAt[index] : _keyframes[index].Tick;
 
+    /// <summary>When the ANIMATION in a keyframe applied, which is the engine's other clock.</summary>
+    /// <param name="index">Which keyframe, indexed as <see cref="Keyframes"/> is.</param>
+    /// <returns>The applied tick, or the keyframe's own when the entity sent no animation time.</returns>
+    /// <remarks>
+    /// Carried out for the same reason as <see cref="AppliedAt(int)"/>: so the correction can be
+    /// asserted on real bytes without a test re-deriving it and checking its own arithmetic twice.
+    /// </remarks>
+    public int AnimationAppliedAt(int index) =>
+        _animationAppliedAt.Count > index ? _animationAppliedAt[index] : _keyframes[index].Tick;
+
     /// <summary>The first tick this entity was seen at.</summary>
     public int FirstTick => _keyframes.Count > 0 ? _keyframes[0].Tick : int.MaxValue;
 
@@ -1165,8 +1207,27 @@ public sealed class ScenePropTrack
     /// every state change it made collapsed onto a single tick and an entity that was hidden and
     /// later shown was never handed back: *"hiding that never ends is deletion wearing a flag"*.
     /// </remarks>
-    public void Add(int tick, ScenePose pose, int appliedAt)
+    public void Add(int tick, ScenePose pose, int appliedAt) =>
+        Add(tick, pose, appliedAt, animationAppliedAt: tick);
+
+    /// <summary>Records a pose, with an applied time for each of the engine's two latch clocks.</summary>
+    /// <param name="tick">When the demo stated it — the packet's own tick.</param>
+    /// <param name="pose">The pose.</param>
+    /// <param name="appliedAt">When the entity said its POSITION applied, on the demo's axis.</param>
+    /// <param name="animationAppliedAt">When it said its ANIMATION applied, on the same axis.</param>
+    /// <remarks>
+    /// **Two clocks because the engine has two** (B274). <c>OnLatchInterpolatedVariables</c> is
+    /// called once per latch group and takes <c>GetLastChangeTime( flags )</c> for each —
+    /// <c>GetSimulationTime()</c> for origin and angles, <c>GetAnimTime()</c> for the cycle and the
+    /// pose parameters (<c>c_baseentity.cpp:2806</c>). A server sets them at different moments, so
+    /// an entity can move without re-stamping its animation and animate without moving.
+    /// </remarks>
+    public void Add(int tick, ScenePose pose, int appliedAt, int animationAppliedAt)
     {
+        // Noticed once per keyframe rather than tested per sample: a track whose every animation
+        // time is its arrival tick has nothing for the second lookup to find.
+        _hasAnimationClock |= animationAppliedAt != tick;
+
         if (_keyframes.Count > 0 && _keyframes[^1].Pose == pose)
         {
             // **Dropped from the list but not from the record.** Collapsing a repeat saves the
@@ -1180,12 +1241,15 @@ public sealed class ScenePropTrack
             // reason for ten seconds, and then, on the way back, sinking below its own frame into
             // the floor.
             _heldUntil[^1] = appliedAt;
+            _animationHeldUntil[^1] = animationAppliedAt;
             return;
         }
 
         _keyframes.Add((tick, pose));
         _heldUntil.Add(appliedAt);
         _appliedAt.Add(appliedAt);
+        _animationHeldUntil.Add(animationAppliedAt);
+        _animationAppliedAt.Add(animationAppliedAt);
     }
 
     /// <summary>Adds a keyframe stated and applying at the same tick.</summary>
@@ -1317,7 +1381,22 @@ public sealed class ScenePropTrack
         // there is not, or when INTERPOLATE_LINEAR_ONLY is set on the variable.
         ScenePose? previous = index > 0 ? Renormalise(index, toTick - fromTick) : null;
 
-        float cycle = InterpolateCycle(previous, from, to, fraction);
+        // **The animation-latched pair take the OTHER clock, which is a second lookup** (B274).
+        // `OnLatchInterpolatedVariables` is called once per latch group and stamps each with its own
+        // `GetLastChangeTime` — `GetAnimTime()` here, `GetSimulationTime()` above. Measured on the
+        // 2013 SourceTV foundry recording, the two disagree by more than eight ticks on 95.5% of the
+        // updates carrying both, so sharing one set of neighbours between them is not an
+        // approximation of the engine, it is a different answer.
+        //
+        // Skipped whole for a track that never carried an animation clock, which is every player
+        // and most props — `SendProxy_AnimTime` asserts a client-side-animated entity encodes none.
+        (ScenePose animationFrom, ScenePose animationTo, ScenePose? animationPrevious,
+            float animationFraction) = _hasAnimationClock
+            ? AnimationNeighbours(target, from, to, previous, fraction)
+            : (from, to, previous, fraction);
+
+        float cycle = InterpolateCycle(
+            animationPrevious, animationFrom, animationTo, animationFraction);
 
         return new ScenePose
         {
@@ -1407,7 +1486,8 @@ public sealed class ScenePropTrack
             // **Interpolated, because the engine puts them in the interpolation list**:
             // `AddVar( m_flPoseParameter, &m_iv_flPoseParameter, LATCH_ANIMATION_VAR, true )`
             // (`c_baseanimating.cpp:890`). A sentry's barrel would otherwise step between updates.
-            PoseParameters = BlendPoses(from.PoseParameters, to.PoseParameters, fraction),
+            PoseParameters = BlendPoses(
+                animationFrom.PoseParameters, animationTo.PoseParameters, animationFraction),
 
             Slot = from.Slot,
             AirborneSeconds = from.AirborneSeconds,
@@ -1696,6 +1776,79 @@ public sealed class ScenePropTrack
             int middle = low + ((high - low + 1) / 2);
 
             if (_keyframes[middle].Tick <= tick)
+            {
+                low = middle;
+            }
+            else
+            {
+                high = middle - 1;
+            }
+        }
+
+        return low;
+    }
+
+    /// <summary>The pair of keyframes the ANIMATION clock puts either side of a moment.</summary>
+    /// <param name="target">The moment being drawn.</param>
+    /// <param name="from">What the simulation clock chose, used when the animation clock cannot.</param>
+    /// <param name="to">Its later neighbour.</param>
+    /// <param name="previous">The older sample the spline wants, on the simulation clock.</param>
+    /// <param name="fraction">How far between the simulation pair.</param>
+    /// <returns>The animation pair, its older sample, and how far between them the moment is.</returns>
+    /// <remarks>
+    /// **Falls back to the simulation pair rather than to nothing**, in the two cases where the
+    /// animation clock has no answer: the moment is before the first animation stamp, or past the
+    /// last. Holding the caller's pair there gives the behaviour this had before the second clock
+    /// existed, which is the right thing for an entity whose animation is not moving.
+    /// </remarks>
+    private (ScenePose From, ScenePose To, ScenePose? Previous, float Fraction) AnimationNeighbours(
+        double target, ScenePose from, ScenePose to, ScenePose? previous, float fraction)
+    {
+        int index = AnimationIndexAt((int)Math.Floor(target));
+
+        if (index < 0 || index + 1 >= _keyframes.Count)
+        {
+            return (from, to, previous, fraction);
+        }
+
+        int fromTick = _animationHeldUntil[index];
+        int toTick = _animationAppliedAt[index + 1];
+
+        if (toTick <= fromTick)
+        {
+            return (from, to, previous, fraction);
+        }
+
+        return (
+            _keyframes[index].Pose,
+            _keyframes[index + 1].Pose,
+            index > 0 ? _keyframes[index - 1].Pose : null,
+            (float)Math.Clamp((target - fromTick) / (toTick - fromTick), 0.0, 1.0));
+    }
+
+    /// <summary>The last keyframe whose ANIMATION applied at or before a tick.</summary>
+    /// <param name="tick">The moment being drawn.</param>
+    /// <returns>Its index, or −1 when the track holds nothing yet.</returns>
+    /// <remarks>
+    /// **The same search over the same array, on the other clock** (B274). A server stamps
+    /// animation time monotonically, so the keyframes are ordered by it as well as by arrival —
+    /// which is what lets the second history be a second KEY rather than a second list.
+    /// </remarks>
+    private int AnimationIndexAt(int tick)
+    {
+        if (_animationAppliedAt.Count == 0)
+        {
+            return -1;
+        }
+
+        int low = 0;
+        int high = _animationAppliedAt.Count - 1;
+
+        while (low < high)
+        {
+            int middle = low + ((high - low + 1) / 2);
+
+            if (_animationAppliedAt[middle] <= tick)
             {
                 low = middle;
             }

@@ -17419,14 +17419,13 @@ So the list stays keyed by ARRIVAL, and a parallel `_appliedAt` carries the engi
 an update it has not received — still tests the arrival. Two questions, two numbers, neither
 standing in for the other.
 
-## The animation clock is decoded and NOT yet stamped, which is deliberate and measured
+## The animation clock was split out, measured, and then done
 
-`m_flAnimTime` is read, tested and reported, and the keyframes are not stamped with it. **Where both
-clocks are sent they disagree by more than eight ticks on 95.5% of updates**, so one keyframe cannot
-serve both and honouring the animation clock needs a second history. The cost of not doing it is
-bounded and small: the animation clock lags the packet by 0, 1 or 2 ticks on 94% of the updates that
-carry one, against the simulation clock's four, and it applies only to server-animated entities —
-doors, buildings, the resupply locker. Filed as B274.
+`m_flAnimTime` is decoded here and **where both clocks are sent they disagree by more than eight
+ticks on 95.5% of updates**, so one keyframe cannot serve both — honouring it needed a second
+history rather than a different stamp. That was filed as B274 with its measured cost and then
+implemented in the same session; the cycle and the pose parameters now resolve their own pair of
+neighbours on their own clock.
 
 ## What proves it
 
@@ -17440,25 +17439,44 @@ The visible effect is a timing one, so a screenshot cannot show it: the frame at
 foundry demo is unchanged and still 290 fps. What changed is when a moving entity's position sample
 is considered to apply, which is watched rather than photographed.
 
-## B274 — the animation clock is decoded but keyframes are not stamped with it — OPEN, small
+## B274 — the animation clock now has a history of its own — FIXED
 
-**Split out of B273 once the size of it was measured.** `m_flAnimTime` is decoded, tested and
-reported by `simlag`; what is missing is a second interpolation history, because a keyframe can
-carry only one timestamp and the two clocks disagree.
+**Split out of B273 once the size of it was measured, then done.** The engine keeps one
+interpolation history per variable and stamps each with its own clock:
+<c>GetLastChangeTime</c> returns `GetSimulationTime()` for `LATCH_SIMULATION_VAR` — origin and
+angles — and `GetAnimTime()` for `LATCH_ANIMATION_VAR`, which for this project is exactly
+`ScenePose.Cycle` and `ScenePose.PoseParameters`. B273 corrected the first and left the second on
+the packet tick.
 
-**Why one keyframe cannot serve both.** Measured on the 2013 SourceTV foundry recording, where an
-update carried both clocks they differed by more than eight ticks on **95.5%** of them. That is
-dominated by entities that animate without moving — a door or a building whose simulation time is
-pinned at the moment it last shifted while its animation time keeps advancing.
+**One keyframe could not carry both, and the number says why.** Measured on the 2013 SourceTV
+foundry recording, where an update carried both clocks they differed by more than eight ticks on
+**95.5%** of them — dominated by entities that animate without moving, a door or a building whose
+simulation time is pinned at the moment it last shifted while its animation time runs on. Sharing
+one pair of neighbours between the two is not an approximation of the engine; it is a different
+answer.
 
-**Why it is small.** The animation clock applies only to server-animated entities: TF2's players use
-client-side animation and `SendProxy_AnimTime` asserts they are not encoding one, so the fast-moving
-things are unaffected. Of the 3,261 foundry updates that carry an animation time, 40% lag the packet
-by 0 ticks, 31% by 1 and 23% by 2 — so the error is bounded at about 30 ms, against the four ticks
-B273 fixed on players.
+**The implementation is a second search key, not a second list.** A server stamps both clocks
+monotonically, so the keyframes are ordered by animation time as well as by arrival — one array,
+two binary searches. `_animationAppliedAt` and `_animationHeldUntil` sit beside `_appliedAt` and
+`_heldUntil`, and `At` resolves the animation pair separately before computing the cycle and the
+pose parameters from it.
 
-**What it would take.** A second keyframe list per track holding the animation-latched fields —
-which for this project is exactly two, `Cycle` and `PoseParameters`, since bone controllers are
-unused in TF2 content (B270) and flexes and overlay layers are not implemented. `At` would sample
-both lists and merge. The cost is a second binary search per sampled entity per frame on the hottest
-path, for a 30 ms correction on doors and buildings, which is why it is filed rather than done.
+**Skipped whole for tracks that have no animation clock, which is every player.** TF2's players use
+client-side animation and `SendProxy_AnimTime` asserts they encode no animation time, so
+`_hasAnimationClock` stays false and their sampling is untouched. That flag is set once per
+keyframe rather than tested per sample.
+
+**Measured cost: none.** First person on the foundry demo, `--measure 20`: 360–380 fps with the
+`project` phase at 0.4–0.8 ms, against the same range before. The second search is over an array
+already in cache, for the minority of tracks that need it.
+
+**What proves it reaches real bytes.**
+`Keyframes_OnASourceTvRecording_CarryAnAnimationTimeAwayFromTheirArrival` is separate from the
+simulation version deliberately: **the two clocks reach different entities**, so a single "some
+clock corrected something" assertion would pass on the simulation half alone. Severing the
+animation stamping reddens it and nothing else.
+
+**The fixture that had to be fixed is worth recording.** The first version of the disagreement test
+ran a cycle from 0 to 1 and read 0 however the interpolation was timed — because `LoopingLerp`
+treats a gap of half a cycle or more as an animation that wrapped past 1, which is correct and made
+the test blind. A gap under half is what measures the clock rather than the wrap.

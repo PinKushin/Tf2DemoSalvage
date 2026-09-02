@@ -246,7 +246,10 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # 1657 -> 1663: m_flAnimTime, the second latch clock (3), and the applied-time stamping (3) - the
 # last including the control that the SAME two keyframes with no lag are still part way through,
 # without which the correction is indistinguishable from clamping early.
-run Tf2DemoSalvage.Core.Tests     core     1663
+# 1663 -> 1665: the animation clock's own history (B274). One where the two clocks disagree and
+# each field follows its own, and the control where they agree - without which the first passes
+# against code that simply holds the cycle back.
+run Tf2DemoSalvage.Core.Tests     core     1665
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
@@ -905,7 +908,10 @@ run Tf2DemoSalvage.Content.Tests  content   865
 # 148 -> 151: the applied-time correction on real bytes (B273). Two measure the lag itself; the
 # third is the only one that reddens when the STAMPING is severed, which a sabotage found - the
 # other two assert on a histogram measured beside the stamping rather than through it.
-run Tf2DemoSalvage.Corpus.Tests   corpus     151
+# 151 -> 152: the ANIMATION clock reaching real keyframes (B274). Separate from the simulation
+# one because the two clocks reach different entities - players send no animation time at all - so
+# a single "some clock corrected something" assertion would pass on the simulation half alone.
+run Tf2DemoSalvage.Corpus.Tests   corpus     152
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that

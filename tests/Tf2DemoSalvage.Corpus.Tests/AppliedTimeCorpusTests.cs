@@ -89,6 +89,38 @@ public sealed class AppliedTimeCorpusTests
     }
 
     /// <remarks>
+    /// **The animation clock's own version of the test above** (B274), and it needs its own because
+    /// the two clocks reach different entities: the simulation correction lands on players and the
+    /// animation one cannot, since TF2's players animate client-side and
+    /// <c>SendProxy_AnimTime</c> asserts they encode no animation time. A single assertion covering
+    /// "some clock corrected something" would pass on the simulation half alone.
+    /// </remarks>
+    [Test]
+    public void Keyframes_OnASourceTvRecording_CarryAnAnimationTimeAwayFromTheirArrival()
+    {
+        DemoTimeline timeline = TimelineCache.For(
+            Corpus.Demo("tf2-2013-build1729296-stv-cp_foundry"));
+
+        int corrected = 0;
+
+        foreach (ScenePropTrack track in timeline.Props.Concat(timeline.PlayerTracks))
+        {
+            for (int index = 0; index < track.Keyframes.Count; index++)
+            {
+                if (track.AnimationAppliedAt(index) != track.Keyframes[index].Tick)
+                {
+                    corrected++;
+                }
+            }
+        }
+
+        corrected.ShouldBeGreaterThan(
+            0,
+            "no keyframe carried an animation time away from its packet, so the second latch " +
+            "clock is reaching nothing");
+    }
+
+    /// <remarks>
     /// **Players are the finding.** Everything else in these recordings that lags is a prop at
     /// rest, whose stale timestamp costs nothing because it is not moving. `CTFPlayer` splits
     /// between two clusters four ticks apart, which is 60 ms of jitter on the fastest things on

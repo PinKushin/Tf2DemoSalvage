@@ -2714,6 +2714,19 @@ public sealed class DemoTimeline
             },
             appliedAt: state.SimulatedAtTick is { } simulatedAt
                 ? tick - (state.SimulationBaseTick - simulatedAt)
+                : tick,
+
+            // **The engine's other latch clock** (B274). `GetLastChangeTime` returns
+            // `GetAnimTime()` for the cycle and the pose parameters where it returns
+            // `GetSimulationTime()` for origin and angles, and a server sets the two at different
+            // moments — on the 2013 SourceTV foundry recording they disagree by more than eight
+            // ticks on 95.5% of the updates carrying both.
+            //
+            // Falls back to the packet tick for an entity that sends none, which is every player:
+            // TF2's use client-side animation and `SendProxy_AnimTime` asserts they encode no
+            // animation time at all.
+            animationAppliedAt: state.AnimatedAtTick is { } animatedAt
+                ? tick - (state.SimulationBaseTick - animatedAt)
                 : tick);
     }
 
