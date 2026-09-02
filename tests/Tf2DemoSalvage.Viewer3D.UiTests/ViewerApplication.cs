@@ -144,17 +144,34 @@ internal sealed partial class ViewerApplication : IDisposable
             return -1;
         }
 
-        int seen = 0;
+        List<string> lines = Lines();
 
-        foreach (string entry in Lines())
+        // **Counted from where this pattern last finished, not from the top** (B264). `Lines` was
+        // made incremental once already, which removed the disk cost; the SCAN stayed O(every line
+        // ever logged) and a `Retry` polls it several times a second. That was affordable while the
+        // log was small and stopped being so the moment the suite moved to a real match: the same
+        // logging code, ~24 players with cosmetics instead of one, 7.5 MB and 39,291 lines where
+        // the old demo produced a fraction of that — every model logs its sequences, skins and
+        // skinning budget as it loads.
+        //
+        // The list only ever grows (it is cleared wholesale when the log path changes, and
+        // `_counted` is cleared with it), so a tally plus a high-water mark is exact rather than an
+        // approximation: this returns the same number the full scan did, having looked only at
+        // what arrived since the last question.
+        ref (int Seen, int UpTo) tally =
+            ref CollectionsMarshal.GetValueRefOrAddDefault(_counted, line, out _);
+
+        for (int at = tally.UpTo; at < lines.Count; at++)
         {
-            if (entry.Contains(line, StringComparison.Ordinal))
+            if (lines[at].Contains(line, StringComparison.Ordinal))
             {
-                seen++;
+                tally.Seen++;
             }
         }
 
-        return seen;
+        tally.UpTo = lines.Count;
+
+        return tally.Seen;
     }
 
     /// <summary>The log so far, read once and then only appended to.</summary>
@@ -185,6 +202,11 @@ internal sealed partial class ViewerApplication : IDisposable
             _read.Clear();
             _readTo = 0;
             _readPath = path;
+
+            // **With the lines, or `Count` answers about a log that is gone.** The tallies are
+            // high-water marks into `_read`; leaving them behind would credit the new log with the
+            // old one's matches and then skip its first N lines as already counted.
+            _counted.Clear();
         }
 
         try
@@ -228,6 +250,10 @@ internal sealed partial class ViewerApplication : IDisposable
     private readonly List<string> _read = [];
     private string? _readPath;
     private long _readTo;
+
+    /// <summary>Per pattern: how many lines matched, and how far into <see cref="_read"/> that covers.</summary>
+    private readonly Dictionary<string, (int Seen, int UpTo)> _counted =
+        new(StringComparer.Ordinal);
 
     /// <summary>Where viewers launched by tests write their captures.</summary>
     /// <remarks>

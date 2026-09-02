@@ -57,6 +57,21 @@ public sealed record DecodedDemo(LoadedDemo Demo, DemoTimeline? Timeline)
                 timeline = DemoTimeline.Build(File.ReadAllBytes(path));
             }
 
+            // **The columns, because the total alone says nothing about what to fix** (B265). The
+            // frame was one number too until it was split, and splitting it is what took it from
+            // 96 to 447 fps — the fat was never where it was assumed to be. This is the number the
+            // owner waits through every time he opens a real match.
+            TimelinePhases phases = timeline.Phases;
+
+            demo.LogInformation(
+                "{Message}",
+                $"timeline {phases.Total:0} ms = commands {phases.Commands:0}, " +
+                $"schema {phases.Schema:0}, messages {phases.Messages:0}, " +
+                $"entities {phases.Entities:0}, sampling {phases.Sampling:0} " +
+                $"(viewmodels {phases.Viewmodels:0}), " +
+                $"rest {phases.Total - phases.Commands - phases.Schema - phases.Messages
+                    - phases.Entities - phases.Sampling:0}");
+
             Report(timeline, demo);
         }
         catch (Exception failure) when (

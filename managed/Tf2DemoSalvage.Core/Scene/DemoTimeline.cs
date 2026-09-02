@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 
@@ -280,6 +281,35 @@ public static class SceneTeams
     /// <summary>BLU.</summary>
     public const int Blu = 3;
 }
+
+/// <summary>Where the time went while a demo was decoded, in milliseconds.</summary>
+/// <param name="Commands">Splitting the file into demo commands.</param>
+/// <param name="Schema">Parsing <c>dem_datatables</c> into send tables.</param>
+/// <param name="Messages">Decoding each packet's net messages.</param>
+/// <param name="Entities">Entity delta decode, plus applying and recording what it produced.</param>
+/// <param name="Sampling">The per-packet walks: viewmodels, fog and soundscape.</param>
+/// <param name="Viewmodels">The viewmodel share of <paramref name="Sampling"/>, which contains it.</param>
+/// <param name="Total">The whole of <see cref="DemoTimeline.Build"/>.</param>
+/// <remarks>
+/// **Building the timeline is thirty seconds on a fourteen-minute match and had no columns at
+/// all** (B265). It was one opaque number logged from outside, which is the state the FRAME was in
+/// before it was split — and splitting the frame is what took it from 96 to 447 fps, because the
+/// fat turned out to be somewhere nobody had guessed. The same rule applies to a number the owner
+/// waits through every time he opens a real demo.
+///
+/// **`Sampling` is separated from `Entities` deliberately**, because they are opposite shapes:
+/// entity work is proportional to what the demo SAID, and the sampling walks are proportional to
+/// what exists times how many packets there are. Only the second kind can be large for a reason
+/// nobody intended.
+/// </remarks>
+public readonly record struct TimelinePhases(
+    double Commands,
+    double Schema,
+    double Messages,
+    double Entities,
+    double Sampling,
+    double Viewmodels,
+    double Total);
 
 /// <summary>Where everyone was at one tick.</summary>
 /// <param name="Tick">The demo tick this was recorded at.</param>
@@ -914,6 +944,9 @@ public sealed class DemoTimeline
     /// </remarks>
     public IReadOnlyList<byte>? MapHash { get; private init; }
 
+    /// <summary>Where <see cref="Build"/> spent its time. Zero for a timeline built any other way.</summary>
+    public TimelinePhases Phases { get; private init; }
+
     /// <summary>Builds a timeline directly from tracks, for tests that need an exact motion.</summary>
     /// <param name="tracks">The entity tracks the timeline should answer from.</param>
     /// <returns>A timeline with no frames and these tracks.</returns>
@@ -971,11 +1004,31 @@ public sealed class DemoTimeline
     /// </remarks>
     public static DemoTimeline Build(ReadOnlyMemory<byte> file)
     {
+        long buildFrom = Stopwatch.GetTimestamp();
+        long commandTicks;
+        long schemaTicks;
+        long messageTicks = 0;
+        long entityTicks = 0;
+        long samplingTicks = 0;
+        long viewmodelTicks = 0;
+
+        // Entity indices seen carrying a viewmodel model index, kept ascending (B265).
+        List<int> viewmodelEntities = [];
+
+        // Which entities THIS packet updated, and which weapon each viewmodel last named — the two
+        // things the viewmodel sampler needs to know whether it can skip re-deriving a sample.
+        HashSet<int> touchedEntities = [];
+        Dictionary<int, int> viewmodelWeapon = [];
+
         DemoHeader header = DemoHeader.Parse(file.Span);
         NetDecodeState state = new() { NetworkProtocol = (ushort)header.NetworkProtocol };
 
+        long phaseFrom = Stopwatch.GetTimestamp();
+
         List<DemoCommand> commands =
             [.. DemoCommandReader.Read(file[DemoHeader.SizeBytes..])];
+
+        commandTicks = Stopwatch.GetTimestamp() - phaseFrom;
 
         // **`DemoCommand` is a readonly record STRUCT, so FirstOrDefault yields default(T) rather
         // than null and a `is not { }` guard on it can never fire.** This block used to read
@@ -997,8 +1050,12 @@ public sealed class DemoTimeline
             return new DemoTimeline([]);
         }
 
+        phaseFrom = Stopwatch.GetTimestamp();
+
         DemoSchema schema = SendTableParser.Parse(
             dataTables.Payload.Span, (ushort)header.NetworkProtocol);
+
+        schemaTicks = Stopwatch.GetTimestamp() - phaseFrom;
 
         EntityDecoder decoder = new(
             schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
@@ -1142,8 +1199,21 @@ public sealed class DemoTimeline
 
             bool moved = false;
 
-            foreach (INetMessage message in
-                NetMessageReader.Read(command.Payload.Span, state).Messages)
+            // Per packet, because "did the demo mention this entity" is a question about THIS
+            // packet and nothing earlier.
+            touchedEntities.Clear();
+
+            // Materialised so the decode is timed here rather than being spread through the
+            // switch below by lazy enumeration, which would attribute it to whichever case
+            // happened to pull the next message.
+            long readFrom = Stopwatch.GetTimestamp();
+
+            IReadOnlyList<INetMessage> messages =
+                [.. NetMessageReader.Read(command.Payload.Span, state).Messages];
+
+            messageTicks += Stopwatch.GetTimestamp() - readFrom;
+
+            foreach (INetMessage message in messages)
             {
                 // **Instance baselines, because an entering entity is a delta against its class.**
                 // Applying them changed no count on any file in the corpus, era or modern - but
@@ -1277,14 +1347,35 @@ public sealed class DemoTimeline
                     continue;
                 }
 
+                long entityFrom = Stopwatch.GetTimestamp();
+
                 foreach (DecodedEntity entity in
                     decoder.Decode(snapshot.Body.Span, snapshot, snapshot.LengthBits))
                 {
                     entities.Apply(entity);
+
+                    touchedEntities.Add(entity.EntityIndex);
+
+                    // **Noticed here, where the cost is proportional to what the demo said**
+                    // (B265). An entity is a viewmodel for its whole life, so this asks once per
+                    // update rather than once per entity per packet — and the sampler below then
+                    // visits twenty-two entities instead of six hundred. Kept ascending so the
+                    // recorded order matches what walking `All` produced.
+                    if (entities.TryGet(entity.EntityIndex, out EntityState? applied) &&
+                        applied.ViewmodelModelIndex() is not null &&
+                        !viewmodelEntities.Contains(entity.EntityIndex))
+                    {
+                        int seat = viewmodelEntities.BinarySearch(entity.EntityIndex);
+
+                        viewmodelEntities.Insert(seat < 0 ? ~seat : seat, entity.EntityIndex);
+                    }
+
                     RecordProp(
                         entity, entities, precache, tracks, props, playerTracks,
                         mergesItself, combatWeapons, protocol, command.Tick, interval);
                 }
+
+                entityTicks += Stopwatch.GetTimestamp() - entityFrom;
 
                 moved = true;
             }
@@ -1293,8 +1384,13 @@ public sealed class DemoTimeline
             // stood at the PREVIOUS tick, so an entity that enters on this packet is missed
             // entirely — and on a demo whose viewmodel enters once and never changes, that means
             // it is never recorded at all.
+            long sampleFrom = Stopwatch.GetTimestamp();
+
             RecordViewmodels(
-                entities, precache, protocol, command.Tick, lastViewmodel, viewmodels);
+                entities, precache, protocol, command.Tick, lastViewmodel, viewmodels,
+                viewmodelEntities, touchedEntities, viewmodelWeapon);
+
+            viewmodelTicks += Stopwatch.GetTimestamp() - sampleFrom;
 
             // **Sampled here for the same reason and recorded only on CHANGE.** A fog controller
             // sends its whole state on entry and then rarely again, so a keyframe per tick would be
@@ -1343,6 +1439,8 @@ public sealed class DemoTimeline
 
                 break;
             }
+
+            samplingTicks += Stopwatch.GetTimestamp() - sampleFrom;
 
             if (!moved)
             {
@@ -1667,8 +1765,18 @@ public sealed class DemoTimeline
             ServerConVars = serverConVars,
             MapCrc = mapCrc,
             MapHash = mapHash,
+            Phases = new TimelinePhases(
+                Milliseconds(commandTicks),
+                Milliseconds(schemaTicks),
+                Milliseconds(messageTicks),
+                Milliseconds(entityTicks),
+                Milliseconds(samplingTicks),
+                Milliseconds(viewmodelTicks),
+                Milliseconds(Stopwatch.GetTimestamp() - buildFrom)),
         };
     }
+
+    private static double Milliseconds(long ticks) => ticks * 1000d / Stopwatch.Frequency;
 
     /// <summary>Records where a model-bearing entity was, if this update said anything about it.</summary>
     /// <remarks>
@@ -1710,10 +1818,58 @@ public sealed class DemoTimeline
         int protocol,
         int tick,
         Dictionary<int, SceneViewmodel> last,
-        List<(int Tick, SceneViewmodel Weapon)> into)
+        List<(int Tick, SceneViewmodel Weapon)> into,
+        List<int> candidates,
+        HashSet<int> touched,
+        Dictionary<int, int> weaponOf)
     {
-        foreach (EntityState entity in entities.All)
+        // **Only entities already known to BE viewmodels, not every entity in the table** (B265).
+        // This walked `entities.All` on every packet and asked each one for a viewmodel model
+        // index: on `z1800` that is roughly six hundred entities across 14,386 packets — about
+        // 8.6 million lookups, of which twenty-two ever answer. Measured before touching it, it was
+        // **22.4 seconds of a 30.3-second load: 74% of the time to open a demo.**
+        //
+        // `RecordProp`'s own doc comment already forbade exactly this — *"Walking the whole entity
+        // table every frame would ask several hundred entities to repeat themselves across a
+        // hundred thousand frames"* — and it is written a few lines below a loop that did it.
+        //
+        // **The candidate list is a superset, filtered by the same predicate as before**, so the
+        // recorded output is identical rather than approximately so: an index enters when an
+        // update shows it carrying a viewmodel index (proportional to what the demo SAID, which is
+        // the shape the rest of this loop already has), and an index whose entity has gone or been
+        // reused simply fails the test below, exactly as it would have when walking everything.
+        // Ascending order, because `All` yields in index order and the recorded list keeps
+        // same-tick entries in the order they were sampled.
+        for (int at = 0; at < candidates.Count; at++)
         {
+            if (!entities.TryGet(candidates[at], out EntityState? entity))
+            {
+                continue;
+            }
+
+            // **Re-sampled only when this packet touched it, or touched the weapon it names**
+            // (B265). Everything below — the model path, the item, the econ attribute lists — is
+            // derived from those two entities and nothing else, so if the demo said nothing about
+            // either, the sample it would produce is the one already recorded. The old code built
+            // the whole thing on every packet and then threw it away on `before == weapon`: about
+            // 316,000 constructions on `z1800` to detect a few hundred changes, which is the
+            // second half of this method's cost after the scan.
+            //
+            // `RecordProp`'s own comment is the rule being applied: *"A demo states what changed;
+            // this records exactly that."*
+            //
+            // The weapon entity is remembered from the last sample, because it is reached THROUGH
+            // the viewmodel — an econ attribute changing on a weapon whose viewmodel was quiet
+            // still has to be seen.
+            bool sampled = last.ContainsKey(candidates[at]);
+
+            if (sampled &&
+                !touched.Contains(candidates[at]) &&
+                !(weaponOf.TryGetValue(candidates[at], out int held) && touched.Contains(held)))
+            {
+                continue;
+            }
+
             if (entity.ViewmodelModelIndex() is not { } rawIndex)
             {
                 continue;
@@ -1754,6 +1910,10 @@ public sealed class DemoTimeline
             int? weaponItem = null;
             string? weaponClass = null;
             EconAttributeWire? weaponEcon = null;
+
+            // Remembered so the gate above can watch it: this is the only entity besides the
+            // viewmodel itself whose state reaches the sample.
+            weaponOf[candidates[at]] = entity.ViewmodelWeapon() ?? -1;
 
             if (entity.ViewmodelWeapon() is { } weaponEntity &&
                 entities.TryGet(weaponEntity, out EntityState? carried))
