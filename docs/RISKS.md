@@ -17319,3 +17319,32 @@ of demos — so "no send table declares it" is not the same as "no demo carries 
 looks dead in the SDK may simply have been renamed. The check that settles it is the demo's own
 schema, which is the one denominator that grows with the corpus rather than with Valve's release
 history.
+
+## B272 — `m_hLightingOrigin` is unread, and TF2 uses it only in MvM — OPEN, low
+
+`C_BaseAnimating::OnInternalDrawModel` (`c_baseanimating.cpp:3299`) lets an entity take its lighting
+sample from somewhere other than itself:
+
+```
+if ( m_hLightingOriginRelative.Get() ) { … pInfo->pLightingOffset = &pInfo->lightingOffset; }
+if ( m_hLightingOrigin ) { pInfo->pLightingOrigin = &(m_hLightingOrigin->GetAbsOrigin()); }
+```
+
+Both handles are networked by `DT_BaseAnimating` and neither is decoded here, so a prop that names
+an `info_lighting` is lit from its own position instead.
+
+**Measured 2026-09-02 across TF2's shipped maps, and it is nearly unused.** Of 234 `.bsp` files,
+**56** have a readable entity lump and **three** place an `info_lighting` at all — `mvm_bigrock`
+(1), `mvm_decoy` (5) and `mvm_rottenburg` (3). No competitive or pub map in the readable set uses
+one.
+
+**178 maps could not be measured and that is stated rather than rounded away.** Their entity lump is
+compressed, so the text search finds nothing in them — and a search that cannot find `worldspawn`
+either is a fact about the search (`docs/memory/an-empty-search-needs-a-control.md`,
+`docs/memory/bsp-lumps-are-compressed.md`). The control was run per map and the failures counted, so
+this is "three of 56 readable" and never "three of 234".
+
+**Left open rather than closed** because the measurement is partial: an uncompressed sweep through
+this project's own BSP reader would settle it, and the three that were found are real. Priority is
+low — the effect is where a handful of props sample their lighting, on maps this corpus does not
+contain, and MvM is outside what the project is aimed at.
