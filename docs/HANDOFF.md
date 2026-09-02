@@ -4,7 +4,8 @@ Written 2026-09-01, **updated the same evening after B259 fix 3 landed in full a
 Supersedes the previous handoff, whose subjects — launch options, the chase camera, displacement
 collision — are done and merged.
 
-Everything below is on `main` and pushed. Gate green: **4,521 across twelve assemblies, plus 30 UI.**
+Everything below is on `main` and pushed. Gate green: **4,532 across twelve assemblies, plus 30 UI**
+(core 1633, scene 305, rendering 722 — the floors in `build/gate.sh` are authoritative).
 
 ## Update, same day — the floor section below is RESOLVED
 
@@ -25,6 +26,52 @@ are merged:
 Measured across the day, same demo, first person, `--measure 20`: **96 fps → 351–395 fps** (best
 640), `sample` 0.5 → 0.1–0.2 ms, probe `PropsAt` 939 → 56 ns/prop. `pose` (1.1–1.3 ms) is now the
 fat column.
+
+## Update, later the same evening — the outside audit, and the session was restarted for the agents
+
+An outside agent (Codex) left a read-only parity/performance audit in
+`C:/Users/pinku/source/repos/PinKushin/TF2DEMOSALVAGE-LOG.md` — **that file is the cross-agent
+conversation for THIS project** (distinct from MEASUREMENT-BOX-LOG.md, a confusion that cost a
+detour). Seven findings; each was verified against the code before being believed, per the log's
+own rule that an outside observation is a claim until checked.
+
+**Fixed, on `fix/audit-map-lifecycle`, merged on a green gate** (the reply entry in the log has the
+detail):
+
+1. **Map lifecycle** — `EntityModelSet` outlived the map: `*N` brush paths and pak-first overrides
+   served map A's geometry on map B, and a path that failed on A was cached missing for ever.
+   `LevelShutdown()` forgets everything, wired through `MomentScene.LevelShutdownPreEntity`.
+   Sabotage-verified tests in `ModelLevelLifecycleTests`.
+2. **Translucent order** — entities drew in prop input order under a comment defending it with the
+   sort's own argument. Now `SortEntities`' arithmetic verbatim (`TranslucentOrder`, bounds-center
+   forward-axis dot, ascending, reverse walk). The world/entity per-leaf INTERLEAVE is still a gap:
+   **B261**.
+3. **Per-draw allocations** — both constant-buffer writers staged through fresh arrays per draw;
+   now write straight into the WriteDiscard map. The explicit Clear is load-bearing (zero-means-
+   absent layout, stale bone slots).
+6. **Worn lighting** — the draw-loop override bypassed `ModelLighting.For`'s cache AND never
+   covered the sun (cosmetics' direct light was a sky ray from the map origin). One-place fix in
+   `IlluminationPoint`; the override is deleted; `wornlight` now reads a true 0. The counting tests
+   could not see the wrong point — a third test asserts the POINT.
+
+Findings 4/5/7 are one divergence (Valve builds buckets at leaf collation; our draw re-culls,
+re-classifies and re-sorts per frame) — filed together as **B262**, same restructure as B261.
+
+**Measured: 351–395 → 398–447 fps, best 640 → 691.** Moment cost 0.9–1.3 ms.
+
+**D133 — the parity-citation hook, ratified.** `.claude/hooks/parity-cited.ps1` (PreToolUse)
+refuses a `git commit` staging `.cs` under `Scene/Render/Viewer3D/Presentation` unless the message
+cites the engine or carries `[no-parity]` with a reason. Tested live both directions. Its D133
+entry has a correction worth reading: the owner quote first attached to it was a misread (he was
+asking about the ultrathink keyword), and he then ratified the hook explicitly.
+
+**This session ends with a deliberate restart to register the agents and skills** —
+`.claude/agents/{engine-reader,sabotage-verifier,instrument-auditor}.md` and
+`.claude/skills/{valve-parity-audit,measure}` load at session start, so the NEW session has them by
+name. The owner wants them run over the whole codebase. Remaining parity list, in rough order:
+that sweep, `DoAnimationEvents` (finding 3 in `docs/PARITY-AUDIT.md`, MDL event array unread),
+B261/B262 (the collate-time leaf-walk restructure), and the empty-model-path-reported-DRAWN oddity
+(PARITY-AUDIT finding 5).
 
 **D128 also shipped** (item 2 below): `SpectatorView.Refuses` + every window mode site; POV demos
 open through the recorder's eyes and refuse the free camera, third person and target cycling with
