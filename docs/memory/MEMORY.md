@@ -165,3 +165,5 @@
 - [Audit means verify what exists](audit-means-verify-what-exists.md) — branch count ranks the wrong axis; a wrong implementation is invisible.
 - [Insert below the member, not above it](insert-below-the-member-not-above-it.md) — splits a doc comment from its member; CS1572 names the wrong one.
 - [One subagent, on a cheap model](one-subagent-and-prefer-cheap-models.md) — pass `model`; the cost was the model, not the delegating.
+- [A dropped field falls to a computed default](a-dropped-field-falls-to-a-computed-default.md) — the last transform sets the symptom; predicting from the wire's range was wrong.
+- [An inverted flag is not a disabled flag](an-inverted-flag-is-not-a-disabled-flag.md) — the delegated sabotage measured the control, not the claim.
