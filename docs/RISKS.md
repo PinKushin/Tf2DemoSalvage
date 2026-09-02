@@ -17555,13 +17555,30 @@ foundry ticks 11000-11400: 65579 walks, 401 with events (0 of them CLIENT),
 So the walk runs, the cycles advance, and **nothing an entity is playing carries a client event**.
 The 401 on foundry are a map standee using a player model, whose events are all server-side.
 
-**The specific open question**, and the measurements that frame it: `heavy.mdl` declares **259
-sequences of its own with zero events** and includes `heavy_animations.mdl`, which has **317
-sequences carrying 155 events, 22 of them footsteps**. Valve's `AppendSequences`
-(`studio_virtualmodel.cpp`) appends a label only when it is not already present — `if (k ==
-numCheck)` — so the ROOT model's copy wins any collision, and the root's copies have no events.
-Whether a player is ever on one of the animation model's entries, and whether our merged numbering
-agrees with the engine's, is the next thing to establish.
+#### Why: most of TF2's player animation events are SHADOWED, in the engine as well as here
+
+`heavy.mdl` declares **259 sequences of its own with zero events**, and includes
+`heavy_animations.mdl`, which has **317 sequences carrying 155 events** — 22 of them footsteps.
+**255 of the root's 259 labels appear in both.**
+
+Valve's `virtualmodel_t::AppendSequences` (`studio_virtualmodel.cpp:142`) appends a label only when
+it is not already present — `if (k == numCheck)` — and `AppendModels` appends the ROOT first and
+walks the includes afterwards. So on a collision the root's seqdesc wins, and
+`GetEventIndexForSequence` (`game/shared/animation.cpp:93`) reads the events off whichever seqdesc
+the merge chose. The root's have none.
+
+Counted: **69 of the animation model's sequences carry events, and 52 of those labels are
+redeclared by `heavy.mdl` without any.** Seventeen are animation-model-only and therefore reachable.
+
+**That is a fact about TF2's content, not about this parser** — the engine resolves them the same
+way, because both halves of the rule are read from the SDK rather than inferred. It also explains
+the zero: a player has to be on one of the seventeen for anything to fire, and the windows sampled
+so far were not.
+
+**What remains to establish**: which sequences players actually reach in a match, and whether the
+seventeen include the walk and run cycles the footsteps sit on. `animevents` reports it per class
+once pointed at a window with live players — the foundry window tried first has none at all, only
+map standees using player models.
 
 **Three probe faults were found and fixed getting this far**, all the same family: it read the root
 model's sequences instead of the merged ones, it read the wire cycle instead of the advanced one,
