@@ -7244,3 +7244,17 @@ already cites the engine, so the gate costs nothing when the discipline is follo
 skills, register when a session starts, so the batch sweep the owner wants ("run the agents on the
 whole codebase") is a restart away. Until then the procedure runs inline — the audit-fix loop that
 produced findings 1/2/3/6 today IS the skill's procedure, executed by hand.
+
+### D133, corrected the same evening — the quoted question was about something else
+
+The owner's *"does this run here and can we automate it"* was asking about the **ultrathink
+keyword**, not the parity audit — his next message: *"no i meant ultrathink: if that worked here,
+it works in t3 code and i think claude code in the CLI"*. So the quote at the top of D133 did not
+authorize this entry's mechanism, and the claim that it supersedes the keep-routing-manual
+recommendation in the cross-agent log is withdrawn — that recommendation stands.
+
+The commit-citation hook itself stands on the direction that DID exist — *"we should look for
+hooks and subagent routine stuff we can use in this repo"* (the session that built the agents and
+skills) — and on the outside auditor's routing proposal it partially implements. It is kept; only
+the attribution was wrong, and an entry that quotes the owner saying something he did not mean is
+exactly the kind of record this file exists to prevent.
