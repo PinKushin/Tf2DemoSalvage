@@ -151,6 +151,23 @@ public sealed class ViewmodelProbe : IProbe
         if (changes == 0)
         {
             output.WriteLine("  that player never held anything matching that");
+
+            // **An empty answer needs to say WHOSE emptiness it is.** The comment above already
+            // records that the recorder is the wrong subject on a SourceTV demo — and the guard it
+            // added only covers a demo that names NO recorder. An STV recording names one: entity
+            // 1, which is the broadcast itself and holds nothing, so this reported a confident
+            // "never held anything" about a subject that cannot hold anything.
+            //
+            // Measured while the owner was correcting a claim of mine that STV demos have no
+            // viewmodels at all: `z1800` carries `v_watch_pocket_spy.mdl` on two `CTFWeaponInvis`
+            // entities, bone-merged. The demo had them; the probe was asking the wrong entity.
+            if (asked is null)
+            {
+                output.WriteLine(
+                    "  NOTE: that was the recorder. On a SourceTV recording entity 1 is the "
+                    + "broadcast, which holds nothing — name a real player: "
+                    + "viewmodels <demo> <player entity>.");
+            }
         }
     }
 

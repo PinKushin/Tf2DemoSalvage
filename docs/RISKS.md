@@ -17734,3 +17734,62 @@ keyframes for the third one to be consulted.
 handed the spline its third sample whenever one existed, with no interval check at all — so an
 entity holding a pose across two packets, which is the ordinary case for anything animating in
 place, splined through a zero-length animation interval. Same rule, other clock.
+
+## B279 — animation plays discrete frames; the engine blends between them — OPEN, and it is the stepping
+
+**The owner, watching z1800**: *"its still animating in steps not like it should be"*, then *"players
+are not even walking animating right now, they just kinda slide in the run pose"*, then the
+diagnosis this entry exists for — *"its something you missed in the animation loop for everything"*.
+
+**`bone_setup.cpp:915`, `CalcPoseSingle`:**
+
+```
+float fFrame = cycle * (animdesc.numframes - 1);
+
+iFrame = (int)fFrame;
+s = (fFrame - iFrame);
+```
+
+`iFrame` is the frame, and **`s` is the fraction between it and the next**. Every bone the engine
+samples is `CalcBoneQuaternion( iFrame, s, … )` / `CalcBonePosition( iFrame, s, … )` — a blend of
+two authored frames, not one of them.
+
+**This project computes the frame and discards the fraction.** `StudioSequences.FrameFor(cycle,
+frames, loops)` returns an `int`, `SkeletonPose.Frame` is an `int`, and there is no fractional
+term anywhere in the animation path — `grep` for a blend between two frames in
+`Tf2DemoSalvage.Animation` finds nothing.
+
+So an animation plays at the model's AUTHORED frame count as a series of discrete poses. A TF2 run
+cycle is around thirty frames a second; the viewer draws at three hundred and more. That is one new
+pose every ten frames, which is what stepping is.
+
+**Why it looked like a regression and is not one.** The two-clock work (B273, B274) changed which
+pair of keyframes the cycle is interpolated between, and B276 stopped interpolating it for
+client-side-animated entities — so the cycle's own smoothness changed, and the stepping underneath
+became easier to see. The stepping itself predates all of it: nothing has ever interpolated between
+animation frames.
+
+### What was ruled out first, and how
+
+Two wrong diagnoses were made and discarded before this one, both recorded because the checks are
+the reusable part.
+
+- **"The player's sequence is never chosen."** `EntityModelSet.UpdateClientSideAnimations` is what
+  picks a player's sequence from an activity, and a grep appeared to show it had no caller — so the
+  fix was written and a duplicate call added to `MomentScene.Pose`. **The grep was truncated by
+  `head -6` and the real call was the seventh line**, in `MomentScene.Build` at line 485. Reverted;
+  `MomentScene.cs` is unchanged.
+- **"The inputs to the selection are missing."** Measured instead: entity 2 on z1800 at tick 20000
+  reports `playerSpeed 470.54`, `moveX 1`, and an `AnimationStartSeconds` of 299.865 that stays put
+  across the sampled window. Speed is what gates the selection, and it is healthy.
+
+### The instrument this needed
+
+`cycle <demo> <entity> [tick] [step]` samples one entity BETWEEN ticks, which is the resolution the
+defect lives at — every other animation probe here samples per tick, and per-tick cannot see a pose
+that only changes when a snapshot does. It prints the pose cycle, the delta, the animation start,
+the sequence, and the player's speed and move_x beside them.
+
+It took three attempts to point at the right subject: it asked `PropsAt` for a player, which reports
+"absent" for every one of them because a player becomes a prop only when `MomentScene` puts it
+there. That is the third probe this session to report a confident nothing for that reason.
