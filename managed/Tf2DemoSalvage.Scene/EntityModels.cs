@@ -1986,6 +1986,12 @@ public sealed class EntityModelSet
     /// Which leaves the world cull accepted, indexed by leaf, for the visibility half (B254). An
     /// empty span applies no visibility test.
     /// </param>
+    /// <param name="pass">
+    /// Which pass is drawing, for the tally's report — <c>world</c> or <c>viewmodel</c>. One
+    /// <see cref="DrawTally"/> serves both and its line could not say which it counted, so a
+    /// viewmodel pass (which is given no frustum, and therefore always reports nothing culled)
+    /// read as evidence about the world cull.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// One matrix per entity, which is all that changes between frames. The geometry it points at
@@ -1998,7 +2004,8 @@ public sealed class EntityModelSet
         Func<float, float, float, SunLight?>? sunAt = null,
         double seconds = 0d,
         ViewFrustum frustum = default,
-        ReadOnlySpan<bool> visibleByLeaf = default)
+        ReadOnlySpan<bool> visibleByLeaf = default,
+        string pass = "world")
     {
         ArgumentNullException.ThrowIfNull(props);
         ArgumentNullException.ThrowIfNull(into);
@@ -2039,7 +2046,7 @@ public sealed class EntityModelSet
         //
         // Four categories, per the project's rule: asked for, what we have, what was produced, what
         // is missing and why.
-        _tally.Begin(props.Count);
+        _tally.Begin(props.Count, pass);
 
         // In the order the scene gave them, because nothing needs any other order now.
         foreach (SceneProp prop in props)
