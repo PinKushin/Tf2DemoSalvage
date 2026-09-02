@@ -17674,3 +17674,48 @@ gap until someone counts them.
 interpolated: not "which flags does the engine set" but "is this field in `AddVar`'s list at all".
 Everything this project blends — position, angles, eye angles, cycle, pose parameters — is on that
 list. Scale was the only one that was not.
+
+## B278 — the spline's third sample was chosen on arrival while the interpolation ran on applied times — FIXED
+
+**Introduced today by B273 and found the same day by auditing B276's family**, which is the reason
+to write it down: the audit's value was not the flags it enumerated but the question it forced —
+*is this arithmetic on the clock the rest of it uses?*
+
+**The engine makes the spline conditional on the older interval, not merely on a third sample
+existing.** `CInterpolatedVarArrayBase::GetInterpolationInfo` (`interpolatedvar.h:851`):
+
+```
+if ( !(m_fType & INTERPOLATE_LINEAR_ONLY) && varHistory.IsIdxValid(oldestindex) )
+{
+    pInfo->oldest = oldestindex;
+    float dt2 = older_change_time - oldest_change_time;
+    if ( dt2 > 0.0001f )
+        pInfo->m_bHermite = true;
+}
+```
+
+Three conditions, and this project's comment named only two — *"the client splines whenever there is
+an older entry, and falls back to linear only when there is not, or when INTERPOLATE_LINEAR_ONLY is
+set"*. The third is that the two older entries must not share a **changetime**.
+
+**`Renormalise` measured that gap in ARRIVAL ticks.** That was harmless while keyframes were stamped
+by arrival, because the two were the same number. B273 moved the interpolation onto applied times
+and left this behind — so a pair of keyframes carrying one applied time, which is an entity that did
+not re-simulate between two packets and now a routine occurrence, showed a positive arrival gap and
+splined through a zero-length interval. Two clocks in one piece of arithmetic, which is the fault
+this whole session has been about.
+
+**Measured on a fixture**: three keyframes arriving at 0, 10 and 20 with applied times 0, 0 and 20,
+sampled so the drawn moment falls between the second and third. Linear gives **77.5**; the spline
+through a zero-length older interval gave **74.22**.
+
+**The test that found it could not fail at first**, and that is worth keeping. Its first version
+sampled at tick 28 — whose drawn moment of 20 sits ON the last keyframe, so `At` returned early and
+never reached the spline at all. It passed against the broken code. Fixing the CONDITION rather than
+strengthening the assertion is what made it fail: the sample had to land strictly between two
+keyframes for the third one to be consulted.
+
+**The same guard was missing on the animation clock and is now there too.** `AnimationNeighbours`
+handed the spline its third sample whenever one existed, with no interval check at all — so an
+entity holding a pose across two packets, which is the ordinary case for anything animating in
+place, splined through a zero-length animation interval. Same rule, other clock.

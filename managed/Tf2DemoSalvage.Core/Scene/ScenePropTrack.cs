@@ -1633,9 +1633,24 @@ public sealed class ScenePropTrack
     /// </remarks>
     private ScenePose? Renormalise(int index, int span)
     {
-        (int previousTick, ScenePose previous) = _keyframes[index - 1];
+        ScenePose previous = _keyframes[index - 1].Pose;
 
-        int gap = _keyframes[index].Tick - previousTick;
+        // **The gap between the two older samples, measured on the clock the interpolation runs
+        // on** (B278). `GetInterpolationInfo` (`interpolatedvar.h:851`) makes the spline conditional
+        // on it:
+        //
+        //     float dt2 = older_change_time - oldest_change_time;
+        //     if ( dt2 > 0.0001f )
+        //         pInfo->m_bHermite = true;
+        //
+        // so a third entry sharing a CHANGETIME with the second gives linear, not a spline.
+        //
+        // **This measured arrivals while everything around it had moved to applied times** — my
+        // own B273, which changed what `span` means and left this behind. Two keyframes can now
+        // carry one applied time, for an entity that did not re-simulate between two packets, and
+        // the arrival gap was positive so the spline ran through a zero-length interval. Measured
+        // on a fixture: 74.22 where the engine gives 77.5.
+        int gap = AppliedAt(index) - AppliedAt(index - 1);
 
         if (gap <= 0 || span <= 0)
         {
@@ -1871,10 +1886,20 @@ public sealed class ScenePropTrack
             return (from, to, previous, fraction);
         }
 
+        // **The spline's third sample needs a non-zero older interval on THIS clock too** (B278).
+        // `GetInterpolationInfo` splines only when `dt2 = older_change_time - oldest_change_time`
+        // exceeds 0.0001, and for an animation-latched variable those changetimes are animation
+        // times. An entity that animated at one moment across two packets — which is the ordinary
+        // case for anything holding a pose — would otherwise spline through nothing.
+        ScenePose? older =
+            index > 0 && _animationAppliedAt[index] - _animationAppliedAt[index - 1] > 0
+                ? _keyframes[index - 1].Pose
+                : null;
+
         return (
             _keyframes[index].Pose,
             _keyframes[index + 1].Pose,
-            index > 0 ? _keyframes[index - 1].Pose : null,
+            older,
             (float)Math.Clamp((target - fromTick) / (toTick - fromTick), 0.0, 1.0));
     }
 

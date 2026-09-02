@@ -254,7 +254,10 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # having stopped interpolating the cycle for everything.
 # 1667 -> 1668: the model scale is not an interpolated variable (B277), found by asking the inverse
 # question - not which flags the engine sets, but whether a field is in AddVar's list at all.
-run Tf2DemoSalvage.Core.Tests     core     1668
+# 1668 -> 1669: the spline's third sample is chosen on the changetime gap, not on arrival (B278).
+# The test needed its CONDITION fixed rather than its assertion: the first version sampled a moment
+# sitting on the last keyframe, so `At` returned early and never reached the spline.
+run Tf2DemoSalvage.Core.Tests     core     1669
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.

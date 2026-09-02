@@ -168,6 +168,48 @@ public sealed class AppliedTimeTests
     }
 
     /// <remarks>
+    /// **The spline's third sample is chosen on the CHANGETIME gap, not on arrival** (B278).
+    /// `CInterpolatedVarArrayBase::GetInterpolationInfo` (`interpolatedvar.h:851`):
+    ///
+    /// <code>
+    /// if ( !(m_fType &amp; INTERPOLATE_LINEAR_ONLY) &amp;&amp; varHistory.IsIdxValid(oldestindex) )
+    /// {
+    ///     pInfo->oldest = oldestindex;
+    ///     float dt2 = older_change_time - oldest_change_time;
+    ///     if ( dt2 > 0.0001f )
+    ///         pInfo->m_bHermite = true;
+    /// }
+    /// </code>
+    ///
+    /// so a third entry that shares a changetime with the second gives LINEAR, not a spline.
+    ///
+    /// **B273 broke this by moving the interpolation onto applied times and leaving `Renormalise`
+    /// measuring arrivals.** Two keyframes can now carry the same applied time — an entity that did
+    /// not re-simulate between two packets — and the old check saw a positive arrival gap and
+    /// splined through a zero-length interval, on a clock the rest of the arithmetic had left.
+    /// </remarks>
+    [Test]
+    public void At_WhenTheThirdSampleSharesAnAppliedTime_DoesNotSpline()
+    {
+        ScenePropTrack track = new(entityIndex: 3, "models/props/crate.mdl");
+
+        // Two arrivals, one applied time: the entity did not simulate between them.
+        track.Add(0, new ScenePose { X = 0f }, appliedAt: 0);
+        track.Add(10, new ScenePose { X = 10f }, appliedAt: 0);
+        track.Add(20, new ScenePose { X = 100f }, appliedAt: 20);
+
+        // **Sampled so the drawn moment lands BETWEEN the second and third**, which is the only
+        // condition where the third sample is consulted at all. The first version of this asked at
+        // tick 28, whose drawn moment of 20 is ON the last keyframe — so it returned early and
+        // passed without ever reaching the spline.
+        ScenePose at = track.At(23d)!.Value;
+
+        // Linear from 10 to 100 over the applied span 0 to 20, three quarters through: 77.5.
+        // Hermite through an older interval of zero length does not land there.
+        at.X.ShouldBe(77.5f, 0.01f);
+    }
+
+    /// <remarks>
     /// **The model scale is not an interpolated variable at all** (B277). The engine's whole
     /// interpolated list is what `AddVar` registers — origin, angles, eye angles, velocity, view
     /// offset, punch, cycle, pose parameters, encoded controllers, flex weights, lean, shift, ragdoll

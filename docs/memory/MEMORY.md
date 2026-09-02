@@ -169,3 +169,4 @@
 - [An inverted flag is not a disabled flag](an-inverted-flag-is-not-a-disabled-flag.md) — the delegated sabotage measured the control, not the claim.
 - [A tick-encoded value expires](a-tick-encoded-value-expires.md) — convert at receipt against the SERVER's tick; bimodal-at-the-clamp is a wrong base.
 - [One keyframe bundles what the engine keeps apart](one-keyframe-bundles-what-the-engine-keeps-apart.md) — key by arrival, carry the applied time alongside.
+- [Never edit a running script](never-edit-a-running-script.md) — bash reads by byte offset; the gate ran 2 of 12 and exited 0.
