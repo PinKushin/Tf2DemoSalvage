@@ -17072,3 +17072,62 @@ independently, so the number still has something asserting it. Two tests had the
 into an expected VALUE as well (`726.35`, `476.16`) and one into a sample TICK — that last one is
 the interesting failure, because a fixed tick silently moved the drawn moment from halfway to 40%
 and the test would have gone on measuring something it was not written to measure.
+
+## B268 — nothing faded with distance, because the parameter that does it was never passed — FIXED
+
+**The multiply was implemented, correct, tested, and unreachable.** `FxBlend.Compute` has taken a
+`clientSideFade` argument since it was written — a transcription of the tail of
+`C_BaseEntity::ComputeFxBlend` (`game/client/c_baseentity.cpp:3343`):
+
+```
+unsigned char nFadeAlpha = GetClientSideFade();
+if ( nFadeAlpha != 255 )
+{
+    float flBlend = blend / 255.0f;
+    float flFade = nFadeAlpha / 255.0f;
+    blend = (int)( flBlend * flFade * 255.0f + 0.5f );
+    blend = clamp( blend, 0, 255 );
+}
+```
+
+and **no caller ever supplied it**, so every entity took the default 255 and drew at full alpha
+however far away it was. This is `docs/memory/decoding-a-field-is-not-honouring-it.md` one step
+further along: there a decoded field had no consumer, here the consumer existed and nothing fed it.
+
+**The fields were not decoded either.** `m_fadeMinDist` and `m_fadeMaxDist` are sent by
+`CBaseEntity`'s data table and were being skipped, so there was nothing to feed it with. Both ends
+of the mechanism were missing and each hid the other: adding the decode alone would have changed
+nothing on screen, and wiring the parameter alone would have passed a constant zero.
+
+**`GetClientSideFade` reaches `UTIL_ComputeEntityFade`** (`client/cdll_util.cpp:1103`), which takes
+the minimum of a DISTANCE fade and two SCREEN-SIZE fades. Only the distance half is implemented, and
+that is deliberate rather than partial: the screen-size fades sit behind `modelinfo` and are driven
+by `r_screenfademinsize`/`r_screenfademaxsize`, engine convars a demo does not carry. Taking a
+minimum against an unknowable is inventing the other half, so it is left out and said so
+(`EntityFade`'s remarks carry this).
+
+**Three details of `ComputeDistanceFade` are the engine's and would each be wrong if guessed:**
+
+- **The falloff is on SQUARED distances.** Both bounds and the current distance are squared before
+  interpolating, so alpha is not linear in distance — halfway between 826 and 900 units is 130,
+  not 128. Small at that width, larger the wider the band.
+- **A minimum above the maximum is SWAPPED, not rejected.** A model with its bounds the wrong way
+  round still fades over the same band.
+- **A negative minimum means "start 400 units short of the maximum"**, clamped at zero.
+  `flMinDist = flMaxDist - 400` is Valve's literal.
+
+**The mechanism is used by real content, which is why this was worth finding.** Measured on the 2013
+SourceTV foundry demo: 8 entities declare an 826 → 900 band, and 28 declare `m_fadeMinDist -1` —
+the derive-from-maximum branch, which would have been dead code had it been guessed at instead of
+transcribed.
+
+**Not applied: `GetFOVDistanceAdjustFactor`**, which scales the distance by the local player's zoom.
+A recording has no local player whose field of view this viewer looks through.
+
+**Thirteen tests, and the split between them is the point.** Eight are conformance tests on
+`EntityFade.DistanceAlpha` — the arithmetic, with its citation. Five are wiring tests asserting
+`ModelInstance.Alpha` out of `EntityModelSet.Instances`, the call the renderer makes. **The
+conformance eight would all have passed against the broken code**, because the broken code's
+arithmetic was already right; only the wiring five can fail when nothing calls it. Sabotage
+confirmed both directions: severing `clientSideFade: fade` reddened two wiring tests and no
+conformance test, and swapping the squared falloff for a linear one reddened one of each.

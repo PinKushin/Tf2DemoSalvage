@@ -85,6 +85,18 @@ public readonly record struct ScenePose
     /// </remarks>
     public int RenderMode { get; init; }
 
+    /// <summary>Where this entity starts fading with distance — <c>m_fadeMinDist</c>.</summary>
+    /// <remarks>
+    /// **Discrete, and not blended between keyframes.** It is a property of the model's placement
+    /// rather than a quantity that moves, so a value part-way between two settings names nothing.
+    /// Zero with <see cref="FadeMaximumDistance"/> also zero means the entity does not fade, which
+    /// is <c>ComputeDistanceFade</c>'s own first branch (B268).
+    /// </remarks>
+    public float FadeMinimumDistance { get; init; }
+
+    /// <summary>Where this entity becomes invisible — <c>m_fadeMaxDist</c>.</summary>
+    public float FadeMaximumDistance { get; init; }
+
     /// <summary>How fast the animation advances, as a multiple of its authored rate.</summary>
     /// <remarks>
     /// **The third factor in Valve's cycle advance** (<c>c_baseanimating.cpp:5493</c>):
@@ -1311,6 +1323,12 @@ public sealed class ScenePropTrack
             RenderAlpha = from.RenderAlpha,
             RenderFx = from.RenderFx,
             RenderMode = from.RenderMode,
+
+            // Discrete, like the render fields above: a fade band is a property of the placement,
+            // and a value part-way between two settings names nothing (B268).
+            FadeMinimumDistance = from.FadeMinimumDistance,
+            FadeMaximumDistance = from.FadeMaximumDistance,
+
             Slot = from.Slot,
             AirborneSeconds = from.AirborneSeconds,
             Airwalking = from.Airwalking,

@@ -252,18 +252,7 @@ public sealed class EntityModelsTests
     }
 
     private static PropModels.ModelFrames OneTriangle(string path) =>
-        new(
-            [
-                new PropVertex[]
-                {
-                    new(1f, 0f, 0f, 0f, 0f, MaterialIndex: 3),
-                    new(0f, 1f, 0f, 1f, 0f, MaterialIndex: 3),
-                    new(0f, 0f, 1f, 0f, 1f, MaterialIndex: 3),
-                },
-            ],
-            new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
-            [0],
-            [true]);
+        ModelFramesFixture.OneTriangle(path);
 
     [Test]
     public void AWornItem_IsDrawnWhereItsWearerIs()

@@ -730,18 +730,7 @@ public sealed class MomentSceneTests
     /// "had nothing to upload" are the same observation.
     /// </remarks>
     private static PropModels.ModelFrames? OneTriangle(string path) =>
-        new(
-            [
-                new PropVertex[]
-                {
-                    new(1f, 0f, 0f, 0f, 0f, MaterialIndex: 3),
-                    new(0f, 1f, 0f, 1f, 0f, MaterialIndex: 3),
-                    new(0f, 0f, 1f, 0f, 1f, MaterialIndex: 3),
-                },
-            ],
-            new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
-            [0],
-            [true]);
+        ModelFramesFixture.OneTriangle(path);
 
     private static SceneProp Prop(string model, int entity = 1) =>
         new(entity, model, ScenePropTrack.Classify(model), new ScenePose(), null);

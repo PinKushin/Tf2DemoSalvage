@@ -386,6 +386,12 @@ public sealed class MomentScene : IGameSystemPerFrame
 
         EntityModelSet.PoseCounters before = _models.Counters;
 
+        // **The view's own position, for the distance fade** (B268). It comes from `info` rather
+        // than from a second reading of the camera, so the fade measures from exactly where the
+        // frustum beside it was built — one camera, or the cull and the fade disagree about how
+        // far away a prop is (`docs/memory/one-camera-or-the-cull-lies.md`).
+        _models.ViewOrigin = info.EyeCamera?.Origin;
+
         _models.Instances(
             _drawn, _instances, Lighting.LightingAt, Lighting.SunAt, info.Seconds, frustum,
             visibleByLeaf);

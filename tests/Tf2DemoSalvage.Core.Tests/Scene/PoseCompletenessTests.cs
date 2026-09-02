@@ -213,6 +213,8 @@ public sealed class PoseCompletenessTests
         RenderAlpha = 128,
         RenderFx = 12,
         RenderMode = 10,
+        FadeMinimumDistance = 826f,
+        FadeMaximumDistance = 900f,
 
         // Not 1, which is the default and would make the completeness assertion compare a default
         // against a default. This pair caught PlaybackRate the moment it was added, which is the

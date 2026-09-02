@@ -490,7 +490,12 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 # behind the camera is not posed, in front of it is, and no frustum culls nothing. Then three for
 # the Build/Pose split it needed - Build selects without posing, Pose produces the instances, and
 # the players survive the gap between them (B257, which took three attempts to make failable).
-run Tf2DemoSalvage.Scene.Tests    scene     308
+# 308 -> 321: the distance fade (B268). Eight conformance tests for ComputeDistanceFade's own
+# arithmetic - the swap, the -1 branch, the squared falloff - and five for the WIRING, which is
+# where the defect actually was: FxBlend.Compute took clientSideFade all along and no caller ever
+# passed it, so the conformance half would have passed throughout. The wiring five assert on
+# ModelInstance.Alpha coming out of EntityModelSet.Instances.
+run Tf2DemoSalvage.Scene.Tests    scene     321
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

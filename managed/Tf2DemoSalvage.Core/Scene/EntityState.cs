@@ -1334,6 +1334,20 @@ public sealed class EntityState
     /// </remarks>
     public int? RenderFx() => Integer($"{BaseEntityTable}.{RenderFxProperty}");
 
+    /// <summary>The distance at which this entity starts fading out.</summary>
+    /// <returns><c>m_fadeMinDist</c>, or <c>null</c> when it was never sent.</returns>
+    /// <remarks>
+    /// **Absent means no fade, and so does zero** — <c>ComputeDistanceFade</c>'s first branch is
+    /// <c>(flMinDist &lt;= 0) &amp;&amp; (flMaxDist &lt;= 0)</c>. A NEGATIVE value is meaningful and
+    /// common: it means "start fading 400 units before the maximum", and 28 entities in the 2013
+    /// foundry demo send exactly <c>-1</c>.
+    /// </remarks>
+    public float? FadeMinimumDistance() => Number($"{AnimatingTable}.m_fadeMinDist");
+
+    /// <summary>The distance beyond which this entity is invisible.</summary>
+    /// <returns><c>m_fadeMaxDist</c>, or <c>null</c> when it was never sent.</returns>
+    public float? FadeMaximumDistance() => Number($"{AnimatingTable}.m_fadeMaxDist");
+
     /// <summary>Which blend mode the entity draws with, when it says.</summary>
     /// <returns><c>m_nRenderMode</c>, or <c>null</c> when it was never sent.</returns>
     /// <remarks>

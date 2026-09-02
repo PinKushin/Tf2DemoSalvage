@@ -1190,6 +1190,15 @@ public sealed class EntityModelSet
     /// </remarks>
     public (float X, float Y, float Z)? ViewmodelEye { get; set; }
 
+    /// <summary>Where the view is, for the distance fade; null leaves everything unfaded.</summary>
+    /// <remarks>
+    /// **Set from the same `MomentInfo` the frustum came from** (B268), so the fade and the cull
+    /// measure from one camera. Null when no eye has been established — a frame before a demo is
+    /// open — and the fade then answers 255 rather than measuring from the map origin, which
+    /// would fade out everything far from (0,0,0).
+    /// </remarks>
+    public (float X, float Y, float Z)? ViewOrigin { get; set; }
+
     /// <summary>Where the arms were posed this frame, as the weapon's reference.</summary>
     /// <remarks>
     /// The props are built arms first, so this is set before any weapon consults it. Null until the
@@ -2410,12 +2419,29 @@ public sealed class EntityModelSet
             //
             // `seconds` is demo time, which is `gpGlobals->curtime` for a viewer — the pulses,
             // strobes and flickers are functions of it, and the entity index de-syncs them.
+            // **The distance fade, which `Compute` has always taken and nobody ever supplied**
+            // (B268). `GetClientSideFade` on `C_BaseAnimating` is `UTIL_ComputeEntityFade`, and
+            // `ComputeFxBlend` multiplies its answer into the blend — so leaving it at the default
+            // 255 drew every entity at full alpha however far away it was, with the multiply
+            // sitting there correct and unreached.
+            //
+            // Measured at the prop's illumination point, which is where this loop already decided
+            // the model IS — the same point the cubemap and the lighting use, so all three agree
+            // about its position rather than each deriving one.
+            byte fade = ViewOrigin is { } eye
+                ? EntityFade.DistanceAlpha(
+                    prop.Pose.FadeMinimumDistance,
+                    prop.Pose.FadeMaximumDistance,
+                    EntityFade.Distance(eye, origin))
+                : (byte)255;
+
             FxBlendResult fx = FxBlend.Compute(
                 prop.Pose.RenderFx,
                 prop.Pose.RenderMode,
                 prop.Pose.RenderAlpha,
                 prop.EntityIndex,
-                (float)seconds);
+                (float)seconds,
+                clientSideFade: fade);
 
             into.Add(new ModelInstance(
                 prop.ModelPath,

@@ -2473,6 +2473,12 @@ public sealed class DemoTimeline
                 RenderFx = state.RenderFx() ?? 0,
                 RenderMode = state.RenderMode() ?? 0,
 
+                // **The distance fade's two bounds** (B268). Zero for both is "does not fade",
+                // which is the common case and the engine's own first branch, so an entity that
+                // never sent them behaves exactly as it did before.
+                FadeMinimumDistance = state.FadeMinimumDistance() ?? 0f,
+                FadeMaximumDistance = state.FadeMaximumDistance() ?? 0f,
+
                 // **Skin defaults to 0 because 0 is a real skin**, the model's first family, and a
                 // delta-compressed format only sends what changed from it.
                 //
