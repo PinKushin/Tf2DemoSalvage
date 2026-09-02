@@ -260,6 +260,14 @@ public sealed class MomentPresenter
             Drawn = posing.Drawn,
             Selected = posing.Selected,
             Hidden = posing.Hidden,
+
+            // **And `Unjudgeable`, which this list omitted while the comment above described
+            // exactly why it must not.** `Build` never names it, so `_built` carried the record's
+            // default of zero and the printed column read `0 unjudgeable` on every frame however
+            // many props had no usable bounds — the counter existing, the pose carrying it
+            // correctly, and the one line that reads it silently dropping it. The same defect the
+            // three fields above were fixed for, one field short of finished.
+            Unjudgeable = posing.Unjudgeable,
         };
 
         _ledger.Posed(phases.Pose);

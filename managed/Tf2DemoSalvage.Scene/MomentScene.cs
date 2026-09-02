@@ -892,7 +892,12 @@ public sealed class MomentScene : IGameSystemPerFrame
             _viewmodelInstances,
             Lighting.LightingAt,
             Lighting.SunAt,
-            info.Seconds);
+            info.Seconds,
+
+            // **Named, because this pass shares the world pass's tally.** It passes no frustum, so
+            // its `off-screen` count is structurally zero — read as the world pass's, that is a
+            // working cull reported as a broken one.
+            pass: "viewmodel");
 
         // **Who owns the viewmodel and what team they are on, once per change** (B242). The skin
         // family is decided from the OWNER, and every wrong answer so far has been about not

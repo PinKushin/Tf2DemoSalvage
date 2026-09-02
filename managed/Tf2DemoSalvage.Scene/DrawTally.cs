@@ -38,6 +38,7 @@ public sealed class DrawTally
         _props = props;
     }
 
+    private string _pass = "world";
     private int _askedFor;
     private int _notStudio;
     private int _culled;
@@ -50,8 +51,18 @@ public sealed class DrawTally
 
     /// <summary>Starts a frame's count.</summary>
     /// <param name="askedFor">How many props the scene offered.</param>
-    public void Begin(int askedFor)
+    /// <param name="pass">Which pass is counting — <c>world</c> or <c>viewmodel</c>.</param>
+    /// <remarks>
+    /// **The pass is named because one tally serves two of them and the line could not say
+    /// which.** `Instances` runs twice a frame against the same `EntityModelSet`: hundreds of
+    /// world props with a real frustum, then two or three viewmodel props with none. Both call
+    /// `Begin` and `Report`, the rate limit lets at most one line a second through, and which
+    /// pass won that race was invisible — so somebody investigating the frustum cull could read
+    /// `0 off-screen` off the viewmodel pass, which never had a frustum to cull against.
+    /// </remarks>
+    public void Begin(int askedFor, string pass = "world")
     {
+        _pass = pass;
         _askedFor = askedFor;
         _notStudio = 0;
         _culled = 0;
@@ -146,9 +157,17 @@ public sealed class DrawTally
     /// <summary>Records a prop that will be drawn.</summary>
     public void Drawn() => _drawn++;
 
-    private (int AskedFor, int Drawn, int NotStudio, int NoBatches, int NotDrawn, int Culled) _last =
-        (-1, -1, -1, -1, -1, -1);
-    private long _reportedAt;
+    /// <summary>The last state reported for each pass, so an unchanged one stays silent.</summary>
+    /// <remarks>
+    /// **Keyed by pass, because one tally serves two of them.** Sharing one slot made the two
+    /// passes' different numbers look like a single oscillating pass — the exact shape the change
+    /// guard cannot guard against, which is what the rate limit beside it exists for.
+    /// </remarks>
+    private readonly Dictionary<string, (int AskedFor, int Drawn, int NotStudio, int NoBatches,
+        int NotDrawn, int Culled)> _seen = new(StringComparer.Ordinal);
+
+    /// <summary>When each pass last reported, for the rate limit.</summary>
+    private readonly Dictionary<string, long> _reportedAt = new(StringComparer.Ordinal);
 
     /// <summary>Reports the frame's counts, when they have changed and not too often.</summary>
     /// <remarks>
@@ -168,20 +187,30 @@ public sealed class DrawTally
 
         long now = Stopwatch.GetTimestamp();
 
-        if (state == _last || now - _reportedAt < Stopwatch.Frequency)
+        // **Both guards are PER PASS, and a shared rate limit did not merely blur the two — it
+        // silenced one.** `Instances` runs twice a frame against one tally, so with a single
+        // `_reportedAt` the world pass reported and the viewmodel pass, arriving microseconds
+        // later, was inside the window and dropped; then the same again the next second. The
+        // viewmodel pass could never report at all, which is worse than the ambiguity this label
+        // was added to fix. Found by the test, not by reading: the label went in first and the
+        // second half of `Report_TheTwoPasses_AreNamedAndDoNotSuppressEachOther` went red.
+        _seen.TryGetValue(_pass, out (int, int, int, int, int, int) last);
+        _reportedAt.TryGetValue(_pass, out long lastAt);
+
+        if (state == last || now - lastAt < Stopwatch.Frequency)
         {
             return;
         }
 
-        _last = state;
-        _reportedAt = now;
+        _seen[_pass] = state;
+        _reportedAt[_pass] = now;
 
         // Debug: written from the draw loop, once a second at most but still during play, and every
         // line is a disk flush (B191). The change guard above limits how OFTEN, never whether a
         // production run pays at all.
         _props.LogDebug(
             "{Message}",
-            $"asked for {_askedFor}, produced {_drawn}; " +
+            $"{_pass} pass: asked for {_askedFor}, produced {_drawn}; " +
             $"skipped {_notStudio} not-studio [{Named(_notStudioBy)}], " +
             $"{_noBatches} no-batches [{Named(_noBatchesBy)}], " +
 

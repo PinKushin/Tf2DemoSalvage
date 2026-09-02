@@ -106,8 +106,25 @@ public sealed class DrawnPropProbe : IProbe
         {
             SceneProp first = group.First();
 
+            string state;
+
+            if (!EntityModelSet.CanDraw(first))
+            {
+                state = "NOMODEL";
+            }
+            else
+            {
+                state = group.All(prop => kept.Contains(prop.EntityIndex)) ? "DRAWN " : "HIDDEN";
+            }
+
             output.WriteLine(
-                $"{(group.All(prop => kept.Contains(prop.EntityIndex)) ? "DRAWN " : "HIDDEN")} "
+                // **Three states, because "DRAWN" used to mean two different things** (PARITY-AUDIT
+                // finding 5). `kept` is the ShouldDraw visibility rules and nothing else, so a
+                // prop with no model at all passed them and was reported DRAWN while the renderer
+                // produced nothing from it. NOMODEL is asked through `EntityModelSet.CanDraw` —
+                // production's own predicate — so the probe cannot drift from what the renderer
+                // does.
+                $"{state} "
                 + $"{group.Count(),4}  '{group.Key.Model}' "
                 + $"kind {first.Kind} "
                 + $"class '{first.ClassName}' "

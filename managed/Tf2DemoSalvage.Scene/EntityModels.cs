@@ -1602,6 +1602,30 @@ public sealed class EntityModelSet
     private static bool IsDrawable(SceneModelKind kind) =>
         kind is SceneModelKind.Studio or SceneModelKind.Brush;
 
+    /// <summary>Whether this prop names something that can be drawn at all.</summary>
+    /// <param name="prop">The prop.</param>
+    /// <returns>Whether it has a drawable kind AND a model path.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="prop"/> is null.</exception>
+    /// <remarks>
+    /// **The engine's precondition, not a policy of ours**: an entity whose <c>GetModel()</c> is
+    /// null is never added to a renderable list, so nothing downstream of visibility — bones,
+    /// lighting, the draw — ever sees it. A drawable KIND with an empty PATH is exactly that case:
+    /// a cosmetic whose model the wire never carried and the item schema has not supplied.
+    ///
+    /// **Extracted so the probes ask the same question production does** (PARITY-AUDIT finding 5).
+    /// `DrawnPropProbe` labelled a prop DRAWN off the visibility rules alone, and an empty-path
+    /// `CTFWearableRobotArm` therefore reported as drawn while the renderer produced nothing —
+    /// the probe reporting rather than the renderer failing. A probe that reimplements the rule it
+    /// is checking agrees with whoever wrote the probe, so this is the one definition and both
+    /// sides read it.
+    /// </remarks>
+    public static bool CanDraw(SceneProp prop)
+    {
+        ArgumentNullException.ThrowIfNull(prop);
+
+        return IsDrawable(prop.Kind) && prop.ModelPath.Length > 0;
+    }
+
     /// <summary>Where geometry comes from, set once when a map is read.</summary>
     /// <remarks>
     /// **A global the renderer dereferences, which is Valve's arrangement rather than ours.** The
@@ -1723,9 +1747,7 @@ public sealed class EntityModelSet
             // the wire never carried is named from its item by `WeaponPropModels`, and that lookup
             // answers null when the game is not installed — which is every CI run. Passing the empty
             // string to `load` throws out of `PakFile.ReadFile`.
-            if (!IsDrawable(prop.Kind) ||
-                prop.ModelPath.Length == 0 ||
-                _byModel.ContainsKey(prop.ModelPath))
+            if (!CanDraw(prop) || _byModel.ContainsKey(prop.ModelPath))
             {
                 continue;
             }
@@ -1964,6 +1986,12 @@ public sealed class EntityModelSet
     /// Which leaves the world cull accepted, indexed by leaf, for the visibility half (B254). An
     /// empty span applies no visibility test.
     /// </param>
+    /// <param name="pass">
+    /// Which pass is drawing, for the tally's report — <c>world</c> or <c>viewmodel</c>. One
+    /// <see cref="DrawTally"/> serves both and its line could not say which it counted, so a
+    /// viewmodel pass (which is given no frustum, and therefore always reports nothing culled)
+    /// read as evidence about the world cull.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// One matrix per entity, which is all that changes between frames. The geometry it points at
@@ -1976,7 +2004,8 @@ public sealed class EntityModelSet
         Func<float, float, float, SunLight?>? sunAt = null,
         double seconds = 0d,
         ViewFrustum frustum = default,
-        ReadOnlySpan<bool> visibleByLeaf = default)
+        ReadOnlySpan<bool> visibleByLeaf = default,
+        string pass = "world")
     {
         ArgumentNullException.ThrowIfNull(props);
         ArgumentNullException.ThrowIfNull(into);
@@ -2017,7 +2046,7 @@ public sealed class EntityModelSet
         //
         // Four categories, per the project's rule: asked for, what we have, what was produced, what
         // is missing and why.
-        _tally.Begin(props.Count);
+        _tally.Begin(props.Count, pass);
 
         // In the order the scene gave them, because nothing needs any other order now.
         foreach (SceneProp prop in props)
@@ -2026,7 +2055,13 @@ public sealed class EntityModelSet
 
             int skin = prop.Pose.Skin;
 
-            if (!IsDrawable(prop.Kind))
+            // **An empty path joins the undrawable kinds here, where it used to fall through to
+            // "no batches"** (PARITY-AUDIT finding 5). Those two counts mean different things and
+            // `DrawTally` says so: no-batches for one model is a load failure, while a prop with
+            // no model at all is a gap somebody has to close — which is why `NotDrawable` already
+            // carried a `<no model>` label that nothing could reach. Measured on `z1800` at tick
+            // 20000: 24 bone-merged cosmetics name no model, so this is not a rare case.
+            if (!CanDraw(prop))
             {
                 _tally.NotDrawable(prop);
                 continue;

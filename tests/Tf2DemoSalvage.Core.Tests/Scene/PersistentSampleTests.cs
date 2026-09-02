@@ -26,12 +26,19 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 /// `AfterASeekBackwards` ALONE, with every forward-only test green — which is the narrow result
 /// that says the seek path is genuinely separable.
 ///
-/// **Four tests were reddened by none of them** — `SteppedAcrossATracksEnd`,
-/// `SteppedAcrossAHiddenSpan`, `SteppedAcrossARecorderTeamSwitch` and
-/// `VisibilityGrantedMidSegment`. That is not evidence they are insensitive; no sabotage targeted
-/// their mechanisms. Falsifying them needs edits aimed at those: inverting `Alive`'s
-/// `tick &lt; _endTick`, the `Hidden` test in `DeriveSample`/`AdvanceSample`, the `recorderTeam`
-/// comparison in the resync condition, and the wake-time latch that decides blend-or-hold.
+/// **The remaining four were then sabotaged too, and one of them could not fail.** Three are
+/// sensitive: the hidden span reddens alone when the `Hidden: false` pattern is widened; the
+/// track end reddens when `IndexAt`'s `tick &gt;= _endTick` is loosened (with collateral, because
+/// `Motion` carries its OWN copy of that guard and desyncing the two freezes the sampler); the
+/// visibility latch reddens when `AdvanceSample`'s resample loop is widened from `_lerping` to
+/// `_props`, which is exactly the pre-fix instant-lerp defect.
+///
+/// **`SteppedAcrossARecorderTeamSwitch` was green under an inverted resync trigger** — it
+/// asserted on the DOOR, whose own keyframe at tick 150 falls inside the sampled window, so its
+/// wake fired regardless and `AdvanceSample` handed `DeriveSample` the current call's
+/// `recorderTeam` anyway. Correct and broken predicted the same reading: the wrong INPUT, not a
+/// weak assertion. It now asserts on the crate — one keyframe, no wake in the window, the resync
+/// the only path to a fresh prop — and reddens under that same inversion.
 ///
 /// **The contract these tests hold is equivalence**: a timeline stepped forward tick by tick must
 /// answer exactly what a freshly built timeline answers cold, at every tick, through births,
@@ -276,14 +283,28 @@ public sealed class PersistentSampleTests
     /// **The recorder switching sides must reach every prop already sampled.** `OfRecordersTeam`
     /// is baked into the prop when it is built, so a persistent sample that survives the switch
     /// serves the OLD side — a spawn wall drawn to the team that spawns behind it. The frames say
-    /// team 2 until tick 150 and team 3 after; a team-2 door must flip from friendly to enemy.
+    /// team 2 until tick 150 and team 3 after; a team-2 prop must flip from friendly to enemy.
+    ///
+    /// **Asserted on the CRATE, and the reason is that this test could not fail when it asserted
+    /// on the door.** Found by sabotage: inverting the `recorderTeam != _sampledTeam` resync
+    /// trigger left this test green. The door has its own keyframe at tick 150 — inside the
+    /// sampled window — so its wake fires anyway, and `AdvanceSample` passes the CURRENT call's
+    /// `recorderTeam` into `DeriveSample`. The door's team bit was therefore refreshed as an
+    /// incidental side effect of its own pose geometry, whichever way the trigger went.
+    ///
+    /// The crate is a single-keyframe track: `NeverChanges`, no wake inside the window, nothing
+    /// else that can rebuild it. The team-switch resync is the only path to a fresh prop, which
+    /// is what makes the observation attributable to the manipulation
+    /// (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md` — a condition where correct and
+    /// broken predict the same reading is not a weak assertion, it is the wrong input).
     /// </remarks>
     [Test]
     public void PropsAt_SteppedAcrossARecorderTeamSwitch_RebuildsOfRecordersTeam()
     {
         List<ScenePropTrack> cast = Cast();
 
-        cast[1].TeamNumber = 2;
+        // The crate — entity 3, one keyframe, alive throughout, no wake in [100, 200].
+        cast[2].TeamNumber = 2;
 
         DemoTimeline stepped = DemoTimeline.ForTracks(
             cast,
@@ -296,13 +317,13 @@ public sealed class PersistentSampleTests
 
         stepped.PropsAt(100d, props);
 
-        props.Single(prop => prop.EntityIndex == 2).OfRecordersTeam
-            .ShouldBeTrue("at tick 100 the recorder is on team 2, the door's own side");
+        props.Single(prop => prop.EntityIndex == 3).OfRecordersTeam
+            .ShouldBeTrue("at tick 100 the recorder is on team 2, the crate's own side");
 
         stepped.PropsAt(200d, props);
 
-        props.Single(prop => prop.EntityIndex == 2).OfRecordersTeam
-            .ShouldBeFalse("from tick 150 the recorder is on team 3, so the door is enemy");
+        props.Single(prop => prop.EntityIndex == 3).OfRecordersTeam
+            .ShouldBeFalse("from tick 150 the recorder is on team 3, so the crate is enemy");
     }
 
     /// <remarks>

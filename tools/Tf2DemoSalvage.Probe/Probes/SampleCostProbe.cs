@@ -111,17 +111,33 @@ public sealed class SampleCostProbe : IProbe
 
         advancing.PropsAt(tick, props);
 
-        long steppedAt = Stopwatch.GetTimestamp();
+        // **Its OWN denominator, summed as it goes.** The first loop asks one tick 500 times, so
+        // the count it measured is constant and `count` is the right divisor for it. This loop
+        // spans about 125 ticks — two seconds of match — across which entities spawn, die and
+        // expire, so borrowing that same `count` would divide this loop's time by a prop count
+        // measured somewhere else. That is the shape of the split this probe already deleted once
+        // for reporting −221 ns: a number carried in from a different context and applied as
+        // though it belonged.
+        long stepped = 0;
+        long steppedProps = 0;
 
         for (int run = 0; run < repeats; run++)
         {
+            long before = Stopwatch.GetTimestamp();
+
             advancing.PropsAt(tick + ((run + 1) * 0.25d), props);
+
+            stepped += Stopwatch.GetTimestamp() - before;
+            steppedProps += props.Count;
         }
 
-        long steppedTicks = Stopwatch.GetTimestamp() - steppedAt;
+        double steppedEach = steppedProps == 0
+            ? 0d
+            : stepped * 1_000_000_000d / Stopwatch.Frequency / steppedProps;
 
-        output.WriteLine($"  PropsAt stepped {Each(steppedTicks, repeats, count):0.0} ns/prop"
-            + $"   ({Ms(steppedTicks, repeats):0.000} ms a call, +0.25 tick each)");
+        output.WriteLine($"  PropsAt stepped {steppedEach:0.0} ns/prop"
+            + $"   ({Ms(stepped, repeats):0.000} ms a call, +0.25 tick each, "
+            + $"{(double)steppedProps / repeats:0} props a call)");
 
         // **A split between `At` and the rest USED to be reported here and has been removed,
         // because it was an instrument that lied.** Timing a bare loop over `track.At(tick)` and

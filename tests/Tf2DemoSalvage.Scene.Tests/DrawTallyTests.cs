@@ -76,6 +76,38 @@ public sealed class DrawTallyTests
         log.Count("asked for 10").ShouldBe(1);
     }
 
+    /// <remarks>
+    /// **One tally serves two passes and the line could not say which.** `Instances` runs twice a
+    /// frame against the same `EntityModelSet`: the world pass with a real frustum, then the
+    /// viewmodel pass with none — so the viewmodel's `off-screen` count is structurally zero, and
+    /// read as the world pass's it is a working cull reported as a broken one. Which of the two
+    /// won the once-a-second rate limit was invisible.
+    ///
+    /// The second half of this test is the one that matters: the pass is part of the change-guard
+    /// state, so two passes reporting different numbers are two lines rather than one oscillating
+    /// pass suppressing the other.
+    /// </remarks>
+    [Test]
+    public void Report_TheTwoPasses_AreNamedAndDoNotSuppressEachOther()
+    {
+        RecordingLogger log = new();
+        DrawTally tally = new(log);
+
+        tally.Begin(500);
+        tally.Culled();
+        tally.Drawn();
+        tally.Report();
+
+        tally.Begin(3, "viewmodel");
+        tally.Drawn();
+        tally.Report();
+
+        log.Count("world pass: asked for 500").ShouldBe(1);
+
+        log.Count("viewmodel pass: asked for 3")
+            .ShouldBe(1, "the second pass must report rather than being taken for a repeat");
+    }
+
     [Test]
     public void NotDrawable_InlineSubmodels_CollapseToOneEntry()
     {
