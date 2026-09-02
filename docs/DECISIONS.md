@@ -7258,3 +7258,7 @@ hooks and subagent routine stuff we can use in this repo"* (the session that bui
 skills) — and on the outside auditor's routing proposal it partially implements. It is kept; only
 the attribution was wrong, and an entry that quotes the owner saying something he did not mean is
 exactly the kind of record this file exists to prevent.
+
+**Ratified by the owner after the correction:** *"the audit hook is good though, i want that
+hook."* So the mechanism now has the direct approval the original entry wrongly claimed, and the
+correction above stands only as the record of the misattribution.
