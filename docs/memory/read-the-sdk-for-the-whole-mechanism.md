@@ -52,3 +52,31 @@ from the read side would have produced it.
 — reading one of them is half the research, and the half you skipped is where the surprise is. If an
 experiment falsifies a hypothesis about a mechanism, that is the signal to go and read the other
 side, not to form a second hypothesis. Related: [[a-bug-is-a-divergence-search-first]].
+
+## The line you came for is usually below the one that changes its meaning
+
+B276, and it is the sharpest instance so far. `AddBaseAnimatingInterpolatedVars` was printed to the
+terminal TWICE in one session while answering "which variables are animation-latched":
+
+```c
+int flags = LATCH_ANIMATION_VAR;
+if ( m_bClientSideAnimation )
+    flags |= EXCLUDE_AUTO_INTERPOLATE;
+AddVar( &m_flCycle, &m_iv_flCycle, flags, true );
+```
+
+The answer taken was the last line — cycle, pose parameters, encoded controller. The flag two lines
+above was read past both times, **while this very memory was being cited elsewhere in the same
+session**. It is the whole rule: a client-side-animated entity's cycle is never interpolated, and
+`AddVar` enforces that by placing the variable past `m_nInterpolatedEntries`, the bound
+`Interp_Interpolate` loops to. This project had been interpolating it for years; a viewmodel stopped
+animating and the owner found it, not a test.
+
+**Two things generalise.**
+
+- **A flag being SET is a different fact from a flag existing.** Reading a header of `#define`s
+  teaches nothing; `|= FOO` on the line above your answer changes what your answer means.
+- **The signal was in what was READ, not in what was written.** The flag never reached a comment, a
+  commit or a diff, so no review of the change could have caught it — and that is why
+  `.claude/hooks/flag-unread.ps1` watches tool OUTPUT, firing once per flag per session on a flag
+  that is composed or tested rather than merely named.
