@@ -343,6 +343,61 @@ internal static class StudioLayout
     /// </remarks>
     public const int SequenceActivityWeightOffset = 20;
 
+    /// <summary>Byte offset of <c>numevents</c> within a sequence: how many events it fires.</summary>
+    /// <remarks>
+    /// **The events live on the SEQUENCE, not on the animation** (`studio.h:817`). That distinction
+    /// cost a wrong entry in `docs/PARITY-AUDIT.md`, which named `mstudioanimdesc_t` — a struct
+    /// with no event members at all — so anyone implementing from it would have searched the wrong
+    /// place. `mstudioseqdesc_t` carries `numevents`, `eventindex` and `pEvent(i)`, and
+    /// `C_BaseAnimating::DoAnimationEvents` reads exactly those.
+    ///
+    /// Six ints in, immediately after <see cref="SequenceActivityWeightOffset"/> and immediately
+    /// before <see cref="SequenceBoundsMinOffset"/> — which is the same arithmetic that already
+    /// justifies the 32 below, read from the other end.
+    /// </remarks>
+    public const int SequenceEventCountOffset = 24;
+
+    /// <summary>Byte offset of <c>eventindex</c>: where this sequence's events begin.</summary>
+    /// <remarks>
+    /// Relative to the START OF THE SEQUENCE, as every index in this format is relative to the
+    /// structure holding it: <c>pEvent</c> is <c>((byte *)this) + eventindex</c> and then indexed
+    /// by element, so a sequence's events are contiguous from there.
+    /// </remarks>
+    public const int SequenceEventIndexOffset = 28;
+
+    /// <summary>Bytes in one <c>mstudioevent_t</c> (<c>studio.h:495</c>).</summary>
+    /// <remarks>
+    /// `float cycle` + `int event` + `int type` + `char options[64]` + `int szeventindex` — four,
+    /// four, four, sixty-four and four. The options string is INSIDE the structure rather than
+    /// pointed at, which is why the stride is eighty and not a pointer's width.
+    /// </remarks>
+    public const int EventStride = 80;
+
+    /// <summary>Byte offset of <c>cycle</c> within an event: when in the sequence it fires.</summary>
+    public const int EventCycleOffset = 0;
+
+    /// <summary>Byte offset of <c>event</c>: the resolved event id.</summary>
+    /// <remarks>
+    /// **Resolved at load time for the new system, and literal for the old one.** An event carrying
+    /// <c>AE_TYPE_NEWEVENTSYSTEM</c> is named by <c>szeventindex</c> and its id is filled in by
+    /// <c>SetEventIndexForSequence</c> (`animation.cpp:60`) from the shared registry; an older one
+    /// states its number here outright, which is why <c>DoAnimationEvents</c> falls back to
+    /// <c>event &lt; 5000</c> for those.
+    /// </remarks>
+    public const int EventIdOffset = 4;
+
+    /// <summary>Byte offset of <c>type</c>: the <c>AE_TYPE_*</c> flags.</summary>
+    public const int EventTypeOffset = 8;
+
+    /// <summary>Byte offset of <c>options</c>: sixty-four bytes of event argument, in place.</summary>
+    public const int EventOptionsOffset = 12;
+
+    /// <summary>Bytes in an event's <c>options</c> field.</summary>
+    public const int EventOptionsLength = 64;
+
+    /// <summary>Byte offset of <c>szeventindex</c>: the event's NAME, for the new system.</summary>
+    public const int EventNameIndexOffset = 76;
+
     /// <summary>Byte offset of <c>bbmin</c> within a sequence: its own bounding box.</summary>
     /// <remarks>
     /// **The per-sequence box is what makes render bounds change as a model animates.**
