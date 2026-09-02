@@ -45,9 +45,23 @@ if ($parity.Count -eq 0) {
 }
 
 # The commit text travels inside the command (-m or an inline heredoc), so the citation check
-# reads the command itself. An engine citation is a .cpp/.h reference or an SDK path; the
-# escape hatch must name its reason to be worth typing.
-if ($command -match '\.(cpp|h)\b|source-sdk|\[no-parity\]') {
+# reads the command itself - but only from `git commit` ONWARD.
+#
+# **Scanning the whole command was a hole, and it let one through the day this was written.** A
+# commit that first appended a RISKS entry quoting `econ_entity.cpp:1167` and then committed was
+# allowed, because the citation matched text that was being written to a FILE rather than to the
+# commit message. The check's input was wider than its claim - the same fault the instrument
+# rules are about - so it now looks only at the part of the command that carries the message.
+# Located with the same regex that admitted the command, because `git -C <path> commit` contains
+# no literal "git commit" and an IndexOf would answer -1 - which Substring turns into a throw, in
+# a hook, on every commit from another directory.
+$at = [regex]::Matches($command, 'git\s+(-\S+\s+)*commit')
+
+$message = $at.Count -gt 0 ? $command.Substring($at[$at.Count - 1].Index) : $command
+
+# An engine citation is a .cpp/.h reference or an SDK path; the escape hatch must name its reason
+# to be worth typing.
+if ($message -match '\.(cpp|h)\b|source-sdk|\[no-parity\]') {
     exit 0
 }
 
