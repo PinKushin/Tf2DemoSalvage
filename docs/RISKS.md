@@ -17266,3 +17266,56 @@ line the model probe now prints makes it visible immediately.
 The prior note in `StudioBoneControllers` measured only three PLAYER models. That denominator was
 too narrow to support the conclusion, and B269 had just shown why: buildings use pose parameters
 that players are explicitly excluded from, so "players declare none" says nothing about buildings.
+
+## B271 — the model scale has two wire names and this project read only the modern one — FIXED
+
+**Found by chasing what looked like a dead field.** `m_flModelWidthScale` sat on
+`docs/WIRE-COVERAGE.md`'s unread list and has no consumer anywhere in the SDK's game code — which
+is the signature of dead content, like `$modblend` in finding 12. It has exactly one declaration
+(`game/client/c_baseanimating.cpp:181`):
+
+```
+RecvPropFloat(RECVINFO(m_flModelScale)),
+RecvPropFloat(RECVINFO_NAME(m_flModelScale, m_flModelWidthScale)), // for demo compatibility only
+```
+
+**`RECVINFO_NAME` takes the WIRE name second**, so this is not a second field: it is the model
+scale, under the name TF2 used before 2013, received into the same member. Valve's comment names
+demos as the reason it survives — which makes it this project's business rather than legacy clutter.
+Same family as `moveparent` in `docs/memory/wire-names-are-strings.md`, and the second time a
+"nothing reads this" conclusion has turned out to be a name rather than a field.
+
+**The corpus splits exactly on it.** Asking each era specimen's own schema — the premise of the
+project, since a demo carries the tables it was recorded against:
+
+| specimen | declares |
+|---|---|
+| 2007 build 3258 · 2008 build 3420 · 2009 build 3862 · 2011 build 4604 | `DT_BaseAnimating.m_flModelWidthScale` and no `m_flModelScale` |
+| 2013 build 1729296 · z1800 | `DT_BaseAnimating.m_flModelScale` and no `m_flModelWidthScale` |
+
+`EntityState.ModelScale` read only the modern name, so **every entity in every pre-2013 demo took
+the caller's default of 1** regardless of what the recording said.
+
+**The fix is latent on the committed corpus, and saying so is the point.** Measured after it: every
+entity of the 2007, 2009 and 2011 specimens is scale 1 — 24, 18 and 14 of them — so nothing on
+screen changes today. It would show on a pre-2013 recording containing a mini-sentry (0.75, and the
+Gunslinger arrived in 2009), or anything else TF2 scales. Reporting this as a visible fix would be
+a claim the measurement contradicts.
+
+**Two conformance tests had to learn about it, and neither was weakened.**
+
+- `SendPropConformanceTests` scrapes `SENDINFO` from the SDK for its denominator. A name TF2 has
+  stopped sending appears in no send table, so the scraper now also reads `RECVINFO_NAME`'s second
+  argument — the client's compatibility receivers are the part of the old contract Valve kept. A
+  typo still appears in neither, so the case that test exists for still fails.
+- `SendTableConformanceTests` checks the property against the specific TABLE that declares it, and a
+  receive table has no block structure to give one. **So that pair is taken from the demos instead**,
+  and `RetiredWireNameCorpusTests` pins it: four pre-2013 specimens declare it in `DT_BaseAnimating`
+  and neither modern one does. An exclusion justified by prose is one nobody re-checks; this one
+  goes red the day it stops being true.
+
+**The generalisable lesson.** The SDK is one build's snapshot, and this project reads thirteen years
+of demos — so "no send table declares it" is not the same as "no demo carries it", and a field that
+looks dead in the SDK may simply have been renamed. The check that settles it is the demo's own
+schema, which is the one denominator that grows with the corpus rather than with Valve's release
+history.

@@ -160,7 +160,12 @@ public sealed class DrawnPropProbe : IProbe
                 + $"angles ({first.Pose.Pitch:0.#} {first.Pose.Yaw:0.#} {first.Pose.Roll:0.#}) "
                 + $"attached {first.AttachedTo?.ToString(CultureInfo.InvariantCulture) ?? "none"} "
                 + $"merged {first.BoneMerged} "
-                + $"mode {first.Pose.RenderMode.ToString(CultureInfo.InvariantCulture)}");
+                + $"mode {first.Pose.RenderMode.ToString(CultureInfo.InvariantCulture)} "
+
+                // **Scale, because it has TWO wire names and half the corpus uses the old one**
+                // (B271). A mini-sentry is 0.75 and everything else is 1, so this reads as noise
+                // until it does not — which is exactly when somebody needs to see it.
+                + $"scale {first.Pose.Scale.ToString("0.###", CultureInfo.InvariantCulture)}");
         }
     }
 }

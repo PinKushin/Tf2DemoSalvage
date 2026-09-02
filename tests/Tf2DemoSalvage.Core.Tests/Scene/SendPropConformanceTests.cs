@@ -151,6 +151,29 @@ public sealed class SendPropConformanceTests
                 TimeSpan.FromSeconds(10)),
             recursive: true));
 
+        // **`RECVINFO_NAME` is the only record of a wire name TF2 has STOPPED sending**, and this
+        // denominator needs it because half the corpus predates the current names:
+        //
+        //   RecvPropFloat(RECVINFO_NAME(m_flModelScale, m_flModelWidthScale)), // for demo compatibility only
+        //
+        // `c_baseanimating.cpp:181`. The 2013 server sends `m_flModelScale` and no send table in
+        // this SDK declares `m_flModelWidthScale` at all — yet the 2007, 2008, 2009 and 2011 era
+        // specimens all carry it, because that is what their servers called it. **The SDK is a
+        // snapshot of one build, so its send tables cannot be the whole denominator for a project
+        // that reads thirteen years of demos**; the client's compatibility receivers are the part
+        // of the old contract Valve kept, and a name declared there is a name that can arrive.
+        //
+        // This does not weaken the check. A typo appears in neither a send nor a receive table, so
+        // the case this test exists for still fails (B271).
+        names.UnionWith(SourceSdk.Names(
+            "src/game",
+            "*.cpp",
+            new Regex(
+                @"RECVINFO_NAME\(\s*[A-Za-z_][A-Za-z0-9_]*\s*,\s*([A-Za-z_][A-Za-z0-9_]*)",
+                RegexOptions.Compiled,
+                TimeSpan.FromSeconds(10)),
+            recursive: true));
+
         // The instrument before its answer: an extraction that found nothing would pass every
         // assertion above by vacuum.
         names.Count.ShouldBeGreaterThan(200, "no SENDINFO declarations were found in the SDK");

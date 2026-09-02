@@ -37,6 +37,28 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 /// </remarks>
 public sealed class SendTableConformanceTests
 {
+    /// <summary>Pairs a build older than this SDK sent, proved by a demo rather than by source.</summary>
+    /// <remarks>
+    /// **The SDK is one build's snapshot and this project reads thirteen years of demos**, so a
+    /// name TF2 has since renamed cannot appear in it. The engine keeps the evidence on the receive
+    /// side — <c>RecvPropFloat(RECVINFO_NAME(m_flModelScale, m_flModelWidthScale))</c>,
+    /// <c>c_baseanimating.cpp:181</c>, with Valve's comment "for demo compatibility only" — but a
+    /// receive table has no block structure to tie a name to a TABLE, which is the pair this test
+    /// exists to check.
+    ///
+    /// **So the pair is taken from a demo, which outranks both.**
+    /// `schema tf2-2007-build3258-pov-cp_granary m_flModelWidthScale` answers
+    /// <c>PROP DT_BaseAnimating.m_flModelWidthScale</c> — the 2007 client's own schema, saying which
+    /// table declared it. That is the strongest evidence available for a build whose source nobody
+    /// has, and it is the premise of this whole project: a demo carries the schema it was recorded
+    /// against.
+    ///
+    /// **Every entry needs a demo that declares it**, not an argument that it probably existed. One
+    /// entry so far (B271).
+    /// </remarks>
+    private static readonly HashSet<string> Retired =
+        ["DT_BaseAnimating.m_flModelWidthScale"];
+
     [Test]
     public void SendTables_EveryProperty_IsDeclaredInTheTableItIsLookedForIn()
     {
@@ -59,7 +81,7 @@ public sealed class SendTableConformanceTests
                     ? property[..property.IndexOf('[', StringComparison.Ordinal)]
                     : property;
 
-                if (!declared.Contains(sent))
+                if (!declared.Contains(sent) && !Retired.Contains($"{table}.{sent}"))
                 {
                     wrong.Add($"{table}.{property}");
                 }

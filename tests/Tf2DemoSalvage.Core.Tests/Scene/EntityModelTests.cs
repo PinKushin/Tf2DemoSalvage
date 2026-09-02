@@ -101,6 +101,49 @@ public sealed class EntityModelTests
         entity.ModelScale().ShouldBeNull();
     }
 
+    /// <remarks>
+    /// **The engine keeps TWO receivers for one member and says why**
+    /// (<c>game/client/c_baseanimating.cpp:180</c>):
+    ///
+    /// <code>
+    /// RecvPropFloat(RECVINFO(m_flModelScale)),
+    /// RecvPropFloat(RECVINFO_NAME(m_flModelScale, m_flModelWidthScale)), // for demo compatibility only
+    /// </code>
+    ///
+    /// <c>RECVINFO_NAME</c> receives the property named by its SECOND argument into the member named
+    /// by its first, so <c>m_flModelWidthScale</c> on the wire IS the model scale — under the name
+    /// TF2 used before 2013. Valve's own comment names demos as the reason the receiver survives.
+    ///
+    /// **The corpus splits exactly there.** Asking each era specimen's own schema: the 2007, 2008,
+    /// 2009 and 2011 clients declare <c>m_flModelWidthScale</c> and no <c>m_flModelScale</c>; the
+    /// 2013 build and z1800 declare <c>m_flModelScale</c> and no <c>m_flModelWidthScale</c>. Reading
+    /// only the modern name meant every entity in every pre-2013 demo took the caller's default of
+    /// 1 whatever the recording said (B271).
+    /// </remarks>
+    [Test]
+    public void ModelScale_SentUnderTheOldWireName_IsRead()
+    {
+        EntityState entity = State(
+            Property("DT_BaseAnimating", "m_flModelWidthScale", PropertyValue.FromFloat(0.75f)));
+
+        entity.ModelScale().ShouldBe(0.75f);
+    }
+
+    /// <remarks>
+    /// **The modern name wins when both arrive**, which is the order the engine's two receivers are
+    /// declared in and the only order that can be right: a build sending both would be sending the
+    /// compatibility copy second.
+    /// </remarks>
+    [Test]
+    public void ModelScale_SentUnderBothNames_TakesTheModernOne()
+    {
+        EntityState entity = State(
+            Property("DT_BaseAnimating", "m_flModelScale", PropertyValue.FromFloat(2f)),
+            Property("DT_BaseAnimating", "m_flModelWidthScale", PropertyValue.FromFloat(0.5f)));
+
+        entity.ModelScale().ShouldBe(2f);
+    }
+
     [Test]
     public void AnEntityWithNoDraw_IsHidden()
     {

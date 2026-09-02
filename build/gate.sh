@@ -238,7 +238,9 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # interpolation LoopingLerp already implemented for the animation cycle, three for how a track
 # blends them - including the control that a NON-looping parameter must not wrap, without which the
 # looping test passes against code that wraps everything.
-run Tf2DemoSalvage.Core.Tests     core     1648
+# 1648 -> 1650: the model scale's pre-2013 wire name (B271). One for reading it and one for the
+# modern name winning when both arrive.
+run Tf2DemoSalvage.Core.Tests     core     1650
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
@@ -890,7 +892,11 @@ run Tf2DemoSalvage.Content.Tests  content   865
 # **This number is ARITHMETIC, not measured**, against the repo's own rule -- the last full
 # corpus run reported 145 and exactly one Explicit test was added since. Recorded as such so
 # nobody reads it as a measurement; the next full gate will confirm or correct it.
-run Tf2DemoSalvage.Corpus.Tests   corpus     146
+# 146 -> 148: the era split in the model scale's wire name (B271), which is a question only real
+# bytes can answer - the SDK is one build's snapshot and cannot say what an older client sent. The
+# pair pins the exclusion SendTableConformanceTests now carries, so the exclusion goes red the day
+# it stops being true rather than being justified by prose forever.
+run Tf2DemoSalvage.Corpus.Tests   corpus     148
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that

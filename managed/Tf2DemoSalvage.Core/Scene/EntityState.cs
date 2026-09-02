@@ -49,6 +49,11 @@ public sealed class EntityState
             [
                 SequenceProperty, BodyProperty, PlaybackRateProperty,
                 ModelScaleProperty, SkinProperty,
+
+                // The model scale's pre-2013 wire name, which four of the six era specimens send
+                // INSTEAD of the modern one. Listed because this decoder genuinely looks for it,
+                // which is what this dictionary claims to enumerate (B271).
+                LegacyModelScaleProperty,
             ],
             [ServerAnimationTable] = [CycleProperty],
             [BasePlayerTable] = [FlagsProperty, LifeStateProperty],
@@ -178,6 +183,14 @@ public sealed class EntityState
     private const string ServerAnimationTable = "DT_ServerAnimationData";
     private const string PlaybackRateProperty = "m_flPlaybackRate";
     private const string ModelScaleProperty = "m_flModelScale";
+
+    /// <summary>What TF2 called the model scale before 2013.</summary>
+    /// <remarks>
+    /// Kept by the engine as a second receiver into the same member "for demo compatibility only"
+    /// (<c>c_baseanimating.cpp:181</c>) — which makes it this project's business rather than
+    /// legacy clutter, since half the corpus predates the rename.
+    /// </remarks>
+    private const string LegacyModelScaleProperty = "m_flModelWidthScale";
 
     /// <summary>Which material family the model draws with.</summary>
     /// <remarks>
@@ -1482,8 +1495,28 @@ public sealed class EntityState
     /// **Null rather than 1, and the caller supplies the default.** Answering zero for an absent
     /// property would draw the model at no size at all, which reads as a renderer that dropped it
     /// rather than as a property that never arrived.
+    ///
+    /// **Two wire names, one value, and the engine declares both receivers**
+    /// (<c>game/client/c_baseanimating.cpp:180</c>):
+    ///
+    /// <code>
+    /// RecvPropFloat(RECVINFO(m_flModelScale)),
+    /// RecvPropFloat(RECVINFO_NAME(m_flModelScale, m_flModelWidthScale)), // for demo compatibility only
+    /// </code>
+    ///
+    /// <c>RECVINFO_NAME</c> takes the WIRE name second, so <c>m_flModelWidthScale</c> is what TF2
+    /// called this property before 2013 — and Valve's comment names demos as the reason the old
+    /// receiver is still there. **The corpus splits exactly on that line**: the 2007, 2008, 2009 and
+    /// 2011 era specimens declare only <c>m_flModelWidthScale</c>, while the 2013 build and z1800
+    /// declare only <c>m_flModelScale</c>. Reading one name meant every entity in every pre-2013
+    /// demo drew at the caller's default of 1 (B271) — including a mini-sentry, which is 0.75.
+    ///
+    /// The modern name is preferred when both arrive, matching the order the receivers are declared
+    /// in. No corpus demo sends both.
     /// </remarks>
-    public float? ModelScale() => Number($"{AnimatingTable}.{ModelScaleProperty}");
+    public float? ModelScale() =>
+        Number($"{AnimatingTable}.{ModelScaleProperty}")
+        ?? Number($"{AnimatingTable}.{LegacyModelScaleProperty}");
 
     /// <summary>The entity's world position, if it has sent one.</summary>
     /// <returns>The position, or <c>null</c> when no origin has arrived.</returns>
