@@ -94,7 +94,23 @@ public sealed class ModelProbe : IProbe
                 + $"'{sequence.Label}' "
                 + $"{(sequence.Loops ? "LOOPS" : "one-shot")} "
                 + $"flags 0x{sequence.Flags:X}"
-                + (sequence.Activity.Length > 0 ? $" act {sequence.Activity}" : string.Empty));
+                + (sequence.Activity.Length > 0 ? $" act {sequence.Activity}" : string.Empty)
+                + (sequence.FiredEvents.Count > 0
+                    ? $" events {sequence.FiredEvents.Count}"
+                    : string.Empty));
+
+            // **The events, and WHICH SIDE fires each**, because the filter is the whole question:
+            // `DoAnimationEvents` skips anything that is not the client's, so a sequence full of
+            // server events gives a demo viewer nothing to do. Printed with the cycle so the
+            // firing arithmetic can be checked against a real model rather than a synthetic one.
+            foreach (StudioEvent fired in sequence.FiredEvents)
+            {
+                output.WriteLine(
+                    $"      event {fired.Id,5} at cycle {fired.Cycle:0.###} "
+                    + $"type 0x{fired.Type:X} "
+                    + $"{(fired.FiresOnTheClient() ? "CLIENT" : "server")}"
+                    + (fired.Options.Length > 0 ? $" '{fired.Options}'" : string.Empty));
+            }
         }
 
         for (int part = 0; part < model.BodyParts.Count; part++)
