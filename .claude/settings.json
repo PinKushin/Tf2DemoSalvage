@@ -25,6 +25,42 @@
             "statusMessage": "checking parity commits cite the engine"
           }
         ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/subagent-policy.ps1\" -Mode Gate",
+            "shell": "powershell",
+            "timeout": 15,
+            "statusMessage": "checking the subagent policy"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/subagent-policy.ps1\" -Mode Start",
+            "shell": "powershell",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/subagent-policy.ps1\" -Mode Stop",
+            "shell": "powershell",
+            "timeout": 15
+          }
+        ]
       }
     ],
     "PostToolUse": [
