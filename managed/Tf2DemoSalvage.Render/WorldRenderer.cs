@@ -4938,7 +4938,20 @@ internal sealed unsafe class WorldRenderer : IDisposable
         //
         // Same shape as every other blind instrument tonight: the resolution was chosen without
         // asking what had to remain visible through it.
-        _reportedDraw.TryGetValue(modelPath, out (int Kept, int Drawn, int Reports) last);
+        // **Keyed by model AND PASS, because one model is drawn in both** (B264). A weapon is a
+        // world model for other players and a viewmodel for the followed one, with entirely
+        // different geometry — `c_proto_medigun` submits 1,008 vertices in one pass and 14,976 in
+        // the other. Sharing one slot made each pass overwrite the other's, so the change guard
+        // below saw a change on EVERY frame and this line fired forever: measured on the UI
+        // suite's own log, 21,745 lines for that one model out of 37,897, and two models between
+        // them 80% of the whole file.
+        //
+        // The rule was already written down one file over, on `DrawTally.Report`: *"A change guard
+        // against a value that oscillates is not a guard."* Same trap, same week, same shape — a
+        // per-pass quantity keyed as though it were per-model.
+        (string Model, ModelPass Pass) subject = (modelPath, pass);
+
+        _reportedDraw.TryGetValue(subject, out (int Kept, int Drawn, int Reports) last);
 
         // **Guarded on the work.** The message below joins and de-duplicates a description of every
         // batch, which is real allocation on a path that runs for 250 props a frame. A diagnostic
@@ -4964,7 +4977,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
                         : $"{each.MaterialIndex}:{DescribeMaterial(each.MaterialIndex)}").Distinct())}]");
         }
 
-        _reportedDraw[modelPath] = (
+        _reportedDraw[subject] = (
             kept,
             drawn,
             last.Kept != kept || last.Drawn != drawn || last.Reports == 0
@@ -5000,7 +5013,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
     private readonly HashSet<(string Model, ModelPass Pass)> _reportedEmptyDraw = [];
 
     /// <summary>What each model last submitted, and how many changes it has reported.</summary>
-    private readonly Dictionary<string, (int Kept, int Drawn, int Reports)> _reportedDraw = [];
+    private readonly Dictionary<(string Model, ModelPass Pass), (int Kept, int Drawn, int Reports)>
+        _reportedDraw = [];
 
 
     /// <summary>Whether a batch is the alternative its body part shows.</summary>
