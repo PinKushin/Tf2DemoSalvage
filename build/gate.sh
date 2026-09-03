@@ -353,7 +353,7 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 # 41 -> 43: the fraction reaches the animation sampler (B279). The arithmetic and the wiring are
 # separate defects and only one is loud, so this asserts on what SkeletonPose HANDED the sampler,
 # with the control that a pose never given a fraction hands across zero.
-run Tf2DemoSalvage.Animation.Tests animation 60
+run Tf2DemoSalvage.Animation.Tests animation 64
 
 # 23: the scene layer's first test project of its own, and the reason it exists is B184 — Scene is
 # plain net10.0 and holds the densest behaviour in the renderer, but every test of it lived in the

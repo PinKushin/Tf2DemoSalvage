@@ -579,8 +579,9 @@ public static class StudioBones
     /// which is why this delegates rather than reimplementing the trigonometry.
     ///
     /// **Not <c>QuaternionSlerpNoAlign</c>**, which the engine reaches only for a bone flagged
-    /// <c>BONE_FIXED_ALIGNMENT</c> (<c>bone_setup.cpp:1492</c>). That flag is not read by this
-    /// project's parser, so every bone takes the aligning form — stated rather than left implicit.
+    /// <c>BONE_FIXED_ALIGNMENT</c> (<c>bone_setup.cpp:1492</c>) — see
+    /// <see cref="SlerpNoAlign"/>, and <see cref="StudioBoneFlags.FixedAlignment"/> for why an
+    /// animator would ask for it.
     /// </remarks>
     public static (float X, float Y, float Z, float W) Slerp(
         (float X, float Y, float Z, float W) from,
@@ -593,6 +594,91 @@ public static class StudioBones
             fraction);
 
         return (blended.X, blended.Y, blended.Z, blended.W);
+    }
+
+    /// <summary>Spherically interpolates without aligning first — <c>QuaternionSlerpNoAlign</c>.</summary>
+    /// <param name="from">The rotation at <paramref name="fraction"/> zero.</param>
+    /// <param name="to">The rotation at <paramref name="fraction"/> one.</param>
+    /// <param name="fraction">How far to travel.</param>
+    /// <returns>The blended rotation.</returns>
+    /// <remarks>
+    /// **<c>mathlib_base.cpp:1617</c>**, reached for a bone carrying
+    /// <see cref="StudioBoneFlags.FixedAlignment"/>:
+    ///
+    /// <code>
+    ///   cosom = p[0]*q[0] + p[1]*q[1] + p[2]*q[2] + p[3]*q[3];
+    ///   if ((1.0f + cosom) &gt; 0.000001f) {
+    ///       if ((1.0f - cosom) &gt; 0.000001f) {
+    ///           omega = acos( cosom ); sinom = sin( omega );
+    ///           sclp = sin( (1.0f - t)*omega) / sinom; sclq = sin( t*omega ) / sinom;
+    ///       } else { sclp = 1.0f - t; sclq = t; }
+    ///       for (i = 0; i &lt; 4; i++) qt[i] = sclp * p[i] + sclq * q[i];
+    ///   } else {
+    ///       qt[0] = -q[1]; qt[1] = q[0]; qt[2] = -q[3]; qt[3] = q[2];
+    ///       sclp = sin( (1.0f - t) * (0.5f * M_PI) ); sclq = sin( t * (0.5f * M_PI) );
+    ///       for (i = 0; i &lt; 3; i++) qt[i] = sclp * p[i] + sclq * qt[i];
+    ///   }
+    /// </code>
+    ///
+    /// **Written out rather than delegated, which <see cref="Slerp"/> can do and this cannot.**
+    /// `System.Numerics.Quaternion.Slerp` negates the target on a negative dot product — that IS the
+    /// alignment — so there is no way to ask it not to. The whole point here is the blend without
+    /// that step.
+    ///
+    /// **The antipodal arm is not a rounding guard, it is a different rotation.** When the two
+    /// quaternions are opposite there is no shorter arc to take, so Valve builds a perpendicular
+    /// from the target's own components and sweeps a quarter turn through it. Note its loop runs to
+    /// THREE, leaving <c>qt[3]</c> as the perpendicular's own <c>q[2]</c> — reproduced, because a
+    /// fourth iteration is the obvious tidy-up and would change the result.
+    /// </remarks>
+    public static (float X, float Y, float Z, float W) SlerpNoAlign(
+        (float X, float Y, float Z, float W) from,
+        (float X, float Y, float Z, float W) to,
+        float fraction)
+    {
+        const float Epsilon = 0.000001f;
+
+        float cosine = (from.X * to.X) + (from.Y * to.Y) + (from.Z * to.Z) + (from.W * to.W);
+
+        if (1f + cosine > Epsilon)
+        {
+            float fromShare;
+            float toShare;
+
+            if (1f - cosine > Epsilon)
+            {
+                float omega = MathF.Acos(cosine);
+                float sine = MathF.Sin(omega);
+
+                fromShare = MathF.Sin((1f - fraction) * omega) / sine;
+                toShare = MathF.Sin(fraction * omega) / sine;
+            }
+            else
+            {
+                fromShare = 1f - fraction;
+                toShare = fraction;
+            }
+
+            return (
+                (fromShare * from.X) + (toShare * to.X),
+                (fromShare * from.Y) + (toShare * to.Y),
+                (fromShare * from.Z) + (toShare * to.Z),
+                (fromShare * from.W) + (toShare * to.W));
+        }
+
+        // The antipodal case: a perpendicular built from the target, swept a quarter turn.
+        (float X, float Y, float Z, float W) perpendicular = (-to.Y, to.X, -to.W, to.Z);
+
+        float quarter = 0.5f * MathF.PI;
+        float fromArc = MathF.Sin((1f - fraction) * quarter);
+        float toArc = MathF.Sin(fraction * quarter);
+
+        // Valve's loop runs to three, so W keeps the perpendicular's value untouched.
+        return (
+            (fromArc * from.X) + (toArc * perpendicular.X),
+            (fromArc * from.Y) + (toArc * perpendicular.Y),
+            (fromArc * from.Z) + (toArc * perpendicular.Z),
+            perpendicular.W);
     }
 
     /// <summary>Scales a rotation toward identity — <c>QuaternionScale</c>.</summary>

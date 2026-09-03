@@ -539,12 +539,31 @@ public sealed class SkeletonPose : IBonePose
 
                 float s1 = 1f - s2;
 
+                // **`BONE_FIXED_ALIGNMENT` picks the blend that does NOT re-align** (B292):
+                //
+                //     if ( pStudioHdr->boneFlags(i) & BONE_FIXED_ALIGNMENT )
+                //         QuaternionSlerpNoAlign( q2[i], q1[i], s1, q3 );
+                //     else
+                //         QuaternionSlerp( q2[i], q1[i], s1, q3 );
+                //
+                // (`bone_setup.cpp:1492`). Aligning negates the target when it points the long way
+                // round, which is normally what keeps a limb from swinging through the body — but
+                // on a bone the animator has declared constrained, that negation flips it out of
+                // its authored range instead.
+                //
+                // **Valve's argument order is kept — layer first, base second, at `s1`.** For the
+                // aligning form the two orders agree, since the trig is symmetric under swapping
+                // the pair and the fraction. `SlerpNoAlign`'s ANTIPODAL arm is not: it builds a
+                // perpendicular out of its SECOND argument, so writing the pair the other way round
+                // would silently change the result in exactly the case the flag exists for.
                 result[bone] = new StudioBonePose(
                     bone,
                     ((under.Position.X * s1) + (over.Position.X * s2),
                      (under.Position.Y * s1) + (over.Position.Y * s2),
                      (under.Position.Z * s1) + (over.Position.Z * s2)),
-                    StudioBones.Slerp(under.Rotation, over.Rotation, s2));
+                    (_bones[bone].Flags & StudioBoneFlags.FixedAlignment) != 0
+                        ? StudioBones.SlerpNoAlign(over.Rotation, under.Rotation, s1)
+                        : StudioBones.Slerp(under.Rotation, over.Rotation, s2));
             }
         }
 

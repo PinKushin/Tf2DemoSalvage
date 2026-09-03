@@ -158,9 +158,11 @@ public sealed class BoneSetupConformanceTests
             "STUDIO_POST, QuaternionSM otherwise — with the per-bone weight list read through the " +
             "group's bone map, which is how a reload plays on a running player (B284). For a TF2 " +
             "PLAYER the source is not the wire at all: tf_player.cpp:774 excludes overlay_vars, so " +
-            "the layers come from CTEPlayerAnimEvent temp entities (B282). Still partial: an " +
-            "entity that DOES send m_AnimOverlay — a sentry, a dispenser — has its array decoded " +
-            "and not accumulated, and BONE_FIXED_ALIGNMENT would pick QuaternionSlerpNoAlign."),
+            "the layers come from CTEPlayerAnimEvent temp entities (B282), and an entity that DOES " +
+            "send m_AnimOverlay — a sentry, a dispenser — has its array walked in m_nOrder (B285). " +
+            "Still partial for one reason: SlerpBones picks QuaternionSlerpNoAlign for a bone " +
+            "flagged BONE_FIXED_ALIGNMENT (bone_setup.cpp:1492) and every bone here takes the " +
+            "aligning form. The flag is on StudioBone.Flags and is not tested for."),
 
         new BoneStage(
             "Init",

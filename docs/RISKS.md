@@ -10047,6 +10047,15 @@ asks, and the first thing to add alongside the wiring is one that does.
 
 ### B182 — the pose path has no denominator, so nobody can say how far it diverged — OPEN
 
+**Update 2026-09-03: the procedural half now has a MEASURED size, not a predicted one.** The
+`bone-flags` probe added for B292 counts `BONE_ALWAYS_PROCEDURAL` at **22 of 379 bones** on
+`koth_harvest_final` and **4 of 198** on `cp_fulgur`, and names them: `medic_earbuds.mdl:joint5`,
+`fob_e_flamethrower.mdl:chain1`, `fob_h_rocketlauncher_diamond.mdl:chain2`,
+`c_blackbox.mdl:weap_jig1`. Jiggle bones on cosmetics and weapons, in every demo looked at, and this
+project simulates none of them. Six of the eight flags the probe counts fire, so those are real
+counts rather than a broken read. `BONE_PHYSICALLY_SIMULATED` is zero in both, consistent with
+ragdolls being separate entities rather than a flag on a live skeleton.
+
 **Filed 2026-08-24.** The owner, on the bone-merge loop:
 
 > *"that loop just reeks and i dont trust how far its deverged from valves implementation"*
@@ -18687,3 +18696,78 @@ recoverable; it is a phase offset on a looping animation rather than a wrong ani
 
 **IK is still absent**, so `AddAutoplayLocks` and `SolveAutoplayLocks` around the loop are not
 reproduced. A model whose autoplay sequence is IK-driven will move its bones without the lock.
+
+## B292 — `BONE_FIXED_ALIGNMENT` chose the wrong blend, and TF2 does not use it — FIXED, MEASURED ZERO
+
+**`SlerpBones` picks between two blends per bone** (`bone_setup.cpp:1492`):
+
+```cpp
+if ( pStudioHdr->boneFlags(i) & BONE_FIXED_ALIGNMENT )
+    QuaternionSlerpNoAlign( q2[i], q1[i], s1, q3 );
+else
+    QuaternionSlerp( q2[i], q1[i], s1, q3 );
+```
+
+They differ by exactly one step: `QuaternionSlerp` is `QuaternionAlign` then
+`QuaternionSlerpNoAlign` (`mathlib_base.cpp:1605`), and the align step negates the target when it
+points the long way round. `studio.h:434` says why an animator would refuse it — *"bone can't spin
+360 degrees, all interpolation is normalized around a fixed orientation"*. On a constrained bone the
+negation flips it out of its authored range rather than saving it a long way round.
+
+Every bone here took the aligning form, and the flag was on `StudioBone.Flags` already, unread. Now
+tested for.
+
+### Two details that would have been wrong if taken for granted
+
+**Valve's argument order is kept — layer first, base second, at `s1`.** For the aligning form the
+two orders agree, because the trig is symmetric under swapping the pair and the fraction.
+`SlerpSlerpNoAlign`'s ANTIPODAL arm is not: it builds a perpendicular out of its SECOND argument, so
+writing the pair the other way round changes the result in exactly the case the flag exists for.
+
+**That antipodal arm's loop runs to THREE, not four**, leaving `qt[3]` as the perpendicular's own
+`q[2]` rather than a blend. Reproduced. A fourth iteration is the obvious tidy-up and would change
+the answer (D89).
+
+### Measured: no TF2 model in the sampled demos sets it
+
+A new `bone-flags` probe walks a demo's models through the production loader and counts every bone
+flag with its denominator.
+
+| flag | `z1800` / `koth_harvest_final` | `tf2-2026-pub-pov-clean` / `cp_fulgur` |
+|---|---|---|
+| `BONE_FIXED_ALIGNMENT` | 0 of 379 | 0 of 198 |
+| `BONE_USED_BY_BONE_MERGE` | 36 | 50 |
+| `BONE_ALWAYS_PROCEDURAL` | 22 | 4 |
+| `BONE_PHYSICALLY_SIMULATED` | 0 | 0 |
+| `BONE_USED_BY_HITBOX` | 336 | 149 |
+| `BONE_USED_BY_ATTACHMENT` | 66 | 61 |
+| `BONE_USED_BY_VERTEX_LOD0` | 356 | 169 |
+
+**Six of the eight fire, so the zeros are an answer about TF2 rather than about the probe.** The
+fix changes nothing visible on this content and is kept because parity is the standard, not the
+visible-difference test (D89) — a model that sets the bit is one workshop item away, and the
+alternative is a divergence nobody would find.
+
+### The census answered a question filed elsewhere
+
+**`BONE_ALWAYS_PROCEDURAL` is 22 of 379 and 4 of 198, and the named bones are exactly the ones B182
+predicts:** `medic_earbuds.mdl:joint5`, `fob_e_flamethrower.mdl:chain1`,
+`fob_h_rocketlauncher_diamond.mdl:chain2`, `c_blackbox.mdl:weap_jig1`. Jiggle bones on cosmetics and
+weapons, in every demo looked at, and this project simulates none of them. That is a real visible
+gap with a measured size, where it was previously a prediction.
+
+**`BONE_PHYSICALLY_SIMULATED` is zero in both**, which is consistent with ragdolls being separate
+entities rather than a flag on a live player's skeleton.
+
+### Verified
+
+Four tests. The two that exercise the blend functions predict exact values from Valve's formula
+reduced by the half-angle identity, so the prediction is independent of the implementation — the
+first version of it was simply wrong arithmetic, went red against correct code, and was corrected
+rather than the code being touched. The two that exercise the WIRING both reddened when the flag
+test was inverted, while the two function tests correctly stayed green.
+
+**The first fixture could not fail and the second sabotage did not compile**, both caught rather than
+believed: the fixture returned one rotation for every sequence, so the base and the layer were the
+same pose and any blend returned it unchanged; and the first sabotage made a conditional return the
+same value on both arms, which SonarAnalyzer rejects as a build error rather than a red test.

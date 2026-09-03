@@ -73,6 +73,25 @@ public static class StudioBoneFlags
 
     /// <summary><c>BONE_PHYSICS_PROCEDURAL</c> — physics computes it, but not as a ragdoll body.</summary>
     public const int PhysicsProcedural = 0x00000002;
+
+    /// <summary><c>BONE_FIXED_ALIGNMENT</c> — interpolate this bone without re-aligning it.</summary>
+    /// <remarks>
+    /// **<c>studio.h:434</c>**, whose own comment is the whole explanation: *"bone can't spin 360
+    /// degrees, all interpolation is normalized around a fixed orientation"*.
+    ///
+    /// **What it changes is which of two blends runs, and the pair differ by one step.**
+    /// `QuaternionSlerp` is `QuaternionAlign` followed by `QuaternionSlerpNoAlign`
+    /// (<c>mathlib_base.cpp:1605</c>); the align step negates the target when it points the long way
+    /// round, because a quaternion and its negation are the same rotation. `SlerpBones` skips that
+    /// step for a bone carrying this bit (<c>bone_setup.cpp:1492</c>), and `BlendBones` skips the
+    /// same step in `QuaternionBlend` (<c>:1608</c>).
+    ///
+    /// **So the flag is an assertion by the ANIMATOR that the shorter arc is not always the right
+    /// one.** Aligning is normally the safe choice — without it a limb can swing 300 degrees
+    /// through the body to reach a pose 60 degrees away — but on a bone whose rotation is
+    /// constrained, the negation flips it out of its authored range instead.
+    /// </remarks>
+    public const int FixedAlignment = 0x00100000;
 }
 
 /// <summary>

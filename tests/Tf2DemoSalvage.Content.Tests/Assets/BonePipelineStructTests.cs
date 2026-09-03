@@ -163,6 +163,7 @@ public sealed class BonePipelineStructTests
         constants["BONE_ALWAYS_PROCEDURAL"].ShouldBe(StudioBoneFlags.AlwaysProcedural);
         constants["BONE_PHYSICALLY_SIMULATED"].ShouldBe(StudioBoneFlags.PhysicallySimulated);
         constants["BONE_PHYSICS_PROCEDURAL"].ShouldBe(StudioBoneFlags.PhysicsProcedural);
+        constants["BONE_FIXED_ALIGNMENT"].ShouldBe(StudioBoneFlags.FixedAlignment);
     }
 
     [Test]

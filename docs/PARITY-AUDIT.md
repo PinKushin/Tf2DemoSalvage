@@ -127,7 +127,22 @@ From the ranked output, ignoring the shader helpers (a separate job):
 | 25 | `CClientLeafSystem::CollateRenderablesInLeaf` | what draws and in which list |
 | 19 | `CEconEntity::UpdateAttachmentModels` | finding 1 above |
 
-### 3. `C_BaseAnimating::DoAnimationEvents` is not implemented, and the MDL event array is never read — OPEN
+### 3. `C_BaseAnimating::DoAnimationEvents` is not implemented, and the MDL event array is never read — CLOSED by B275
+
+**Closed 2026-09-03, and the finding below is kept verbatim because it was correct when written.**
+Both measurements have since been answered: `mstudioevent_t` is parsed by
+`Content/Assets/StudioEvent.cs`, the firing rule lives in `AnimationEventFiring.cs` with the
+backwards-jump and old-system branches, `m_nResetEventsParity` is carried onto the pose by
+`DemoTimeline` and read by the firing rule, and `EntityModels` calls it from the pose build at the
+point the cycle is advanced — which B275 records as the part that mattered, since a player's cycle
+is never on the wire and a probe reading `m_flCycle` reported zero events on a demo full of them.
+
+**This entry sat marked OPEN for eight days after it was fixed**, and it was found by reading the
+document rather than by anything that checks. Two conformance entries in
+`BoneSetupConformanceTests` were stale the same way on the same day — `GetPoseParameters` filed
+Partial for a gap B269 closed, and `AccumulateLayers` for one B285 closed. **A stale OPEN is worse
+than a stale number**: it sends the next session to re-implement something that is already there,
+and the re-implementation looks like progress the whole time.
 
 Next down the branch-count list, and it is the `attached_models` shape again: a whole mechanism
 absent rather than a branch missed. Two measurements, both from this repository:
