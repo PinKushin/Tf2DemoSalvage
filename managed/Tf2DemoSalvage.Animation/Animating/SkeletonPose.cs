@@ -25,7 +25,8 @@ namespace Tf2DemoSalvage.Animation.Animating;
 public sealed class SkeletonPose : IBonePose
 {
     private readonly IReadOnlyList<StudioBone> _bones;
-    private readonly Func<int, int, IReadOnlyList<float>, IReadOnlyList<StudioBonePose>> _animation;
+    private readonly Func<int, int, float, IReadOnlyList<float>, IReadOnlyList<StudioBonePose>>
+        _animation;
 
     /// <summary>Creates a pose source over one model's skeleton.</summary>
     /// <param name="bones">The skeleton, as <see cref="StudioBones.Read"/> returned it.</param>
@@ -37,7 +38,7 @@ public sealed class SkeletonPose : IBonePose
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public SkeletonPose(
         IReadOnlyList<StudioBone> bones,
-        Func<int, int, IReadOnlyList<float>, IReadOnlyList<StudioBonePose>> animation)
+        Func<int, int, float, IReadOnlyList<float>, IReadOnlyList<StudioBonePose>> animation)
     {
         ArgumentNullException.ThrowIfNull(bones);
         ArgumentNullException.ThrowIfNull(animation);
@@ -90,6 +91,19 @@ public sealed class SkeletonPose : IBonePose
 
     /// <summary>Which frame of it.</summary>
     public int Frame { get; set; }
+
+    /// <summary>How far past that frame toward the next — the engine's <c>s</c>.</summary>
+    /// <remarks>
+    /// **<c>CalcPoseSingle</c> keeps a frame AND a fraction** (<c>bone_setup.cpp:915</c>):
+    /// <c>iFrame = (int)fFrame; s = (fFrame - iFrame);</c>, and every bone it samples is
+    /// <c>CalcBoneQuaternion( iFrame, s, … )</c> — a blend of that frame with the next.
+    ///
+    /// This project had only the frame, so an animation played its authored poses and nothing
+    /// between them: about thirty a second against a viewer drawing several hundred, which is what
+    /// stepping is (B279). Zero reproduces the old behaviour exactly, which is what a caller with
+    /// nothing to blend — a single-frame pose holder, the end of a one-shot — should pass.
+    /// </remarks>
+    public float FrameFraction { get; set; }
 
     /// <summary>Every pose parameter's value, normalised, in this model's own order.</summary>
     /// <remarks>
@@ -171,7 +185,8 @@ public sealed class SkeletonPose : IBonePose
 
         long animatedAt = System.Diagnostics.Stopwatch.GetTimestamp();
 
-        IReadOnlyList<StudioBonePose> animated = _animation(Sequence, Frame, PoseValues);
+        IReadOnlyList<StudioBonePose> animated =
+            _animation(Sequence, Frame, FrameFraction, PoseValues);
 
         AnimationTicks += System.Diagnostics.Stopwatch.GetTimestamp() - animatedAt;
         AnimationCalls++;

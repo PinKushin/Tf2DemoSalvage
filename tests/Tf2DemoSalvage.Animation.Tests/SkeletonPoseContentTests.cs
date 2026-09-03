@@ -231,6 +231,6 @@ public sealed class SkeletonPoseContentTests
         // The rest pose: no animation overrides. Enough for every claim here, which are all about
         // the HIERARCHY and the merge rather than about a sequence.
         return new AnimatingEntity(
-            new SkeletonPose(bones, (_, _, _) => []), new BoneFrameCounter());
+            new SkeletonPose(bones, (_, _, _, _) => []), new BoneFrameCounter());
     }
 }

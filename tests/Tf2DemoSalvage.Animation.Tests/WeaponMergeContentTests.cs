@@ -75,7 +75,7 @@ public sealed class WeaponMergeContentTests
         IReadOnlyList<StudioBone> weaponBones =
             Bones("models/weapons/c_models/c_stickybomb_launcher/c_stickybomb_launcher.mdl");
 
-        SkeletonPose playerPose = new(playerBones, (_, _, _) => [])
+        SkeletonPose playerPose = new(playerBones, (_, _, _, _) => [])
         {
             EntityTransform = [1f, 0f, 0f, 1000f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f],
         };
@@ -84,7 +84,7 @@ public sealed class WeaponMergeContentTests
 
         // The weapon's own placement is the origin, exactly as the wire sends it: FollowEntity
         // zeroes local origin and angles because the client takes the parent's bones outright.
-        AnimatingEntity held = new(new SkeletonPose(weaponBones, (_, _, _) => []), clock)
+        AnimatingEntity held = new(new SkeletonPose(weaponBones, (_, _, _, _) => []), clock)
         {
             Follows = player,
         };

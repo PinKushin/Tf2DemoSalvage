@@ -559,7 +559,12 @@ public sealed class EntityModelSet
                 (float)advanced, skinned.Loops(sequence));
 
             posed.Sequence = sequence;
-            posed.Frame = StudioSequences.FrameFor(
+
+            // **The frame AND how far past it, which is `CalcPoseSingle`'s two lines** (B279).
+            // `iFrame = (int)fFrame; s = (fFrame - iFrame);` — the fraction is what the bone
+            // sampling blends with, and without it an animation plays its authored frames and
+            // nothing between them.
+            (posed.Frame, posed.FrameFraction) = StudioSequences.FrameAt(
                 phase, skinned.Frames(sequence), skinned.Loops(sequence));
 
             // **`DoAnimationEvents`, and it has to be HERE** (B275). The walk asks what the cycle

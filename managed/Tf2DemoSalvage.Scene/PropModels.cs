@@ -1452,7 +1452,24 @@ public static class PropModels
         /// to the caller.
         /// </remarks>
         public IReadOnlyList<StudioBonePose> Locals(
-            int sequence, int frame, IReadOnlyList<float> poseValues)
+            int sequence, int frame, IReadOnlyList<float> poseValues) =>
+            Locals(sequence, frame, 0f, poseValues);
+
+        /// <summary>The animation's local bone poses, sampled between two frames.</summary>
+        /// <param name="sequence">The merged sequence number.</param>
+        /// <param name="frame">The frame the cycle landed on.</param>
+        /// <param name="fraction">How far from it toward the next — the engine's <c>s</c>.</param>
+        /// <param name="poseValues">Every pose parameter, normalised.</param>
+        /// <returns>The bones the animation moves; ones it omits keep their rest values.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="poseValues"/> is null.</exception>
+        /// <remarks>
+        /// **The fraction reaches every corner of the blend grid, which is what the engine does**
+        /// (B279). `CalcPoseSingle` samples each of the up-to-three grid animations at the SAME
+        /// `iFrame` and `s` and then weights them, so the frame blend sits underneath the grid
+        /// blend rather than beside it.
+        /// </remarks>
+        public IReadOnlyList<StudioBonePose> Locals(
+            int sequence, int frame, float fraction, IReadOnlyList<float> poseValues)
         {
             ArgumentNullException.ThrowIfNull(poseValues);
 
@@ -1467,7 +1484,7 @@ public static class PropModels
 
             if (chosen.Blend is not { Blends: true } grid || poseValues.Count == 0)
             {
-                return PoseOf(where.Group, chosen.Animation, frame);
+                return PoseBetween(where.Group, chosen.Animation, frame, fraction);
             }
 
             // The owning group's map, because paramindex is local to it. An unknown group gets an
@@ -1482,7 +1499,8 @@ public static class PropModels
 
             (int[] animations, float[] weights) = grid.ThreeWay(x, y, settingX, settingY);
 
-            IReadOnlyList<StudioBonePose> pose = PoseOf(where.Group, animations[0], frame);
+            IReadOnlyList<StudioBonePose> pose =
+                PoseBetween(where.Group, animations[0], frame, fraction);
 
             // **On the diagonal the middle corner drops out**, and the remaining two are blended
             // by their share of what is left rather than by weight[2] outright.
@@ -1493,7 +1511,7 @@ public static class PropModels
                 return share <= 0f
                     ? pose
                     : StudioPoseBlend.Blend(
-                        Bones, pose, PoseOf(where.Group, animations[2], frame),
+                        Bones, pose, PoseBetween(where.Group, animations[2], frame, fraction),
                         weights[2] / share);
             }
 
@@ -1502,11 +1520,17 @@ public static class PropModels
             if (pair > 0f)
             {
                 pose = StudioPoseBlend.Blend(
-                    Bones, pose, PoseOf(where.Group, animations[1], frame), weights[1] / pair);
+                    Bones,
+                    pose,
+                    PoseBetween(where.Group, animations[1], frame, fraction),
+                    weights[1] / pair);
             }
 
             return StudioPoseBlend.Blend(
-                Bones, pose, PoseOf(where.Group, animations[2], frame), weights[2]);
+                Bones,
+                pose,
+                PoseBetween(where.Group, animations[2], frame, fraction),
+                weights[2]);
         }
 
         /// <summary>How fast a sequence was authored to travel, in units a second.</summary>
@@ -1570,6 +1594,48 @@ public static class PropModels
         /// moves the wrong joints by the right amounts. Valve remap every animation through
         /// <c>masterBone</c> for exactly this — <c>bone_setup.cpp:966</c>.
         /// </remarks>
+        /// <summary>One animation sampled BETWEEN two of its frames, as the engine samples it.</summary>
+        /// <param name="group">Which included model the animation belongs to.</param>
+        /// <param name="animation">The animation index within that group.</param>
+        /// <param name="frame">The frame the cycle landed on.</param>
+        /// <param name="fraction">How far from it toward the next, the engine's <c>s</c>.</param>
+        /// <returns>The blended bone poses.</returns>
+        /// <remarks>
+        /// **<c>CalcPoseSingle</c> never samples one frame** (<c>bone_setup.cpp:915</c>): it takes
+        /// <c>iFrame</c> and <c>s</c> and every bone is <c>CalcBoneQuaternion( iFrame, s, … )</c>,
+        /// a blend of that frame with the next. This project sampled the frame alone, so an
+        /// animation played its authored frames and nothing between them — thirty poses a second
+        /// against a viewer drawing several hundred, which is what stepping is (B279).
+        ///
+        /// **The blend is the same one the pose-parameter grid already uses.**
+        /// <c>StudioPoseBlend.Blend</c> slerps rotations and lerps positions, which is what
+        /// <c>CalcBoneQuaternion</c> does between two keys; the grid then composes on top exactly
+        /// as the engine's does, since it samples every corner at the same <c>iFrame</c> and
+        /// <c>s</c>.
+        ///
+        /// A zero fraction skips the second read entirely, which is the common case for a
+        /// single-frame pose holder and for the last frame of a one-shot.
+        /// </remarks>
+        private IReadOnlyList<StudioBonePose> PoseBetween(
+            int group, int animation, int frame, float fraction)
+        {
+            IReadOnlyList<StudioBonePose> pose = PoseOf(group, animation, frame);
+
+            if (fraction <= 0f || pose.Count == 0)
+            {
+                return pose;
+            }
+
+            IReadOnlyList<StudioBonePose> next = PoseOf(group, animation, frame + 1);
+
+            // **A frame past the end reads as nothing, and holding is the right answer there.**
+            // `StudioAnimation.Pose` answers empty for a frame the animation does not have, and
+            // the engine never asks for one — at the end its fraction is zero.
+            return next.Count == 0
+                ? pose
+                : StudioPoseBlend.Blend(BonesOf(group), pose, next, fraction);
+        }
+
         private IReadOnlyList<StudioBonePose> PoseOf(int group, int animation, int frame)
         {
             IReadOnlyList<StudioBone> owner = BonesOf(group);

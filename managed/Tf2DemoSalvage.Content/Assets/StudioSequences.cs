@@ -345,6 +345,60 @@ public static class StudioSequences
         return ((frame % distinct) + distinct) % distinct;
     }
 
+    /// <summary>Where a cycle lands: the frame, and how far past it.</summary>
+    /// <param name="cycle">How far through the sequence, where one is the end.</param>
+    /// <param name="frames">How many frames the animation has.</param>
+    /// <param name="loops">Whether the sequence loops, from <c>STUDIO_LOOPING</c>.</param>
+    /// <returns>The frame, and the fraction from it toward the next.</returns>
+    /// <remarks>
+    /// **<c>CalcPoseSingle</c>, <c>public/bone_setup.cpp:915</c>**, both lines:
+    ///
+    /// <code>
+    /// float fFrame = cycle * (animdesc.numframes - 1);
+    ///
+    /// iFrame = (int)fFrame;
+    /// s = (fFrame - iFrame);
+    /// </code>
+    ///
+    /// **The fraction is the half this project never had** (B279). Every bone the engine samples is
+    /// <c>CalcBoneQuaternion( iFrame, s, … )</c> — a blend of frame <c>iFrame</c> with the next —
+    /// so dropping <c>s</c> plays an animation as its authored frames and nothing between them.
+    /// That is roughly thirty poses a second against a viewer drawing several hundred, and it is
+    /// what stepping is.
+    ///
+    /// **Truncated, not rounded**, which is what <c>(int)</c> does in C++ and what leaves a
+    /// fraction in [0, 1). <see cref="FrameFor(float, int, bool)"/> rounds on its one-shot path, so
+    /// the two disagree by half a frame there — this is the one that matches the engine.
+    ///
+    /// **Never returns a frame the animation does not have**, so a caller may always ask for
+    /// <c>Frame + 1</c> clamped to the last: at the end the fraction is zero, so the next frame is
+    /// not wanted at all.
+    /// </remarks>
+    public static (int Frame, float Fraction) FrameAt(float cycle, int frames, bool loops)
+    {
+        if (frames <= 1 || !float.IsFinite(cycle))
+        {
+            return (0, 0f);
+        }
+
+        float wrapped = cycle is >= 0f and <= 1f ? cycle : cycle - MathF.Floor(cycle);
+
+        int distinct = frames - 1;
+        float exact = wrapped * distinct;
+
+        int frame = (int)exact;
+
+        if (frame >= distinct)
+        {
+            // **The end, and the two kinds reach it differently.** A one-shot holds its last pose
+            // there; a loop never arrives, because `ClampCycle` wraps it below one first. Either
+            // way there is no next frame to blend toward.
+            return (loops ? 0 : distinct, 0f);
+        }
+
+        return (frame, exact - frame);
+    }
+
     /// <summary>Brings an advanced cycle back into range, wrapping only if the sequence loops.</summary>
     /// <param name="cycle">How far through the sequence, advanced and possibly past the end.</param>
     /// <param name="loops">Whether the sequence loops, from <c>STUDIO_LOOPING</c>.</param>

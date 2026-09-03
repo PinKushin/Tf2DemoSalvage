@@ -350,7 +350,10 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 # demo.mdl, 2 of 5. Written because the viewer put weapons in the wrong place and the log could not
 # say whether they had paired — the diagnostic for the thing that broke had been deleted with the
 # code it lived in, and is now back in BoneMergeCache where it belongs.
-run Tf2DemoSalvage.Animation.Tests animation 41
+# 41 -> 43: the fraction reaches the animation sampler (B279). The arithmetic and the wiring are
+# separate defects and only one is loud, so this asserts on what SkeletonPose HANDED the sampler,
+# with the control that a pose never given a fraction hands across zero.
+run Tf2DemoSalvage.Animation.Tests animation 43
 
 # 23: the scene layer's first test project of its own, and the reason it exists is B184 — Scene is
 # plain net10.0 and holds the densest behaviour in the renderer, but every test of it lived in the
@@ -522,7 +525,10 @@ run Tf2DemoSalvage.Animation.Tests animation 41
 # reports the array the skeleton was posed with, and two on `TimelineMoments.OnNewModel` - the one
 # call that travels from the scene INTO the demo, and the only hop in that chain that can fail
 # silently.
-run Tf2DemoSalvage.Scene.Tests    scene     329
+# 329 -> 332: the client-side animation selection stays wired (written during B279 on a diagnosis
+# that was WRONG - the call was never missing; a grep truncated by `head -6` hid it). Kept because
+# the scene-level one is the only test that reddens if MomentScene.Build ever loses the call.
+run Tf2DemoSalvage.Scene.Tests    scene     332
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -844,7 +850,10 @@ run Tf2DemoSalvage.Presentation.Tests presentation 438
 # 865 -> 876: DoAnimationEvents' traversal (B275). Eleven for the walk, one of which records an
 # engine behaviour the first version of it asserted the OPPOSITE of - on a loop, head events below
 # the backtrack do not fire.
-run Tf2DemoSalvage.Content.Tests  content   876
+# 876 -> 882: FrameAt, the inter-frame fraction CalcPoseSingle keeps and this project dropped
+# (B279). Six cases, including the control that a loop still lands on the frame FrameFor always
+# gave it - only the fraction is new.
+run Tf2DemoSalvage.Content.Tests  content   882
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2

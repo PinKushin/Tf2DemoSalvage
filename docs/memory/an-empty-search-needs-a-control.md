@@ -105,3 +105,19 @@ than sensitivity to the case that actually shipped.
 Related: [[an-uncoverable-gap-is-usually-your-reader]], [[nothing-is-closed]],
 [[a-moves-regressions-are-wiring]],
 [[instrument-bugs-outnumber-decoder-bugs]].
+
+## A truncated search is an empty search with a plausible tail
+
+B279's first diagnosis. `grep -rn UpdateClientSideAnimations … | head -6` returned six lines, all
+comments and the definition, and "no call site" was concluded — a fix was written for it and a
+duplicate call added to production. **The call was the seventh line**, in `MomentScene.Build`.
+The `head` was there to keep the tool result short, and it cut off exactly the line that answered
+the question.
+
+Second instance the same day: `head -8` on a `simlag` histogram hid the `>=+8` bucket that held a
+third of the mass, and the distribution was misread as "mostly −4 and 0" for one round.
+
+**The rule: never cap a search whose ABSENCE you are about to act on.** Cap the ones you are only
+skimming. If a result must be short, count it first — `grep -c` — and only then print a slice, so a
+truncated list cannot be mistaken for a complete one. A `head` on evidence is a truncated trx total
+with the truncation hidden, which is [[read-the-trx-total-not-the-console]] exactly.

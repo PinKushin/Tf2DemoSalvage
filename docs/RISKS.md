@@ -17735,7 +17735,7 @@ handed the spline its third sample whenever one existed, with no interval check 
 entity holding a pose across two packets, which is the ordinary case for anything animating in
 place, splined through a zero-length animation interval. Same rule, other clock.
 
-## B279 — animation plays discrete frames; the engine blends between them — OPEN, and it is the stepping
+## B279 — animation played discrete frames; the engine blends between them — FIXED, and it was the stepping
 
 **The owner, watching z1800**: *"its still animating in steps not like it should be"*, then *"players
 are not even walking animating right now, they just kinda slide in the run pose"*, then the
@@ -17793,3 +17793,31 @@ the sequence, and the player's speed and move_x beside them.
 It took three attempts to point at the right subject: it asked `PropsAt` for a player, which reports
 "absent" for every one of them because a player becomes a prop only when `MomentScene` puts it
 there. That is the third probe this session to report a confident nothing for that reason.
+
+### What was built
+
+**`StudioSequences.FrameAt(cycle, frames, loops)`** returns the engine's two numbers — the frame and
+the fraction toward the next — transcribed from the two lines above. It truncates where the old
+one-shot path of `FrameFor` rounded, which is what `(int)` does in C++ and what leaves a fraction in
+[0, 1). Six conformance tests, including the control that a loop still lands on the frame it always
+did.
+
+**`PropModels.SkinnedModel.PoseBetween(group, animation, frame, fraction)`** samples frame and
+frame+1 and blends them with `StudioPoseBlend.Blend` — the same slerp-and-lerp the pose-parameter
+grid already used, which is what `CalcBoneQuaternion` does between two keys. **The fraction reaches
+every corner of the blend grid**, because `CalcPoseSingle` samples each of the up-to-three grid
+animations at the SAME `iFrame` and `s` and weights them afterwards: the frame blend sits underneath
+the grid blend, not beside it. A zero fraction skips the second read entirely.
+
+**`SkeletonPose.FrameFraction`** carries it to the sampler, and `EntityModelSet.Simulate` computes
+both numbers from the same `phase` it always computed the frame from.
+
+**Two of the three tests are the arithmetic; the third is the wiring**, and the split is deliberate
+after B268, B269 and B275 in one session — three mechanisms whose hard half worked and whose call
+was missing. `FrameFractionWiringTests` asserts on what the animation sampler was HANDED, with the
+control that a pose never given a fraction hands across zero, which is exactly the old behaviour.
+
+**What this does not change.** Which frame an animation is on — the loop mapping onto `frames − 1`
+poses, the one-shot holding its last frame, the cycle arithmetic B276 and the two clocks feed it —
+is all as it was. The only new number is the one between two frames, and the only new work is one
+more pose read and one blend per animating entity per frame.

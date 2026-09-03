@@ -8,21 +8,21 @@ namespace Tf2DemoSalvage.Scene.Tests;
 /// A player's sequence is CHOSEN, and something has to do the choosing.
 /// </summary>
 /// <remarks>
-/// **B279, and it is a wiring defect of the exact shape this project keeps meeting.**
-/// `EntityModelSet.UpdateClientSideAnimations` existed, `PlayerAnimation.For` behind it was tested
-/// on its own, `MomentScene`'s own remarks described the order — *"ours is the same:
-/// `UpdateClientSideAnimations`, then `Instances`"* — and **nothing called it**. The call was lost
-/// when the work moved out of `MainForm.ShowMoment` (B188); the method's doc still says it lives
-/// there.
+/// **Written during B279 on a diagnosis that turned out to be WRONG, and kept because the guard is
+/// right.** The claim was that `EntityModelSet.UpdateClientSideAnimations` had no caller — a grep
+/// appeared to show it, a duplicate call was added to `MomentScene.Pose`, and then the grep turned
+/// out to have been truncated by `head -6`: the real call is the seventh line, in
+/// `MomentScene.Build` at the point its own comment describes, *"Valve's own pass, under Valve's
+/// own name"*. The duplicate was reverted and `MomentScene` is unchanged.
 ///
-/// **The cost was every player's animation.** TF2 runs `CBasePlayerAnimState` on the client and
-/// picks a sequence from an activity, so a player's `m_nSequence` off the wire is not the driving
-/// value — it decodes to 0. Without the call every player held one pose while their position
-/// interpolated, which the owner reported as *"they just kinda slide in the run pose"*.
+/// **What these tests actually pin is that the call stays where it is.** TF2 runs
+/// `CBasePlayerAnimState` on the client and picks a player's sequence from an activity, so a
+/// player's `m_nSequence` off the wire is not the driving value — it decodes to 0 — and if the
+/// call were ever lost in a move (it has moved once already, out of `MainForm.ShowMoment` in
+/// B188) every player would hold one pose while their position interpolated. Nothing else in the
+/// suite would notice: every other test of this path calls `PlayerAnimation.For` directly.
 ///
-/// **Every unit test still passed**, because they all called `PlayerAnimation.For` directly. This
-/// one asserts on the drawn set after the pipeline has run, which is the only level the missing
-/// call is visible at — `docs/memory/output-level-assertion-or-it-is-not-done.md`.
+/// The stepping the owner saw was B279 itself — the missing inter-frame fraction — not this.
 /// </remarks>
 public sealed class ClientSideAnimationWiringTests
 {
@@ -73,13 +73,12 @@ public sealed class ClientSideAnimationWiringTests
     }
 
     /// <remarks>
-    /// **The one that would have caught B279, and the two above would not have.** They call
+    /// **The only one of the three that tests the WIRING.** The two above call
     /// `UpdateClientSideAnimations` themselves, so they pass whether or not anything in production
-    /// does — which is exactly the state the repository was in: the method worked, its unit tests
-    /// were green, and `MomentScene.Pose` never invoked it.
-    ///
-    /// This drives the scene the way the viewer does and reads the sequence off the drawn set
-    /// afterwards. It fails the moment the call goes missing again.
+    /// does. This one drives the scene the way the viewer does — `Build`, then `Pose` — and reads
+    /// the sequence off the drawn set afterwards, so it fails the moment the call is lost from
+    /// `MomentScene.Build`. It has not been lost; this exists so that a future move cannot lose it
+    /// silently, the way B188's move was briefly and wrongly believed to have.
     /// </remarks>
     [Test]
     public void Pose_ForAMovingPlayer_HasChosenASequenceByActivity()
