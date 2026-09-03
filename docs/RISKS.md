@@ -10056,6 +10056,20 @@ project simulates none of them. Six of the eight flags the probe counts fire, so
 counts rather than a broken read. `BONE_PHYSICALLY_SIMULATED` is zero in both, consistent with
 ragdolls being separate entities rather than a flag on a live skeleton.
 
+**And the probe was then asked WHICH rule, because the flag alone cannot say.** `CalcProceduralBone`
+(`bone_setup.cpp:4932`) implements four rules and returns false for the fifth, which
+`BuildTransformations` handles separately — so "22 procedural bones" could have meant any of five
+unimplemented mechanisms. Measured by `proctype`:
+
+| rule | `koth_harvest_final` | `cp_fulgur` |
+|---|---|---|
+| `STUDIO_PROC_JIGGLE` | 22 of 379 | 4 of 198 |
+| `AXISINTERP`, `QUATINTERP`, `AIMATBONE`, `AIMATATTACH` | 0 | 0 |
+
+**Every procedural bone in both demos is a jiggle bone.** That turns five unimplemented rules into
+one that matters and four that no content here uses — which is the difference between a large
+subsystem and a single function, and it was one probe line away the whole time.
+
 **Filed 2026-08-24.** The owner, on the bone-merge loop:
 
 > *"that loop just reeks and i dont trust how far its deverged from valves implementation"*

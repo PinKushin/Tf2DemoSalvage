@@ -115,6 +115,14 @@ public sealed class BoneFlagProbe : IProbe
         int[] counts = new int[flags.Length];
         Dictionary<int, List<string>> examples = [];
 
+        // **`proctype` decides WHICH rule computes a procedural bone, and the five are not
+        // interchangeable.** `CalcProceduralBone` (`bone_setup.cpp:4932`) handles AXISINTERP,
+        // QUATINTERP, AIMATBONE and AIMATATTACH and returns false for anything else; JIGGLE is
+        // handled separately in `BuildTransformations`. So the flag count alone cannot say which
+        // implementation a model is waiting on.
+        Dictionary<int, int> byType = [];
+        Dictionary<int, List<string>> typeExamples = [];
+
         int bones = 0;
         int models = 0;
 
@@ -134,6 +142,21 @@ public sealed class BoneFlagProbe : IProbe
             foreach (StudioBone bone in skinned.Bones)
             {
                 bones++;
+
+                if (bone.ProcedureType != 0)
+                {
+                    byType[bone.ProcedureType] = byType.GetValueOrDefault(bone.ProcedureType) + 1;
+
+                    if (!typeExamples.TryGetValue(bone.ProcedureType, out List<string>? shown))
+                    {
+                        typeExamples[bone.ProcedureType] = shown = [];
+                    }
+
+                    if (shown.Count < 4)
+                    {
+                        shown.Add($"{Path.GetFileName(model)}:{bone.Name}");
+                    }
+                }
 
                 for (int flag = 0; flag < flags.Length; flag++)
                 {
@@ -173,6 +196,27 @@ public sealed class BoneFlagProbe : IProbe
                 string.Create(
                     CultureInfo.InvariantCulture,
                     $"{flags[flag].Name,-28} {counts[flag],6} of {bones}   {named}"));
+        }
+
+        string[] rules =
+            ["none", "AXISINTERP", "QUATINTERP", "AIMATBONE", "AIMATATTACH", "JIGGLE"];
+
+        foreach ((int type, int count) in byType.OrderBy(entry => entry.Key))
+        {
+            string rule = type >= 0 && type < rules.Length
+                ? rules[type]
+                : $"unknown {type.ToString(CultureInfo.InvariantCulture)}";
+
+            output.WriteLine(
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"proctype {rule,-24} {count,6} of {bones}   " +
+                    $"{string.Join(", ", typeExamples[type])}"));
+        }
+
+        if (byType.Count == 0)
+        {
+            output.WriteLine("proctype: no bone declares a procedural rule");
         }
     }
 }

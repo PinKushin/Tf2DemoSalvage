@@ -130,7 +130,7 @@ pwsh run-exclusive.ps1 dotnet test tests/Tf2DemoSalvage.Viewer3D.UiTests
 ```
 
 The UI phase goes inside `run-exclusive.ps1`, since it takes the desktop. Twelve assemblies plus a
-UI suite; roughly 4,450 and 30 as of 2026-08-31.
+UI suite; roughly 4,690 and 31 as of 2026-09-03.
 
 **The per-assembly counts are NOT reproduced here, and that is the correction.** This file used to
 carry a table of them under a warning that it would drift — and it drifted, by about four hundred
@@ -268,7 +268,7 @@ dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -- <name> [args]
 dotnet run --project tools/Tf2DemoSalvage.Probe -c Release --                # lists them
 ```
 
-Seventeen of them. The ones worth knowing before writing an eighteenth:
+Twenty-five of them. The ones worth knowing before writing a twenty-sixth:
 
 | probe | answers |
 |---|---|
@@ -279,6 +279,8 @@ Seventeen of them. The ones worth knowing before writing an eighteenth:
 | `attachments [item|substring]` | items that hang extra models on themselves |
 | `weapon-models`, `viewmodels`, `spy-draw` | weapons that resolve to nothing; what the recorder holds |
 | `parity [filter]` | engine functions we cite, ranked by Valve's branch count |
+| `bone-flags <demo>` | which per-bone flags and procedural rules real models set, with denominators |
+| `autoplay <demo>` | which models animate themselves off the clock — `STUDIO_AUTOPLAY` |
 
 **Probes run the PRODUCTION path or they are worthless.** `DemoCorpus` lives here and
 `Corpus.Tests` references the tool rather than the reverse, so the probe and the test cannot disagree
