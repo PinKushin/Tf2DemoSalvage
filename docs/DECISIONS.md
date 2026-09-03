@@ -7262,3 +7262,52 @@ exactly the kind of record this file exists to prevent.
 **Ratified by the owner after the correction:** *"the audit hook is good though, i want that
 hook."* So the mechanism now has the direct approval the original entry wrongly claimed, and the
 correction above stands only as the record of the misattribution.
+
+## D134 — a third-person launch option, because a claim about a BODY needs one
+
+**2026-09-02.** The owner: *"you can alway make a launch option for 3rd person if you want."*
+
+**Written up 2026-09-03, and the delay is the point.** The decision was made, the option was built,
+and three places in the code cite `D134` — while `docs/DECISIONS.md` went from D133 to D137 with
+nothing in between. A citation pointing at an entry that does not exist is worse than no citation,
+because it reads as authoritative and sends the next reader looking for reasoning that was never
+recorded. Found while adding D135 below, not by anything that checks.
+
+**What it is for.** A gesture layer plays on a player's arms while their legs keep running, and
+neither of the other two cameras can show that: first person draws the viewmodel instead of the
+body, and the free camera opens overhead where a person is a few pixels. The mode already existed
+and only the launch route was missing, so a headless check of an animation had to be driven through
+a keystroke or not at all.
+
+**It enters the mode directly rather than cycling into it.** `CycleCameraMode` goes free, then first
+person, then third; a launch option that pressed the key twice would be describing a route rather
+than a destination, and would break the moment the cycle order changed.
+
+**The owner's reason was not stated beyond wanting the option**, and the paragraphs above are what it
+was then used for rather than why it was asked for. Recorded as the gap it is.
+
+## D135 — the spectator gate is the observer MODE, not first person
+
+**2026-09-03.** The owner, using the viewer: *"oh and we dont allow changing the following player in
+chase cam yet, it should work like first person, mouse click for the next player right click to go
+back to the previous."* And, of the camera cycle: *"it shouldnt be C, its space like it is in the
+source engine."*
+
+The first is a divergence and is fixed as B289. `spec_next` and `spec_prev` both run under
+`if ( GetObserverMode() > OBS_MODE_FIXED )` (`player.cpp:6643`, `:6661`), and `shareddefs.h:493`
+puts `OBS_MODE_IN_EYE` and `OBS_MODE_CHASE` directly above `OBS_MODE_FIXED` — so in TF2 cycling
+targets is a property of FOLLOWING somebody, not of being inside their head. This viewer read a
+first-person flag and threw the click away in chase.
+
+**The decision recorded here is the part that is ours rather than Valve's:** `OBS_MODE_ROAMING` is
+also above the gate, so a roaming TF2 spectator does cycle targets, and the free camera here still
+does not. A roaming spectator looks with raw mouse movement; here the left button is the
+look-around drag, and one click that both turned the camera and jumped to another player would
+fight itself. Stated as a decision rather than left as an oversight, and pinned by
+`Click_TheCycleTargetButton_InTheFreeCamera_DoesNotCycle`.
+
+The second was not a divergence at all: nothing has ever been bound to C, and `SwitchCameraMode`
+has defaulted to `SPACE` under `+jump` since it was written, matching the `[%jump%]` TF2's
+spectator HUD prints. The defect was three comments and one line of `--help` naming a key that does
+not exist. **A wrong key in help text is worse than no key**, because the reader presses it, nothing
+happens, and a working feature reads as broken — which is exactly how it was found.

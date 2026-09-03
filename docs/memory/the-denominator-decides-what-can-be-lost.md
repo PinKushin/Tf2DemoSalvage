@@ -33,3 +33,17 @@ contain, not just for the total — and verify the control fires: the first corr
 test still passed with the camera indoors, where every displacement was legitimately off screen, so
 "at least one orphan was drawn" had to become its own assertion. See
 [[an-empty-search-needs-a-control]] and [[instrument-bugs-outnumber-decoder-bugs]].
+
+**A denominator built by grepping SOURCE TEXT misses whatever a macro generates.** Measured
+2026-09-03. A conformance test enumerated every TF2 weapon by regex over `LINK_ENTITY_TO_CLASS(...)`
+and asserted each resolved to its script name. Sixteen weapons never write that text — they are
+registered by `CREATE_SIMPLE_WEAPON_TABLE`, which expands to it — so the pair exists in the built
+game and nowhere in the source. Two of the sixteen resolved to nothing, one of them the stock
+engineer shotgun, and the owner found it by watching a gun fail to draw.
+
+Widening it needed care in the same direction: the macro's argument order is REVERSED from the call
+it generates, and it spells the class without its leading `C`. A scan widened carelessly is a
+silently inverted denominator rather than a bigger one.
+
+Then the question asked properly instead of once: enumerate every macro whose body contains the
+declaration, rather than reading the one file the failures happened to live in.

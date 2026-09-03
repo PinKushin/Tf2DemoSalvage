@@ -511,11 +511,11 @@ internal class MainForm : Form, IFrameSteps
     /// (<c>ShouldDrawViewModel</c>). Widening it would draw a weapon over the chase view; this is a
     /// second question with a wider answer, asked by the things that care who is followed.
     ///
-    /// **`OBS_MODE_ROAMING` is also above the gate and the free camera is deliberately excluded.**
-    /// A roaming spectator in TF2 looks with raw mouse movement, so its `+attack` is free; here the
-    /// left button is the look-around drag, and a click that both turned the camera and jumped to
-    /// another player would fight itself. Stated as a decision rather than left as an oversight —
-    /// see <c>Click_TheCycleTargetButton_InTheFreeCamera_DoesNotCycle</c>, which pins it.
+    /// **`OBS_MODE_ROAMING` is also above the gate and the free camera is deliberately excluded**
+    /// (D135). A roaming spectator in TF2 looks with raw mouse movement, so its `+attack` is free;
+    /// here the left button is the look-around drag, and a click that both turned the camera and
+    /// jumped to another player would fight itself. Stated as a decision rather than left as an
+    /// oversight — see <c>Click_TheCycleTargetButton_InTheFreeCamera_DoesNotCycle</c>, which pins it.
     /// </remarks>
     private bool _followingAPlayer =>
         _effectiveMode is CameraMode.FirstPerson or CameraMode.ThirdPerson;

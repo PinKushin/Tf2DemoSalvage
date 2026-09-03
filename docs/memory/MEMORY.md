@@ -174,3 +174,4 @@
 - [Gestures arrive as temp entities](gestures-arrive-as-temp-entities.md) — 40,288 in one demo, and a POV lacks the recorder's own.
 - [A player is client-side animated](a-player-is-client-side-animated.md) — one gate, and every prop built from scratch can drop it.
 - [A delta animation is not a pose](a-delta-animation-is-not-a-pose.md) — four places must agree, and the flag lives on the animation as well as the sequence.
+- [A sabotage must compile](a-sabotage-must-compile.md) — a build failure is not a red test; and feed the field production reads.
