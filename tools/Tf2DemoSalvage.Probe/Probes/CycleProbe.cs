@@ -6,6 +6,7 @@ using System.Linq;
 
 using Microsoft.Extensions.Logging.Abstractions;
 
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Presentation;
 using Tf2DemoSalvage.Scene;
@@ -161,6 +162,40 @@ public sealed class CycleProbe : IProbe
         List<ScenePlayer> players = [];
         double? previous = null;
 
+        // **The merged table's own view of one activity, printed once.** A layer resolving to the
+        // wrong sequence and a layer resolving correctly look identical from the outside — both
+        // produce a layer — and the difference is which animation the body gets. Comparing a
+        // merged index against the `model` probe's ROOT list is what made this look like a weight
+        // problem when it was a lookup problem (B284).
+        if (geometry is { } dumpLoad &&
+            "models/player/scout.mdl" is { } shownPath &&
+            dumpLoad(shownPath)?.Skinned is { } shownModel)
+        {
+            output.WriteLine($"  merged table for {shownPath}, activities naming RELOAD_STAND:");
+
+            for (int index = 0; index < shownModel.Sequences.Count; index++)
+            {
+                if (shownModel.Sequences.At(index) is not { } at ||
+                    at.Group >= shownModel.Groups.Count ||
+                    at.Local >= shownModel.Groups[at.Group].Sequences.Count)
+                {
+                    continue;
+                }
+
+                StudioSequence one = shownModel.Groups[at.Group].Sequences[at.Local];
+
+                if (one.Activity.Contains("RELOAD_STAND", StringComparison.OrdinalIgnoreCase))
+                {
+                    output.WriteLine(
+                        $"    merged {index,4} group {at.Group} local {at.Local,4} "
+                        + $"weight {one.ActivityWeight,3}  '{one.Label}'  act '{one.Activity}'");
+                }
+            }
+
+            output.WriteLine(
+                $"    ForActivity(ACT_MP_RELOAD_STAND) = {shownModel.ForActivity("ACT_MP_RELOAD_STAND")}");
+        }
+
         for (int sample = 0; sample < 40; sample++)
         {
             double at = from + (sample * step);
@@ -237,6 +272,19 @@ public sealed class CycleProbe : IProbe
                 // Each gesture's activity and how old it is, because "resolved to no sequence on
                 // this model" and "expired and auto-killed" both show as zero layers and want
                 // opposite fixes.
+                // **What each layer actually weights**, because "the layer applied" and "the layer
+                // applied to the RIGHT bones" are different claims and only the second one decides
+                // whether the body survives. A list that is all ones replaces the whole skeleton
+                // with the gesture's own pose, which for a TF2 player is lying flat (B284).
+                + (models?.LayersOf(entity) is { Count: > 0 } drawnLayers
+                    ? "  W[" + string.Join(
+                        " ",
+                        drawnLayers.Select(one =>
+                            $"seq{one.Sequence}"
+                            + $"'{LabelOf(geometry, asDrawn?.ModelPath, one.Sequence)}'"
+                            + $":{one.BoneWeights.Count(w => w > 0f)}of{one.BoneWeights.Count}")) + "]"
+                    : string.Empty)
+
                 + (asDrawn?.Pose.Gestures is { Count: > 0 } held
                     ? "  [" + string.Join(
                         " ",
@@ -248,5 +296,31 @@ public sealed class CycleProbe : IProbe
 
             previous = cycle;
         }
+    }
+
+    /// <summary>The MERGED table's own label for a sequence number.</summary>
+    /// <param name="geometry">The production geometry loader.</param>
+    /// <param name="modelPath">Which model.</param>
+    /// <param name="sequence">The merged sequence number.</param>
+    /// <returns>Its label, or a marker.</returns>
+    /// <remarks>
+    /// **Two index spaces, and comparing across them is how an instrument lies here.** The `model`
+    /// probe lists a root model's OWN sequences; a merged table numbers the root's and every
+    /// included model's together, so sequence 243 names a different animation in each. Reading a
+    /// layer's number against the wrong list produced a confident wrong answer once already.
+    /// </remarks>
+    private static string LabelOf(
+        Func<string, PropModels.ModelFrames?>? geometry, string? modelPath, int sequence)
+    {
+        if (geometry is null || modelPath is null ||
+            geometry(modelPath)?.Skinned is not { } skinned ||
+            skinned.Sequences.At(sequence) is not { } where ||
+            where.Group >= skinned.Groups.Count ||
+            where.Local >= skinned.Groups[where.Group].Sequences.Count)
+        {
+            return "?";
+        }
+
+        return skinned.Groups[where.Group].Sequences[where.Local].Label;
     }
 }

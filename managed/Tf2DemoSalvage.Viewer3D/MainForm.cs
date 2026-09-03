@@ -1749,6 +1749,16 @@ internal class MainForm : Form, IFrameSteps
             _ = ToggleFirstPerson();
         }
 
+        // **Entered directly rather than by cycling** (D134). `CycleCameraMode` goes Free → first
+        // person → third person, so reaching this by toggling would pass THROUGH first person and
+        // photograph whichever one the count happened to land on. `EnterCamera` takes the mode it
+        // is given, and it is the same call the key ends in — so the launch route and the key
+        // cannot drift apart.
+        if (_launch.ThirdPerson && _cameraMode != CameraMode.ThirdPerson)
+        {
+            _ = EnterCamera(CameraMode.ThirdPerson);
+        }
+
         // **`--look-at` and `--zoom` applied here until 2026-08-26** (D98). They centred and
         // magnified the orthographic map, and neither has a meaning for a camera that is placed in
         // the world rather than fitted to it. `LaunchOptions` still carries both fields; what they

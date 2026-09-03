@@ -74,6 +74,7 @@ public sealed class SkeletonPose : IBonePose
         _bones = bones;
         _animation = animation;
         _local = new float[bones.Count][];
+        _layered = new StudioBonePose[bones.Count];
         _overrideOf = new int[bones.Count];
 
         for (int bone = 0; bone < bones.Count; bone++)
@@ -103,6 +104,15 @@ public sealed class SkeletonPose : IBonePose
     /// is, and a frame has a deadline that RAM does not.
     /// </remarks>
     private readonly int[] _overrideOf;
+
+    /// <summary>The base pose with layers accumulated into it, for a build that has layers.</summary>
+    /// <remarks>
+    /// **Allocated once per entity, per D87**, and refilled from the rest pose on every build that
+    /// uses it. `Accumulate` returns the base list untouched when there are no layers, so an
+    /// entity that never gestures never reads this at all — but a player mid-reload would
+    /// otherwise allocate a hundred bone poses every frame.
+    /// </remarks>
+    private readonly StudioBonePose[] _layered;
 
     /// <summary>Which sequence this entity is playing.</summary>
     /// <remarks>
@@ -409,7 +419,7 @@ public sealed class SkeletonPose : IBonePose
             return basePose;
         }
 
-        StudioBonePose[] result = new StudioBonePose[_bones.Count];
+        StudioBonePose[] result = _layered;
 
         for (int bone = 0; bone < _bones.Count; bone++)
         {

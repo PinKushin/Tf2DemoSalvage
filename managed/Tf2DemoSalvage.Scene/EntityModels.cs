@@ -582,7 +582,16 @@ public sealed class EntityModelSet
             // A player's `m_AnimOverlay` array is excluded from the wire (`tf_player.cpp:774`), so
             // these come from the `CTEPlayerAnimEvent` stream the timeline collected; each one is
             // resolved to a sequence HERE, because only this layer has the model.
-            posed.Layers = LayersFor(prop, skinned, seconds);
+            // **Held back until B284 is resolved.** The resolution and the accumulation are both
+            // in place and tested, but two things measured on `z1800.dem` say the result is not
+            // yet Valve's: `ACT_MP_RELOAD_STAND` resolves to nothing because TF2's real
+            // activities carry a weapon-slot suffix, and the gesture that DOES resolve — the
+            // double jump — is weighted on 76 of 78 bones and applied absolutely, which lays the
+            // player flat. Drawing that is worse than drawing no gesture, so the layers are built
+            // and not handed over until the sampling is right.
+            posed.Layers = [];
+
+            _ = LayersFor(prop, skinned, seconds);
 
             // **`DoAnimationEvents`, and it has to be HERE** (B275). The walk asks what the cycle
             // crossed since last frame, and for a player the cycle is not on the wire at all — the

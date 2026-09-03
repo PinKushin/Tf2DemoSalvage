@@ -14,6 +14,12 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="ShotPath">Where an automatic capture goes, or null when none was asked for.</param>
 /// <param name="ShotTick">Which tick to show before capturing.</param>
 /// <param name="FirstPerson">Whether the capture is taken through a player's eyes.</param>
+/// <param name="ThirdPerson">
+/// Whether the capture is taken over a player's shoulder — the chase camera the C key reaches.
+/// The owner asked for it while checking that a reload plays on a running player's arms, which is
+/// a claim about a BODY and cannot be judged from first person or from the overhead free camera
+/// (D134).
+/// </param>
 /// <param name="LookAt">Where the overhead camera is centred, or null to frame the map.</param>
 /// <param name="Zoom">The overhead camera's zoom.</param>
 /// <param name="SurfaceColours">Whether the capture uses the surface-category view.</param>
@@ -36,7 +42,8 @@ public readonly record struct LaunchOptions(
     int? Spectate = null,
     bool AutoPlay = false,
     double? MeasureSeconds = null,
-    bool ShowHelp = false);
+    bool ShowHelp = false,
+    bool ThirdPerson = false);
 
 /// <summary>Reads the viewer's launch options.</summary>
 /// <remarks>
@@ -153,6 +160,18 @@ public static class LaunchOptionsReader
             if (argument == "--first-person")
             {
                 read = read with { FirstPerson = true };
+                continue;
+            }
+
+            // **The capture that can answer a question about a BODY** (D134). A gesture layer plays
+            // on a player's arms while their legs keep running, and neither of the other two
+            // cameras can show it: first person draws the viewmodel, and the free camera opens
+            // overhead where a person is a few pixels. The mode already existed — `CycleCameraMode`
+            // reaches it with the C key — and only the launch route was missing, so a headless
+            // check had to be driven through a keystroke or not at all.
+            if (argument == "--third-person")
+            {
+                read = read with { ThirdPerson = true };
                 continue;
             }
 

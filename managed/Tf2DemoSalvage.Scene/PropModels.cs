@@ -1371,6 +1371,20 @@ public static class PropModels
         IReadOnlyList<StudioPoseParameter> PoseParameters,
         IReadOnlyList<IReadOnlyList<int>> MasterPose)
     {
+        /// <summary>One sequence's weight list, remapped to this model's bones, read once.</summary>
+        /// <remarks>
+        /// **Cached because it never changes and is read per layer per entity per frame** (D87).
+        /// Building it costs a bone read and a name-keyed remap of the included model, which is far
+        /// too much for a draw path and exactly nothing after the first ask.
+        /// </remarks>
+        private readonly Dictionary<int, float[]> _boneWeights = [];
+
+        /// <summary>This model's bones mapped onto each group's, read once per group.</summary>
+        private readonly Dictionary<int, int[]> _boneMaps = [];
+
+        /// <summary>Each group's own skeleton, read once.</summary>
+        private readonly Dictionary<int, IReadOnlyList<StudioBone>> _groupBones = [];
+
         /// <summary>Where bone remapping reports how well two skeletons matched.</summary>
         /// <remarks>
         /// **An init property rather than a positional parameter (D83)**, so adding it did not
@@ -1963,27 +1977,124 @@ public static class PropModels
                         Models[where.Group], Groups[where.Group].Sequences[where.Local].Animation))
                 : 1;
 
-        /// <summary>A sequence's own per-bone weight list — <c>seqdesc.weight( i )</c>.</summary>
+        /// <summary>A sequence's per-bone weight list, indexed by THIS model's bones.</summary>
         /// <param name="sequence">The merged sequence number.</param>
-        /// <returns>One weight per bone of THIS model, or empty when it cannot be read.</returns>
+        /// <returns>One weight per bone of this model, or empty when it cannot be read.</returns>
         /// <remarks>
-        /// **What decides how much of the skeleton a layer touches** (<c>bone_setup.cpp:1409</c>,
-        /// <c>pS2[i] = s * seqdesc.weight( i )</c>). A gesture's list is 1 on the arms and 0 on the
-        /// legs, which is how a reload plays on a player who keeps running.
+        /// **What decides how much of the skeleton a layer touches**, and the whole reason a reload
+        /// plays on a running player's arms without stopping the run. <c>SlerpBones</c>,
+        /// <c>bone_setup.cpp:1417-1431</c>:
         ///
-        /// **The count comes from THIS model's bones, not from the group the sequence lives in.**
-        /// The list has no length in the file — <c>pBoneweight(i)</c> is an unbounded pointer walk
-        /// — and the extent that matters is the skeleton being posed, which is the root model's.
-        /// A TF2 player's gestures live in the included <c>&lt;class&gt;_animations.mdl</c> while
-        /// the bones being weighted are the player's own.
+        /// <code>
+        ///   j = pSeqGroup-&gt;boneMap[i];
+        ///   if ( j &gt;= 0 ) pS2[i] = s * seqdesc.weight( j );  // blend in based on this bones weight
+        ///   else          pS2[i] = 0.0;
+        /// </code>
+        ///
+        /// **The index goes THROUGH the group's bone map, and the first version of this did not**
+        /// (B284). A player's gestures live in the included <c>&lt;class&gt;_animations.mdl</c>, so
+        /// the weight list is written against THAT model's bone order while the skeleton being
+        /// posed is the player's own. Reading it at the root bone index lands each weight on an
+        /// unrelated bone — some 1, some 0 — and a layer accumulated with that mangles the whole
+        /// body. Measured: the scout mid-reload lay flat on the ground while every player without a
+        /// live gesture stood normally, because a slot only produces a layer while its cycle is
+        /// under one.
+        ///
+        /// **A bone the sequence's own model does not have gets ZERO, not one.** That is Valve's
+        /// <c>else</c> branch, and it is the safe direction: an unmatched bone keeps whatever the
+        /// base sequence gave it rather than being dragged toward a pose that says nothing about
+        /// it.
+        ///
+        /// **Cached per sequence**, because the list never changes and this is read per layer per
+        /// entity per frame.
         /// </remarks>
-        public IReadOnlyList<float> BoneWeights(int sequence) =>
-            Sequences.At(sequence) is { } where &&
-            where.Group < Models.Count &&
-            where.Local < Groups[where.Group].Sequences.Count
-                ? StudioGestureWeights.ForSequence(
-                    Models[where.Group], where.Local, Bones.Count)
-                : [];
+        public IReadOnlyList<float> BoneWeights(int sequence)
+        {
+            if (_boneWeights.TryGetValue(sequence, out float[]? cached))
+            {
+                return cached;
+            }
+
+            float[] weights = ReadBoneWeights(sequence);
+
+            _boneWeights[sequence] = weights;
+
+            return weights;
+        }
+
+        /// <summary>Reads and remaps one sequence's weight list.</summary>
+        /// <param name="sequence">The merged sequence number.</param>
+        /// <returns>One weight per bone of this model.</returns>
+        private float[] ReadBoneWeights(int sequence)
+        {
+            if (Sequences.At(sequence) is not { } where ||
+                where.Group >= Models.Count ||
+                where.Local >= Groups[where.Group].Sequences.Count)
+            {
+                return [];
+            }
+
+            IReadOnlyList<StudioBone> group = BonesOfGroup(where.Group);
+
+            // **Read with the GROUP's bone count**, since that is the extent the list was written
+            // to. `pBoneweight(i)` is an unbounded pointer walk with no length of its own, so the
+            // only correct extent is however many bones the model holding it declares.
+            float[] own = StudioGestureWeights.ForSequence(
+                Models[where.Group], where.Local, group.Count);
+
+            if (own.Length == 0)
+            {
+                return [];
+            }
+
+            int[] map = MapToGroup(where.Group);
+            float[] weights = new float[Bones.Count];
+
+            for (int bone = 0; bone < weights.Length; bone++)
+            {
+                int inGroup = bone < map.Length ? map[bone] : -1;
+
+                weights[bone] = inGroup >= 0 && inGroup < own.Length ? own[inGroup] : 0f;
+            }
+
+            return weights;
+        }
+
+        /// <summary>This model's bones mapped onto one group's — Valve's <c>boneMap</c>.</summary>
+        /// <param name="group">Which group.</param>
+        /// <returns>For each of this model's bones, the group's index or −1.</returns>
+        private int[] MapToGroup(int group)
+        {
+            if (_boneMaps.TryGetValue(group, out int[]? cached))
+            {
+                return cached;
+            }
+
+            int[] map = StudioBones.Remap(Bones, BonesOfGroup(group));
+
+            _boneMaps[group] = map;
+
+            return map;
+        }
+
+        /// <summary>One group's own skeleton, read once.</summary>
+        /// <param name="group">Which group.</param>
+        /// <returns>Its bones, or empty when the group has none.</returns>
+        private IReadOnlyList<StudioBone> BonesOfGroup(int group)
+        {
+            if (_groupBones.TryGetValue(group, out IReadOnlyList<StudioBone>? cached))
+            {
+                return cached;
+            }
+
+            IReadOnlyList<StudioBone> bones = group == 0
+                ? Bones
+                : StudioBones.Read(Models[group]);
+
+            _groupBones[group] = bones;
+
+            return bones;
+        }
     }
 
     /// <summary>A model's baked animation frames, and how to choose between them.</summary>

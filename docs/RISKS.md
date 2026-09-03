@@ -18075,3 +18075,78 @@ all of the produced props rather than the first.
 in this project uses `C_BaseAnimating::ClampCycle`, which gives 0 or 1. The difference is the last
 authored frame against a hair before it, so it is invisible; recorded because a divergence nobody
 wrote down is one somebody later has to rediscover.
+
+## B284 — the gesture layers lay a player flat, and the reload never resolved at all — HELD BACK, decode kept
+
+**Found by the owner within an hour of B282 shipping**, on one player: *"its literally only that one
+scout"*. Every other player stood normally.
+
+**Why only one.** A gesture slot produces a layer only while its cycle is under one; an auto-killing
+gesture past its end is dropped. At that tick the scout was the only player with a LIVE gesture.
+Everyone else's slots held stale ones, correctly killed, so they had no layers and were unaffected.
+
+### The control that settled authorship
+
+Same frame, same camera, accumulation disabled: the scout stands upright, holding a scattergun,
+animating. Re-enabled: flat on the ground. **The regression is B282's, not something older.**
+
+### Two defects, measured
+
+**The reload resolves to nothing.** `ForActivity("ACT_MP_RELOAD_STAND")` returns −1 on
+`scout.mdl`. The merged table's real activities carry a **weapon-slot suffix**, exactly as the main
+sequence selection already knows:
+
+```
+merged   15 group 2 local 12  'PRIMARY_reload_start'   act 'ACT_MP_RELOAD_STAND_PRIMARY'
+merged   16 group 2 local 13  'PRIMARY_reload_loop'    act 'ACT_MP_RELOAD_STAND_PRIMARY_LOOP'
+merged   17 group 2 local 14  'PRIMARY_reload_end'     act 'ACT_MP_RELOAD_STAND_PRIMARY_END'
+merged   36 group 2 local 33  'ReloadStand_SECONDARY'  act 'ACT_MP_RELOAD_STAND_SECONDARY'
+```
+
+`PlayerGestureEvent.Map` returns the unsuffixed name, so **no reload has ever produced a layer**.
+The corpus test that asserts a reload gesture reaches a player passes on the ACTIVITY NAME, which is
+a fact about the mapping and not about the model — a real gap in that test.
+
+**The layer that did draw was the double jump**, weighted on 76 of 78 bones and applied as an
+absolute pose at weight one, which replaces the whole skeleton with the gesture's own pose. For a TF2
+player that is the reference pose: lying flat.
+
+`ACT_MP_DOUBLEJUMP` genuinely IS a gesture in the engine —
+`RestartGesture( GESTURE_SLOT_JUMP, ACT_MP_DOUBLEJUMP )`, `tf_playeranimstate.cpp:1202` — so the
+resolution is right and the RESULT is wrong, which means the fault is in how it is sampled or
+composed rather than in which sequence was chosen. **That is not yet established, and this entry
+does not pretend it is.**
+
+### What was fixed on the way
+
+`SkinnedModel.BoneWeights` indexed the weight list at the ROOT bone number. `SlerpBones` indexes it
+through the group's bone map (`bone_setup.cpp:1417-1431`):
+
+```
+j = pSeqGroup->boneMap[i];
+if ( j >= 0 ) pS2[i] = s * seqdesc.weight( j );
+else          pS2[i] = 0.0;
+```
+
+A player's gestures live in the included `<class>_animations.mdl`, so the list is written against
+THAT model's bone order. It now goes through `StudioBones.Remap` — Valve's `masterBone` — with an
+unmatched bone weighted zero, cached per sequence. **It was not the cause**: the list is
+the all-ones default either way, and the scout still lay flat afterwards.
+
+### The instrument that lied, and the one that did not
+
+Merged sequence 243 read against the `model` probe's ROOT list said `jump_double_primary`, which
+happened to be **the right answer for the wrong reason** — the two index spaces are unrelated and
+comparing across them had already produced one confident wrong conclusion. Asking the merged table
+for its own label settled it.
+
+### Where it stands
+
+`EntityModelSet.Simulate` builds the layers and hands the skeleton none. Everything else is kept:
+the temp-entity decode, the gesture slots, `SkeletonPose.Layers` and its seven conformance tests,
+the bone-map remap. Drawing a player flat is worse than drawing no gesture, so the last wire stays
+disconnected until the sampling is understood.
+
+**Open, in order:** why a correctly resolved full-body gesture composes to the reference pose;
+the weapon-slot suffix on every gesture activity that takes one; and `AccumulatePose`'s own
+initialisation of `pos2`/`q2`, which is the part of the engine not yet read.
