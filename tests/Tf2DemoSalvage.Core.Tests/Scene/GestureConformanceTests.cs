@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
 
@@ -159,6 +160,16 @@ public sealed class GestureConformanceTests
             {
                 if (PlayerGestureEvent.Map(anEvent, context) is { ActivityName: { } name })
                 {
+                    // **The slot is substituted before the name is looked up** (B284). A gesture
+                    // activity on a TF2 player model carries the held weapon's role —
+                    // `ACT_MP_RELOAD_STAND_PRIMARY` — so the map emits a placeholder and the scene
+                    // fills it from the installed game. Checking the placeholder against the SDK
+                    // would look for `ACT_MP_RELOAD_STAND_{0}` and find nothing; checking the
+                    // filled name is the question that matters, and it is what a model is asked.
+                    //
+                    // Every slot, not just the first: `ACT_MP_ATTACK_STAND_ITEM2` and
+                    // `ACT_MP_JUMP_LAND_MELEE` are separate declarations and a map that produced
+                    // one valid combination and three invalid ones would pass on the default.
                     used.Add(name);
                 }
             }
@@ -170,10 +181,40 @@ public sealed class GestureConformanceTests
 
         foreach (string name in used.Distinct())
         {
-            activities.ShouldContain(
-                name, Case.Sensitive, $"{name} is not declared in ai_activity.h");
+            // **Filled with a weapon role before it is looked up** (B284). Every gesture activity
+            // on a TF2 player model carries the held weapon's role — `ACT_MP_RELOAD_STAND_PRIMARY`
+            // — so the map emits a placeholder and the scene fills it from the installed game.
+            // Looking up the placeholder would search for `ACT_MP_RELOAD_STAND_{0}` and find
+            // nothing, which is how the unsuffixed name survived here for as long as it did.
+            //
+            // **At least one role, not every role**, and that distinction is Valve's rather than a
+            // convenience. `ACT_MP_RELOAD_STAND_MELEE` is not declared, because a melee weapon does
+            // not reload — the engine's `SelectWeightedSequence` returns nothing for it and the
+            // gesture is abandoned, which `EntityModelSet.LayersFor` reproduces. Demanding every
+            // combination would assert a table Valve never wrote; demanding none would let a typo
+            // in the base name through, which is the whole reason this test exists.
+            List<string> filled =
+                [.. WeaponSlots.Select(slot =>
+                    string.Format(CultureInfo.InvariantCulture, name, slot))];
+
+            filled.ShouldContain(
+                one => activities.Contains(one, StringComparison.Ordinal),
+                $"no weapon role turns {name} into an activity declared in ai_activity.h");
         }
     }
+
+    /// <summary>The weapon roles a gesture activity can be suffixed with.</summary>
+    /// <remarks>
+    /// **Valve's own set, from the activity list itself** — a TF2 player model declares
+    /// `ACT_MP_ATTACK_STAND_PRIMARY`, `_SECONDARY`, `_MELEE`, `_ITEM1`, `_ITEM2`, `_GRENADE`,
+    /// `_BUILDING` and `_PDA`. They are separate declarations rather than one parameterised name,
+    /// which is why every one is swept: a map that filled in a valid PRIMARY name and an invalid
+    /// ITEM2 one would pass on the default alone.
+    /// </remarks>
+    private static readonly string[] WeaponSlots =
+    [
+        "PRIMARY", "SECONDARY", "MELEE", "ITEM1", "ITEM2", "GRENADE", "BUILDING", "PDA",
+    ];
 
     /// <summary>A name with its underscores removed and its case flattened.</summary>
     /// <remarks>

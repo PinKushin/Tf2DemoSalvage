@@ -395,14 +395,53 @@ public static class StudioPoseBlend
         IReadOnlyList<StudioBone> bones,
         IReadOnlyList<StudioBonePose> first,
         IReadOnlyList<StudioBonePose> second,
-        float s)
+        float s) =>
+        Blend(bones, first, second, s, additive: false);
+
+    /// <summary>Blends one pose toward another, knowing whether they are differences.</summary>
+    /// <param name="bones">The skeleton both poses belong to.</param>
+    /// <param name="first">The pose at weight <c>1 - s</c>.</param>
+    /// <param name="second">The pose at weight <paramref name="s"/>.</param>
+    /// <param name="s">How far toward <paramref name="second"/>, from zero to one.</param>
+    /// <param name="additive">
+    /// Whether the two are DELTAS rather than poses, which changes what an absent bone means.
+    /// </param>
+    /// <returns>A pose naming every bone, so it can be blended again.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **What an unlisted bone means is the whole of this, and getting it wrong twists a body**
+    /// (B284). For an ordinary animation an absent bone sits at its REST pose, which is what
+    /// <c>CalcVirtualAnimation</c> seeds (<c>bone_setup.cpp:940</c>). For a DELTA it sits at
+    /// identity and zero — no difference — which is the other half of the same branch:
+    ///
+    /// <code>
+    ///   if (animdesc.flags &amp; STUDIO_DELTA) { q[i].Init( 0,0,0,1 ); pos[i].Init( 0,0,0 ); }
+    ///   else                                { q[i] = pSeqbone[j].quat; pos[i] = pSeqbone[j].pos; }
+    /// </code>
+    ///
+    /// **Measured:** `jumpland_primary` animates twelve bones of seventy-eight. Expanded against
+    /// the rest pose it became a seventy-six-bone difference, sixty-four of whose entries were a
+    /// whole bone transform masquerading as a delta — added to the base, that threw a landing
+    /// player's arms over its head. The reload layer hid the same fault behind more animated bones.
+    /// </remarks>
+    public static IReadOnlyList<StudioBonePose> Blend(
+        IReadOnlyList<StudioBone> bones,
+        IReadOnlyList<StudioBonePose> first,
+        IReadOnlyList<StudioBonePose> second,
+        float s,
+        bool additive)
     {
         ArgumentNullException.ThrowIfNull(bones);
         ArgumentNullException.ThrowIfNull(first);
         ArgumentNullException.ThrowIfNull(second);
 
-        StudioBonePose[] left = Expand(bones, first);
-        StudioBonePose[] right = Expand(bones, second);
+        StudioBonePose[] left = additive
+            ? ExpandIdentity(bones, first)
+            : Expand(bones, first);
+
+        StudioBonePose[] right = additive
+            ? ExpandIdentity(bones, second)
+            : Expand(bones, second);
 
         float weightFirst = 1f - s;
 
@@ -446,7 +485,7 @@ public static class StudioPoseBlend
     /// <returns>A pose naming every bone, so it can be layered again.</returns>
     /// <exception cref="ArgumentNullException">A required argument is null.</exception>
     /// <remarks>
-    /// **A different primitive from <see cref="Blend"/>, not a variant of it.** <c>SlerpBones</c>
+    /// **A different primitive from <c>Blend</c>, not a variant of it.** <c>SlerpBones</c>
     /// (<c>bone_setup.cpp:1373</c>) takes an entirely separate branch for <c>STUDIO_DELTA</c>: the
     /// gesture's rotation is not interpolated toward, it is composed ON TOP of the base rotation as
     /// a scaled quaternion product, and position is a simple scaled add rather than a lerp:
@@ -586,7 +625,7 @@ public static class StudioPoseBlend
     /// does not reach defaults to <c>(0,0,0,1)</c> and zero position — composing that at any
     /// strength is a no-op, which is the only default that means "untouched" for an additive
     /// layer. The ordinary <see cref="Expand"/> fills with the rest pose instead, which is correct
-    /// for the absolute animations <see cref="Blend"/> interpolates between and wrong here.
+    /// for the absolute animations <c>Blend</c> interpolates between and wrong here.
     /// </remarks>
     private static StudioBonePose[] ExpandIdentity(
         IReadOnlyList<StudioBone> bones, IReadOnlyList<StudioBonePose> pose)

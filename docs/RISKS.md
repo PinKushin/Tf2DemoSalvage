@@ -18076,7 +18076,7 @@ in this project uses `C_BaseAnimating::ClampCycle`, which gives 0 or 1. The diff
 authored frame against a hair before it, so it is invisible; recorded because a divergence nobody
 wrote down is one somebody later has to rediscover.
 
-## B284 — the gesture layers lay a player flat, and the reload never resolved at all — HELD BACK, decode kept
+## B284 — the gesture layers lay a player flat, and the reload never resolved at all — FIXED, four divergences
 
 **Found by the owner within an hour of B282 shipping**, on one player: *"its literally only that one
 scout"*. Every other player stood normally.
@@ -18147,6 +18147,102 @@ the temp-entity decode, the gesture slots, `SkeletonPose.Layers` and its seven c
 the bone-map remap. Drawing a player flat is worse than drawing no gesture, so the last wire stays
 disconnected until the sampling is understood.
 
-**Open, in order:** why a correctly resolved full-body gesture composes to the reference pose;
-the weapon-slot suffix on every gesture activity that takes one; and `AccumulatePose`'s own
-initialisation of `pos2`/`q2`, which is the part of the engine not yet read.
+### The four divergences, in the order they were found
+
+Each was measured, each is cited, and each on its own left the player visibly wrong.
+
+**1. The landing that ends a jump is never networked.** `CTFPlayerAnimState::HandleJumping`
+(`tf_playeranimstate.cpp:1498`):
+
+```
+else if ( gpGlobals->curtime - m_flJumpStartTime > 0.2f )
+{
+    if ( GetBasePlayer()->GetFlags() & FL_ONGROUND )
+    {
+        m_bJumping = false;
+        RestartMainSequence();
+        if ( bNewJump ) RestartGesture( GESTURE_SLOT_JUMP, ACT_MP_JUMP_LAND );
+    }
+}
+```
+
+A demo carries the double jump as a `CTEPlayerAnimEvent` and carries **nothing** for the landing —
+it is a decision the client makes from the ground flag. So a reader driven by events alone leaves
+`ACT_MP_DOUBLEJUMP`, a full-body animation, playing after the player is back on the ground.
+`PlayerGestureFeed.Landed` is that transition, with Valve's own 0.2-second guard and Valve's own
+reason for it.
+
+**2. Every gesture activity carries the held weapon's role.** Measured on `scout.mdl`'s merged
+table:
+
+```
+merged  15 group 2 local 12  'PRIMARY_reload_start'   act 'ACT_MP_RELOAD_STAND_PRIMARY'
+merged  36 group 2 local 33  'ReloadStand_SECONDARY'  act 'ACT_MP_RELOAD_STAND_SECONDARY'
+merged 246 group 2 local 222 'jumpland_primary'       act 'ACT_MP_JUMP_LAND_primary'
+```
+
+`ForActivity("ACT_MP_RELOAD_STAND")` returns **−1**, so **no reload had ever produced a layer**. The
+map now emits a placeholder and the scene fills it from `Appearance.WeaponSuffix` — the same source
+and the same suffix the main sequence has always used. `RestartGesture` calls
+`TranslateActivity( iGestureActivity )` before `AddToGestureSlot`, which is where the engine does
+the same thing.
+
+**3. A delta layer ADDS; it does not blend toward.** `SlerpBones` splits on `STUDIO_DELTA` before
+anything else (`bone_setup.cpp:1434`) — `QuaternionMA` when `STUDIO_POST` is set, `QuaternionSM`
+otherwise, and `pos1 += pos2 * s2`. **Every TF2 player gesture takes that branch**: measured,
+`PRIMARY_reload_start` and `jumpland_primary` both carry the delta bit on the sequence AND on the
+animation behind it, and both carry `STUDIO_POST`. Composing them as absolute poses replaced the
+skeleton with a difference, which is what laid the scout flat.
+
+`QuaternionScale`, `QuaternionMult` and `QuaternionAlign` now live in `StudioBones`, from
+`mathlib_base.cpp`. The scale is not a component multiply — it scales the ANGLE and carries the sign
+of `w` across, which Valve comments as *"keep sign of rotation"*.
+
+**4. A delta's absent bone is identity, not its rest pose.** `CalcVirtualAnimation`
+(`bone_setup.cpp:933`) seeds by the animation's own flag:
+
+```
+if (animdesc.flags & STUDIO_DELTA) { q[i].Init( 0,0,0,1 ); pos[i].Init( 0,0,0 ); }
+else                               { q[i] = pSeqbone[j].quat; pos[i] = pSeqbone[j].pos; }
+```
+
+Two places got this wrong. `StudioAnimation.Pose` defaulted every unanimated channel to the rest
+transform; and `PoseBetween` densifies through `StudioPoseBlend.Blend`, which filled absent bones
+from the rest pose. **Measured: `jumpland_primary` animates twelve bones of seventy-eight**, so the
+expansion turned a twelve-bone difference into a seventy-six-bone one, sixty-four of whose entries
+were a whole bone transform masquerading as a delta. Added to the base that threw the arms over the
+head. The reload hid the same fault behind more animated bones, which is why it looked right first.
+
+### What made this findable
+
+**A control, and it settled authorship in one shot.** Same frame, same camera, accumulation
+disabled: the scout stands and animates. Enabled: flat. That established the regression as the same
+day's work rather than something older.
+
+**And an instrument that lied first.** Merged sequence 243 read against the `model` probe's ROOT
+list said `jump_double_primary` — the right answer for the wrong reason, since the two index spaces
+are unrelated. Asking the merged table for its own label settled it, and the `cycle` probe now
+prints the label, the weight count, the sampled bone count, the delta and post flags and the channel
+histogram beside every layer.
+
+**The sequence flags were read where the animation's mattered.** `scout_animations.mdl`'s sequences
+9 to 11 carry `0x400`, `STUDIO_HIDDEN`, and reading those made "not a delta" look established for an
+hour. A different index space again.
+
+### Verified
+
+`z1800.dem` tick 20066, player 25 mid-reload one tick after landing: both layers live —
+`PRIMARY_reload_start` and `jumpland_primary` — and the scout stands in the run pose working the
+scattergun. Gate green on both phases.
+
+### Still open, and named rather than implied
+
+- **`bNewJump`** gates the landing gesture on the class script's `DontDoNewJump`
+  (`tf_classdata.cpp:188`). Not read; every class lands.
+- **`GestureContext`'s other three fields** — `IsLoser`, `IsMinigun`, `IsSniperZoomed` — each change
+  which activity a gesture resolves to, and air-walk is derived over time rather than read.
+- **The attack family's suffix.** `PrimaryFireActivity` still emits
+  `ACT_MP_ATTACK_STAND_PRIMARYFIRE`, the minigun's own activity, where the plain attack is
+  `ACT_MP_ATTACK_STAND_{slot}`. An attack gesture that resolves to nothing draws nothing, so this is
+  a missing animation rather than a wrong one.
+- **The two custom-gesture events** carry an activity NUMBER, which nothing resolves yet.

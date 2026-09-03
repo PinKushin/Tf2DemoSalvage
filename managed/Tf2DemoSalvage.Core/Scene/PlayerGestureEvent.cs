@@ -183,6 +183,11 @@ public enum GestureSlot
 /// <param name="IsMinigun">Holding a minigun, which has stand/crouch/swim fire and windup gestures.</param>
 /// <param name="IsSniperZoomed">A scoped sniper rifle or bow, which fires a deployed gesture.</param>
 /// <param name="NData">The <c>m_nData</c> payload, an activity number for the two dynamic events.</param>
+/// <param name="WeaponSlot">
+/// The held weapon's role, which every gesture activity is suffixed by. Carried as a placeholder
+/// through the mapping and filled by the scene, since only the installed game says what a weapon's
+/// role is. See <c>EntityModelSet.LayersFor</c>.
+/// </param>
 public readonly record struct GestureContext(
     bool InDuck = false,
     bool InSwim = false,
@@ -190,7 +195,17 @@ public readonly record struct GestureContext(
     bool IsLoser = false,
     bool IsMinigun = false,
     bool IsSniperZoomed = false,
-    int NData = 0);
+    int NData = 0,
+
+    // **The weapon slot the activity is suffixed with, and without it a gesture resolves to
+    // NOTHING** (B284). Every gesture activity in a TF2 player model carries it — measured on
+    // `scout.mdl`: `ACT_MP_RELOAD_STAND_PRIMARY`, `ACT_MP_RELOAD_STAND_SECONDARY`,
+    // `ACT_MP_JUMP_LAND_primary`, `ACT_MP_ATTACK_STAND_ITEM2`. The unsuffixed name that this map
+    // returned matches no sequence on any class, so no reload ever produced a layer.
+    //
+    // The same suffix the MAIN sequence has always used (`PlayerActivityState.NameOf`), from the
+    // same place: what the installed game says the held weapon's role is.
+    string WeaponSlot = "PRIMARY");
 
 /// <summary>A gesture to start: which slot, what to play, and whether it removes itself.</summary>
 /// <param name="Slot">The gesture slot it occupies.</param>
@@ -260,11 +275,11 @@ public static class PlayerGestureEvent
                 context, "ACT_MP_ATTACK_STAND_POSTFIRE", "ACT_MP_ATTACK_CROUCH_POSTFIRE", "ACT_MP_ATTACK_SWIM_POSTFIRE")),
 
         PlayerAnimEvent.Reload => Reload(
-            context, "ACT_MP_RELOAD_STAND", "ACT_MP_RELOAD_CROUCH", "ACT_MP_RELOAD_SWIM", "ACT_MP_RELOAD_AIRWALK"),
+            context, "ACT_MP_RELOAD_STAND_{0}", "ACT_MP_RELOAD_CROUCH_{0}", "ACT_MP_RELOAD_SWIM_{0}", "ACT_MP_RELOAD_AIRWALK_{0}"),
         PlayerAnimEvent.ReloadLoop => Reload(
-            context, "ACT_MP_RELOAD_STAND_LOOP", "ACT_MP_RELOAD_CROUCH_LOOP", "ACT_MP_RELOAD_SWIM_LOOP", "ACT_MP_RELOAD_AIRWALK_LOOP"),
+            context, "ACT_MP_RELOAD_STAND_{0}_LOOP", "ACT_MP_RELOAD_CROUCH_{0}_LOOP", "ACT_MP_RELOAD_SWIM_{0}_LOOP", "ACT_MP_RELOAD_AIRWALK_{0}_LOOP"),
         PlayerAnimEvent.ReloadEnd => Reload(
-            context, "ACT_MP_RELOAD_STAND_END", "ACT_MP_RELOAD_CROUCH_END", "ACT_MP_RELOAD_SWIM_END", "ACT_MP_RELOAD_AIRWALK_END"),
+            context, "ACT_MP_RELOAD_STAND_{0}_END", "ACT_MP_RELOAD_CROUCH_{0}_END", "ACT_MP_RELOAD_SWIM_{0}_END", "ACT_MP_RELOAD_AIRWALK_{0}_END"),
 
         PlayerAnimEvent.FlinchChest => Named(GestureSlot.Flinch, "ACT_MP_GESTURE_FLINCH_CHEST"),
         PlayerAnimEvent.FlinchHead => Named(GestureSlot.Flinch, "ACT_MP_GESTURE_FLINCH_HEAD"),

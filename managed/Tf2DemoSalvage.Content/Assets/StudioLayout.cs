@@ -456,6 +456,15 @@ internal static class StudioLayout
     public const int PoseParameterStride = 20;
 
     /// <summary>Bytes per <c>mstudioanimdesc_t</c>.</summary>
+    /// <summary>Byte offset of <c>flags</c> in an animation description.</summary>
+    /// <remarks>
+    /// <c>mstudioanimdesc_t</c>: <c>baseptr</c> 0, <c>sznameindex</c> 4, <c>fps</c> 8,
+    /// <c>flags</c> 12, <c>numframes</c> 16 (<c>studio.h:726-735</c>). This is the ANIMATION's
+    /// flag word, which is not the sequence's and does not mean the same thing — see
+    /// <c>StudioAnimation.Flags</c>.
+    /// </remarks>
+    public const int AnimationFlagsOffset = 12;
+
     public const int AnimationStride = 100;
 
     /// <summary>Byte offset of <c>fps</c>.</summary>

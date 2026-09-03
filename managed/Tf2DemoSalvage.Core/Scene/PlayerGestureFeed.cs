@@ -193,6 +193,63 @@ public sealed class PlayerGestureFeed
         return true;
     }
 
+    /// <summary>The activity a landing replaces the jump gesture with.</summary>
+    public const string LandActivity = "ACT_MP_JUMP_LAND_{0}";
+
+    /// <summary>
+    /// How long after a jump began the ground flag is believed, in seconds.
+    /// </summary>
+    /// <remarks>
+    /// **Valve's own guard, and Valve's own reason** (<c>tf_playeranimstate.cpp:1498</c>):
+    /// *"Don't check if he's on the ground for a sec.. sometimes the client still has the on-ground
+    /// flag set right when the message comes in."* Without it a jump would be cancelled by the
+    /// ground flag of the tick it started on.
+    /// </remarks>
+    private const double GroundBelievedAfterSeconds = 0.2d;
+
+    /// <summary>Ends a jump gesture because the player is back on the ground.</summary>
+    /// <param name="entityIndex">The player.</param>
+    /// <param name="seconds">Demo time now.</param>
+    /// <remarks>
+    /// **<c>RestartGesture( GESTURE_SLOT_JUMP, ACT_MP_JUMP_LAND )</c>**, which
+    /// <c>CTFPlayerAnimState::HandleJumping</c> runs the moment a jumping player is on the ground
+    /// again (<c>tf_playeranimstate.cpp:1507</c>, and again at <c>:1453</c> when an air-walk ends).
+    ///
+    /// **A demo carries no event for it.** Every gesture in <see cref="Record"/> arrives as a
+    /// `CTEPlayerAnimEvent`; landing is a decision the client makes from the ground flag, so this
+    /// is the one gesture transition a reader has to derive rather than receive. Without it
+    /// `ACT_MP_DOUBLEJUMP` — a full-body animation, not an arms layer — goes on playing after the
+    /// player has landed and takes the whole skeleton with it (B284).
+    ///
+    /// **Only the JUMP slot**, because that is the slot the engine names. A reload or a flinch is
+    /// unaffected by landing and keeps running.
+    /// </remarks>
+    public void Landed(int entityIndex, double seconds)
+    {
+        if (!_byPlayer.TryGetValue(entityIndex, out SceneGesture?[]? slots))
+        {
+            return;
+        }
+
+        int slot = (int)GestureSlot.Jump;
+
+        if (slots[slot] is not { } jumping ||
+            seconds - jumping.StartedSeconds <= GroundBelievedAfterSeconds)
+        {
+            return;
+        }
+
+        // Already the landing gesture: replacing it every tick on the ground would restart it for
+        // ever, which is the same ratchet a naive "reset while grounded" would produce.
+        if (string.Equals(jumping.ActivityName, LandActivity, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        slots[slot] = new SceneGesture(
+            GestureSlot.Jump, LandActivity, null, AutoKill: true, seconds);
+    }
+
     /// <summary>The gestures a player has going, newest per slot, in slot order.</summary>
     /// <param name="entityIndex">The player.</param>
     /// <param name="into">Cleared and filled.</param>

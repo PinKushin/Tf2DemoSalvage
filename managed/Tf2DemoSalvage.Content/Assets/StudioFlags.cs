@@ -59,4 +59,13 @@ internal static class StudioFlags
     /// of differences with nothing underneath them.
     /// </remarks>
     public const int SequenceDelta = 0x0004;
+
+    /// <summary><c>STUDIO_POST</c>, <c>studio.h:3082</c>.</summary>
+    /// <remarks>
+    /// **Only meaningful on a <see cref="SequenceDelta"/> sequence**, where it chooses which side
+    /// the scaled delta is composed on: <c>QuaternionMA( q1, s2, q2, q1 )</c> with it,
+    /// <c>QuaternionSM( s2, q2, q1, q1 )</c> without (<c>bone_setup.cpp:1441-1456</c>). Valve left
+    /// the comment beside the define empty, and the branch above is the whole of its meaning.
+    /// </remarks>
+    public const int SequencePost = 0x0010;
 }

@@ -1679,6 +1679,27 @@ public sealed class DemoTimeline
                     {
                         leftGroundAt.Remove(player.EntityIndex);
                         airwalkingSince.Remove(player.EntityIndex);
+
+                        // **Landing ends the jump gesture, and this is what was missing** (B284).
+                        // `CTFPlayerAnimState::HandleJumping` (`tf_playeranimstate.cpp:1498`):
+                        //
+                        //     else if ( gpGlobals->curtime - m_flJumpStartTime > 0.2f )
+                        //     {
+                        //         if ( GetBasePlayer()->GetFlags() & FL_ONGROUND )
+                        //         {
+                        //             m_bJumping = false;
+                        //             RestartMainSequence();
+                        //             if ( bNewJump ) RestartGesture( GESTURE_SLOT_JUMP, ACT_MP_JUMP_LAND );
+                        //         }
+                        //     }
+                        //
+                        // **A demo carries no event for landing.** The double jump arrives as a
+                        // `CTEPlayerAnimEvent`; the landing that replaces it is a decision the
+                        // client makes from the ground flag, so a reader driven by events alone
+                        // leaves `ACT_MP_DOUBLEJUMP` — a FULL-BODY animation — playing after the
+                        // player is back on the ground, and it takes the whole skeleton with it.
+                        // That is what laid one scout flat while every other player stood.
+                        gestures.Landed(player.EntityIndex, command.Tick * interval);
                     }
                     else
                     {

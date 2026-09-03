@@ -595,6 +595,160 @@ public static class StudioBones
         return (blended.X, blended.Y, blended.Z, blended.W);
     }
 
+    /// <summary>Scales a rotation toward identity — <c>QuaternionScale</c>.</summary>
+    /// <param name="rotation">The rotation.</param>
+    /// <param name="scale">How much of it to keep.</param>
+    /// <returns>The scaled rotation.</returns>
+    /// <remarks>
+    /// **<c>mathlib_base.cpp:1757</c>**, and it is NOT a component multiply. The angle is scaled,
+    /// not the vector:
+    ///
+    /// <code>
+    ///   float sinom = sqrt( DotProduct( &amp;p.x, &amp;p.x ) );
+    ///   sinom = min( sinom, 1.f );
+    ///   float sinsom = sin( asin( sinom ) * t );
+    ///   t = sinsom / (sinom + FLT_EPSILON);
+    ///   VectorScale( &amp;p.x, t, &amp;q.x );
+    ///   r = 1.0f - sinsom * sinsom;
+    ///   if (r &lt; 0.0f) r = 0.0f;
+    ///   r = sqrt( r );
+    ///   if (p.w &lt; 0) q.w = -r; else q.w = r;
+    /// </code>
+    ///
+    /// The sign of <c>w</c> is carried across deliberately — Valve's own comment says *"keep sign
+    /// of rotation"* — because a quaternion and its negation are the same rotation and dropping the
+    /// sign here would send a scaled delta the long way round.
+    /// </remarks>
+    public static (float X, float Y, float Z, float W) Scale(
+        (float X, float Y, float Z, float W) rotation, float scale)
+    {
+        float sine = MathF.Sqrt(
+            (rotation.X * rotation.X) + (rotation.Y * rotation.Y) + (rotation.Z * rotation.Z));
+
+        sine = MathF.Min(sine, 1f);
+
+        float scaled = MathF.Sin(MathF.Asin(sine) * scale);
+        float share = scaled / (sine + float.Epsilon);
+
+        float remainder = 1f - (scaled * scaled);
+
+        if (remainder < 0f)
+        {
+            remainder = 0f;
+        }
+
+        remainder = MathF.Sqrt(remainder);
+
+        return (
+            rotation.X * share,
+            rotation.Y * share,
+            rotation.Z * share,
+            rotation.W < 0f ? -remainder : remainder);
+    }
+
+    /// <summary>One rotation applied after another — <c>QuaternionMult</c>.</summary>
+    /// <param name="first">The rotation applied second, Valve's <c>p</c>.</param>
+    /// <param name="second">The rotation applied first, Valve's <c>q</c>.</param>
+    /// <returns>The product.</returns>
+    /// <remarks>
+    /// **<c>mathlib_base.cpp:1837</c>**, and it aligns before multiplying:
+    /// <c>QuaternionAlign( p, q, q2 )</c> negates the second when the two point opposite ways, for
+    /// the same reason <see cref="Slerp"/> does. <c>System.Numerics</c> multiplies without
+    /// aligning, so this cannot delegate.
+    /// </remarks>
+    public static (float X, float Y, float Z, float W) Multiply(
+        (float X, float Y, float Z, float W) first,
+        (float X, float Y, float Z, float W) second)
+    {
+        (float X, float Y, float Z, float W) aligned = Align(first, second);
+
+        return (
+            (first.X * aligned.W) + (first.Y * aligned.Z) -
+                (first.Z * aligned.Y) + (first.W * aligned.X),
+            (-first.X * aligned.Z) + (first.Y * aligned.W) +
+                (first.Z * aligned.X) + (first.W * aligned.Y),
+            (first.X * aligned.Y) - (first.Y * aligned.X) +
+                (first.Z * aligned.W) + (first.W * aligned.Z),
+            (-first.X * aligned.X) - (first.Y * aligned.Y) -
+                (first.Z * aligned.Z) + (first.W * aligned.W));
+    }
+
+    /// <summary>Negates a rotation when it points the long way round — <c>QuaternionAlign</c>.</summary>
+    /// <param name="to">The rotation to align against.</param>
+    /// <param name="rotation">The rotation to align.</param>
+    /// <returns>The aligned rotation.</returns>
+    /// <remarks>
+    /// **<c>mathlib_base.cpp:1509</c>**, compared as sums of squares rather than by a dot product,
+    /// which Valve marks as a possible simplification. Kept in that form because the two agree in sign
+    /// and the comparison is the documented one.
+    /// </remarks>
+    public static (float X, float Y, float Z, float W) Align(
+        (float X, float Y, float Z, float W) to,
+        (float X, float Y, float Z, float W) rotation)
+    {
+        float apart =
+            ((to.X - rotation.X) * (to.X - rotation.X)) +
+            ((to.Y - rotation.Y) * (to.Y - rotation.Y)) +
+            ((to.Z - rotation.Z) * (to.Z - rotation.Z)) +
+            ((to.W - rotation.W) * (to.W - rotation.W));
+
+        float together =
+            ((to.X + rotation.X) * (to.X + rotation.X)) +
+            ((to.Y + rotation.Y) * (to.Y + rotation.Y)) +
+            ((to.Z + rotation.Z) * (to.Z + rotation.Z)) +
+            ((to.W + rotation.W) * (to.W + rotation.W));
+
+        return apart > together
+            ? (-rotation.X, -rotation.Y, -rotation.Z, -rotation.W)
+            : rotation;
+    }
+
+    /// <summary>Adds a scaled delta BEFORE a rotation — <c>QuaternionSM</c>.</summary>
+    /// <param name="scale">How much of the delta to apply.</param>
+    /// <param name="delta">The additive rotation.</param>
+    /// <param name="onto">What it is added to.</param>
+    /// <returns>The result, normalised.</returns>
+    /// <remarks>
+    /// **<c>bone_setup.cpp:1165</c>**: <c>QuaternionScale( p, s, p1 ); QuaternionMult( p1, q, q1 );
+    /// QuaternionNormalize( q1 );</c> — the default composition for a
+    /// <c>STUDIO_DELTA</c> layer, used whenever <c>STUDIO_POST</c> is absent.
+    /// </remarks>
+    public static (float X, float Y, float Z, float W) ScaleBefore(
+        float scale,
+        (float X, float Y, float Z, float W) delta,
+        (float X, float Y, float Z, float W) onto) =>
+        NormalizeRotation(Multiply(Scale(delta, scale), onto));
+
+    /// <summary>Adds a scaled delta AFTER a rotation — <c>QuaternionMA</c>.</summary>
+    /// <param name="onto">What the delta is added to.</param>
+    /// <param name="scale">How much of the delta to apply.</param>
+    /// <param name="delta">The additive rotation.</param>
+    /// <returns>The result, normalised.</returns>
+    /// <remarks>
+    /// **<c>bone_setup.cpp:1192</c>**, Valve's own comment: <c>qt = p * ( s * q )</c>. Reached only
+    /// for a delta layer whose sequence also carries <c>STUDIO_POST</c>.
+    /// </remarks>
+    public static (float X, float Y, float Z, float W) ScaleAfter(
+        (float X, float Y, float Z, float W) onto,
+        float scale,
+        (float X, float Y, float Z, float W) delta) =>
+        NormalizeRotation(Multiply(onto, Scale(delta, scale)));
+
+    /// <summary>A rotation scaled to unit length, or identity when it has none.</summary>
+    /// <param name="rotation">The rotation.</param>
+    /// <returns>The normalised rotation.</returns>
+    private static (float X, float Y, float Z, float W) NormalizeRotation(
+        (float X, float Y, float Z, float W) rotation)
+    {
+        float length = MathF.Sqrt(
+            (rotation.X * rotation.X) + (rotation.Y * rotation.Y) +
+            (rotation.Z * rotation.Z) + (rotation.W * rotation.W));
+
+        return length > 0f
+            ? (rotation.X / length, rotation.Y / length, rotation.Z / length, rotation.W / length)
+            : (0f, 0f, 0f, 1f);
+    }
+
 
     /// <summary>One 3×4 transform applied after another.</summary>
     /// <param name="first">The outer transform, applied second.</param>

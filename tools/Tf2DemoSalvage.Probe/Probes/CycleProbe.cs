@@ -6,6 +6,7 @@ using System.Linq;
 
 using Microsoft.Extensions.Logging.Abstractions;
 
+using Tf2DemoSalvage.Animation.Animating;
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Presentation;
@@ -184,7 +185,7 @@ public sealed class CycleProbe : IProbe
 
                 StudioSequence one = shownModel.Groups[at.Group].Sequences[at.Local];
 
-                if (one.Activity.Contains("RELOAD_STAND", StringComparison.OrdinalIgnoreCase))
+                if (one.Activity.StartsWith("ACT_MP_ATTACK_STAND", StringComparison.Ordinal) || one.Activity.Contains("FLINCH", StringComparison.Ordinal) || one.Activity.Contains("JUMP_LAND", StringComparison.Ordinal))
                 {
                     output.WriteLine(
                         $"    merged {index,4} group {at.Group} local {at.Local,4} "
@@ -194,6 +195,22 @@ public sealed class CycleProbe : IProbe
 
             output.WriteLine(
                 $"    ForActivity(ACT_MP_RELOAD_STAND) = {shownModel.ForActivity("ACT_MP_RELOAD_STAND")}");
+
+            // **The control on the weight reader.** `PRIMARY_reload_start` is an arms-only layer by
+            // construction — its own name says so — so if its list reads as all ones the reader is
+            // wrong, and if it reads as a real pattern the reader is right and a full-body count
+            // elsewhere is the truth about that sequence. Without this, "76 of 78" is a number with
+            // nothing to compare it to.
+            foreach (int probeSequence in new[] { 15, 16, 17, 243 })
+            {
+                IReadOnlyList<float> list = shownModel.BoneWeights(probeSequence);
+
+                output.WriteLine(
+                    $"    weights[{probeSequence,4}] "
+                    + $"'{LabelOf(geometry, shownPath, probeSequence)}' "
+                    + $"{list.Count(w => w > 0f)} of {list.Count} non-zero, "
+                    + $"sum {list.Sum():0.##}");
+            }
         }
 
         for (int sample = 0; sample < 40; sample++)
@@ -282,7 +299,13 @@ public sealed class CycleProbe : IProbe
                         drawnLayers.Select(one =>
                             $"seq{one.Sequence}"
                             + $"'{LabelOf(geometry, asDrawn?.ModelPath, one.Sequence)}'"
-                            + $":{one.BoneWeights.Count(w => w > 0f)}of{one.BoneWeights.Count}")) + "]"
+                            + $":{one.BoneWeights.Count(w => w > 0f)}of{one.BoneWeights.Count}"
+                            + $" f{one.Frame}+{one.FrameFraction:0.##}"
+                            + $"/{FramesOf(geometry, asDrawn?.ModelPath, one.Sequence)}"
+                            + $" sampled {SampledOf(geometry, asDrawn?.ModelPath, one)}"
+                            + $" animdelta {DeltaOf(geometry, asDrawn?.ModelPath, one.Sequence)}"
+                            + $" seqdelta {one.Delta} post {one.Post}"
+                            + $" channels {ChannelsOf(geometry, asDrawn?.ModelPath, one)}")) + "]"
                     : string.Empty)
 
                 + (asDrawn?.Pose.Gestures is { Count: > 0 } held
@@ -297,6 +320,87 @@ public sealed class CycleProbe : IProbe
             previous = cycle;
         }
     }
+
+    /// <summary>How many frames a merged sequence has.</summary>
+    /// <param name="geometry">The production geometry loader.</param>
+    /// <param name="modelPath">Which model.</param>
+    /// <param name="sequence">The merged sequence number.</param>
+    /// <returns>Its frame count, or zero.</returns>
+    private static int FramesOf(
+        Func<string, PropModels.ModelFrames?>? geometry, string? modelPath, int sequence) =>
+        geometry is null || modelPath is null || geometry(modelPath)?.Skinned is not { } skinned
+            ? 0
+            : skinned.Frames(sequence);
+
+    /// <summary>How many bones a layer's own sample actually covers.</summary>
+    /// <param name="geometry">The production geometry loader.</param>
+    /// <param name="modelPath">Which model.</param>
+    /// <param name="layer">The layer.</param>
+    /// <returns>The count of bones the sample carries.</returns>
+    /// <remarks>
+    /// **The number that separates the two candidate faults.** `CalcVirtualAnimation`
+    /// (`bone_setup.cpp:928`) seeds every WEIGHTED bone to the sequence model's bind pose and then
+    /// overwrites only the bones the animation contains — so a bone that is weighted and absent
+    /// from the animation is left at the reference, which for a TF2 player is lying flat. A sample
+    /// covering far fewer bones than the weight list says is that condition; one covering the same
+    /// number means the fault is elsewhere.
+    /// </remarks>
+    private static int SampledOf(
+        Func<string, PropModels.ModelFrames?>? geometry, string? modelPath, PoseLayer layer) =>
+        geometry is null || modelPath is null || geometry(modelPath)?.Skinned is not { } skinned
+            ? -1
+            : skinned.Locals(layer.Sequence, layer.Frame, layer.FrameFraction, []).Count;
+
+    /// <summary>Which decode paths a layer's animation actually uses, as a flag histogram.</summary>
+    /// <param name="geometry">The production geometry loader.</param>
+    /// <param name="modelPath">Which model.</param>
+    /// <param name="layer">The layer.</param>
+    /// <returns>Each distinct channel-flag combination and how many bones use it.</returns>
+    /// <remarks>
+    /// **This project documents that three of its decode paths are UNPROVEN**, in
+    /// <c>StudioAnimation</c>'s own remarks: <c>Quaternion48</c>, the Euler run-length path and the
+    /// run-length fallback past <c>valid</c> are written from <c>studio.h</c> and exercised by no
+    /// model it loads — *"Sabotaging each of them leaves every test green."*
+    ///
+    /// So when two layers compose through identical code and one looks right, the first question is
+    /// whether they take the same path through the decoder. This answers it.
+    /// </remarks>
+    private static string ChannelsOf(
+        Func<string, PropModels.ModelFrames?>? geometry, string? modelPath, PoseLayer layer)
+    {
+        if (geometry is null || modelPath is null ||
+            geometry(modelPath)?.Skinned is not { } skinned ||
+            skinned.Sequences.At(layer.Sequence) is not { } where ||
+            where.Group >= skinned.Models.Count ||
+            where.Local >= skinned.Groups[where.Group].Sequences.Count)
+        {
+            return "?";
+        }
+
+        Dictionary<int, int> counts = [];
+
+        foreach ((int _, int flags, int _) in StudioAnimation.Tracks(
+            skinned.Models[where.Group],
+            skinned.Bones,
+            skinned.Groups[where.Group].Sequences[where.Local].Animation,
+            layer.Frame))
+        {
+            counts[flags] = counts.TryGetValue(flags, out int seen) ? seen + 1 : 1;
+        }
+
+        return string.Join(
+            ",", counts.OrderBy(one => one.Key).Select(one => $"0x{one.Key:x2}x{one.Value}"));
+    }
+
+    /// <summary>Whether a merged sequence's ANIMATION is additive.</summary>
+    /// <param name="geometry">The production geometry loader.</param>
+    /// <param name="modelPath">Which model.</param>
+    /// <param name="sequence">The merged sequence number.</param>
+    /// <returns>Whether the animation carries STUDIO_DELTA.</returns>
+    private static bool DeltaOf(
+        Func<string, PropModels.ModelFrames?>? geometry, string? modelPath, int sequence) =>
+        geometry is not null && modelPath is not null &&
+        geometry(modelPath)?.Skinned is { } skinned && skinned.AnimationIsDelta(sequence);
 
     /// <summary>The MERGED table's own label for a sequence number.</summary>
     /// <param name="geometry">The production geometry loader.</param>

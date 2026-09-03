@@ -20,6 +20,16 @@ namespace Tf2DemoSalvage.Animation.Animating;
 /// <paramref name="Weight"/> to give <c>SlerpBones</c>' <c>pS2[i]</c>. A bone past the end of this
 /// list is left alone, which matches a weightless bone rather than a fully weighted one.
 /// </param>
+/// <param name="Delta">
+/// Whether the layer's sequence carries <c>STUDIO_DELTA</c>, meaning its animation holds a
+/// DIFFERENCE rather than a pose. <c>SlerpBones</c> composes those additively instead of blending
+/// toward them (<c>bone_setup.cpp:1434</c>), and every TF2 player gesture is one.
+/// </param>
+/// <param name="Post">
+/// Whether a delta layer composes after the base rather than before — <c>STUDIO_POST</c>, which
+/// chooses <c>QuaternionMA</c> over <c>QuaternionSM</c>. Meaningless without
+/// <paramref name="Delta"/>.
+/// </param>
 /// <remarks>
 /// **The per-bone list is the whole mechanism, not a refinement.** A gesture's weight list is 1 on
 /// the arms and 0 on the legs, which is how a reload plays on a running player without stopping
@@ -33,7 +43,9 @@ public readonly record struct PoseLayer(
     int Frame,
     float FrameFraction,
     float Weight,
-    IReadOnlyList<float> BoneWeights);
+    IReadOnlyList<float> BoneWeights,
+    bool Delta = false,
+    bool Post = false);
 
 /// <summary>
 /// A real studio skeleton, driven by whatever the animation says its bones are doing.
@@ -472,9 +484,36 @@ public sealed class SkeletonPose : IBonePose
                     s2 = 1f;
                 }
 
-                float s1 = 1f - s2;
-
                 StudioBonePose under = result[bone];
+
+                // **A delta layer ADDS; it does not blend toward** (B284). `SlerpBones` splits on
+                // the sequence's `STUDIO_DELTA` before it does anything else
+                // (`bone_setup.cpp:1434`):
+                //
+                //     if ( seqdesc.flags & STUDIO_POST ) QuaternionMA( q1[i], s2, q2[i], q1[i] );
+                //     else                               QuaternionSM( s2, q2[i], q1[i], q1[i] );
+                //     pos1[i] = pos1[i] + pos2[i] * s2;
+                //
+                // **Every TF2 player gesture takes this branch**, measured on `scout.mdl`:
+                // `PRIMARY_reload_start` and `jumpland_primary` both carry the delta bit on the
+                // sequence AND on the animation behind it. Slerping toward one instead replaces the
+                // skeleton with a difference — which is not a pose at all — and lays the player
+                // flat on the ground.
+                if (layer.Delta)
+                {
+                    result[bone] = new StudioBonePose(
+                        bone,
+                        (under.Position.X + (over.Position.X * s2),
+                         under.Position.Y + (over.Position.Y * s2),
+                         under.Position.Z + (over.Position.Z * s2)),
+                        layer.Post
+                            ? StudioBones.ScaleAfter(under.Rotation, s2, over.Rotation)
+                            : StudioBones.ScaleBefore(s2, over.Rotation, under.Rotation));
+
+                    continue;
+                }
+
+                float s1 = 1f - s2;
 
                 result[bone] = new StudioBonePose(
                     bone,

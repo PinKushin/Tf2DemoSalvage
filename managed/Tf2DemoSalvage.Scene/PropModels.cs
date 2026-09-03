@@ -1645,9 +1645,21 @@ public static class PropModels
             // **A frame past the end reads as nothing, and holding is the right answer there.**
             // `StudioAnimation.Pose` answers empty for a frame the animation does not have, and
             // the engine never asks for one — at the end its fraction is zero.
+            //
+            // **Told whether these are DELTAS, because that decides what an unlisted bone means**
+            // (B284). The blend has to name every bone to weight them against each other, and a
+            // delta's absent bone is identity and zero rather than its rest transform — the two
+            // halves of `CalcVirtualAnimation`'s own seeding. Filling a twelve-bone landing delta
+            // from the rest pose turned it into a seventy-six-bone one and threw the player's arms
+            // over its head.
             return next.Count == 0
                 ? pose
-                : StudioPoseBlend.Blend(BonesOf(group), pose, next, fraction);
+                : StudioPoseBlend.Blend(
+                    BonesOf(group),
+                    pose,
+                    next,
+                    fraction,
+                    StudioAnimation.IsDelta(Models[group], animation));
         }
 
         private IReadOnlyList<StudioBonePose> PoseOf(int group, int animation, int frame)
@@ -1963,6 +1975,45 @@ public static class PropModels
             where.Group < Models.Count &&
             where.Local < Groups[where.Group].Sequences.Count &&
             Groups[where.Group].Sequences[where.Local].IsDelta;
+
+        /// <summary>Whether the ANIMATION behind a sequence is additive.</summary>
+        /// <param name="sequence">The merged sequence number.</param>
+        /// <returns>Whether its animation carries <c>STUDIO_DELTA</c>.</returns>
+        /// <remarks>
+        /// **A different field from <see cref="IsDelta"/>, and the one that decides how a layer
+        /// composes.** <c>CalcVirtualAnimation</c> (<c>bone_setup.cpp:933</c>) branches on
+        /// <c>animdesc.flags</c>, not <c>seqdesc.flags</c>:
+        ///
+        /// <code>
+        ///   if (animdesc.flags &amp; STUDIO_DELTA) { q[i].Init( 0,0,0,1 ); pos[i].Init( 0,0,0 ); }
+        ///   else                                { q[i] = pSeqbone[j].quat; pos[i] = pSeqbone[j].pos; }
+        /// </code>
+        ///
+        /// **Measured on `scout.mdl`: the gesture sequences carry BOTH.** `PRIMARY_reload_start`
+        /// and `jumpland_primary` are delta on the sequence and delta on the animation behind it, so
+        /// the two agree here — but they are separate fields and only this one governs the seeding
+        /// in `CalcVirtualAnimation` (B284).
+        /// </remarks>
+        public bool AnimationIsDelta(int sequence) =>
+            Sequences.At(sequence) is { } where &&
+            where.Group < Models.Count &&
+            where.Local < Groups[where.Group].Sequences.Count &&
+            StudioAnimation.IsDelta(
+                Models[where.Group], Groups[where.Group].Sequences[where.Local].Animation);
+        /// <summary>Whether a sequence composes its delta after the base — <c>STUDIO_POST</c>.</summary>
+        /// <param name="sequence">The merged sequence number.</param>
+        /// <returns>Whether it carries <c>STUDIO_POST</c>.</returns>
+        /// <remarks>
+        /// **Meaningful only on a delta sequence**, where it picks which side the scaled difference
+        /// is composed on (<c>bone_setup.cpp:1441</c>). Read rather than assumed because the two
+        /// give different rotations and nothing downstream could tell them apart.
+        /// </remarks>
+        public bool IsPost(int sequence) =>
+            Sequences.At(sequence) is { } where &&
+            where.Group < Models.Count &&
+            where.Local < Groups[where.Group].Sequences.Count &&
+            Groups[where.Group].Sequences[where.Local].IsPost;
+
 
         /// <summary>How many frames the animation behind a sequence has.</summary>
         /// <param name="sequence">The merged sequence number.</param>

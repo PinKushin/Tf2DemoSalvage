@@ -582,16 +582,8 @@ public sealed class EntityModelSet
             // A player's `m_AnimOverlay` array is excluded from the wire (`tf_player.cpp:774`), so
             // these come from the `CTEPlayerAnimEvent` stream the timeline collected; each one is
             // resolved to a sequence HERE, because only this layer has the model.
-            // **Held back until B284 is resolved.** The resolution and the accumulation are both
-            // in place and tested, but two things measured on `z1800.dem` say the result is not
-            // yet Valve's: `ACT_MP_RELOAD_STAND` resolves to nothing because TF2's real
-            // activities carry a weapon-slot suffix, and the gesture that DOES resolve — the
-            // double jump — is weighted on 76 of 78 bones and applied absolutely, which lays the
-            // player flat. Drawing that is worse than drawing no gesture, so the layers are built
-            // and not handed over until the sampling is right.
-            posed.Layers = [];
+            posed.Layers = LayersFor(prop, skinned, seconds);
 
-            _ = LayersFor(prop, skinned, seconds);
 
             // **`DoAnimationEvents`, and it has to be HERE** (B275). The walk asks what the cycle
             // crossed since last frame, and for a player the cycle is not on the wire at all — the
@@ -886,13 +878,29 @@ public sealed class EntityModelSet
 
         foreach (SceneGesture gesture in gestures)
         {
+
             // `SelectWeightedSequence( iGestureActivity )`, and its `<= 0` abandonment. An activity
             // number rather than a name is the two custom-gesture events, which carry the activity
             // on the wire; nothing resolves those yet, so they are skipped rather than guessed at.
-            if (gesture.ActivityName is not { Length: > 0 } activity)
+            if (gesture.ActivityName is not { Length: > 0 } named)
             {
                 continue;
             }
+
+            // **The weapon slot goes in HERE, because only this layer knows it** (B284). Every
+            // gesture activity on a TF2 player model is suffixed by the held weapon's role —
+            // measured on `scout.mdl`: `ACT_MP_RELOAD_STAND_PRIMARY`,
+            // `ACT_MP_RELOAD_STAND_SECONDARY`, `ACT_MP_JUMP_LAND_primary`,
+            // `ACT_MP_ATTACK_STAND_ITEM2`. The unsuffixed name matches no sequence on any class, so
+            // every reload resolved to −1 and no reload has ever drawn.
+            //
+            // Core emits the name with a placeholder rather than the finished string, because the
+            // slot comes from the installed game's own scripts through `Appearance.WeaponSuffix` —
+            // the same source and the same suffix the MAIN sequence has always used
+            // (`PlayerActivityState.NameOf`). An activity that takes no slot, a flinch, carries no
+            // placeholder and passes through unchanged.
+            string activity = string.Format(
+                CultureInfo.InvariantCulture, named, prop.Pose.Slot ?? "PRIMARY");
 
             // **`ForActivity`, not `Find`, and the difference is the whole mechanism.** `Find`
             // matches a sequence LABEL the way `Studio_LookupSequence` does; the engine resolves a
@@ -938,7 +946,17 @@ public sealed class EntityModelSet
                 (float)cycle, skinned.Frames(sequence), skinned.Loops(sequence));
 
             layers.Add(new PoseLayer(
-                sequence, frame, fraction, 1f, skinned.BoneWeights(sequence)));
+                sequence,
+                frame,
+                fraction,
+                1f,
+                skinned.BoneWeights(sequence),
+
+                // **Every TF2 player gesture is a DELTA**, measured: `PRIMARY_reload_start` and
+                // `jumpland_primary` both carry the bit. `SlerpBones` composes those additively
+                // rather than blending toward them (B284).
+                Delta: skinned.IsDelta(sequence),
+                Post: skinned.IsPost(sequence)));
         }
 
         return layers;

@@ -179,6 +179,54 @@ public static class StudioAnimation
 
         return float.IsFinite(fps) && fps > 0f ? fps / (frames - 1) : 0f;
     }
+    /// <summary>One animation's own flags — <c>mstudioanimdesc_t.flags</c>.</summary>
+    /// <param name="file">The <c>.mdl</c>'s bytes.</param>
+    /// <param name="animation">Which animation.</param>
+    /// <returns>Its flags, or zero when it cannot be read.</returns>
+    /// <remarks>
+    /// **Not the SEQUENCE's flags, and the difference decides how a layer composes.**
+    /// <c>CalcVirtualAnimation</c> (<c>bone_setup.cpp:933</c>) tests
+    /// <c>animdesc.flags &amp; STUDIO_DELTA</c> — the ANIMATION's — to decide whether a bone is
+    /// seeded to identity or to the sequence model's bind pose:
+    ///
+    /// <code>
+    ///   if (animdesc.flags &amp; STUDIO_DELTA) { q[i].Init( 0,0,0,1 ); pos[i].Init( 0,0,0 ); }
+    ///   else                                { q[i] = pSeqbone[j].quat; pos[i] = pSeqbone[j].pos; }
+    /// </code>
+    ///
+    /// **Reading the sequence's flags instead is how B284 stayed unsolved for an hour.** A TF2
+    /// player's gesture sequences carry <c>STUDIO_HIDDEN</c> and no delta bit, while the animations
+    /// behind them are additive — so "the layer is not a delta" was true of the field being read
+    /// and false of the thing that matters.
+    /// </remarks>
+    public static int Flags(ReadOnlyMemory<byte> file, int animation)
+    {
+        if (animation < 0 || animation >= Count(file))
+        {
+            return 0;
+        }
+
+        ReadOnlySpan<byte> bytes = file.Span;
+
+        int at = BinaryPrimitives.ReadInt32LittleEndian(bytes[HeaderAnimationIndexOffset..]) +
+            (animation * AnimationStride);
+
+        return at < 0 || at + AnimationStride > bytes.Length
+            ? 0
+            : BinaryPrimitives.ReadInt32LittleEndian(bytes[(at + AnimationFlagsOffset)..]);
+    }
+
+    /// <summary>Whether one animation is additive — <c>animdesc.flags &amp; STUDIO_DELTA</c>.</summary>
+    /// <param name="file">The <c>.mdl</c>'s bytes.</param>
+    /// <param name="animation">Which animation.</param>
+    /// <returns>Whether it carries the delta bit.</returns>
+    /// <remarks>
+    /// Here rather than at the caller because <c>StudioFlags</c> is this assembly's, and the bit
+    /// is the same value the sequence flag uses (<c>studio.h:3080</c>, <c>0x0004</c>).
+    /// </remarks>
+    public static bool IsDelta(ReadOnlyMemory<byte> file, int animation) =>
+        (Flags(file, animation) & StudioFlags.SequenceDelta) != 0;
+
 
     /// <summary>Reads one animation's bone poses at one frame.</summary>
     /// <param name="file">The <c>.mdl</c>'s bytes.</param>
@@ -215,21 +263,41 @@ public static class StudioAnimation
 
         List<StudioBonePose> poses = [];
 
+        // **A delta animation is seeded from NOTHING, not from the rest pose** (B284).
+        // `CalcVirtualAnimation` (`bone_setup.cpp:933`) branches on the ANIMATION's own flags
+        // before it reads a single bone:
+        //
+        //     if (animdesc.flags & STUDIO_DELTA) { q[i].Init( 0,0,0,1 ); pos[i].Init( 0,0,0 ); }
+        //     else                               { q[i] = pSeqbone[j].quat; pos[i] = pSeqbone[j].pos; }
+        //
+        // A delta holds a DIFFERENCE, so a channel it does not carry means "no difference" — an
+        // identity rotation and a zero offset. Seeding from the rest pose instead makes every
+        // unanimated channel a full bone transform, and adding THAT to a base stretches every limb
+        // by its own rest offset. Measured on a scout mid-reload: a standing but elongated,
+        // twisted body, where the absolute reading had given a flat one.
+        bool additive = IsDelta(file, animation);
+
         foreach ((int bone, int flags, int payload) in
             Chain(bytes, bones, animation, frame, out int wanted))
         {
-            poses.Add(ReadBone(bytes[payload..], bones[bone], bone, flags, wanted));
+            poses.Add(ReadBone(bytes[payload..], bones[bone], bone, flags, wanted, additive));
         }
 
         return poses;
     }
 
     private static StudioBonePose ReadBone(
-        ReadOnlySpan<byte> payload, StudioBone rest, int bone, int flags, int frame)
+        ReadOnlySpan<byte> payload,
+        StudioBone rest,
+        int bone,
+        int flags,
+        int frame,
+        bool additive)
     {
         int rotationBytes = 0;
 
-        (float X, float Y, float Z, float W) rotation = rest.Rotation;
+        (float X, float Y, float Z, float W) rotation =
+            additive ? (0f, 0f, 0f, 1f) : rest.Rotation;
 
         if ((flags & RawRotation) != 0 && payload.Length >= 6)
         {
@@ -259,7 +327,7 @@ public static class StudioAnimation
             rotation = FromEuler(x, y, z);
         }
 
-        (float X, float Y, float Z) position = rest.Position;
+        (float X, float Y, float Z) position = additive ? (0f, 0f, 0f) : rest.Position;
 
         if ((flags & RawPosition) != 0 && payload.Length >= rotationBytes + 6)
         {

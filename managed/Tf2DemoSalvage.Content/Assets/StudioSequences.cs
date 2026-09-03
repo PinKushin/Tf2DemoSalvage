@@ -74,6 +74,15 @@ public readonly record struct StudioSequence(
     /// </remarks>
     public bool IsDelta => (Flags & DeltaSequence) != 0;
 
+    /// <summary>Whether a delta sequence composes AFTER the base — <c>STUDIO_POST</c>.</summary>
+    /// <remarks>
+    /// **Meaningful only alongside <see cref="IsDelta"/>**, where it chooses which side the scaled
+    /// difference is composed on: <c>QuaternionMA( q1, s2, q2, q1 )</c> with it,
+    /// <c>QuaternionSM( s2, q2, q1, q1 )</c> without (<c>bone_setup.cpp:1441-1456</c>). Read rather
+    /// than assumed, because the two give different rotations and nothing downstream can tell.
+    /// </remarks>
+    public bool IsPost => (Flags & PostSequence) != 0;
+
     /// <summary><c>STUDIO_LOOPING</c> from <c>studio.h</c>.</summary>
     private const int Looping = StudioFlags.SequenceLooping;
 
@@ -81,6 +90,9 @@ public readonly record struct StudioSequence(
     private const int ForwardDeclared = StudioFlags.SequenceForwardDeclared;
 
     private const int DeltaSequence = StudioFlags.SequenceDelta;
+
+    /// <summary><c>STUDIO_POST</c>, which only a delta sequence uses.</summary>
+    private const int PostSequence = StudioFlags.SequencePost;
 }
 
 /// <summary>
