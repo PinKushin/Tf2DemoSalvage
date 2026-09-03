@@ -6,6 +6,8 @@ using System.IO;
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
 
+using Tf2DemoSalvage.Content.Bsp;
+
 using Silk.NET.Core.Native;
 using Silk.NET.Direct3D11;
 using Silk.NET.DXGI;
@@ -962,6 +964,45 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             if (_world is { HasMap: true })
             {
                 _context.OMSetDepthStencilState(_depthOn, 0);
+
+                // **The 3D skybox, first and from its own view** — `CSkyboxView` runs before
+                // `CBaseWorldView` and is the reason a TF2 map's horizon has distant scenery on it
+                // (B152). The room is a miniature far outside the level, drawn from a camera that
+                // moves a fraction as far as the player does.
+                //
+                // **Then the depth buffer is cleared, and that is what makes the order safe.** The
+                // sky is behind everything by construction, not by depth: its geometry is at the
+                // wrong distance for the world's depth range, so keeping its depth would let a
+                // miniature hillside occlude a wall. Valve reaches the same place by drawing the
+                // sky into its own view and clearing before the main one (`viewrender.cpp:5030`,
+                // `VIEW_CLEAR_DEPTH` on the main view when a 3D sky was drawn).
+                // **`_world.SetCamera` directly, NOT this class's `SetCamera`.** The public one
+                // records what it set as the world's camera, so using it here would make
+                // `ReapplyCamera` put the SKY view back and leave the map drawn through it until
+                // the user next moved. The viewmodel pass avoids the same trap the same way.
+                if (_skyCamera is { } skyView && _world.SkyBatches.Count > 0)
+                {
+                    _world.SetCamera(
+                        _device,
+                        _context,
+                        skyView,
+                        _worldCamera?.Colours ?? false,
+                        _specular,
+                        _fullbright,
+                        _debug,
+                        _phong);
+
+                    _world.DrawSky(_context);
+
+                    if (_depthView.Handle is not null)
+                    {
+                        _context.ClearDepthStencilView(
+                            _depthView, (uint)ClearFlag.Depth, 1f, 0);
+                    }
+
+                    ReapplyCamera();
+                }
+
                 _world.Draw(_context);
 
                 // **After the map, and through the depth buffer**, so a model behind a wall is
@@ -1293,6 +1334,61 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// <summary>How this map decides what of the world to draw, or null to draw all of it.</summary>
     private WorldCulling? _culling;
 
+    /// <summary>The map's <c>sky_camera</c>, or null when it declares none.</summary>
+    private ((float X, float Y, float Z) Origin, float Scale)? _skyRoom;
+
+    /// <summary>This frame's sky view, or null when there is no sky room to draw.</summary>
+    private float[]? _skyCamera;
+
+    /// <summary>What the eye's leaf could see this frame, for the log.</summary>
+    private SkyboxVisibility _skyVisible;
+
+    /// <summary>Whether and when the 3D skybox draws — Valve's <c>r_3dsky</c>.</summary>
+    /// <remarks>
+    /// **An INT with three states, not a switch** (<c>viewrender.cpp:113</c>):
+    /// <c>static ConVar r_3dsky( "r_3dsky","1", 0, "Enable the rendering of 3d sky boxes" );</c>
+    ///
+    /// 0 off, 1 draws the room only when a `SURF_SKY` face is in view, 2 draws it regardless. The
+    /// third state is the one a bool would delete, and it is the one that matters here: this viewer
+    /// has a free camera that can stand where the map never expected, and `2` is how you see the
+    /// room from there.
+    ///
+    /// **Not cheat-gated, and that is deliberate on Valve's part** — the flags argument is 0, where
+    /// <c>r_skybox</c> on the next line carries <c>FCVAR_CHEAT</c>. So turning the 3D sky off is
+    /// something a player may do in a real game, which is the owner's requirement exactly.
+    /// </remarks>
+    public int Draw3dSky
+    {
+        get => _draw3dSky;
+
+        set
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+
+            _draw3dSky = value;
+
+            // The cull is only rerun on a view change, so a toggle flipped while the camera is
+            // still would otherwise not take effect until the user next moved.
+            _culledFor = null;
+        }
+    }
+
+    private int _draw3dSky = SkyboxView.DrawsByDefault;
+
+    /// <summary>Tells the renderer where the map's 3D skybox is anchored.</summary>
+    /// <param name="skyCamera">The <c>sky_camera</c>'s origin and scale, or null for no 3D sky.</param>
+    /// <remarks>
+    /// **Set with the map, because it is a property OF the map** — the same lifetime as the cull
+    /// this pairs with. Null leaves the sky pass off entirely, which is what an indoor map with no
+    /// `sky_camera` needs and what every map got before the pass existed.
+    /// </remarks>
+    public void SetSkyCamera(((float X, float Y, float Z) Origin, float Scale)? skyCamera)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        _skyRoom = skyCamera;
+    }
+
     /// <summary>Gives the device the map's visibility, or takes it away.</summary>
     /// <param name="culling">The map's culling, or null for a map that cannot be culled.</param>
     /// <exception cref="ObjectDisposedException">The device has been disposed.</exception>
@@ -1372,6 +1468,37 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
             _world.VisibleBatches = _culling?.Batches(
                 camera.Origin.X, camera.Origin.Y, camera.Origin.Z, _frustum);
+
+            // **The sky view is its OWN view, with its own eye, frustum and visibility.** Valve
+            // builds it as a separate `CSkyboxView` and calls `ViewSetupVis` at the sky camera's
+            // origin (`viewrender.cpp:4900`) — the room sits ten thousand units outside the level
+            // and is in nobody's PVS but its own, so asking from the player's eye returns nothing.
+            // Measured before that was understood: `sky area 1 contributes 0 runs`, correct and
+            // useless.
+            //
+            // **Built from the same camera OBJECT rather than from its numbers**, so the two views
+            // cannot disagree about where the player is looking or how wide the lens is.
+            // **`r_3dsky`'s three states, decided exactly where Valve decides them** — the gate is
+            // `PreRender3dSkyboxWorld` and the visibility it tests is taken from the MAIN view's
+            // eye, before the sky camera's offset is applied.
+            _skyVisible = _culling?.SkyVisibleFrom(
+                camera.Origin.X, camera.Origin.Y, camera.Origin.Z) ?? SkyboxVisibility.None;
+
+            if (_skyRoom is { } room && _culling is { } cull &&
+                SkyboxView.Draws(Draw3dSky, _skyVisible, cull.SkyArea))
+            {
+                FreeCamera sky = SkyboxView.CameraFor(camera, room.Origin, room.Scale);
+
+                _world.SkyBatches = cull.SkyRunsFrom(
+                    sky.Origin.X, sky.Origin.Y, sky.Origin.Z, sky.Frustum());
+
+                _skyCamera = _world.SkyBatches.Count > 0 ? sky.ToMatrix() : null;
+            }
+            else
+            {
+                _world.SkyBatches = [];
+                _skyCamera = null;
+            }
 
             ReportWorldCull();
         }
@@ -1810,7 +1937,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         _render.LogInformation(
             "world cull: {Leaves} of {TotalLeaves} leaves, {Corners} of {TotalCorners} corners, "
             + "{Runs} runs against {Batches} batches, {Unreachable} spans have no leaf and are "
-            + "boxed instead; sky area {SkyArea} contributes {SkyRuns} runs",
+            + "boxed instead; sky area {SkyArea} contributes {SkyRuns} runs, r_3dsky {Setting} "
+            + "with {Visible} from the eye",
             _culling.LeafCount,
             _culling.TotalLeaves,
             _culling.Corners.Drawn,
@@ -1819,7 +1947,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             _world.BatchCount,
             _culling.UnreachableSpans,
             _culling.SkyArea,
-            _culling.SkyBatches.Count);
+            _world.SkyBatches.Count,
+            _draw3dSky,
+            _skyVisible);
     }
 
     /// <summary>Whether the viewmodel pass has said where it thinks the eye is (B170).</summary>

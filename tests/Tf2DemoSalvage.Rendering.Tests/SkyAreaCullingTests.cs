@@ -37,7 +37,9 @@ public sealed class SkyAreaCullingTests
         WorldCulling culling = Culled(skyArea: -1);
 
         culling.Batches(0f, 0f, 0f, Everything()).ShouldNotBeNull().Count.ShouldBe(2);
-        culling.SkyBatches.ShouldNotBeNull().ShouldBeEmpty("there is no sky room to draw");
+
+        culling.SkyRunsFrom(0f, 0f, 0f, Everything()).ShouldBeEmpty(
+            "there is no sky room to draw");
     }
 
     [Test]
@@ -49,15 +51,22 @@ public sealed class SkyAreaCullingTests
             1, "the sky room's leaf is drawn by the sky pass instead");
     }
 
+    /// <remarks>
+    /// **Asked from the SKY view's eye, which is the whole reason this is a separate call.**
+    /// `CSkyboxView::DrawInternal` runs `ViewSetupVis` at the sky camera's own origin
+    /// (<c>viewrender.cpp:4900</c>): the room sits far outside the level and is in nobody's PVS but
+    /// its own. Partitioning the PLAYER's visible leaves instead gave `sky area 1 contributes 0
+    /// runs` on a real map — correct, and useless.
+    /// </remarks>
     [Test]
-    public void SkyBatches_WithASkyArea_HoldsTheSkyRoomAlone()
+    public void SkyRunsFrom_TheSkyViewsOwnEye_HoldsTheSkyRoomAlone()
     {
         WorldCulling culling = Culled(skyArea: 1);
 
-        _ = culling.Batches(0f, 0f, 0f, Everything());
+        IReadOnlyList<WorldBatch> sky = culling.SkyRunsFrom(0f, 0f, 0f, Everything());
 
-        culling.SkyBatches.ShouldNotBeNull().Count.ShouldBe(
-            1, "one run, for the one face in the sky area");
+        sky.Count.ShouldBe(1, "one run, for the one face in the sky area");
+        sky[0].MaterialIndex.ShouldBe(9, "and it is the SKY's material, not the world's");
     }
 
     /// <remarks>
@@ -65,7 +74,9 @@ public sealed class SkyAreaCullingTests
     /// `VisibleWorld` clears and refills one list per call, so running the sky pass through the same
     /// instance would leave the main pass pointing at the sky's runs — a failure that shows as the
     /// world vanishing and the sky being drawn twice, and one that only appears once both passes
-    /// exist.
+    /// exist. `WorldVisibility` is duplicated for a sharper reason still: it owns `VisibleByLeaf`,
+    /// which the ENTITY cull reads, so a sky query through it would tell the entity cull the player
+    /// can see whatever the sky room can.
     /// </remarks>
     [Test]
     public void Batches_AfterTheSkyPass_StillHoldsTheMainPassRuns()
@@ -74,7 +85,7 @@ public sealed class SkyAreaCullingTests
 
         IReadOnlyList<WorldBatch> main = culling.Batches(0f, 0f, 0f, Everything()).ShouldNotBeNull();
 
-        _ = culling.SkyBatches;
+        _ = culling.SkyRunsFrom(0f, 0f, 0f, Everything());
 
         main.Count.ShouldBe(1, "the main runs survive the sky pass being built");
         main[0].MaterialIndex.ShouldBe(7, "and they are the WORLD's material, not the sky's");

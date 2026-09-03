@@ -196,6 +196,21 @@ public sealed record ViewerSettings
     /// </remarks>
     public const string ShowPositionCommand = "cl_showpos";
 
+    /// <summary>Command name for the 3D skybox — Valve's <c>r_3dsky</c>.</summary>
+    /// <remarks>
+    /// <c>static ConVar r_3dsky( "r_3dsky","1", 0, "Enable the rendering of 3d sky boxes" );</c>
+    /// (<c>viewrender.cpp:113</c>). **The flags argument is 0 — no <c>FCVAR_CHEAT</c>**, unlike
+    /// <c>r_skybox</c> declared on the very next line, so a player may legitimately turn the 3D sky
+    /// off in a real game. That is the owner's requirement stated as Valve's own declaration:
+    /// *"tf2 allows you to run skybox on or off, so we will too, video makers need the skybox on"*,
+    /// and competitive players — the owner among them — run without it.
+    ///
+    /// **Config-only, with no key bind, because TF2 gives it none.** Three tiers exist here and
+    /// only the last is a default bind (`docs/memory/not-every-setting-needs-a-bind.md`); this one
+    /// stops at the first, which is what parity asks for.
+    /// </remarks>
+    public const string ThreeDimensionalSkyCommand = "r_3dsky";
+
     /// <summary>Command name for where screenshots are written.</summary>
     /// <remarks>
     /// **A setting rather than an environment variable, on the owner's direction**: "env vars are a
@@ -505,6 +520,18 @@ public sealed record ViewerSettings
     /// </remarks>
     public int ShowPosition { get; init; } = PositionReadoutOff;
 
+    /// <summary>Whether and when the 3D skybox draws — <c>r_3dsky</c>.</summary>
+    /// <remarks>
+    /// **Three states, and the third is the one worth having here.** 0 off; 1 draws the room only
+    /// when a <c>SURF_SKY</c> face is in view; 2 draws it regardless
+    /// (<c>PreRender3dSkyboxWorld</c>, <c>viewrender.cpp:4845</c>). This viewer has a free camera
+    /// that can stand where a map never expected, and 2 is how the miniature room is seen from
+    /// there — a use TF2 itself has little need of.
+    ///
+    /// On by default, as the game has it.
+    /// </remarks>
+    public int ThreeDimensionalSky { get; init; } = SkyboxView.DrawsByDefault;
+
     /// <summary>The field of view the first-person weapon is drawn with, in degrees.</summary>
     /// <remarks>
     /// **The game's own default and the game's own limits.** <c>viewmodel_fov</c> is declared in
@@ -808,6 +835,16 @@ public sealed record ViewerSettings
         if (Read(values, ShowPositionCommand) is { } position)
         {
             settings = settings with { ShowPosition = position };
+        }
+
+        // **Kept as written, like `cl_showpos` above and for the same reason.** The engine reads
+        // this with `GetInt()` and tests it against 0 and against 2 (`viewrender.cpp:4845`), so the
+        // meaningful values are 0, 1 and 2 — but any other integer behaves as "not 0 and not 2",
+        // which is the same as 1. Clamping here would answer a config that says 3 differently from
+        // the way TF2 answers it.
+        if (Read(values, ThreeDimensionalSkyCommand) is { } sky)
+        {
+            settings = settings with { ThreeDimensionalSky = sky };
         }
 
         return settings;

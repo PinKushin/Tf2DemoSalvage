@@ -25,6 +25,7 @@ public sealed class WorldCulling
     private readonly WorldVisibility _visibility;
     private readonly VisibleWorld _surfaces;
     private readonly VisibleWorld _skySurfaces;
+    private readonly WorldVisibility _skyVisibility;
     private readonly BspLeafTree _tree;
     private readonly List<int> _mainLeaves = [];
     private readonly List<int> _skyLeaves = [];
@@ -52,6 +53,12 @@ public sealed class WorldCulling
         // object would leave the main pass holding the sky's runs — the world would vanish and the
         // sky would be drawn twice. A fault that only exists once both passes do.
         _skySurfaces = new VisibleWorld(spans, tree, leafFaces);
+
+        // **And a second visibility too, for the same reason and a sharper one.** `WorldVisibility`
+        // holds `VisibleByLeaf`, which the ENTITY cull reads as "what the world decided" — so a
+        // second query from the sky camera through the same object would tell the entity cull that
+        // the player can see whatever the sky room can, and hide every entity in the level.
+        _skyVisibility = new WorldVisibility(tree, pvs);
         _tree = tree;
 
         TotalLeaves = tree.LeafCount;
@@ -115,13 +122,65 @@ public sealed class WorldCulling
     /// </remarks>
     public int SkyArea { get; init; } = -1;
 
-    /// <summary>The runs making up the 3D skybox room, from the last cull.</summary>
+    /// <summary>The runs making up the 3D skybox room, seen from the sky view's own eye.</summary>
+    /// <param name="x">The SKY view's position — not the player's.</param>
+    /// <param name="y">The sky view's position.</param>
+    /// <param name="z">The sky view's position.</param>
+    /// <param name="frustum">The sky view's volume.</param>
+    /// <returns>The room's runs, valid until the next call; empty when there is no sky room.</returns>
     /// <remarks>
-    /// Empty rather than null when there is no sky room, so a caller draws nothing without having
-    /// to distinguish "no sky" from "not culled yet" — the distinction that matters is on
-    /// <see cref="Batches"/>, whose null means "draw everything".
+    /// **Visibility is computed from the SKY CAMERA, and getting that wrong makes the whole feature
+    /// silently draw nothing.** `CSkyboxView::DrawInternal` sets vis up at the sky camera's own
+    /// origin before it draws (<c>viewrender.cpp:4900</c>):
+    ///
+    /// <code>
+    ///   render-&gt;ViewSetupVis( false, 1, &amp;m_pSky3dParams-&gt;origin.Get() );
+    /// </code>
+    ///
+    /// under a comment admitting it should not have to. **Measured before this was understood:
+    /// partitioning the PLAYER's PVS gave `sky area 1 contributes 0 runs` on
+    /// `koth_harvest_final` — correct, and useless. A player standing in the map can never see
+    /// into a room built ten thousand units away, so the room is in nobody's PVS but its own.
+    ///
+    /// **The area filter stays**, because a vis query from inside the sky room can still reach
+    /// leaves outside it, and those belong to the main pass.
     /// </remarks>
-    public IReadOnlyList<WorldBatch> SkyBatches { get; private set; } = [];
+    public IReadOnlyList<WorldBatch> SkyRunsFrom(float x, float y, float z, ViewFrustum frustum)
+    {
+        if (!CanCull || SkyArea < 0)
+        {
+            return [];
+        }
+
+        IReadOnlyList<int> seen = _skyVisibility.Leaves(x, y, z, frustum);
+
+        _skyLeaves.Clear();
+
+        for (int at = 0; at < seen.Count; at++)
+        {
+            if (_tree.Area(seen[at]) == SkyArea)
+            {
+                _skyLeaves.Add(seen[at]);
+            }
+        }
+
+        return _skyLeaves.Count > 0 ? _skySurfaces.Batches(_skyLeaves, frustum) : [];
+    }
+
+    /// <summary>What kind of sky the eye can see — <c>ComputeSkyboxVisibility</c>.</summary>
+    /// <param name="x">The MAIN view's eye, which is what Valve passes.</param>
+    /// <param name="y">The main view's eye.</param>
+    /// <param name="z">The main view's eye.</param>
+    /// <returns>Which sky the leaf there sees.</returns>
+    /// <remarks>
+    /// <c>CSkyboxView::ComputeSkyboxVisibility</c> is
+    /// <c>engine-&gt;IsSkyboxVisibleFromPoint( origin )</c> (<c>viewrender.cpp:4775</c>), and
+    /// <c>origin</c> at that point is still the MAIN view's — the sky camera's offset is applied
+    /// later, inside <c>DrawInternal</c>. Asking from the sky's eye instead would answer whether
+    /// the sky room can see a sky face, which is not the question.
+    /// </remarks>
+    public SkyboxVisibility SkyVisibleFrom(float x, float y, float z) =>
+        _tree.SkyboxVisibleFrom(x, y, z);
 
     /// <summary>The world runs to draw from one eye, or null when this map cannot be culled.</summary>
     /// <param name="x">The eye's world position — the vis origin.</param>
@@ -166,10 +225,6 @@ public sealed class WorldCulling
                 _mainLeaves.Add(leaves[at]);
             }
         }
-
-        SkyBatches = _skyLeaves.Count > 0
-            ? _skySurfaces.Batches(_skyLeaves, frustum)
-            : [];
 
         IReadOnlyList<WorldBatch> runs = _surfaces.Batches(_mainLeaves, frustum);
 

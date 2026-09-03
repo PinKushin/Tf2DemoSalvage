@@ -19745,3 +19745,116 @@ Built and tested, with no change to any pixel:
 Left, and it is the half that changes what is on screen: a second draw pass — set the sky camera,
 draw `SkyBatches`, clear depth, draw the world over it — plus `r_3dsky` and `r_skybox` with Valve's
 defaults (`r_3dsky` on and not cheat-gated, `r_skybox` cheat-gated, `viewrender.cpp:113`).
+
+### B152 CLOSED for the pass: the horizon has its scenery
+
+Measured on `koth_harvest_final`, same camera, before and after:
+
+```
+before   sky area 1 contributes  0 runs      flat blue horizon
+after    sky area 1 contributes 41 runs      the skybox hillside, occluded by the buildings
+```
+
+**The step that made it work was not in the transform.** The split was built first by partitioning
+the PLAYER's visible leaves, which gave a correct and useless zero: the room sits ten thousand units
+outside the level and is in nobody's PVS but its own. `CSkyboxView::DrawInternal` says so plainly
+(`viewrender.cpp:4900`):
+
+```
+render->ViewSetupVis( false, 1, &m_pSky3dParams->origin.Get() );
+```
+
+It sets visibility up **at the sky camera's own origin**, under a comment admitting it should not
+have to. So the sky pass is a second VIEW with its own eye, its own frustum and its own visibility
+— not a filtered subset of the main one. `WorldCulling.SkyRunsFrom` is that.
+
+**Three things are duplicated deliberately** and each has a fault behind it:
+
+| duplicated | because |
+|---|---|
+| `VisibleWorld` | it clears and refills ONE list per call, so both passes through it leaves the main pass holding the sky's runs |
+| `WorldVisibility` | it owns `VisibleByLeaf`, which the ENTITY cull reads — a sky query through it tells the entity cull the player sees what the sky room sees |
+| the camera | built by `SkyboxView.CameraFor` from the main camera OBJECT, so the two cannot disagree about angles, field of view or aspect |
+
+**And the depth buffer is cleared between the passes.** The sky is behind everything by
+construction rather than by depth — its geometry is at the wrong distance for the world's range —
+so keeping its depth would let a miniature hillside occlude a wall.
+
+Parallax verified by moving the camera 1600 units: the world slid into a completely different view
+while the horizon band barely moved, which is the sixteenth-as-far the scale asks for.
+
+**Still open, and it is the smaller half:** `r_3dsky` and `r_skybox` as toggles with Valve's
+defaults (`viewrender.cpp:113` — `r_3dsky` on and NOT cheat-gated, `r_skybox` cheat-gated). The
+owner's requirement is explicit: *"tf2 allows you to run skybox on or off, so we will too, video
+makers need the skybox on"*, and competitive players run without it. `r_drawworld` is the pattern
+to copy — a device property plus a menu item, which means a UI test comes with it.
+
+### `r_3dsky` is an INT with three states, and the third is the one this viewer needs
+
+`PreRender3dSkyboxWorld` (`viewrender.cpp:4843`) tests it twice, in this order:
+
+```
+if ( ( nSkyboxVisible != SKYBOX_3DSKYBOX_VISIBLE ) && r_3dsky.GetInt() != 2 )
+    return NULL;
+if ( !r_3dsky.GetInt() )
+    return NULL;
+...
+if ( local->m_skybox3d.area == 255 )
+    return NULL;
+```
+
+0 off; 1 draws the room only when a `SURF_SKY` face is in view; **2 draws it regardless**. Reading
+it as a bool deletes the third state — and that is the state a free camera needs, because this
+viewer can stand where a TF2 map never expected anyone to stand.
+
+**The visibility it tests is not a guess.** `ComputeSkyboxVisibility` is
+`engine->IsSkyboxVisibleFromPoint( origin )`, which is closed — but the DATA is not. `dleaf_t`
+carries the answer in the seven flag bits above the area:
+
+```
+#define LEAF_FLAGS_SKY      0x01   // This leaf has 3D sky in its PVS
+#define LEAF_FLAGS_RADIAL   0x02   // This leaf culled away some portals due to radial vis
+#define LEAF_FLAGS_SKY2D    0x04   // This leaf has 2D sky in its PVS
+```
+
+and vrad's `BuildVisForLightEnvironment` (`lightmap.cpp:1344`) assigns them by walking the leaf's
+own faces and stopping at the first with `SURF_SKY`, choosing `SKY2D` when that face also carries
+`SURF_SKY2D`. So a leaf holds at most one, and `SURF_SKY2D` means *"skylight + draw 2d sky but not
+draw the 3D skybox"* (`bspflags.h:81`) — which is precisely why the pass is gated rather than run
+whenever any sky is in view.
+
+**Note the discrepancy, which is Valve's**: the header comments say "in its PVS" and vrad sets them
+from the leaf's OWN faces. Recorded so a later reader comparing the two does not conclude this
+reader is wrong.
+
+Verified on `koth_harvest_final` through a real `settings.cfg`, not just in tests:
+
+| `r_3dsky` | eye sees | sky runs |
+|---|---|---|
+| 0 | ThreeDimensional | 0 |
+| 1 | ThreeDimensional | 41 |
+| 1 | None, indoors | 0 |
+| 2 | None, indoors | 10 |
+
+**Config-only, with no key bind, because TF2 gives it none** — the first of the three tiers in
+`docs/memory/not-every-setting-needs-a-bind.md`. Not cheat-gated either, and that is Valve's
+declaration rather than a choice here: the flags argument is `0`, where `r_skybox` on the next line
+carries `FCVAR_CHEAT`.
+
+### `r_skybox` is NOT exposed, and the reason is that the 2D skybox is not drawn at all
+
+B152's text asks for both toggles. Adding `r_skybox` would be a cvar that does nothing, which is
+worse than an absent one — this viewer discards every `SURF_SKY`/`SURF_SKY2D` face at read time:
+
+```
+private const SurfaceProperties NotDrawn =
+    SurfaceProperties.Sky | SurfaceProperties.Sky2D | SurfaceProperties.NoDraw | ...
+```
+
+under a comment reading *"Sky and Sky2D are the skybox, which is irrelevant to a map overview"* —
+ortho-era reasoning of exactly the kind that made B152's own premise wrong. The flat blue behind
+the horizon is the clear colour, not a sky.
+
+**So the 2D skybox is its own unbuilt feature**, not a missing toggle: the `skyname` keyvalue on
+`worldspawn`, six `sky_<name><face>` materials, and a cube drawn at the eye. Filed here rather than
+left as a loose end on B152.

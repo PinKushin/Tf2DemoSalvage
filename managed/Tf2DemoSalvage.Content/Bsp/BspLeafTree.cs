@@ -454,6 +454,90 @@ public sealed class BspLeafTree
     /// <returns>The area, or −1 when the point is outside the tree.</returns>
     public int AreaAt(float x, float y, float z) => Area(LeafAt(x, y, z));
 
+    /// <summary>A leaf's FLAGS — the other seven bits of the field <see cref="Area"/> reads.</summary>
+    /// <param name="leaf">The leaf index, as <see cref="LeafAt"/> returns.</param>
+    /// <returns>The flags, or zero when there is no such leaf.</returns>
+    /// <remarks>
+    /// **<c>area:9, flags:7</c> in one <c>short</c> at offset 6**, and <c>bspfile.h:788</c> says so
+    /// out loud: *"NOTE: Only 7-bits stored!!!"*. So these are the HIGH seven bits, and a reader
+    /// that took the whole short would report an area's value as flags.
+    ///
+    /// <code>
+    ///   #define LEAF_FLAGS_SKY      0x01   // This leaf has 3D sky in its PVS
+    ///   #define LEAF_FLAGS_RADIAL   0x02   // This leaf culled away some portals due to radial vis
+    ///   #define LEAF_FLAGS_SKY2D    0x04   // This leaf has 2D sky in its PVS
+    /// </code>
+    ///
+    /// **The header comments say "in its PVS" and vrad sets them from the leaf's OWN faces**
+    /// (`BuildVisForLightEnvironment`, `lightmap.cpp:1344`), which walks `dleaffaces` and stops at
+    /// the first face whose texinfo carries <c>SURF_SKY</c>. Recorded because the discrepancy is
+    /// Valve's, not this reader's, and a future reader comparing the two will otherwise assume the
+    /// implementation here is wrong.
+    /// </remarks>
+    public int Flags(int leaf)
+    {
+        if (leaf < 0)
+        {
+            return 0;
+        }
+
+        ReadOnlySpan<byte> leaves = _leaves.Span;
+        int at = leaf * _leafStride;
+
+        if (at < 0 || at + _leafStride > leaves.Length)
+        {
+            return 0;
+        }
+
+        return (BinaryPrimitives.ReadInt16LittleEndian(leaves[(at + 6)..]) >> 9) & 0x7F;
+    }
+
+    /// <summary>Whether a skybox is visible from a point — <c>IsSkyboxVisibleFromPoint</c>.</summary>
+    /// <param name="x">World position.</param>
+    /// <param name="y">World position.</param>
+    /// <param name="z">World position.</param>
+    /// <returns>Which kind of sky the leaf at that point sees.</returns>
+    /// <remarks>
+    /// **The engine-side call <c>CSkyboxView::ComputeSkyboxVisibility</c> makes**
+    /// (<c>viewrender.cpp:4775</c>) is <c>engine-&gt;IsSkyboxVisibleFromPoint( origin )</c>, which
+    /// is closed — but the DATA it reads is not, and vrad's own assignment says exactly what it
+    /// means. A leaf carries at most one of the two, because vrad breaks at the first sky face it
+    /// finds and chooses on that face alone:
+    ///
+    /// <code>
+    ///   if ( tex.flags &amp; SURF_SKY )
+    ///   {
+    ///       if ( tex.flags &amp; SURF_SKY2D ) dleafs[iLeaf].flags |= LEAF_FLAGS_SKY2D;
+    ///       else                           dleafs[iLeaf].flags |= LEAF_FLAGS_SKY;
+    ///       ...
+    ///       break;
+    ///   }
+    /// </code>
+    ///
+    /// **This is what gates the 3D sky pass at <c>r_3dsky 1</c>** — Valve draws the room only when
+    /// this says a 3D sky is in view, and draws it regardless at <c>r_3dsky 2</c>
+    /// (<c>viewrender.cpp:4845</c>).
+    /// </remarks>
+    public SkyboxVisibility SkyboxVisibleFrom(float x, float y, float z)
+    {
+        int flags = Flags(LeafAt(x, y, z));
+
+        if ((flags & LeafHasSky) != 0)
+        {
+            return SkyboxVisibility.ThreeDimensional;
+        }
+
+        return (flags & LeafHasSky2D) != 0
+            ? SkyboxVisibility.TwoDimensional
+            : SkyboxVisibility.None;
+    }
+
+    /// <summary><c>LEAF_FLAGS_SKY</c> — <c>bspfile.h:789</c>.</summary>
+    private const int LeafHasSky = 0x01;
+
+    /// <summary><c>LEAF_FLAGS_SKY2D</c> — <c>bspfile.h:791</c>.</summary>
+    private const int LeafHasSky2D = 0x04;
+
     /// <summary>The world-space box a leaf occupies, or null when there is no such leaf.</summary>
     /// <param name="leaf">The leaf index, as <see cref="LeafAt"/> returns.</param>
     /// <returns>Its minimum and maximum corner, in world units.</returns>

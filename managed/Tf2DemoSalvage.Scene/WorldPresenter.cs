@@ -4,6 +4,7 @@ using System.IO;
 
 using Microsoft.Extensions.Logging;
 
+using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Logging;
 
 namespace Tf2DemoSalvage.Scene;
@@ -168,6 +169,11 @@ public sealed class WorldPresenter(ILogger render)
             WorldCulling? culling = level.Level.Culling(built.FaceSpans);
 
             upload.SetWorldCulling(culling);
+
+            // **Beside the cull, because the two are halves of one thing** (B152): the cull says
+            // WHICH leaves are the sky room and this says where to stand to draw them. Handing
+            // over one without the other gives either a room nothing draws or a view of nothing.
+            upload.SetSkyCamera(BspEntities.SkyCamera(level.Level.Entities));
 
             render.LogInformation(
                 "{Message}",

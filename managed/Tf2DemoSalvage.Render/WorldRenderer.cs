@@ -2919,6 +2919,49 @@ internal sealed unsafe class WorldRenderer : IDisposable
         DrawAdditive(context);
     }
 
+    /// <summary>The 3D skybox room's runs, drawn by <see cref="DrawSky"/> before the world.</summary>
+    /// <remarks>
+    /// **Set from the cull, which is the only thing that knows which leaves are the sky's** — see
+    /// <c>WorldCulling.SkyBatches</c>. Empty for a map with no <c>sky_camera</c>, and empty when
+    /// the room is outside the PVS from where the eye stands, which indoors is most of the time.
+    /// </remarks>
+    public IReadOnlyList<WorldBatch> SkyBatches { get; set; } = [];
+
+    /// <summary>Draws the 3D skybox room, with whatever camera is currently set.</summary>
+    /// <param name="context">The device context.</param>
+    /// <remarks>
+    /// **<c>CSkyboxView::DrawInternal</c> in the order it runs them** (<c>viewrender.cpp:4922</c>):
+    /// <c>DrawWorld</c>, then <c>DrawOpaqueRenderables</c>, then the translucent passes. Only the
+    /// world half is here, because nothing in this project puts an ENTITY in the sky area — a
+    /// skybox room holds brushwork and static props, and a static prop comes through the ordinary
+    /// prop path with its own transform rather than through this.
+    ///
+    /// **The caller owns the camera and the depth clear, not this.** The sky is drawn from a
+    /// compressed view and the world is drawn over it with depth reset; both are frame-level
+    /// decisions, and this draws the runs it is handed.
+    /// </remarks>
+    public void DrawSky(ComPtr<ID3D11DeviceContext> context)
+    {
+        if (SkyBatches.Count == 0)
+        {
+            return;
+        }
+
+        uint skyStride = VertexStride;
+        uint skyOffset = 0;
+
+        BindPipeline(context);
+
+        context.RSSetState(Raster(_bothSides));
+        context.IASetVertexBuffers(0, 1, ref _vertices, in skyStride, in skyOffset);
+
+        // The room's geometry is in world space like the rest of the map, so it draws with an
+        // identity model matrix for the same reason the world does.
+        SetModel(context, Identity);
+
+        DrawOpaqueBatches(context, SkyBatches);
+    }
+
     /// <summary>Draws one run of opaque batches with the world shader.</summary>
     /// <param name="context">The device context.</param>
     /// <param name="batches">The batches to draw; translucent and additive materials are skipped.</param>

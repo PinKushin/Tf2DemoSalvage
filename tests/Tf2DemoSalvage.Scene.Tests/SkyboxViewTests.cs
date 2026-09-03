@@ -1,3 +1,5 @@
+using Tf2DemoSalvage.Content.Bsp;
+
 namespace Tf2DemoSalvage.Scene.Tests;
 
 /// <summary>
@@ -64,6 +66,65 @@ public sealed class SkyboxViewTests
         (float x, _, _) = SkyboxView.OriginFor((1600f, 0f, 0f), (1000f, 0f, 0f), scale: 0f);
 
         x.ShouldBe(2600f, Tolerance, "the offset applies; only the division is guarded");
+    }
+
+    /// <remarks>
+    /// **`r_3dsky` is an INT with three meanings and a bool would silently delete the third.**
+    /// `PreRender3dSkyboxWorld` (<c>viewrender.cpp:4843</c>) tests it twice, in this order:
+    ///
+    /// <code>
+    ///   if ( ( nSkyboxVisible != SKYBOX_3DSKYBOX_VISIBLE ) &amp;&amp; r_3dsky.GetInt() != 2 ) return NULL;
+    ///   if ( !r_3dsky.GetInt() ) return NULL;
+    ///   ...
+    ///   if ( local-&gt;m_skybox3d.area == 255 ) return NULL;
+    /// </code>
+    ///
+    /// The third state matters more here than in TF2: this viewer has a free camera that can stand
+    /// where the map never expected, and `2` is how the room is seen from there.
+    /// </remarks>
+    [Test]
+    public void Draws_AtOne_NeedsAThreeDimensionalSkyInView()
+    {
+        SkyboxView.Draws(1, SkyboxVisibility.ThreeDimensional, skyArea: 1).ShouldBeTrue();
+
+        SkyboxView.Draws(1, SkyboxVisibility.TwoDimensional, skyArea: 1).ShouldBeFalse(
+            "SURF_SKY2D skylights and draws the flat sky but explicitly not the 3D room");
+
+        SkyboxView.Draws(1, SkyboxVisibility.None, skyArea: 1).ShouldBeFalse();
+    }
+
+    [Test]
+    public void Draws_AtTwo_DrawsEvenWithNoSkyInView()
+    {
+        // The state a bool cannot express, and the one a free camera outside the level needs.
+        SkyboxView.Draws(2, SkyboxVisibility.None, skyArea: 1).ShouldBeTrue();
+        SkyboxView.Draws(2, SkyboxVisibility.TwoDimensional, skyArea: 1).ShouldBeTrue();
+    }
+
+    [Test]
+    public void Draws_AtZero_DrawsNothingHowevrVisibleTheSkyIs()
+    {
+        // The second test in Valve's order, and it comes AFTER the visibility one — so zero has to
+        // beat a fully visible 3D sky rather than merely agreeing with an invisible one.
+        SkyboxView.Draws(0, SkyboxVisibility.ThreeDimensional, skyArea: 1).ShouldBeFalse();
+    }
+
+    [Test]
+    public void Draws_ForAMapWithNoSkyCamera_DrawsNothingAtAnySetting()
+    {
+        // `if ( local->m_skybox3d.area == 255 ) return NULL;` — Valve's byte sentinel for "this map
+        // has no 3D sky", checked last. Ours is -1, and it has to beat r_3dsky 2 as well.
+        SkyboxView.Draws(1, SkyboxVisibility.ThreeDimensional, skyArea: -1).ShouldBeFalse();
+        SkyboxView.Draws(2, SkyboxVisibility.ThreeDimensional, skyArea: -1).ShouldBeFalse();
+    }
+
+    [Test]
+    public void DrawsByDefault_IsOneAndNotCheatGated()
+    {
+        // `static ConVar r_3dsky( "r_3dsky","1", 0, ... )` — the 0 is the FLAGS argument, where
+        // r_skybox on the next line carries FCVAR_CHEAT. Turning the 3D sky off is something a
+        // player may do in a real game.
+        SkyboxView.DrawsByDefault.ShouldBe(1);
     }
 
     [Test]

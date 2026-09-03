@@ -3166,6 +3166,12 @@ internal class MainForm : Form, IFrameSteps
             // in `docs/memory/a-null-object-default-hides-a-missed-wiring.md`.
             _device.Phong = _settings.Phong;
 
+            // **`r_3dsky`, applied here for exactly the reason `mat_phong` is.** The device
+            // defaults it to Valve's 1, so a config saying `r_3dsky 0` would be silently dropped —
+            // the null-object shape in `docs/memory/a-null-object-default-hides-a-missed-wiring.md`,
+            // where the default and the ignored setting agree and nothing looks wrong.
+            _device.Draw3dSky = _settings.ThreeDimensionalSky;
+
             // **Where packed geometry goes, and forgetting it draws NOTHING** (B193). Without this
             // the scene packs every model, poses it, transforms it correctly and submits it against
             // a vertex buffer the renderer never received — B148's symptom exactly, and silent.

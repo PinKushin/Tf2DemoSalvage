@@ -87,6 +87,9 @@ public sealed class WorldPresenterTests
         public void SetWorldCulling(WorldCulling? culling) =>
             Calls.Add(culling is null ? "no-culling" : "culling");
 
+        public void SetSkyCamera(((float X, float Y, float Z) Origin, float Scale)? skyCamera) =>
+            Calls.Add(skyCamera is null ? "no-sky" : "sky");
+
         public void SetCamera(float[] matrix, bool surfaceColours = false) =>
             Calls.Add("camera");
 

@@ -1,5 +1,7 @@
 using System;
 
+using Tf2DemoSalvage.Content.Bsp;
+
 namespace Tf2DemoSalvage.Scene;
 
 /// <summary>
@@ -46,6 +48,55 @@ namespace Tf2DemoSalvage.Scene;
 /// </remarks>
 public static class SkyboxView
 {
+    /// <summary>Whether the 3D sky room is drawn this frame — <c>PreRender3dSkyboxWorld</c>.</summary>
+    /// <param name="setting"><c>r_3dsky</c>: 0 off, 1 when visible, 2 always.</param>
+    /// <param name="visible">What the eye's leaf can see.</param>
+    /// <param name="skyArea">The map's sky area, or −1 when it declares no <c>sky_camera</c>.</param>
+    /// <returns>Whether to run the sky pass.</returns>
+    /// <remarks>
+    /// **<c>viewrender.cpp:4843</c>, in Valve's order, and the order is why this is not a bool:**
+    ///
+    /// <code>
+    ///   if ( ( nSkyboxVisible != SKYBOX_3DSKYBOX_VISIBLE ) &amp;&amp; r_3dsky.GetInt() != 2 )
+    ///       return NULL;
+    ///
+    ///   // render the 3D skybox
+    ///   if ( !r_3dsky.GetInt() )
+    ///       return NULL;
+    ///
+    ///   ...
+    ///   if ( local-&gt;m_skybox3d.area == 255 )
+    ///       return NULL;
+    /// </code>
+    ///
+    /// **`r_3dsky` is an INT with three meanings, not a switch.** Zero is off; one draws the room
+    /// only when a `SURF_SKY` face is in view; two draws it regardless, which is how you see it
+    /// from somewhere the map never expected — a free camera outside the level, which this viewer
+    /// has and TF2 does not. Reading it as a bool would silently delete the third state.
+    ///
+    /// **`area == 255` is Valve's "no 3D sky"**, a byte sentinel; ours is −1 for the same reason
+    /// the rest of this reader uses −1, and it is checked LAST here as it is there.
+    /// </remarks>
+    public static bool Draws(int setting, SkyboxVisibility visible, int skyArea)
+    {
+        if (visible != SkyboxVisibility.ThreeDimensional && setting != 2)
+        {
+            return false;
+        }
+
+        return setting != 0 && skyArea >= 0;
+    }
+
+    /// <summary><c>r_3dsky</c>'s default — <c>"1"</c>, and NOT cheat-gated.</summary>
+    /// <remarks>
+    /// <c>static ConVar r_3dsky( "r_3dsky","1", 0, "Enable the rendering of 3d sky boxes" );</c>
+    /// (<c>viewrender.cpp:113</c>). The zero is the flags argument: no <c>FCVAR_CHEAT</c>, unlike
+    /// <c>r_skybox</c> on the line below it. So turning the 3D sky off is something a player is
+    /// allowed to do in a real game, which is exactly the owner's requirement — competitive players
+    /// run without it and video makers run with it.
+    /// </remarks>
+    public const int DrawsByDefault = 1;
+
     /// <summary>The sky view's near plane — Valve's literal <c>zNear = 2.0</c>.</summary>
     public const float NearPlane = 2f;
 
@@ -81,5 +132,34 @@ public static class SkyboxView
         }
 
         return (viewer.X + skyCamera.X, viewer.Y + skyCamera.Y, viewer.Z + skyCamera.Z);
+    }
+
+    /// <summary>The camera the sky room is drawn through.</summary>
+    /// <param name="viewer">The main view.</param>
+    /// <param name="skyCamera">The map's <c>sky_camera</c> origin.</param>
+    /// <param name="scale">Its <c>scale</c>.</param>
+    /// <returns>The same view, moved and with the sky's own near and far planes.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="viewer"/> is null.</exception>
+    /// <remarks>
+    /// **Everything except the position and the planes is COPIED, not recomputed.** The angles,
+    /// the field of view and the aspect are the main view's, so the sky cannot disagree with the
+    /// world about where the player is looking or how wide the lens is — the same rule as
+    /// `docs/memory/one-camera-or-the-cull-lies.md`, applied to a second view rather than to a
+    /// second derivation of one.
+    /// </remarks>
+    public static FreeCamera CameraFor(
+        FreeCamera viewer, (float X, float Y, float Z) skyCamera, float scale)
+    {
+        ArgumentNullException.ThrowIfNull(viewer);
+
+        return new FreeCamera
+        {
+            Origin = OriginFor(viewer.Origin, skyCamera, scale),
+            Angles = viewer.Angles,
+            FieldOfView = viewer.FieldOfView,
+            Aspect = viewer.Aspect,
+            NearZ = NearPlane,
+            FarZ = FarPlane,
+        };
     }
 }

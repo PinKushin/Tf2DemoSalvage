@@ -43,6 +43,15 @@ public interface IWorldUpload
     /// </remarks>
     public void SetWorldCulling(WorldCulling? culling);
 
+    /// <summary>Where the map's 3D skybox is anchored, or null when it declares none.</summary>
+    /// <param name="skyCamera">The <c>sky_camera</c>'s origin and scale.</param>
+    /// <remarks>
+    /// **The other half of <see cref="SetWorldCulling"/>** (B152). The cull says which leaves are
+    /// the sky room; this says where the camera stands to draw them. One without the other is
+    /// either a room nothing draws or a view of nothing.
+    /// </remarks>
+    public void SetSkyCamera(((float X, float Y, float Z) Origin, float Scale)? skyCamera);
+
     /// <summary>Points the world at a camera.</summary>
     /// <param name="matrix">The view-projection, row major, sixteen floats.</param>
     /// <param name="surfaceColours">Whether to draw the surface-category view.</param>

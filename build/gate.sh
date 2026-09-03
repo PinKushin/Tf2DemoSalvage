@@ -550,7 +550,12 @@ run Tf2DemoSalvage.Animation.Tests animation 78
 # origin, the sixteenth-as-far movement that IS the illusion, scale 1 as the control that separates
 # "honours the scale" from "ignores the viewer", scale 0 where Valve guards the DIVISION and not the
 # offset, and the near and far planes, which are specific quantities rather than round numbers.
-run Tf2DemoSalvage.Scene.Tests    scene     374
+# 374 -> 379: r_3dsky's THREE states (B152). It is an int, not a switch: 0 off, 1 only when a
+# SURF_SKY face is in view, 2 always - and the third is the one a bool would delete, which matters
+# here because this viewer has a free camera that can stand where a map never expected. Plus the
+# no-sky_camera case, which has to beat state 2, and the default, which is Valve's 1 and NOT
+# cheat-gated where r_skybox on the next line is.
+run Tf2DemoSalvage.Scene.Tests    scene     379
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -879,7 +884,11 @@ run Tf2DemoSalvage.Presentation.Tests presentation 438
 # (B152). Four: the plain read, a leaf whose FLAGS are set — the case that separates a nine-bit read
 # from a sixteen-bit one, since with flags zero the two agree — the largest area a nine-bit field
 # holds, and a leaf past the end answering -1 rather than area zero.
-run Tf2DemoSalvage.Content.Tests  content   913
+# 913 -> 918: dleaf_t's FLAGS, the other seven bits of the field the four above read, and the sky
+# visibility they encode (B152). Two on the flags themselves - one leaf carrying both an area and
+# flags, and a large area that must not leak upward - and three on LEAF_FLAGS_SKY vs SKY2D vs
+# neither, where the last is the control that stops an unconditional answer passing the first two.
+run Tf2DemoSalvage.Content.Tests  content   918
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
