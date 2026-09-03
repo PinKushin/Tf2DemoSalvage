@@ -226,6 +226,23 @@ public sealed class CycleProbe : IProbe
                 + $"  drawnSeq {(asDrawn is { } shown ? shown.Pose.Sequence.ToString(CultureInfo.InvariantCulture) : "-")}"
                 + $"  drawnSpeed {(asDrawn?.Pose.Speed is { } fast ? fast.ToString("0.#", CultureInfo.InvariantCulture) : "NULL")}"
                 + $"  csa {(asDrawn is { } anim ? anim.ClientSideAnimated.ToString() : "-")}"
+
+                // **The layers the SKELETON was handed** (B282), not the gestures the timeline
+                // collected. A gesture that resolves to no sequence on this model is dropped
+                // exactly as the engine drops it, so the two counts differ legitimately and only
+                // the second one says whether anything was drawn.
+                + $"  gestures {(asDrawn?.Pose.Gestures?.Count ?? 0).ToString(CultureInfo.InvariantCulture)}"
+                + $"  layers {(models?.LayersOf(entity)?.Count ?? 0).ToString(CultureInfo.InvariantCulture)}"
+
+                // Each gesture's activity and how old it is, because "resolved to no sequence on
+                // this model" and "expired and auto-killed" both show as zero layers and want
+                // opposite fixes.
+                + (asDrawn?.Pose.Gestures is { Count: > 0 } held
+                    ? "  [" + string.Join(
+                        " ",
+                        held.Select(one =>
+                            $"{one.ActivityName}@{(at * timeline.IntervalPerTick) - one.StartedSeconds:0.0}s")) + "]"
+                    : string.Empty)
                 + $"  playerSpeed {(asPlayer is { } who ? who.Speed.ToString("0.##", CultureInfo.InvariantCulture) : "-")}"
                 + $"  moveX {(asPlayer is { } m ? m.MoveX.ToString("0.###", CultureInfo.InvariantCulture) : "-")}");
 

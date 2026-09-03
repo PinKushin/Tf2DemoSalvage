@@ -137,6 +137,19 @@ public readonly record struct ScenePose
     /// </remarks>
     public float PlaybackRate { get; init; } = 1f;
 
+    /// <summary>The gestures layered over this entity's main sequence, or null for none.</summary>
+    /// <remarks>
+    /// **For a player these are the only layers there are** (B282). TF2 excludes the whole
+    /// <c>m_AnimOverlay</c> array from the player's send table (<c>tf_player.cpp:774</c>), so a
+    /// reload, a flinch or an attack reaches a demo as a <c>CTEPlayerAnimEvent</c> temp entity and
+    /// nowhere else. <see cref="PlayerGestureFeed"/> turns those into slots and
+    /// <c>PlayerProps.Add</c> carries them here.
+    ///
+    /// **Null rather than empty**, because most entities have none and this is read once per drawn
+    /// prop per frame.
+    /// </remarks>
+    public IReadOnlyList<SceneGesture>? Gestures { get; init; }
+
     /// <summary>Which animation is playing.</summary>
     /// <remarks>
     /// **Zero when the demo never said, because zero is the engine's default** — <c>m_nSequence</c>
@@ -1496,6 +1509,19 @@ public sealed class ScenePropTrack
             // between keyframes would look like an animation that speeds up whenever the viewer
             // scrubs, which is a symptom nobody would trace back to here.
             PlaybackRate = from.PlaybackRate,
+
+            // **Taken from the earlier keyframe, because a gesture is an EVENT with a start rather
+            // than a value with a curve** (B282). Interpolating between two slot maps has no
+            // meaning: the layer's own cycle comes from how long ago it began, which is already
+            // absolute time, so the moment between two keyframes is exactly the moment the earlier
+            // one describes.
+            //
+            // **Empty on every track today**, because a player's gestures reach the renderer
+            // through `PlayerProps.Add` rather than through a keyframe. Carried anyway: the pose
+            // completeness test is right that a field dropped by this rebuild is invisible in
+            // production, and a future entity whose gestures DO come off the wire would lose them
+            // here with nothing to say so.
+            Gestures = from.Gestures,
 
             // **Discrete, and the newest arrival on this list** (B244). A weapon is in a player's
             // hands or it is not; there is no state part-way between holstered and drawn, and the

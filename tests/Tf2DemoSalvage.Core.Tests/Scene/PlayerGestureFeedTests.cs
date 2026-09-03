@@ -29,7 +29,7 @@ public sealed class PlayerGestureFeedTests
         feed.Record(
             PlayerGestureFeed.EventClassName,
             Event(player: 4, anEvent: (int)PlayerAnimEvent.Reload),
-            tick: 900,
+            seconds: 13.6d,
             default)
             .ShouldBeTrue("the gesture class must be recognised");
 
@@ -39,7 +39,7 @@ public sealed class PlayerGestureFeedTests
         gestures.ShouldHaveSingleItem();
         gestures[0].Slot.ShouldBe(GestureSlot.AttackAndReload);
         gestures[0].ActivityName.ShouldBe("ACT_MP_RELOAD_STAND");
-        gestures[0].StartedTick.ShouldBe(900);
+        gestures[0].StartedSeconds.ShouldBe(13.6d);
     }
 
     /// <remarks>
@@ -56,7 +56,7 @@ public sealed class PlayerGestureFeedTests
         feed.Record(
             PlayerGestureFeed.EventClassName,
             Event(player: 4, anEvent: (int)PlayerAnimEvent.Reload),
-            tick: 900,
+            seconds: 13.6d,
             new GestureContext(InDuck: true));
 
         List<SceneGesture> gestures = [];
@@ -79,20 +79,20 @@ public sealed class PlayerGestureFeedTests
         feed.Record(
             PlayerGestureFeed.EventClassName,
             Event(player: 4, anEvent: (int)PlayerAnimEvent.Reload),
-            tick: 900,
+            seconds: 13.6d,
             default);
 
         feed.Record(
             PlayerGestureFeed.EventClassName,
             Event(player: 4, anEvent: (int)PlayerAnimEvent.Reload),
-            tick: 940,
+            seconds: 14.2d,
             default);
 
         List<SceneGesture> gestures = [];
         feed.For(4, gestures);
 
         gestures.ShouldHaveSingleItem();
-        gestures[0].StartedTick.ShouldBe(940, "the newer event restarts the slot's gesture");
+        gestures[0].StartedSeconds.ShouldBe(14.2d, "the newer event restarts the slot's gesture");
     }
 
     /// <remarks>
@@ -109,13 +109,13 @@ public sealed class PlayerGestureFeedTests
         feed.Record(
             PlayerGestureFeed.EventClassName,
             Event(player: 4, anEvent: (int)PlayerAnimEvent.Reload),
-            tick: 900,
+            seconds: 13.6d,
             default);
 
         feed.Record(
             PlayerGestureFeed.EventClassName,
             Event(player: 4, anEvent: (int)PlayerAnimEvent.FlinchChest),
-            tick: 905,
+            seconds: 13.7d,
             default);
 
         List<SceneGesture> gestures = [];
@@ -140,13 +140,13 @@ public sealed class PlayerGestureFeedTests
         feed.Record(
             PlayerGestureFeed.EventClassName,
             Event(player: 4, anEvent: (int)PlayerAnimEvent.FlinchChest),
-            tick: 905,
+            seconds: 13.7d,
             default);
 
         feed.Record(
             PlayerGestureFeed.EventClassName,
             Event(player: 4, anEvent: (int)PlayerAnimEvent.Reload),
-            tick: 900,
+            seconds: 13.6d,
             default);
 
         List<SceneGesture> gestures = [];
@@ -174,7 +174,7 @@ public sealed class PlayerGestureFeedTests
                 player: 4 | (3 << 11),
                 anEvent: (int)PlayerAnimEvent.Reload,
                 playerProperty: PlayerGestureFeed.PlayerHandleProperty),
-            tick: 900,
+            seconds: 13.6d,
             default);
 
         List<SceneGesture> gestures = [];
@@ -197,7 +197,7 @@ public sealed class PlayerGestureFeedTests
         feed.Record(
             "CTEFireBullets",
             Event(player: 4, anEvent: (int)PlayerAnimEvent.Reload),
-            tick: 900,
+            seconds: 13.6d,
             default)
             .ShouldBeFalse("only the gesture class carries a gesture");
 
@@ -218,7 +218,7 @@ public sealed class PlayerGestureFeedTests
         feed.Record(
             PlayerGestureFeed.EventClassName,
             Event(player: 4, anEvent: (int)PlayerAnimEvent.Jump),
-            tick: 900,
+            seconds: 13.6d,
             default)
             .ShouldBeTrue("the class is still the gesture class");
 
@@ -240,7 +240,7 @@ public sealed class PlayerGestureFeedTests
         feed.Record(
             PlayerGestureFeed.EventClassName,
             Event(player: 4, anEvent: (int)PlayerAnimEvent.Reload),
-            tick: 900,
+            seconds: 13.6d,
             default);
 
         List<SceneGesture> gestures = [];

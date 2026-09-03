@@ -578,6 +578,12 @@ public sealed class EntityModelSet
             (posed.Frame, posed.FrameFraction) = StudioSequences.FrameAt(
                 phase, skinned.Frames(sequence), skinned.Loops(sequence));
 
+            // **The gesture layers, which is `AccumulateLayers` in this project's terms** (B282).
+            // A player's `m_AnimOverlay` array is excluded from the wire (`tf_player.cpp:774`), so
+            // these come from the `CTEPlayerAnimEvent` stream the timeline collected; each one is
+            // resolved to a sequence HERE, because only this layer has the model.
+            posed.Layers = LayersFor(prop, skinned, seconds);
+
             // **`DoAnimationEvents`, and it has to be HERE** (B275). The walk asks what the cycle
             // crossed since last frame, and for a player the cycle is not on the wire at all — the
             // client advances it, which is the `phase` computed a few lines up. A probe reading
@@ -827,6 +833,108 @@ public sealed class EntityModelSet
     /// </remarks>
     public IReadOnlyList<FiredAnimationEvent> FiredEvents => _fired;
 
+    /// <summary>Resolves an entity's gestures into layers this model can actually play.</summary>
+    /// <param name="prop">The entity.</param>
+    /// <param name="skinned">Its model.</param>
+    /// <param name="seconds">Demo time now.</param>
+    /// <returns>The layers, in slot order, or empty.</returns>
+    /// <remarks>
+    /// **This is <c>AddToGestureSlot</c> and <c>UpdateGestureLayer</c> together**
+    /// (<c>multiplayer_animstate.cpp:616</c> and <c>:1275</c>), which is where the engine turns an
+    /// activity into a sequence and advances the layer's cycle:
+    ///
+    /// <code>
+    ///   int iGestureSequence = pPlayer-&gt;SelectWeightedSequence( iGestureActivity );
+    ///   if ( iGestureSequence &lt;= 0 ) return;                       // abandoned, not drawn
+    ///   ...
+    ///   flCycle += GetSequenceCycleRate( … ) * gpGlobals-&gt;frametime * …;
+    ///   if ( flCycle &gt; 1.0f ) { if ( bAutoKill ) ResetGestureSlot(…); else flCycle = 1.0f; }
+    /// </code>
+    ///
+    /// **Resolved here rather than in the timeline because only this layer has the model**, and a
+    /// gesture that resolves to nothing is dropped exactly as the engine drops it — a class whose
+    /// model has no such activity plays no gesture rather than a wrong one.
+    ///
+    /// **The weight is one, always**, because <c>AddToGestureSlot</c> sets
+    /// <c>m_pAnimLayer-&gt;m_flWeight = 1.0f</c> and nothing on a networked gesture lowers it:
+    /// <c>BlendWeight</c> returns immediately unless <c>m_bClientBlend</c>
+    /// (<c>animationlayer.h:183</c>), which is client-only state a demo never carries. The per-bone
+    /// list does all the shaping.
+    ///
+    /// **Not reproduced:** <c>GetGesturePlaybackRate()</c>, which scales the advance for a taunt,
+    /// and the layer's own <c>m_flPlaybackRate</c>, which the engine keeps per layer and a gesture
+    /// leaves at one. Named rather than silently omitted.
+    /// </remarks>
+    private static List<PoseLayer> LayersFor(
+        SceneProp prop, PropModels.SkinnedModel skinned, double seconds)
+    {
+        if (prop.Pose.Gestures is not { Count: > 0 } gestures)
+        {
+            return [];
+        }
+
+        List<PoseLayer> layers = [];
+
+        foreach (SceneGesture gesture in gestures)
+        {
+            // `SelectWeightedSequence( iGestureActivity )`, and its `<= 0` abandonment. An activity
+            // number rather than a name is the two custom-gesture events, which carry the activity
+            // on the wire; nothing resolves those yet, so they are skipped rather than guessed at.
+            if (gesture.ActivityName is not { Length: > 0 } activity)
+            {
+                continue;
+            }
+
+            // **`ForActivity`, not `Find`, and the difference is the whole mechanism.** `Find`
+            // matches a sequence LABEL the way `Studio_LookupSequence` does; the engine resolves a
+            // gesture through `SelectWeightedSequence( iGestureActivity )`, which matches the
+            // ACTIVITY and picks among ties by `actweight`. A gesture names an activity —
+            // `ACT_MP_GESTURE_FLINCH_CHEST` — and no sequence is labelled that, so asking `Find`
+            // returns −1 for every gesture on every model. Measured: a flinch half a second old,
+            // three gestures reaching the drawn prop, and zero layers.
+            int sequence = skinned.ForActivity(activity);
+
+            // `if ( iGestureSequence <= 0 ) return;` — the engine abandons a gesture whose activity
+            // this model does not have, rather than substituting one.
+            if (sequence <= 0)
+            {
+                continue;
+            }
+
+            float rate = skinned.CyclesPerSecond(sequence);
+
+            // A sequence with no rate has one frame and nothing to advance through; the engine's
+            // cycle would stay at zero, which is that single frame.
+            double cycle = rate > 0f ? (seconds - gesture.StartedSeconds) * rate : 0d;
+
+            if (cycle < 0d)
+            {
+                continue;
+            }
+
+            if (cycle > 1d)
+            {
+                // `if ( pGesture->m_bAutoKill ) ResetGestureSlot(…)` — the slot is gone, so the
+                // layer is not drawn at all. Otherwise it holds on its last frame, for ever, which
+                // is what a `_BEGIN` gesture is for.
+                if (gesture.AutoKill)
+                {
+                    continue;
+                }
+
+                cycle = 1d;
+            }
+
+            (int frame, float fraction) = StudioSequences.FrameAt(
+                (float)cycle, skinned.Frames(sequence), skinned.Loops(sequence));
+
+            layers.Add(new PoseLayer(
+                sequence, frame, fraction, 1f, skinned.BoneWeights(sequence)));
+        }
+
+        return layers;
+    }
+
     /// <summary>Walks one entity's events for this frame.</summary>
     /// <param name="prop">The entity.</param>
     /// <param name="skinned">Its model, for the MERGED sequence list.</param>
@@ -884,6 +992,21 @@ public sealed class EntityModelSet
         _entities.TryGetValue(entityIndex, out AnimatingEntity? animating) &&
         animating.Pose is SkeletonPose posed
             ? (posed.Sequence, posed.Frame, posed.FrameFraction)
+            : null;
+
+    /// <summary>The animation layers an entity's skeleton was handed, or null.</summary>
+    /// <param name="entityIndex">The entity.</param>
+    /// <returns>Its layers, or null when it has no skeleton here.</returns>
+    /// <remarks>
+    /// **Carried, not recomputed** (B243), and for the same reason as <see cref="FrameOf"/>: a
+    /// gesture resolves to a sequence only if the model has that activity, so asking the model a
+    /// second time answers what COULD have been layered rather than what was. This is the list the
+    /// pose actually accumulated.
+    /// </remarks>
+    public IReadOnlyList<PoseLayer>? LayersOf(int entityIndex) =>
+        _entities.TryGetValue(entityIndex, out AnimatingEntity? animating) &&
+        animating.Pose is SkeletonPose posed
+            ? posed.Layers
             : null;
 
     /// <summary>Told when an entity's model is resolved, with which pose parameters wrap.</summary>

@@ -353,7 +353,7 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 # 41 -> 43: the fraction reaches the animation sampler (B279). The arithmetic and the wiring are
 # separate defects and only one is loud, so this asserts on what SkeletonPose HANDED the sampler,
 # with the control that a pose never given a fraction hands across zero.
-run Tf2DemoSalvage.Animation.Tests animation 43
+run Tf2DemoSalvage.Animation.Tests animation 50
 
 # 23: the scene layer's first test project of its own, and the reason it exists is B184 — Scene is
 # plain net10.0 and holds the densest behaviour in the renderer, but every test of it lived in the
@@ -528,7 +528,7 @@ run Tf2DemoSalvage.Animation.Tests animation 43
 # 329 -> 332: the client-side animation selection stays wired (written during B279 on a diagnosis
 # that was WRONG - the call was never missing; a grep truncated by `head -6` hid it). Kept because
 # the scene-level one is the only test that reddens if MomentScene.Build ever loses the call.
-run Tf2DemoSalvage.Scene.Tests    scene     337
+run Tf2DemoSalvage.Scene.Tests    scene     341
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

@@ -227,6 +227,12 @@ public static class PlayerProps
                     Body = Disguise.WearsMask(player)
                         ? bodygroup(model, Disguise.MaskBodygroup, 1)
                         : 0,
+
+                    // **A player's gestures, which are the only animation layers they have**
+                    // (B282). `tf_player.cpp:774` excludes `overlay_vars` from the player's send
+                    // table, so the reload and the flinch arrive as `CTEPlayerAnimEvent` temp
+                    // entities and the timeline turns them into slots.
+                    Gestures = player.Gestures,
                 },
                 ClientSideAnimated: player.ClientSideAnimated));
         }

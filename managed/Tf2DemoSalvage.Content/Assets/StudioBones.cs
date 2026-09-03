@@ -2,6 +2,7 @@ using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
+using System.Numerics;
 
 using static Tf2DemoSalvage.Content.Assets.StudioLayout;
 
@@ -525,7 +526,6 @@ public static class StudioBones
 
         return matrix;
     }
-
     /// <summary>A quaternion and a position as a 3×4, written into an existing array.</summary>
     /// <param name="rotation">The bone's rotation.</param>
     /// <param name="position">Where it sits relative to its parent.</param>
@@ -558,6 +558,43 @@ public static class StudioBones
         matrix[10] = 1f - (2f * ((x * x) + (y * y)));
         matrix[11] = position.Z;
     }
+
+    /// <summary>Spherically interpolates one rotation toward another, aligning them first.</summary>
+    /// <param name="from">The rotation at <paramref name="fraction"/> zero.</param>
+    /// <param name="to">The rotation at <paramref name="fraction"/> one.</param>
+    /// <param name="fraction">How far to travel.</param>
+    /// <returns>The blended rotation.</returns>
+    /// <remarks>
+    /// **<c>QuaternionSlerp</c>, <c>mathlib_base.cpp:1605</c>**, which is two steps:
+    ///
+    /// <code>
+    ///   QuaternionAlign( p, q, q2 );          // negate q if it points the long way round
+    ///   QuaternionSlerpNoAlign( p, q2, t, qt );
+    /// </code>
+    ///
+    /// **The alignment is not optional and is the trap.** A quaternion and its negation are the same
+    /// rotation, so an unaligned blend can travel 300 degrees the wrong way to reach a pose 60
+    /// degrees away — a limb that swings through the body instead of to its target.
+    /// <c>System.Numerics.Quaternion.Slerp</c> does the same negation on a negative dot product,
+    /// which is why this delegates rather than reimplementing the trigonometry.
+    ///
+    /// **Not <c>QuaternionSlerpNoAlign</c>**, which the engine reaches only for a bone flagged
+    /// <c>BONE_FIXED_ALIGNMENT</c> (<c>bone_setup.cpp:1492</c>). That flag is not read by this
+    /// project's parser, so every bone takes the aligning form — stated rather than left implicit.
+    /// </remarks>
+    public static (float X, float Y, float Z, float W) Slerp(
+        (float X, float Y, float Z, float W) from,
+        (float X, float Y, float Z, float W) to,
+        float fraction)
+    {
+        Quaternion blended = Quaternion.Slerp(
+            new Quaternion(from.X, from.Y, from.Z, from.W),
+            new Quaternion(to.X, to.Y, to.Z, to.W),
+            fraction);
+
+        return (blended.X, blended.Y, blended.Z, blended.W);
+    }
+
 
     /// <summary>One 3×4 transform applied after another.</summary>
     /// <param name="first">The outer transform, applied second.</param>

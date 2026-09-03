@@ -1481,7 +1481,7 @@ public sealed class DemoTimeline
                     // crouched stays the crouching reload even if the player stands during it.
                     case TempEntitiesMessage effects when effects.BodyBits > 0:
                         RecordGestures(
-                            decoder, effects, command.Tick, effectClassNames, entities, gestures);
+                            decoder, effects, command.Tick * interval, effectClassNames, entities, gestures);
                         continue;
 
                     case UpdateStringTableMessage update
@@ -2028,7 +2028,7 @@ public sealed class DemoTimeline
     /// <summary>Decodes a temp entities body and records any player gestures in it.</summary>
     /// <param name="decoder">The entity decoder, which knows the effect tables.</param>
     /// <param name="message">The message.</param>
-    /// <param name="tick">The demo tick it arrived on.</param>
+    /// <param name="seconds">Demo time when it arrived, in seconds.</param>
     /// <param name="classNames">Class id to name, since an effect names its class by id.</param>
     /// <param name="entities">The entity table, for the player's posture at this moment.</param>
     /// <param name="into">The feed to record into.</param>
@@ -2044,7 +2044,7 @@ public sealed class DemoTimeline
     private static void RecordGestures(
         EntityDecoder decoder,
         TempEntitiesMessage message,
-        int tick,
+        double seconds,
         Dictionary<int, string> classNames,
         EntityStateTable entities,
         PlayerGestureFeed into)
@@ -2061,7 +2061,7 @@ public sealed class DemoTimeline
                     continue;
                 }
 
-                into.Record(className, effect, tick, PostureOf(effect, entities));
+                into.Record(className, effect, seconds, PostureOf(effect, entities));
             }
         }
         catch (Exception error)

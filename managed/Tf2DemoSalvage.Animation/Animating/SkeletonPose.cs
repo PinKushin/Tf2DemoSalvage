@@ -7,6 +7,34 @@ using Tf2DemoSalvage.Content.Assets;
 
 namespace Tf2DemoSalvage.Animation.Animating;
 
+/// <summary>One animation layer accumulated over the base pose.</summary>
+/// <param name="Sequence">The layer's sequence.</param>
+/// <param name="Frame">Its frame.</param>
+/// <param name="FrameFraction">How far past that frame it is, as <c>CalcPoseSingle</c>'s <c>s</c>.</param>
+/// <param name="Weight">
+/// The layer's own weight, <c>m_flWeight</c>. Clamped to one before it is used, and skipped
+/// entirely at or below zero.
+/// </param>
+/// <param name="BoneWeights">
+/// The layer sequence's per-bone weight list — <c>seqdesc.weight( i )</c>. Multiplied by
+/// <paramref name="Weight"/> to give <c>SlerpBones</c>' <c>pS2[i]</c>. A bone past the end of this
+/// list is left alone, which matches a weightless bone rather than a fully weighted one.
+/// </param>
+/// <remarks>
+/// **The per-bone list is the whole mechanism, not a refinement.** A gesture's weight list is 1 on
+/// the arms and 0 on the legs, which is how a reload plays on a running player without stopping
+/// the run. A layer applied without it replaces the entire skeleton.
+///
+/// **Sampled through the same delegate as the base pose**, so a layer cannot disagree with the
+/// base about what a sequence looks like — one route to the model, not two.
+/// </remarks>
+public readonly record struct PoseLayer(
+    int Sequence,
+    int Frame,
+    float FrameFraction,
+    float Weight,
+    IReadOnlyList<float> BoneWeights);
+
 /// <summary>
 /// A real studio skeleton, driven by whatever the animation says its bones are doing.
 /// </summary>
@@ -131,6 +159,20 @@ public sealed class SkeletonPose : IBonePose
     /// </remarks>
     public IReadOnlyList<float>? EntityTransform { get; set; }
 
+    /// <summary>The layers accumulated over the base pose, in order.</summary>
+    /// <remarks>
+    /// **<c>C_BaseAnimatingOverlay::AccumulateLayers</c>, in order of <c>m_nOrder</c>**
+    /// (<c>c_baseanimatingoverlay.cpp:294</c>). Each layer is accumulated onto the RESULT of the
+    /// last, not onto the original base, because the engine's <c>AccumulatePose</c> reads and
+    /// writes the same <c>pos</c>/<c>q</c> arrays every time.
+    ///
+    /// **For a TF2 player these are gestures and nothing else.** The layer array itself is excluded
+    /// from a player's send table (<c>tf_player.cpp:774</c>), so what fills these is the
+    /// <c>CTEPlayerAnimEvent</c> stream — a reload, a flinch, an attack (B282). For everything that
+    /// does send layers, a sentry or a dispenser, they are the wire's own.
+    /// </remarks>
+    public IReadOnlyList<PoseLayer> Layers { get; set; } = [];
+
     /// <summary>Where a bone built on an unbuilt parent is reported, or null for nowhere.</summary>
     /// <remarks>
     /// **The one condition that makes a skeleton silently wrong** (B222). A bone whose parent failed
@@ -190,6 +232,11 @@ public sealed class SkeletonPose : IBonePose
 
         AnimationTicks += System.Diagnostics.Stopwatch.GetTimestamp() - animatedAt;
         AnimationCalls++;
+
+        // **The layers, over the base pose and in order** (B282). `StandardBlendingRules` runs
+        // `AccumulateLayers` straight after the main sequence, and each layer accumulates onto the
+        // RESULT of the last rather than onto the original.
+        animated = Accumulate(animated);
 
         // **Indexed once, not searched per bone — and the first version of this did the latter.**
         // It set a `bool` here and then scanned `animated` again INSIDE the per-bone loop, which is
@@ -323,6 +370,112 @@ public sealed class SkeletonPose : IBonePose
 
             alreadyWritten.Mark(bone);
         }
+    }
+
+    /// <summary>Accumulates every layer over the base pose, as <c>AccumulateLayers</c> does.</summary>
+    /// <param name="basePose">What the main sequence produced.</param>
+    /// <returns>The base pose with the layers accumulated into it.</returns>
+    /// <remarks>
+    /// **<c>C_BaseAnimatingOverlay::AccumulateLayers</c> then <c>SlerpBones</c>**
+    /// (<c>c_baseanimatingoverlay.cpp:294</c>, <c>bone_setup.cpp:1373</c>). Each layer:
+    ///
+    /// <code>
+    ///   if (fWeight &gt; 1) fWeight = 1;                 // clamped, never extrapolated
+    ///   pS2[i] = s * seqdesc.weight( i );              // per bone
+    ///   if ( s2 &lt;= 0.0f ) continue;                    // untouched, not blended by zero
+    ///   s1 = 1.0 - s2;
+    ///   QuaternionSlerp( q2[i], q1[i], s1, q3 );
+    ///   pos1[i] = pos1[i] * s1 + pos2[i] * s2;
+    /// </code>
+    ///
+    /// **Returns the base pose unchanged when there is nothing to do**, which is the common case —
+    /// most entities have no layers and most gesture slots are empty — so a frame pays one branch
+    /// rather than an allocation.
+    ///
+    /// **The rest pose fills a bone the base sequence did not override.** The base pose is a sparse
+    /// list: a sequence that animates only the arms returns only arm bones. A layer weighted onto a
+    /// bone the base left out has to blend against something, and the engine's <c>q1</c> holds the
+    /// bind pose there because <c>InitPose</c> seeded it.
+    ///
+    /// **Not reproduced:** <c>BONE_FIXED_ALIGNMENT</c>, which chooses
+    /// <c>QuaternionSlerpNoAlign</c> over <c>QuaternionSlerp</c>. It matters only for bones whose
+    /// animations are authored without alignment, and the flag is not read by this project's
+    /// <c>.mdl</c> parser yet — named here rather than left silent.
+    /// </remarks>
+    private IReadOnlyList<StudioBonePose> Accumulate(IReadOnlyList<StudioBonePose> basePose)
+    {
+        if (Layers.Count == 0)
+        {
+            return basePose;
+        }
+
+        StudioBonePose[] result = new StudioBonePose[_bones.Count];
+
+        for (int bone = 0; bone < _bones.Count; bone++)
+        {
+            result[bone] = new StudioBonePose(
+                bone, _bones[bone].Position, _bones[bone].Rotation);
+        }
+
+        for (int entry = 0; entry < basePose.Count; entry++)
+        {
+            StudioBonePose moved = basePose[entry];
+
+            if (moved.Bone >= 0 && moved.Bone < result.Length)
+            {
+                result[moved.Bone] = moved;
+            }
+        }
+
+        foreach (PoseLayer layer in Layers)
+        {
+            // `if (fWeight > 0)` — a slot at zero is not accumulated at all.
+            if (layer.Weight <= 0f)
+            {
+                continue;
+            }
+
+            float weight = MathF.Min(1f, layer.Weight);
+
+            IReadOnlyList<StudioBonePose> sampled =
+                _animation(layer.Sequence, layer.Frame, layer.FrameFraction, PoseValues);
+
+            foreach (StudioBonePose over in sampled)
+            {
+                int bone = over.Bone;
+
+                if (bone < 0 || bone >= result.Length ||
+                    layer.BoneWeights is not { } weights || bone >= weights.Count)
+                {
+                    continue;
+                }
+
+                float s2 = weight * weights[bone];
+
+                if (s2 <= 0f)
+                {
+                    continue;
+                }
+
+                if (s2 > 1f)
+                {
+                    s2 = 1f;
+                }
+
+                float s1 = 1f - s2;
+
+                StudioBonePose under = result[bone];
+
+                result[bone] = new StudioBonePose(
+                    bone,
+                    ((under.Position.X * s1) + (over.Position.X * s2),
+                     (under.Position.Y * s1) + (over.Position.Y * s2),
+                     (under.Position.Z * s1) + (over.Position.Z * s2)),
+                    StudioBones.Slerp(under.Rotation, over.Rotation, s2));
+            }
+        }
+
+        return result;
     }
 
     /// <summary>The entity transform as a span, copied only when it is not already an array.</summary>

@@ -1962,6 +1962,28 @@ public static class PropModels
                     StudioAnimation.Frames(
                         Models[where.Group], Groups[where.Group].Sequences[where.Local].Animation))
                 : 1;
+
+        /// <summary>A sequence's own per-bone weight list — <c>seqdesc.weight( i )</c>.</summary>
+        /// <param name="sequence">The merged sequence number.</param>
+        /// <returns>One weight per bone of THIS model, or empty when it cannot be read.</returns>
+        /// <remarks>
+        /// **What decides how much of the skeleton a layer touches** (<c>bone_setup.cpp:1409</c>,
+        /// <c>pS2[i] = s * seqdesc.weight( i )</c>). A gesture's list is 1 on the arms and 0 on the
+        /// legs, which is how a reload plays on a player who keeps running.
+        ///
+        /// **The count comes from THIS model's bones, not from the group the sequence lives in.**
+        /// The list has no length in the file — <c>pBoneweight(i)</c> is an unbounded pointer walk
+        /// — and the extent that matters is the skeleton being posed, which is the root model's.
+        /// A TF2 player's gestures live in the included <c>&lt;class&gt;_animations.mdl</c> while
+        /// the bones being weighted are the player's own.
+        /// </remarks>
+        public IReadOnlyList<float> BoneWeights(int sequence) =>
+            Sequences.At(sequence) is { } where &&
+            where.Group < Models.Count &&
+            where.Local < Groups[where.Group].Sequences.Count
+                ? StudioGestureWeights.ForSequence(
+                    Models[where.Group], where.Local, Bones.Count)
+                : [];
     }
 
     /// <summary>A model's baked animation frames, and how to choose between them.</summary>

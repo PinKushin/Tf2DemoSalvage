@@ -233,6 +233,15 @@ public sealed class PoseCompletenessTests
         PlaybackRate = 1.75f,
         Hidden = true,
 
+        // A reload in the slot it belongs to. Null is the default, and a pose that lost its
+        // gestures in a rebuild would look identical to a player who is holding none — which is
+        // most players most of the time, so nothing else would notice (B282).
+        Gestures =
+        [
+            new SceneGesture(
+                GestureSlot.AttackAndReload, "ACT_MP_RELOAD_STAND", null, AutoKill: true, 13.6d),
+        ],
+
         // **`WEAPON_IS_ACTIVE`, and neither of the two values it must be told apart from is safe
         // here.** Null means "not a weapon" and 0 is `WEAPON_NOT_CARRIED`, so a rebuild that
         // dropped this would read as a wearable or as a weapon on the floor — and both of those

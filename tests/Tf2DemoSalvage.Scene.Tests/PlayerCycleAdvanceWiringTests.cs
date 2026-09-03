@@ -40,12 +40,6 @@ public sealed class PlayerCycleAdvanceWiringTests
     /// <summary><c>STUDIO_LOOPING</c>, <c>studio.h</c> — the sequence flag the wrap reads.</summary>
     private const int SequenceLooping = 0x0001;
 
-    /// <summary>Frames the fixture animation carries.</summary>
-    private const int AnimationFrames = 31;
-
-    /// <summary>Frames a second the fixture animation plays at.</summary>
-    private const float AnimationRate = 30f;
-
     /// <remarks>
     /// **The end-to-end claim, and the only test here that fails when the wiring is lost.** It
     /// drives the scene the way the viewer does and asks what frame the skeleton was HANDED at two
@@ -291,7 +285,7 @@ public sealed class PlayerCycleAdvanceWiringTests
             [true],
             Skinned: model with
             {
-                Models = [AnimationBytes()],
+                Models = [AnimatedStudioBytes.OneSecondLoop(animations: 3)],
                 Groups = Looping(model.Groups),
             });
     }
@@ -317,27 +311,6 @@ public sealed class PlayerCycleAdvanceWiringTests
         return looping;
     }
 
-    /// <summary>Studio bytes carrying one animation of <see cref="AnimationFrames"/> frames.</summary>
-    /// <remarks>
-    /// Only the four fields the readers touch: the animation count and index in the header, then
-    /// the animation's frames-a-second and frame count. <c>StudioAnimation.Frames</c> reads
-    /// <c>numframes</c> and <c>CyclesPerSecond</c> divides <c>fps</c> by <c>numframes - 1</c>, so a
-    /// 31-frame animation at 30 fps runs one cycle a second.
-    /// </remarks>
-    private static byte[] AnimationBytes()
-    {
-        const int header = 256;
-        const int animation = header;
-
-        byte[] file = new byte[animation + 100];
-
-        BitConverter.TryWriteBytes(file.AsSpan(180), 1);
-        BitConverter.TryWriteBytes(file.AsSpan(184), animation);
-        BitConverter.TryWriteBytes(file.AsSpan(animation + 8), AnimationRate);
-        BitConverter.TryWriteBytes(file.AsSpan(animation + 16), AnimationFrames);
-
-        return file;
-    }
 
     /// <summary>An appearance that names a player model for every class.</summary>
     private sealed class StubAppearance : IPlayerAppearance

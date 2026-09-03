@@ -16,7 +16,10 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// <param name="AutoKill">
 /// Whether the gesture disappears when its cycle passes one, rather than holding its last frame.
 /// </param>
-/// <param name="StartedTick">The demo tick the event arrived on.</param>
+/// <param name="StartedSeconds">
+/// Demo time when the event arrived, in seconds. Seconds rather than ticks because the layer's
+/// cycle is elapsed time times the sequence's rate, and only the timeline knows the tick interval.
+/// </param>
 /// <remarks>
 /// **What CORE can say, and no more.** The engine resolves a gesture to a sequence immediately —
 /// <c>AddToGestureSlot</c> calls <c>SelectWeightedSequence( iGestureActivity )</c>
@@ -34,7 +37,7 @@ public readonly record struct SceneGesture(
     string? ActivityName,
     int? ActivityNumber,
     bool AutoKill,
-    int StartedTick);
+    double StartedSeconds);
 
 /// <summary>
 /// Turns the <c>CTEPlayerAnimEvent</c> temp entities a demo carries into per-player gesture slots.
@@ -112,12 +115,12 @@ public sealed class PlayerGestureFeed
     /// <summary>Records one decoded temp entity, ignoring every class but the gesture one.</summary>
     /// <param name="className">The temp entity's class name, from the schema.</param>
     /// <param name="effect">The decoded effect.</param>
-    /// <param name="tick">The demo tick it arrived on.</param>
+    /// <param name="seconds">Demo time when it arrived, in seconds.</param>
     /// <param name="context">What the player was doing, which decides which activity is chosen.</param>
     /// <returns>Whether this effect was a gesture event.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="effect"/> is null.</exception>
     public bool Record(
-        string className, DecodedTempEntity effect, int tick, GestureContext context)
+        string className, DecodedTempEntity effect, double seconds, GestureContext context)
     {
         ArgumentNullException.ThrowIfNull(effect);
 
@@ -185,7 +188,7 @@ public sealed class PlayerGestureFeed
         }
 
         slots[slot] = new SceneGesture(
-            trigger.Slot, trigger.ActivityName, trigger.ActivityNumber, trigger.AutoKill, tick);
+            trigger.Slot, trigger.ActivityName, trigger.ActivityNumber, trigger.AutoKill, seconds);
 
         return true;
     }
