@@ -138,7 +138,17 @@ public sealed class ViewmodelProbe : IProbe
                 $"  tick {tick,7}  owner "
                 + $"{weapon.OwnerEntityIndex?.ToString(CultureInfo.InvariantCulture) ?? "none",5}"
                 + $"  item {weapon.WeaponItem?.ToString(CultureInfo.InvariantCulture) ?? "-",6}"
-                + $"  {Attributes(weapon.WeaponEcon),-28}  "
+                + $"  {Attributes(weapon.WeaponEcon),-28}"
+
+                // **The sequence and when it started, which is what says whether the DRAW plays.**
+                // A weapon change shows in first person as the viewmodel's own `ACT_VM_DRAW`
+                // (`tf_weaponbase.cpp:4294`, mapped per weapon type), and there is no third-person
+                // gesture for it at all — the enum `CTEPlayerAnimEvent` carries names no draw or
+                // holster. So the owner's *"no weapon change animation"* is a question about these
+                // two numbers: a switch must move the sequence AND restamp the start, since a
+                // sequence that changes without restarting resumes mid-way through the draw.
+                + $"  seq {weapon.Sequence,3}"
+                + $"  parity {weapon.AnimationParity}  startedAt {weapon.AnimationStartTick,7}  "
                 + weapon.ModelPath);
 
             if (++changes > 60)

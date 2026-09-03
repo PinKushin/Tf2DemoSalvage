@@ -219,7 +219,15 @@ public sealed class ViewmodelScene
                 at.PoseFor(weapon.Sequence, weapon.PlaybackRate, started, skin),
                 ItemDefinitionIndex: isHands ? null : weapon.WeaponItem,
                 Econ: isHands ? null : weapon.WeaponEcon,
-                FirstPerson: true),
+                FirstPerson: true,
+
+                // **A viewmodel advances its own cycle, so it takes the elapsed-time branch**
+                // (B283). `C_BaseViewModel` at `c_baseviewmodel.cpp:197` computes
+                // `elapsed_time * GetSequenceCycleRate(…) * GetPlaybackRate()` every frame,
+                // unconditionally — a different mechanism from `m_bClientSideAnimation`, which a
+                // viewmodel never has, but the same branch of `EntityModelSet.Simulate`. Without
+                // it every viewmodel holds frame zero and no draw, reload or fire ever plays.
+                ClientSideAnimated: true),
         ];
 
         // **The comparison is a PATH comparison and the separators differ.** A model named in the
@@ -296,7 +304,10 @@ public sealed class ViewmodelScene
                 // festivizer both key on these through the same delegate.
                 ItemDefinitionIndex: weapon.WeaponItem,
                 Econ: weapon.WeaponEcon,
-                FirstPerson: true));
+                FirstPerson: true,
+
+                // The bone-merged attachment animates with the weapon it hangs on (B283).
+                ClientSideAnimated: true));
         }
 
         // **A player has two viewmodels, and the second is not a duplicate of the first.** Slot 1 is
@@ -317,7 +328,11 @@ public sealed class ViewmodelScene
                 at.PoseFor(offHand.Sequence, offHand.PlaybackRate, offHandStarted, skin),
                 ItemDefinitionIndex: offHand.WeaponItem,
                 Econ: offHand.WeaponEcon,
-                FirstPerson: true));
+                FirstPerson: true,
+
+                // The off hand takes the same rule as the main hand (B283); a flag set on one
+                // construction site and not the other animates one hand and freezes the other.
+                ClientSideAnimated: true));
         }
 
         return new ViewmodelSceneResult(

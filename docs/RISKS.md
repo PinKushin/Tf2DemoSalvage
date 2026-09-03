@@ -18025,3 +18025,53 @@ One live reload layer; the stale doublejump and flinch correctly auto-killed.
   leaves both at one, which is right for everything except a taunt.
 - **`BONE_FIXED_ALIGNMENT`** would select `QuaternionSlerpNoAlign` over `QuaternionSlerp`. The flag
   is not read by this project's `.mdl` parser, so every bone takes the aligning form.
+
+## B283 — a viewmodel was never advanced, so no draw, reload or fire ever played — FIXED
+
+**The owner:** *"no weapon change animation"*.
+
+**There is no third-person weapon-switch gesture in TF2 at all.** `PlayerAnimEvent_t` names no draw
+and no holster, and the switch shows in FIRST person as the viewmodel's own `ACT_VM_DRAW`, mapped
+per weapon type (`tf_weaponbase.cpp:4294`). So this half of the report is a different mechanism from
+B282's gestures, and looking for a player gesture would have found nothing for ever.
+
+**The engine.** `C_BaseViewModel` advances its cycle unconditionally, from elapsed time
+(`c_baseviewmodel.cpp:197`):
+
+```
+float elapsed_time = currentTime - m_flAnimTime;
+...
+float dt = elapsed_time * GetSequenceCycleRate( pStudioHdr, GetSequence() ) * GetPlaybackRate();
+if ( dt >= 1.0f ) { if ( !IsSequenceLooping(…) ) dt = 0.999f; else dt = fmod( dt, 1.0f ); }
+SetCycle( dt );
+```
+
+**A different mechanism from `m_bClientSideAnimation`**, which is what `g_ClientSideAnimationList`
+membership turns on and what B280 was about. A viewmodel never joins that list.
+
+**Ours.** Both reach the same place: `EntityModelSet.Simulate` has one gate, `prop.ClientSideAnimated`,
+deciding whether an entity's cycle is advanced from elapsed time. `ViewmodelScene` builds its three
+props without it, so every viewmodel held frame zero of whatever sequence it was handed. **The
+sequence changed; nothing played it.**
+
+**The decode was already right, which is why this had to be looked for at the pose.** Measured on
+`z1800.dem`, player 25, at every weapon change:
+
+```
+tick   26567  item 513  seq  45  parity 7  startedAt   26567  c_soldier_arms.mdl
+tick   28511  item 424  seq  24  parity 3  startedAt   28511  c_heavy_arms.mdl
+tick   31683  item  42  seq   2  parity 6  startedAt   31683  c_heavy_arms.mdl
+```
+
+The sequence moves, the parity moves, and the start restamps to the change tick. Everything the
+animation needs arrives.
+
+**Three construction sites, and they are separate on purpose.** The main hand, the bone-merged
+attachment and the off hand are built by different branches of `ViewmodelScene.Build`; a flag set on
+one and not another animates one hand and freezes the other, which is why the test asserts across
+all of the produced props rather than the first.
+
+**Not reproduced: the viewmodel clamps a finished one-shot to `0.999f`, not to 1.** Everything else
+in this project uses `C_BaseAnimating::ClampCycle`, which gives 0 or 1. The difference is the last
+authored frame against a hair before it, so it is invisible; recorded because a divergence nobody
+wrote down is one somebody later has to rediscover.
