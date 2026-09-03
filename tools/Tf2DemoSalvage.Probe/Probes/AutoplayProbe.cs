@@ -112,6 +112,7 @@ public sealed class AutoplayProbe : IProbe
         int carrying = 0;
         int looping = 0;
         int sequences = 0;
+        int layered = 0;
 
         // **Distinct model PATHS, because the flag is a property of the model.** Reporting per prop
         // would multiply one flagged model by however many copies the map places and say nothing
@@ -141,6 +142,17 @@ public sealed class AutoplayProbe : IProbe
                 if (skinned.Loops(sequence))
                 {
                     looping++;
+                }
+
+                // **`numautolayers`, counted for the same reason `proctype` was.** A sequence can
+                // automatically play other sequences over itself, and `AddSequenceLayers`
+                // (`bone_setup.cpp:2125`) is absent here. Whether that matters is one number.
+                if (skinned.Sequences.At(sequence) is { } where &&
+                    where.Group < skinned.Groups.Count &&
+                    where.Local < skinned.Groups[where.Group].Sequences.Count &&
+                    skinned.Groups[where.Group].Sequences[where.Local].AutoLayers > 0)
+                {
+                    layered++;
                 }
             }
 
@@ -173,6 +185,7 @@ public sealed class AutoplayProbe : IProbe
             string.Create(
                 CultureInfo.InvariantCulture,
                 $"AUTOPLAY {carrying} models carry it, of {opened} skinned models opened; " +
-                $"control: {looping} of {sequences} sequences carry STUDIO_LOOPING"));
+                $"control: {looping} of {sequences} sequences carry STUDIO_LOOPING; " +
+                $"{layered} sequences declare autolayers"));
     }
 }

@@ -18908,3 +18908,52 @@ the props the way the viewer does and reports it:
 distinct model paths; the simulation runs per entity, so a cosmetic worn by two players is counted
 once and simulated twice. A simulated count of zero against a non-zero census would have been the
 no-op; a count below the census would mean something was skipping bones.
+
+## B294 — `AddSequenceLayers` is absent, and unlike the procedural rules TF2 does use it — OPEN
+
+**A sequence can automatically play OTHER sequences over itself.** `AccumulatePose` calls
+`AddSequenceLayers` immediately after the main blend (`bone_setup.cpp:2125`), walking
+`seqdesc.numautolayers` entries of `mstudioautolayer_t` — each carrying a target sequence, a cycle
+window (`start`, `peak`, `tail`, `end`) and its own `STUDIO_AL_*` flags:
+
+```cpp
+if (cycle < pLayer->start) continue;
+if (cycle >= pLayer->end)  continue;
+if (cycle < pLayer->peak && pLayer->start != pLayer->peak)
+    s = (cycle - pLayer->start) / (pLayer->peak - pLayer->start);
+else if (cycle > pLayer->tail && pLayer->end != pLayer->tail)
+    s = (pLayer->end - cycle) / (pLayer->end - pLayer->tail);
+if (pLayer->flags & STUDIO_AL_SPLINE)  s = SimpleSpline( s );
+if ((pLayer->flags & STUDIO_AL_XFADE) && (cycle > pLayer->tail))
+    layerWeight = ( s * flWeight ) / ( 1 - flWeight + s * flWeight );
+else if (pLayer->flags & STUDIO_AL_NOBLEND) layerWeight = s;
+else layerWeight = flWeight * s;
+```
+
+**So it is a per-sequence layer with its own envelope**, faded in over the first part of the cycle
+and out over the last — the mechanism behind an animation that blends a second one over its own
+middle. Nothing here reads the array or applies it.
+
+### Measured, and this one is NOT zero
+
+The `autoplay` probe now counts sequences declaring autolayers beside its own subject:
+
+| demo | sequences with autolayers | of total | control: looping |
+|---|---|---|---|
+| `z1800` | 1 | 76 | 11 |
+| `tf2-2026-pub-pov-clean` | 6 | 142 | 36 |
+
+**That is the difference from the four procedural rules, which measured zero on the same demos.**
+Autolayers fire on real content, so this is a gap with a visible consequence rather than a mechanism
+nobody uses — small, but present in every demo looked at.
+
+**Only the COUNT is read**, deliberately. `StudioSequence.AutoLayers` exists so this question could
+be answered before deciding to implement, which is the order that turned five unimplemented
+procedural rules into one. Reading the entries themselves would be building the feature without
+having decided to.
+
+### Not established
+
+Which sequences they are and what they layer. The count says the mechanism is in use; it does not
+say whether the six on `cp_fulgur` are on a player model anyone watches or on a prop in a corner.
+The next step is naming them, which the probe is one line from doing.

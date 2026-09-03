@@ -465,6 +465,22 @@ internal static class StudioLayout
     /// </remarks>
     public const int SequenceWeightListIndexOffset = 156;
 
+    /// <summary>Byte offset of <c>numautolayers</c>: how many sequences this one layers on itself.</summary>
+    /// <remarks>
+    /// **A sequence can automatically play OTHER sequences over itself** — `AccumulatePose` calls
+    /// `AddSequenceLayers` right after the main blend (<c>bone_setup.cpp:2125</c>), and each
+    /// `mstudioautolayer_t` carries a cycle window (start, peak, tail, end) plus its own
+    /// `STUDIO_AL_*` flags for splining, cross-fading and local layering.
+    ///
+    /// **Read to MEASURE rather than to implement**, and that order is deliberate: the same
+    /// question asked of procedural bones turned five unimplemented rules into one, and asking it
+    /// here is one number against a whole mechanism.
+    ///
+    /// The offset is the count in the pair the comment above already walks to — 148, immediately
+    /// after `numikrules` at 144 and immediately before `autolayerindex` at 152.
+    /// </remarks>
+    public const int SequenceAutoLayerCountOffset = 148;
+
     /// <summary>Byte offset of <c>fadeintime</c>: how long this sequence takes to blend IN.</summary>
     /// <remarks>
     /// **The cross-fade either side of a sequence change** (<c>studio.h:854</c>, *"ideal cross fate

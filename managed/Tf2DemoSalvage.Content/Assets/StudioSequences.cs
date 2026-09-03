@@ -24,6 +24,11 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// The animation events it fires, or null for a sequence declaring none. Read
 /// <see cref="FiredEvents"/> instead, which answers empty rather than null.
 /// </param>
+/// <param name="AutoLayers">
+/// How many other sequences this one layers over itself — <c>numautolayers</c>. The COUNT only:
+/// `AddSequenceLayers` (<c>bone_setup.cpp:2125</c>) is not implemented, and this exists so the
+/// question "does any TF2 content use them" can be measured before that decision is made.
+/// </param>
 public readonly record struct StudioSequence(
     int Animation,
     int Flags,
@@ -31,7 +36,8 @@ public readonly record struct StudioSequence(
     StudioBlendGrid? Blend = null,
     string Activity = "",
     int ActivityWeight = 0,
-    IReadOnlyList<StudioEvent>? Events = null)
+    IReadOnlyList<StudioEvent>? Events = null,
+    int AutoLayers = 0)
 {
     /// <summary>The events this sequence fires, in file order; never null.</summary>
     /// <remarks>
@@ -218,7 +224,14 @@ public static class StudioSequences
                 // points outside the description: the events sit elsewhere in the model and the
                 // offset is measured from the sequence's own start. Passing the slice would bound
                 // the read to 212 bytes and find nothing.
-                StudioEvent.Read(bytes, start)));
+                StudioEvent.Read(bytes, start),
+
+                // **The COUNT only, and deliberately not the layers themselves.** Reading them
+                // would be building `AddSequenceLayers` without deciding to; reading how many
+                // exist is a measurement, and the same measurement turned five unimplemented
+                // procedural rules into one that matters.
+                BinaryPrimitives.ReadInt32LittleEndian(
+                    sequence[SequenceAutoLayerCountOffset..])));
         }
 
         return sequences;
