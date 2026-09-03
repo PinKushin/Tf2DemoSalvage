@@ -172,8 +172,13 @@ public sealed class GestureLayerWiringTests
     /// </remarks>
     private static PropModels.ModelFrames Frames()
     {
+        // **The model declares the REWRITTEN name, as a real one does** (B284). A gesture names
+        // `ACT_MP_RELOAD_STAND` and the weapon in hand rewrites it through Valve's own
+        // `acttable_t` — `WeaponActivityTable` here — so what a scout's model actually declares is
+        // `ACT_MP_RELOAD_STAND_PRIMARY`. A fixture carrying the generic name would pass against
+        // code that skipped the rewrite, which is the defect this whole area was.
         PropModels.SkinnedModel model = SyntheticSkinnedModel.With(
-            "ACT_MP_RUN_PRIMARY", "ACT_MP_RELOAD_STAND", "ACT_MP_STAND_PRIMARY");
+            "ACT_MP_RUN_PRIMARY", "ACT_MP_RELOAD_STAND_PRIMARY", "ACT_MP_STAND_PRIMARY");
 
         return new PropModels.ModelFrames(
             [

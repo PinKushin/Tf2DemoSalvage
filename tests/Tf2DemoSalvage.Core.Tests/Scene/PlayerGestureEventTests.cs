@@ -63,9 +63,9 @@ public sealed class PlayerGestureEventTests
     [Test]
     public void GestureEvent_Reload_StandsCrouchesAndSwims()
     {
-        Map(PlayerAnimEvent.Reload, Plain).ActivityName.ShouldBe("ACT_MP_RELOAD_STAND_{0}");
-        Map(PlayerAnimEvent.Reload, new GestureContext(InDuck: true)).ActivityName.ShouldBe("ACT_MP_RELOAD_CROUCH_{0}");
-        Map(PlayerAnimEvent.Reload, new GestureContext(InSwim: true)).ActivityName.ShouldBe("ACT_MP_RELOAD_SWIM_{0}");
+        Map(PlayerAnimEvent.Reload, Plain).ActivityName.ShouldBe("ACT_MP_RELOAD_STAND");
+        Map(PlayerAnimEvent.Reload, new GestureContext(InDuck: true)).ActivityName.ShouldBe("ACT_MP_RELOAD_CROUCH");
+        Map(PlayerAnimEvent.Reload, new GestureContext(InSwim: true)).ActivityName.ShouldBe("ACT_MP_RELOAD_SWIM");
     }
 
     [Test]
@@ -73,7 +73,7 @@ public sealed class PlayerGestureEventTests
     {
         // The TF override's own case: airwalk beats the base stand/crouch/swim choice entirely.
         Map(PlayerAnimEvent.Reload, new GestureContext(InAirWalk: true))
-            .ActivityName.ShouldBe("ACT_MP_RELOAD_AIRWALK_{0}");
+            .ActivityName.ShouldBe("ACT_MP_RELOAD_AIRWALK");
     }
 
     [Test]
@@ -86,7 +86,7 @@ public sealed class PlayerGestureEventTests
         // Setting only one condition at a time would let a swapped helper pass.
         GestureContext duckAndSwim = new(InDuck: true, InSwim: true);
 
-        Map(PlayerAnimEvent.Reload, duckAndSwim).ActivityName.ShouldBe("ACT_MP_RELOAD_CROUCH_{0}");
+        Map(PlayerAnimEvent.Reload, duckAndSwim).ActivityName.ShouldBe("ACT_MP_RELOAD_CROUCH");
         Map(PlayerAnimEvent.AttackSecondary, duckAndSwim).ActivityName.ShouldBe("ACT_MP_ATTACK_SWIM_SECONDARYFIRE");
     }
 

@@ -194,7 +194,7 @@ public sealed class PlayerGestureFeed
     }
 
     /// <summary>The activity a landing replaces the jump gesture with.</summary>
-    public const string LandActivity = "ACT_MP_JUMP_LAND_{0}";
+    public const string LandActivity = "ACT_MP_JUMP_LAND";
 
     /// <summary>
     /// How long after a jump began the ground flag is believed, in seconds.

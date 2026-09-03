@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
 
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.SdkReference;
 
@@ -181,25 +182,27 @@ public sealed class GestureConformanceTests
 
         foreach (string name in used.Distinct())
         {
-            // **Filled with a weapon role before it is looked up** (B284). Every gesture activity
-            // on a TF2 player model carries the held weapon's role — `ACT_MP_RELOAD_STAND_PRIMARY`
-            // — so the map emits a placeholder and the scene fills it from the installed game.
-            // Looking up the placeholder would search for `ACT_MP_RELOAD_STAND_{0}` and find
-            // nothing, which is how the unsuffixed name survived here for as long as it did.
+            // **The GENERIC name is what this map emits and what the SDK declares**, which is the
+            // arrangement the engine has: `DoAnimationEvent` names `ACT_MP_RELOAD_STAND` and the
+            // weapon in hand rewrites it to `ACT_MP_RELOAD_STAND_PRIMARY` through its own
+            // `acttable_t` — `WeaponActivityTable` in this project, applied by the scene.
             //
-            // **At least one role, not every role**, and that distinction is Valve's rather than a
-            // convenience. `ACT_MP_RELOAD_STAND_MELEE` is not declared, because a melee weapon does
-            // not reload — the engine's `SelectWeightedSequence` returns nothing for it and the
-            // gesture is abandoned, which `EntityModelSet.LayersFor` reproduces. Demanding every
-            // combination would assert a table Valve never wrote; demanding none would let a typo
-            // in the base name through, which is the whole reason this test exists.
-            List<string> filled =
-                [.. WeaponSlots.Select(slot =>
-                    string.Format(CultureInfo.InvariantCulture, name, slot))];
+            // So both the generic name and every rewrite of it must be a real activity. Checking
+            // the generic one alone would miss a role whose table names something `ai_activity.h`
+            // does not declare, and checking only the rewrites would miss a typo in a name no
+            // weapon rewrites — a flinch.
+            activities.ShouldContain(
+                name, Case.Sensitive, $"{name} is not declared in ai_activity.h");
 
-            filled.ShouldContain(
-                one => activities.Contains(one, StringComparison.Ordinal),
-                $"no weapon role turns {name} into an activity declared in ai_activity.h");
+            foreach (string role in WeaponSlots)
+            {
+                string rewritten = WeaponActivityTable.Override(role, name);
+
+                activities.ShouldContain(
+                    rewritten,
+                    Case.Sensitive,
+                    $"{role} rewrites {name} to {rewritten}, which ai_activity.h does not declare");
+            }
         }
     }
 

@@ -38,7 +38,7 @@ public sealed class PlayerGestureFeedTests
 
         gestures.ShouldHaveSingleItem();
         gestures[0].Slot.ShouldBe(GestureSlot.AttackAndReload);
-        gestures[0].ActivityName.ShouldBe("ACT_MP_RELOAD_STAND_{0}");
+        gestures[0].ActivityName.ShouldBe("ACT_MP_RELOAD_STAND");
         gestures[0].StartedSeconds.ShouldBe(13.6d);
     }
 
@@ -63,7 +63,7 @@ public sealed class PlayerGestureFeedTests
         feed.For(4, gestures);
 
         gestures.ShouldHaveSingleItem();
-        gestures[0].ActivityName.ShouldBe("ACT_MP_RELOAD_CROUCH_{0}");
+        gestures[0].ActivityName.ShouldBe("ACT_MP_RELOAD_CROUCH");
     }
 
     /// <remarks>

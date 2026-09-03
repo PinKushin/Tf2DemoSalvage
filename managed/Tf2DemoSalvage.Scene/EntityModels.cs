@@ -887,20 +887,22 @@ public sealed class EntityModelSet
                 continue;
             }
 
-            // **The weapon slot goes in HERE, because only this layer knows it** (B284). Every
-            // gesture activity on a TF2 player model is suffixed by the held weapon's role —
-            // measured on `scout.mdl`: `ACT_MP_RELOAD_STAND_PRIMARY`,
-            // `ACT_MP_RELOAD_STAND_SECONDARY`, `ACT_MP_JUMP_LAND_primary`,
-            // `ACT_MP_ATTACK_STAND_ITEM2`. The unsuffixed name matches no sequence on any class, so
-            // every reload resolved to −1 and no reload has ever drawn.
+            // **The weapon rewrites the activity, and it is a TABLE rather than a suffix** (B284).
+            // `CTFPlayerAnimState::TranslateActivity` (`tf_playeranimstate.cpp:124`) calls
+            // `pWeapon->ActivityOverride( … )`, which walks that weapon role's own `acttable_t` —
+            // twelve of them in `tf_weaponbase.cpp:3660` onward. A model declares only the
+            // rewritten names, so an activity that is not put through this resolves to −1 and draws
+            // nothing.
             //
-            // Core emits the name with a placeholder rather than the finished string, because the
-            // slot comes from the installed game's own scripts through `Appearance.WeaponSuffix` —
-            // the same source and the same suffix the MAIN sequence has always used
-            // (`PlayerActivityState.NameOf`). An activity that takes no slot, a flinch, carries no
-            // placeholder and passes through unchanged.
-            string activity = string.Format(
-                CultureInfo.InvariantCulture, named, prop.Pose.Slot ?? "PRIMARY");
+            // **Here rather than in Core, because only this layer knows the role.** It comes from
+            // the installed game's own scripts through `Appearance.WeaponSuffix`, the same source
+            // the main sequence uses.
+            //
+            // The first attempt at this appended the role as a string, which is right for reloads
+            // and landings and wrong for every attack: `ACT_MP_ATTACK_STAND_PRIMARYFIRE` maps to
+            // `ACT_MP_ATTACK_STAND_PRIMARY`, a rename rather than a suffix, and
+            // `ACT_MP_CROUCH_DEPLOYED` maps to `ACT_MP_CROUCHWALK_DEPLOYED`.
+            string activity = WeaponActivityTable.Override(prop.Pose.Slot ?? "PRIMARY", named);
 
             // **`ForActivity`, not `Find`, and the difference is the whole mechanism.** `Find`
             // matches a sequence LABEL the way `Studio_LookupSequence` does; the engine resolves a
