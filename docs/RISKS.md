@@ -17894,7 +17894,7 @@ speeds deliberately.
 per frame as the engine does. The two agree while the rate is constant and diverge if it changes
 mid-sequence, which a snapshot stream cannot reconstruct anyway. Stated here rather than hidden.
 
-## B282 — a player's animation layers are EXCLUDED from the wire; the gestures arrive as temp entities we decode and discard — OPEN, and it is the missing reload
+## B282 — a player's animation layers are EXCLUDED from the wire; the gestures arrive as temp entities we decoded and discarded — FIXED
 
 **The owner:** *"no weapon change animation, didnt see a reload animation"*.
 
@@ -17952,3 +17952,76 @@ nothing, which is `decoding-a-field-is-not-honouring-it` at the scale of a subsy
 **What is still to establish.** Which activity each trigger resolves to on a TF2 player model; how
 the weapon-switch animation is raised, since no `PLAYERANIMEVENT_*` names one; and whether
 `CTFPlayerAnimState`'s gesture slots need modelling or one layer per trigger suffices.
+
+### What was built
+
+Four layers, and each was invisible on its own.
+
+**`PlayerGestureFeed`** turns the temp entities into one gesture per slot per player, which is
+Valve's own structure: `AddToGestureSlot` overwrites every field of the slot it is handed
+(`multiplayer_animstate.cpp:640-651`), sets `m_nOrder = iGestureSlot` and `m_flWeight = 1.0f`, so a
+second reload restarts rather than stacks. **The activity is chosen when the event ARRIVES**,
+because the engine picks inside `DoAnimationEvent` (`tf_playeranimstate.cpp:969`) — a reload begun
+crouched stays the crouching one even if the player stands during it.
+
+**`SkeletonPose.Layers`** accumulates each layer onto the RESULT of the last, as
+`AccumulateLayers` does, with `SlerpBones`' per-bone weight:
+
+```
+pS2[i] = s * seqdesc.weight( i );     // 0 leaves the bone alone
+s1 = 1.0 - s2;
+QuaternionSlerp( q2[i], q1[i], s1, q3 );
+pos1[i] = pos1[i] * s1 + pos2[i] * s2;
+```
+
+**The per-bone list is the mechanism, not a refinement.** A gesture's list is 1 on the arms and 0
+on the legs, which is how a reload plays on a player who keeps running; without it a layer replaces
+the whole skeleton.
+
+**`EntityModelSet.LayersFor`** is `AddToGestureSlot` and `UpdateGestureLayer` together: resolve the
+activity, abandon the gesture when the model has no such sequence, advance the cycle by elapsed
+time, then auto-kill past one or clamp and hold.
+
+### Two things this cost, and neither was caught by a test
+
+**`ForActivity`, not `Find`.** `Find` matches a sequence LABEL the way `Studio_LookupSequence` does;
+the engine resolves a gesture through `SelectWeightedSequence( iGestureActivity )`, which matches
+the ACTIVITY and breaks ties on `actweight`. No sequence is labelled `ACT_MP_GESTURE_FLINCH_CHEST`,
+so **every gesture on every model resolved to −1**. Measured on `z1800.dem`: three gestures reaching
+a real player's drawn prop and zero layers on the skeleton, with a green suite on both sides of the
+gap. Only the rendered output could show it.
+
+**A conformance test that could not fail.** `Build_WithTwoFullWeightLayersOnOneBone` used weight one
+for both layers, so `s1 = 1 - s2` is zero and whatever a layer blends against is multiplied away —
+"onto the running result" and "onto the original base" predict the identical 90. Sabotaged: blending
+every layer against a saved copy of the base left all seven green. Rewritten with a partial second
+layer, where the two differ decisively (70 against 50), and it now reddens on that sabotage. The
+same trap appeared again in the Scene fixture: an expiry test whose sequence had no rate, so its
+cycle never left zero and the gesture never expired.
+
+### Verified on a real demo
+
+At tick 20064 of `z1800.dem`, one tick after a `PLAYERANIMEVENT_RELOAD` for player 25, the `cycle`
+probe drives the production pipeline and reports:
+
+```
+POSED seq 212 frame 4+0.8  csa True  gestures 3  layers 1
+  [ACT_MP_RELOAD_STAND@0.0s ACT_MP_DOUBLEJUMP@0.8s ACT_MP_GESTURE_FLINCH_RIGHTLEG@1.0s]
+```
+
+One live reload layer; the stale doublejump and flinch correctly auto-killed.
+
+### What is still open
+
+- **Weapon-switch has no `PLAYERANIMEVENT_*` at all**, so the owner's *"no weapon change
+  animation"* is a separate mechanism still to find. Nothing in the enum names a draw or holster.
+- **`GestureContext` is filled with four of its seven fields.** `IsLoser`, `IsMinigun` and
+  `IsSniperZoomed` each change WHICH activity a gesture resolves to — a minigun's pre-fire
+  auto-kills where a sniper's holds — and air-walk is derived over time rather than read off the
+  entity, so a reload begun mid-rocket-jump takes the standing form.
+- **The two custom-gesture events carry an activity NUMBER**, and nothing resolves a number to a
+  sequence yet. They are skipped rather than guessed at.
+- **`GetGesturePlaybackRate()` and the layer's own `m_flPlaybackRate`** are not applied; a gesture
+  leaves both at one, which is right for everything except a taunt.
+- **`BONE_FIXED_ALIGNMENT`** would select `QuaternionSlerpNoAlign` over `QuaternionSlerp`. The flag
+  is not read by this project's `.mdl` parser, so every bone takes the aligning form.
