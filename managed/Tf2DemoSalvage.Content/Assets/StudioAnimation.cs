@@ -102,6 +102,45 @@ public static class StudioAnimation
             : Math.Max(0, BinaryPrimitives.ReadInt32LittleEndian(bytes[(at + AnimationFrameCountOffset)..]));
     }
 
+    /// <summary>How many IK rules an animation carries — <c>numikrules</c>.</summary>
+    /// <param name="file">The <c>.mdl</c>'s bytes.</param>
+    /// <param name="animation">Which animation, by index within this file.</param>
+    /// <returns>Its rule count, or zero.</returns>
+    /// <remarks>
+    /// **A chain and a rule are different claims and the difference decides the work.** A model's
+    /// `mstudioikchain_t` says a limb CAN be solved; a rule inside an animation is what asks for it
+    /// at a given cycle — `AccumulatePose` and `CalcAutoplaySequences` only ever reach the solver
+    /// through rules. Every TF2 player model declares four chains (B296), which says nothing at all
+    /// about whether any animation asks.
+    ///
+    /// **The count only, deliberately**, so the question can be measured before the solver is
+    /// built. Reading `mstudioikrule_t` itself would be building it without having decided to,
+    /// which is the order that turned five procedural rules into one and one autolayer pass into
+    /// two.
+    ///
+    /// **`animblockikruleindex` is a second home for the same data** and is not read here: rules can
+    /// live in an external animation block instead of the model. A count of zero from a model whose
+    /// animations are blocked would be a fact about where the bytes are, so the caller has to say
+    /// which it measured.
+    /// </remarks>
+    public static int IkRules(ReadOnlyMemory<byte> file, int animation)
+    {
+        ReadOnlySpan<byte> bytes = file.Span;
+
+        if (animation < 0 || animation >= Count(file))
+        {
+            return 0;
+        }
+
+        int at = BinaryPrimitives.ReadInt32LittleEndian(bytes[HeaderAnimationIndexOffset..]) +
+            (animation * AnimationStride);
+
+        return at < 0 || at + AnimationStride > bytes.Length
+            ? 0
+            : Math.Max(
+                0, BinaryPrimitives.ReadInt32LittleEndian(bytes[(at + AnimationIkRuleCountOffset)..]));
+    }
+
     /// <summary>What an animation carries that this reader does not implement.</summary>
     /// <param name="file">The <c>.mdl</c>'s bytes.</param>
     /// <param name="animation">Which local animation.</param>

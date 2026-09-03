@@ -98,6 +98,31 @@ public sealed class ModelProbe : IProbe
                     chains.Select(chain =>
                         $"{chain.Name} ({chain.Links.Count.ToString(CultureInfo.InvariantCulture)} links)"))));
 
+        // **A chain and a RULE are different claims** (B296). The chain says a limb can be solved;
+        // a rule inside an animation is what asks for it at a cycle, and the solver is only ever
+        // reached through one. A model can declare four chains and no animation ask for any.
+        int animations = StudioAnimation.Count(bytes);
+        int asking = 0;
+        int rules = 0;
+
+        for (int animation = 0; animation < animations; animation++)
+        {
+            int count = StudioAnimation.IkRules(bytes, animation);
+
+            if (count <= 0)
+            {
+                continue;
+            }
+
+            asking++;
+            rules += count;
+        }
+
+        output.WriteLine(
+            $"    ik rules: {asking.ToString(CultureInfo.InvariantCulture)} of "
+            + $"{animations.ToString(CultureInfo.InvariantCulture)} animations ask, "
+            + $"{rules.ToString(CultureInfo.InvariantCulture)} rules total");
+
         // **The models this one includes**, because a sequence list read from the root alone is
         // only half the answer for anything that animates — and "the root has no events" reads
         // identically to "this model has no events" until the include list is on screen (B275).

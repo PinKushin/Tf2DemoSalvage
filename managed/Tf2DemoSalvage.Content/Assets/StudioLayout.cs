@@ -528,6 +528,16 @@ internal static class StudioLayout
     /// <summary>Byte offset of <c>numframes</c>.</summary>
     public const int AnimationFrameCountOffset = 16;
 
+    /// <summary>Byte offset of <c>numikrules</c>: how many IK rules this animation asks for.</summary>
+    /// <remarks>
+    /// Counted forward through <c>nummovements</c>/<c>movementindex</c> (20, 24),
+    /// <c>unused1[6]</c> (28 to 51), <c>animblock</c> (52) and <c>animindex</c> (56) — landing at
+    /// 60, with <c>ikruleindex</c> at 64 and <c>animblockikruleindex</c> at 68. The six unused ints
+    /// are the part that has to be counted rather than assumed: skipping them puts every later
+    /// field twenty-four bytes early, and each one still reads as a plausible number.
+    /// </remarks>
+    public const int AnimationIkRuleCountOffset = 60;
+
     /// <summary>Byte offset of <c>numlocalhierarchy</c>.</summary>
     /// <remarks>
     /// **An animation can reparent a bone while it plays**, which is what

@@ -19070,3 +19070,55 @@ the skeleton's declaration that a limb CAN be solved; a rule in an animation is 
 given cycle. The counts above establish the first and say nothing about the second, and the second
 is what decides how much of the solver ever runs. That is the next measurement, not the next
 implementation.
+
+### B296 progress: the solver, and the measurement that sized the job
+
+**The rules were measured before any code was written**, which is the order that has now paid four
+times. A chain says a limb CAN be solved; a rule inside an animation is what asks for it at a cycle,
+and the solver is only ever reached through a rule.
+
+| model | animations asking | rules |
+|---|---|---|
+| `models/player/scout_animations.mdl` | **705 of 1012** | 2035 |
+| `models/player/heavy_animations.mdl` | **508 of 819** | 1496 |
+| `models/player/scout.mdl` (the body, 2 animations) | 2 of 2 | 8 |
+| `models/props_gameplay/resupply_locker.mdl` | 0 of 3 | 0 |
+
+**Roughly seventy per cent of every player animation asks for IK**, and the locker's zero is the
+control. This is not a corner of the format.
+
+**`StudioIkSolver` is Ken Perlin's closed form, which Valve credits in its own comment.** Rotate the
+target onto the x axis, solve `d = (c + (a² − b²)/c) / 2` and `e = √(a² − d²)` there, rotate back.
+The return value is not "did it work" but "is the bend real" — the knee is written either way, and
+the caller leaves the bones alone when it is refused.
+
+**Two departures, both because the alternative is undefined rather than different.** `normalize` is
+called on two vectors the engine never checks: the basis when a knee preference is parallel to the
+reach, and the roll axis when the new direction is parallel to the old Z — Valve's own note there
+says to check for it and never does. A NaN in either would reach a bone matrix and put a limb
+nowhere; an arbitrary perpendicular is at least a position, and the choice is arbitrary in those
+cases either way.
+
+**One simplification that is an identity, not a shortcut.** `defineM` builds a third basis axis and
+`solve` rotates `S = {d, e, 0}` through it — whose z component is zero, so the third axis is
+multiplied by nothing. It is dropped, and the reason is written next to it so nobody restores it as
+a bug fix.
+
+#### Three sabotages, and two of my tests could not fail
+
+Inverting the closed form reddened two. The other two found gaps rather than defects:
+
+**Every `Solve` test gave a preference PERPENDICULAR to the target**, so `D·X` was exactly zero and
+deleting the orthogonalisation entirely left all eight green. That is the wrong-condition trap: no
+input existed for which correct and broken differ. Fixed with a preference that leans along the
+reach — which is also the realistic case, a knee preference being a rough direction rather than a
+right angle.
+
+**The equal-length case is blind to the closed form by construction**, since `a² − b²` is zero
+either way. That test now uses 8 and 12.
+
+**And one sabotage was badly designed rather than uninformative.** Moving the column-zero write
+before the old-Z read cannot matter — the indices are disjoint. The hazard the ordering claim is
+about is reading the old Z after column TWO is written, which is a different edit; made properly, it
+reddens the new rolled-matrix test at once. Recorded because a sabotage that exercises no path is
+indistinguishable from a test that cannot fail, and only one of those needs fixing.
