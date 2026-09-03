@@ -170,3 +170,6 @@
 - [A tick-encoded value expires](a-tick-encoded-value-expires.md) — convert at receipt against the SERVER's tick; bimodal-at-the-clamp is a wrong base.
 - [One keyframe bundles what the engine keeps apart](one-keyframe-bundles-what-the-engine-keeps-apart.md) — key by arrival, carry the applied time alongside.
 - [Never edit a running script](never-edit-a-running-script.md) — bash reads by byte offset; the gate ran 2 of 12 and exited 0.
+- [The player send table excludes the animation](the-player-send-table-excludes-the-animation.md) — sequence, cycle, layers, pose params and rate are all stripped; the client rebuilds them.
+- [Gestures arrive as temp entities](gestures-arrive-as-temp-entities.md) — 40,288 in one demo, and a POV lacks the recorder's own.
+- [A player is client-side animated](a-player-is-client-side-animated.md) — one gate, and every prop built from scratch can drop it.
