@@ -301,7 +301,89 @@ public sealed class BoneFlagProbe : IProbe
         output.WriteLine(
             string.Create(
                 CultureInfo.InvariantCulture,
-                $"IK work: {chainedOn} chains reached the pose, {ruled} rules read, " +
+                $"IK work: {chainedOn} chains reached the pose, {ruled} SELF rules read, " +
                 $"{weighed} weighed"));
+
+        // **A tick scan, because one tick cannot answer the question that is left** (B296). The
+        // solving rules live on the aim-matrix idles, and whether a player is in one at a given
+        // moment is a fact about that moment. Loading the map dominates the cost, so the scan walks
+        // ticks inside one load rather than being a shell loop over the whole probe.
+        Scan(output, timeline, game, assets, mapName);
+    }
+
+    /// <summary>How many ticks the scan samples across the demo.</summary>
+    private const int Samples = 24;
+
+    /// <summary>Walks the demo looking for a tick where an IK rule actually solves.</summary>
+    /// <remarks>
+    /// **The verification a single tick cannot give.** Every piece of the IK path is tested in
+    /// isolation and the wiring demonstrably reads real rules — but the rules that DO work sit on
+    /// the aim-matrix idles, and whether any player is in one is a property of the moment sampled.
+    /// A zero from one tick is a fact about that tick.
+    ///
+    /// **It reports the first tick that solves and then stops**, because the question is whether
+    /// production ever reaches the solver, not how often.
+    /// </remarks>
+    private static void Scan(
+        TextWriter output,
+        DemoTimeline timeline,
+        GameContent game,
+        MapAssets assets,
+        string mapName)
+    {
+        int span = timeline.LastTick - timeline.FirstTick;
+
+        if (span <= 0)
+        {
+            return;
+        }
+
+        int step = Math.Max(1, span / Samples);
+        int ruledAnywhere = 0;
+
+        for (int sample = 0; sample < Samples; sample++)
+        {
+            int at = timeline.FirstTick + (sample * step);
+
+            List<SceneProp> props = [];
+            timeline.PropsAt(at, props);
+
+            List<ScenePlayer> players = [];
+            timeline.PlayersAt(at, players);
+
+            PlayerProps.Add(
+                players, props, new GameAppearance(game.Classes, null), (_, _, body) => body);
+
+            new WeaponPropModels().Resolve(props, players, game.Weapons.For);
+
+            EntityModelSet models = new() { Geometry = assets.Geometry };
+
+            models.Add(props, assets.Geometry);
+
+            List<ModelInstance> instances = [];
+            models.Instances(props, instances, seconds: at * timeline.IntervalPerTick);
+
+            (int _, int ruled, int weighed) = models.IkWork;
+
+            ruledAnywhere += ruled;
+
+            if (models.SolvedIkChains > 0)
+            {
+                output.WriteLine(
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"IK SOLVED at tick {at}: {models.SolvedIkChains} chains, " +
+                        $"{ruled} SELF rules, {weighed} weighed, {players.Count} players"));
+
+                return;
+            }
+        }
+
+        output.WriteLine(
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"IK scan: no chain solved across {Samples} ticks of {mapName} from " +
+                $"{timeline.FirstTick} to {timeline.LastTick}; " +
+                $"{ruledAnywhere} SELF rules were read in total"));
     }
 }

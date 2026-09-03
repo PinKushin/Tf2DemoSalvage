@@ -19295,3 +19295,47 @@ That a `SELF` rule solves in production. Every piece is tested in isolation and 
 and demonstrably reading real rules, but no tick has yet been found where a solving rule is the one
 playing. **That is the remaining verification, and it is a measurement rather than an
 implementation** — the next step is a tick scan for a player in an aim-matrix idle, not more code.
+
+### B296: the scan settles it — IK is built and wired, and no solving rule ever plays
+
+A 24-tick scan across the whole of `koth_harvest_final`, inside one map load:
+
+```
+IK scan: no chain solved across 24 ticks from 6 to 57549; 0 SELF rules were read in total
+```
+
+**Zero across the entire demo, not zero at one tick.** So this is not a sampling accident, and the
+IK path is not at fault: 86 rules are read per tick from real animations, every one of them
+`IK_RELEASE`.
+
+**Where the solving rules are, versus where we read:**
+
+| model | animations | rules | types |
+|---|---|---|---|
+| `scout.mdl` (the body) | 2 | 8 | **all RELEASE** |
+| `scout_animations.mdl` (included) | 1012 | 2035 | 206 SELF, 1829 RELEASE |
+
+The 206 `SELF` rules sit on `a_PRIMARY_aimmatrix_idle_down_right`, `_mid_center` and their
+neighbours — the aim-matrix blend cells a player's upper body uses, driven by `body_pitch` and
+`body_yaw`, holding chain 1 (the off hand) onto bone 23 (the weapon).
+
+**So the remaining question is which animation a player's sequence resolves to**, and that belongs
+to the player animation state machine rather than to IK. `PlayerAnimation` picks a main sequence by
+activity — `ACT_MP_STAND_PRIMARY`, `ACT_MP_RUN_PRIMARY` — and whatever those resolve to carries only
+releases. Either TF2 would release there too, in which case this is correct and TF2's off-hand IK
+fires only in states this corpus does not reach, or our resolution differs from
+`CTFPlayerAnimState`'s. **That is a divergence hunt in a different subsystem, and the honest thing is
+that it has not been done.**
+
+**What IS established**: the reader, the weight function, the error decode, the two-bone solver and
+the context are each tested and sabotage-verified; the path is wired into the pose build; and it
+demonstrably reads real rules from real animations every frame. What is not established is that a
+solve has ever fired in production.
+
+### The instrument earned its keep twice here
+
+The probe first reported **zero IK chains** on a demo full of players, because it walked entity props
+and a player becomes one only through `PlayerProps.Add` — the same denominator fault as B290's
+weapon scan, and the second time in this session. And the three-number breakdown (chains reached,
+SELF rules read, rules weighed) is what separated "the wiring is broken" from "nothing playing asks",
+which a single count could not.
