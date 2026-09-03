@@ -309,26 +309,46 @@ public sealed class BoneFlagProbe : IProbe
                 $"{weighed} weighed"));
 
         // **How far a skeleton's bones sit from its own root.** A TF2 player stands about 83 units
-        // tall, so every bone is within roughly a hundred of the root — and a pose that has come
-        // apart says so in one number, without a screenshot and without the desktop. Reported
-        // because the owner saw players inverted with their limbs thrown into the sky, which is
-        // what a delta composed as an absolute pose looks like.
+        // tall and a hat is a few units across, so a pose that has come apart says so in one
+        // number, without a screenshot and without the desktop.
+        //
+        // **Through the bind position, like the census below it** — `ModelInstance.Bones` holds
+        // SKINNING matrices, `Concatenate(boneToWorld, poseToBone)`, whose translation column is
+        // not where the bone is. The first version of this read that column and named two
+        // cosmetics as bursting by sixteen hundred units, which was a fact about the arithmetic
+        // (B298).
         List<string> burst = [];
         int nonFinite = 0;
 
         foreach (ModelInstance instance in instances)
         {
-            if (instance.Bones is not { Count: > 0 } skeleton)
+            if (assets.Geometry(instance.ModelPath)?.Skinned is not { } worn ||
+                instance.Bones is not { Count: > 0 } skeleton)
             {
                 continue;
             }
 
-            Vector3 root = new(skeleton[0][3], skeleton[0][7], skeleton[0][11]);
+            Vector3 root = Apply(skeleton[0], BindPosition(worn.Bones[0]));
             float furthest = 0f;
+            int strayed = -1;
 
-            foreach (float[] matrix in skeleton)
+            for (int bone = 0; bone < skeleton.Count && bone < worn.Bones.Count; bone++)
             {
-                Vector3 at = new(matrix[3], matrix[7], matrix[11]);
+                // **A bone outside every mask is one the engine never builds and no vertex skins
+                // to, so it cannot reach the picture.** `BuildTransformations` opens with
+                // `if ( !(hdr->boneFlags( i ) & boneMask) ) continue;` — and studiomdl sets those
+                // bits from USE: a bone with none is vestigial, usually an artist's leftover.
+                //
+                // Counting them made this census report `sum19_bottle_cap.mdl` bursting by 1703
+                // units at `bonkhat.001`, a flags-0x0 root left in the model, sitting at the map
+                // origin exactly as it does in TF2. A denominator that includes what is never drawn
+                // finds defects that are not there.
+                if (worn.Bones[bone].Flags == 0)
+                {
+                    continue;
+                }
+
+                Vector3 at = Apply(skeleton[bone], BindPosition(worn.Bones[bone]));
 
                 if (!float.IsFinite(at.X) || !float.IsFinite(at.Y) || !float.IsFinite(at.Z))
                 {
@@ -336,15 +356,36 @@ public sealed class BoneFlagProbe : IProbe
                     continue;
                 }
 
-                furthest = MathF.Max(furthest, (at - root).Length());
+                float reach = (at - root).Length();
+
+                if (reach > furthest)
+                {
+                    furthest = reach;
+                    strayed = bone;
+                }
             }
 
             if (furthest > 200f)
             {
+                // **Named, because "a model came apart" and "one bone of it did" are different
+                // defects.** A bone-merged cosmetic takes the wearer's bones BY NAME, and one the
+                // wearer does not have is built from the cosmetic's own placement instead — so a
+                // single stray bone with a name nobody matched is the signature of a merge miss
+                // rather than of a bad pose.
                 burst.Add(
                     string.Create(
                         CultureInfo.InvariantCulture,
-                        $"{Path.GetFileName(instance.ModelPath)} {furthest:F0}"));
+                        $"{Path.GetFileName(instance.ModelPath)} {furthest:F0} at bone {strayed} " +
+                        $"'{(strayed >= 0 ? worn.Bones[strayed].Name : "?")}' " +
+                        $"of {worn.Bones.Count} " +
+                        $"proctype {(strayed >= 0 ? worn.Bones[strayed].ProcedureType : -1)} " +
+                        $"flags 0x{(strayed >= 0 ? worn.Bones[strayed].Flags : 0):X} " +
+                        $"matrix [{string.Join(" ", skeleton[strayed])}] " +
+                        $"parent {(strayed >= 0 ? worn.Bones[strayed].Parent : -1)} " +
+                        $"at ({Stray(skeleton, worn, strayed).X:F0}," +
+                        $"{Stray(skeleton, worn, strayed).Y:F0}," +
+                        $"{Stray(skeleton, worn, strayed).Z:F0}) " +
+                        $"root at ({root.X:F0},{root.Y:F0},{root.Z:F0})"));
             }
         }
 
@@ -706,6 +747,13 @@ public sealed class BoneFlagProbe : IProbe
                 $"{timeline.FirstTick} to {timeline.LastTick}; " +
                 $"{ruledAnywhere} SELF rules were read in total"));
     }
+
+    /// <summary>Where one bone of a posed instance ended up, in world space.</summary>
+    private static Vector3 Stray(
+        IReadOnlyList<float[]> skeleton, PropModels.SkinnedModel model, int bone) =>
+        bone < 0 || bone >= skeleton.Count || bone >= model.Bones.Count
+            ? default
+            : Apply(skeleton[bone], BindPosition(model.Bones[bone]));
 
     /// <summary>Where a bone sits in the model's bind pose.</summary>
     /// <remarks>
