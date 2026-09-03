@@ -102,6 +102,41 @@ public static class StudioAnimation
             : Math.Max(0, BinaryPrimitives.ReadInt32LittleEndian(bytes[(at + AnimationFrameCountOffset)..]));
     }
 
+    /// <summary>An animation's own name, such as <c>a_runN_PRIMARY</c>.</summary>
+    /// <param name="file">The <c>.mdl</c>'s bytes.</param>
+    /// <param name="animation">Which animation, by index within this file.</param>
+    /// <returns>Its name, or empty.</returns>
+    /// <remarks>
+    /// **For telling one kind of nothing from another.** A census reporting that no animation
+    /// playing asks for IK is either honest — the rules sit on poses nobody is in — or a sequence
+    /// that resolved to the wrong animation, and the two are indistinguishable from counts alone.
+    /// The name is what separates `a_runN` from a taunt pose.
+    ///
+    /// <c>sznameindex</c> is four bytes in, relative to the animation description as every index in
+    /// this format is.
+    /// </remarks>
+    public static string Name(ReadOnlyMemory<byte> file, int animation)
+    {
+        ReadOnlySpan<byte> bytes = file.Span;
+
+        if (animation < 0 || animation >= Count(file))
+        {
+            return string.Empty;
+        }
+
+        int at = BinaryPrimitives.ReadInt32LittleEndian(bytes[HeaderAnimationIndexOffset..]) +
+            (animation * AnimationStride);
+
+        if (at < 0 || at + AnimationStride > bytes.Length)
+        {
+            return string.Empty;
+        }
+
+        int name = BinaryPrimitives.ReadInt32LittleEndian(bytes[(at + 4)..]);
+
+        return StudioStrings.At(bytes, at + name);
+    }
+
     /// <summary>How many IK rules an animation carries — <c>numikrules</c>.</summary>
     /// <param name="file">The <c>.mdl</c>'s bytes.</param>
     /// <param name="animation">Which animation, by index within this file.</param>

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Numerics;
 
 using Tf2DemoSalvage.Content.Bsp;
 using Microsoft.Extensions.Logging;
@@ -675,6 +676,14 @@ public sealed class EntityModelSet
             // The same index-space rule the bone controllers follow.
             posed.JiggleSource = skinned.Models.Count > 0 ? skinned.Models[0] : null;
 
+            // **The IK rules, resolved here because the BLEND WEIGHTS live here** (B296). A rule's
+            // influence is accumulated across the same up-to-three animations the sequence blends,
+            // and only this side knows which they are; the skeleton is handed the answer rather
+            // than the means to recompute it.
+            posed.IkChains = skinned.IkChains;
+
+            (posed.IkRules, posed.IkErrors) = IkFor(skinned, sequence, phase, poseValues);
+
             // **The placement, which is what makes the built bones WORLD space.** A merged item
             // takes its wearer's bones and those already carry the wearer's placement, so nothing
             // downstream has to know where a wearer stands — see D88 and finding 35 section 7a.
@@ -1083,6 +1092,199 @@ public sealed class EntityModelSet
     /// one level — and a chain longer than that is a corrupt model rather than an animator's intent.
     /// </remarks>
     private const int LayerDepth = 4;
+
+    /// <summary>Where each of a sequence's IK rules wants its chain, at this cycle.</summary>
+    /// <param name="skinned">The model.</param>
+    /// <param name="sequence">The merged sequence being played.</param>
+    /// <param name="cycle">Where its cycle stands, wrapped.</param>
+    /// <param name="values">The pose parameters in force, which choose the blend corners.</param>
+    /// <returns>The rules, and each one's decoded target and weight.</returns>
+    /// <remarks>
+    /// **<c>Studio_IKSequenceError</c> then <c>Studio_IKAnimationError</c>**
+    /// (<c>bone_setup.cpp:3043</c> and <c>:2994</c>), which between them do two accumulations across
+    /// the same up-to-four animations the sequence blends.
+    ///
+    /// **The ENVELOPE is accumulated first, weighted**, because the four animations may not agree
+    /// about when the rule runs:
+    ///
+    /// <code>
+    ///   ikRule.start += (pRule->start + dt) * weight[i];   // and peak, tail, end
+    ///   if (ikRule.start > 1.0) { ikRule.start -= 1.0; … }
+    /// </code>
+    ///
+    /// **The <c>dt</c> is the part that would be missed.** When one animation's rule starts near
+    /// zero and another's near one, they are the same footstep either side of a loop — so Valve
+    /// shifts a rule more than half a cycle from the first by a whole cycle before averaging, which
+    /// is what stops the mean landing in the middle of the animation instead of at its edge.
+    ///
+    /// **Then the ERROR is accumulated, weighted, over the same animations**, each read at the
+    /// frame the shared envelope picks.
+    ///
+    /// **Only the rules of the FIRST animation are enumerated**, which is Valve's own constraint:
+    /// `if (iRule >= panim[i]->numikrules || panim[i]->numikrules != panim[0]->numikrules) return
+    /// false;`. Blended animations are expected to declare matching rule lists, and one that does
+    /// not is abandoned rather than reconciled.
+    /// </remarks>
+    private static (
+        IReadOnlyList<StudioIkRule> Rules,
+        IReadOnlyList<(int Rule, Vector3 Position, Quaternion Rotation, float Weight)> Errors)
+        IkFor(
+            PropModels.SkinnedModel skinned,
+            int sequence,
+            float cycle,
+            IReadOnlyList<float> values)
+    {
+        if (skinned.IkChains.Count == 0)
+        {
+            return ([], []);
+        }
+
+        (int group, IReadOnlyList<(int Animation, float Weight)> blend) =
+            skinned.BlendedAnimations(sequence, values);
+
+        if (blend.Count == 0 || group >= skinned.Models.Count)
+        {
+            return ([], []);
+        }
+
+        ReadOnlyMemory<byte> model = skinned.Models[group];
+
+        IReadOnlyList<StudioIkRule> rules = StudioIkRules.Read(model, blend[0].Animation);
+
+        if (rules.Count == 0)
+        {
+            return ([], []);
+        }
+
+        List<(int, Vector3, Quaternion, float)> errors = [];
+
+        for (int rule = 0; rule < rules.Count; rule++)
+        {
+            // The envelope, averaged across the corners, with Valve's loop-shift.
+            float start = 0f;
+            float peak = 0f;
+            float tail = 0f;
+            float end = 0f;
+            float first = float.NaN;
+            bool matched = true;
+
+            foreach ((int animation, float weight) in blend)
+            {
+                IReadOnlyList<StudioIkRule> theirs = StudioIkRules.Read(model, animation);
+
+                if (rule >= theirs.Count || theirs.Count != rules.Count)
+                {
+                    matched = false;
+                    break;
+                }
+
+                StudioIkRule other = theirs[rule];
+
+                float shift = 0f;
+
+                if (!float.IsNaN(first))
+                {
+                    if (other.Start - first > 0.5f)
+                    {
+                        shift = -1f;
+                    }
+                    else if (other.Start - first < -0.5f)
+                    {
+                        shift = 1f;
+                    }
+                }
+                else
+                {
+                    first = other.Start;
+                }
+
+                start += (other.Start + shift) * weight;
+                peak += (other.Peak + shift) * weight;
+                tail += (other.Tail + shift) * weight;
+                end += (other.End + shift) * weight;
+            }
+
+            if (!matched)
+            {
+                continue;
+            }
+
+            if (start > 1f)
+            {
+                start -= 1f;
+                peak -= 1f;
+                tail -= 1f;
+                end -= 1f;
+            }
+            else if (start < 0f)
+            {
+                start += 1f;
+                peak += 1f;
+                tail += 1f;
+                end += 1f;
+            }
+
+            StudioIkRule shared = rules[rule] with
+            {
+                Start = start, Peak = peak, Tail = tail, End = end,
+            };
+
+            // The error, accumulated over the same corners at the frame the shared envelope picks.
+            Vector3 position = default;
+            Quaternion rotation = default;
+            float total = 0f;
+
+            foreach ((int animation, float weight) in blend)
+            {
+                float influence = StudioIkRules.Weight(
+                    shared,
+                    skinned.FramesOfAnimation(group, animation),
+                    cycle,
+                    out int frame,
+                    out float fraction);
+
+                // `if (pRule->type != IK_GROUND && flWeight < 0.0001) return false;` — a rule with
+                // no influence is skipped, except a ground rule, which has to keep tracking where
+                // its foot was planted. TF2 declares no ground rules at all.
+                if (influence < 0.0001f)
+                {
+                    continue;
+                }
+
+                if (!StudioIkRules.Error(
+                    model,
+                    animation,
+                    rule,
+                    frame,
+                    fraction,
+                    out (float X, float Y, float Z) at,
+                    out (float X, float Y, float Z, float W) turn))
+                {
+                    continue;
+                }
+
+                position += new Vector3(at.X, at.Y, at.Z) * weight;
+
+                // `QuaternionAccumulate( ikRule.q, weight[i], q1, ikRule.q )` — an aligned add
+                // rather than a slerp, which is what lets several corners sum.
+                rotation += new Quaternion(turn.X, turn.Y, turn.Z, turn.W) *
+                    (Quaternion.Dot(rotation, new Quaternion(turn.X, turn.Y, turn.Z, turn.W)) < 0f
+                        ? -weight
+                        : weight);
+
+                total += weight * influence;
+            }
+
+            if (total <= 0f || rotation.LengthSquared() <= 0f)
+            {
+                continue;
+            }
+
+            errors.Add((rule, position, Quaternion.Normalize(rotation), Math.Clamp(total, 0f, 1f)));
+        }
+
+        return (rules, errors);
+    }
 
     /// <summary>The sequences one sequence automatically layers over itself.</summary>
     /// <param name="skinned">The model.</param>
@@ -1575,6 +1777,72 @@ public sealed class EntityModelSet
             }
 
             return simulated;
+        }
+    }
+
+    /// <summary>How many IK chains the last pose pass actually solved, across every entity.</summary>
+    /// <remarks>
+    /// **The only thing that can say IK is WIRED** (B296). The solver, the rule reader, the error
+    /// decode and the context each have their own tests, and all of them passing says nothing about
+    /// whether the pose path reaches them — the shape that has shipped three no-ops here with a
+    /// green suite. This counts chains that actually reached the solver.
+    /// </remarks>
+    public int SolvedIkChains
+    {
+        get
+        {
+            int solved = 0;
+
+            foreach (AnimatingEntity animating in _entities.Values)
+            {
+                if (animating.Pose is SkeletonPose posed)
+                {
+                    solved += posed.SolvedChains;
+                }
+            }
+
+            return solved;
+        }
+    }
+
+    /// <summary>What the IK pass was handed, for telling apart the ways it can do nothing.</summary>
+    /// <remarks>
+    /// **Three numbers because "nothing solved" has three causes** and they need different fixes: no
+    /// entity carries chains, or chains but no rules were read, or rules but none weighed anything.
+    /// A single count cannot distinguish them, and this project has twice spent a measurement on
+    /// the wrong one of a pair.
+    /// </remarks>
+    public (int Chained, int Ruled, int Weighed) IkWork
+    {
+        get
+        {
+            int chained = 0;
+            int ruled = 0;
+            int weighed = 0;
+
+            foreach (AnimatingEntity animating in _entities.Values)
+            {
+                if (animating.Pose is not SkeletonPose posed)
+                {
+                    continue;
+                }
+
+                chained += posed.IkChains.Count;
+                weighed += posed.IkErrors.Count;
+
+                // **Counting the rules that CAN do work, not all of them.** Ninety per cent of
+                // TF2's rules are releases with no error track, so a total that includes them
+                // cannot tell "the read failed" from "nothing playing asks for a solve".
+                foreach (StudioIkRule rule in posed.IkRules)
+                {
+                    if (rule.Type == StudioIkRuleType.Self)
+                    {
+                        ruled++;
+                    }
+                }
+            }
+
+            return (chained, ruled, weighed);
         }
     }
 

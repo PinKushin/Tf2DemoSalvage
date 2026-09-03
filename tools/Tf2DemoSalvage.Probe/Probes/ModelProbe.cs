@@ -183,8 +183,14 @@ public sealed class ModelProbe : IProbe
 
                 shown++;
 
+                // **The animation's NAME, because "zero SELF rules are playing" needs to be told
+                // apart from "the sequence resolved to the wrong animation".** If the rules that do
+                // work sit on poses nobody plays, zero is honest; if they sit on `a_runN`, it is a
+                // resolution fault. The name is the only thing that distinguishes them.
+                string named = StudioAnimation.Name(bytes, animation);
+
                 output.WriteLine(
-                    $"      rule anim {animation.ToString(CultureInfo.InvariantCulture)} "
+                    $"      rule '{named}' anim {animation.ToString(CultureInfo.InvariantCulture)} "
                     + $"type {rule.Type.ToString(CultureInfo.InvariantCulture)} "
                     + $"chain {rule.Chain.ToString(CultureInfo.InvariantCulture)} "
                     + $"bone {rule.Bone.ToString(CultureInfo.InvariantCulture)} "

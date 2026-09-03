@@ -19239,3 +19239,59 @@ context. That is the last piece, and it is the one that needs the four-way anima
 is where `Studio_IKSequenceError` earns its length.
 
 Until then this is a solver, a reader and a context that are each tested and reach no skeleton.
+
+### B296 progress: IK is WIRED, and reads rules from real players
+
+`IkContext` now has a production caller. `EntityModels.IkFor` reproduces `Studio_IKSequenceError`
+then `Studio_IKAnimationError`: the envelope is accumulated across the same up-to-three animations
+the sequence blends, weighted, with Valve's loop-shift — a rule more than half a cycle from the
+first is shifted by a whole cycle before averaging, which is what stops two halves of one footstep
+averaging to the middle of the animation. Then the error is accumulated over the same corners at the
+frame that shared envelope picks.
+
+**`SkeletonPose` runs it after the bones are built, which is where `SetupBones` runs it**, and then
+re-concatenates the descendants of any bone a chain moved. Valve avoids that with `BuildBoneChain`
+on demand; here the bones are already ordered parents-before-children, so one pass from the lowest
+solved bone is enough and is cheaper. Without it a solved hand would drag its fingers behind it.
+
+#### Measured on real demos, and the answer is a diagnostic rather than a number
+
+The `bone-flags` probe now poses PLAYERS as well as props — it did not, and reported zero IK chains
+on a demo full of them, which is the same denominator fault as the weapon scan and is now fixed in
+the instrument as well as recorded.
+
+```
+IK 8 of 70 models declare chains, 33 chains total   demo.mdl:4, engineer.mdl:4, heavy.mdl:4, medic.mdl:5
+IK work: 86 chains reached the pose, 0 SELF rules read, 0 weighed
+```
+
+**Three numbers, because "nothing solved" has three causes and they need different fixes**: no
+entity carries chains, or chains but no rules, or rules but none that weigh. Here the chains reach
+the pose and 86 rules are read from real animations — so the reader and the wiring work — and every
+one of them is `IK_RELEASE`.
+
+#### Where the solving rules actually live
+
+Named, because "no SELF rule is playing" had to be told apart from "the sequence resolved to the
+wrong animation":
+
+```
+rule 'a_PRIMARY_aimmatrix_idle_down_right'  anim 26 type 1 chain 1 bone 23
+rule 'a_PRIMARY_aimmatrix_idle_mid_center'  anim 30 type 1 chain 1 bone 23
+```
+
+**They are the AIM MATRIX cells** — the blend grid a player's upper body uses, driven by
+`body_pitch` and `body_yaw` — holding chain 1, the off hand, onto bone 23, the weapon. Those are
+common animations, not rare poses.
+
+**So the open question is not IK any more, it is which sequence a player is put in.** The IK path
+reads rules from whatever the playing sequence blends; at the sampled ticks that sequence carries
+only releases. Whether TF2 would have the same sequence in play is a question about the player
+animation state machine, which is a different subsystem from this one.
+
+### Still not established
+
+That a `SELF` rule solves in production. Every piece is tested in isolation and the path is wired
+and demonstrably reading real rules, but no tick has yet been found where a solving rule is the one
+playing. **That is the remaining verification, and it is a measurement rather than an
+implementation** — the next step is a tick scan for a player in an aim-matrix idle, not more code.

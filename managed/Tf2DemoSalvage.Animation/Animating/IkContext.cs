@@ -67,8 +67,7 @@ public sealed class IkContext
     /// <param name="errors">Where each rule wants its chain, already decoded and weighted.</param>
     /// <param name="bones">The skeleton, in world space, rewritten in place.</param>
     /// <param name="parents">Each bone's parent, for rebuilding the chain afterwards.</param>
-    /// <param name="local">Local positions, rewritten for the bones that moved.</param>
-    /// <param name="rotations">Local rotations, rewritten for the bones that moved.</param>
+    /// <param name="local">Each bone's local matrix, rewritten for the three that moved.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **<c>CIKContext::SolveDependencies</c>, <c>bone_setup.cpp:4046</c>**, reduced to the one
@@ -98,8 +97,7 @@ public sealed class IkContext
         IReadOnlyList<(int Rule, Vector3 Position, Quaternion Rotation, float Weight)> errors,
         BoneAccessor bones,
         IReadOnlyList<int> parents,
-        Vector3[] local,
-        Quaternion[] rotations)
+        IReadOnlyList<float[]> local)
     {
         ArgumentNullException.ThrowIfNull(chains);
         ArgumentNullException.ThrowIfNull(rules);
@@ -107,7 +105,6 @@ public sealed class IkContext
         ArgumentNullException.ThrowIfNull(bones);
         ArgumentNullException.ThrowIfNull(parents);
         ArgumentNullException.ThrowIfNull(local);
-        ArgumentNullException.ThrowIfNull(rotations);
 
         Solved = 0;
 
@@ -190,7 +187,7 @@ public sealed class IkContext
                 continue;
             }
 
-            if (Reach(chains[chain], _results[chain], bones, parents, local, rotations))
+            if (Reach(chains[chain], _results[chain], bones, parents, local))
             {
                 Solved++;
             }
@@ -210,8 +207,7 @@ public sealed class IkContext
         IkChainResult result,
         BoneAccessor bones,
         IReadOnlyList<int> parents,
-        Vector3[] local,
-        Quaternion[] rotations)
+        IReadOnlyList<float[]> local)
     {
         int thigh = chain.Links[0].Bone;
         int knee = chain.Links[1].Bone;
@@ -235,9 +231,9 @@ public sealed class IkContext
 
         Compose(result.Rotation, reached, bones.BoneForWrite(foot));
 
-        Rebuild(foot, bones, parents, local, rotations);
-        Rebuild(knee, bones, parents, local, rotations);
-        Rebuild(thigh, bones, parents, local, rotations);
+        Rebuild(foot, bones, parents, local);
+        Rebuild(knee, bones, parents, local);
+        Rebuild(thigh, bones, parents, local);
 
         return true;
     }
@@ -346,23 +342,19 @@ public sealed class IkContext
         int bone,
         BoneAccessor bones,
         IReadOnlyList<int> parents,
-        Vector3[] local,
-        Quaternion[] rotations)
+        IReadOnlyList<float[]> local)
     {
         int parent = parents[bone];
 
-        if (parent < 0 || parent >= parents.Count || bone >= local.Length)
+        if (parent < 0 || parent >= parents.Count || bone >= local.Count)
         {
             return;
         }
 
         Span<float> inverted = stackalloc float[12];
-        Span<float> relative = stackalloc float[12];
 
         StudioBones.Invert(bones.Bone(parent), inverted);
-        StudioBones.Concatenate(inverted, bones.Bone(bone), relative);
-
-        (rotations[bone], local[bone]) = Decompose(relative);
+        StudioBones.Concatenate(inverted, bones.Bone(bone), local[bone]);
     }
 
     /// <summary>The position a bone matrix carries.</summary>

@@ -127,8 +127,9 @@ public sealed class IkContextConformanceTests
         /// <summary>Bone parents: root, then each hanging off the last.</summary>
         private readonly int[] _parents = [-1, 0, 1];
 
-        private readonly Vector3[] _local = new Vector3[3];
-        private readonly Quaternion[] _rotations = [Quaternion.Identity, Quaternion.Identity, Quaternion.Identity];
+        /// <summary>Each bone's local matrix, which the solve rebuilds for the three it moves.</summary>
+        private readonly float[][] _local = [new float[12], new float[12], new float[12]];
+
         private readonly IkContext _context = new();
         private readonly BoneAccessor _bones = new(3);
 
@@ -158,7 +159,14 @@ public sealed class IkContextConformanceTests
                 matrix[7] = at[bone].Y;
                 matrix[11] = at[bone].Z;
 
-                _local[bone] = bone == 0 ? at[0] : at[bone] - at[bone - 1];
+                Vector3 relative = bone == 0 ? at[0] : at[bone] - at[bone - 1];
+
+                _local[bone][0] = 1f;
+                _local[bone][5] = 1f;
+                _local[bone][10] = 1f;
+                _local[bone][3] = relative.X;
+                _local[bone][7] = relative.Y;
+                _local[bone][11] = relative.Z;
             }
         }
 
@@ -169,7 +177,8 @@ public sealed class IkContextConformanceTests
         public Vector3 Foot() => new(_bones.Bone(2)[3], _bones.Bone(2)[7], _bones.Bone(2)[11]);
 
         /// <summary>One bone's local position, which the rebuild must update.</summary>
-        public Vector3 LocalOf(int bone) => _local[bone];
+        public Vector3 LocalOf(int bone) =>
+            new(_local[bone][3], _local[bone][7], _local[bone][11]);
 
         /// <summary>Runs one rule against the chain.</summary>
         public void Solve(Vector3 target, float weight, int type = StudioIkRuleType.Self)
@@ -214,8 +223,7 @@ public sealed class IkContextConformanceTests
                 [(0, target, Quaternion.Identity, weight)],
                 _bones,
                 _parents,
-                _local,
-                _rotations);
+                _local);
         }
     }
 }

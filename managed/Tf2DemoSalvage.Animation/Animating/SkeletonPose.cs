@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Numerics;
 
 using Microsoft.Extensions.Logging;
 
@@ -423,7 +425,128 @@ public sealed class SkeletonPose : IBonePose
 
             alreadyWritten.Mark(bone);
         }
+
+        ReachWithIk(boneMask, into, alreadyWritten);
     }
+
+    /// <summary>Pulls each chain's end to where its rules ask — <c>CIKContext::SolveDependencies</c>.</summary>
+    /// <remarks>
+    /// **After the bones are built, which is where <c>SetupBones</c> runs it.** IK reads WORLD
+    /// matrices — a chain's end has to be somewhere before it can be moved somewhere else — so it
+    /// cannot happen inside the per-bone loop.
+    ///
+    /// **Only <c>IK_SELF</c> reaches the solver, and that is measured rather than assumed** (B296).
+    /// Of the scout's 2035 rules, 1829 are <c>IK_RELEASE</c> and solve nothing, 206 are
+    /// <c>IK_SELF</c>, and TF2 declares none of the other four types anywhere.
+    ///
+    /// **The descendants have to be rebuilt afterwards.** Moving a chain's three bones leaves
+    /// everything hanging off them concatenated onto where they used to be — a hand solved onto a
+    /// weapon would drag its fingers behind it. Valve avoids this by rebuilding chains on demand
+    /// through <c>BuildBoneChain</c>; here the bones are already ordered parents-before-children,
+    /// so one more pass from the lowest bone that moved is enough and is cheaper.
+    /// </remarks>
+    private void ReachWithIk(int boneMask, BoneAccessor into, BoneBitList alreadyWritten)
+    {
+        if (IkChains.Count == 0 || IkErrors.Count == 0)
+        {
+            return;
+        }
+
+        _ik ??= new IkContext();
+
+        // The parent list, built once and only for a model that actually has chains — which is
+        // players and nothing else.
+        _parents ??= [.. _bones.Select(bone => bone.Parent)];
+
+        _ik.Solve(IkChains, IkRules, IkErrors, into, _parents, _local);
+
+        if (_ik.Solved == 0)
+        {
+            return;
+        }
+
+        // The lowest bone any solved chain touched: everything below it is still correct, and
+        // everything above it may be hanging off a bone that moved.
+        int from = int.MaxValue;
+
+        foreach (StudioIkChain chain in IkChains)
+        {
+            foreach (StudioIkLink link in chain.Links)
+            {
+                if (link.Bone >= 0 && link.Bone < from)
+                {
+                    from = link.Bone;
+                }
+            }
+        }
+
+        for (int bone = from + 1; bone < _bones.Count; bone++)
+        {
+            int parent = _bones[bone].Parent;
+
+            // **Only a bone whose PARENT was rebuilt, and only where both were built this pass.**
+            // A bone the mask skipped has no matrix to concatenate onto, and re-running one that
+            // the chain itself just solved would undo the solve.
+            if (parent < 0 ||
+                parent >= bone ||
+                !alreadyWritten.IsMarked(bone) ||
+                !alreadyWritten.IsMarked(parent) ||
+                (_bones[bone].Flags & boneMask) == 0 ||
+                IsChainBone(bone))
+            {
+                continue;
+            }
+
+            StudioBones.Concatenate(into.Bone(parent), _local[bone], into.BoneForWrite(bone));
+        }
+    }
+
+    /// <summary>Whether a bone is one of the three a chain owns.</summary>
+    private bool IsChainBone(int bone)
+    {
+        foreach (StudioIkChain chain in IkChains)
+        {
+            foreach (StudioIkLink link in chain.Links)
+            {
+                if (link.Bone == bone)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>The model's IK chains, or empty when it declares none.</summary>
+    /// <remarks>
+    /// **The ROOT model's**, like the bone controllers and the jiggle parameters: the chains index
+    /// the skeleton being posed. Every TF2 player model declares four — <c>rhand</c>, <c>lhand</c>,
+    /// <c>rfoot</c>, <c>lfoot</c>, three links each — and a prop declares none.
+    /// </remarks>
+    public IReadOnlyList<StudioIkChain> IkChains { get; set; } = [];
+
+    /// <summary>The rules the playing animation declares.</summary>
+    public IReadOnlyList<StudioIkRule> IkRules { get; set; } = [];
+
+    /// <summary>Each rule's decoded target and weight at this cycle.</summary>
+    /// <remarks>
+    /// **Computed on the scene side because the blend weights live there.** A rule's influence is
+    /// accumulated across the same four animations the sequence blends, so the caller that knows
+    /// which four they are and how much each counts is the one that can weigh a rule — carrying the
+    /// answer here rather than recomputing it from the model (B243).
+    /// </remarks>
+    public IReadOnlyList<(int Rule, Vector3 Position, Quaternion Rotation, float Weight)>
+        IkErrors { get; set; } = [];
+
+    /// <summary>How many chains the last build actually solved.</summary>
+    public int SolvedChains => _ik?.Solved ?? 0;
+
+    /// <summary>The IK state, created on the first entity that actually has a chain.</summary>
+    private IkContext? _ik;
+
+    /// <summary>Each bone's parent, built once for a model with chains.</summary>
+    private int[]? _parents;
 
     /// <summary>Accumulates every layer over the base pose, as <c>AccumulateLayers</c> does.</summary>
     /// <param name="basePose">What the main sequence produced.</param>

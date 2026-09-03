@@ -1400,6 +1400,9 @@ public static class PropModels
         /// <summary>The reverse of the merged sequence table, filled on demand.</summary>
         private readonly Dictionary<(int Group, int Local), int> _relativeSequences = [];
 
+        /// <summary>The root model's IK chains, read once — see <see cref="IkChains"/>.</summary>
+        private IReadOnlyList<StudioIkChain>? _ikChains;
+
         /// <summary>This model's bones mapped onto each group's, read once per group.</summary>
         private readonly Dictionary<int, int[]> _boneMaps = [];
 
@@ -1578,6 +1581,63 @@ public static class PropModels
                 PoseBetween(where.Group, animations[2], frame, fraction),
                 weights[2]);
         }
+
+        /// <summary>Which animations a sequence blends, and how much each counts.</summary>
+        /// <param name="sequence">The merged sequence number.</param>
+        /// <param name="poseValues">Every pose parameter, normalised.</param>
+        /// <returns>The group, and each animation with its weight; empty when the sequence has none.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="poseValues"/> is null.</exception>
+        /// <remarks>
+        /// **The same three corners <c>Locals</c> samples, exposed rather than recomputed**
+        /// (B243). An IK rule's influence is accumulated across exactly the animations the sequence
+        /// blends, weighted the same way — `Studio_IKSequenceError` takes `panim[4]` and `weight[4]`
+        /// straight from `Studio_SeqAnims`. Deriving the set a second time would be a second chance
+        /// to disagree about which animations are playing.
+        ///
+        /// **A plain sequence answers its one animation at full weight**, so the caller has one
+        /// shape to handle rather than two.
+        /// </remarks>
+        public (int Group, IReadOnlyList<(int Animation, float Weight)> Blend) BlendedAnimations(
+            int sequence, IReadOnlyList<float> poseValues)
+        {
+            ArgumentNullException.ThrowIfNull(poseValues);
+
+            if (Sequences.At(sequence) is not { } where ||
+                where.Group >= Models.Count ||
+                where.Local >= Groups[where.Group].Sequences.Count)
+            {
+                return (0, []);
+            }
+
+            StudioSequence chosen = Groups[where.Group].Sequences[where.Local];
+
+            if (chosen.Blend is not { Blends: true } grid || poseValues.Count == 0)
+            {
+                return (where.Group, [(chosen.Animation, 1f)]);
+            }
+
+            IReadOnlyList<int> map = where.Group >= 0 && where.Group < MasterPose.Count
+                ? MasterPose[where.Group]
+                : [];
+
+            (int x, float settingX) = grid.Locate(0, PoseParameters, poseValues, map);
+            (int y, float settingY) = grid.Locate(1, PoseParameters, poseValues, map);
+
+            (int[] animations, float[] weights) = grid.ThreeWay(x, y, settingX, settingY);
+
+            List<(int Animation, float Weight)> blended = [];
+
+            for (int corner = 0; corner < animations.Length && corner < weights.Length; corner++)
+            {
+                if (weights[corner] > 0f)
+                {
+                    blended.Add((animations[corner], weights[corner]));
+                }
+            }
+
+            return (where.Group, blended);
+        }
+
 
         /// <summary>How fast a sequence was authored to travel, in units a second.</summary>
         /// <param name="sequence">The merged sequence number.</param>
@@ -2200,6 +2260,33 @@ public static class PropModels
             where.Group < Groups.Count &&
             where.Local < Groups[where.Group].Sequences.Count &&
             Groups[where.Group].Sequences[where.Local].HasLocalLayers;
+
+        /// <summary>How many frames one animation of a group has.</summary>
+        /// <param name="group">Which model group.</param>
+        /// <param name="animation">Its own animation index.</param>
+        /// <returns>The frame count, or zero.</returns>
+        /// <remarks>
+        /// **By GROUP and local index, because an IK rule's frame arithmetic is per animation.**
+        /// `Studio_IKRuleWeight` scales the cycle by `panim->numframes - 1`, and `panim` is the
+        /// animation the rule belongs to — which for a blended sequence is one of up to three, each
+        /// free to have its own length.
+        /// </remarks>
+        public int FramesOfAnimation(int group, int animation) =>
+            group >= 0 && group < Models.Count
+                ? StudioAnimation.Frames(Models[group], animation)
+                : 0;
+
+        /// <summary>The model's IK chains — <c>rhand</c>, <c>lhand</c>, <c>rfoot</c>, <c>lfoot</c>.</summary>
+        /// <remarks>
+        /// **Read once and cached, because it is asked per entity per frame.** The ROOT model's,
+        /// like the bone controllers and the jiggle parameters: a chain's links index the skeleton
+        /// being posed, not an included animation model's.
+        ///
+        /// Every TF2 player model declares four with three links each; a prop declares none, which
+        /// is the control that says the read works (B296).
+        /// </remarks>
+        public IReadOnlyList<StudioIkChain> IkChains =>
+            _ikChains ??= Models.Count > 0 ? StudioIkChains.Read(Models[0]) : [];
 
         /// <summary>Every sequence that plays on its own — <c>STUDIO_AUTOPLAY</c>.</summary>
         /// <returns>The merged sequence numbers, ascending.</returns>

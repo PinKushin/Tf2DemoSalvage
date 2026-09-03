@@ -89,6 +89,15 @@ public sealed class BoneFlagProbe : IProbe
         timeline.PlayersAt(tick, players);
 
         GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
+
+        // **Players are not props, and IK lives on nothing else.** `PropsAt` reports entities with
+        // models — weapons, cosmetics, buildings — and a PLAYER becomes a prop only when
+        // `PlayerProps.Add` puts it there. Without this the census walks map decorations and
+        // reports zero IK chains on a demo full of them, which is exactly the wrong answer this
+        // probe gave before it was corrected (B296).
+        PlayerProps.Add(
+            players, props, new GameAppearance(game.Classes, null), (_, _, body) => body);
+
         new WeaponPropModels().Resolve(props, players, game.Weapons.For);
 
         LoadedMap map = LoadedMap.Read(
@@ -284,6 +293,15 @@ public sealed class BoneFlagProbe : IProbe
             string.Create(
                 CultureInfo.InvariantCulture,
                 $"IK {chained} of {models} models declare chains, {links} chains total   " +
-                $"{(ikExamples.Count == 0 ? "none" : string.Join(", ", ikExamples))}"));
+                $"{(ikExamples.Count == 0 ? "none" : string.Join(", ", ikExamples))}; " +
+                $"{posed.SolvedIkChains} chains SOLVED"));
+
+        (int chainedOn, int ruled, int weighed) = posed.IkWork;
+
+        output.WriteLine(
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"IK work: {chainedOn} chains reached the pose, {ruled} rules read, " +
+                $"{weighed} weighed"));
     }
 }
