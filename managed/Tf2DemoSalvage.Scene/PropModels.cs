@@ -1133,7 +1133,7 @@ public static class PropModels
                             Props = props,
 
                             // Read here, beside the bones they index into, because this is the one
-                            // pass over the model there is (B287). **The ROOT model's**, which is
+                            // pass over the model there is (B288). **The ROOT model's**, which is
                             // `groupModels[0]`: `CalcBoneAdj` walks the studio header's own
                             // controllers and indexes the skeleton being posed, not an included
                             // animation model's.
@@ -1410,7 +1410,7 @@ public static class PropModels
         ///
         /// **The ROOT model's**, not a group's: `CalcBoneAdj` walks `pStudioHdr->numbonecontrollers()`
         /// and indexes `pos[]`/`q[]` by the controller's own bone number
-        /// (<c>bone_setup.cpp:2476</c>), which is the skeleton being posed (B287).
+        /// (<c>bone_setup.cpp:2476</c>), which is the skeleton being posed (B288).
         /// </remarks>
         public IReadOnlyList<StudioBoneController> Controllers { get; init; } = [];
 

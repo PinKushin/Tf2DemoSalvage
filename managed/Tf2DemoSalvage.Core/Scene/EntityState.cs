@@ -56,7 +56,7 @@ public sealed class EntityState
                 LegacyModelScaleProperty,
 
                 // Eleven bits each over nought to one, and read by `CalcBoneAdj` to bend an
-                // individual bone — a sentry's barrel, a door's hinge (B287). Listed by its bare
+                // individual bone — a sentry's barrel, a door's hinge (B288). Listed by its bare
                 // name because the values arrive as an ARRAY, `m_flEncodedController.000` upward.
                 EncodedControllerProperty,
             ],

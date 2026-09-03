@@ -201,7 +201,7 @@ public sealed class SkeletonPose : IBonePose
     /// **<c>CalcBoneAdj</c>'s input** (<c>bone_setup.cpp:2462</c>), which
     /// <c>StandardBlendingRules</c> applies after the layers and the autoplay sequences. They bend
     /// one bone each — a sentry's barrel, a door's hinge — and are networked, so unlike most of
-    /// what drives a player they are genuinely recoverable from a demo (B287).
+    /// what drives a player they are genuinely recoverable from a demo (B288).
     /// </remarks>
     public IReadOnlyList<float> BoneControllers { get; set; } = [];
 
@@ -279,7 +279,7 @@ public sealed class SkeletonPose : IBonePose
         // RESULT of the last rather than onto the original.
         animated = Accumulate(animated);
 
-        // **`CalcBoneAdj`, which `StandardBlendingRules` runs after the layers** (B287). It bends
+        // **`CalcBoneAdj`, which `StandardBlendingRules` runs after the layers** (B288). It bends
         // individual bones by the entity's own controller values — a sentry's barrel, a door's
         // hinge — and is the last thing to touch the local pose before it is concatenated.
         animated = Adjust(animated);

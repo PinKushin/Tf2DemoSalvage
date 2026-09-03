@@ -248,7 +248,7 @@ public sealed class PoseCompletenessTests
         Layers = [new SceneAnimationLayer(Order: 1, Sequence: 7, Cycle: 0.25f, Weight: 0.5f)],
 
         // Four inputs, none of them the 0 or 1 an endpoint would produce anyway, so a rebuild that
-        // dropped them reads as a bone at rest rather than as a bone bent to its limit (B287).
+        // dropped them reads as a bone at rest rather than as a bone bent to its limit (B288).
         BoneControllers = [0.25f, 0.5f, 0.75f, 0.125f],
 
         // **`WEAPON_IS_ACTIVE`, and neither of the two values it must be told apart from is safe

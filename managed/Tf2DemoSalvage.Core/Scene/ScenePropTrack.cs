@@ -168,7 +168,7 @@ public readonly record struct ScenePose
     /// **<c>m_flEncodedController</c>, which is networked and therefore recoverable** —
     /// eleven bits each over nought to one (<c>baseanimating.cpp:248</c>). `CalcBoneAdj`
     /// (<c>bone_setup.cpp:2462</c>) reads them to bend a single bone: a sentry's barrel, a door's
-    /// hinge, anything an author wired to a controller rather than to an animation (B287).
+    /// hinge, anything an author wired to a controller rather than to an animation (B288).
     ///
     /// **Indexed by INPUT rather than by controller**, because a model's controllers name which
     /// input drives them and are not stored in input order.

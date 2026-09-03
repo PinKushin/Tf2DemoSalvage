@@ -175,13 +175,13 @@ public sealed class BoneSetupConformanceTests
             StageState.Implemented,
             "Reads the entity's m_flEncodedController array. It IS networked — " +
             "baseanimating.cpp:248, eleven bits per controller, SPROP_ROUNDDOWN over 0..1 — so " +
-            "this is recoverable from a demo rather than lost, and B287 recovers it: " +
+            "this is recoverable from a demo rather than lost, and B288 recovers it: " +
             "EntityState.BoneControllers reads the array by input index and the pose carries it."),
 
         new BoneStage(
             "CalcBoneAdj",
             StageState.Implemented,
-            "Applies those controllers to the bones they drive (B287). SkeletonPose.Adjust is the " +
+            "Applies those controllers to the bones they drive (B288). SkeletonPose.Adjust is the " +
             "switch on type & STUDIO_TYPES: the three translations add units to pos[k], the three " +
             "rotations convert DEGREES and compose with QuaternionSM at weight one, the input is " +
             "chosen by inputfield rather than by list position, and the clamp runs before the lerp " +

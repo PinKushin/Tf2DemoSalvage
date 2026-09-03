@@ -63,7 +63,7 @@ public sealed class RetainedPropertyTests
         // **`m_flEncodedController` is an ARRAY** and is listed by its bare name, which is how the
         // values arrive keyed — `m_flEncodedController.000` upward. Eleven bits each over nought
         // to one (`baseanimating.cpp:248`), read by `CalcBoneAdj` to bend one bone: a sentry's
-        // barrel, a door's hinge (B287).
+        // barrel, a door's hinge (B288).
         retained[AnimatingTable].ShouldBe(
             [
                 "m_nSequence", "m_nBody", "m_flPlaybackRate",

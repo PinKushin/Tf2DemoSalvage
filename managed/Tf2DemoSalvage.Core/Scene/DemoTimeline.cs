@@ -2895,7 +2895,7 @@ public sealed class DemoTimeline
                 // too. `AccumulateLayers` walks them in `m_nOrder` over the main sequence.
                 Layers = state.AnimationLayers(),
 
-                // **Networked, and read by `CalcBoneAdj` to bend one bone** (B287). Decoded since
+                // **Networked, and read by `CalcBoneAdj` to bend one bone** (B288). Decoded since
                 // the whitelist was written and applied by nothing until now — a sentry's barrel
                 // and a door's hinge are wired to these rather than to an animation.
                 BoneControllers = state.BoneControllers(),

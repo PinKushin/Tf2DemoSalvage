@@ -29,7 +29,7 @@ namespace Tf2DemoSalvage.Animation.Tests;
 /// **`m_flEncodedController` IS networked** — eleven bits each over nought to one
 /// (`baseanimating.cpp:248`) — which makes this one of the few animation inputs genuinely
 /// recoverable from a demo. It was decoded, and the model's controllers were read, and neither was
-/// applied to anything (B287).
+/// applied to anything (B288).
 /// </remarks>
 public sealed class BoneControllerConformanceTests
 {
