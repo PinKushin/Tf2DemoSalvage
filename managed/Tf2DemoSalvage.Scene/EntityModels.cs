@@ -1683,14 +1683,38 @@ public sealed class EntityModelSet
             _transitions[prop.EntityIndex] = queue;
         }
 
-        if (!_currentSequence.TryGetValue(prop.EntityIndex, out (int Sequence, float Cycle) was))
+        if (!_currentSequence.TryGetValue(
+            prop.EntityIndex, out (int Sequence, float Cycle, double StartedAt) was))
         {
-            _currentSequence[prop.EntityIndex] = (sequence, cycle);
+            _currentSequence[prop.EntityIndex] =
+                (sequence, cycle, prop.Pose.AnimationStartSeconds);
 
             return [];
         }
 
-        if (was.Sequence != sequence)
+        // **A sequence can begin again without its NUMBER changing, and Valve's second term is
+        // exactly for that.** `CheckForSequenceChange` triggers on
+        // `currentblend->m_nSequence != nCurSequence || bForceNewSequence`
+        // (`sequence_Transitioner.cpp:38`), and `bForceNewSequence` is
+        // `m_nNewSequenceParity != m_nPrevNewSequenceParity` (`c_baseanimating.cpp:1831`) — a
+        // counter the server bumps on every `SetSequence`, so a cabinet opened twice restarts twice
+        // and only the counter says the second one began.
+        //
+        // **Reaching here the restart is already an `AnimationStartSeconds`**, which the timeline
+        // stamps from that same parity (and, for a client-side entity, from
+        // `m_bClientSideFrameReset`). Comparing it is the same event one hop later rather than a
+        // second derivation of it — the parity itself is not carried this far, and adding a second
+        // copy of the signal is how two answers to one question start disagreeing.
+        //
+        // **Exact, deliberately.** This is not a computed quantity being tested for near-equality:
+        // it is a stamp the timeline wrote once and this copies verbatim, so it either is the same
+        // stamp or names a different run. A tolerance here would merge two restarts a frame apart,
+        // which is the case a repeated gesture produces.
+#pragma warning disable S1244
+        bool restarted = prop.Pose.AnimationStartSeconds != was.StartedAt;
+#pragma warning restore S1244
+
+        if (was.Sequence != sequence || restarted)
         {
             // `if ((seqdesc.flags & STUDIO_SNAP) || !bInterpolate) m_animationQueue.RemoveAll();`
             if (skinned.SnapsTo(sequence))
@@ -1710,7 +1734,7 @@ public sealed class EntityModelSet
             }
         }
 
-        _currentSequence[prop.EntityIndex] = (sequence, cycle);
+        _currentSequence[prop.EntityIndex] = (sequence, cycle, prop.Pose.AnimationStartSeconds);
 
         if (queue.Count == 0)
         {
@@ -1767,7 +1791,8 @@ public sealed class EntityModelSet
     /// remembered as well as the number because a sequence being left has to carry on from where it
     /// was rather than restarting.
     /// </remarks>
-    private readonly Dictionary<int, (int Sequence, float Cycle)> _currentSequence = [];
+    private readonly Dictionary<int, (int Sequence, float Cycle, double StartedAt)>
+        _currentSequence = [];
 
     /// <summary>Walks one entity's events for this frame.</summary>
     /// <param name="prop">The entity.</param>

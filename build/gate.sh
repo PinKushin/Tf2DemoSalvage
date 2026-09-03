@@ -537,7 +537,11 @@ run Tf2DemoSalvage.Animation.Tests animation 78
 # at identity, one asserts the SAME fixture without the delta bit comes back at its rest pose - and
 # the pair is the point, since a fix that simply zeroed every unlisted bone would pass the first
 # alone. This is what stood seven of fifteen players on their heads.
-run Tf2DemoSalvage.Scene.Tests    scene     364
+# 364 -> 366: a sequence restarting at the same NUMBER cross-fades (B300). One asserts the outgoing
+# run is queued when only the start time changed, one is the control that an unchanged prop queues
+# nothing — without which the first passes on any prop seen twice, and every entity would
+# accumulate a fade on every frame.
+run Tf2DemoSalvage.Scene.Tests    scene     366
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

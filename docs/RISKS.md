@@ -19601,3 +19601,45 @@ VectorScale( pos, 1/total )`), and takes the applied weight from `Studio_IKRuleW
 envelope — alone. Ours folds the corner weights into the applied weight instead. The two agree when
 every corner's error reads successfully, which is the normal case; they differ when one fails, where
 Valve keeps the envelope weight and we reduce it. Not yet fixed, and not yet shown to matter.
+
+## B300 — a sequence restarting at the same number snapped instead of cross-fading — FIXED
+
+`CheckForSequenceChange` triggers on TWO conditions (`sequence_Transitioner.cpp:38`):
+
+```
+if (currentblend->m_flLayerAnimtime &&
+    (currentblend->m_nSequence != nCurSequence || bForceNewSequence ))
+```
+
+and `bForceNewSequence` is `m_nNewSequenceParity != m_nPrevNewSequenceParity`
+(`c_baseanimating.cpp:1831`) — a counter the server bumps on every `SetSequence`
+(`:5574`), which is the only thing that can say a sequence PLAYING AGAIN is a new run rather than
+the same one continuing. We compared sequence numbers alone, so a replay snapped to frame zero.
+
+**The signal was already decoded and already used — for something else.** The timeline turns a
+parity change into a new `AnimationStartSeconds` (B281's animation clock), and that is the same
+event one hop later. Comparing it is one source rather than two, which matters because a second
+copy of a signal is a second thing to disagree with.
+
+### Reachable, and rare
+
+Counted over every track of two demos — 1,508 and rather fewer — by asking how often the start time
+changed while the sequence number did not:
+
+| demo | same-sequence restarts | sequence-number changes |
+|---|---|---|
+| `z1800` | **8** | 3,121 |
+| `tf2-2026-pub-pov-clean` | **7** | 981 |
+
+**And every instance printed occurred on an entity marked hidden**, so this is not a defect anyone
+was going to see. It is fixed because the engine does it, not because a symptom demanded it.
+
+**The first count was 0 and was wrong**, because `anim`'s entity cap defaults to FOUR: the whole
+demo was being judged from four tracks. That is the capped-instrument fault this repository has
+now met often enough to expect — the third argument raises it.
+
+### What is deliberately still absent
+
+`CheckForSequenceChange`'s "clip blends to time remaining" block, which shortens the fade of a
+non-looping sequence near its end. **Valve has it commented out** (`:52-61`), so implementing it
+would be a divergence rather than parity.

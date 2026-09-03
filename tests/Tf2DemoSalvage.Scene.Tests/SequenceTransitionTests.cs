@@ -103,13 +103,75 @@ public sealed class SequenceTransitionTests
         late.ShouldBeLessThan(early, "the fade is a curve, not a switch");
     }
 
+    /// <remarks>
+    /// **A sequence can change without its NUMBER changing, and that is what the parity is for.**
+    /// `CheckForSequenceChange` triggers on
+    /// <c>currentblend-&gt;m_nSequence != nCurSequence || bForceNewSequence</c>
+    /// (<c>sequence_Transitioner.cpp:38</c>), and `bForceNewSequence` is
+    /// <c>m_nNewSequenceParity != m_nPrevNewSequenceParity</c>
+    /// (<c>c_baseanimating.cpp:1831</c>) — a counter the server bumps on every `SetSequence`, so a
+    /// cabinet opened twice restarts twice and only the counter says the second one began.
+    ///
+    /// **Comparing sequence numbers alone makes a replay SNAP.** Reaching here, the restart has
+    /// already been turned into a new `AnimationStartSeconds` by the timeline, which is the same
+    /// event one hop later and the only copy of it this layer sees.
+    /// </remarks>
+    [Test]
+    public void Instances_WhenTheSameSequenceRestarts_KeepsTheOutgoingInstanceFading()
+    {
+        EntityModelSet models = new() { Geometry = _ => Frames() };
+
+        List<SceneProp> drawn = [Playing(sequence: 0)];
+
+        models.Add(drawn, _ => Frames());
+        models.Instances(drawn, [], seconds: 0d);
+
+        drawn[0] = Playing(sequence: 0, startedAt: 0.05d);
+
+        models.Instances(drawn, [], seconds: 0.05d);
+
+        IReadOnlyList<PoseLayer> fading = models.LayersOf(4).ShouldNotBeNull();
+
+        fading.Count.ShouldBe(1, "the instance that just ended is still fading out");
+        fading[0].Sequence.ShouldBe(0, "and it is the same sequence, playing its previous run");
+    }
+
+    /// <remarks>
+    /// **The control, and without it the test above passes on any prop seen twice.** The same
+    /// sequence at the same start time is not a restart and must queue nothing — which is also
+    /// what stops every entity accumulating a fade on every frame it is drawn.
+    /// </remarks>
+    [Test]
+    public void Instances_WhenNothingRestarted_QueuesNothing()
+    {
+        EntityModelSet models = new() { Geometry = _ => Frames() };
+
+        List<SceneProp> drawn = [Playing(sequence: 0)];
+
+        models.Add(drawn, _ => Frames());
+        models.Instances(drawn, [], seconds: 0d);
+        models.Instances(drawn, [], seconds: 0.05d);
+
+        models.LayersOf(4).ShouldNotBeNull().ShouldBeEmpty(
+            "nothing began again, so there is nothing to fade");
+    }
+
     /// <summary>A prop playing one sequence, client-side animated so its cycle advances.</summary>
-    private static SceneProp Playing(int sequence) =>
+    /// <param name="sequence">Which sequence it plays.</param>
+    /// <param name="startedAt">
+    /// When that run of the animation began — the timeline's record of the restart signal.
+    /// </param>
+    private static SceneProp Playing(int sequence, double startedAt = 0d) =>
         new(
             4,
             "models/props_gameplay/resupply_locker.mdl",
             ScenePropTrack.Classify("models/props_gameplay/resupply_locker.mdl"),
-            new ScenePose { Sequence = sequence, Cycle = 0f },
+            new ScenePose
+            {
+                Sequence = sequence,
+                Cycle = 0f,
+                AnimationStartSeconds = startedAt,
+            },
             null,
             ClientSideAnimated: true);
 
