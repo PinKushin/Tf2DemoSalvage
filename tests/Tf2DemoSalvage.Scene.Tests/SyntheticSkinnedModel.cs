@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -144,6 +145,58 @@ internal static class SyntheticSkinnedModel
             Groups: groups,
             PoseParameters: [],
             MasterPose: []);
+    }
+
+    /// <summary>A model declaring one three-link IK chain over the named bones.</summary>
+    /// <param name="names">
+    /// The bone names, of which the FIRST THREE become the chain's links. Three is not a fixture
+    /// convenience: <c>Studio_SolveIK</c> is a two-bone solver and indexes <c>pLink(2)</c>
+    /// throughout (<c>bone_setup.cpp:2690</c>), so a chain with fewer links has no end to reach.
+    /// </param>
+    /// <returns>The model, with real <c>.mdl</c> bytes behind the chain.</returns>
+    /// <remarks>
+    /// **Written into the BYTES, because that is what production reads.** `SkinnedModel.IkChains`
+    /// calls `StudioIkChains.Read(Models[0])`, which walks `ikchainindex` from the header — so a
+    /// chain set on a record would leave the reader untested and could pass against a build that
+    /// never opens the file.
+    ///
+    /// **Every index in this format is relative to the structure that states it**, and the chain's
+    /// `ikchainindex` is the exception that proves it: the header's is a file offset, the chain's
+    /// link index is measured from the CHAIN's own start. Getting that wrong lands inside the
+    /// header and decodes counts as bone numbers, which is the failure that reads as plausible.
+    ///
+    /// **The chain declares no knee direction**, so the solver derives its preference from where
+    /// the animation left the knee — the branch TF2's own content takes.
+    /// </remarks>
+    public static PropModels.SkinnedModel WithIkChain(params string[] names)
+    {
+        PropModels.SkinnedModel bones = WithBones(names);
+
+        const int header = 512;
+        const int chainStride = 16;
+        const int linkStride = 28;
+        const int links = 3;
+
+        int chainAt = header;
+        int linksAt = chainAt + chainStride;
+
+        byte[] file = new byte[linksAt + (links * linkStride)];
+
+        // `numikchains` at 284 and `ikchainindex` at 288 — a FILE offset, unlike everything below.
+        BitConverter.TryWriteBytes(file.AsSpan(284), 1);
+        BitConverter.TryWriteBytes(file.AsSpan(288), chainAt);
+
+        // mstudioikchain_t: sznameindex, linktype, numlinks, linkindex.
+        BitConverter.TryWriteBytes(file.AsSpan(chainAt + 8), links);
+        BitConverter.TryWriteBytes(file.AsSpan(chainAt + 12), linksAt - chainAt);
+
+        for (int link = 0; link < links; link++)
+        {
+            // mstudioiklink_t: bone, then the knee direction left at zero.
+            BitConverter.TryWriteBytes(file.AsSpan(linksAt + (link * linkStride)), link);
+        }
+
+        return bones with { Models = [file] };
     }
 
     /// <summary>One bone, and the pose parameters named — a building rather than a player.</summary>

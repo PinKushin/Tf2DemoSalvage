@@ -541,7 +541,12 @@ run Tf2DemoSalvage.Animation.Tests animation 78
 # run is queued when only the start time changed, one is the control that an unchanged prop queues
 # nothing — without which the first passes on any prop seen twice, and every entity would
 # accumulate a fade on every frame.
-run Tf2DemoSalvage.Scene.Tests    scene     366
+# 366 -> 369: a scaled model opts out of IK (B301), which needed SyntheticSkinnedModel to be able to
+# declare an IK CHAIN in real .mdl bytes for the first time - nothing could test the IK wiring at
+# scene level before. Three: the scaled case, an unscaled control without which "no IK ran" and
+# "this fixture never had a chain" are the same observation, and a scale one float-epsilon from 1,
+# which is Valve's own test rather than an exact comparison.
+run Tf2DemoSalvage.Scene.Tests    scene     369
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

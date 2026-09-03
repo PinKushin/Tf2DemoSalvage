@@ -680,7 +680,28 @@ public sealed class EntityModelSet
             // influence is accumulated across the same up-to-three animations the sequence blends,
             // and only this side knows which they are; the skeleton is handed the answer rather
             // than the means to recompute it.
-            posed.IkChains = skinned.IkChains;
+            // **A SCALED model opts out of IK entirely, and the engine says why**
+            // (`c_baseanimating.cpp:2841`):
+            //
+            //     // NOTE: For model scaling, we need to opt out of IK because it will mark the
+            //     // bones as already being calculated
+            //     if ( !IsModelScaled() ) { ...allocate m_pIk... }
+            //     else                    { if ( m_pIk ) { delete m_pIk; m_pIk = NULL; } }
+            //
+            // Deleting the context is not a saving, it is a correctness measure: IK marks bones as
+            // already calculated, and a scaled skeleton's are not where an unscaled solve put them.
+            //
+            // **The test is against FLT_EPSILON rather than exact** — `m_flModelScale >
+            // 1.0f+FLT_EPSILON || m_flModelScale < 1.0f-FLT_EPSILON` (`c_baseanimating.h:780`) —
+            // so a scale a float's last bit away from one is NOT scaled, which matters because a
+            // value off the wire and one written as a literal need not be bit-identical.
+            //
+            // Nothing in the committed corpus is scaled; TF2 scales MvM giants and some Halloween
+            // bosses. Implemented because the engine does it.
+            bool scaled =
+                prop.Pose.Scale > 1f + float.Epsilon || prop.Pose.Scale < 1f - float.Epsilon;
+
+            posed.IkChains = scaled ? [] : skinned.IkChains;
 
             // **Every accumulated sequence contributes its rules, not just the main one** (B297).
             // `AccumulatePose` calls `AddDependencies` for each sequence it accumulates and
@@ -691,7 +712,7 @@ public sealed class EntityModelSet
             // from the main sequence alone, IK finds nothing but releases for ever.
             List<(StudioIkRule, Vector3, Quaternion, float)> asked = [];
 
-            if (skinned.IkChains.Count > 0)
+            if (posed.IkChains.Count > 0)
             {
                 IkFor(skinned, sequence, phase, 1f, poseValues, asked);
 

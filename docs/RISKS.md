@@ -19643,3 +19643,46 @@ now met often enough to expect — the third argument raises it.
 `CheckForSequenceChange`'s "clip blends to time remaining" block, which shortens the fade of a
 non-looping sequence near its end. **Valve has it commented out** (`:52-61`), so implementing it
 would be a divergence rather than parity.
+
+## B301 — a scaled model ran IK, which the engine deliberately refuses — FIXED
+
+`C_BaseAnimating::SetupBones` does not merely skip IK for a scaled model; it deletes the context
+(`c_baseanimating.cpp:2841`), under a note giving the reason:
+
+```
+// NOTE: For model scaling, we need to opt out of IK because it will mark the bones as
+// already being calculated
+if ( !IsModelScaled() ) { ...allocate m_pIk... }
+else                    { if ( m_pIk ) { delete m_pIk; m_pIk = NULL; } }
+```
+
+**So it is a correctness measure, not a saving** — IK marks bones as already calculated, and a
+scaled skeleton's are not where an unscaled solve put them. That distinction matters because an
+optimisation is the kind of thing a later reader reinstates.
+
+`IsModelScaled` is an epsilon test, not an exact one (`c_baseanimating.h:780`):
+
+```
+return ( m_flModelScale > 1.0f+FLT_EPSILON || m_flModelScale < 1.0f-FLT_EPSILON );
+```
+
+reproduced as written, because a scale arriving over the wire and one written as a literal need not
+be bit-identical.
+
+### Reachability, stated plainly
+
+**Nothing in the committed corpus is scaled** — every prop in `z1800` reports scale 1. TF2 scales
+MvM giants and some Halloween bosses, neither of which appears in a koth or pub demo. This is fixed
+because the engine does it, and the tests carry that rather than a demo.
+
+### What it unlocked, which is worth more than the fix
+
+`SyntheticSkinnedModel` could not declare an IK CHAIN, so **no scene-level test of any IK wiring
+was possible at all** — everything about IK was covered either by unit tests of the solver or by a
+probe against real demos. `WithIkChain` now writes a chain and its three links into real `.mdl`
+bytes, with the header's file-relative `ikchainindex` and the chain's own chain-relative
+`linkindex`, which are different conventions one structure apart.
+
+The control that came with it earned its place immediately: the first run failed all three tests,
+including the unscaled one, which said the fixture was wrong rather than the code. Without it the
+scaled assertion would have passed on a model that never had a chain.
