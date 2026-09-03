@@ -19703,3 +19703,45 @@ bytes, with the header's file-relative `ikchainindex` and the chain's own chain-
 The control that came with it earned its place immediately: the first run failed all three tests,
 including the unscaled one, which said the fixture was wrong rather than the code. Without it the
 scaled assertion would have passed on a model that never had a chain.
+
+### B152, measured 2026-09-03: the premise was wrong. It is not drawn wrong, it is not drawn
+
+The entry above says the 3D skybox *"is now drawn, and drawn WRONG"*, and that drawing it raw
+*"puts a miniature copy of the surroundings far outside the level"*. Neither is what happens.
+
+The cull now reports the sky room's share beside the world's, and from a play-area camera on
+`koth_harvest_final`:
+
+```
+world cull: 1100 of 2074 leaves, 76317 of 140811 corners, 641 runs against 67 batches,
+533 spans have no leaf and are boxed instead; sky area 1 contributes 0 runs
+```
+
+**Zero runs.** The PVS excludes the room already, so nothing of it reaches the draw. Two screenshots
+from the same camera — one with the room excluded by area, one without — are pixel-identical, and a
+free camera placed outside the level at (4000, −5000, 3000) draws nothing at all rather than showing
+the miniature scenery.
+
+So what B152 costs is not a wrong-looking skybox. It is a **flat empty horizon** where TF2 shows
+distant hills, and the fix is additive rather than corrective.
+
+**Why the entry said otherwise is worth keeping**: it was written when the play-area cull had just
+been removed, and reasoned from what removing that cull *should* expose rather than from what the
+frame then contained. The PVS was already doing the work the play-area cull had been doing.
+
+### What is built, and what is left
+
+Built and tested, with no change to any pixel:
+
+| piece | where |
+|---|---|
+| `dleaf_t`'s packed `area:9` | `BspLeafTree.Area` / `AreaAt` |
+| `sky_camera`'s origin AND `scale` | `BspEntities.SkyCamera` |
+| the camera transform, near and far planes | `SkyboxView` |
+| the cull split — sky room apart from the world | `WorldCulling.SkyArea` / `SkyBatches` |
+| the sky area found from the map's own entity | `MapLevel.Culling` |
+| the room's share, reported every cull | the `world cull` line |
+
+Left, and it is the half that changes what is on screen: a second draw pass — set the sky camera,
+draw `SkyBatches`, clear depth, draw the world over it — plus `r_3dsky` and `r_skybox` with Valve's
+defaults (`r_3dsky` on and not cheat-gated, `r_skybox` cheat-gated, `viewrender.cpp:113`).

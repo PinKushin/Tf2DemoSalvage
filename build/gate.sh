@@ -1164,7 +1164,11 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     156
 # negative and the strobe really is off, so an implementation that simply dropped the sign test
 # would pass the first and fail the second. Found by reading the engine function end to end during
 # the parity audit, not by any measurement of ours.
-run Tf2DemoSalvage.Rendering.Tests rendering 722
+# 722 -> 726: the cull hands back the 3D skybox room as its own set (B152). Four: no sky area draws
+# everything as before, a sky area leaves the room out of the main pass, the sky set holds it alone,
+# and the main runs SURVIVE the sky set being built - which they would not if both passes shared
+# VisibleWorld's one reused list, a fault that can only exist once both passes do.
+run Tf2DemoSalvage.Rendering.Tests rendering 726
 # 101 -> 103 on 2026-08-29: LaunchOptionWiringTests (B223, D118). Two tests, and they cost about
 # seventeen seconds EACH, because each builds a real MainForm and loads a corpus demo — which reads
 # cp_badlands.bsp when Team Fortress 2 is installed. That is the most expensive pair in this file

@@ -1803,17 +1803,23 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
         _reportedWorldCull = true;
 
+        // **The sky room's share is reported beside the world's, because the two are now separate
+        // passes and a silent zero would be indistinguishable from a sky that is never drawn**
+        // (B152). `sky area -1` means the map declares no `sky_camera`; `0 runs` from a real area
+        // means the room is outside the PVS from here, which is the normal case indoors.
         _render.LogInformation(
             "world cull: {Leaves} of {TotalLeaves} leaves, {Corners} of {TotalCorners} corners, "
             + "{Runs} runs against {Batches} batches, {Unreachable} spans have no leaf and are "
-            + "boxed instead",
+            + "boxed instead; sky area {SkyArea} contributes {SkyRuns} runs",
             _culling.LeafCount,
             _culling.TotalLeaves,
             _culling.Corners.Drawn,
             _culling.Corners.Total,
             visible.Count,
             _world.BatchCount,
-            _culling.UnreachableSpans);
+            _culling.UnreachableSpans,
+            _culling.SkyArea,
+            _culling.SkyBatches.Count);
     }
 
     /// <summary>Whether the viewmodel pass has said where it thinks the eye is (B170).</summary>

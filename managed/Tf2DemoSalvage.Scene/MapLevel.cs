@@ -134,7 +134,22 @@ public sealed record MapLevel(
             return null;
         }
 
-        WorldCulling culling = new(tree, Visibility ?? BspVisibility.None, faces, spans);
+        // **Which AREA the 3D skybox room is, found once from the map's own `sky_camera`.** The
+        // engine sets exactly that area's bit for the sky pass and the ordinary bits for the main
+        // one (`viewrender.cpp:4877`), which is how the miniature room is drawn separately instead
+        // of sitting in the world at its literal size (B152).
+        //
+        // **−1 for a map with no `sky_camera`**, and that is not an error: an indoor map has
+        // nothing to put in a 3D skybox. It gives every leaf to the main pass, which is what every
+        // map did before this existed.
+        int skyArea = BspEntities.SkyCamera(Entities) is { } sky
+            ? tree.AreaAt(sky.Origin.X, sky.Origin.Y, sky.Origin.Z)
+            : -1;
+
+        WorldCulling culling = new(tree, Visibility ?? BspVisibility.None, faces, spans)
+        {
+            SkyArea = skyArea,
+        };
 
         return culling.CanCull ? culling : null;
     }

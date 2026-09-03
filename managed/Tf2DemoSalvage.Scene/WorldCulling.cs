@@ -24,6 +24,10 @@ public sealed class WorldCulling
 {
     private readonly WorldVisibility _visibility;
     private readonly VisibleWorld _surfaces;
+    private readonly VisibleWorld _skySurfaces;
+    private readonly BspLeafTree _tree;
+    private readonly List<int> _mainLeaves = [];
+    private readonly List<int> _skyLeaves = [];
 
     /// <summary>Prepares culling for one map.</summary>
     /// <param name="tree">The map's nodes, planes and leaves.</param>
@@ -42,6 +46,13 @@ public sealed class WorldCulling
 
         _visibility = new WorldVisibility(tree, pvs);
         _surfaces = new VisibleWorld(spans, tree, leafFaces);
+
+        // **A SECOND instance rather than a second call, because `VisibleWorld` reuses one list.**
+        // It clears and refills the same buffer per call, so running the sky pass through the same
+        // object would leave the main pass holding the sky's runs — the world would vanish and the
+        // sky would be drawn twice. A fault that only exists once both passes do.
+        _skySurfaces = new VisibleWorld(spans, tree, leafFaces);
+        _tree = tree;
 
         TotalLeaves = tree.LeafCount;
 
@@ -92,6 +103,26 @@ public sealed class WorldCulling
     /// </remarks>
     public (int Drawn, int Total) Corners { get; private set; }
 
+    /// <summary>Which BSP area holds the map's 3D skybox room, or −1 when it has none.</summary>
+    /// <remarks>
+    /// **The area of the leaf the map's <c>sky_camera</c> stands in.** Measured on the corpus:
+    /// `koth_harvest_final` puts it in area 1, holding 9 of 2074 leaves; `cp_fulgur` in area 16,
+    /// holding 18 of 14264. A small room in both, which is what makes the area the discriminator —
+    /// an area holding most of the map would mean filtering by it deletes the level.
+    ///
+    /// **−1 means every leaf is drawn by the main pass**, which is what every map without a
+    /// `sky_camera` needs and what this viewer did for every map before the sky pass existed.
+    /// </remarks>
+    public int SkyArea { get; init; } = -1;
+
+    /// <summary>The runs making up the 3D skybox room, from the last cull.</summary>
+    /// <remarks>
+    /// Empty rather than null when there is no sky room, so a caller draws nothing without having
+    /// to distinguish "no sky" from "not culled yet" — the distinction that matters is on
+    /// <see cref="Batches"/>, whose null means "draw everything".
+    /// </remarks>
+    public IReadOnlyList<WorldBatch> SkyBatches { get; private set; } = [];
+
     /// <summary>The world runs to draw from one eye, or null when this map cannot be culled.</summary>
     /// <param name="x">The eye's world position — the vis origin.</param>
     /// <param name="y">The eye's world position.</param>
@@ -114,7 +145,33 @@ public sealed class WorldCulling
 
         LeafCount = leaves.Count;
 
-        IReadOnlyList<WorldBatch> runs = _surfaces.Batches(leaves, frustum);
+        // **Valve swaps the AREA BITS between the two views, and this is the same split stated as
+        // two lists** (`viewrender.cpp:4877`). The sky pass sets exactly one area bit and draws
+        // that room; the main view draws with the ordinary bits and therefore does not.
+        //
+        // **Both halves are load-bearing and only one is obvious.** Without the sky pass the
+        // miniature room is missing; without excluding it from the MAIN pass it is still out there
+        // in the world at its literal size, which is the half B152 is actually about.
+        _mainLeaves.Clear();
+        _skyLeaves.Clear();
+
+        for (int at = 0; at < leaves.Count; at++)
+        {
+            if (SkyArea >= 0 && _tree.Area(leaves[at]) == SkyArea)
+            {
+                _skyLeaves.Add(leaves[at]);
+            }
+            else
+            {
+                _mainLeaves.Add(leaves[at]);
+            }
+        }
+
+        SkyBatches = _skyLeaves.Count > 0
+            ? _skySurfaces.Batches(_skyLeaves, frustum)
+            : [];
+
+        IReadOnlyList<WorldBatch> runs = _surfaces.Batches(_mainLeaves, frustum);
 
         int drawn = 0;
 
