@@ -281,8 +281,11 @@ public sealed class BoneFlagProbe : IProbe
 
         posed.Add(props, assets.Geometry);
 
+        // The step that chooses a player's sequence; see the scan below for what its absence did.
+        posed.UpdateClientSideAnimations(props);
+
         List<ModelInstance> instances = [];
-        posed.Instances(props, instances);
+        posed.Instances(props, instances, seconds: tick * timeline.IntervalPerTick);
 
         output.WriteLine(
             string.Create(
@@ -303,6 +306,145 @@ public sealed class BoneFlagProbe : IProbe
                 CultureInfo.InvariantCulture,
                 $"IK work: {chainedOn} chains reached the pose, {ruled} SELF rules read, " +
                 $"{weighed} weighed"));
+
+        // **Which animations a player's sequence actually blends** (B296). TF2 has no separate aim
+        // layer — `CMultiPlayerAnimState::ComputeSequences` is main sequence plus gestures, and the
+        // aim matrix is the main sequence's own BLEND GRID, driven by body_pitch and body_yaw. So
+        // a standing player's sequence should blend `a_PRIMARY_aimmatrix_idle_*`, which is where
+        // every solving IK rule lives. Naming what it blends instead is the whole diagnosis.
+        int reported = 0;
+
+        foreach (SceneProp prop in props)
+        {
+            if (reported >= 3 ||
+                assets.Geometry(prop.ModelPath)?.Skinned is not { } skinned ||
+                skinned.IkChains.Count == 0 ||
+                posed.FrameOf(prop.EntityIndex) is not { } frame)
+            {
+                continue;
+            }
+
+            reported++;
+
+            (int blendGroup, IReadOnlyList<(int Animation, float Weight)> blend) =
+                skinned.BlendedAnimations(frame.Sequence, posed.PoseValuesOf(prop.EntityIndex));
+
+            string named = blendGroup < skinned.Models.Count
+                ? string.Join(
+                    ", ",
+                    blend.Take(3).Select(entry =>
+                        StudioAnimation.Name(skinned.Models[blendGroup], entry.Animation)))
+                : "no group";
+
+            output.WriteLine(
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"  entity {prop.EntityIndex} '{Path.GetFileName(prop.ModelPath)}' " +
+                    $"sequence {frame.Sequence} '{skinned.LabelOf(frame.Sequence)}' " +
+                    $"group {blendGroup} blends {blend.Count}: {named}"));
+
+            // **What a STANDING player would blend**, asked directly rather than waited for. The
+            // solving rules live on the aim-matrix idles, and if the stand sequence does not blend
+            // those cells then no amount of scanning will ever find a solve — which is a different
+            // finding from "nobody happened to be standing".
+            int standing = posed.SequenceFor(prop.ModelPath, speed: 0f);
+
+            (int standGroup, IReadOnlyList<(int Animation, float Weight)> standBlend) =
+                standing >= 0
+                    ? skinned.BlendedAnimations(standing, posed.PoseValuesOf(prop.EntityIndex))
+                    : (0, []);
+
+            string standNames = standGroup < skinned.Models.Count
+                ? string.Join(
+                    ", ",
+                    standBlend.Take(3).Select(entry =>
+                        StudioAnimation.Name(skinned.Models[standGroup], entry.Animation)))
+                : "no group";
+
+            // **The GRID's own dimensions, not just how many corners were chosen.** A 3x3 aim
+            // matrix that reports one blended animation is a grid we failed to read; a genuinely
+            // 1x1 sequence is a different finding entirely, and only groupsize tells them apart.
+            StudioBlendGrid? grid = skinned.GridOf(standing);
+
+            output.WriteLine(
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"    if standing: sequence {standing} '{skinned.LabelOf(standing)}' " +
+                    $"grid {(grid is null ? "none" : $"{grid.GroupX}x{grid.GroupY}")} " +
+                    $"blends {standBlend.Count}: {standNames}"));
+
+            if (reported > 1)
+            {
+                continue;
+            }
+
+            // **Which sequences on this model DO carry a grid, once.** If none is nine cells wide
+            // then no sequence is an aim matrix and the cells are reached some other way; if one
+            // is, then the question is only why nothing selects it. Two different answers needing
+            // two different fixes, and the count of grids is what separates them.
+            int grids = 0;
+            List<string> widest = [];
+
+            for (int candidate = 0; candidate < skinned.Sequences.Count; candidate++)
+            {
+                if (skinned.GridOf(candidate) is not { } found || !found.Blends)
+                {
+                    continue;
+                }
+
+                grids++;
+
+                if (found.GroupX * found.GroupY >= 9 && widest.Count < 5)
+                {
+                    // **The ACTIVITY, because that is how the engine reaches a sequence.**
+                    // `SelectWeightedSequence` matches an activity and picks among ties by
+                    // actweight — so if the aim matrix and the plain stand both claim
+                    // ACT_MP_STAND_PRIMARY, which one is chosen is a weighting question and not a
+                    // lookup failure. If the matrix claims a DIFFERENT activity, it is selected by
+                    // something else entirely.
+                    widest.Add(
+                        $"{skinned.LabelOf(candidate)} " +
+                        $"{found.GroupX.ToString(CultureInfo.InvariantCulture)}x" +
+                        $"{found.GroupY.ToString(CultureInfo.InvariantCulture)} " +
+                        $"act '{skinned.ActivityOf(candidate)}' " +
+                        $"w{skinned.ActivityWeightOf(candidate).ToString(CultureInfo.InvariantCulture)}");
+                }
+            }
+
+            output.WriteLine(
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"    {grids} of {skinned.Sequences.Count} sequences carry a grid; " +
+                    $"nine or wider: {(widest.Count == 0 ? "NONE" : string.Join(", ", widest))}"));
+
+            // **The aim matrices claim no activity, so something must LAYER them.** An autolayer
+            // names a sequence directly rather than through an activity, which is exactly the
+            // shape needed — and B294 implemented that mechanism. If the movement sequences
+            // autolayer the matrices then the aim is already reachable; if they do not, the link
+            // is somewhere else again.
+            foreach (int check in new[] { frame.Sequence, standing })
+            {
+                if (check < 0)
+                {
+                    continue;
+                }
+
+                IReadOnlyList<StudioAutoLayer> layers = skinned.AutoLayersOf(check);
+
+                string targets = layers.Count == 0
+                    ? string.Empty
+                    : ": " + string.Join(
+                        ", ",
+                        layers.Select(entry =>
+                            skinned.LabelOf(skinned.RelativeSequence(check, entry.Sequence))
+                            + " flags 0x" + entry.Flags.ToString("X4", CultureInfo.InvariantCulture)));
+
+                output.WriteLine(
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"    '{skinned.LabelOf(check)}' declares {layers.Count} autolayers{targets}"));
+            }
+        }
 
         // **A tick scan, because one tick cannot answer the question that is left** (B296). The
         // solving rules live on the aim-matrix idles, and whether a player is in one at a given
@@ -359,6 +501,13 @@ public sealed class BoneFlagProbe : IProbe
             EntityModelSet models = new() { Geometry = assets.Geometry };
 
             models.Add(props, assets.Geometry);
+
+            // **Nothing on the wire carries a player's sequence, so this step CHOOSES it.** Without
+            // it every player sits at sequence 0 — the reference pose — and the probe reads the
+            // body model's own two animations rather than the animation model's thousand. That is
+            // exactly the wrong answer this scan gave first time, and it looked like a production
+            // defect (B296).
+            models.UpdateClientSideAnimations(props);
 
             List<ModelInstance> instances = [];
             models.Instances(props, instances, seconds: at * timeline.IntervalPerTick);

@@ -63,8 +63,11 @@ public sealed class IkContext
 
     /// <summary>Applies every rule of one animation to a built skeleton.</summary>
     /// <param name="chains">The model's IK chains.</param>
-    /// <param name="rules">The rules the playing animation declares.</param>
-    /// <param name="errors">Where each rule wants its chain, already decoded and weighted.</param>
+    /// <param name="errors">
+    /// Each rule that asked for something, with where it wants its chain and how strongly —
+    /// gathered from every accumulated sequence, so the rule travels with its target rather than
+    /// being indexed into one animation's list.
+    /// </param>
     /// <param name="bones">The skeleton, in world space, rewritten in place.</param>
     /// <param name="parents">Each bone's parent, for rebuilding the chain afterwards.</param>
     /// <param name="local">Each bone's local matrix, rewritten for the three that moved.</param>
@@ -93,14 +96,12 @@ public sealed class IkContext
     /// </remarks>
     public void Solve(
         IReadOnlyList<StudioIkChain> chains,
-        IReadOnlyList<StudioIkRule> rules,
-        IReadOnlyList<(int Rule, Vector3 Position, Quaternion Rotation, float Weight)> errors,
+        IReadOnlyList<(StudioIkRule Rule, Vector3 Position, Quaternion Rotation, float Weight)> errors,
         BoneAccessor bones,
         IReadOnlyList<int> parents,
         IReadOnlyList<float[]> local)
     {
         ArgumentNullException.ThrowIfNull(chains);
-        ArgumentNullException.ThrowIfNull(rules);
         ArgumentNullException.ThrowIfNull(errors);
         ArgumentNullException.ThrowIfNull(bones);
         ArgumentNullException.ThrowIfNull(parents);
@@ -147,14 +148,17 @@ public sealed class IkContext
         Span<float> error = stackalloc float[12];
         Span<float> target = stackalloc float[12];
 
-        foreach ((int rule, Vector3 position, Quaternion rotation, float weight) in errors)
+        // **A rule per entry rather than an index into one list, because the rules come from
+        // SEVERAL sequences.** `AccumulatePose` calls `AddDependencies` for every sequence it
+        // accumulates — the main one and each autolayer — so two rules with the same index in
+        // different animations are different rules. Carrying the rule removes the collision.
+        foreach ((StudioIkRule declared, Vector3 position, Quaternion rotation, float weight) in
+            errors)
         {
-            if (rule < 0 || rule >= rules.Count || weight <= 0f)
+            if (weight <= 0f)
             {
                 continue;
             }
-
-            StudioIkRule declared = rules[rule];
 
             if (declared.Type != StudioIkRuleType.Self ||
                 declared.Chain < 0 ||

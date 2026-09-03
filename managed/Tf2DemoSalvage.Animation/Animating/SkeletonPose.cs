@@ -458,7 +458,7 @@ public sealed class SkeletonPose : IBonePose
         // players and nothing else.
         _parents ??= [.. _bones.Select(bone => bone.Parent)];
 
-        _ik.Solve(IkChains, IkRules, IkErrors, into, _parents, _local);
+        _ik.Solve(IkChains, IkErrors, into, _parents, _local);
 
         if (_ik.Solved == 0)
         {
@@ -526,17 +526,20 @@ public sealed class SkeletonPose : IBonePose
     /// </remarks>
     public IReadOnlyList<StudioIkChain> IkChains { get; set; } = [];
 
-    /// <summary>The rules the playing animation declares.</summary>
-    public IReadOnlyList<StudioIkRule> IkRules { get; set; } = [];
-
-    /// <summary>Each rule's decoded target and weight at this cycle.</summary>
+    /// <summary>Every rule that asked for something this frame, with its target and weight.</summary>
     /// <remarks>
     /// **Computed on the scene side because the blend weights live there.** A rule's influence is
-    /// accumulated across the same four animations the sequence blends, so the caller that knows
-    /// which four they are and how much each counts is the one that can weigh a rule — carrying the
-    /// answer here rather than recomputing it from the model (B243).
+    /// accumulated across the same animations its sequence blends, so the caller that knows which
+    /// they are and how much each counts is the one that can weigh a rule — carrying the answer
+    /// here rather than recomputing it from the model (B243).
+    ///
+    /// **Gathered from EVERY accumulated sequence, not just the main one** (B297).
+    /// `AccumulatePose` calls `AddDependencies` for each sequence it accumulates, and
+    /// `AddSequenceLayers` then recurses — so an autolayer's rules count too. That matters here
+    /// more than anywhere: TF2's aim matrices are autolayers of the movement sequences, and every
+    /// solving rule in the game lives on them.
     /// </remarks>
-    public IReadOnlyList<(int Rule, Vector3 Position, Quaternion Rotation, float Weight)>
+    public IReadOnlyList<(StudioIkRule Rule, Vector3 Position, Quaternion Rotation, float Weight)>
         IkErrors { get; set; } = [];
 
     /// <summary>How many chains the last build actually solved.</summary>

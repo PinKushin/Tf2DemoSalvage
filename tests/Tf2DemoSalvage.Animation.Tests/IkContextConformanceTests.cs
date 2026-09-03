@@ -219,8 +219,7 @@ public sealed class IkContextConformanceTests
             // visible rather than hidden behind a transform.
             _context.Solve(
                 [chain],
-                [rule],
-                [(0, target, Quaternion.Identity, weight)],
+                [(rule, target, Quaternion.Identity, weight)],
                 _bones,
                 _parents,
                 _local);

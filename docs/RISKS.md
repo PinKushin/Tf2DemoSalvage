@@ -19339,3 +19339,100 @@ and a player becomes one only through `PlayerProps.Add` — the same denominator
 weapon scan, and the second time in this session. And the three-number breakdown (chains reached,
 SELF rules read, rules weighed) is what separated "the wiring is broken" from "nothing playing asks",
 which a single count could not.
+
+## B297 — IK rules were read from the main sequence only, so the aim matrix never reached them — FIXED
+
+**Found by finishing B296's verification rather than by looking for it.** The IK path is built,
+wired and demonstrably reading real rules, and no rule that solves anything ever plays. Chasing that
+to the end located a different gap entirely.
+
+### The chain of measurements
+
+`bone-flags` now poses players through the production path and names what their sequence blends:
+
+```
+entity 4 'pyro.mdl'  sequence 141 'run_PRIMARY'   group 2  blends 2: a_runW_PRIMARY, a_runSW_PRIMARY
+  if standing:       sequence  89 'stand_PRIMARY'          blends 1: @stand_PRIMARY
+```
+
+**`stand_PRIMARY` blends ONE animation.** The aim matrix — `a_PRIMARY_aimmatrix_idle_down_right`,
+`_mid_center` and their neighbours, the 3×3 grid driven by `body_pitch` and `body_yaw` — is a
+different sequence, and nothing here ever selects it.
+
+**Every solving IK rule in TF2 lives on those cells.** 206 of the scout's rules, all `IK_SELF`, all
+holding chain 1 (the off hand) onto bone 23 (the weapon). The movement animations a player actually
+plays carry `IK_RELEASE` and nothing else — which is consistent and correct: a running player
+releases the hand, and an aiming one holds it.
+
+### So one gap explains two absences
+
+- **The upper body does not aim.** A player's torso pitch and yaw come from the aim matrix, and
+  without it the body plays its movement animation alone.
+- **No IK ever fires**, because the rules that ask for it are on the animations never chosen.
+
+They are the same defect, and B296's solver is waiting on it rather than the other way round.
+
+### Two probe faults were fixed on the way, and both mattered
+
+**The probe reported zero IK chains** on a demo full of players, because it walked entity props and
+a player becomes one only through `PlayerProps.Add` — the same denominator fault as B290's weapon
+scan, and the second time in one session.
+
+**Then it reported every player in sequence 0, `'ref'`** — the reference pose — which looked exactly
+like a production defect in sequence selection. It was not: nothing on the wire carries a player's
+sequence, so `EntityModelSet.UpdateClientSideAnimations` chooses it, and the probe was not calling
+it. **A probe that skips a production step reports that step's absence as a bug**, and this one very
+nearly had a defect filed against it.
+
+### Not established
+
+Where TF2 applies the aim matrix. `CMultiPlayerAnimState::ComputeSequences` is main sequence plus
+gestures with no aim pass, so it is either the main sequence in some states, a layer added
+elsewhere, or something `CTFPlayerAnimState` overrides. **Reading that is the next step and it is a
+READ, not an implementation** — the same order that turned five procedural rules into one and six IK
+types into two.
+
+### B297 resolved: the aim matrix IS reached, by autolayer, and IK now solves
+
+**The chain, found by following the measurement to its end rather than filing it:**
+
+1. `stand_PRIMARY` blends ONE animation and carries no grid — so it is not the aim matrix.
+2. The aim matrices exist as their own sequences: `PRIMARY_aimmatrix_idle` **3x4**,
+   `PRIMARY_aimmatrix_run`, `_walk`, `_crouch_idle`.
+3. **They claim no activity and weigh zero**, so `SelectWeightedSequence` can never reach them.
+   Something must name them directly.
+4. It does: **`stand_PRIMARY` declares one autolayer targeting `PRIMARY_aimmatrix_idle`, and
+   `run_PRIMARY` targets `PRIMARY_aimmatrix_run`**, both with flags `0x0000` — so
+   `AddSequenceLayers` handles them, which B294 implemented earlier the same day.
+
+**So the aim matrix was already being applied.** What was missing is that `AccumulatePose` calls
+`AddDependencies` for EVERY sequence it accumulates — the main one and each autolayer, recursively —
+and `IkFor` read rules from the main sequence alone. TF2 puts every solving rule on the aim
+matrices, so reading only the main sequence finds releases for ever, which is exactly what four
+successive measurements reported.
+
+**The fix is that IK rules are gathered from every accumulated sequence**, each at that sequence's
+own weight, which is what `AddDependencies` receives as `flWeight`. The error list now carries the
+RULE rather than an index, because two rules with the same index in different animations are
+different rules.
+
+#### Measured, and it solves
+
+| demo | chains declared | SELF rules read | weighed | **chains SOLVED** |
+|---|---|---|---|---|
+| `z1800` / `koth_harvest_final` | 33 | 18 | 21 | **18** |
+| `tf2-2026-pub-pov-clean` / `cp_fulgur` | 37 | 17 | 18 | **16** |
+
+And the scan, which had found nothing across 24 ticks, now reports a solve on its first sample:
+`IK SOLVED at tick 6: 22 chains, 22 SELF rules, 22 weighed, 25 players`.
+
+**B296's verification is complete**: a `SELF` rule now demonstrably solves in production, on both
+demos, holding each player's off hand to the weapon it is gripping.
+
+#### What this cost to find, and what it says
+
+Four measurements in a row came back "no solving rule plays", every one of them correct and none of
+them the answer. The instrument was wrong twice on the way — it walked props without players, then
+skipped the sequence-selection step — and each wrong reading looked exactly like a production
+defect. **The rule that got through it was to keep asking what the number is a fact ABOUT**, rather
+than believing the first zero.

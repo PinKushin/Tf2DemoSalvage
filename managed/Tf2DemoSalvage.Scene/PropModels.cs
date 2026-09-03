@@ -2276,6 +2276,63 @@ public static class PropModels
                 ? StudioAnimation.Frames(Models[group], animation)
                 : 0;
 
+        /// <summary>The activity a merged sequence claims, such as <c>ACT_MP_STAND_PRIMARY</c>.</summary>
+        /// <param name="sequence">The merged sequence number.</param>
+        /// <returns>Its activity name, or empty.</returns>
+        public string ActivityOf(int sequence) =>
+            Sequences.At(sequence) is { } where &&
+            where.Group < Groups.Count &&
+            where.Local < Groups[where.Group].Sequences.Count
+                ? Groups[where.Group].Sequences[where.Local].Activity
+                : string.Empty;
+
+        /// <summary>How strongly a merged sequence claims its activity — <c>actweight</c>.</summary>
+        /// <param name="sequence">The merged sequence number.</param>
+        /// <returns>Its weight; zero means it is never chosen for that activity.</returns>
+        /// <remarks>
+        /// **`SelectWeightedSequence` picks among ties in proportion to this**, so two sequences
+        /// claiming one activity is normal and which one runs is a weighting question rather than
+        /// a lookup failure.
+        /// </remarks>
+        public int ActivityWeightOf(int sequence) =>
+            Sequences.At(sequence) is { } where &&
+            where.Group < Groups.Count &&
+            where.Local < Groups[where.Group].Sequences.Count
+                ? Groups[where.Group].Sequences[where.Local].ActivityWeight
+                : 0;
+
+        /// <summary>A merged sequence's blend grid, or null when it has none.</summary>
+        /// <param name="sequence">The merged sequence number.</param>
+        /// <returns>Its grid, or <c>null</c>.</returns>
+        /// <remarks>
+        /// **For telling a grid we failed to READ from a sequence that genuinely has one cell.**
+        /// The count of animations actually blended cannot distinguish them: a 3x3 aim matrix
+        /// misread as 1x1 and a plain one-animation sequence both report one corner. Only
+        /// <c>groupsize</c> separates them.
+        /// </remarks>
+        public StudioBlendGrid? GridOf(int sequence) =>
+            Sequences.At(sequence) is { } where &&
+            where.Group < Groups.Count &&
+            where.Local < Groups[where.Group].Sequences.Count
+                ? Groups[where.Group].Sequences[where.Local].Blend
+                : null;
+
+        /// <summary>A merged sequence's own label, such as <c>ACT_MP_STAND_PRIMARY</c>.</summary>
+        /// <param name="sequence">The merged sequence number.</param>
+        /// <returns>Its label, or empty when the number names nothing.</returns>
+        /// <remarks>
+        /// **Through the MERGED table, which is the whole point.** A player's sequences live in an
+        /// included animation model, so asking the root model for a label by a merged number gives
+        /// a plausible answer about the wrong sequence — the mistake that made a jump label read
+        /// correctly for the wrong reason once already.
+        /// </remarks>
+        public string LabelOf(int sequence) =>
+            Sequences.At(sequence) is { } where &&
+            where.Group < Groups.Count &&
+            where.Local < Groups[where.Group].Sequences.Count
+                ? Groups[where.Group].Sequences[where.Local].Label
+                : string.Empty;
+
         /// <summary>The model's IK chains — <c>rhand</c>, <c>lhand</c>, <c>rfoot</c>, <c>lfoot</c>.</summary>
         /// <remarks>
         /// **Read once and cached, because it is asked per entity per frame.** The ROOT model's,

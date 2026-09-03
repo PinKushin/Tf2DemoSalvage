@@ -682,7 +682,32 @@ public sealed class EntityModelSet
             // than the means to recompute it.
             posed.IkChains = skinned.IkChains;
 
-            (posed.IkRules, posed.IkErrors) = IkFor(skinned, sequence, phase, poseValues);
+            // **Every accumulated sequence contributes its rules, not just the main one** (B297).
+            // `AccumulatePose` calls `AddDependencies` for each sequence it accumulates and
+            // `AddSequenceLayers` then recurses, so a layer's rules count at the layer's own
+            // weight. This is not a detail: TF2's aim matrices are AUTOLAYERS of the movement
+            // sequences — `stand_PRIMARY` layers `PRIMARY_aimmatrix_idle`, `run_PRIMARY` layers
+            // `PRIMARY_aimmatrix_run` — and every solving IK rule in the game lives on them. Read
+            // from the main sequence alone, IK finds nothing but releases for ever.
+            List<(StudioIkRule, Vector3, Quaternion, float)> asked = [];
+
+            if (skinned.IkChains.Count > 0)
+            {
+                IkFor(skinned, sequence, phase, 1f, poseValues, asked);
+
+                foreach (PoseLayer layer in composed)
+                {
+                    IkFor(
+                        skinned,
+                        layer.Sequence,
+                        FractionOf(skinned, layer),
+                        layer.Weight,
+                        poseValues,
+                        asked);
+                }
+            }
+
+            posed.IkErrors = asked;
 
             // **The placement, which is what makes the built bones WORLD space.** A merged item
             // takes its wearer's bones and those already carry the wearer's placement, so nothing
@@ -1097,8 +1122,12 @@ public sealed class EntityModelSet
     /// <param name="skinned">The model.</param>
     /// <param name="sequence">The merged sequence being played.</param>
     /// <param name="cycle">Where its cycle stands, wrapped.</param>
+    /// <param name="influenceOfSequence">
+    /// How much this sequence itself counts — one for the main sequence, a layer's own weight for a
+    /// layer. `AddDependencies` takes exactly this as `flWeight`.
+    /// </param>
     /// <param name="values">The pose parameters in force, which choose the blend corners.</param>
-    /// <returns>The rules, and each one's decoded target and weight.</returns>
+    /// <param name="errors">Where the rules that asked for something are added, in place.</param>
     /// <remarks>
     /// **<c>Studio_IKSequenceError</c> then <c>Studio_IKAnimationError</c>**
     /// (<c>bone_setup.cpp:3043</c> and <c>:2994</c>), which between them do two accumulations across
@@ -1125,18 +1154,18 @@ public sealed class EntityModelSet
     /// false;`. Blended animations are expected to declare matching rule lists, and one that does
     /// not is abandoned rather than reconciled.
     /// </remarks>
-    private static (
-        IReadOnlyList<StudioIkRule> Rules,
-        IReadOnlyList<(int Rule, Vector3 Position, Quaternion Rotation, float Weight)> Errors)
-        IkFor(
-            PropModels.SkinnedModel skinned,
-            int sequence,
-            float cycle,
-            IReadOnlyList<float> values)
+
+    private static void IkFor(
+        PropModels.SkinnedModel skinned,
+        int sequence,
+        float cycle,
+        float influenceOfSequence,
+        IReadOnlyList<float> values,
+        List<(StudioIkRule, Vector3, Quaternion, float)> errors)
     {
-        if (skinned.IkChains.Count == 0)
+        if (skinned.IkChains.Count == 0 || influenceOfSequence <= 0f)
         {
-            return ([], []);
+            return;
         }
 
         (int group, IReadOnlyList<(int Animation, float Weight)> blend) =
@@ -1144,7 +1173,7 @@ public sealed class EntityModelSet
 
         if (blend.Count == 0 || group >= skinned.Models.Count)
         {
-            return ([], []);
+            return;
         }
 
         ReadOnlyMemory<byte> model = skinned.Models[group];
@@ -1153,10 +1182,8 @@ public sealed class EntityModelSet
 
         if (rules.Count == 0)
         {
-            return ([], []);
+            return;
         }
-
-        List<(int, Vector3, Quaternion, float)> errors = [];
 
         for (int rule = 0; rule < rules.Count; rule++)
         {
@@ -1280,10 +1307,32 @@ public sealed class EntityModelSet
                 continue;
             }
 
-            errors.Add((rule, position, Quaternion.Normalize(rotation), Math.Clamp(total, 0f, 1f)));
+            // **Scaled by the SEQUENCE's own influence**, which is what `AddDependencies` receives
+            // as `flWeight` — an autolayer at half weight asks for half the correction, exactly as
+            // its pose contributes half.
+            errors.Add((
+                shared,
+                position,
+                Quaternion.Normalize(rotation),
+                Math.Clamp(total * influenceOfSequence, 0f, 1f)));
         }
+    }
 
-        return (rules, errors);
+    /// <summary>A layer's cycle, recovered from the frame it was resolved to.</summary>
+    /// <remarks>
+    /// **A `PoseLayer` carries a FRAME, and an IK rule's envelope is in CYCLE.** The layer list is
+    /// built for bone sampling, which wants a frame; the rules want the fraction of the animation
+    /// that frame sits at. Recomputing it from the frame is exact enough for the envelope, whose
+    /// resolution is the same frame count.
+    ///
+    /// **A one-frame sequence is cycle zero rather than a division by zero**, which is also what
+    /// the engine's `numframes - 1` scaling implies for it.
+    /// </remarks>
+    private static float FractionOf(PropModels.SkinnedModel skinned, PoseLayer layer)
+    {
+        int frames = skinned.Frames(layer.Sequence);
+
+        return frames > 1 ? (layer.Frame + layer.FrameFraction) / (frames - 1) : 0f;
     }
 
     /// <summary>The sequences one sequence automatically layers over itself.</summary>
@@ -1833,7 +1882,7 @@ public sealed class EntityModelSet
                 // **Counting the rules that CAN do work, not all of them.** Ninety per cent of
                 // TF2's rules are releases with no error track, so a total that includes them
                 // cannot tell "the read failed" from "nothing playing asks for a solve".
-                foreach (StudioIkRule rule in posed.IkRules)
+                foreach ((StudioIkRule rule, _, _, _) in posed.IkErrors)
                 {
                     if (rule.Type == StudioIkRuleType.Self)
                     {
