@@ -538,6 +538,14 @@ internal static class StudioLayout
     /// </remarks>
     public const int AnimationIkRuleCountOffset = 60;
 
+    /// <summary>Byte offset of <c>ikruleindex</c>: where this animation's IK rules begin.</summary>
+    /// <remarks>
+    /// Relative to the ANIMATION description. <c>animblockikruleindex</c> follows at 68 and is a
+    /// second home for the same data, used when the rules live in an external animation block —
+    /// which TF2's player animations do not, measured.
+    /// </remarks>
+    public const int AnimationIkRuleIndexOffset = 64;
+
     /// <summary>Byte offset of <c>numlocalhierarchy</c>.</summary>
     /// <remarks>
     /// **An animation can reparent a bone while it plays**, which is what

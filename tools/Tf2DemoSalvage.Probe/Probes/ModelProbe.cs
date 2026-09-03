@@ -123,6 +123,69 @@ public sealed class ModelProbe : IProbe
             + $"{animations.ToString(CultureInfo.InvariantCulture)} animations ask, "
             + $"{rules.ToString(CultureInfo.InvariantCulture)} rules total");
 
+        // **The TYPE distribution, which decides how much of the solver ever runs.** A rule is not
+        // automatically work: IK_RELEASE tells a chain to let go and solves nothing, so a model
+        // whose rules are all releases asks for no solving at all. Counting rules without counting
+        // types would have made "705 animations ask" mean more than it does.
+        Dictionary<int, int> byType = [];
+        int withError = 0;
+
+        for (int animation = 0; animation < animations; animation++)
+        {
+            foreach (StudioIkRule rule in StudioIkRules.Read(bytes, animation))
+            {
+                byType[rule.Type] = byType.GetValueOrDefault(rule.Type) + 1;
+
+                if (rule.HasError)
+                {
+                    withError++;
+                }
+            }
+        }
+
+        string[] kinds = ["none", "SELF", "WORLD", "GROUND", "RELEASE", "ATTACHMENT", "UNLATCH"];
+
+        foreach ((int type, int count) in byType.OrderBy(entry => entry.Key))
+        {
+            string kind = type >= 0 && type < kinds.Length
+                ? kinds[type]
+                : $"unknown {type.ToString(CultureInfo.InvariantCulture)}";
+
+            output.WriteLine(
+                $"      type {kind,-12} {count.ToString(CultureInfo.InvariantCulture),6}");
+        }
+
+        output.WriteLine(
+            $"      with error tracks: {withError.ToString(CultureInfo.InvariantCulture)} of "
+            + $"{rules.ToString(CultureInfo.InvariantCulture)}");
+
+        // **The rules themselves, for the first few.** A 152-byte stride or a field order that is
+        // wrong reads as plausible numbers rather than as an error: an envelope of 0/0.3/0.7/1 with
+        // a chain in 0..3 and a type in 1..6 is what an authored rule looks like, and a chain of
+        // 1.4e9 is a misread. The same check that verified the jiggle reader.
+        int shown = 0;
+
+        for (int animation = 0; animation < animations && shown < 6; animation++)
+        {
+            foreach (StudioIkRule rule in StudioIkRules.Read(bytes, animation))
+            {
+                if (shown++ >= 6)
+                {
+                    break;
+                }
+
+                output.WriteLine(
+                    $"      rule anim {animation.ToString(CultureInfo.InvariantCulture)} "
+                    + $"type {rule.Type.ToString(CultureInfo.InvariantCulture)} "
+                    + $"chain {rule.Chain.ToString(CultureInfo.InvariantCulture)} "
+                    + $"bone {rule.Bone.ToString(CultureInfo.InvariantCulture)} "
+                    + $"slot {rule.Slot.ToString(CultureInfo.InvariantCulture)} "
+                    + $"window {rule.Start:0.###}/{rule.Peak:0.###}/{rule.Tail:0.###}/{rule.End:0.###} "
+                    + $"iStart {rule.FirstFrame.ToString(CultureInfo.InvariantCulture)} "
+                    + $"error {(rule.HasError ? "yes" : "NONE")}");
+            }
+        }
+
         // **The models this one includes**, because a sequence list read from the root alone is
         // only half the answer for anything that animates — and "the root has no events" reads
         // identically to "this model has no events" until the include list is on screen (B275).

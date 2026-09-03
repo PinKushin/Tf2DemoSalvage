@@ -70,4 +70,13 @@ internal static class StudioReaderLimits
     /// is far below it — 1 of 76 sequences on one map and 6 of 142 on another declare ANY.
     /// </remarks>
     public const int MaximumAutoLayers = 256;
+
+    /// <summary>IK rules one animation may declare.</summary>
+    /// <remarks>
+    /// **Plausibility, and generous next to what TF2 ships.** Measured across the scout's 1012
+    /// animations: 2035 rules over 705 animations, so under three each. A cap of 256 is two orders
+    /// above that and still bounds a corrupt <c>numikrules</c> before it indexes 152-byte entries
+    /// off the end of a model.
+    /// </remarks>
+    public const int MaximumIkRules = 256;
 }

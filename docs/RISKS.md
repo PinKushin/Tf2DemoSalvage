@@ -19122,3 +19122,63 @@ before the old-Z read cannot matter — the indices are disjoint. The hazard the
 about is reading the old Z after column TWO is written, which is a different edit; made properly, it
 reddens the new rolled-matrix test at once. Recorded because a sabotage that exercises no path is
 indistinguishable from a test that cannot fail, and only one of those needs fixing.
+
+### B296 progress: the rules read, and the TYPE census that narrows the job again
+
+**A rule is not automatically work.** `IK_RELEASE` tells a chain to let go and solves nothing, so
+counting rules without counting types made "705 animations ask" mean more than it does. Measured:
+
+| type | scout | heavy | what it does |
+|---|---|---|---|
+| `IK_SELF` | **206** | 147 | target is a bone on this same model — a hand on a weapon's grip |
+| `IK_RELEASE` | **1829** | 1349 | let go; no solving at all |
+| `IK_GROUND` | **0** | 0 | — |
+| `IK_WORLD`, `IK_ATTACHMENT`, `IK_UNLATCH` | 0 | 0 | — |
+
+**Ninety per cent of TF2's IK rules are releases.** The solving work is `IK_SELF` alone — 206 rules
+on the scout, 147 on the heavy — and it is about HANDS, not feet.
+
+**There is no `IK_GROUND` in TF2 at all**, which is the surprise and it corrects an assumption made
+one entry above this one. "Feet sliding rather than planting" was named there as the visible symptom
+of missing IK; it is not, because TF2 never asks for ground IK on a player. The visible symptom is
+an off hand not held to the weapon it is gripping.
+
+**So the remaining job is two types, not six**, and one of them does nothing. That is the fourth
+time a census has turned a subsystem into a function: five procedural rules became one, one autolayer
+pass became two, and six IK types become two.
+
+### The reader, checked against real rules
+
+`mstudioikrule_t` is 152 bytes, and the trailing `unused[7]` is most of what makes it that —
+counting only the meaningful fields gives 124, and a stride short by 28 reads every rule after the
+first from the wrong place. Verified on `scout_animations.mdl` rather than by re-reading the struct:
+
+```
+rule anim 0 type 4 chain 0 bone 0 slot 0 window 0/0/1/1 iStart 0 error NONE
+rule anim 0 type 4 chain 1 bone 0 slot 1 window 0/0/1/1 iStart 0 error NONE
+rule anim 0 type 4 chain 2 bone 0 slot 2 window 0/0/1/1 iStart 0 error NONE
+rule anim 0 type 4 chain 3 bone 0 slot 3 window 0/0/1/1 iStart 0 error NONE
+```
+
+**Four rules, one per chain, with `slot == chain` throughout** — matching Valve's own comment that
+the slot is "usually same as chain" — and a release correctly carrying no error track, since it is
+telling a chain to stop rather than where to reach. A wrong field order does not produce that.
+
+**453 of 2035 rules carry error tracks**, which is more than the 206 `SELF` rules: some releases
+carry one too. Noted rather than explained; it bears on `Studio_IKAnimationError`'s
+`if (pRule->type != IK_GROUND && flWeight < 0.0001) return false;`, which is the only place the
+distinction is read.
+
+### `Studio_IKRuleWeight` answers two questions and both are tested
+
+It returns the influence AND which frame of the error track to read, and two of its branches exist
+only to pin that frame — below the start to the track's beginning, past the end to the frame the end
+lands on, so a finished rule keeps reading its final error rather than running off the track. Eight
+tests; sabotaging the loop-wrap reddened exactly the wrap test and sabotaging the past-the-end pin
+reddened exactly that one.
+
+### Still absent
+
+`CIKContext` itself — the rules have no consumer yet — and the compressed error tracks
+(`mstudiocompressedikerror_t`, decoded by `CalcDecompressedAnimation`). The solver, the reader and
+the weighting are in; what connects them to a skeleton is not.
