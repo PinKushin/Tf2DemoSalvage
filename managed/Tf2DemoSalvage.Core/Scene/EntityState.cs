@@ -54,6 +54,11 @@ public sealed class EntityState
                 // INSTEAD of the modern one. Listed because this decoder genuinely looks for it,
                 // which is what this dictionary claims to enumerate (B271).
                 LegacyModelScaleProperty,
+
+                // Eleven bits each over nought to one, and read by `CalcBoneAdj` to bend an
+                // individual bone — a sentry's barrel, a door's hinge (B287). Listed by its bare
+                // name because the values arrive as an ARRAY, `m_flEncodedController.000` upward.
+                EncodedControllerProperty,
             ],
             [ServerAnimationTable] = [CycleProperty],
             [BasePlayerTable] = [FlagsProperty, LifeStateProperty],
@@ -738,6 +743,83 @@ public sealed class EntityState
 
         if (key[dot] != '.' ||
             !key.AsSpan(0, dot).EndsWith(PoseParameterTable, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        return int.TryParse(
+            key.AsSpan(dot + 1), NumberStyles.None, CultureInfo.InvariantCulture, out int index)
+            ? index
+            : null;
+    }
+
+    /// <summary>The property an entity's bone controller values arrive under.</summary>
+    /// <remarks>
+    /// <c>SendPropArray3( SENDINFO_ARRAY3(m_flEncodedController), SendPropFloat( …, 11,
+    /// SPROP_ROUNDDOWN, 0.0f, 1.0f ) )</c> (<c>baseanimating.cpp:248</c>) — eleven bits each over
+    /// nought to one, so the decoded value is ALREADY the normalised input <c>CalcBoneAdj</c>
+    /// wants and needs no rescaling.
+    /// </remarks>
+    private const string EncodedControllerProperty = "m_flEncodedController";
+
+    /// <summary>This entity's bone controller values, normalised, by input index.</summary>
+    /// <returns>One value per input the demo mentioned, or empty.</returns>
+    /// <remarks>
+    /// **Networked, and therefore recoverable from a demo** — which is worth saying because most of
+    /// what drives a player's animation is not (see <c>tf_player.cpp:774</c>). `CalcBoneAdj`
+    /// (<c>bone_setup.cpp:2462</c>) reads these to bend individual bones: a sentry's barrel, a
+    /// door's hinge, anything a model author wired to a controller rather than to an animation.
+    ///
+    /// **Indexed by INPUT, not by controller.** A controller names which input drives it through
+    /// <c>inputfield</c>, and the model's controller list is not in input order — so this returns
+    /// the raw input array and the model decides which entry it reads.
+    /// </remarks>
+    public IReadOnlyList<float> BoneControllers()
+    {
+        int highest = -1;
+
+        foreach ((string key, PropertyValue value) in _properties)
+        {
+            if (IndexOfController(key) is { } index && value.Kind == PropertyValueKind.Float)
+            {
+                highest = Math.Max(highest, index);
+            }
+        }
+
+        if (highest < 0)
+        {
+            return [];
+        }
+
+        float[] values = new float[highest + 1];
+
+        foreach ((string key, PropertyValue value) in _properties)
+        {
+            if (IndexOfController(key) is { } index && value.Kind == PropertyValueKind.Float)
+            {
+                values[index] = value.AsFloat;
+            }
+        }
+
+        return values;
+    }
+
+    /// <summary>The input index a controller key names, or null when it is not one.</summary>
+    /// <param name="key">The flat property name.</param>
+    /// <returns>The index, or null.</returns>
+    private static int? IndexOfController(string key)
+    {
+        const int OrdinalLength = 3;
+
+        if (key.Length < EncodedControllerProperty.Length + 1 + OrdinalLength)
+        {
+            return null;
+        }
+
+        int dot = key.Length - OrdinalLength - 1;
+
+        if (key[dot] != '.' ||
+            !key.AsSpan(0, dot).EndsWith(EncodedControllerProperty, StringComparison.Ordinal))
         {
             return null;
         }

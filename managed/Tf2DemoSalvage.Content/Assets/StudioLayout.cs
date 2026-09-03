@@ -256,6 +256,19 @@ internal static class StudioLayout
     /// </remarks>
     public const int BoneControllerEndOffset = 12;
 
+    /// <summary>Byte offset of a bone controller's <c>inputfield</c>.</summary>
+    /// <remarks>
+    /// **Which of the entity's controller values drives this bone**, and the reason the whole
+    /// mechanism needs it: <c>CalcBoneAdj</c> is <c>i = pbonecontroller-&gt;inputfield; value =
+    /// controllers[i];</c> (<c>bone_setup.cpp:2482</c>). Two controllers can share an input, and a
+    /// model's controllers are not in input order — assuming index equals input would drive the
+    /// wrong bone from the wrong value on any model where they differ.
+    ///
+    /// <c>mstudiobonecontroller_t</c>: <c>bone</c> 0, <c>type</c> 4, <c>start</c> 8, <c>end</c> 12,
+    /// <c>rest</c> 16, <c>inputfield</c> 20 (<c>studio.h:443</c>).
+    /// </remarks>
+    public const int BoneControllerInputOffset = 20;
+
     /// <summary>Bytes per <c>mstudioikchain_t</c>.</summary>
     /// <remarks>
     /// Sixteen, with no trailing padding. Where every neighbouring structure ends in an

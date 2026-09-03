@@ -14,7 +14,7 @@ ignorance rather than proof of use — a name can be mentioned and still not hon
 which is its own recurring bug here. A property this report calls read may still be
 decoded and dropped.
 
-**115 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
+**116 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
 
 ## Tables an entity this viewer draws composes
 
@@ -36,12 +36,12 @@ Nothing unread.
 
 ### DT_BaseAnimating
 
-**14 of 21** mentioned.
+**15 of 21** mentioned.
 
 Not mentioned anywhere in a shipped assembly:
 
 ```
-m_flEncodedController, m_flFadeScale, m_hLightingOrigin, m_hLightingOriginRelative, m_nForceBone, m_nHitboxSet, m_vecForce
+m_flFadeScale, m_hLightingOrigin, m_hLightingOriginRelative, m_nForceBone, m_nHitboxSet, m_vecForce
 ```
 
 ### DT_BaseAnimatingOverlay

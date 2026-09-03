@@ -247,6 +247,10 @@ public sealed class PoseCompletenessTests
         // looks exactly like one that sends none — which is most of them.
         Layers = [new SceneAnimationLayer(Order: 1, Sequence: 7, Cycle: 0.25f, Weight: 0.5f)],
 
+        // Four inputs, none of them the 0 or 1 an endpoint would produce anyway, so a rebuild that
+        // dropped them reads as a bone at rest rather than as a bone bent to its limit (B287).
+        BoneControllers = [0.25f, 0.5f, 0.75f, 0.125f],
+
         // **`WEAPON_IS_ACTIVE`, and neither of the two values it must be told apart from is safe
         // here.** Null means "not a weapon" and 0 is `WEAPON_NOT_CARRIED`, so a rebuild that
         // dropped this would read as a wearable or as a weapon on the floor — and both of those

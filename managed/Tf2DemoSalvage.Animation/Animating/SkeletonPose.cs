@@ -87,6 +87,7 @@ public sealed class SkeletonPose : IBonePose
         _animation = animation;
         _local = new float[bones.Count][];
         _layered = new StudioBonePose[bones.Count];
+        _adjusted = new StudioBonePose[bones.Count];
         _overrideOf = new int[bones.Count];
 
         for (int bone = 0; bone < bones.Count; bone++)
@@ -195,6 +196,24 @@ public sealed class SkeletonPose : IBonePose
     /// </remarks>
     public IReadOnlyList<PoseLayer> Layers { get; set; } = [];
 
+    /// <summary>This entity's bone controller values, normalised, by input index.</summary>
+    /// <remarks>
+    /// **<c>CalcBoneAdj</c>'s input** (<c>bone_setup.cpp:2462</c>), which
+    /// <c>StandardBlendingRules</c> applies after the layers and the autoplay sequences. They bend
+    /// one bone each — a sentry's barrel, a door's hinge — and are networked, so unlike most of
+    /// what drives a player they are genuinely recoverable from a demo (B287).
+    /// </remarks>
+    public IReadOnlyList<float> BoneControllers { get; set; } = [];
+
+    /// <summary>The model's own controllers, which say which bone each input drives.</summary>
+    /// <remarks>
+    /// **Separate from the values, because they come from different places** — this is the model's
+    /// and <see cref="BoneControllers"/> is the demo's. A controller names its input through
+    /// <c>inputfield</c> rather than by position, so the two are joined by that number and not by
+    /// index.
+    /// </remarks>
+    public IReadOnlyList<StudioBoneController> Controllers { get; set; } = [];
+
     /// <summary>Where a bone built on an unbuilt parent is reported, or null for nowhere.</summary>
     /// <remarks>
     /// **The one condition that makes a skeleton silently wrong** (B222). A bone whose parent failed
@@ -259,6 +278,11 @@ public sealed class SkeletonPose : IBonePose
         // `AccumulateLayers` straight after the main sequence, and each layer accumulates onto the
         // RESULT of the last rather than onto the original.
         animated = Accumulate(animated);
+
+        // **`CalcBoneAdj`, which `StandardBlendingRules` runs after the layers** (B287). It bends
+        // individual bones by the entity's own controller values — a sentry's barrel, a door's
+        // hinge — and is the last thing to touch the local pose before it is concatenated.
+        animated = Adjust(animated);
 
         // **Indexed once, not searched per bone — and the first version of this did the latter.**
         // It set a `bool` here and then scanned `animated` again INSIDE the per-bone loop, which is
@@ -526,6 +550,128 @@ public sealed class SkeletonPose : IBonePose
 
         return result;
     }
+
+    /// <summary>Bends bones by the entity's controller values — <c>CalcBoneAdj</c>.</summary>
+    /// <param name="pose">The pose so far.</param>
+    /// <returns>The pose with the controllers applied.</returns>
+    /// <remarks>
+    /// **<c>bone_setup.cpp:2462</c>**, and the whole of it:
+    ///
+    /// <code>
+    ///   i = pbonecontroller->inputfield;
+    ///   value = controllers[i];
+    ///   if (value &lt; 0) value = 0;
+    ///   if (value &gt; 1.0) value = 1.0;
+    ///   value = (1.0 - value) * pbonecontroller->start + value * pbonecontroller->end;
+    ///   switch(pbonecontroller->type &amp; STUDIO_TYPES)
+    ///   {
+    ///   case STUDIO_XR: a0.Init( value * (M_PI / 180.0), 0, 0 ); AngleQuaternion( a0, q0 );
+    ///                   QuaternionSM( 1.0, q0, q[k], q[k] ); break;
+    ///   ...
+    ///   case STUDIO_X:  pos[k].x += value; break;
+    ///   }
+    /// </code>
+    ///
+    /// **A rotation is in DEGREES and a translation is in units**, which the engine shows by
+    /// converting only the former. Scaling both the same way would rotate a bone by a fraction of a
+    /// degree or slide it fifty units.
+    ///
+    /// **The rotation composes with `QuaternionSM` at weight one**, which is the same additive
+    /// composition a delta layer uses — the controller turns the bone FROM where the animation left
+    /// it rather than replacing it.
+    ///
+    /// **Returns the pose untouched when there is nothing to do**, which is almost every entity:
+    /// a model with no controllers, or a demo that never sent a value.
+    /// </remarks>
+    private IReadOnlyList<StudioBonePose> Adjust(IReadOnlyList<StudioBonePose> pose)
+    {
+        if (Controllers.Count == 0 || BoneControllers.Count == 0)
+        {
+            return pose;
+        }
+
+        StudioBonePose[] adjusted = _adjusted;
+
+        for (int bone = 0; bone < _bones.Count; bone++)
+        {
+            adjusted[bone] = new StudioBonePose(
+                bone, _bones[bone].Position, _bones[bone].Rotation);
+        }
+
+        foreach (StudioBonePose moved in pose)
+        {
+            if (moved.Bone >= 0 && moved.Bone < adjusted.Length)
+            {
+                adjusted[moved.Bone] = moved;
+            }
+        }
+
+        bool touched = false;
+
+        foreach (StudioBoneController controller in Controllers)
+        {
+            int bone = controller.Bone;
+
+            if (bone < 0 || bone >= adjusted.Length ||
+                controller.InputField < 0 || controller.InputField >= BoneControllers.Count)
+            {
+                continue;
+            }
+
+            float value = controller.Value(BoneControllers[controller.InputField]);
+
+            StudioBonePose current = adjusted[bone];
+
+            (float X, float Y, float Z) position = current.Position;
+            (float X, float Y, float Z, float W) rotation = current.Rotation;
+
+            switch (controller.Axis)
+            {
+                case StudioBoneController.TranslateX:
+                    position.X += value;
+                    break;
+
+                case StudioBoneController.TranslateY:
+                    position.Y += value;
+                    break;
+
+                case StudioBoneController.TranslateZ:
+                    position.Z += value;
+                    break;
+
+                case StudioBoneController.RotateX:
+                    rotation = StudioBones.ScaleBefore(
+                        1f, StudioAnimation.FromEulerRadians(Radians(value), 0f, 0f), rotation);
+                    break;
+
+                case StudioBoneController.RotateY:
+                    rotation = StudioBones.ScaleBefore(
+                        1f, StudioAnimation.FromEulerRadians(0f, Radians(value), 0f), rotation);
+                    break;
+
+                case StudioBoneController.RotateZ:
+                    rotation = StudioBones.ScaleBefore(
+                        1f, StudioAnimation.FromEulerRadians(0f, 0f, Radians(value)), rotation);
+                    break;
+
+                default:
+                    continue;
+            }
+
+            adjusted[bone] = new StudioBonePose(bone, position, rotation);
+            touched = true;
+        }
+
+        return touched ? adjusted : pose;
+    }
+
+    /// <summary>Degrees as radians, which is the engine's <c>value * (M_PI / 180.0)</c>.</summary>
+    /// <param name="degrees">The controller's value.</param>
+    /// <returns>The same angle in radians.</returns>
+    private static float Radians(float degrees) => degrees * (MathF.PI / 180f);
+
+    /// <summary>Scratch for the controller pass, allocated once per entity.</summary>
+    private readonly StudioBonePose[] _adjusted;
 
     /// <summary>The entity transform as a span, copied only when it is not already an array.</summary>
     /// <remarks>

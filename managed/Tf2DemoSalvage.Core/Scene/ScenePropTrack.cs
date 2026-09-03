@@ -163,6 +163,18 @@ public readonly record struct ScenePose
     /// </remarks>
     public IReadOnlyList<SceneAnimationLayer> Layers { get; init; } = [];
 
+    /// <summary>This entity's bone controller values, normalised, by input index.</summary>
+    /// <remarks>
+    /// **<c>m_flEncodedController</c>, which is networked and therefore recoverable** —
+    /// eleven bits each over nought to one (<c>baseanimating.cpp:248</c>). `CalcBoneAdj`
+    /// (<c>bone_setup.cpp:2462</c>) reads them to bend a single bone: a sentry's barrel, a door's
+    /// hinge, anything an author wired to a controller rather than to an animation (B287).
+    ///
+    /// **Indexed by INPUT rather than by controller**, because a model's controllers name which
+    /// input drives them and are not stored in input order.
+    /// </remarks>
+    public IReadOnlyList<float> BoneControllers { get; init; } = [];
+
     /// <summary>Which animation is playing.</summary>
     /// <remarks>
     /// **Zero when the demo never said, because zero is the engine's default** — <c>m_nSequence</c>
@@ -1542,6 +1554,11 @@ public sealed class ScenePropTrack
             // is a stated approximation rather than parity, and the visible cost is a layer that
             // steps at the snapshot rate where the engine's slides (B285).
             Layers = from.Layers,
+
+            // **From the earlier keyframe.** The engine interpolates these as ordinary networked
+            // floats, so this is a stated approximation for the same reason the layers are: a
+            // controller that sweeps steps at the snapshot rate here where the engine's slides.
+            BoneControllers = from.BoneControllers,
 
             // **Discrete, and the newest arrival on this list** (B244). A weapon is in a player's
             // hands or it is not; there is no state part-way between holstered and drawn, and the

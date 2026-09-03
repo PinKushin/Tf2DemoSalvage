@@ -2895,6 +2895,11 @@ public sealed class DemoTimeline
                 // too. `AccumulateLayers` walks them in `m_nOrder` over the main sequence.
                 Layers = state.AnimationLayers(),
 
+                // **Networked, and read by `CalcBoneAdj` to bend one bone** (B287). Decoded since
+                // the whitelist was written and applied by nothing until now — a sentry's barrel
+                // and a door's hinge are wired to these rather than to an animation.
+                BoneControllers = state.BoneControllers(),
+
                 // **The render state, which is what lets anything fade** (B221). All three are on
                 // `DT_BaseEntity`, so they arrive for props, brush entities and players alike —
                 // measured on real matches at 410 of 1,973 entities not fully opaque, with 118 at

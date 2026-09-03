@@ -18370,3 +18370,48 @@ reddened. Gate green on both phases.
   the animation start, so the restart happens; the cross-fade around it does not.
 - **The commented-out clip.** Valve's own source carries a disabled block that would shorten the
   fade to the time left in a non-looping sequence. It is disabled there, so it is absent here.
+
+## B288 — bone controllers were decoded, read off the model, and applied to nothing — FIXED
+
+**Two halves, from two different places, and neither did anything on its own.** The model says which
+bone each input drives and over what range; the demo says what the input is. `StudioBoneControllers`
+had read the first since it was written — with **zero production consumers** — and
+`m_flEncodedController` was on the retained-property whitelist and never asked for.
+
+**They are NETWORKED, which is worth saying**, because most of what drives a player's animation is
+not: `SendPropArray3( SENDINFO_ARRAY3(m_flEncodedController), SendPropFloat( …, 11, SPROP_ROUNDDOWN,
+0.0f, 1.0f ) )` (`baseanimating.cpp:248`). Eleven bits over nought to one, so the decoded value is
+already the normalised input `CalcBoneAdj` wants.
+
+**What they do:** bend one bone each, where an animation is not the mechanism — a sentry's barrel, a
+door's hinge, anything an author wired to a controller.
+
+### The three things that were easy to get wrong
+
+**The input is chosen by `inputfield`, not by position.** `i = pbonecontroller->inputfield; value =
+controllers[i];` (`bone_setup.cpp:2482`). Two controllers may share an input and a model's list is
+not in input order, so assuming index equals input drives the wrong bone from the wrong value. The
+reader had not been reading `inputfield` at all.
+
+**A rotation is in DEGREES and a translation is in units**, which the engine shows by converting
+only the former: `a0.Init( value * (M_PI / 180.0), 0, 0 )`. Sabotaged by removing the conversion,
+and the rotation test alone reddened.
+
+**The clamp comes before the lerp**, so an out-of-range input lands on an endpoint rather than
+extrapolating past the animator's limit.
+
+### One conversion, not two
+
+`AngleQuaternion` for a `RadianEuler` already existed in `StudioAnimation`, with a remark warning
+that the axis order is roll-pitch-yaw rather than a `QAngle`'s pitch-yaw-roll. It was made public
+rather than copied: a second copy is exactly what that warning is about.
+
+### Verified
+
+Six conformance tests, sabotaged twice — driving the wrong bone reddened five, dropping the degree
+conversion reddened the one that measures a rotation. Gate green on both phases.
+
+### Not reproduced
+
+`CalcBoneAdj`'s `STUDIO_TYPES` mask covers more than the six axes; anything else falls through the
+switch untouched, which is what the engine's own `switch` does with no `default`.

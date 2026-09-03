@@ -12,6 +12,13 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// <param name="Type">Which axis, plus the wrapping bit.</param>
 /// <param name="Start">The value an encoded 0 maps to.</param>
 /// <param name="End">The value an encoded 1 maps to.</param>
+/// <param name="InputField">
+/// Which of the entity's controller values drives this bone — <c>inputfield</c>, and the index
+/// <c>CalcBoneAdj</c> reads with: <c>i = pbonecontroller-&gt;inputfield; value = controllers[i];</c>
+/// (<c>bone_setup.cpp:2482</c>). Two controllers may share an input and a model's controllers are
+/// not in input order, so assuming the list index is the input drives the wrong bone from the wrong
+/// value on any model where they differ.
+/// </param>
 /// <remarks>
 /// **Neither half is usable alone, which is the whole reason this has to be read.** The demo carries
 /// <c>m_flEncodedController</c> as eleven bits over 0..1 (<c>baseanimating.cpp:248</c>) — a
@@ -22,7 +29,69 @@ public readonly record struct StudioBoneController(
     int Bone,
     int Type,
     float Start,
-    float End);
+    float End,
+    int InputField = 0)
+{
+    /// <summary>The axis and kind this controller drives — <c>type &amp; STUDIO_TYPES</c>.</summary>
+    /// <remarks>
+    /// **<c>CalcBoneAdj</c> masks before it switches** (<c>bone_setup.cpp:2487</c>):
+    /// <c>switch(pbonecontroller-&gt;type &amp; STUDIO_TYPES)</c>, where <c>STUDIO_TYPES</c> is
+    /// <c>0x0003FFFF</c> (<c>studio.h:3074</c>). The field carries more than the axis, so testing
+    /// it whole would miss a controller whose upper bits are set.
+    /// </remarks>
+    public int Axis => Type & StudioFlags.ControllerTypes;
+
+    /// <summary><c>STUDIO_X</c> — translate the bone along X, in units.</summary>
+    /// <remarks>
+    /// **Public here because <c>StudioFlags</c> is internal to this assembly** and the code that
+    /// applies a controller lives in Animation. Forwarding rather than restating keeps one
+    /// definition: a second copy of <c>0x0001</c> elsewhere could drift from this one silently,
+    /// and a controller applied on the wrong axis moves a bone in a plausible direction.
+    /// </remarks>
+    public const int TranslateX = StudioFlags.ControllerX;
+
+    /// <summary><c>STUDIO_Y</c> — translate along Y, in units.</summary>
+    public const int TranslateY = StudioFlags.ControllerY;
+
+    /// <summary><c>STUDIO_Z</c> — translate along Z, in units.</summary>
+    public const int TranslateZ = StudioFlags.ControllerZ;
+
+    /// <summary><c>STUDIO_XR</c> — rotate about X, in DEGREES.</summary>
+    /// <remarks>
+    /// **Degrees, where the translations are units**, which <c>CalcBoneAdj</c> shows by converting
+    /// only the rotation cases: <c>a0.Init( value * (M_PI / 180.0), 0, 0 )</c>.
+    /// </remarks>
+    public const int RotateX = StudioFlags.ControllerXRotation;
+
+    /// <summary><c>STUDIO_YR</c> — rotate about Y, in degrees.</summary>
+    public const int RotateY = StudioFlags.ControllerYRotation;
+
+    /// <summary><c>STUDIO_ZR</c> — rotate about Z, in degrees.</summary>
+    public const int RotateZ = StudioFlags.ControllerZRotation;
+
+    /// <summary>The value in this controller's own units, from a normalised input.</summary>
+    /// <param name="normalised">The entity's controller value, zero to one.</param>
+    /// <returns>The value <c>CalcBoneAdj</c> would apply.</returns>
+    /// <remarks>
+    /// **<c>bone_setup.cpp:2483</c>**, clamp then lerp:
+    ///
+    /// <code>
+    ///   if (value &lt; 0) value = 0;
+    ///   if (value &gt; 1.0) value = 1.0;
+    ///   value = (1.0 - value) * pbonecontroller-&gt;start + value * pbonecontroller-&gt;end;
+    /// </code>
+    ///
+    /// The clamp comes FIRST, so an out-of-range input lands on an endpoint rather than
+    /// extrapolating past it — which for a rotation controller would spin the bone past its
+    /// authored limit.
+    /// </remarks>
+    public float Value(float normalised)
+    {
+        float within = Math.Clamp(normalised, 0f, 1f);
+
+        return ((1f - within) * Start) + (within * End);
+    }
+}
 
 /// <summary>
 /// The bone controllers a model declares.
@@ -103,7 +172,8 @@ public static class StudioBoneControllers
                 BinaryPrimitives.ReadInt32LittleEndian(controller[BoneControllerBoneOffset..]),
                 BinaryPrimitives.ReadInt32LittleEndian(controller[BoneControllerTypeOffset..]),
                 BinaryPrimitives.ReadSingleLittleEndian(controller[BoneControllerStartOffset..]),
-                BinaryPrimitives.ReadSingleLittleEndian(controller[BoneControllerEndOffset..])));
+                BinaryPrimitives.ReadSingleLittleEndian(controller[BoneControllerEndOffset..]),
+                BinaryPrimitives.ReadInt32LittleEndian(controller[BoneControllerInputOffset..])));
         }
 
         return controllers;

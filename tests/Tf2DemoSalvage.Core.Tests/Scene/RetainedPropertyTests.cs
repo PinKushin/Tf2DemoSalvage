@@ -60,10 +60,15 @@ public sealed class RetainedPropertyTests
         // only" (`c_baseanimating.cpp:181`). Four of the six era specimens send it and no send
         // table in the 2013 SDK declares it, so it is listed here and the SendProp conformance
         // denominator had to learn about `RECVINFO_NAME` for it (B271).
+        // **`m_flEncodedController` is an ARRAY** and is listed by its bare name, which is how the
+        // values arrive keyed — `m_flEncodedController.000` upward. Eleven bits each over nought
+        // to one (`baseanimating.cpp:248`), read by `CalcBoneAdj` to bend one bone: a sentry's
+        // barrel, a door's hinge (B287).
         retained[AnimatingTable].ShouldBe(
             [
                 "m_nSequence", "m_nBody", "m_flPlaybackRate",
                 "m_flModelScale", "m_flModelWidthScale", "m_nSkin",
+                "m_flEncodedController",
             ],
             ignoreOrder: true);
 

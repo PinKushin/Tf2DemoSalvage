@@ -1131,6 +1131,13 @@ public static class PropModels
                             masterPose)
                         {
                             Props = props,
+
+                            // Read here, beside the bones they index into, because this is the one
+                            // pass over the model there is (B287). **The ROOT model's**, which is
+                            // `groupModels[0]`: `CalcBoneAdj` walks the studio header's own
+                            // controllers and indexes the skeleton being posed, not an included
+                            // animation model's.
+                            Controllers = StudioBoneControllers.Read(modelFile),
                         }
                         : null,
                     IlluminationOf(modelFile),
@@ -1395,6 +1402,17 @@ public static class PropModels
         /// needing one.
         /// </remarks>
         public ILogger Props { get; init; } = NullLogger.Instance;
+
+        /// <summary>The model's own bone controllers, which say what each input bends.</summary>
+        /// <remarks>
+        /// **An init property rather than a positional parameter (D83)**, so adding it changed no
+        /// construction site. It is set where the model is read, beside the bones it indexes into.
+        ///
+        /// **The ROOT model's**, not a group's: `CalcBoneAdj` walks `pStudioHdr->numbonecontrollers()`
+        /// and indexes `pos[]`/`q[]` by the controller's own bone number
+        /// (<c>bone_setup.cpp:2476</c>), which is the skeleton being posed (B287).
+        /// </remarks>
+        public IReadOnlyList<StudioBoneController> Controllers { get; init; } = [];
 
         /// <summary>The bone matrices for one sequence at one frame.</summary>
         /// <param name="sequence">The merged sequence number, as a demo would network it.</param>

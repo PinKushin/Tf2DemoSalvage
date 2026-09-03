@@ -324,7 +324,7 @@ public static class StudioAnimation
                 z += rest.Euler.Z;
             }
 
-            rotation = FromEuler(x, y, z);
+            rotation = FromEulerRadians(x, y, z);
         }
 
         (float X, float Y, float Z) position = additive ? (0f, 0f, 0f) : rest.Position;
@@ -671,13 +671,22 @@ public static class StudioAnimation
             (float)BitConverter.UInt16BitsToHalf(BinaryPrimitives.ReadUInt16LittleEndian(from[4..])));
 
     /// <summary>Valve's <c>AngleQuaternion</c> for a <c>RadianEuler</c>.</summary>
+    /// <param name="x">Roll, in radians.</param>
+    /// <param name="y">Pitch, in radians.</param>
+    /// <param name="z">Yaw, in radians.</param>
+    /// <returns>The rotation.</returns>
     /// <remarks>
     /// **The axis order is the trap.** A <c>RadianEuler</c> is roll, pitch, yaw in x, y, z — not
     /// the pitch-yaw-roll of a <c>QAngle</c> — and Valve's own comment beside the X360 path notes
     /// the ordering differs between the two for exactly that reason. Swapping them produces a
     /// skeleton that is plausible and wrong.
+    ///
+    /// **Public because `CalcBoneAdj` calls the same function** (<c>bone_setup.cpp:2490</c>):
+    /// <c>a0.Init( value * (M_PI / 180.0), 0, 0 ); AngleQuaternion( a0, q0 );</c>. A second copy
+    /// there could disagree with this one about the axis order, which is precisely the mistake the
+    /// remark above is warning about.
     /// </remarks>
-    private static (float X, float Y, float Z, float W) FromEuler(float x, float y, float z)
+    public static (float X, float Y, float Z, float W) FromEulerRadians(float x, float y, float z)
     {
         (float sinYaw, float cosYaw) = MathF.SinCos(z * 0.5f);
         (float sinPitch, float cosPitch) = MathF.SinCos(y * 0.5f);

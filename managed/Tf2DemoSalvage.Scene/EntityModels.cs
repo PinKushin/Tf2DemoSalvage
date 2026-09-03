@@ -636,6 +636,13 @@ public sealed class EntityModelSet
             AnimationEvents(prop, skinned, sequence, phase);
             posed.PoseValues = PoseValues(skinned, where, sequence);
 
+            // **`CalcBoneAdj`'s two halves, which come from different places** (B287). The model
+            // says which bone each input drives and over what range; the demo says what the input
+            // is, networked as eleven bits over nought to one. Neither alone bends anything, and
+            // both have been read and dropped until now.
+            posed.Controllers = skinned.Controllers;
+            posed.BoneControllers = where.BoneControllers;
+
             // **The placement, which is what makes the built bones WORLD space.** A merged item
             // takes its wearer's bones and those already carry the wearer's placement, so nothing
             // downstream has to know where a wearer stands — see D88 and finding 35 section 7a.

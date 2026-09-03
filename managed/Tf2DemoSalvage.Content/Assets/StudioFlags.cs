@@ -69,6 +69,38 @@ internal static class StudioFlags
     /// </remarks>
     public const int SequenceSnap = 0x0002;
 
+    /// <summary><c>STUDIO_TYPES</c>, <c>studio.h:3074</c> — the mask over a controller's type.</summary>
+    /// <remarks>
+    /// **<c>CalcBoneAdj</c> masks before it switches** (<c>bone_setup.cpp:2487</c>). The field
+    /// carries more than the axis, so comparing it whole would miss a controller with upper bits
+    /// set.
+    /// </remarks>
+    public const int ControllerTypes = 0x0003FFFF;
+
+    /// <summary><c>STUDIO_X</c>, <c>studio.h:3058</c> — translate along X.</summary>
+    public const int ControllerX = 0x0001;
+
+    /// <summary><c>STUDIO_Y</c>, <c>studio.h:3059</c>.</summary>
+    public const int ControllerY = 0x0002;
+
+    /// <summary><c>STUDIO_Z</c>, <c>studio.h:3060</c>.</summary>
+    public const int ControllerZ = 0x0004;
+
+    /// <summary><c>STUDIO_XR</c>, <c>studio.h:3061</c> — rotate about X, in DEGREES.</summary>
+    /// <remarks>
+    /// **The rotation cases carry degrees and the translation cases carry units**, which
+    /// <c>CalcBoneAdj</c> shows by converting only the former: <c>a0.Init( value * (M_PI / 180.0),
+    /// 0, 0 )</c>. A reader that scaled both the same way would rotate a bone by a fraction of a
+    /// degree or move it by fifty units.
+    /// </remarks>
+    public const int ControllerXRotation = 0x0008;
+
+    /// <summary><c>STUDIO_YR</c>, <c>studio.h:3062</c>.</summary>
+    public const int ControllerYRotation = 0x0010;
+
+    /// <summary><c>STUDIO_ZR</c>, <c>studio.h:3063</c>.</summary>
+    public const int ControllerZRotation = 0x0020;
+
     /// <summary><c>STUDIO_POST</c>, <c>studio.h:3082</c>.</summary>
     /// <remarks>
     /// **Only meaningful on a <see cref="SequenceDelta"/> sequence**, where it chooses which side
