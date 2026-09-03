@@ -152,7 +152,12 @@ public sealed class PlayerCompletenessTests
         // True, because false is the default and is exactly the value that was reaching the
         // renderer for every player before B280 — a dropped flag and a correct one were the same
         // observation, and every player slid through the map in one pose.
-        ClientSideAnimated: true);
+        ClientSideAnimated: true,
+
+        // A reload in the slot it belongs to, because null is the default here and a player who
+        // holds no gesture is indistinguishable from one whose gestures were dropped in a rebuild.
+        Gestures: [new SceneGesture(
+            GestureSlot.AttackAndReload, "ACT_MP_RELOAD_STAND", null, AutoKill: true, 900)]);
 
     /// <summary>Every property of a type that a test can read.</summary>
     private static IEnumerable<PropertyInfo> Readable<T>() =>

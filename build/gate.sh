@@ -257,7 +257,7 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # 1668 -> 1669: the spline's third sample is chosen on the changetime gap, not on arrival (B278).
 # The test needed its CONDITION fixed rather than its assertion: the first version sampled a moment
 # sitting on the last keyframe, so `At` returned early and never reached the spline.
-run Tf2DemoSalvage.Core.Tests     core     1669
+run Tf2DemoSalvage.Core.Tests     core     1678
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
@@ -931,7 +931,7 @@ run Tf2DemoSalvage.Content.Tests  content   882
 # 151 -> 152: the ANIMATION clock reaching real keyframes (B274). Separate from the simulation
 # one because the two clocks reach different entities - players send no animation time at all - so
 # a single "some clock corrected something" assertion would pass on the simulation half alone.
-run Tf2DemoSalvage.Corpus.Tests   corpus     152
+run Tf2DemoSalvage.Corpus.Tests   corpus     155
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that

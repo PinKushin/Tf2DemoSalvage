@@ -104,6 +104,13 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// a player who goes to spectator is still ALIVE: liveness cannot distinguish them, and this can.
 /// See <see cref="ScenePlayer.InFirstPersonView"/>.
 /// </param>
+/// <param name="Gestures">
+/// The gestures this player has going, one per occupied slot in slot order, or <c>null</c> when
+/// they have none. Filled from the <c>CTEPlayerAnimEvent</c> temp entities the demo carries, which
+/// is the ONLY place a player's gestures appear: <c>tf_player.cpp:774</c> excludes
+/// <c>overlay_vars</c> from the player's send table, so <c>m_AnimOverlay</c> is never networked for
+/// a player. See <see cref="PlayerGestureFeed"/>.
+/// </param>
 /// <param name="ClientSideAnimated">
 /// Whether the client runs this player's animation cycle itself — <c>m_bClientSideAnimation</c>,
 /// one unsigned bit from <c>DT_BaseAnimating</c> (<c>baseanimating.cpp:250</c>).
@@ -162,7 +169,8 @@ public readonly record struct ScenePlayer(
     string? WeaponClass = null,
     int? WeaponItem = null,
     int? ObserverMode = null,
-    bool ClientSideAnimated = false)
+    bool ClientSideAnimated = false,
+    IReadOnlyList<SceneGesture>? Gestures = null)
 {
     /// <summary>Whether the player is crouched, when the recording says.</summary>
     /// <remarks>
@@ -1206,9 +1214,16 @@ public sealed class DemoTimeline
         // instances, and the walk is over send tables rather than over anything cheap.
         HashSet<int> combatWeapons = [];
 
+        // **Names for temp entities, which carry a class id and nothing else** (B282). A player's
+        // animation layers are excluded from the wire entirely (`tf_player.cpp:774`), so a reload,
+        // a flinch or an attack gesture reaches a demo only as a `CTEPlayerAnimEvent` effect — and
+        // an effect names its class by id.
+        Dictionary<int, string> effectClassNames = [];
+
         foreach (ServerClass serverClass in schema.ServerClasses)
         {
             entities.SetClassName(serverClass.Id, serverClass.ClassName);
+            effectClassNames[serverClass.Id] = serverClass.ClassName;
 
             if (SchemaClasses.BoneMergesItself(schema, serverClass.TableName))
             {
@@ -1220,6 +1235,12 @@ public sealed class DemoTimeline
                 combatWeapons.Add(serverClass.Id);
             }
         }
+
+        // **Every player's gesture slots, filled from the temp entity stream** (B282). Not per
+        // frame: a gesture is an EVENT with a start, and the slot it lands in holds until something
+        // replaces it or its sequence runs out — which only the scene can decide, because only the
+        // scene has the model that says how long the sequence is.
+        PlayerGestureFeed gestures = new();
 
         List<TimelineFrame> frames = [];
 
@@ -1447,6 +1468,20 @@ public sealed class DemoTimeline
                     // server-axis numbers, which is then applied to a demo tick (B273).
                     case NetTickMessage netTick:
                         entities.PacketTick = netTick.Tick;
+                        continue;
+
+                    // **A player's gestures arrive here and nowhere else** (B282). TF2 excludes
+                    // `overlay_vars` from the player's send table (`tf_player.cpp:774`), so the
+                    // animation layers a reload or a flinch would occupy are not on the wire at
+                    // all; what IS sent is `CTEPlayerAnimEvent` (`tf_player.cpp:324`), a temp
+                    // entity naming the player and a `PlayerAnimEvent_t`.
+                    //
+                    // **The posture is read at ARRIVAL**, because the engine picks the activity
+                    // inside `DoAnimationEvent` (`tf_playeranimstate.cpp:969`) — a reload begun
+                    // crouched stays the crouching reload even if the player stands during it.
+                    case TempEntitiesMessage effects when effects.BodyBits > 0:
+                        RecordGestures(
+                            decoder, effects, command.Tick, effectClassNames, entities, gestures);
                         continue;
 
                     case UpdateStringTableMessage update
@@ -1831,7 +1866,15 @@ public sealed class DemoTimeline
                     // answers here before. This is the same accessor the track's own assignment
                     // uses, applied to the same entity.
                     ClientSideAnimated: player.ClientSideAnimation() is { } clientSide &&
-                        clientSide != 0));
+                        clientSide != 0,
+
+                    // **The gesture slots, because a player's animation layers are excluded from
+                    // the wire** (B282, `tf_player.cpp:774`). Each slot holds the last trigger the
+                    // demo raised for it and the tick it arrived on; whether it is still playing
+                    // depends on the sequence its activity resolves to, which only the scene can
+                    // answer. Null when the player has raised nothing, so the common case costs no
+                    // allocation.
+                    Gestures: GesturesFor(gestures, player.EntityIndex)));
             }
 
             // **Only when the tick advanced.** Several commands can share a tick, and recording a
@@ -1964,6 +2007,114 @@ public sealed class DemoTimeline
     /// and a demo describing both writes them alternately, so a check against the previous entry
     /// never matches and every tick records both — which is how the wrong one came to win.
     /// </remarks>
+    /// <summary>One player's gesture slots, or null when they have none.</summary>
+    /// <param name="feed">The gesture feed.</param>
+    /// <param name="entityIndex">The player.</param>
+    /// <returns>The slots in slot order, or null.</returns>
+    /// <remarks>
+    /// **Null rather than an empty list**, because most players hold no gesture in most frames and
+    /// this runs once per player per sampled tick. The scene reads it as "nothing to layer".
+    /// </remarks>
+    private static List<SceneGesture>? GesturesFor(
+        PlayerGestureFeed feed, int entityIndex)
+    {
+        List<SceneGesture> gestures = [];
+
+        feed.For(entityIndex, gestures);
+
+        return gestures.Count > 0 ? gestures : null;
+    }
+
+    /// <summary>Decodes a temp entities body and records any player gestures in it.</summary>
+    /// <param name="decoder">The entity decoder, which knows the effect tables.</param>
+    /// <param name="message">The message.</param>
+    /// <param name="tick">The demo tick it arrived on.</param>
+    /// <param name="classNames">Class id to name, since an effect names its class by id.</param>
+    /// <param name="entities">The entity table, for the player's posture at this moment.</param>
+    /// <param name="into">The feed to record into.</param>
+    /// <remarks>
+    /// **A body that will not read is skipped rather than fatal**, which is the rule everywhere
+    /// else in this project: a demo is salvaged, and a temp entities body is independent of every
+    /// other message in the packet.
+    ///
+    /// **The posture comes from the entity table**, not from the sampled `ScenePlayer`, because
+    /// this runs while the packet is being applied and the sampler has not run yet. It is the same
+    /// entity and the same accessors either way.
+    /// </remarks>
+    private static void RecordGestures(
+        EntityDecoder decoder,
+        TempEntitiesMessage message,
+        int tick,
+        Dictionary<int, string> classNames,
+        EntityStateTable entities,
+        PlayerGestureFeed into)
+    {
+        try
+        {
+            foreach (DecodedTempEntity effect in decoder.DecodeTempEntities(
+                message.Body.Span, message.Count, message.BodyBits))
+            {
+                if (!classNames.TryGetValue(effect.ClassId, out string? className) ||
+                    !string.Equals(
+                        className, PlayerGestureFeed.EventClassName, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                into.Record(className, effect, tick, PostureOf(effect, entities));
+            }
+        }
+        catch (Exception error)
+            when (error is System.IO.InvalidDataException or System.IO.EndOfStreamException)
+        {
+            // Skipped for the same reason a sounds body is: everything else in this packet is
+            // independent of it, and salvaging what is readable is the point of the project.
+        }
+    }
+
+    /// <summary>What the player named by a gesture event was doing when it arrived.</summary>
+    /// <param name="effect">The gesture event.</param>
+    /// <param name="entities">The entity table.</param>
+    /// <returns>The context the activity choice is made against.</returns>
+    /// <remarks>
+    /// **Four of the seven context fields, and the other three are named here rather than left
+    /// silently absent.** `IsLoser` needs `m_bIsLoser`; `IsMinigun` and `IsSniperZoomed` need the
+    /// player's active weapon and its state. Each changes WHICH activity a gesture resolves to —
+    /// a minigun's pre-fire auto-kills where a sniper's holds — so their absence is a known
+    /// divergence rather than a completed reading.
+    ///
+    /// **Air-walk is not asked here.** It is derived over time from vertical speed
+    /// (`PlayerActivity.AirwalkRiseSpeed`) rather than read off the entity, and this runs inside
+    /// the packet walk where that history is not to hand. A reload begun mid-rocket-jump therefore
+    /// resolves to the standing form rather than the air-walking one.
+    /// </remarks>
+    private static GestureContext PostureOf(DecodedTempEntity effect, EntityStateTable entities)
+    {
+        int player = 0;
+
+        foreach (DecodedProperty property in effect.Properties)
+        {
+            if (string.Equals(
+                property.Definition.Property.Name,
+                PlayerGestureFeed.PlayerIndexProperty,
+                StringComparison.Ordinal))
+            {
+                player = (int)property.Value.AsInt;
+                break;
+            }
+        }
+
+        if (player <= 0 || !entities.TryGet(player, out EntityState? state))
+        {
+            return default;
+        }
+
+        return new GestureContext(
+            InDuck: state.Flags() is { } flags &&
+                (flags & PlayerActivityState.Ducking) != 0,
+            InSwim: state.WaterLevel() >= PlayerActivityState.WaistDeepWaterLevel);
+    }
+
     private static void RecordViewmodels(
         EntityStateTable entities,
         ModelPrecache precache,
