@@ -54,7 +54,7 @@ internal static class Help
           --help, -h                 Print this and exit.
           --autoplay                 Start playing as soon as the demo is loaded.
           --first-person             Open in the recorder's view rather than the free camera.
-          --third-person             Open over a player's shoulder, the camera the C key reaches.
+          --third-person             Open over a player's shoulder, the chase camera.
           --tick <n>                 Seek here before drawing.
           --shot <path>              Save one frame to path, then exit.
           --spectate <entity>        Follow this entity rather than choosing one.

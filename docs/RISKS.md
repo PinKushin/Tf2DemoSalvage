@@ -18415,3 +18415,75 @@ conversion reddened the one that measures a rotation. Gate green on both phases.
 
 `CalcBoneAdj`'s `STUDIO_TYPES` mask covers more than the six axes; anything else falls through the
 switch untouched, which is what the engine's own `switch` does with no `default`.
+
+## B289 — target cycling was gated on first person; the engine gates it on the observer mode — FIXED
+
+**Reported by the owner from using it:** *"oh and we dont allow changing the following player in
+chase cam yet, it should work like first person, mouse click for the next player right click to go
+back to the previous."*
+
+**The engine's gate is a RANGE, and ours was an equality.** Both spectator commands run under the
+same condition (`player.cpp:6641` and `:6659`):
+
+```cpp
+else if ( stricmp( cmd, "spec_next" ) == 0 ) // chase next player
+{
+    if ( GetObserverMode() > OBS_MODE_FIXED )
+    {
+        CBaseEntity * target = FindNextObserverTarget( false );
+        if ( target )
+            SetObserverTarget( target );
+    }
+```
+
+`shareddefs.h:493` orders the modes so `OBS_MODE_IN_EYE` and `OBS_MODE_CHASE` are the two directly
+above `OBS_MODE_FIXED`:
+
+```cpp
+OBS_MODE_FIXED,     // view from a fixed camera position
+OBS_MODE_IN_EYE,    // follow a player in first person view
+OBS_MODE_CHASE,     // follow a player in third person view
+```
+
+So in TF2, cycling targets is a property of **following somebody**, not of being inside their head.
+`MainForm.CycleTarget` read `_firstPerson`, which is `_effectiveMode == CameraMode.FirstPerson`, and
+returned before reaching the spectator code in the chase view.
+
+### Why every test passed
+
+`SpectatorTarget.Next` was correct, `SpectatorView.Cycle` was correct, the bindings were correct, and
+the conformance suite checked all three. **The wrong part was a branch in the window that decides
+whether to call them**, and nothing below the window can see that. Same shape as B145, which is why
+the fix is pinned by a UI test rather than a unit one — see
+`docs/memory/three-test-levels-and-the-third-is-missing.md`.
+
+### The binding on the mouse was never the problem
+
+`CycleTargetForward` is `+attack` on `MOUSE1` and `CycleTargetReverse` is `+attack2` on `MOUSE2`,
+which is already what `ClientModeShared::HandleSpectatorKeyInput` dispatches
+(`clientmode_shared.cpp:739`). The owner's description of the wanted behaviour — left click forward,
+right click back — is what the table already said. Only the gate refused it.
+
+### `OBS_MODE_ROAMING` is above the gate too, and the free camera still does not cycle
+
+Roaming is `> OBS_MODE_FIXED`, so a roaming TF2 spectator does cycle targets. This viewer's free
+camera does not, deliberately: a roaming spectator looks with raw mouse movement, where here the
+left button is the look-around drag, and one click that both turned the camera and jumped to another
+player would fight itself. `Click_TheCycleTargetButton_InTheFreeCamera_DoesNotCycle` pins that, and
+it stayed green through this change — which is the control proving the widening reached chase and
+nothing else.
+
+### The same report also named a key that does not exist
+
+*"it shouldnt be C, its space like it is in the source engine."* Nothing has ever been bound to C:
+`SwitchCameraMode` has defaulted to `SPACE` under the command `+jump` since it was written, matching
+the `[%jump%]` TF2's spectator HUD prints beside "Switch Camera Mode". The defect was entirely in
+**three comments and one line of `--help`** that described the key wrongly. A wrong key in help text
+is worse than no key at all, because the reader presses it, nothing happens, and a working feature
+reads as broken.
+
+### Verified
+
+`Click_TheCycleTargetButton_InThirdPerson_ReachesTheSpectatorCode` was written first and failed for
+the right reason — "chase is an observer mode above OBS_MODE_FIXED, so +attack should have cycled" —
+then passed on the one-line gate change. UI suite 31 of 31.

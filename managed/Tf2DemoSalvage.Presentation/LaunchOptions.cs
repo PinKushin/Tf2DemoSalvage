@@ -15,7 +15,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="ShotTick">Which tick to show before capturing.</param>
 /// <param name="FirstPerson">Whether the capture is taken through a player's eyes.</param>
 /// <param name="ThirdPerson">
-/// Whether the capture is taken over a player's shoulder — the chase camera the C key reaches.
+/// Whether the capture is taken over a player's shoulder — the chase camera, `OBS_MODE_CHASE`.
 /// The owner asked for it while checking that a reload plays on a running player's arms, which is
 /// a claim about a BODY and cannot be judged from first person or from the overhead free camera
 /// (D134).
@@ -166,9 +166,17 @@ public static class LaunchOptionsReader
             // **The capture that can answer a question about a BODY** (D134). A gesture layer plays
             // on a player's arms while their legs keep running, and neither of the other two
             // cameras can show it: first person draws the viewmodel, and the free camera opens
-            // overhead where a person is a few pixels. The mode already existed — `CycleCameraMode`
-            // reaches it with the C key — and only the launch route was missing, so a headless
-            // check had to be driven through a keystroke or not at all.
+            // overhead where a person is a few pixels. The mode already existed — `SwitchCameraMode`
+            // is the second stop of its cycle, on Space, which is where TF2 puts it — and only the
+            // launch route was missing, so a headless check had to be driven through a keystroke or
+            // not at all.
+            //
+            // **This comment and the summary above both said "the C key", and nothing has ever been
+            // bound to C.** The owner read it in `--help` and corrected it: *"it shouldnt be C, its
+            // space like it is in the source engine"* — which is what the code already did, so the
+            // defect was entirely in the three places that described it. A wrong key in help text
+            // is worse than none, because the reader presses it, nothing happens, and the feature
+            // reads as broken.
             if (argument == "--third-person")
             {
                 read = read with { ThirdPerson = true };

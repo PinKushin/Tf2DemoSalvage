@@ -59,7 +59,7 @@ public sealed class FirstPersonUiTests
 
     /// <summary>How many camera-mode changes the viewer has announced, across all three modes.</summary>
     private static int Transitions() =>
-        Viewer.Count(FirstPersonOn) + Viewer.Count("third person on,") + Viewer.Count(BackToMap);
+        Viewer.Count(FirstPersonOn) + Viewer.Count(ThirdPersonOn) + Viewer.Count(BackToMap);
 
     /// <summary>The shared prefix of both first-person entry lines.</summary>
     /// <remarks>
@@ -71,6 +71,15 @@ public sealed class FirstPersonUiTests
     /// exactly this and this file did not use it.
     /// </remarks>
     private const string FirstPersonOn = ViewerSession.FirstPersonOn;
+
+    /// <summary>What the viewer logs on arriving in the chase view.</summary>
+    /// <remarks>
+    /// **The trailing comma is load-bearing** — it is what separates the entry line from "third
+    /// person off, back to the free camera", which contains the same three words. A marker that
+    /// matched both would count a departure as an arrival, and <see cref="EnsureThirdPerson"/>
+    /// would then report success from the mode it was trying to leave.
+    /// </remarks>
+    private const string ThirdPersonOn = "third person on,";
 
     /// <summary>What the viewer logs when first person spectates a player.</summary>
     /// <remarks>
@@ -542,6 +551,38 @@ public sealed class FirstPersonUiTests
     }
 
     [Test]
+    public void Click_TheCycleTargetButton_InThirdPerson_ReachesTheSpectatorCode()
+    {
+        // **The engine's gate is the observer MODE, and chase is inside it.** `spec_next` runs
+        // whenever `GetObserverMode() > OBS_MODE_FIXED` (`player.cpp:6643`), and `shareddefs.h:498`
+        // puts `OBS_MODE_CHASE` two above `OBS_MODE_FIXED` — so third person cycles targets in TF2
+        // exactly as first person does. This viewer gated on first person alone, which the owner
+        // found by using it: *"we dont allow changing the following player in chase cam yet, it
+        // should work like first person, mouse click for the next player right click to go back to
+        // the previous"*.
+        //
+        // **A UI test rather than a unit one, because the defect is a missing branch in a gate.**
+        // `SpectatorView.Cycle` was always correct and always callable; nothing below the window
+        // could tell that `MainForm.CycleTarget` returned before reaching it. Same shape as the
+        // first-person test above, which is the only one that could have caught B145.
+        ViewerSession.RequireTheGame();
+
+        EnsureThirdPerson();
+
+        int before = Viewer.Count(Spectated);
+
+        Viewer.Click(MainForm.ViewportId, MouseButton.Left);
+
+        Retry.WhileFalse(
+            () => Viewer.Count(Spectated) > before,
+            TimeSpan.FromSeconds(5));
+
+        Viewer.Count(Spectated).ShouldBeGreaterThan(
+            before,
+            "chase is an observer mode above OBS_MODE_FIXED, so +attack should have cycled");
+    }
+
+    [Test]
     public void Click_TheCycleTargetButton_InTheFreeCamera_DoesNotCycle()
     {
         // **The control, and it is the game's own rule rather than ours.** `spec_next` does nothing
@@ -608,6 +649,27 @@ public sealed class FirstPersonUiTests
             TimeSpan.FromSeconds(5),
             throwOnTimeout: true,
             timeoutMessage: "The viewer did not enter the first-person view.");
+    }
+
+    /// <summary>Enters the chase view, failing here rather than in the caller.</summary>
+    /// <remarks>
+    /// **Two presses from the free camera**, because the cycle is Free, first person, third person.
+    /// Each press waits for the line that mode logs on arrival rather than for a count of
+    /// transitions, so a viewer that stopped one short fails here and names which stop it reached.
+    /// </remarks>
+    private static void EnsureThirdPerson()
+    {
+        EnsureFirstPerson();
+
+        int before = Viewer.Count(ThirdPersonOn);
+
+        PressSwitchCameraMode();
+
+        Retry.WhileFalse(
+            () => Viewer.Count(ThirdPersonOn) > before,
+            TimeSpan.FromSeconds(5),
+            throwOnTimeout: true,
+            timeoutMessage: "The viewer did not enter the third-person view.");
     }
 
     /// <summary>Confirms the free camera is current rather than assuming the teardown left it.</summary>

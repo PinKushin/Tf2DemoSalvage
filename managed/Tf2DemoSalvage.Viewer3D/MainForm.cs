@@ -498,6 +498,28 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>Whether the viewport is drawn through a player's eyes.</summary>
     private bool _firstPerson => _effectiveMode == CameraMode.FirstPerson;
 
+    /// <summary>Whether the camera is pointed at a player at all, from inside or behind.</summary>
+    /// <remarks>
+    /// **The engine's observer-mode gate, which is a range and not an equality.** `spec_next` and
+    /// `spec_prev` both run under `if ( GetObserverMode() &gt; OBS_MODE_FIXED )`
+    /// (<c>player.cpp:6643</c> and <c>:6661</c>), and `shareddefs.h:493` orders the modes so that
+    /// `OBS_MODE_IN_EYE` and `OBS_MODE_CHASE` are the two directly above `OBS_MODE_FIXED`. So
+    /// cycling targets is a property of following somebody, not of being inside their head.
+    ///
+    /// **Distinct from <see cref="_firstPerson"/> and it must stay distinct.** That one decides the
+    /// viewmodel and whether the followed player is hidden, which really are first-person-only
+    /// (<c>ShouldDrawViewModel</c>). Widening it would draw a weapon over the chase view; this is a
+    /// second question with a wider answer, asked by the things that care who is followed.
+    ///
+    /// **`OBS_MODE_ROAMING` is also above the gate and the free camera is deliberately excluded.**
+    /// A roaming spectator in TF2 looks with raw mouse movement, so its `+attack` is free; here the
+    /// left button is the look-around drag, and a click that both turned the camera and jumped to
+    /// another player would fight itself. Stated as a decision rather than left as an oversight —
+    /// see <c>Click_TheCycleTargetButton_InTheFreeCamera_DoesNotCycle</c>, which pins it.
+    /// </remarks>
+    private bool _followingAPlayer =>
+        _effectiveMode is CameraMode.FirstPerson or CameraMode.ThirdPerson;
+
     // **`_freeAngles` is gone entirely as of 2026-08-26** (B206). It was an accessor onto
     // `FreeCameraController.Angles` for the drag and wheel handlers to read and write; both now ask
     // the controller to move itself, so the window neither reads nor writes the camera's angles.
@@ -4431,13 +4453,19 @@ internal class MainForm : Form, IFrameSteps
     /// **A cycle that finds nobody leaves the camera where it is**, following
     /// `if ( target ) SetObserverTarget( target );`. The first seconds of a competitive match really
     /// are SourceTV alone, and a click then must not blank the view.
+    ///
+    /// **This read `_firstPerson` until B289, which excluded the chase view** — the one mode where
+    /// choosing a subject matters most, since you can see who you are following. The gate is a
+    /// range in the engine and was an equality here, so third person accepted the click and threw
+    /// it away. Found by the owner using it, not by any test: every unit test of the search passed,
+    /// because the search was never the part that was wrong.
     /// </remarks>
     private void CycleTarget(bool reverse)
     {
-        // **First person is the window's condition, not the spectator's.** Which player comes next
-        // is a fact about the roster whether or not anyone is looking through their eyes; that this
-        // key does nothing in the overhead view is a decision about this UI.
-        if (!_firstPerson)
+        // **Following somebody is the window's condition, not the spectator's.** Which player comes
+        // next is a fact about the roster whether or not anyone is watching; that this key does
+        // nothing in the free camera is a decision about this UI, recorded on `_followingAPlayer`.
+        if (!_followingAPlayer)
         {
             return;
         }
