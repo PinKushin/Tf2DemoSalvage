@@ -4,7 +4,11 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 
+using Microsoft.Extensions.Logging.Abstractions;
+
 using Tf2DemoSalvage.Core.Scene;
+using Tf2DemoSalvage.Presentation;
+using Tf2DemoSalvage.Scene;
 
 namespace Tf2DemoSalvage.Probe.Probes;
 
@@ -108,6 +112,45 @@ public sealed class CycleProbe : IProbe
             return;
         }
 
+        // **The frame the sampler was HANDED, which is the only number that tells gliding from
+        // animating** (B280). A player's cycle is not on the wire, so the pose's cycle reads zero
+        // for ever and says nothing; what moves the model is the phase `EntityModelSet.Simulate`
+        // computes and the frame and fraction it hands the skeleton. Read back through `FrameOf`
+        // — carried, not recomputed — after driving the production pipeline exactly as the viewer
+        // does: players into props, the activity selection, then `Instances`.
+        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
+
+        string mapName = Tf2DemoSalvage.Core.Container.DemoHeader
+            .Parse(File.ReadAllBytes(path)).MapName;
+
+        EntityModelSet? models = null;
+        GameContent? game = null;
+        Func<string, PropModels.ModelFrames?>? geometry = null;
+
+        if (mapName.Length > 0
+            && locator.Find(mapName) is { } mapPath
+            && locator.FindGameFolder() is { } folder)
+        {
+            game = GameContent.Open(folder, NullLoggerFactory.Instance);
+
+            LoadedMap map = LoadedMap.Read(
+                File.ReadAllBytes(mapPath), game, timeline, 0, NullLoggerFactory.Instance);
+
+            if (map.Assets is { } assets)
+            {
+                geometry = assets.Geometry;
+                models = new EntityModelSet { Geometry = assets.Geometry };
+            }
+        }
+
+        if (models is null)
+        {
+            output.WriteLine("  (no game install found: the posed frame column is unavailable)");
+        }
+
+        List<SceneProp> drawn = [];
+        List<ModelInstance> instances = [];
+
         // **`Speed` is what decides whether a player is animated at all.**
         // `EntityModelSet.UpdateClientSideAnimations` skips any prop whose pose carries no speed —
         // `if (prop.Pose.Speed is not { } speed) continue;` — because that is the engine's
@@ -125,6 +168,34 @@ public sealed class CycleProbe : IProbe
             timeline.PlayersAt(at, players);
 
             ScenePlayer? asPlayer = players.FirstOrDefault(one => one.EntityIndex == entity);
+
+            // The production pipeline, in the viewer's order: entities and players into one drawn
+            // list, the activity-driven sequence selection, then `Instances` — which is where
+            // `Simulate` advances the cycle and hands the skeleton a frame and a fraction.
+            (int Sequence, int Frame, float Fraction)? posedAt = null;
+
+            // **The prop as `Simulate` saw it, read out of the drawn list AFTER the activity
+            // selection wrote into it.** `UpdateClientSideAnimations` skips any prop whose pose has
+            // no `Speed`, and `Simulate` takes the sequence off that same pose — so whether a
+            // player animates at all is decided by two fields on this record, and the only honest
+            // way to report them is to read the record production read.
+            SceneProp? asDrawn = null;
+
+            if (models is { } set && geometry is { } load && game is { } content)
+            {
+                timeline.PropsAt(at, drawn);
+                PlayerProps.Add(
+                    players, drawn, new GameAppearance(content.Classes, null), (_, _, body) => body);
+
+                set.Add(drawn, load);
+                set.UpdateClientSideAnimations(drawn);
+
+                asDrawn = drawn.FirstOrDefault(one => one.EntityIndex == entity);
+
+                set.Instances(drawn, instances, seconds: at * timeline.IntervalPerTick);
+
+                posedAt = set.FrameOf(entity);
+            }
 
             if (sampled.At(at) is not { } pose)
             {
@@ -148,6 +219,13 @@ public sealed class CycleProbe : IProbe
                 + $"delta {(previous is { } was ? (cycle - was).ToString("+0.#####;-0.#####;0", CultureInfo.InvariantCulture) : "-")}"
                 + $"  start {pose.AnimationStartSeconds:0.####}"
                 + $"  seq {pose.Sequence}"
+                + (posedAt is { } handed
+                    ? $"  POSED seq {handed.Sequence.ToString(CultureInfo.InvariantCulture)}"
+                      + $" frame {handed.Frame.ToString(CultureInfo.InvariantCulture)}+{handed.Fraction:0.###}"
+                    : "  POSED -")
+                + $"  drawnSeq {(asDrawn is { } shown ? shown.Pose.Sequence.ToString(CultureInfo.InvariantCulture) : "-")}"
+                + $"  drawnSpeed {(asDrawn?.Pose.Speed is { } fast ? fast.ToString("0.#", CultureInfo.InvariantCulture) : "NULL")}"
+                + $"  csa {(asDrawn is { } anim ? anim.ClientSideAnimated.ToString() : "-")}"
                 + $"  playerSpeed {(asPlayer is { } who ? who.Speed.ToString("0.##", CultureInfo.InvariantCulture) : "-")}"
                 + $"  moveX {(asPlayer is { } m ? m.MoveX.ToString("0.###", CultureInfo.InvariantCulture) : "-")}");
 

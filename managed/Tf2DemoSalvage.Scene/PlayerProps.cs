@@ -227,7 +227,8 @@ public static class PlayerProps
                     Body = Disguise.WearsMask(player)
                         ? bodygroup(model, Disguise.MaskBodygroup, 1)
                         : 0,
-                }));
+                },
+                ClientSideAnimated: player.ClientSideAnimated));
         }
     }
 }

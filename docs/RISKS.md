@@ -17821,3 +17821,134 @@ control that a pose never given a fraction hands across zero, which is exactly t
 poses, the one-shot holding its last frame, the cycle arithmetic B276 and the two clocks feed it —
 is all as it was. The only new number is the one between two frames, and the only new work is one
 more pose read and one blend per animating entity per frame.
+
+## B280 — a player's client-side animation flag never reached the renderer, so every player slid — FIXED, and it was the gliding
+
+**The owner, twice, three days apart:** *"players are not even walking animating right now, they
+just kinda slide in the run pose"*, and after B279 shipped, *"players were still just gliding"*.
+
+**The engine.** `CTFPlayer::CTFPlayer` calls `UseClientSideAnimation()` unconditionally
+(`tf_player.cpp:953`), which sets `m_bClientSideAnimation` — one unsigned bit in `DT_BaseAnimating`
+(`baseanimating.cpp:250`). `C_BaseAnimating::PostDataUpdate` joins `g_ClientSideAnimationList` on
+that flag, and `C_BaseAnimating::UpdateClientSideAnimation` (`c_baseanimating.cpp:5134`) latches and
+calls `FrameAdvance( 0.0f )` for every member each frame. **So a player's `m_flCycle` is never a
+driving value** — it decodes to zero and stays there, and everything that moves the model is the
+client's own advance.
+
+**Ours.** `DemoTimeline` read the flag correctly and stored it on the track
+(`DemoTimeline.cs:2478`). `PropsAt` copied it onto the drawn prop. **A player never takes the prop
+path**: `PlayersAt` builds a `ScenePlayer`, `PlayerProps.Add` builds the prop from that, and neither
+carried the field — so every player arrived at `EntityModelSet.Simulate` with
+`ClientSideAnimated = false`, took `advanced = where.Cycle`, and held frame zero for the whole
+recording while their position kept interpolating.
+
+**Measured**, on a running scout in `z1800.dem`, forty samples a quarter-tick apart, through the
+production pipeline:
+
+```
+cycle 0  seq 0  POSED seq 102 frame 0+0  drawnSeq 102  drawnSpeed 470.5  csa False
+```
+
+The activity selection had chosen sequence 102 correctly. The track knew the entity was client-side
+animated. The drawn prop said `False` at every sample. After the fix, the same forty samples advance
+by 0.113 of a frame each.
+
+**Why nothing caught it.** Every test of this path either called `UpdateClientSideAnimations`
+directly — which is about the SEQUENCE, and worked — or asserted against a prop it built itself with
+the flag already set. There was no assertion anywhere that a player reaching the renderer carries
+what the demo said about it. `PlayerCycleAdvanceWiringTests` is that assertion now, and it is the
+output-level kind: it drives `MomentScene.Build` and `Pose`, then reads the frame the skeleton was
+handed through `EntityModelSet.FrameOf` (carried, per B243).
+
+**What was built.** `ScenePlayer.ClientSideAnimated`, read in `PlayersAt` from the same
+`ClientSideAnimation()` accessor the track uses, on the same entity — not derived a second way.
+`PlayerProps.Add` carries it. `EntityModelSet.FrameOf` reports the frame and fraction production
+used, which is what made the diagnosis possible at all.
+
+**The instrument that found it.** The `cycle` probe was extended to drive the whole production
+pipeline per fractional sample — `PropsAt`, `PlayerProps.Add`, `Add`, `UpdateClientSideAnimations`,
+`Instances` — and print the posed frame beside the drawn prop's own fields. Its first version
+printed only the pose's cycle, which for a player is a constant zero and says nothing.
+
+## B281 — `m_flPlaybackRate` multiplied nothing on the skinned path — FIXED
+
+**The engine.** `C_BaseAnimating::FrameAdvance`, `c_baseanimating.cpp:5493`:
+
+```
+float cyclerate = GetSequenceCycleRate( hdr, GetSequence() );
+float addcycle = flInterval * cyclerate * m_flPlaybackRate;
+```
+
+The same product is the definition of an advance everywhere it happens: `Interpolate`
+(`c_baseanimating.cpp:5351`), the viewmodel's own advance (`c_baseviewmodel.cpp:197`), and each
+overlay layer (`multiplayer_animstate.cpp:1289`).
+
+**Ours.** `m_flPlaybackRate` has been decoded since B237 and reaches `ScenePose.PlaybackRate`. The
+BAKED vertex path multiplied by it (`EntityModels.cs:1753`); the SKINNED path did not, so every
+skinned entity advanced at rate 1 whatever the demo said.
+
+**Not visible on most props**, because most send rate 1. It matters for anything the game slows or
+speeds deliberately.
+
+**Note the scope.** Our advance recomputes the phase from an elapsed time rather than integrating
+per frame as the engine does. The two agree while the rate is constant and diverge if it changes
+mid-sequence, which a snapshot stream cannot reconstruct anyway. Stated here rather than hidden.
+
+## B282 — a player's animation layers are EXCLUDED from the wire; the gestures arrive as temp entities we decode and discard — OPEN, and it is the missing reload
+
+**The owner:** *"no weapon change animation, didnt see a reload animation"*.
+
+**The finding that reframes the whole question.** `tf_player.cpp:774`:
+
+```
+SendPropExclude( "DT_BaseAnimatingOverlay", "overlay_vars" ),
+```
+
+TF2 excludes the entire `m_AnimOverlay` array for players. **A player's animation layers are not on
+the wire in any TF2 demo, ever.** Nor is much else: the same block excludes `m_nSequence` (771),
+`m_flPlaybackRate` (770), `m_flPoseParameter` (769), `DT_ServerAnimationData.m_flCycle` (779) and
+`m_flAnimTime` (780). Every one of those is rebuilt on the client by `CTFPlayerAnimState`.
+
+**Confirmed on the corpus, with a control.** `_LPT_m_AnimOverlay_15.lengthprop15` appears in
+`z1800.dem` on sentries (lengths 2, 3 and 4), teleporters, dispensers, sappers and taunt props — and
+on no player. The control matters: a decompiled dump that showed the array nowhere would be a fact
+about the dump.
+
+**So where does a reload come from?** `CTEPlayerAnimEvent`, a temp entity (`tf_player.cpp:324`,
+`DT_TEPlayerAnimEvent`) carrying the player index, a `PlayerAnimEvent_t` and a data word.
+`TE_PlayerAnimEvent` sends it to everyone who can see the player, and — this matters for a POV
+recording — `filter.RemoveRecipient( pPlayer )` drops the player's OWN events for everything except
+the custom gestures and `SNAP_YAW`, because they predict their own. **A POV demo therefore carries
+every other player's gestures and none of the recorder's; a SourceTV recording carries all of them.**
+
+**Measured in `z1800.dem`: 40,288 of them**, the most common temp entity in the file by an order of
+magnitude, and the event distribution matches the enum exactly:
+
+| count | event |
+|---|---|
+| 4228 | `ATTACK_PRIMARY` |
+| 2298 | `JUMP` |
+| 2196 | `FLINCH_CHEST` |
+| 1439 | `ATTACK_PRE` |
+| 1320 | `ATTACK_POST` |
+| 925 | `RELOAD_LOOP` |
+| **762** | **`RELOAD`** |
+| 287 | `RELOAD_END` |
+| 251 | `VOICE_COMMAND_GESTURE` |
+
+**That distribution is itself the control on the mapping.** The loop/end pair appearing alongside a
+smaller plain-reload count is the shotgun and sniper reload pattern, which is what a real match
+looks like — an enum read at the wrong offset would not land on a plausible one.
+
+**They are already decoded.** `EntityDecoder.DecodeTempEntities` reads them and they reach the text
+dump. `DemoTimeline` does not look at temp entities at all, so nothing downstream ever sees one.
+
+**And the model for them already exists, unused.** `PlayerGestureEvent.cs` declares the
+`PlayerAnimEvent` enum and a `GestureTrigger` mapping; `GestureLayer.cs` models a layer's duration,
+auto-kill and cycle; `StudioGestureWeights` reads the sequence's per-bone weight list. **Every one
+of those has zero production consumers** — the whole subsystem is decoded, tested and read by
+nothing, which is `decoding-a-field-is-not-honouring-it` at the scale of a subsystem.
+
+**What is still to establish.** Which activity each trigger resolves to on a TF2 player model; how
+the weapon-switch animation is raised, since no `PLAYERANIMEVENT_*` names one; and whether
+`CTFPlayerAnimState`'s gesture slots need modelling or one layer per trigger suffices.

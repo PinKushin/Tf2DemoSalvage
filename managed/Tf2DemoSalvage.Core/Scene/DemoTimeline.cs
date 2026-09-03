@@ -104,6 +104,18 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// a player who goes to spectator is still ALIVE: liveness cannot distinguish them, and this can.
 /// See <see cref="ScenePlayer.InFirstPersonView"/>.
 /// </param>
+/// <param name="ClientSideAnimated">
+/// Whether the client runs this player's animation cycle itself — <c>m_bClientSideAnimation</c>,
+/// one unsigned bit from <c>DT_BaseAnimating</c> (<c>baseanimating.cpp:250</c>).
+/// <c>CTFPlayer::CTFPlayer</c> calls <c>UseClientSideAnimation()</c> unconditionally
+/// (<c>tf_player.cpp:953</c>), so in practice every TF player sends it set.
+///
+/// **It is on the player rather than left to the prop path because a player never goes through the
+/// prop path.** <c>PropsAt</c> copies the flag off the track; <c>PlayersAt</c> builds its own
+/// record, so without this the value the demo stated is dropped between the timeline and the
+/// renderer — and a player whose cycle is not advanced holds frame zero while their position
+/// interpolates, which is B280.
+/// </param>
 /// <remarks>
 /// **Not everything here is playing.** A spectator and a SourceTV camera are <c>CTFPlayer</c>
 /// entities with real positions that fly around the map, and drawing them puts dots where nobody
@@ -149,7 +161,8 @@ public readonly record struct ScenePlayer(
     int? ActiveWeapon = null,
     string? WeaponClass = null,
     int? WeaponItem = null,
-    int? ObserverMode = null)
+    int? ObserverMode = null,
+    bool ClientSideAnimated = false)
 {
     /// <summary>Whether the player is crouched, when the recording says.</summary>
     /// <remarks>
@@ -1801,7 +1814,24 @@ public sealed class DemoTimeline
                     // that. Computed here so the scene never has to guess whose eyes it is behind.
                     IsEnemy: IsEnemyOfRecorder(
                         recorderTeam,
-                        resource?.Integer($"m_iTeam.{slot}") ?? First(player, TeamProperties))));
+                        resource?.Integer($"m_iTeam.{slot}") ?? First(player, TeamProperties)),
+
+                    // **Whether the CLIENT advances this player's cycle** (B280).
+                    // `CTFPlayer::CTFPlayer` calls `UseClientSideAnimation()` unconditionally
+                    // (`tf_player.cpp:953`), so `m_bClientSideAnimation` arrives set for every
+                    // player and `C_BaseAnimating::UpdateClientSideAnimation`
+                    // (`c_baseanimating.cpp:5134`) runs `FrameAdvance( 0.0f )` on them each frame.
+                    // A player's own `m_flCycle` is therefore never a driving value — it decodes
+                    // to zero and stays there — so a renderer told this is false leaves them in
+                    // one pose while their position keeps interpolating.
+                    //
+                    // **Read off the entity here rather than off the track, deliberately.** The
+                    // track's copy is the prop path's, and a player never takes the prop path;
+                    // deriving it a second way is exactly the second route that has produced wrong
+                    // answers here before. This is the same accessor the track's own assignment
+                    // uses, applied to the same entity.
+                    ClientSideAnimated: player.ClientSideAnimation() is { } clientSide &&
+                        clientSide != 0));
             }
 
             // **Only when the tick advanced.** Several commands can share a tick, and recording a

@@ -542,8 +542,19 @@ public sealed class EntityModelSet
             // body also creates the animating entity the pose step looks up and sets
             // `EntityTransform`, the placement — both of which the engine does for every entity
             // regardless. Skipping them stopped every prop being posed, and four tests said so.
+            // **Times `m_flPlaybackRate`, which is the third factor in the engine's own line and
+            // was missing here** (B281). `C_BaseAnimating::FrameAdvance`, `c_baseanimating.cpp:5493`:
+            //
+            //     float cyclerate = GetSequenceCycleRate( hdr, GetSequence() );
+            //     float addcycle = flInterval * cyclerate * m_flPlaybackRate;
+            //
+            // The same product appears in `Interpolate` (`c_baseanimating.cpp:5351`) and in the
+            // viewmodel's advance (`c_baseviewmodel.cpp:197`), so it is the engine's definition of
+            // an advance rather than one function's detail. The field has been decoded since B237
+            // and reaches here on the pose; only the BAKED vertex path multiplied by it, so every
+            // skinned entity played at rate 1 whatever the demo said.
             double advanced = prop.ClientSideAnimated
-                ? where.Cycle + (elapsed * skinned.CyclesPerSecond(sequence))
+                ? where.Cycle + (elapsed * skinned.CyclesPerSecond(sequence) * where.PlaybackRate)
                 : where.Cycle;
 
             // **Wrapped only if the sequence LOOPS** (`C_BaseAnimating::ClampCycle`,
@@ -857,6 +868,23 @@ public sealed class EntityModelSet
                 (prop.Pose.X, prop.Pose.Y, prop.Pose.Z)));
         }
     }
+
+    /// <summary>The frame and fraction an entity's skeleton was last posed at.</summary>
+    /// <param name="entityIndex">Slot in the entity table.</param>
+    /// <returns>What `Simulate` computed, or null if the entity has not been posed.</returns>
+    /// <remarks>
+    /// **The value CARRIED, for the same reason as <see cref="PoseValuesOf"/>** (B243). Whether a
+    /// player's cycle is advancing cannot be read off the pose — a player's cycle is not on the
+    /// wire, so the pose says zero for ever — and cannot be recomputed by a probe without the
+    /// probe becoming a second implementation of `Simulate`. This is the number the sampler was
+    /// handed, per frame, which is the only thing that can distinguish "gliding" from "animating"
+    /// (B280).
+    /// </remarks>
+    public (int Sequence, int Frame, float Fraction)? FrameOf(int entityIndex) =>
+        _entities.TryGetValue(entityIndex, out AnimatingEntity? animating) &&
+        animating.Pose is SkeletonPose posed
+            ? (posed.Sequence, posed.Frame, posed.FrameFraction)
+            : null;
 
     /// <summary>Told when an entity's model is resolved, with which pose parameters wrap.</summary>
     /// <remarks>

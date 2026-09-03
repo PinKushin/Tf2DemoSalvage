@@ -147,7 +147,12 @@ public sealed class PlayerCompletenessTests
         AimYaw: 44f,
 
         // Waist deep, so losing it reads as dry land rather than as a default.
-        WaterLevel: 2);
+        WaterLevel: 2,
+
+        // True, because false is the default and is exactly the value that was reaching the
+        // renderer for every player before B280 — a dropped flag and a correct one were the same
+        // observation, and every player slid through the map in one pose.
+        ClientSideAnimated: true);
 
     /// <summary>Every property of a type that a test can read.</summary>
     private static IEnumerable<PropertyInfo> Readable<T>() =>
