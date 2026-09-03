@@ -528,7 +528,11 @@ run Tf2DemoSalvage.Animation.Tests animation 76
 # 329 -> 332: the client-side animation selection stays wired (written during B279 on a diagnosis
 # that was WRONG - the call was never missing; a grep truncated by `head -6` hid it). Kept because
 # the scene-level one is the only test that reddens if MomentScene.Build ever loses the call.
-run Tf2DemoSalvage.Scene.Tests    scene     362
+# 362 -> 364: a delta blend grid keeps its seeding (B298). One asserts an unlisted bone comes back
+# at identity, one asserts the SAME fixture without the delta bit comes back at its rest pose - and
+# the pair is the point, since a fix that simply zeroed every unlisted bone would pass the first
+# alone. This is what stood seven of fifteen players on their heads.
+run Tf2DemoSalvage.Scene.Tests    scene     364
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

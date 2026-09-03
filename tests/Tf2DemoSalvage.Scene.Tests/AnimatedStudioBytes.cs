@@ -76,7 +76,23 @@ internal static class AnimatedStudioBytes
     /// bites hardest because a file-relative read still lands on data.
     /// </remarks>
     public static byte[] OneSecondLoop(
-        int animations, int sequences, int autoLayerOn, StudioAutoLayer[]? autoLayers)
+        int animations, int sequences, int autoLayerOn, StudioAutoLayer[]? autoLayers) =>
+        OneSecondLoop(animations, sequences, autoLayerOn, autoLayers, delta: false);
+
+    /// <summary>The same, with every animation marked additive.</summary>
+    /// <param name="animations">As above.</param>
+    /// <param name="sequences">As above.</param>
+    /// <param name="autoLayerOn">As above.</param>
+    /// <param name="autoLayers">As above.</param>
+    /// <param name="delta">
+    /// Whether to set <c>STUDIO_DELTA</c> in <c>animdesc.flags</c>. **On the ANIMATION, which is
+    /// the field <c>CalcVirtualAnimation</c> tests** — a fixture that set only the sequence's flag
+    /// would leave the byte-level read untested and could pass against a build that never looks at
+    /// the file at all.
+    /// </param>
+    /// <returns>A <c>.mdl</c> body whose animations hold differences rather than poses.</returns>
+    public static byte[] OneSecondLoop(
+        int animations, int sequences, int autoLayerOn, StudioAutoLayer[]? autoLayers, bool delta)
     {
         const int header = 256;
         const int stride = 100;
@@ -101,6 +117,12 @@ internal static class AnimatedStudioBytes
 
             BitConverter.TryWriteBytes(file.AsSpan(at + 8), Rate);
             BitConverter.TryWriteBytes(file.AsSpan(at + 16), Frames);
+
+            // `animdesc.flags` at 12; `STUDIO_DELTA` is 0x0004 (`studio.h:3080`).
+            if (delta)
+            {
+                BitConverter.TryWriteBytes(file.AsSpan(at + 12), 0x0004);
+            }
         }
 
         // **Sequence DESCRIPTORS, which are a different table from the animations** and which

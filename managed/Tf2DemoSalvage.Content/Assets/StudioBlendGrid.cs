@@ -378,26 +378,6 @@ public sealed class StudioBlendGrid
 /// </remarks>
 public static class StudioPoseBlend
 {
-    /// <summary>Blends one pose toward another.</summary>
-    /// <param name="bones">The skeleton both poses belong to.</param>
-    /// <param name="first">The pose at weight <c>1 - s</c>.</param>
-    /// <param name="second">The pose at weight <paramref name="s"/>.</param>
-    /// <param name="s">How far toward <paramref name="second"/>, from zero to one.</param>
-    /// <returns>A pose naming every bone, so it can be blended again.</returns>
-    /// <exception cref="ArgumentNullException">An argument is null.</exception>
-    /// <remarks>
-    /// **Every bone is named in the result, including the ones neither animation moved.** An
-    /// animation lists only the bones it touches and the rest fall back to their rest pose, so
-    /// blending the LISTS would mix a moved bone against nothing and quietly weight it wrongly.
-    /// Valve blends full arrays; expanding to full arrays here is the same thing.
-    /// </remarks>
-    public static IReadOnlyList<StudioBonePose> Blend(
-        IReadOnlyList<StudioBone> bones,
-        IReadOnlyList<StudioBonePose> first,
-        IReadOnlyList<StudioBonePose> second,
-        float s) =>
-        Blend(bones, first, second, s, additive: false);
-
     /// <summary>Blends one pose toward another, knowing whether they are differences.</summary>
     /// <param name="bones">The skeleton both poses belong to.</param>
     /// <param name="first">The pose at weight <c>1 - s</c>.</param>
@@ -423,6 +403,14 @@ public static class StudioPoseBlend
     /// the rest pose it became a seventy-six-bone difference, sixty-four of whose entries were a
     /// whole bone transform masquerading as a delta — added to the base, that threw a landing
     /// player's arms over its head. The reload layer hid the same fault behind more animated bones.
+    ///
+    /// **There is deliberately no overload that omits <paramref name="additive"/>** (B298). There
+    /// was one, defaulting to <c>false</c>, and the blend grid inside `SkinnedModel.Locals` reached
+    /// for it — so a delta grid was densified against the bind pose while the frame blend three
+    /// lines away had been told the truth. Every TF2 player's aim matrix is a delta grid, and the
+    /// result was seven of fifteen players standing on their heads. A caller that genuinely holds
+    /// ordinary poses says `additive: false` and costs nothing; one that has not thought about it
+    /// no longer compiles.
     /// </remarks>
     public static IReadOnlyList<StudioBonePose> Blend(
         IReadOnlyList<StudioBone> bones,

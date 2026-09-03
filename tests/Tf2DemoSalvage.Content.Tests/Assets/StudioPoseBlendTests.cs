@@ -53,7 +53,7 @@ public sealed class StudioPoseBlendTests
     public void PoseBlend_AtZero_IsTheFirstPose()
     {
         IReadOnlyList<StudioBonePose> blended = StudioPoseBlend.Blend(
-            TwoBones, [Pose(0, (1f, 2f, 3f))], [Pose(0, (100f, 200f, 300f))], 0f);
+            TwoBones, [Pose(0, (1f, 2f, 3f))], [Pose(0, (100f, 200f, 300f))], 0f, additive: false);
 
         AssertPosition(blended[0].Position, (1f, 2f, 3f));
     }
@@ -63,7 +63,7 @@ public sealed class StudioPoseBlendTests
     {
         // The other end, because a weight applied to the wrong operand passes at zero.
         IReadOnlyList<StudioBonePose> blended = StudioPoseBlend.Blend(
-            TwoBones, [Pose(0, (1f, 2f, 3f))], [Pose(0, (100f, 200f, 300f))], 1f);
+            TwoBones, [Pose(0, (1f, 2f, 3f))], [Pose(0, (100f, 200f, 300f))], 1f, additive: false);
 
         AssertPosition(blended[0].Position, (100f, 200f, 300f));
     }
@@ -76,7 +76,11 @@ public sealed class StudioPoseBlendTests
         //
         // 0 * 0.75 + 100 * 0.25 = 25.
         IReadOnlyList<StudioBonePose> blended = StudioPoseBlend.Blend(
-            TwoBones, [Pose(0, (0f, 0f, 0f))], [Pose(0, (100f, 400f, -80f))], 0.25f);
+            TwoBones,
+            [Pose(0, (0f, 0f, 0f))],
+            [Pose(0, (100f, 400f, -80f))],
+            0.25f,
+            additive: false);
 
         AssertPosition(blended[0].Position, (25f, 100f, -20f));
     }
@@ -88,7 +92,7 @@ public sealed class StudioPoseBlendTests
         // bone 1, so it must come back at its REST position rather than being absent or zero -
         // blending the lists would mix bone 0 of one against bone 1 of the other.
         IReadOnlyList<StudioBonePose> blended = StudioPoseBlend.Blend(
-            TwoBones, [Pose(0, (1f, 1f, 1f))], [Pose(0, (3f, 3f, 3f))], 0.5f);
+            TwoBones, [Pose(0, (1f, 1f, 1f))], [Pose(0, (3f, 3f, 3f))], 0.5f, additive: false);
 
         blended.Count.ShouldBe(2, "the result names every bone in the skeleton");
 
@@ -106,7 +110,7 @@ public sealed class StudioPoseBlendTests
         // (15,20,30) -- a value neither input holds, which is what makes this a blend rather than
         // a selection.
         IReadOnlyList<StudioBonePose> blended = StudioPoseBlend.Blend(
-            TwoBones, [Pose(0, (0f, 0f, 0f))], [Pose(1, (20f, 20f, 30f))], 0.5f);
+            TwoBones, [Pose(0, (0f, 0f, 0f))], [Pose(1, (20f, 20f, 30f))], 0.5f, additive: false);
 
         AssertPosition(blended[1].Position, (15f, 20f, 30f));
     }
@@ -120,7 +124,8 @@ public sealed class StudioPoseBlendTests
             TwoBones,
             [Rotated(0, (Root2Over2, 0f, 0f, Root2Over2))],
             [Rotated(0, (0f, Root2Over2, 0f, Root2Over2))],
-            0.5f);
+            0.5f,
+            additive: false);
 
         (float x, float y, float z, float w) = blended[0].Rotation;
 
@@ -141,7 +146,7 @@ public sealed class StudioPoseBlendTests
         (float X, float Y, float Z, float W) negated = (-rotation.X, -rotation.Y, -rotation.Z, -rotation.W);
 
         IReadOnlyList<StudioBonePose> blended = StudioPoseBlend.Blend(
-            TwoBones, [Rotated(0, rotation)], [Rotated(0, negated)], 0.5f);
+            TwoBones, [Rotated(0, rotation)], [Rotated(0, negated)], 0.5f, additive: false);
 
         (float x, float y, float z, float w) = blended[0].Rotation;
 

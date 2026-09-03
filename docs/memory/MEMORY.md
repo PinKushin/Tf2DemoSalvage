@@ -175,3 +175,5 @@
 - [A player is client-side animated](a-player-is-client-side-animated.md) — one gate, and every prop built from scratch can drop it.
 - [A delta animation is not a pose](a-delta-animation-is-not-a-pose.md) — four places must agree, and the flag lives on the animation as well as the sequence.
 - [A sabotage must compile](a-sabotage-must-compile.md) — a build failure is not a red test; and feed the field production reads.
+- [Every densifying step needs the delta flag](every-densifying-step-needs-the-delta-flag.md) — there were two, and only one knew.
+- [A defect that survives its cause is in the instrument](a-defect-that-survives-its-cause-is-in-the-instrument.md) — a denominator of ALL is a warning, not a finding.

@@ -19436,3 +19436,74 @@ them the answer. The instrument was wrong twice on the way — it walked props w
 skipped the sequence-selection step — and each wrong reading looked exactly like a production
 defect. **The rule that got through it was to keep asking what the number is a fact ABOUT**, rather
 than believing the first zero.
+
+## B298 — a delta blend grid was densified against the bind pose, standing players on their heads — FIXED
+
+**The symptom was the owner's, not an instrument's:** *"the player models are upside down now"*.
+Measured on `z1800` at tick 3000, **seven of fifteen** player skeletons carried the head 57 to 89
+units BELOW the foot, where a standing TF2 class carries it about 71 above.
+
+### The mechanism
+
+`SkinnedModel.Locals` blends the up-to-three corners of a blend grid into one pose. Blending two
+SPARSE poses means naming every bone, including the ones neither corner lists — and what those are
+filled with is `CalcVirtualAnimation`'s branch (`bone_setup.cpp:933`):
+
+```
+if (animdesc.flags & STUDIO_DELTA) { q[i].Init( 0,0,0,1 ); pos[i].Init( 0,0,0 ); }
+else                               { q[i] = pSeqbone[j].quat; pos[i] = pSeqbone[j].pos; }
+```
+
+The FRAME blend, three lines away, was told (B284). **The three GRID blends were not** — they
+called a four-argument overload that quietly meant `additive: false`.
+
+**Every TF2 player's aim matrix is exactly this shape.** `PRIMARY_aimmatrix_idle` is a 3x4 grid,
+delta on the sequence and on the animation behind it, reached from `stand_PRIMARY` by autolayer. So
+the aim matrix came back holding whole bind transforms wearing a delta's clothes, and
+`AddSequenceLayers` added them over the body at full weight through `QuaternionMA`.
+
+Measured at the layer, before and after:
+
+| | root rotation | root offset |
+|---|---|---|
+| before | `(0.52, 0.03, 0.01, 0.85)` — 63° | `(0, 14.1, -0.6)` |
+| after | `(0.01, 0.02, 0.00, 1.00)` | `(0, 0.2, -0.6)` |
+
+A difference, at last.
+
+| demo | inverted before | after |
+|---|---|---|
+| `z1800` | 7 of 15 | **0** |
+| `tf2-2026-pub-pov-clean` | — | **0 of 18** |
+
+### Why it appeared now
+
+B294 wired autolayers the same day. Before that nothing reached a delta blend grid as a LAYER, so
+the wrong seeding had nothing to add itself to. The defect is older than the symptom.
+
+### The four-argument overload is gone
+
+Not documented — deleted. A caller that genuinely holds ordinary poses now writes
+`additive: false`; one that has not thought about it does not compile. A comment does not discharge
+a divergence, and this one had a doc comment three lines long explaining the very branch it was
+getting wrong.
+
+### What this cost, and the two instruments that lied on the way
+
+**IK was suspected first and was innocent.** The owner said so — *"another parity item might fix
+that"* — and the control agreed: with `IkErrors` cleared the count was identical, 7 of 15.
+
+Then two instruments in a row:
+
+1. **Spread was the wrong VARIABLE.** Max distance of a bone from the root cannot see a flip: an
+   inverted skeleton is the same size as an upright one. It reported one flamethrower and moved on.
+2. **`ModelInstance.Bones` is the SKINNING palette, not bone-to-world.** It is
+   `Concatenate(boneToWorld, poseToBone)`, so its translation column is not a position. Reading it
+   reported every skeleton collapsed — including with every layer disabled, which is the tell:
+   **a defect that survives removing its cause is a defect in the instrument.** B222 recorded the
+   identical mistake on the viewmodel size check; the note was there and unread.
+
+The instrument that worked applies the skinning matrix to the bone's own bind position, and prints
+the BIND rise beside the posed one as its control. That control caught a third error immediately —
+the bind pose is Y-up and the world is Z-up, so the first version read the wrong axis and reported
+a bind rise of 4 on a model whose bind rise is 71.

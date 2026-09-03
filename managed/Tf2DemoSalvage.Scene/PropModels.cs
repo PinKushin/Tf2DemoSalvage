@@ -1548,6 +1548,23 @@ public static class PropModels
 
             (int[] animations, float[] weights) = grid.ThreeWay(x, y, settingX, settingY);
 
+            // **The grid is a SECOND densifying step and it has to seed the same way the frame
+            // blend does** (B298). Blending two sparse corner poses means naming every bone,
+            // including ones neither corner lists — and for a delta those are identity and zero,
+            // not the bind pose. `CalcVirtualAnimation` (`bone_setup.cpp:933`) makes that choice
+            // once, on the ANIMATION's own flags, and every expansion downstream of it has to
+            // agree or the difference stops being a difference.
+            //
+            // **Measured, on the aim matrix, which is exactly this shape**: `PRIMARY_aimmatrix_idle`
+            // is a 3x4 delta grid that `stand_PRIMARY` reaches by autolayer. Seeded from rest, its
+            // root bone came back holding a 63-degree rotation and a 14-unit offset — a whole bind
+            // transform wearing a delta's clothes. Added over the body at full weight through
+            // `QuaternionMA`, it turned seven of fifteen players upside down.
+            //
+            // **The corners of one grid share the flag**, since they are animations of a single
+            // sequence, so this is read once rather than per corner.
+            bool additive = StudioAnimation.IsDelta(Models[where.Group], animations[0]);
+
             IReadOnlyList<StudioBonePose> pose =
                 PoseBetween(where.Group, animations[0], frame, fraction);
 
@@ -1561,7 +1578,7 @@ public static class PropModels
                     ? pose
                     : StudioPoseBlend.Blend(
                         Bones, pose, PoseBetween(where.Group, animations[2], frame, fraction),
-                        weights[2] / share);
+                        weights[2] / share, additive);
             }
 
             float pair = weights[0] + weights[1];
@@ -1572,14 +1589,16 @@ public static class PropModels
                     Bones,
                     pose,
                     PoseBetween(where.Group, animations[1], frame, fraction),
-                    weights[1] / pair);
+                    weights[1] / pair,
+                    additive);
             }
 
             return StudioPoseBlend.Blend(
                 Bones,
                 pose,
                 PoseBetween(where.Group, animations[2], frame, fraction),
-                weights[2]);
+                weights[2],
+                additive);
         }
 
         /// <summary>Which animations a sequence blends, and how much each counts.</summary>

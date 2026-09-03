@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Numerics;
 
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -307,6 +308,142 @@ public sealed class BoneFlagProbe : IProbe
                 $"IK work: {chainedOn} chains reached the pose, {ruled} SELF rules read, " +
                 $"{weighed} weighed"));
 
+        // **How far a skeleton's bones sit from its own root.** A TF2 player stands about 83 units
+        // tall, so every bone is within roughly a hundred of the root — and a pose that has come
+        // apart says so in one number, without a screenshot and without the desktop. Reported
+        // because the owner saw players inverted with their limbs thrown into the sky, which is
+        // what a delta composed as an absolute pose looks like.
+        List<string> burst = [];
+        int nonFinite = 0;
+
+        foreach (ModelInstance instance in instances)
+        {
+            if (instance.Bones is not { Count: > 0 } skeleton)
+            {
+                continue;
+            }
+
+            Vector3 root = new(skeleton[0][3], skeleton[0][7], skeleton[0][11]);
+            float furthest = 0f;
+
+            foreach (float[] matrix in skeleton)
+            {
+                Vector3 at = new(matrix[3], matrix[7], matrix[11]);
+
+                if (!float.IsFinite(at.X) || !float.IsFinite(at.Y) || !float.IsFinite(at.Z))
+                {
+                    nonFinite++;
+                    continue;
+                }
+
+                furthest = MathF.Max(furthest, (at - root).Length());
+            }
+
+            if (furthest > 200f)
+            {
+                burst.Add(
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"{Path.GetFileName(instance.ModelPath)} {furthest:F0}"));
+            }
+        }
+
+        output.WriteLine(
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"SPREAD {burst.Count} of {instances.Count} instances reach past 200 units from " +
+                $"their root, {nonFinite} bones non-finite: " +
+                $"{(burst.Count == 0 ? "none" : string.Join(", ", burst.Take(6)))}"));
+
+        // **How far a player's head sits above its foot, which is what "upside down" means as a
+        // number.** Spread cannot see a flip: an inverted skeleton is the same size as an upright
+        // one.
+        //
+        // **`ModelInstance.Bones` is the SKINNING palette, not the bone-to-world matrices** — it is
+        // `Concatenate(boneToWorld, poseToBone)`, so its translation column is a mixture of
+        // placement and bind offset and is not the bone's position. The first version of this
+        // measured that column and reported every skeleton on the map collapsed, INCLUDING with
+        // every layer disabled, which is the tell: a defect that survives removing its cause is a
+        // defect in the instrument (B222 recorded the same mistake on the viewmodel size check).
+        //
+        // A skinning matrix maps a point in the model's BIND space to the world, so applying it to
+        // the bone's own bind position gives that bone where it is now. The bind position is the
+        // translation of the inverse of `poseToBone`.
+        //
+        // **The control is the bind pose itself**, printed beside the posed figure: every TF2 class
+        // stands with its head about seventy units above its foot, so a bind rise that is not that
+        // means the bones were picked wrongly and the posed number means nothing.
+        List<string> inverted = [];
+        int skeletons = 0;
+        float bindRise = 0f;
+
+        foreach (ModelInstance instance in instances)
+        {
+            if (assets.Geometry(instance.ModelPath)?.Skinned is not { } body ||
+                instance.Bones is not { Count: > 0 } skeleton)
+            {
+                continue;
+            }
+
+            int head = -1;
+            int foot = -1;
+
+            for (int index = 0; index < body.Bones.Count && index < skeleton.Count; index++)
+            {
+                string name = body.Bones[index].Name;
+
+                if (head < 0 && name.EndsWith("head", StringComparison.OrdinalIgnoreCase))
+                {
+                    head = index;
+                }
+
+                if (foot < 0 && name.EndsWith("foot_L", StringComparison.OrdinalIgnoreCase))
+                {
+                    foot = index;
+                }
+            }
+
+            if (head < 0 || foot < 0)
+            {
+                continue;
+            }
+
+            skeletons++;
+
+            Vector3 headBind = BindPosition(body.Bones[head]);
+            Vector3 footBind = BindPosition(body.Bones[foot]);
+
+            // **The bind pose is Y-up and the world is Z-up, and the skinning matrix is where the
+            // two meet.** Measured on `engineer.mdl`: the head's bind position is (-0, 69, -1) and
+            // the foot's is (6, 6, -2), so the model's own height runs along Y — this project
+            // converts to a Y-up space when it loads a model and crosses back over exactly once
+            // (`docs/memory/two-matrix-conventions-on-purpose.md`). The same two bones come out at
+            // (-108, -1986, 38) and (-121, -2044, 16) once posed, which is Z-up.
+            //
+            // **So the control and the measurement read DIFFERENT axes, and that is not a bug.**
+            // The first version read Z for both and reported a bind rise of 4 on a model whose
+            // bind rise is 63 — which correctly refused to let the posed number be believed.
+            bindRise = headBind.Y - footBind.Y;
+
+            float rise =
+                Apply(skeleton[head], headBind).Z - Apply(skeleton[foot], footBind).Z;
+
+            if (rise < 20f)
+            {
+                inverted.Add(
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"{Path.GetFileName(instance.ModelPath)} head {rise:F0} above foot"));
+            }
+        }
+
+        output.WriteLine(
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"UPRIGHT {inverted.Count} of {skeletons} skeletons carry the head less than 20 " +
+                $"units above the foot (bind pose control: {bindRise:F0}): " +
+                $"{(inverted.Count == 0 ? "none" : string.Join(", ", inverted.Take(8)))}"));
+
         // **Which animations a player's sequence actually blends** (B296). TF2 has no separate aim
         // layer — `CMultiPlayerAnimState::ComputeSequences` is main sequence plus gestures, and the
         // aim matrix is the main sequence's own BLEND GRID, driven by body_pitch and body_yaw. So
@@ -437,12 +574,46 @@ public sealed class BoneFlagProbe : IProbe
                         ", ",
                         layers.Select(entry =>
                             skinned.LabelOf(skinned.RelativeSequence(check, entry.Sequence))
-                            + " flags 0x" + entry.Flags.ToString("X4", CultureInfo.InvariantCulture)));
+                            + " flags 0x" + entry.Flags.ToString("X4", CultureInfo.InvariantCulture)
+                            + (skinned.IsDelta(skinned.RelativeSequence(check, entry.Sequence))
+                                ? " seq-DELTA"
+                                : " seq-absolute")
+                            + (skinned.AnimationIsDelta(
+                                skinned.RelativeSequence(check, entry.Sequence))
+                                ? " anim-DELTA"
+                                : " anim-absolute")));
 
                 output.WriteLine(
                     string.Create(
                         CultureInfo.InvariantCulture,
                         $"    '{skinned.LabelOf(check)}' declares {layers.Count} autolayers{targets}"));
+
+                // **What the layer actually CARRIES, which the flags cannot say.** A delta whose
+                // root bone holds a large rotation, applied through a weight list that does not
+                // zero the root, turns the whole player over — so the two numbers that decide it
+                // are the weight at bone 0 and the rotation the layer samples there.
+                foreach (StudioAutoLayer entry in layers)
+                {
+                    int target = skinned.RelativeSequence(check, entry.Sequence);
+
+                    IReadOnlyList<float> weights = skinned.BoneWeights(target);
+
+                    IReadOnlyList<StudioBonePose> sampled =
+                        skinned.Locals(target, 0, 0f, posed.PoseValuesOf(prop.EntityIndex));
+
+                    StudioBonePose root = sampled.FirstOrDefault(one => one.Bone == 0);
+
+                    output.WriteLine(
+                        string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"      layer '{skinned.LabelOf(target)}' post {skinned.IsPost(target)} " +
+                            $"weights {weights.Count} " +
+                            $"[0]={(weights.Count > 0 ? weights[0] : -1f):F2} " +
+                            $"moves {sampled.Count} bones, " +
+                            $"root q ({root.Rotation.X:F2},{root.Rotation.Y:F2}," +
+                            $"{root.Rotation.Z:F2},{root.Rotation.W:F2}) " +
+                            $"p ({root.Position.X:F1},{root.Position.Y:F1},{root.Position.Z:F1})"));
+                }
             }
         }
 
@@ -535,4 +706,32 @@ public sealed class BoneFlagProbe : IProbe
                 $"{timeline.FirstTick} to {timeline.LastTick}; " +
                 $"{ruledAnywhere} SELF rules were read in total"));
     }
+
+    /// <summary>Where a bone sits in the model's bind pose.</summary>
+    /// <remarks>
+    /// <c>poseToBone</c> takes a point from the model's bind space into the bone's own, so its
+    /// inverse takes the bone's origin back out — and the translation of that inverse IS the bone's
+    /// bind position. Reading <c>StudioBone.Position</c> instead would give the offset from its
+    /// PARENT, which is a different quantity and one that needs the whole chain walked to use.
+    /// </remarks>
+    private static Vector3 BindPosition(StudioBone bone)
+    {
+        if (bone.PoseToBone.Length < 12)
+        {
+            return default;
+        }
+
+        Span<float> inverted = stackalloc float[12];
+
+        StudioBones.Invert(bone.PoseToBone.Span, inverted);
+
+        return new Vector3(inverted[3], inverted[7], inverted[11]);
+    }
+
+    /// <summary>Puts a point through a 3x4 matrix — <c>VectorTransform</c>.</summary>
+    private static Vector3 Apply(ReadOnlySpan<float> matrix, Vector3 point) =>
+        new(
+            (matrix[0] * point.X) + (matrix[1] * point.Y) + (matrix[2] * point.Z) + matrix[3],
+            (matrix[4] * point.X) + (matrix[5] * point.Y) + (matrix[6] * point.Z) + matrix[7],
+            (matrix[8] * point.X) + (matrix[9] * point.Y) + (matrix[10] * point.Z) + matrix[11]);
 }
