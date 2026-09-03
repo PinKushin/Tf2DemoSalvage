@@ -293,6 +293,58 @@ public sealed class BoneFlagProbe : IProbe
                 CultureInfo.InvariantCulture,
                 $"SIMULATED {posed.JigglingBones} jiggle bones across {instances.Count} instances"));
 
+        // **Which IK rule TYPES the content actually carries, over every animation of every model
+        // the demo draws.** The whole `CIKTarget` half of `CIKContext` — `UpdateTargets`,
+        // `CalculateIKLocks`, the latching, `AutoIKRelease` — is reachable ONLY through
+        // `IK_ATTACHMENT` and `IK_GROUND`: they are the two cases of `UpdateTargets`' switch that
+        // establish a target, and `// case IK_SELF:` sits commented out beside them
+        // (`bone_setup.cpp:3743`). `IK_RELEASE` and `IK_UNLATCH` only reduce a weight on a target
+        // something else established, and the function's closing loop is gated on
+        // `est.flWeight > 0`.
+        //
+        // So a measured zero for those two types is what says that half can be left unbuilt. That
+        // is a large claim to rest on two models, which is what B296 measured it on.
+        Dictionary<int, int> byRule = [];
+        int animationsWalked = 0;
+
+        foreach (string model in props
+            .Select(prop => prop.ModelPath)
+            .Where(model => model.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (assets.Geometry(model)?.Skinned is not { } declaring)
+            {
+                continue;
+            }
+
+            foreach (ReadOnlyMemory<byte> group in declaring.Models)
+            {
+                for (int animation = 0; animation < StudioAnimation.Count(group); animation++)
+                {
+                    animationsWalked++;
+
+                    foreach (int type in StudioIkRules.Read(group, animation)
+                        .Select(rule => rule.Type))
+                    {
+                        byRule[type] = byRule.GetValueOrDefault(type) + 1;
+                    }
+                }
+            }
+        }
+
+        string[] ruleNames =
+            ["?", "SELF", "WORLD", "GROUND", "RELEASE", "ATTACHMENT", "UNLATCH"];
+
+        string tally = string.Join(
+            ", ",
+            Enumerable.Range(1, 6).Select(type =>
+                $"{ruleNames[type]} {byRule.GetValueOrDefault(type).ToString(CultureInfo.InvariantCulture)}"));
+
+        output.WriteLine(
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"IK RULES over {animationsWalked} animations: {tally}"));
+
         output.WriteLine(
             string.Create(
                 CultureInfo.InvariantCulture,

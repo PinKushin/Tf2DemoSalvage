@@ -53,6 +53,9 @@ public sealed class IkContext
     /// <summary>Scratch, one per chain, reused across frames.</summary>
     private IkChainResult[] _results = [];
 
+    /// <summary>Where each chain's end started, before any rule touched it.</summary>
+    private IkChainResult[] _original = [];
+
     /// <summary>How many chains were solved on the last pass.</summary>
     /// <remarks>
     /// **Carried from where the work happened** (B243), so a diagnostic can report what ran rather
@@ -117,6 +120,7 @@ public sealed class IkContext
         if (_results.Length < chains.Count)
         {
             _results = new IkChainResult[chains.Count];
+            _original = new IkChainResult[chains.Count];
         }
 
         // **Every chain's CURRENT end is read first, before any rule is applied.** Valve's own loop
@@ -139,6 +143,13 @@ public sealed class IkContext
             }
 
             (_results[chain].Rotation, _results[chain].Position) = Decompose(bones.Bone(bone));
+
+            // **Kept unblended as well, because `IK_RELEASE` asks for it back.** Valve re-derives
+            // it per rule with `BuildBoneChain( pos, q, bone, … )`, which reads the LOCAL pose and
+            // so returns the animation's own answer however many rules have already blended into
+            // the chain result. Reading `_results[chain]` a second time would return the running
+            // blend instead, and a release would then pull toward its own previous output.
+            _original[chain] = _results[chain];
         }
 
         // **Outside the loop, because a stackalloc inside one accumulates.** Each iteration would
@@ -160,9 +171,42 @@ public sealed class IkContext
                 continue;
             }
 
+            if (declared.Chain < 0 || declared.Chain >= chains.Count)
+            {
+                continue;
+            }
+
+            ref IkChainResult result = ref _results[declared.Chain];
+
+            // **`IK_RELEASE` moves the target back toward where the animation had the chain, and
+            // it does NOT raise the chain's weight** — `bone_setup.cpp:4128`, under Valve's own
+            // comment *"move target back towards original location"*:
+            //
+            //     float flWeight = pRule->flWeight * pRule->flRuleWeight;
+            //     BuildBoneChain( pos, q, bone, boneToWorld, boneComputed );
+            //     MatrixAngles( boneToWorld[bone], q2, p2 );
+            //     pChainResult->pos = pChainResult->pos * (1.0 - flWeight) + p2 * flWeight;
+            //     QuaternionSlerp( pChainResult->q, q2, flWeight, pChainResult->q );
+            //
+            // **It is the type TF2 declares most, by eight to one.** Measured over every animation
+            // of every model `z1800` draws: 1674 `IK_SELF` against 13359 `IK_RELEASE`, and zero of
+            // the other four. Treating it as "solves nothing" — which the weight line makes look
+            // true — applied every self correction at full strength.
+            if (declared.Type == StudioIkRuleType.Release)
+            {
+                IkChainResult was = _original[declared.Chain];
+
+                result.Position = (result.Position * (1f - weight)) + (was.Position * weight);
+                result.Rotation = Quaternion.Slerp(result.Rotation, was.Rotation, weight);
+
+                continue;
+            }
+
+            // **The other four types do nothing here, and that is Valve's code rather than a
+            // simplification.** `IK_WORLD` is `Assert( 0 )`; `IK_ATTACHMENT` and `IK_GROUND` are
+            // bare `break`s, because their work happens through `CIKTarget` in `UpdateTargets`;
+            // `IK_UNLATCH`'s body is commented out entirely. TF2 declares none of the four.
             if (declared.Type != StudioIkRuleType.Self ||
-                declared.Chain < 0 ||
-                declared.Chain >= chains.Count ||
                 declared.Bone < 0 ||
                 declared.Bone >= parents.Count)
             {
@@ -175,8 +219,6 @@ public sealed class IkContext
             StudioBones.Concatenate(bones.Bone(declared.Bone), error, target);
 
             (Quaternion turned, Vector3 placed) = Decompose(target);
-
-            ref IkChainResult result = ref _results[declared.Chain];
 
             result.Weight = (result.Weight * (1f - weight)) + weight;
 

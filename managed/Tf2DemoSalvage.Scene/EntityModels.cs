@@ -1256,6 +1256,10 @@ public sealed class EntityModelSet
                 Start = start, Peak = peak, Tail = tail, End = end,
             };
 
+            bool carriesAnError =
+                shared.Type is StudioIkRuleType.Self or StudioIkRuleType.World
+                    or StudioIkRuleType.Ground or StudioIkRuleType.Attachment;
+
             // The error, accumulated over the same corners at the frame the shared envelope picks.
             Vector3 position = default;
             Quaternion rotation = default;
@@ -1278,31 +1282,43 @@ public sealed class EntityModelSet
                     continue;
                 }
 
-                if (!StudioIkRules.Error(
-                    model,
-                    animation,
-                    rule,
-                    frame,
-                    fraction,
-                    out (float X, float Y, float Z) at,
-                    out (float X, float Y, float Z, float W) turn))
+                // **Only four of the six types carry an error track, and Valve says so in a
+                // comment** — `// only check rules with error values`, over the switch at
+                // `bone_setup.cpp:3157`. `IK_SELF`, `IK_WORLD`, `IK_GROUND` and `IK_ATTACHMENT`
+                // read one; `IK_RELEASE` and `IK_UNLATCH` fall to `default: total += weight[i];`,
+                // which counts the corner's weight WITHOUT reading anything.
+                //
+                // **Requiring an error dropped every release**, and a release is the type TF2
+                // declares most: 13359 against 1674 selves over every animation `z1800` draws. So
+                // the corrections a release exists to give back were never given back, and every
+                // self ran at full strength (B299).
+                if (carriesAnError)
                 {
-                    continue;
+                    if (!StudioIkRules.Error(
+                        model,
+                        animation,
+                        rule,
+                        frame,
+                        fraction,
+                        out (float X, float Y, float Z) at,
+                        out (float X, float Y, float Z, float W) turn))
+                    {
+                        continue;
+                    }
+
+                    position += new Vector3(at.X, at.Y, at.Z) * weight;
+
+                    // `QuaternionAccumulate( ikRule.q, weight[i], q1, ikRule.q )` — an aligned add
+                    // rather than a slerp, which is what lets several corners sum.
+                    Quaternion corner = new(turn.X, turn.Y, turn.Z, turn.W);
+
+                    rotation += corner * (Quaternion.Dot(rotation, corner) < 0f ? -weight : weight);
                 }
-
-                position += new Vector3(at.X, at.Y, at.Z) * weight;
-
-                // `QuaternionAccumulate( ikRule.q, weight[i], q1, ikRule.q )` — an aligned add
-                // rather than a slerp, which is what lets several corners sum.
-                rotation += new Quaternion(turn.X, turn.Y, turn.Z, turn.W) *
-                    (Quaternion.Dot(rotation, new Quaternion(turn.X, turn.Y, turn.Z, turn.W)) < 0f
-                        ? -weight
-                        : weight);
 
                 total += weight * influence;
             }
 
-            if (total <= 0f || rotation.LengthSquared() <= 0f)
+            if (total <= 0f || (carriesAnError && rotation.LengthSquared() <= 0f))
             {
                 continue;
             }
@@ -1310,11 +1326,38 @@ public sealed class EntityModelSet
             // **Scaled by the SEQUENCE's own influence**, which is what `AddDependencies` receives
             // as `flWeight` — an autolayer at half weight asks for half the correction, exactly as
             // its pose contributes half.
+            float asked = Math.Clamp(total * influenceOfSequence, 0f, 1f);
+
+            // **A rule at full strength clears every rule already on its chain, and a RELEASE at
+            // full strength is then not added at all** — `AddDependencies`, `bone_setup.cpp:3319`:
+            //
+            //     if (ikrule.flRuleWeight * ikrule.flWeight > 0.999)
+            //     {
+            //         if ( ikrule.type != IK_UNLATCH)
+            //         {
+            //             m_ikChainRule.Element( ikrule.chain ).RemoveAll( );
+            //             if ( ikrule.type == IK_RELEASE) continue;
+            //         }
+            //     }
+            //
+            // So a chain whose release is fully in force reaches the solver EMPTY rather than
+            // carrying a correction and its cancellation — which is both faster and, for the
+            // rotation, not the same answer as blending the two.
+            if (asked > 0.999f && shared.Type != StudioIkRuleType.Unlatch)
+            {
+                errors.RemoveAll(held => held.Item1.Chain == shared.Chain);
+
+                if (shared.Type == StudioIkRuleType.Release)
+                {
+                    continue;
+                }
+            }
+
             errors.Add((
                 shared,
                 position,
-                Quaternion.Normalize(rotation),
-                Math.Clamp(total * influenceOfSequence, 0f, 1f)));
+                carriesAnError ? Quaternion.Normalize(rotation) : Quaternion.Identity,
+                asked));
         }
     }
 
@@ -1879,9 +1922,16 @@ public sealed class EntityModelSet
                 chained += posed.IkChains.Count;
                 weighed += posed.IkErrors.Count;
 
-                // **Counting the rules that CAN do work, not all of them.** Ninety per cent of
-                // TF2's rules are releases with no error track, so a total that includes them
-                // cannot tell "the read failed" from "nothing playing asks for a solve".
+                // **Counting the rules that can RAISE a chain's weight, which only `IK_SELF` does.**
+                // A release blends the target back without touching the weight, so a chain holding
+                // only releases is never solved — reporting them together would make "a correction
+                // is playing" and "a correction is being given back" the same number.
+                //
+                // **`weighed` and `ruled` being equal is now the NORMAL reading**, and it is not a
+                // sign releases were dropped. `AddDependencies` removes every rule on a chain when
+                // one arrives at full strength and drops a full-strength release outright
+                // (`bone_setup.cpp:3319`), and a release in force is usually at full strength — so
+                // what survives to here is mostly selves that nothing cancelled (B299).
                 foreach ((StudioIkRule rule, _, _, _) in posed.IkErrors)
                 {
                     if (rule.Type == StudioIkRuleType.Self)

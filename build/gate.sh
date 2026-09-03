@@ -353,7 +353,12 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 # 41 -> 43: the fraction reaches the animation sampler (B279). The arithmetic and the wiring are
 # separate defects and only one is loud, so this asserts on what SkeletonPose HANDED the sampler,
 # with the control that a pose never given a fraction hands across zero.
-run Tf2DemoSalvage.Animation.Tests animation 76
+# 76 -> 78: IK_RELEASE gives a correction back (B299). One at nearly full weight returns the chain
+# to the animation's own pose; one at half lands between — and the half case is what separates a
+# release that is APPLIED from one that is ignored, since at full weight "returned it" and "never
+# solved" look alike. Nearly, not fully: AddDependencies drops a full-strength release after
+# clearing its chain, so weight 1 cannot reach the solver.
+run Tf2DemoSalvage.Animation.Tests animation 78
 
 # 23: the scene layer's first test project of its own, and the reason it exists is B184 — Scene is
 # plain net10.0 and holds the densest behaviour in the renderer, but every test of it lived in the

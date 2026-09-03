@@ -19507,3 +19507,97 @@ The instrument that worked applies the skinning matrix to the bone's own bind po
 the BIND rise beside the posed one as its control. That control caught a third error immediately —
 the bind pose is Y-up and the world is Z-up, so the first version read the wrong axis and reported
 a bind rise of 4 on a model whose bind rise is 71.
+
+## B299 — IK_RELEASE was treated as a no-op, so every correction ran at full strength — FIXED
+
+**The type TF2 declares MOST was the one we ignored.** Measured over every animation of every model
+each demo draws:
+
+| demo | animations | SELF | RELEASE | WORLD | GROUND | ATTACHMENT | UNLATCH |
+|---|---|---|---|---|---|---|---|
+| `z1800` | 7,674 | 1,674 | **13,359** | 0 | 0 | 0 | 0 |
+| `tf2-2026-pub-pov-clean` | 8,743 | 1,948 | **14,907** | 0 | 0 | 0 | 0 |
+
+B296 measured the same ratio on two models and drew the right conclusion about the four absent
+types and the wrong one about `IK_RELEASE`: that it "solves nothing". It does not solve, but it is
+not inert.
+
+### What a release does, in the two places it does it
+
+**`SolveDependencies`** (`bone_setup.cpp:4128`), under Valve's comment *"move target back towards
+original location"*:
+
+```
+float flWeight = pRule->flWeight * pRule->flRuleWeight;
+BuildBoneChain( pos, q, bone, boneToWorld, boneComputed );
+MatrixAngles( boneToWorld[bone], q2, p2 );
+pChainResult->pos = pChainResult->pos * (1.0 - flWeight) + p2 * flWeight;
+QuaternionSlerp( pChainResult->q, q2, flWeight, pChainResult->q );
+```
+
+It blends the chain's target back toward where the ANIMATION left the end bone, and it never
+touches `flWeight` — which is why a chain holding only releases is still not solved, and why
+"release solves nothing" reads as true.
+
+**`AddDependencies`** (`:3319`), which is the half with teeth:
+
+```
+if (ikrule.flRuleWeight * ikrule.flWeight > 0.999)
+{
+    if ( ikrule.type != IK_UNLATCH)
+    {
+        m_ikChainRule.Element( ikrule.chain ).RemoveAll( );
+        if ( ikrule.type == IK_RELEASE) continue;
+    }
+}
+```
+
+A rule at full strength CLEARS every rule already gathered on its chain, and a full-strength
+release is then not added at all. So a chain whose release is fully in force reaches the solver
+empty rather than carrying a correction and its cancellation.
+
+### Why ours dropped them before they got there
+
+`IkFor` required `StudioIkRules.Error` to succeed. Valve does not, and says so:
+
+```
+// only check rules with error values
+switch( ikRule.type )
+{
+case IK_SELF: case IK_WORLD: case IK_GROUND: case IK_ATTACHMENT:
+    { ... Studio_IKAnimationError ... }
+    break;
+default:
+    total += weight[i];        // IK_RELEASE, IK_UNLATCH — no track read, weight still counted
+    break;
+}
+```
+
+(`Studio_IKSequenceError`, `:3157`.) A release carries no error track, so every one failed the read
+and was skipped.
+
+### Measured, at tick 3000 of z1800
+
+Chains solved fell from 18 to 11 — the releases now cancel the selves they were written to cancel.
+The rendered frame is unchanged to the eye from this camera; the hands are not visible from behind,
+so **this is not a claim that the hand placement was verified visually.**
+
+### And the whole CIKTarget half is provably dead for TF2
+
+`UpdateTargets`, `CalculateIKLocks`, the latching and `AutoIKRelease` are reachable only through
+`IK_ATTACHMENT` and `IK_GROUND` — the two cases of `UpdateTargets`' switch that establish a target,
+with `// case IK_SELF:` sitting commented out beside them (`:3743`). `IK_RELEASE` and `IK_UNLATCH`
+only reduce a weight on a target something else established, and the function's closing loop is
+gated on `est.flWeight > 0`. With both types measured at zero over 16,417 animations, every target
+stays weightless and the entire half is unreachable.
+
+That is why this project has none of it, and the reason is now a measurement rather than an
+assumption.
+
+### Still open, deliberately
+
+`Studio_IKSequenceError` uses `total` ONLY to normalise the accumulated error (`if (total < 0.999f)
+VectorScale( pos, 1/total )`), and takes the applied weight from `Studio_IKRuleWeight` — the
+envelope — alone. Ours folds the corner weights into the applied weight instead. The two agree when
+every corner's error reads successfully, which is the normal case; they differ when one fails, where
+Valve keeps the envelope weight and we reduce it. Not yet fixed, and not yet shown to matter.

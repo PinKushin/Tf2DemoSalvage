@@ -121,6 +121,73 @@ public sealed class IkContextConformanceTests
             0.01f, "the local pose was rebuilt from the solved world matrices");
     }
 
+    /// <remarks>
+    /// **`IK_RELEASE` is not a no-op, and TF2 declares eight of them for every <c>IK_SELF</c>.**
+    /// Measured over every animation of every model `z1800` draws: 1674 SELF, 13359 RELEASE, and
+    /// zero of the other four types. `SolveDependencies` (`bone_setup.cpp:4128`) gives it its own
+    /// case, under Valve's comment *"move target back towards original location"*:
+    ///
+    /// <code>
+    ///   float flWeight = pRule-&gt;flWeight * pRule-&gt;flRuleWeight;
+    ///   BuildBoneChain( pos, q, bone, boneToWorld, boneComputed );
+    ///   MatrixAngles( boneToWorld[bone], q2, p2 );
+    ///   pChainResult-&gt;pos = pChainResult-&gt;pos * (1.0 - flWeight) + p2 * flWeight;
+    ///   QuaternionSlerp( pChainResult-&gt;q, q2, flWeight, pChainResult-&gt;q );
+    /// </code>
+    ///
+    /// **It does NOT touch <c>flWeight</c>**, which is why a chain carrying only releases is still
+    /// never solved — that is the control below, and it is what made "release solves nothing" look
+    /// like the whole story.
+    ///
+    /// **The weight here is 0.99 and not 1, because 1 cannot arrive.** `AddDependencies` drops a
+    /// release whose `flRuleWeight * flWeight` exceeds 0.999, after clearing every rule already on
+    /// its chain (`bone_setup.cpp:3319`) — so a full-weight release reaches the solver as an empty
+    /// chain rather than as a rule. Asserting on an input the gathering stage cannot produce would
+    /// be a change-detector.
+    /// </remarks>
+    [Test]
+    public void Solve_ASelfRuleThenANearlyFullRelease_ReturnsTheChainToTheAnimationsOwnPose()
+    {
+        Harness harness = new();
+
+        Vector3 wanted = new(12f, 8f, 0f);
+        Vector3 was = harness.Foot();
+
+        harness.SolveAll(
+            (StudioIkRuleType.Self, wanted, 1f),
+            (StudioIkRuleType.Release, wanted, 0.99f));
+
+        harness.Solved.ShouldBe(1, "the self rule still gives the chain a weight to solve at");
+
+        (harness.Foot() - was).Length().ShouldBeLessThan(
+            0.5f, "and the release pulled the target almost all the way back to where it started");
+    }
+
+    [Test]
+    public void Solve_ASelfRuleThenAReleaseAtHalfWeight_LandsBetweenTheTargetAndTheAnimation()
+    {
+        // **The case that separates a release that is HONOURED from one that is ignored.** At full
+        // weight the chain returns to its own pose, which a solver that refused to run would also
+        // produce; at half it must sit between, which only an applied blend gives.
+        Harness alone = new();
+        Harness released = new();
+
+        Vector3 wanted = new(12f, 8f, 0f);
+
+        alone.SolveAll((StudioIkRuleType.Self, wanted, 1f));
+        released.SolveAll(
+            (StudioIkRuleType.Self, wanted, 1f),
+            (StudioIkRuleType.Release, wanted, 0.5f));
+
+        float reached = (alone.Foot() - wanted).Length();
+        float pulled = (released.Foot() - wanted).Length();
+
+        pulled.ShouldBeGreaterThan(reached, "a half release gives back half the correction");
+
+        released.Foot().Y.ShouldBeGreaterThan(
+            0.5f, "but it did not give back all of it");
+    }
+
     /// <summary>A three-bone chain along X, with a context and the scratch the solve needs.</summary>
     private sealed class Harness
     {
@@ -180,10 +247,32 @@ public sealed class IkContextConformanceTests
         public Vector3 LocalOf(int bone) =>
             new(_local[bone][3], _local[bone][7], _local[bone][11]);
 
-        /// <summary>Runs one rule against the chain.</summary>
-        public void Solve(Vector3 target, float weight, int type = StudioIkRuleType.Self)
+        /// <summary>Runs several rules against the chain, in the order given.</summary>
+        /// <remarks>
+        /// **Order is part of the mechanism**, not an artefact of the fixture: `SolveDependencies`
+        /// walks a chain's rules in sequence and each blends onto the result of the last, so a
+        /// release after a self gives back part of what the self asked for and a release before it
+        /// gives back nothing.
+        /// </remarks>
+        public void SolveAll(params (int Type, Vector3 Target, float Weight)[] rules)
         {
-            StudioIkChain chain = new(
+            List<(StudioIkRule, Vector3, Quaternion, float)> asked = [];
+
+            foreach ((int type, Vector3 target, float weight) in rules)
+            {
+                asked.Add((Rule(type), target, Quaternion.Identity, weight));
+            }
+
+            _context.Solve([Chain()], asked, _bones, _parents, _local);
+        }
+
+        /// <summary>Runs one rule against the chain.</summary>
+        public void Solve(Vector3 target, float weight, int type = StudioIkRuleType.Self) =>
+            SolveAll((type, target, weight));
+
+        /// <summary>The three-link chain every case here solves.</summary>
+        private static StudioIkChain Chain() =>
+            new(
                 "arm",
                 0,
                 [
@@ -192,6 +281,9 @@ public sealed class IkContextConformanceTests
                     new StudioIkLink(2, default),
                 ]);
 
+        /// <summary>One rule of the given type, with an envelope that is always in force.</summary>
+        private static StudioIkRule Rule(int type)
+        {
             StudioIkRule rule = new(
                 Type: type,
                 Chain: 0,
@@ -217,12 +309,7 @@ public sealed class IkContextConformanceTests
             // The error is stated in the target bone's space, and bone 0 is the identity at the
             // origin — so the error IS the world target, which keeps the fixture's arithmetic
             // visible rather than hidden behind a transform.
-            _context.Solve(
-                [chain],
-                [(rule, target, Quaternion.Identity, weight)],
-                _bones,
-                _parents,
-                _local);
+            return rule;
         }
     }
 }
