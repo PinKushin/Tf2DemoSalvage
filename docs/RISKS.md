@@ -18687,12 +18687,20 @@ but it bounds every one of those five mechanisms and had not been written down.
 
 ### Not established
 
-**Where the autoplay clock should be zeroed.** Valve passes `flRealTime`, which on a client is
-`gpGlobals->curtime` — time since the level loaded. This passes demo playback time, which starts at
-the demo's first tick rather than at the map's load. The two differ by however long the recording
-started after level start, so an autoplay animation is at a different phase here than it was on the
-recorder's screen. Nothing in a demo carries the server's level-load time, so this may not be
-recoverable; it is a phase offset on a looping animation rather than a wrong animation.
+**Where the autoplay clock should be zeroed — and the corpus cannot tell.** Valve passes
+`flRealTime`, which on a client is `gpGlobals->curtime`, time since the level loaded. This passes
+`MomentInfo.Seconds`, which is `Tick * IntervalPerTick`. Those agree only if a demo's ticks are
+counted from level load rather than from the start of recording.
+
+**Measured across fourteen demos, and every one begins at tick 0 to 6** — the two committed
+specimens and twelve league recordings spanning 2012 to 2017. So on this corpus the two readings are
+the same number and nothing distinguishes them. **A demo recorded MID-MAP would tell them apart, and
+the corpus contains none**; a player who joins a server mid-round and records is the case to look
+for, and it is worth looking for before anyone concludes either way.
+
+The consequence if it is wrong is bounded: a phase offset on a looping animation, not a wrong
+animation. Recorded here rather than asserted in a comment, because a comment claiming the clock is
+right would be the kind of thing nobody re-checks.
 
 **IK is still absent**, so `AddAutoplayLocks` and `SolveAutoplayLocks` around the loop are not
 reproduced. A model whose autoplay sequence is IK-driven will move its bones without the lock.
