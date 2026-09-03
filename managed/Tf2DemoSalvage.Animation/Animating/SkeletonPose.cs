@@ -758,6 +758,16 @@ public sealed class SkeletonPose : IBonePose
     /// </remarks>
     public ReadOnlyMemory<byte>? JiggleSource { get; set; }
 
+    /// <summary>How many of this entity's bones the spring simulation has actually run on.</summary>
+    /// <remarks>
+    /// **Carried from where the work happened, not recomputed** (B243). A count built by asking the
+    /// model how many bones carry the flag would be a second reading of the model and would report
+    /// the same number whether or not `Jiggle` was ever reached — which is exactly the wiring
+    /// question worth asking, since the reader, the flag and the simulation were all correct in
+    /// isolation and none of that says production calls them.
+    /// </remarks>
+    public int JigglingBones => _jiggle?.Simulated ?? 0;
+
     /// <summary>The spring state, created on the first jiggle bone this entity actually has.</summary>
     /// <remarks>
     /// **Lazily, exactly as the engine does it** — `if (!m_pJiggleBones) m_pJiggleBones = new

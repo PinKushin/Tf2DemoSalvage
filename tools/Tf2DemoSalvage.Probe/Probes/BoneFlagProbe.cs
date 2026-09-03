@@ -242,5 +242,22 @@ public sealed class BoneFlagProbe : IProbe
         {
             output.WriteLine("proctype: no bone declares a procedural rule");
         }
+
+        // **The wiring check, and it is the only line here that runs the PRODUCTION pose path**
+        // (B293). Everything above reads the model; this poses the props the way the viewer does and
+        // asks how many bones the spring simulation actually touched. A model census and a
+        // simulation count that disagree is the difference between "TF2 has jiggle bones" and "this
+        // viewer simulates them" — and every no-op this project has shipped lived in that gap.
+        EntityModelSet posed = new() { Geometry = assets.Geometry };
+
+        posed.Add(props, assets.Geometry);
+
+        List<ModelInstance> instances = [];
+        posed.Instances(props, instances);
+
+        output.WriteLine(
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"SIMULATED {posed.JigglingBones} jiggle bones across {instances.Count} instances"));
     }
 }

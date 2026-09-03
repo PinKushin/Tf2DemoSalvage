@@ -1327,6 +1327,35 @@ public sealed class EntityModelSet
             ? posed.Layers
             : null;
 
+    /// <summary>How many jiggle bones the spring simulation ran on, across every entity posed.</summary>
+    /// <remarks>
+    /// **The only thing that can say the simulation is WIRED** (B293). The reader, the flag test and
+    /// the physics each have their own tests and all three passing says nothing about whether the
+    /// pose path reaches them — which is the shape that has shipped three no-ops here with a green
+    /// suite. This counts what actually ran.
+    ///
+    /// **Summed rather than per entity**, because the question it answers is about the demo: does
+    /// anything on screen jiggle at all. A per-entity number is one dictionary lookup away for
+    /// anyone who needs it.
+    /// </remarks>
+    public int JigglingBones
+    {
+        get
+        {
+            int simulated = 0;
+
+            foreach (AnimatingEntity animating in _entities.Values)
+            {
+                if (animating.Pose is SkeletonPose posed)
+                {
+                    simulated += posed.JigglingBones;
+                }
+            }
+
+            return simulated;
+        }
+    }
+
     /// <summary>Told when an entity's model is resolved, with which pose parameters wrap.</summary>
     /// <remarks>
     /// **A callback rather than a call, because this layer must not know what is listening.** The

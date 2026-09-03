@@ -18890,3 +18890,21 @@ along world Z, which is the axis gravity acts on — so gravity shortened the bo
 it, and every tilt assertion passed on a direction that had not moved. And the framerate-cutoff test
 ran twenty calls when the forced-simulation counter is thirty-two, so it measured the counter rather
 than the cutoff.
+
+### And then the wiring, which no unit test can check
+
+The reader, the flag test and the physics each pass in isolation, and all three passing says nothing
+about whether the pose path reaches them — the shape that has shipped three no-ops here with a green
+suite. `SkeletonPose.JigglingBones` counts what the simulation actually ran on, carried from where
+the work happened rather than recomputed from the model (B243), and the `bone-flags` probe now poses
+the props the way the viewer does and reports it:
+
+| demo | bones declared, distinct models | bones SIMULATED, per entity |
+|---|---|---|
+| `z1800` | 22 | 24 |
+| `tf2-2026-pub-pov-clean` | 4 | 7 |
+
+**The simulated count is HIGHER, and that is the expected direction.** The census counts bones across
+distinct model paths; the simulation runs per entity, so a cosmetic worn by two players is counted
+once and simulated twice. A simulated count of zero against a non-zero census would have been the
+no-op; a count below the census would mean something was skipping bones.
