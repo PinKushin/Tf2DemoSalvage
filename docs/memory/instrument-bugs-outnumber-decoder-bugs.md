@@ -286,3 +286,18 @@ Related: [[fixtures-are-the-weak-point]], [[differential-beats-fixtures]],
 [[measure-the-output-not-the-capability]], [[a-test-can-outlive-its-design]],
 [[an-empty-search-needs-a-control]], [[real-data-hides-bugs-small-inputs-expose]],
 [[author-the-specimen-the-corpus-lacks]], [[boundaries-find-what-tests-cannot]].
+
+**A test can name a claim its assertion does not check, and only sabotage finds it.** Measured
+2026-09-03. `Build_WithALengthConstraint_HoldsTheTipOneLengthOut` asserted on the length of a bone
+matrix's forward axis — which the code normalises one line BEFORE the constraint runs, so it is a
+unit vector whether the constraint fires or not. Deleting the constraint's own reprojection left the
+whole suite green. The variable the name is about, the tip's distance from the base, never reaches
+the matrix at all: only the normalised direction and the base position do.
+
+**The fix was the instrument, not the assertion.** An accessor was added exposing the simulated tip —
+which is also what the engine exposes, for the same reason, under its own debug cvar. Reaching for a
+stronger assertion on the same proxy would have produced a tighter test that still could not fail.
+
+**Ask what the output CARRIES before writing an assertion on it.** A normalised vector cannot carry a
+magnitude; a boolean cannot carry a count; a clamped value cannot carry what it was clamped from.
+When the claim is about something the output discards, no assertion on that output is a test of it.
