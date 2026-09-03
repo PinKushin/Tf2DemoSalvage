@@ -122,8 +122,17 @@ public sealed class BoneMergeCache
 
         _merged = [.. pairs];
 
-        // Valve slams the mask to zero when nothing matched, so a chain of unrelated models does
-        // not make its parent build anything at all.
+        // **Zero when nothing matched, so a chain of unrelated models does not make its parent
+        // build anything at all.** Valve reaches that by returning before it ever asks —
+        // `if ( !m_pOwnerHdr || m_MergedBones.Count() == 0 ) return;` opens `MergeMatchingBones`
+        // (`bone_merge_cache.cpp:127`), above the `SetupBones` call — so `m_nFollowBoneSetupMask`
+        // keeps whatever it held and is simply never used.
+        //
+        // A mask of zero here is the same instruction stated in the argument rather than in the
+        // control flow: the caller asks for no bones, and the parent's own subset test satisfies it
+        // without building. **This comment previously said Valve "slams the mask to zero", which it
+        // does not do anywhere** — a wrong mechanism attached to a right value, which is the kind
+        // of note that gets copied.
         FollowBoneSetupMask = pairs.Count == 0 ? 0 : mask;
 
         Report(wearer, pairs);
@@ -318,9 +327,17 @@ public sealed class BoneMergeCache
     /// zero size."*
     ///
     /// A zero-scaled matrix at the origin draws nothing visible, which is the point — the
-    /// alternative is an item at full size in the middle of the map. This project can usually do
-    /// better, because <see cref="AnimatingEntity.SetupBones(int, double)"/> returns false and the
-    /// caller declines to draw at all; this exists for the case where something drew anyway.
+    /// alternative is an item at full size in the middle of the map.
+    ///
+    /// **What Valve's comment is wishing for, Valve already has one level up**, which this note
+    /// used to read as this project doing better. A followed entity draws only if its master drew
+    /// — `int baseDrawn = follow->DrawModel( 0 ); if ( baseDrawn ) …`
+    /// (<c>c_baseanimating.cpp:3243</c>) — so declining to draw the item is the engine's outcome
+    /// as well as ours, reached in the renderer rather than in the bone setup.
+    ///
+    /// This remains for the case the shrink is actually for: a wearer that IS drawn but whose bone
+    /// setup failed regardless, which in the engine means threaded lock contention or prediction
+    /// and which this project has no way to produce.
     /// </remarks>
     public void ShrinkToNothing(BoneAccessor into, BoneBitList marked)
     {

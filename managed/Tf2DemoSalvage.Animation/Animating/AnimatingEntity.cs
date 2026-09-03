@@ -100,11 +100,33 @@ public sealed class AnimatingEntity
     /// <param name="currentTime">Demo time.</param>
     /// <returns>Whether the bones are now readable for that mask.</returns>
     /// <remarks>
-    /// **Returns false rather than throwing when the chain cannot be built**, which is the engine's
-    /// own contract: <c>MergeMatchingBones</c> checks the result and, when it is false, shrinks
-    /// every merged bone to zero size rather than drawing an item at the map origin
-    /// (<c>bone_merge_cache.cpp:134</c>). A caller that ignores it draws the hat in the wrong place;
-    /// a caller that treats it as an exception refuses to draw the scene.
+    /// **Returns false rather than throwing when the chain cannot be built.** A caller that ignores
+    /// it draws the hat in the wrong place; a caller that treats it as an exception refuses to draw
+    /// the scene.
+    ///
+    /// **The engine reaches the same outcome one level up, and citing the wrong mechanism for it
+    /// was making a guess look settled.** This used to claim <c>MergeMatchingBones</c> "checks the
+    /// result and reports failure", which it cannot: it returns <c>void</c>, and its own comment
+    /// says so — *"This routine has no way to tell its caller not to draw itself unfortunately"*
+    /// (<c>bone_merge_cache.cpp:137</c>). What it does on a failed parent setup is scale the MERGED
+    /// bones to zero and carry on, after which <c>BuildTransformations</c>' loop still builds every
+    /// unmerged bone.
+    ///
+    /// The decision not to draw a followed item whose master is absent is Valve's, but it is made
+    /// in <c>DrawModel</c>:
+    ///
+    /// <code>
+    ///   int baseDrawn = follow->DrawModel( 0 );
+    ///   if ( baseDrawn ) drawn = InternalDrawModel( STUDIO_RENDER|extraFlags );
+    /// </code>
+    ///
+    /// (<c>c_baseanimating.cpp:3243</c>), under a comment admitting it only draws if the aiment
+    /// does. So the outcome matches; the route differs.
+    ///
+    /// **The shrink path covers a case this project cannot reach** — a wearer that is being drawn
+    /// but whose bone setup failed anyway, which in the engine means threaded lock contention or
+    /// prediction. There is no thread, no lock and no prediction here: this returns false only for
+    /// a model with no bones or a follow chain that cycles.
     /// </remarks>
     public bool SetupBones(int boneMask, double currentTime) =>
         SetupBones(boneMask, currentTime, MaximumFollowDepth);

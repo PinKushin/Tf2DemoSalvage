@@ -118,12 +118,18 @@ public sealed class BoneSetupConformanceTests
 
         new BoneStage(
             "boneSetup",
-            StageState.Absent,
+            StageState.Implemented,
             "Constructing IBoneSetup( hdr, boneMask, poseparam ) — the object every later stage " +
-            "runs through. The BONE MASK is the part with no equivalent here at all: it is what " +
-            "lets the engine build only the bones a caller needs, and it is the input to the " +
-            "readable/writable accounting that makes SetupBones idempotent. Its absence is why " +
-            "the ordering had to be solved with a depth sort (B181)."),
+            "runs through. There is no separate object here; the mask and the pose parameters are " +
+            "arguments to AnimatingEntity.SetupBones and SkeletonPose.Build, which is a shape " +
+            "difference rather than a behaviour one. The MASK itself is honoured where the engine " +
+            "honours it: `if ( !( hdr->boneFlags( i ) & boneMask ) ) continue;` " +
+            "(c_baseanimating.cpp:1517) is SkeletonPose.Build's own first test, and the " +
+            "readable/writable accounting that makes SetupBones idempotent is there too, widened " +
+            "by what was asked last frame exactly as `boneMask |= m_iPrevBoneMask` does. " +
+            "THIS ENTRY READ 'Absent, no equivalent here at all' UNTIL 2026-09-03 and was stale on " +
+            "both halves: it also blamed the missing mask for an ordering depth sort that B181 and " +
+            "D88 had already deleted, having found the engine has no ordering code at all."),
 
         new BoneStage(
             "InitPose",
