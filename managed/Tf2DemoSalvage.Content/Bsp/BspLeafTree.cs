@@ -408,6 +408,52 @@ public sealed class BspLeafTree
     /// <returns>The cluster, or −1 when the point is in solid space or the map has no tree.</returns>
     public int ClusterAt(float x, float y, float z) => Cluster(LeafAt(x, y, z));
 
+    /// <summary>Which AREA a leaf belongs to, or −1 when there is no such leaf.</summary>
+    /// <param name="leaf">The leaf index, as <see cref="LeafAt"/> returns.</param>
+    /// <returns>The area, or −1.</returns>
+    /// <remarks>
+    /// **<c>dleaf_t</c> packs <c>area:9</c> and <c>flags:7</c> into one <c>short</c> at offset 6**,
+    /// immediately after the cluster this type already reads at 4. So the area is the LOW NINE
+    /// BITS, and reading the whole short instead is a bug that agrees for every leaf whose flags
+    /// are zero — which on a map with no leaf water or sky flags is nearly all of them.
+    ///
+    /// **This is the field the 3D skybox is drawn by.** `CSkyboxView::DrawInternal`
+    /// (<c>viewrender.cpp:4877</c>) sets exactly one area bit before it draws:
+    ///
+    /// <code>
+    ///   tmpbits[m_pSky3dParams-&gt;area&gt;&gt;3] |= 1 &lt;&lt; (m_pSky3dParams-&gt;area&amp;7);
+    ///   *areabits = tmpbits;
+    /// </code>
+    ///
+    /// so the sky pass draws the miniature room and nothing else, and the main pass draws
+    /// everything else and not the room. Without the area there is no way to tell one from the
+    /// other, and a TF2 map's skybox scenery simply sits in the world at its literal size (B152).
+    /// </remarks>
+    public int Area(int leaf)
+    {
+        if (leaf < 0)
+        {
+            return -1;
+        }
+
+        ReadOnlySpan<byte> leaves = _leaves.Span;
+        int at = leaf * _leafStride;
+
+        if (at < 0 || at + _leafStride > leaves.Length)
+        {
+            return -1;
+        }
+
+        return BinaryPrimitives.ReadInt16LittleEndian(leaves[(at + 6)..]) & 0x1FF;
+    }
+
+    /// <summary>Which area contains a point, or −1.</summary>
+    /// <param name="x">World position.</param>
+    /// <param name="y">World position.</param>
+    /// <param name="z">World position.</param>
+    /// <returns>The area, or −1 when the point is outside the tree.</returns>
+    public int AreaAt(float x, float y, float z) => Area(LeafAt(x, y, z));
+
     /// <summary>The world-space box a leaf occupies, or null when there is no such leaf.</summary>
     /// <param name="leaf">The leaf index, as <see cref="LeafAt"/> returns.</param>
     /// <returns>Its minimum and maximum corner, in world units.</returns>

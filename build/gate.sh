@@ -871,7 +871,11 @@ run Tf2DemoSalvage.Presentation.Tests presentation 438
 # 876 -> 882: FrameAt, the inter-frame fraction CalcPoseSingle keeps and this project dropped
 # (B279). Six cases, including the control that a loop still lands on the frame FrameFor always
 # gave it - only the fraction is new.
-run Tf2DemoSalvage.Content.Tests  content   909
+# 909 -> 913: dleaf_t's AREA, which is how the engine tells the 3D skybox room from the level
+# (B152). Four: the plain read, a leaf whose FLAGS are set — the case that separates a nine-bit read
+# from a sixteen-bit one, since with flags zero the two agree — the largest area a nine-bit field
+# holds, and a leaf past the end answering -1 rather than area zero.
+run Tf2DemoSalvage.Content.Tests  content   913
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2

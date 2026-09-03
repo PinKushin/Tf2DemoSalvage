@@ -202,6 +202,66 @@ public static class BspEntities
         return null;
     }
 
+    /// <summary>The 3D skybox marker's origin AND scale, if the map has one.</summary>
+    /// <param name="entities">Entities from <see cref="Parse"/>.</param>
+    /// <returns>The origin and scale, or null when there is no <c>sky_camera</c>.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="entities"/> is null.</exception>
+    /// <remarks>
+    /// **The scale is half the transform and reading only the origin cannot place the sky.**
+    /// `CSkyboxView::DrawInternal` (<c>viewrender.cpp:4888</c>) divides the main view's origin by it
+    /// before adding the sky camera's:
+    ///
+    /// <code>
+    ///   if ( m_pSky3dParams-&gt;scale &gt; 0 )
+    ///   {
+    ///       float scale = 1.0f / m_pSky3dParams-&gt;scale;
+    ///       VectorScale( origin, scale, origin );
+    ///   }
+    ///   VectorAdd( origin, m_pSky3dParams-&gt;origin, origin );
+    /// </code>
+    ///
+    /// So the miniature room is drawn from a camera that moves a sixteenth as far as the player
+    /// does, which is what makes distant scenery hold still while near scenery slides past.
+    ///
+    /// **Sixteen is the default and it is Valve's, not a guess** — `sky_camera`'s `scale` key
+    /// defaults to 16 in `base.fgd`, and the guard above treats a non-positive scale as "do not
+    /// divide" rather than as an error.
+    ///
+    /// **Kept beside <see cref="SkyCameraOrigin"/> rather than replacing it**, because that one has
+    /// a caller shape of its own; this is the pair a renderer needs.
+    /// </remarks>
+    public static ((float X, float Y, float Z) Origin, float Scale)? SkyCamera(
+        IReadOnlyList<BspEntity> entities)
+    {
+        ArgumentNullException.ThrowIfNull(entities);
+
+        foreach (BspEntity entity in entities)
+        {
+            if (!entity.TryGetValue("classname", out string? classname) ||
+                !string.Equals(classname, SkyCameraClass, StringComparison.OrdinalIgnoreCase) ||
+                !entity.TryGetValue("origin", out string? origin) ||
+                !TryReadVector(origin, out (float X, float Y, float Z) position))
+            {
+                continue;
+            }
+
+            float scale = DefaultSkyScale;
+
+            if (entity.TryGetValue("scale", out string? stated) &&
+                float.TryParse(stated, NumberStyles.Float, CultureInfo.InvariantCulture, out float read))
+            {
+                scale = read;
+            }
+
+            return (position, scale);
+        }
+
+        return null;
+    }
+
+    /// <summary>`sky_camera`'s default `scale`, as `base.fgd` declares it.</summary>
+    private const float DefaultSkyScale = 16f;
+
     /// <summary>Index of the entity lump in the directory.</summary>
     private const int EntityLump = BspLumpIndex.Entities;
 
