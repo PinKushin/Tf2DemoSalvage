@@ -620,14 +620,30 @@ public static class StudioAnimation
     /// A <c>total</c> of zero would loop for ever; Valve assert on it and return zero, and so does
     /// this.
     /// </remarks>
-    private static float Value(ReadOnlySpan<byte> payload, int channel, int frame)
+    private static float Value(ReadOnlySpan<byte> payload, int channel, int frame) =>
+        Value(payload, tableAt: 0, channel, frame);
+
+    /// <summary>The same walk, for a structure whose offset table does not start at byte zero.</summary>
+    /// <param name="payload">The structure, from its own start — offsets are relative to it.</param>
+    /// <param name="tableAt">Where the <c>short</c> offset table begins within it.</param>
+    /// <param name="channel">Which channel.</param>
+    /// <param name="frame">Which frame.</param>
+    /// <returns>The raw value, before scaling.</returns>
+    /// <remarks>
+    /// **Shared with <c>mstudiocompressedikerror_t</c>, whose table sits at byte 24** behind six
+    /// floats of scale (<c>studio.h:544</c>). The run-length walk is character for character the
+    /// same as an animation track's, because it IS the same: `CalcDecompressedAnimation` calls the
+    /// same `ExtractAnimValue` the bone tracks use. A second copy of it here would be a second
+    /// place for the block arithmetic to drift.
+    /// </remarks>
+    internal static float Value(ReadOnlySpan<byte> payload, int tableAt, int channel, int frame)
     {
-        if (payload.Length < 6)
+        if (payload.Length < tableAt + 6)
         {
             return 0f;
         }
 
-        int offset = BinaryPrimitives.ReadInt16LittleEndian(payload[(channel * 2)..]);
+        int offset = BinaryPrimitives.ReadInt16LittleEndian(payload[(tableAt + (channel * 2))..]);
 
         if (offset <= 0 || offset >= payload.Length)
         {

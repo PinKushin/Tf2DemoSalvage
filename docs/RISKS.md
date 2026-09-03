@@ -19182,3 +19182,60 @@ reddened exactly that one.
 `CIKContext` itself — the rules have no consumer yet — and the compressed error tracks
 (`mstudiocompressedikerror_t`, decoded by `CalcDecompressedAnimation`). The solver, the reader and
 the weighting are in; what connects them to a skeleton is not.
+
+### B296 progress: the error tracks and the context — IK now solves, and is not yet wired
+
+**The compressed error decode reuses the animation tracks' own walk.**
+`mstudiocompressedikerror_t` is six scales then six `short` offsets into run-length blocks — the
+same scheme a bone's animation channel uses, and Valve reaches it through the same
+`ExtractAnimValue`. Sharing it was a one-parameter change; a second copy would have been a second
+place for the block arithmetic to drift.
+
+**Verified against real rules, and the check is a unit quaternion.** Decoding
+`scout_animations.mdl`:
+
+```
+rule anim 26 type 1 chain 1 bone 23 slot 1 window 0/0/1/1 error yes
+  error pos (5.75, 0.656, 6.797) q (-0.44, 0.138, -0.484, 0.744)
+rule anim 29 type 1 chain 1 bone 23 slot 1 window 0/0/1/1 error yes
+  error pos (5.457, 0.117, 7.871) q (-0.433, 0.161, -0.521, 0.718)
+```
+
+Type 1 is `IK_SELF`, chain 1 is the off hand, and the target is bone 23 — another bone on the same
+model, which is the weapon. **The position is a few units**, which is what a hand-sized correction
+looks like, and **the quaternion is unit to four decimals** — a wrong scale, a wrong Euler order or a
+wrong track offset does not produce that. Consecutive animations of related poses give nearly
+identical corrections, which a random read would not.
+
+**`IkContext` is `SolveDependencies` reduced to the one type that does work.** Every chain's current
+end is read first, from the skeleton as the animation left it; then the rules blend a target over
+those; then each chain with any weight is solved and its three bones written back. Reading a chain's
+position after a neighbour had been solved would feed one correction into the next.
+
+Three details that are Valve's and not obvious: the chain's accumulated weight is
+`w' = w(1 − f) + f` rather than a sum, so two rules approach one instead of exceeding it; after the
+solve the end bone's ROTATION is forced to the target's while keeping the position the solve
+produced, because the solver only positions; and the three bones are converted back to LOCAL space
+by `SolveBone`, without which the world matrices are right and every later stage reads the
+animation's pose.
+
+#### A fixture that was the degenerate case
+
+The first harness built a perfectly straight chain, and the solver refused it — correctly.
+Without a stated knee direction the preference is derived from where the animation put the knee, and
+a knee exactly on the line between hip and foot gives no direction at all:
+`l3 > (l1 + l2) * KNEEMAX_EPSILON` returns false and nothing moves. One unit of bend fixes it, and
+is also what real content looks like, since an animator does not author a limb locked straight.
+
+Five tests. Sabotaging the blend weight reddened exactly the half-weight test; dropping the end
+bone's local rebuild reddened exactly the test written for it.
+
+### What remains before IK is finished
+
+**The wiring.** `IkContext` has no production caller: nothing yet walks a playing animation's rules,
+weights them through `StudioIkRules.Weight`, decodes their errors and hands the result to the
+context. That is the last piece, and it is the one that needs the four-way animation blend's weights
+— a rule's influence is accumulated across the same four animations `CalcPoseSingle` blends, which
+is where `Studio_IKSequenceError` earns its length.
+
+Until then this is a solver, a reader and a context that are each tested and reach no skeleton.

@@ -884,4 +884,125 @@ public static class StudioBones
                 first[(row * 4) + 3];
         }
     }
+
+    /// <summary>The inverse of a bone matrix — <c>MatrixInvert</c>.</summary>
+    /// <param name="matrix">The matrix, row-major 3x4.</param>
+    /// <param name="result">Where the inverse goes; may not alias the input.</param>
+    /// <exception cref="ArgumentException">Either span is not twelve floats.</exception>
+    /// <remarks>
+    /// **<c>mathlib_base.cpp:380</c>**, and it inverts by TRANSPOSING, which is only the inverse
+    /// for a rotation:
+    ///
+    /// <code>
+    ///   out[0][0] = in[0][0]; out[0][1] = in[1][0]; out[0][2] = in[2][0];  // transpose
+    ///   ...
+    ///   tmp[0] = in[0][3]; tmp[1] = in[1][3]; tmp[2] = in[2][3];
+    ///   out[0][3] = -DotProduct( tmp, out[0] );                            // and re-space the position
+    /// </code>
+    ///
+    /// **A SCALED matrix inverts wrongly through this**, and that is Valve's behaviour rather than
+    /// an oversight to fix: a transpose undoes a rotation and multiplies a scale instead of
+    /// dividing it. Bone matrices are rotations plus translations, and the one place a scale enters
+    /// is the model scale, which is applied outside the bone hierarchy.
+    ///
+    /// **The position is not simply negated.** It has to be expressed in the inverted frame, which
+    /// is the three dot products — negating it in place would put every child bone somewhere
+    /// plausible and wrong.
+    /// </remarks>
+    public static void Invert(ReadOnlySpan<float> matrix, Span<float> result)
+    {
+        if (matrix.Length != 12 || result.Length != 12)
+        {
+            throw new ArgumentException("A bone matrix is a matrix3x4_t of twelve floats.");
+        }
+
+        for (int row = 0; row < 3; row++)
+        {
+            for (int column = 0; column < 3; column++)
+            {
+                result[(row * 4) + column] = matrix[(column * 4) + row];
+            }
+        }
+
+        float x = matrix[3];
+        float y = matrix[7];
+        float z = matrix[11];
+
+        for (int row = 0; row < 3; row++)
+        {
+            result[(row * 4) + 3] = -(
+                (x * result[(row * 4) + 0]) +
+                (y * result[(row * 4) + 1]) +
+                (z * result[(row * 4) + 2]));
+        }
+    }
+
+    /// <summary>A bone matrix's rotation, as a quaternion — <c>MatrixAngles</c>.</summary>
+    /// <param name="matrix">The matrix, row-major 3x4.</param>
+    /// <returns>Its rotation, normalised.</returns>
+    /// <exception cref="ArgumentException"><paramref name="matrix"/> is not twelve floats.</exception>
+    /// <remarks>
+    /// **<c>mathlib_base.cpp:150</c>**, and the four branches are not interchangeable. The first
+    /// uses the trace, which is numerically best when the rotation is small; the other three pick
+    /// whichever diagonal element is largest, because the trace form divides by something near zero
+    /// for a rotation near half a turn. Choosing one branch for everything is the plausible
+    /// simplification and it loses precision exactly where a limb is bent furthest.
+    ///
+    /// **Valve normalises at the end rather than scaling each branch**, so the four expressions
+    /// need only be proportional to the answer — which is why they look unrelated to each other.
+    /// </remarks>
+    public static (float X, float Y, float Z, float W) ToQuaternion(ReadOnlySpan<float> matrix)
+    {
+        if (matrix.Length != 12)
+        {
+            throw new ArgumentException("A bone matrix is a matrix3x4_t of twelve floats.");
+        }
+
+        float m00 = matrix[0];
+        float m11 = matrix[5];
+        float m22 = matrix[10];
+
+        float trace = m00 + m11 + m22 + 1f;
+
+        float x;
+        float y;
+        float z;
+        float w;
+
+        if (trace > 1f + float.Epsilon)
+        {
+            x = matrix[9] - matrix[6];
+            y = matrix[2] - matrix[8];
+            z = matrix[4] - matrix[1];
+            w = trace;
+        }
+        else if (m00 > m11 && m00 > m22)
+        {
+            x = 1f + m00 - m11 - m22;
+            y = matrix[4] + matrix[1];
+            z = matrix[2] + matrix[8];
+            w = matrix[9] - matrix[6];
+        }
+        else if (m11 > m22)
+        {
+            x = matrix[1] + matrix[4];
+            y = 1f + m11 - m00 - m22;
+            z = matrix[9] + matrix[6];
+            w = matrix[2] - matrix[8];
+        }
+        else
+        {
+            x = matrix[2] + matrix[8];
+            y = matrix[9] + matrix[6];
+            z = 1f + m22 - m00 - m11;
+            w = matrix[4] - matrix[1];
+        }
+
+        float length = MathF.Sqrt((x * x) + (y * y) + (z * z) + (w * w));
+
+        return length > 0f
+            ? (x / length, y / length, z / length, w / length)
+            : (0f, 0f, 0f, 1f);
+    }
+
 }

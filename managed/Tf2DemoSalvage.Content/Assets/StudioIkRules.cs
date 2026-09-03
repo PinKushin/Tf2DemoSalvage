@@ -294,6 +294,176 @@ public static class StudioIkRules
         return (3f * value * value) - (2f * value * value * value);
     }
 
+    /// <summary>Where a rule wants its chain's end to be, at one frame.</summary>
+    /// <param name="model">The whole <c>.mdl</c> file.</param>
+    /// <param name="animation">Which animation, by index within this file.</param>
+    /// <param name="rule">Which of its rules.</param>
+    /// <param name="frame">Which frame of the error track, from <see cref="Weight"/>.</param>
+    /// <param name="fraction">How far past that frame, from <see cref="Weight"/>.</param>
+    /// <param name="position">The positional error.</param>
+    /// <param name="rotation">The rotational error.</param>
+    /// <returns>Whether a track was found and read.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">An index is negative.</exception>
+    /// <remarks>
+    /// **<c>CalcDecompressedAnimation</c>, <c>bone_setup.cpp:618</c>**, reached through
+    /// `Studio_IKAnimationError`. Six channels — three of position, three of Euler angle — each a
+    /// run-length track of the same shape a bone's animation uses, with its own scale:
+    ///
+    /// <code>
+    ///   ExtractAnimValue( iFrame, pCompressed->pAnimvalue( 0 ), pCompressed->scale[0], p1.x, p2.x );
+    ///   ...
+    ///   pos = p1 * (1 - fraq) + p2 * fraq;
+    ///   if (angle1.x != angle2.x || …) { AngleQuaternion( angle1, q1 ); … QuaternionBlend( q1, q2, fraq, q ); }
+    ///   else AngleQuaternion( angle1, q );
+    /// </code>
+    ///
+    /// **The angle comparison is Valve's own shortcut and it is EXACT.** Three float equalities
+    /// decide whether to build two quaternions and blend them or build one; when the two frames
+    /// hold the same angle the blend would be a no-op, and the branch exists to skip two
+    /// `AngleQuaternion` calls rather than to guard anything. Reproduced.
+    ///
+    /// **Below a fraction of 0.0001 the engine reads ONE frame rather than blending toward the
+    /// next**, which is the same threshold and the same reason.
+    ///
+    /// **The Euler order is roll-pitch-yaw**, not a `QAngle`'s — these are `RadianEuler`, so
+    /// <see cref="StudioAnimation.FromEulerRadians"/> is the conversion, the same one the bone
+    /// tracks and the bone controllers use.
+    /// </remarks>
+    public static bool Error(
+        ReadOnlyMemory<byte> model,
+        int animation,
+        int rule,
+        int frame,
+        float fraction,
+        out (float X, float Y, float Z) position,
+        out (float X, float Y, float Z, float W) rotation)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(animation);
+        ArgumentOutOfRangeException.ThrowIfNegative(rule);
+
+        position = default;
+        rotation = (0f, 0f, 0f, 1f);
+
+        if (Located(model, animation, rule) is not { } at)
+        {
+            return false;
+        }
+
+        ReadOnlySpan<byte> bytes = model.Span;
+
+        int compressed = BinaryPrimitives.ReadInt32LittleEndian(bytes[(at + 60)..]);
+
+        if (compressed == 0)
+        {
+            return false;
+        }
+
+        long start = (long)at + compressed;
+
+        if (start < 0 || start + CompressedErrorStride > bytes.Length)
+        {
+            return false;
+        }
+
+        ReadOnlySpan<byte> track = bytes[(int)start..];
+
+        int clamped = Math.Max(0, frame);
+
+        if (fraction > 0.0001f)
+        {
+            (float firstX, float nextX) = Pair(track, 0, clamped);
+            (float firstY, float nextY) = Pair(track, 1, clamped);
+            (float firstZ, float nextZ) = Pair(track, 2, clamped);
+
+            position = (
+                (firstX * (1f - fraction)) + (nextX * fraction),
+                (firstY * (1f - fraction)) + (nextY * fraction),
+                (firstZ * (1f - fraction)) + (nextZ * fraction));
+
+            (float firstPitch, float nextPitch) = Pair(track, 3, clamped);
+            (float firstYaw, float nextYaw) = Pair(track, 4, clamped);
+            (float firstRoll, float nextRoll) = Pair(track, 5, clamped);
+
+#pragma warning disable S1244 // Valve's own exact comparison; see the remarks above.
+            rotation =
+                firstPitch != nextPitch || firstYaw != nextYaw || firstRoll != nextRoll
+                    ? StudioBones.Slerp(
+                        StudioAnimation.FromEulerRadians(firstPitch, firstYaw, firstRoll),
+                        StudioAnimation.FromEulerRadians(nextPitch, nextYaw, nextRoll),
+                        fraction)
+                    : StudioAnimation.FromEulerRadians(firstPitch, firstYaw, firstRoll);
+#pragma warning restore S1244
+
+            return true;
+        }
+
+        position = (
+            Channel(track, 0, clamped), Channel(track, 1, clamped), Channel(track, 2, clamped));
+
+        rotation = StudioAnimation.FromEulerRadians(
+            Channel(track, 3, clamped), Channel(track, 4, clamped), Channel(track, 5, clamped));
+
+        return true;
+    }
+
+    /// <summary>Bytes per <c>mstudiocompressedikerror_t</c>: six scales then six offsets.</summary>
+    private const int CompressedErrorStride = 36;
+
+    /// <summary>Where a channel's offset table sits within the compressed error.</summary>
+    private const int CompressedErrorTableOffset = 24;
+
+    /// <summary>One channel at one frame, scaled.</summary>
+    private static float Channel(ReadOnlySpan<byte> track, int channel, int frame) =>
+        StudioAnimation.Value(track, CompressedErrorTableOffset, channel, frame) *
+        BinaryPrimitives.ReadSingleLittleEndian(track[(channel * sizeof(float))..]);
+
+    /// <summary>One channel at a frame and the one after it, for blending.</summary>
+    /// <remarks>
+    /// **Valve's `ExtractAnimValue` writes BOTH out of one walk**, since the second value usually
+    /// sits beside the first in the same run-length block. Walking twice is the same answer for
+    /// more work, and is what this does — a faithful single-walk version would need the block
+    /// bookkeeping exposed, and the cost is one extra traversal of a track a few bytes long.
+    /// </remarks>
+    private static (float First, float Next) Pair(
+        ReadOnlySpan<byte> track, int channel, int frame) =>
+        (Channel(track, channel, frame), Channel(track, channel, frame + 1));
+
+    /// <summary>Where one rule's bytes begin, or null when it names nothing.</summary>
+    private static int? Located(ReadOnlyMemory<byte> model, int animation, int rule)
+    {
+        ReadOnlySpan<byte> bytes = model.Span;
+
+        if (animation >= StudioAnimation.Count(model) ||
+            bytes.Length < StudioLayout.HeaderAnimationIndexOffset + sizeof(int))
+        {
+            return null;
+        }
+
+        int start = BinaryPrimitives.ReadInt32LittleEndian(
+            bytes[StudioLayout.HeaderAnimationIndexOffset..]) +
+            (animation * StudioLayout.AnimationStride);
+
+        if (start < 0 || start + StudioLayout.AnimationStride > bytes.Length)
+        {
+            return null;
+        }
+
+        int count = BinaryPrimitives.ReadInt32LittleEndian(
+            bytes[(start + StudioLayout.AnimationIkRuleCountOffset)..]);
+
+        int index = BinaryPrimitives.ReadInt32LittleEndian(
+            bytes[(start + StudioLayout.AnimationIkRuleIndexOffset)..]);
+
+        if (rule >= count || count <= 0 || index == 0)
+        {
+            return null;
+        }
+
+        long at = (long)start + index + ((long)rule * Stride);
+
+        return at >= 0 && at + Stride <= bytes.Length ? (int)at : null;
+    }
+
     /// <summary>The nth four-byte int of a rule.</summary>
     private static int Int(ReadOnlySpan<byte> rule, int offset) =>
         BinaryPrimitives.ReadInt32LittleEndian(rule[offset..]);

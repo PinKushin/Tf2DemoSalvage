@@ -167,12 +167,21 @@ public sealed class ModelProbe : IProbe
 
         for (int animation = 0; animation < animations && shown < 6; animation++)
         {
-            foreach (StudioIkRule rule in StudioIkRules.Read(bytes, animation))
+            IReadOnlyList<StudioIkRule> declared = StudioIkRules.Read(bytes, animation);
+
+            for (int index = 0; index < declared.Count && shown < 6; index++)
             {
-                if (shown++ >= 6)
+                StudioIkRule rule = declared[index];
+
+                // **The ones that DO something.** Ninety per cent of TF2's rules are releases with
+                // no error track, so an unfiltered listing shows six releases and says nothing
+                // about whether the track decode works.
+                if (!rule.HasError)
                 {
-                    break;
+                    continue;
                 }
+
+                shown++;
 
                 output.WriteLine(
                     $"      rule anim {animation.ToString(CultureInfo.InvariantCulture)} "
@@ -183,6 +192,24 @@ public sealed class ModelProbe : IProbe
                     + $"window {rule.Start:0.###}/{rule.Peak:0.###}/{rule.Tail:0.###}/{rule.End:0.###} "
                     + $"iStart {rule.FirstFrame.ToString(CultureInfo.InvariantCulture)} "
                     + $"error {(rule.HasError ? "yes" : "NONE")}");
+
+                // **The decoded error itself, because a wrong track offset reads as numbers.** An
+                // IK correction is a small nudge — a hand a few units from where the animation put
+                // it — so single digits are what a correct read looks like and thousands are not.
+                if (rule.CompressedError != 0 &&
+                    StudioIkRules.Error(
+                        bytes,
+                        animation,
+                        index,
+                        rule.FirstFrame,
+                        0f,
+                        out (float X, float Y, float Z) at,
+                        out (float X, float Y, float Z, float W) turn))
+                {
+                    output.WriteLine(
+                        $"        error pos ({at.X:0.###}, {at.Y:0.###}, {at.Z:0.###}) "
+                        + $"q ({turn.X:0.###}, {turn.Y:0.###}, {turn.Z:0.###}, {turn.W:0.###})");
+                }
             }
         }
 
