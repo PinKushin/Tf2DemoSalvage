@@ -47,6 +47,36 @@ public static class WeaponScriptName
         ["CTFWeaponBaseGrenadeProj"] = "tf_weaponbase_grenade_proj",
         ["CTFWeaponBaseMelee"] = "tf_weaponbase_melee",
         ["CTFWeaponBaseMerasmusGrenade"] = "tf_weaponbase_merasmus_grenade",
+
+        // **The Frontier Justice, and it is named after the sentry rather than the shotgun** (B290).
+        // `CREATE_SIMPLE_WEAPON_TABLE( TFShotgun_Revenge, tf_weapon_sentry_revenge )`,
+        // `tf_weapon_shotgun.cpp:35`. Every derived name begins `tf_weapon_shotgun_`, so no rule
+        // reaches it and the weapon resolved to nothing — which is the owner's report: *"i dont
+        // think its the regular engie shotgun btw, its a nonstock engie shotgun i think"*.
+        ["CTFShotgun_Revenge"] = "tf_weapon_sentry_revenge",
+    };
+
+    /// <summary>Classes whose SDK entity name is a candidate the naming rule does not produce.</summary>
+    /// <remarks>
+    /// **Appended rather than replacing, which is the difference from <see cref="Irregular"/>.**
+    /// A class lands here when the derived name is legitimate AND the linked one is: the derived
+    /// name answers one era and the link answers another, so dropping either loses demos.
+    ///
+    /// `CTFShotgun` is the whole list and the reason for it. The SDK links it to
+    /// <c>tf_weapon_shotgun_primary</c> — the engineer's, since a soldier's shotgun is its own
+    /// class <c>CTFShotgun_Soldier</c> — while the derived <c>tf_weapon_shotgun</c> is the key
+    /// <c>pszWpnEntTranslationList</c> translates per class, and is what an early demo carries
+    /// before the per-class classes existed. **The game ships no <c>tf_weapon_shotgun</c> script**
+    /// (measured against <c>tf2_misc_dir.vpk</c>: five shotgun scripts, all suffixed), so on a
+    /// modern demo with no player class the derived name alone resolved to nothing.
+    ///
+    /// **Last rather than first, because order here is era precedence.** Putting the link ahead of
+    /// the translation would answer a soldier's shotgun with the engineer's script, which
+    /// `WeaponTranslation_TheClassTranslation_IsOfferedBeforeTheBaseName` pins.
+    /// </remarks>
+    private static readonly Dictionary<string, string> Linked = new(StringComparer.Ordinal)
+    {
+        ["CTFShotgun"] = "tf_weapon_shotgun_primary",
     };
 
     /// <summary>
@@ -189,6 +219,14 @@ public static class WeaponScriptName
         foreach (string candidate in plain)
         {
             Add(candidates, candidate);
+        }
+
+        // **Last, so an era's own spelling is tried before the modern registration** (B290). See
+        // `Linked`: this is the entity name the SDK pairs with the class, offered for the demos
+        // where the derived name names no shipped script.
+        if (Linked.TryGetValue(serverClass, out string? linked))
+        {
+            Add(candidates, linked);
         }
 
         return candidates;

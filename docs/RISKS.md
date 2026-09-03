@@ -18487,3 +18487,92 @@ reads as broken.
 `Click_TheCycleTargetButton_InThirdPerson_ReachesTheSpectatorCode` was written first and failed for
 the right reason — "chase is an observer mode above OBS_MODE_FIXED, so +attack should have cycled" —
 then passed on the one-line gate change. UI suite 31 of 31.
+
+## B290 — the SDK scan could not see sixteen weapons, and two of them resolved to nothing — FIXED
+
+**Reported by the owner from watching playback:** a missing engineer shotgun, and *"i dont think its
+the regular engie shotgun btw, its a nonstock engie shotgun i think"*.
+
+### The denominator was the defect, not the mapping
+
+`WeaponScriptNameTests` enumerates every weapon the SDK declares and asserts each one resolves to
+its script name. It found the pairs with a regex over the literal text `LINK_ENTITY_TO_CLASS`.
+
+**Sixteen weapons never write that text.** They are registered through a macro that generates it,
+`tf_weaponbase_gun.h:16`:
+
+```cpp
+#define CREATE_SIMPLE_WEAPON_TABLE( WpnName, entityname )   \
+    ...
+    LINK_ENTITY_TO_CLASS( entityname, C##WpnName );         \
+    PRECACHE_WEAPON_REGISTER( entityname );
+```
+
+So the pair exists in the built game and appears nowhere in the source text. A test whose
+denominator cannot see a weapon cannot report that weapon missing, and this one had been passing on
+a set that excluded the two broken entries —
+`docs/memory/the-denominator-decides-what-can-be-lost.md`.
+
+**The macro also reverses the argument order** — class first, entity second, where the link is
+entity first — and spells the class without its leading `C`, pasting it on with `C##WpnName`. Both
+are the kind of detail that turns a widened scan into a silently inverted one.
+
+### What widening it found
+
+| class | wanted | offered |
+|---|---|---|
+| `CTFShotgun_Revenge` | `tf_weapon_sentry_revenge` | `tf_weapon_shotgun_revenge`, … |
+| `CTFShotgun` | `tf_weapon_shotgun_primary` | `tf_weapon_shotgun`, … |
+
+**The Frontier Justice is named after the sentry it revenges, not after the shotgun it is**
+(`tf_weapon_shotgun.cpp:35`). Every derived name begins `tf_weapon_shotgun_`, so no naming rule
+reaches it. It is a non-stock engineer shotgun, which is the owner's report.
+
+**And the stock one is worse than it looks.** The SDK links `CTFShotgun` to
+`tf_weapon_shotgun_primary` — the engineer's, since a soldier's is its own class
+`CTFShotgun_Soldier` — while the derived `tf_weapon_shotgun` is the key `pszWpnEntTranslationList`
+translates per class. **The game ships no `tf_weapon_shotgun` script**: measured against
+`tf2_misc_dir.vpk`, the five shotgun scripts are all suffixed. So on a modern demo with no player
+class, the stock engineer shotgun resolved to nothing either.
+
+### Why a missing script is a missing gun
+
+`WeaponModels.For` resolves the display model through the same candidate list, so a name that
+matches no script returns null and the weapon is not drawn. The two failures are not a mislabelled
+role, they are an empty hand.
+
+### The two are fixed differently, and the difference matters
+
+The Frontier Justice joins the `Irregular` list, which REPLACES the derived names: none of them is
+right and none names a shipped script.
+
+`CTFShotgun` joins a new `Linked` list, which is APPENDED: both names are legitimate and each
+answers a different era. An early demo carries `CTFShotgun` for every class, before the per-class
+classes existed, and the per-class translation off `tf_weapon_shotgun` is what reads it. Putting the
+link first would answer a soldier's shotgun with the engineer's script, which
+`WeaponTranslation_TheClassTranslation_IsOfferedBeforeTheBaseName` pins.
+
+### Verified
+
+The widened scan reddened the existing conformance test naming both classes and what each offered
+instead, then passed on the two additions. `weapon-models` over the corpus goes from those failures
+to 247 distinct weapons with two unresolved, both `CTFWearable item 241` — the Dueling Mini-Game, an
+inventory tool with `item_class tf_wearable` and no model by design.
+
+### And then the same question asked properly
+
+`CREATE_SIMPLE_WEAPON_TABLE` was found by reading the file the two failures live in, which answers
+nothing about whether other macros hide registrations the same way. Enumerated instead: every macro
+in `src/game` whose body contains `LINK_ENTITY_TO_CLASS`. There are exactly two, and the second is
+`STUB_WEAPON_CLASS_IMPLEMENT` (`c_weapon__stubs.h:18`).
+
+**It costs the denominator nothing, and the reason is worth recording rather than the conclusion.**
+Its only TF use is `STUB_WEAPON_CLASS_IMPLEMENT( tf_weapon_builder, C_TFWeaponBuilder )`
+(`c_tf_weapon_builder.cpp:22`) — a CLIENT class, spelled `C_TFWeaponBuilder`, which no demo names.
+The server links the same entity under the name a demo does carry, written out in full:
+`LINK_ENTITY_TO_CLASS( tf_weapon_builder, CTFWeaponBuilder )` (`tf_weapon_builder.cpp:45`). So the
+pair was already in the scan by the plain route.
+
+Scanning it anyway would have made things worse, not better: it would add a key
+`C_TFWeaponBuilder` that no demo can produce, and the prefix rules would derive nothing sensible
+from the underscore — a red test reporting a weapon that does not exist on the wire.
