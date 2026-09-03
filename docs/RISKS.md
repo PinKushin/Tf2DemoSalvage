@@ -9585,7 +9585,15 @@ Worth keeping as a shape: **matching a reference exactly is not always the right
 only tell once you know what you would be matching.** The lookup was still the right move; it just
 argued the other way than expected.
 
-## B157 — a missing MODEL should be Valve's ERROR mesh, not nothing — OPEN
+## B157 — a missing MODEL should be Valve's ERROR mesh, not nothing — FIXED
+
+> **The substitution half was built and this heading was never updated.** `MapAssets.ErrorModel` is
+> `models/error.mdl`, `MapAssets` loads it once and hands it to any prop whose own model would not
+> load, and `ErrorModelTests.Load_AModelThatDoesNotExist_IsDrawnAsValvesErrorMesh` holds it. Found
+> stale on 2026-09-03 while looking for open work — the fifth entry this session that described a
+> state the code had already left. The notes below on the edge map and `_mapFill` are separate and
+> still stand.
+
 
 Valve has two placeholders and they are not interchangeable, which the owner spotted before it was
 checked: "i think all valves missing textures and meshes and maybe materials are checkered while i
@@ -19014,7 +19022,16 @@ than broken: an autolayer applies only while its parent sequence is the one play
 at that tick is playing `throw_draw`, `deploy` or `ref`. The first demo is the positive control for
 the second.
 
-## B296 — IK is absent, every player model declares four chains — OPEN, and the biggest one left
+## B296 — IK is absent, every player model declares four chains — FIXED
+
+> **Closed 2026-09-03.** The solver, the rule reader, the envelope, the compressed error track and
+> the context are built and wired, and a `SELF` rule demonstrably solves in production on both
+> demos. Three follow-ups were needed before it did anything: **B297** (rules must come from every
+> accumulated sequence, because TF2 puts them all on the aim matrix), **B299** (`IK_RELEASE` is not
+> inert and outnumbers `IK_SELF` eight to one), and **B301** (a scaled model opts out entirely).
+> The `CIKTarget` half — `UpdateTargets`, `CalculateIKLocks`, latching, `AutoIKRelease` — is
+> deliberately absent and B299 records the measurement proving it unreachable for TF2.
+
 
 **Measured 2026-09-03**, with the discipline that has now paid three times: ask which content uses a
 mechanism before deciding how much of it to build.
