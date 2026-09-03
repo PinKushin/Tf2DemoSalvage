@@ -364,8 +364,17 @@ public sealed class BoneSetupConformanceTests
             // the engine runs one pass over the whole table per entity and caches it, gated on
             // BONE_USED_BY_ATTACHMENT never having been requested before.
             "Resolves the attachment table against the finished bones. The arithmetic matches " +
-            "Valve's, including the one-based index; what differs is that ours recomputes per " +
-            "child instead of once per entity (finding 35 section 4)."),
+            "Valve's, including the one-based index and the ATTACHMENT_FLAG_WORLD_ALIGN branch " +
+            "that keeps the bone's position and throws its rotation away; what differs is that " +
+            "ours recomputes per child instead of once per entity (finding 35 section 4). " +
+            "The one line NOT reproduced is FormatViewModelAttachment (c_baseanimating.cpp:2081), " +
+            "which squashes an attachment by worldFov/viewmodelFov because the viewmodel renders " +
+            "through a different projection. It is a C_BaseViewModel override and the base is an " +
+            "empty body, so it reaches viewmodels only — and nothing here is positioned by a " +
+            "viewmodel's attachment. Measured: z1800 has ZERO attachment-parented props at five " +
+            "ticks against dozens of bone-merged ones as the control, and the pub demo's three are " +
+            "map doors on CDynamicProp. It would matter if this project drew muzzle flashes or " +
+            "tracers at viewmodel attachments, which it does not."),
     ];
 
     [Test]
