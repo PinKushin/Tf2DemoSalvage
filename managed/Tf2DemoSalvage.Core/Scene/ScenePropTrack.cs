@@ -150,6 +150,19 @@ public readonly record struct ScenePose
     /// </remarks>
     public IReadOnlyList<SceneGesture>? Gestures { get; init; }
 
+    /// <summary>The animation layers this entity sends, in <c>m_nOrder</c>.</summary>
+    /// <remarks>
+    /// **The other source of layers, and the one a PLAYER never uses** (B285).
+    /// <c>tf_player.cpp:774</c> excludes <c>m_AnimOverlay</c> from the player's send table, so
+    /// these come from every other animating entity — a sentry's aim, a dispenser, a teleporter.
+    /// The engine draws both kinds through the same <c>AccumulateLayers</c>; the difference is
+    /// only where they were read from.
+    ///
+    /// **Empty rather than null**, because unlike <see cref="Gestures"/> this is read for every
+    /// prop on every keyframe and the empty list costs nothing.
+    /// </remarks>
+    public IReadOnlyList<SceneAnimationLayer> Layers { get; init; } = [];
+
     /// <summary>Which animation is playing.</summary>
     /// <remarks>
     /// **Zero when the demo never said, because zero is the engine's default** — <c>m_nSequence</c>
@@ -1522,6 +1535,13 @@ public sealed class ScenePropTrack
             // production, and a future entity whose gestures DO come off the wire would lose them
             // here with nothing to say so.
             Gestures = from.Gestures,
+
+            // **From the earlier keyframe, not interpolated between two.** The engine DOES
+            // interpolate its layer array (`m_iv_AnimOverlay`), and `CheckForLayerChanges` exists
+            // to stop that interpolation crossing a sequence change — so taking the earlier frame
+            // is a stated approximation rather than parity, and the visible cost is a layer that
+            // steps at the snapshot rate where the engine's slides (B285).
+            Layers = from.Layers,
 
             // **Discrete, and the newest arrival on this list** (B244). A weapon is in a player's
             // hands or it is not; there is no state part-way between holstered and drawn, and the

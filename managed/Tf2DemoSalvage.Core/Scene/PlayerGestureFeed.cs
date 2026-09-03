@@ -39,6 +39,29 @@ public readonly record struct SceneGesture(
     bool AutoKill,
     double StartedSeconds);
 
+/// <summary>One animation layer an entity sends on the wire.</summary>
+/// <param name="Order">
+/// Its position, <c>m_nOrder</c> — which is also the order layers accumulate in, and which the
+/// engine sets to <c>MAX_OVERLAYS</c> to mark a slot unused.
+/// </param>
+/// <param name="Sequence">The sequence it plays, in the model's own numbering.</param>
+/// <param name="Cycle">How far through, zero to one.</param>
+/// <param name="Weight">How strongly it is applied, <c>m_flWeight</c>.</param>
+/// <remarks>
+/// **A player never has one of these** — <c>tf_player.cpp:774</c> excludes the whole array from the
+/// player's send table, and their layers arrive as temp entities instead (B282). Everything else
+/// that animates does send them: sentries, dispensers, teleporters, sappers and taunt props, with
+/// two to four layers each measured on <c>z1800.dem</c>.
+///
+/// **The sequence is the ENTITY's own numbering**, not an activity, so unlike a gesture it needs no
+/// resolution — the server has already chosen it.
+/// </remarks>
+public readonly record struct SceneAnimationLayer(
+    int Order,
+    int Sequence,
+    float Cycle,
+    float Weight);
+
 /// <summary>
 /// Turns the <c>CTEPlayerAnimEvent</c> temp entities a demo carries into per-player gesture slots.
 /// </summary>

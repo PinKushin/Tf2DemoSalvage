@@ -242,6 +242,11 @@ public sealed class PoseCompletenessTests
                 GestureSlot.AttackAndReload, "ACT_MP_RELOAD_STAND", null, AutoKill: true, 13.6d),
         ],
 
+        // A sentry's aim layer, which is the other source of layers and the one a player never
+        // has (B285). Empty is the default, and an entity whose layers were dropped in a rebuild
+        // looks exactly like one that sends none — which is most of them.
+        Layers = [new SceneAnimationLayer(Order: 1, Sequence: 7, Cycle: 0.25f, Weight: 0.5f)],
+
         // **`WEAPON_IS_ACTIVE`, and neither of the two values it must be told apart from is safe
         // here.** Null means "not a weapon" and 0 is `WEAPON_NOT_CARRIED`, so a rebuild that
         // dropped this would read as a wearable or as a weapon on the floor — and both of those

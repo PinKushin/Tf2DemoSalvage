@@ -869,12 +869,45 @@ public sealed class EntityModelSet
     private static List<PoseLayer> LayersFor(
         SceneProp prop, PropModels.SkinnedModel skinned, double seconds)
     {
-        if (prop.Pose.Gestures is not { Count: > 0 } gestures)
+        List<PoseLayer> layers = [];
+
+        // **The layers the entity itself sends, walked in `m_nOrder`** (B285). A player has none —
+        // `tf_player.cpp:774` excludes the array — so this loop is empty for them and the gesture
+        // loop below is empty for everything else. `AccumulateLayers` draws both the same way.
+        //
+        // **No activity resolution and no lifetime**, unlike a gesture: the server chose the
+        // sequence, states the cycle and states the weight, so every question this layer needs is
+        // already answered on the wire.
+        foreach (SceneAnimationLayer sent in prop.Pose.Layers)
         {
-            return [];
+            // `if (m_AnimOverlay[i].m_nSequence >= nSequences) continue;` — a sequence the model
+            // does not have is skipped rather than clamped (`c_baseanimatingoverlay.cpp:341`).
+            if (sent.Sequence < 0 || sent.Sequence >= skinned.Sequences.Count || sent.Weight <= 0f)
+            {
+                continue;
+            }
+
+            // `fCycle = ClampCycle( fCycle, IsSequenceLooping( … ) )`, the same wrap the main
+            // sequence takes.
+            float wrapped = StudioSequences.ClampCycle(sent.Cycle, skinned.Loops(sent.Sequence));
+
+            (int at, float part) = StudioSequences.FrameAt(
+                wrapped, skinned.Frames(sent.Sequence), skinned.Loops(sent.Sequence));
+
+            layers.Add(new PoseLayer(
+                sent.Sequence,
+                at,
+                part,
+                sent.Weight,
+                skinned.BoneWeights(sent.Sequence),
+                Delta: skinned.IsDelta(sent.Sequence),
+                Post: skinned.IsPost(sent.Sequence)));
         }
 
-        List<PoseLayer> layers = [];
+        if (prop.Pose.Gestures is not { Count: > 0 } gestures)
+        {
+            return layers;
+        }
 
         foreach (SceneGesture gesture in gestures)
         {

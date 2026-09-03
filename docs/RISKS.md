@@ -18271,3 +18271,34 @@ one-to-one.
 - **The two custom-gesture events** carry an activity NUMBER, which nothing resolves yet.
 - **`AddLocalLayers`** runs between `CalcPoseSingle` and `SlerpBones` in `AccumulatePose` and is not
   implemented, so a sequence with local layers loses them.
+
+## B285 — an entity's own `m_AnimOverlay` was decoded and never accumulated — FIXED
+
+**The other half of B282, and the half that is genuinely on the wire.** A player's layer array is
+excluded from the send table; every other animating entity sends one, and this project decoded the
+array and drew none of it.
+
+**Measured on `z1800.dem`** by the length prop alone: sentries carry two, three and four layers, and
+teleporters, dispensers, sappers and taunt props carry them too. A sentry's aim is layered over its
+idle, so the barrel tracking a target is exactly what was missing.
+
+**Read from PATH-shaped keys**, for the same reason `EconAttributes` is: fifteen elements share one
+flat name, so a value keyed by `Table.Prop` is whichever element arrived last. `_LPT_m_AnimOverlay_15`
+bounds the vector, and an element at or past that length is a stale slot from before it shrank.
+
+**`m_nOrder` is the layer's position and its absence.** `AccumulateLayers` sorts by it and skips
+anything at or past `MAX_OVERLAYS` (`c_baseanimatingoverlay.cpp:307`), which is how the engine marks
+a slot unused — so an order of fifteen is not layer fifteen, it is no layer.
+
+**These need no resolution and no lifetime.** Unlike a gesture, the server chose the sequence,
+states the cycle and states the weight; the only work left is the clamp and the frame, which are the
+same ones the main sequence takes.
+
+**Verified with a control in both directions.** One corpus test asserts buildings carry layers AND
+that the sweep saw players at all — a reading with the mechanism backwards would fail one or the
+other. Sabotaged by pointing the path marker at a property nothing sends: the test reddened.
+
+**Stated rather than hidden: the layers are taken from the earlier keyframe, not interpolated.** The
+engine interpolates its layer array (`m_iv_AnimOverlay`) and `CheckForLayerChanges` exists to stop
+that interpolation crossing a sequence change. Ours steps at the snapshot rate where the engine's
+slides.

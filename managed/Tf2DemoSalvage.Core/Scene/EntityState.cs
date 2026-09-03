@@ -562,6 +562,107 @@ public sealed class EntityState
         return found;
     }
 
+    /// <summary>The animation layers this entity is playing, from <c>m_AnimOverlay</c>.</summary>
+    /// <returns>Its layers in <c>m_nOrder</c>, or empty.</returns>
+    /// <remarks>
+    /// **A player has none of these and that is not a gap** — <c>tf_player.cpp:774</c> excludes
+    /// <c>overlay_vars</c> from the player's send table, so a player's layers arrive as
+    /// <c>CTEPlayerAnimEvent</c> temp entities instead (B282). What DOES send them is every other
+    /// animating entity: measured on <c>z1800.dem</c>, sentries carry two, three and four layers,
+    /// and teleporters, dispensers, sappers and taunt props carry them too.
+    ///
+    /// **Read from PATH-shaped keys**, for the same reason <see cref="EconAttributes"/> is: fifteen
+    /// elements share one flat name, so a value keyed by <c>Table.Prop</c> would be whichever
+    /// element arrived last. The vector's own <c>lengthproxy</c> bounds it — an element at or past
+    /// the length is a stale slot from before the vector shrank.
+    ///
+    /// **<c>m_nOrder</c> is the layer's position and its identity.** <c>AccumulateLayers</c> sorts
+    /// by it and skips anything at or past <c>MAX_OVERLAYS</c>
+    /// (<c>c_baseanimatingoverlay.cpp:307</c>), which is how the engine marks a slot unused — so an
+    /// order of fifteen is not layer fifteen, it is no layer at all.
+    /// </remarks>
+    public IReadOnlyList<SceneAnimationLayer> AnimationLayers()
+    {
+        const string marker = ".m_AnimOverlay.";
+
+        SortedDictionary<int, (int? Sequence, float? Cycle, float? Weight, int? Order)> slots = [];
+
+        int? length = null;
+
+        foreach ((string key, PropertyValue value) in _properties)
+        {
+            string dotted = "." + key;
+
+            int at = dotted.IndexOf(marker, StringComparison.Ordinal);
+
+            if (at < 0)
+            {
+                continue;
+            }
+
+            string tail = dotted[(at + marker.Length)..];
+
+            if (tail.StartsWith("lengthproxy.", StringComparison.Ordinal))
+            {
+                length = (int)value.AsInt;
+                continue;
+            }
+
+            int dot = tail.IndexOf('.', StringComparison.Ordinal);
+
+            if (dot <= 0 ||
+                !int.TryParse(
+                    tail[..dot], NumberStyles.None, CultureInfo.InvariantCulture, out int element))
+            {
+                continue;
+            }
+
+            (int? sequence, float? cycle, float? weight, int? order) =
+                slots.TryGetValue(element, out (int? Sequence, float? Cycle, float? Weight, int? Order) held)
+                    ? held
+                    : (null, null, null, null);
+
+            switch (tail[(dot + 1)..])
+            {
+                case "m_nSequence": sequence = (int)value.AsInt; break;
+                case "m_flCycle": cycle = value.AsFloat; break;
+                case "m_flWeight": weight = value.AsFloat; break;
+                case "m_nOrder": order = (int)value.AsInt; break;
+                default: break;
+            }
+
+            slots[element] = (sequence, cycle, weight, order);
+        }
+
+        List<SceneAnimationLayer> layers = [];
+
+        foreach ((int element, (int? sequence, float? cycle, float? weight, int? order)) in slots)
+        {
+            // The lifted comparison, as in EconAttributes: with no length declared this is false
+            // and the element is kept, which is the defensive reading.
+            if (element >= length)
+            {
+                continue;
+            }
+
+            // `if (m_AnimOverlay[i].m_nOrder < MAX_OVERLAYS)` — anything else is an unused slot.
+            if (order is not { } position || position >= MaximumOverlays || sequence is not { } plays)
+            {
+                continue;
+            }
+
+            layers.Add(new SceneAnimationLayer(
+                position, plays, cycle ?? 0f, weight ?? 0f));
+        }
+
+        layers.Sort((first, second) => first.Order.CompareTo(second.Order));
+
+        return layers;
+    }
+
+    /// <summary><c>MAX_OVERLAYS</c>, <c>c_baseanimatingoverlay.h:46</c>.</summary>
+    private const int MaximumOverlays = 15;
+
     /// <summary>The sub-table an animating entity's pose parameters arrive under.</summary>
     public const string PoseParameterTable = "m_flPoseParameter";
 

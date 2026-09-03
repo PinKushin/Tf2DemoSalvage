@@ -931,7 +931,7 @@ run Tf2DemoSalvage.Content.Tests  content   887
 # 151 -> 152: the ANIMATION clock reaching real keyframes (B274). Separate from the simulation
 # one because the two clocks reach different entities - players send no animation time at all - so
 # a single "some clock corrected something" assertion would pass on the simulation half alone.
-run Tf2DemoSalvage.Corpus.Tests   corpus     155
+run Tf2DemoSalvage.Corpus.Tests   corpus     156
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that

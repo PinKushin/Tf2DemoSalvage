@@ -173,3 +173,4 @@
 - [The player send table excludes the animation](the-player-send-table-excludes-the-animation.md) — sequence, cycle, layers, pose params and rate are all stripped; the client rebuilds them.
 - [Gestures arrive as temp entities](gestures-arrive-as-temp-entities.md) — 40,288 in one demo, and a POV lacks the recorder's own.
 - [A player is client-side animated](a-player-is-client-side-animated.md) — one gate, and every prop built from scratch can drop it.
+- [A delta animation is not a pose](a-delta-animation-is-not-a-pose.md) — four places must agree, and the flag lives on the animation as well as the sequence.

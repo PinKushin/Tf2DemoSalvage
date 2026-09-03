@@ -100,6 +100,50 @@ public sealed class CorpusPlayerGestureTests
     }
 
     /// <remarks>
+    /// **The other source of layers, and the pair is the point** (B285). A player's
+    /// <c>m_AnimOverlay</c> is excluded from the send table (<c>tf_player.cpp:774</c>) while every
+    /// other animating entity sends one — so a reading that found layers on players, or none on
+    /// buildings, would have the mechanism backwards. Asserting both directions in one test is what
+    /// makes either meaningful.
+    ///
+    /// Measured on `z1800.dem`: sentries carry two, three and four layers, and teleporters,
+    /// dispensers, sappers and taunt props carry them too.
+    /// </remarks>
+    [Test]
+    public void PropsAt_OnARealMatch_CarriesWireLayersOnBuildingsAndNoneOnPlayers()
+    {
+        if (Corpus.Demo("z1800") is not { } path)
+        {
+            Assert.Ignore("z1800.dem is not available");
+            return;
+        }
+
+        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+
+        List<SceneProp> props = [];
+        List<ScenePlayer> players = [];
+
+        int layered = 0;
+        int playersSeen = 0;
+
+        for (int tick = timeline.FirstTick + 100; tick < timeline.LastTick; tick += 500)
+        {
+            timeline.PropsAt(tick, props);
+            timeline.PlayersAt(tick, players);
+
+            layered += props.Count(one => one.Pose.Layers.Count > 0);
+            playersSeen += players.Count;
+        }
+
+        playersSeen.ShouldBeGreaterThan(0, "the control: the sweep must have seen players at all");
+
+        layered.ShouldBeGreaterThan(
+            0,
+            "sentries, dispensers, teleporters and sappers all send m_AnimOverlay, and the array " +
+            "is keyed by path because fifteen elements share one flat name");
+    }
+
+    /// <remarks>
     /// **The reload specifically, because it is what the owner reported missing.** A gesture that
     /// resolves to the reload activity has to appear somewhere in a match with 762 plain reload
     /// events in it; naming the activity rather than counting keeps this a claim about the mapping

@@ -144,9 +144,14 @@ public sealed class BoneSetupConformanceTests
         new BoneStage(
             "AccumulateLayers",
             StageState.Partial,
-            "Overlays the entity's animation layers. StudioGestureWeights exists, so the gesture " +
-            "half has been looked at; the layer array itself is not accumulated, and TF2 leans on " +
-            "layers for aiming and reloading."),
+            "Overlays the entity's animation layers, in m_nOrder, each accumulated onto the result " +
+            "of the last. SlerpBones' delta branch is implemented — QuaternionMA under " +
+            "STUDIO_POST, QuaternionSM otherwise — with the per-bone weight list read through the " +
+            "group's bone map, which is how a reload plays on a running player (B284). For a TF2 " +
+            "PLAYER the source is not the wire at all: tf_player.cpp:774 excludes overlay_vars, so " +
+            "the layers come from CTEPlayerAnimEvent temp entities (B282). Still partial: an " +
+            "entity that DOES send m_AnimOverlay — a sentry, a dispenser — has its array decoded " +
+            "and not accumulated, and BONE_FIXED_ALIGNMENT would pick QuaternionSlerpNoAlign."),
 
         new BoneStage(
             "Init",

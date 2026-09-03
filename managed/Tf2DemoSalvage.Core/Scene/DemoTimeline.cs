@@ -2888,6 +2888,13 @@ public sealed class DemoTimeline
                 PlaybackRate = state.PlaybackRate() ?? 1f,
                 Body = state.Body() ?? 0,
 
+                // **The layers this entity sends, which a player never has** (B285).
+                // `tf_player.cpp:774` excludes the array from the player's send table, so these
+                // belong to everything else that animates — sentries carry two to four, measured
+                // on `z1800.dem`, and teleporters, dispensers, sappers and taunt props carry them
+                // too. `AccumulateLayers` walks them in `m_nOrder` over the main sequence.
+                Layers = state.AnimationLayers(),
+
                 // **The render state, which is what lets anything fade** (B221). All three are on
                 // `DT_BaseEntity`, so they arrive for props, brush entities and players alike —
                 // measured on real matches at 410 of 1,973 entities not fully opaque, with 118 at
