@@ -18909,7 +18909,7 @@ distinct model paths; the simulation runs per entity, so a cosmetic worn by two 
 once and simulated twice. A simulated count of zero against a non-zero census would have been the
 no-op; a count below the census would mean something was skipping bones.
 
-## B294 — `AddSequenceLayers` is absent, and unlike the procedural rules TF2 does use it — OPEN
+## B294 — `AddSequenceLayers` is absent, and unlike the procedural rules TF2 does use it — FIXED
 
 **A sequence can automatically play OTHER sequences over itself.** `AccumulatePose` calls
 `AddSequenceLayers` immediately after the main blend (`bone_setup.cpp:2125`), walking
@@ -18952,8 +18952,64 @@ be answered before deciding to implement, which is the order that turned five un
 procedural rules into one. Reading the entries themselves would be building the feature without
 having decided to.
 
-### Not established
+### Named, and both passes turned out to be needed
 
-Which sequences they are and what they layer. The count says the mechanism is in use; it does not
-say whether the six on `cp_fulgur` are on a player model anyone watches or on a prop in a corner.
-The next step is naming them, which the probe is one line from doing.
+The probe was asked which sequences, and the answer decided the scope:
+
+```
+sentry3.mdl        [0] 'idle_off'   flags 0x0001 -> seq 8, seq 9   window 0/0/0/0
+c_flameball.mdl    [0] 'ref'        flags 0x0001 -> seq 1, seq 2   window 0/0/0/0
+c_rocketpack.mdl   [2] 'deploy'     flags 0x0002 -> seq 1          window 0.47/0.78/1.22/1.22
+c_rocketpack.mdl   [8] 'taunt…intro' flags 0x0000 -> seq 7         window 0/0.04/0.99/1
+c_engineer_arms.mdl [49] 'throw_draw'  flags 0x0202 -> seq 0  flags 0x1000 LOCAL
+c_engineer_arms.mdl [50] 'throw_idle'  flags 0x0201 -> seq 0  flags 0x1000 LOCAL
+c_engineer_arms.mdl [51] 'throw_fire'  flags 0x0202 -> seq 0  flags 0x1000 LOCAL
+```
+
+**So `AddLocalLayers` is used too**, by the engineer's throwable viewmodel arms — all three carry
+`STUDIO_LOCAL` on the sequence AND `STUDIO_AL_LOCAL` on the layer, which is the pair the local pass
+needs. Both passes are implemented.
+
+**And the all-zero window is the common case, not a degenerate one.** Four of the seven have
+`start == end`, where Valve's `if (pLayer->start != pLayer->end)` skips the envelope whole and the
+layer runs at the parent's own cycle and weight. A reader treating that as "no layer" would drop
+most of them.
+
+### The two passes differ in more than which layers they claim
+
+`AddLocalLayers` composes into the sequence's OWN pose at weight one, before that pose is blended
+into the accumulator; `AddSequenceLayers` composes onto the accumulator afterwards at the parent's
+weight. For the main sequence — which is every measured local case, all three being viewmodel
+animations — the sequence's own pose IS the base here, so a local layer at full weight ahead of
+everything else is exact.
+
+**Not reproduced: a local layer on a NON-main sequence.** Valve seeds a fresh bind pose for it
+(`bone_setup.cpp:2431`), composes the local layers at one, and blends the pair in at the parent's
+weight. A flat layer list cannot express "compose two, then blend the pair in at w" — applying them
+in sequence gives a different pose. No measured case needs it.
+
+### Verified, and two tests could not fail
+
+Ten tests, four sabotages. Neutering the read reddened eight and left the two negative assertions
+green, which is expected and stated. Flattening the ramp-in reddened exactly the three that measure
+it.
+
+**The other two sabotages reddened NOTHING, and both were the test's fault.**
+
+The window gate is shadowed by the weight clamp: below `start`, a rising ramp extrapolates to a
+NEGATIVE weight, which `AccumulatePose`'s own `clamp( flWeight, 0.0f, 1.0f )` and `SlerpBones`'
+`if (s2 <= 0.0f) continue` drop anyway. So removing the gate entirely changed nothing for a window
+of 0.5/0.6/0.8/0.9. The distinguishing input is a DEGENERATE ramp-in, `start == peak`, where the
+ramp keeps its default one and only the gate is left to block the layer.
+
+The local-order test had one autolayer, so the non-local pass filtered it out and returned an empty
+list — and the local layer was first whichever pass ran first. It needed a second, non-local layer
+to be ahead OF. With both fixed, each reddens on its own sabotage.
+
+### Wired, checked on a real demo
+
+`z1800`: **2 layers reached 1 skeleton** — the sentry's `idle_off` layering sequences 8 and 9,
+matching the census exactly. `cp_fulgur`: **0 layers reached 0 skeletons**, which is correct rather
+than broken: an autolayer applies only while its parent sequence is the one playing, and no entity
+at that tick is playing `throw_draw`, `deploy` or `ref`. The first demo is the positive control for
+the second.

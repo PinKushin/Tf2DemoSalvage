@@ -112,6 +112,18 @@ public readonly record struct StudioSequence(
     /// </remarks>
     public bool AutoPlays => (Flags & AutoplaySequence) != 0;
 
+    /// <summary>Whether this sequence runs a local layer pass — <c>STUDIO_LOCAL</c>.</summary>
+    /// <remarks>
+    /// **It gates the pass, not the layers.** `AddLocalLayers` returns immediately without it
+    /// (<c>bone_setup.cpp:2229</c>), so a sequence declaring `STUDIO_AL_LOCAL` autolayers and not
+    /// this flag has layers nothing will ever apply. Measured on `c_engineer_arms`: `throw_draw`,
+    /// `throw_idle` and `throw_fire` carry both, which is what makes them the real case.
+    ///
+    /// **It also changes how the sequence is SEEDED.** `AccumulatePose` starts a local sequence
+    /// from a fresh bind pose (<c>:2431</c>) rather than from whatever the scratch buffers held.
+    /// </remarks>
+    public bool HasLocalLayers => (Flags & LocalSequence) != 0;
+
     /// <summary><c>STUDIO_LOOPING</c> from <c>studio.h</c>.</summary>
     private const int Looping = StudioFlags.SequenceLooping;
 
@@ -128,6 +140,9 @@ public readonly record struct StudioSequence(
 
     /// <summary><c>STUDIO_AUTOPLAY</c>, which plays whatever the entity is doing.</summary>
     private const int AutoplaySequence = StudioFlags.SequenceAutoplay;
+
+    /// <summary><c>STUDIO_LOCAL</c>, which turns on the sequence's own layer pass.</summary>
+    private const int LocalSequence = StudioFlags.SequenceLocal;
 }
 
 /// <summary>

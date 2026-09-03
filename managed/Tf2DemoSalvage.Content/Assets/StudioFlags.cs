@@ -88,6 +88,15 @@ internal static class StudioFlags
     /// </remarks>
     public const int SequenceAutoplay = 0x0008;
 
+    /// <summary><c>STUDIO_LOCAL</c>, <c>studio.h:3086</c> — the sequence has a local layer pass.</summary>
+    /// <remarks>
+    /// **It gates a whole pass rather than describing the sequence.** `AccumulatePose` seeds a fresh
+    /// bind pose for a sequence carrying it (<c>bone_setup.cpp:2431</c>) and `AddLocalLayers`
+    /// returns immediately for one that does not (<c>:2229</c>) — so a sequence without it can carry
+    /// `STUDIO_AL_LOCAL` autolayers that nothing will ever apply.
+    /// </remarks>
+    public const int SequenceLocal = 0x0200;
+
     /// <summary><c>STUDIO_TYPES</c>, <c>studio.h:3074</c> — the mask over a controller's type.</summary>
     /// <remarks>
     /// **<c>CalcBoneAdj</c> masks before it switches** (<c>bone_setup.cpp:2487</c>). The field

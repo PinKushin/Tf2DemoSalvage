@@ -6,6 +6,7 @@ using System.Linq;
 
 using Microsoft.Extensions.Logging.Abstractions;
 
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Presentation;
 using Tf2DemoSalvage.Scene;
@@ -113,6 +114,7 @@ public sealed class AutoplayProbe : IProbe
         int looping = 0;
         int sequences = 0;
         int layered = 0;
+        int local = 0;
 
         // **Distinct model PATHS, because the flag is a property of the model.** Reporting per prop
         // would multiply one flagged model by however many copies the map places and say nothing
@@ -147,12 +149,49 @@ public sealed class AutoplayProbe : IProbe
                 // **`numautolayers`, counted for the same reason `proctype` was.** A sequence can
                 // automatically play other sequences over itself, and `AddSequenceLayers`
                 // (`bone_setup.cpp:2125`) is absent here. Whether that matters is one number.
-                if (skinned.Sequences.At(sequence) is { } where &&
-                    where.Group < skinned.Groups.Count &&
-                    where.Local < skinned.Groups[where.Group].Sequences.Count &&
-                    skinned.Groups[where.Group].Sequences[where.Local].AutoLayers > 0)
+                if (skinned.Sequences.At(sequence) is not { } where ||
+                    where.Group >= skinned.Groups.Count ||
+                    where.Local >= skinned.Groups[where.Group].Sequences.Count)
                 {
-                    layered++;
+                    continue;
+                }
+
+                StudioSequence declared = skinned.Groups[where.Group].Sequences[where.Local];
+
+                if (declared.HasLocalLayers)
+                {
+                    local++;
+                }
+
+                if (declared.AutoLayers <= 0)
+                {
+                    continue;
+                }
+
+                layered++;
+
+                // **Named, not just counted** (B294). A count says the mechanism is in use; it does
+                // not say whether the layers are on a player anyone watches or on a prop in a
+                // corner, and it does not say which flags they carry — which is what decides how
+                // much of `AddSequenceLayers` has to exist.
+                foreach (StudioAutoLayer entry in
+                    StudioAutoLayers.Read(skinned.Models[where.Group], where.Local))
+                {
+                    string named =
+                        (entry.IsLocal ? " LOCAL" : string.Empty) +
+                        (entry.DrivenByPose ? " POSE" : string.Empty) +
+                        (entry.IsSpline ? " SPLINE" : string.Empty) +
+                        (entry.CrossFades ? " XFADE" : string.Empty) +
+                        (entry.IgnoresWeight ? " NOBLEND" : string.Empty);
+
+                    output.WriteLine(
+                        string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"  autolayer {Path.GetFileName(model)} [{sequence}] " +
+                            $"'{declared.Label}' seq flags 0x{declared.Flags:X4} -> " +
+                            $"layer seq {entry.Sequence} pose {entry.PoseParameter} " +
+                            $"flags 0x{entry.Flags:X4} window {entry.Start:0.##}/" +
+                            $"{entry.Peak:0.##}/{entry.Tail:0.##}/{entry.End:0.##}{named}"));
                 }
             }
 
@@ -186,6 +225,37 @@ public sealed class AutoplayProbe : IProbe
                 CultureInfo.InvariantCulture,
                 $"AUTOPLAY {carrying} models carry it, of {opened} skinned models opened; " +
                 $"control: {looping} of {sequences} sequences carry STUDIO_LOOPING; " +
-                $"{layered} sequences declare autolayers"));
+                $"{layered} sequences declare autolayers, {local} carry STUDIO_LOCAL"));
+
+        // **The wiring check** (B295). Everything above reads models; this poses the props the way
+        // the viewer does and counts the layers the skeletons were actually HANDED. A model census
+        // and a handed count that disagree is the difference between "TF2 declares autolayers" and
+        // "this viewer applies them", and every no-op here has lived in that gap.
+        EntityModelSet posed = new() { Geometry = assets.Geometry };
+
+        posed.Add(props, assets.Geometry);
+
+        List<ModelInstance> instances = [];
+        posed.Instances(props, instances);
+
+        int handed = 0;
+        int entities = 0;
+
+        foreach (SceneProp prop in props)
+        {
+            if (posed.LayersOf(prop.EntityIndex) is not { Count: > 0 } given)
+            {
+                continue;
+            }
+
+            entities++;
+            handed += given.Count;
+        }
+
+        output.WriteLine(
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"LAYERED {handed} layers reached {entities} skeletons, " +
+                $"of {instances.Count} instances"));
     }
 }

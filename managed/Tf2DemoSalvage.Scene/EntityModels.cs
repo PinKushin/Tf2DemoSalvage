@@ -617,7 +617,24 @@ public sealed class EntityModelSet
             // matters, because each accumulates onto the result of the last. The sequence being
             // faded out is part of the BODY; a gesture goes over the top of whatever the body
             // settled on (B286).
-            List<PoseLayer> composed = TransitionsFor(prop, skinned, sequence, phase, seconds);
+            float[] poseValues = PoseValues(skinned, where, sequence);
+
+            // **`AddLocalLayers` FIRST, at weight one, because it composes into the sequence's own
+            // pose before that pose is blended in** (`bone_setup.cpp:2439`, called with a literal
+            // 1.0 under a comment admitting the weight is wrong for IK). For the main sequence that
+            // pose IS the base here, so a local layer at full weight over it is exact — see B294
+            // for the case this does not reproduce.
+            List<PoseLayer> composed =
+                AutoLayersFor(skinned, sequence, phase, 1f, poseValues, local: true, LayerDepth);
+
+            // **Then `AddSequenceLayers` for the main sequence, before the transitions.**
+            // `AccumulatePose` runs it as its last step (`:2449`), and `StandardBlendingRules` calls
+            // `AccumulatePose` for the main sequence before `MaintainSequenceTransitions` — so the
+            // main sequence's own layers land ahead of anything fading out behind it.
+            composed.AddRange(
+                AutoLayersFor(skinned, sequence, phase, 1f, poseValues, local: false, LayerDepth));
+
+            composed.AddRange(TransitionsFor(prop, skinned, sequence, phase, seconds));
 
             composed.AddRange(LayersFor(prop, skinned, seconds));
 
@@ -640,7 +657,9 @@ public sealed class EntityModelSet
             // the cycle forward and then dispatches, so an event is noticed on the frame the
             // animation reached it rather than on the packet that mentioned the sequence.
             AnimationEvents(prop, skinned, sequence, phase);
-            posed.PoseValues = PoseValues(skinned, where, sequence);
+            // Computed once above for the autolayer envelopes and reused here rather than asked
+            // twice: the two-pass move_x rescale inside it opens the model.
+            posed.PoseValues = poseValues;
 
             // **`CalcBoneAdj`'s two halves, which come from different places** (B288). The model
             // says which bone each input drives and over what range; the demo says what the input
@@ -1054,6 +1073,209 @@ public sealed class EntityModelSet
         }
 
         return layers;
+    }
+
+    /// <summary>How deep an autolayer chain may go before it is abandoned.</summary>
+    /// <remarks>
+    /// **A bound on data from a file, not a guess at content.** Valve reaches a layered sequence's
+    /// own layers through `AccumulatePose`, which has no depth limit at all and would not terminate
+    /// on a model whose layers cycle. Four is far past anything measured — the deepest real case is
+    /// one level — and a chain longer than that is a corrupt model rather than an animator's intent.
+    /// </remarks>
+    private const int LayerDepth = 4;
+
+    /// <summary>The sequences one sequence automatically layers over itself.</summary>
+    /// <param name="skinned">The model.</param>
+    /// <param name="sequence">The merged sequence being played.</param>
+    /// <param name="cycle">Where its cycle stands, wrapped.</param>
+    /// <param name="weight">The weight that sequence is being accumulated at.</param>
+    /// <param name="values">The pose parameters in force, for a <c>STUDIO_AL_POSE</c> layer.</param>
+    /// <param name="local">Which of Valve's two passes to run.</param>
+    /// <param name="budget">How much deeper the recursion may go.</param>
+    /// <returns>A layer per autolayer whose envelope is open, in file order.</returns>
+    /// <remarks>
+    /// **Two passes over one array, and every autolayer belongs to exactly one of them.**
+    /// `AddSequenceLayers` (<c>bone_setup.cpp:2125</c>) skips a layer carrying `STUDIO_AL_LOCAL`;
+    /// `AddLocalLayers` (<c>:2218</c>) skips one without it, and returns immediately unless the
+    /// SEQUENCE carries `STUDIO_LOCAL`.
+    ///
+    /// **They differ in where and when they compose.** The local pass goes into the sequence's own
+    /// pose at weight ONE before that pose is blended in; the other goes onto the accumulator
+    /// afterwards at the parent's weight. Both are here because both are used by real TF2 content
+    /// (B294): `sentry3`'s idle and `c_rocketpack`'s deploy layer non-locally, and
+    /// `c_engineer_arms`' `throw_draw`, `throw_idle` and `throw_fire` layer locally.
+    ///
+    /// **The envelope is skipped entirely when <c>start == end</c>**, which is not a degenerate
+    /// case to guard against but the common one: four of the seven autolayers measured have a
+    /// window of all zeros, and Valve's `if (pLayer->start != pLayer->end)` then leaves the layer
+    /// at the parent's own cycle and weight.
+    ///
+    /// **Under <c>STUDIO_AL_POSE</c> the window is in the POSE PARAMETER's range, not the cycle's**
+    /// — the same four numbers mean something different — and the layer's cycle is NOT rewritten,
+    /// where the cycle-driven case remaps it into the window. One flag changing the meaning of five
+    /// values is the part most likely to be read past.
+    /// </remarks>
+    private static List<PoseLayer> AutoLayersFor(
+        PropModels.SkinnedModel skinned,
+        int sequence,
+        float cycle,
+        float weight,
+        IReadOnlyList<float> values,
+        bool local,
+        int budget)
+    {
+        List<PoseLayer> layers = [];
+
+        // `if (!(seqdesc.flags & STUDIO_LOCAL)) return;` — the local pass is gated on the SEQUENCE,
+        // so a sequence declaring local autolayers without the flag has layers nothing applies.
+        if (budget <= 0 || (local && !skinned.IsLocal(sequence)))
+        {
+            return layers;
+        }
+
+        foreach (StudioAutoLayer entry in skinned.AutoLayersOf(sequence))
+        {
+            if (entry.IsLocal != local)
+            {
+                continue;
+            }
+
+            int target = skinned.RelativeSequence(sequence, entry.Sequence);
+
+            if (target < 0)
+            {
+                continue;
+            }
+
+            // `float layerCycle = cycle; float layerWeight = flWeight;` before the window is
+            // considered at all — and the local pass is called with a weight of 1.0 by its caller.
+            float layerCycle = cycle;
+            float layerWeight = weight;
+
+            // **Three exact comparisons, and all three are the engine's** — `if (pLayer->start !=
+            // pLayer->end)`, `pLayer->start != pLayer->peak`, `pLayer->end != pLayer->tail`. The
+            // analyser wants a tolerance and a tolerance would be wrong: these are two numbers an
+            // animator typed, written into the file unchanged, and the test asks whether they are
+            // THE SAME NUMBER rather than whether they are close. Four of the seven autolayers
+            // measured in TF2 have a window of all zeros, so the first comparison is the common
+            // path and not a degenerate guard; the other two divide by the difference immediately
+            // afterwards, which is what they exist to prevent.
+#pragma warning disable S1244
+            if (entry.Start != entry.End)
+            {
+                float index = entry.DrivenByPose
+                    ? PoseIndex(skinned, target, entry, values)
+                    : cycle;
+
+                if (index < entry.Start || index >= entry.End)
+                {
+                    continue;
+                }
+
+                float ramp = 1f;
+
+                if (index < entry.Peak && entry.Start != entry.Peak)
+                {
+                    ramp = (index - entry.Start) / (entry.Peak - entry.Start);
+                }
+                else if (index > entry.Tail && entry.End != entry.Tail)
+                {
+                    ramp = (entry.End - index) / (entry.End - entry.Tail);
+                }
+
+                if (entry.IsSpline)
+                {
+                    ramp = (3f * ramp * ramp) - (2f * ramp * ramp * ramp);
+                }
+
+                // **The cross-fade arm applies only past the TAIL**, on the way out, and is one at
+                // ramp one whatever the parent weighs — which is the point of Valve's comment about
+                // a second layer also accumulating.
+                if (entry.CrossFades && index > entry.Tail)
+                {
+                    layerWeight = ramp * weight / (1f - weight + (ramp * weight));
+                }
+                else if (entry.IgnoresWeight)
+                {
+                    layerWeight = ramp;
+                }
+                else
+                {
+                    layerWeight = weight * ramp;
+                }
+
+                // **Not remapped for a pose-driven layer**, whose cycle stays the parent's.
+                if (!entry.DrivenByPose)
+                {
+                    layerCycle = (cycle - entry.Start) / (entry.End - entry.Start);
+                }
+            }
+#pragma warning restore S1244
+
+            // **`flWeight = clamp( flWeight, 0.0f, 1.0f );`** — `AccumulatePose`'s own first act
+            // (`bone_setup.cpp:2408`), under an Assert and a comment saying it should not be
+            // necessary. It is: the ramp is extrapolated outside its window whenever `start` and
+            // `peak` differ, so a layer just below its own start computes a negative weight. Valve
+            // clamps it to zero and `SlerpBones` then skips it on `if (s2 <= 0.0f) continue`, which
+            // is what dropping it here reproduces.
+            layerWeight = Math.Clamp(layerWeight, 0f, 1f);
+
+            if (layerWeight <= 0f)
+            {
+                continue;
+            }
+
+            (int frame, float fraction) = StudioSequences.FrameAt(
+                StudioSequences.ClampCycle(layerCycle, skinned.Loops(target)),
+                skinned.Frames(target),
+                skinned.Loops(target));
+
+            layers.Add(new PoseLayer(
+                target,
+                frame,
+                fraction,
+                layerWeight,
+                skinned.BoneWeights(target),
+                Delta: skinned.IsDelta(target),
+                Post: skinned.IsPost(target)));
+
+            // **A layered sequence can layer further sequences**, because Valve reaches them through
+            // `AccumulatePose` and that calls both passes again. Bounded rather than trusted: the
+            // recursion is over data from a file, and a model whose layers cycle would not
+            // terminate.
+            layers.AddRange(
+                AutoLayersFor(
+                    skinned, target, layerCycle, layerWeight, values, local: false, budget - 1));
+        }
+
+        return layers;
+    }
+
+    /// <summary>Where a pose-driven autolayer sits in its parameter's own range.</summary>
+    /// <remarks>
+    /// **<c>index = m_flPoseParameter[iPose] * (Pose.end - Pose.start) + Pose.start</c>** — the
+    /// stored value is normalised and the window is in the parameter's authored units, so the
+    /// normalised number has to be expanded before it can be compared. Using it directly would
+    /// compare a nought-to-one figure against a window in degrees.
+    ///
+    /// **Zero when the parameter does not resolve**, which is Valve's own `else index = 0`.
+    /// </remarks>
+    private static float PoseIndex(
+        PropModels.SkinnedModel skinned,
+        int sequence,
+        StudioAutoLayer entry,
+        IReadOnlyList<float> values)
+    {
+        int shared = skinned.SharedPoseParameter(sequence, entry.PoseParameter);
+
+        if (shared < 0 || shared >= skinned.PoseParameters.Count || shared >= values.Count)
+        {
+            return 0f;
+        }
+
+        StudioPoseParameter parameter = skinned.PoseParameters[shared];
+
+        return (values[shared] * (parameter.End - parameter.Start)) + parameter.Start;
     }
 
     /// <summary>The sequences a model plays on its own, off the clock.</summary>

@@ -1394,6 +1394,12 @@ public static class PropModels
         /// </remarks>
         private List<int>? _autoplay;
 
+        /// <summary>One sequence's autolayers, read once — see <see cref="AutoLayersOf"/>.</summary>
+        private readonly Dictionary<int, IReadOnlyList<StudioAutoLayer>> _autoLayers = [];
+
+        /// <summary>The reverse of the merged sequence table, filled on demand.</summary>
+        private readonly Dictionary<(int Group, int Local), int> _relativeSequences = [];
+
         /// <summary>This model's bones mapped onto each group's, read once per group.</summary>
         private readonly Dictionary<int, int[]> _boneMaps = [];
 
@@ -2079,6 +2085,121 @@ public static class PropModels
             where.Group < Models.Count &&
             where.Local < Groups[where.Group].Sequences.Count &&
             Groups[where.Group].Sequences[where.Local].IsPost;
+
+        /// <summary>The sequences a merged sequence automatically layers over itself.</summary>
+        /// <param name="sequence">The merged sequence number.</param>
+        /// <returns>Its autolayers, or empty.</returns>
+        /// <remarks>
+        /// **Read from the group's OWN model at the group's OWN sequence index**, because
+        /// `autolayerindex` is an offset from the sequence structure inside that file. Asking the
+        /// root model with a merged number lands on a different sequence's bytes and reads four
+        /// plausible floats from it — the index-space trap that has produced a confident wrong
+        /// answer twice here.
+        /// </remarks>
+        public IReadOnlyList<StudioAutoLayer> AutoLayersOf(int sequence)
+        {
+            if (_autoLayers.TryGetValue(sequence, out IReadOnlyList<StudioAutoLayer>? cached))
+            {
+                return cached;
+            }
+
+            IReadOnlyList<StudioAutoLayer> read =
+                Sequences.At(sequence) is { } where &&
+                where.Group < Models.Count &&
+                where.Local < Groups[where.Group].Sequences.Count
+                    ? StudioAutoLayers.Read(Models[where.Group], where.Local)
+                    : [];
+
+            _autoLayers[sequence] = read;
+
+            return read;
+        }
+
+        /// <summary>The merged number of a sequence named relative to another's group.</summary>
+        /// <param name="relativeTo">A merged sequence whose group the number is relative to.</param>
+        /// <param name="local">The group-local sequence number.</param>
+        /// <returns>The merged number, or −1 when it names nothing.</returns>
+        /// <remarks>
+        /// **<c>iRelativeSeq</c>** (<c>studio.cpp:308</c>): an autolayer names its target by the
+        /// index it has inside the model that declared it, and the engine maps that through the
+        /// declaring group's `masterSeq` table. With no included models the two are the same number,
+        /// which is exactly why getting this wrong is invisible on a simple prop and wrong on every
+        /// player.
+        ///
+        /// **Built by walking the merged table backwards**, since this project stores the forward
+        /// map. Cached per (group, local) pair, because it is asked once per layer per frame.
+        /// </remarks>
+        public int RelativeSequence(int relativeTo, int local)
+        {
+            if (Sequences.At(relativeTo) is not { } where)
+            {
+                return -1;
+            }
+
+            (int Group, int Local) key = (where.Group, local);
+
+            if (_relativeSequences.TryGetValue(key, out int found))
+            {
+                return found;
+            }
+
+            found = -1;
+
+            for (int merged = 0; merged < Sequences.Count; merged++)
+            {
+                if (Sequences.At(merged) is { } candidate &&
+                    candidate.Group == where.Group &&
+                    candidate.Local == local)
+                {
+                    found = merged;
+                    break;
+                }
+            }
+
+            _relativeSequences[key] = found;
+
+            return found;
+        }
+
+        /// <summary>The merged pose parameter a sequence's local parameter index names.</summary>
+        /// <param name="sequence">The merged sequence whose group the index is local to.</param>
+        /// <param name="local">The group-local pose parameter index.</param>
+        /// <returns>The shared index, or −1 when it names nothing.</returns>
+        /// <remarks>
+        /// **<c>CStudioHdr::GetSharedPoseParameter</c>**, and it is the same mapping the blend grid
+        /// already goes through: `paramindex` is local to the group that declared the sequence, so
+        /// the group's `masterPose` row translates it. An unknown group answers −1 rather than
+        /// falling back to the root model's list, which would read a real parameter that happens to
+        /// sit at that index and animate convincingly from the wrong input.
+        /// </remarks>
+        public int SharedPoseParameter(int sequence, int local)
+        {
+            if (Sequences.At(sequence) is not { } where ||
+                where.Group < 0 ||
+                where.Group >= MasterPose.Count)
+            {
+                return -1;
+            }
+
+            IReadOnlyList<int> map = MasterPose[where.Group];
+
+            return local >= 0 && local < map.Count ? map[local] : -1;
+        }
+
+        /// <summary>Whether a sequence runs a local layer pass — <c>STUDIO_LOCAL</c>.</summary>
+        /// <param name="sequence">The merged sequence number.</param>
+        /// <returns>Whether it carries the flag.</returns>
+        /// <remarks>
+        /// **`AddLocalLayers` returns immediately without it** (<c>bone_setup.cpp:2229</c>), so a
+        /// sequence declaring `STUDIO_AL_LOCAL` autolayers and not this flag has layers nothing
+        /// applies. Measured on `c_engineer_arms`: `throw_draw`, `throw_idle` and `throw_fire` all
+        /// carry both.
+        /// </remarks>
+        public bool IsLocal(int sequence) =>
+            Sequences.At(sequence) is { } where &&
+            where.Group < Groups.Count &&
+            where.Local < Groups[where.Group].Sequences.Count &&
+            Groups[where.Group].Sequences[where.Local].HasLocalLayers;
 
         /// <summary>Every sequence that plays on its own — <c>STUDIO_AUTOPLAY</c>.</summary>
         /// <returns>The merged sequence numbers, ascending.</returns>

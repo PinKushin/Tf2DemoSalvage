@@ -481,6 +481,14 @@ internal static class StudioLayout
     /// </remarks>
     public const int SequenceAutoLayerCountOffset = 148;
 
+    /// <summary>Byte offset of <c>autolayerindex</c>: where this sequence's autolayers begin.</summary>
+    /// <remarks>
+    /// Relative to the START OF THE SEQUENCE, as every index in this format is:
+    /// <c>pAutolayer(i)</c> is <c>((byte *)this) + autolayerindex</c> then indexed by element
+    /// (<c>studio.h:873</c>), so the entries are contiguous from there.
+    /// </remarks>
+    public const int SequenceAutoLayerIndexOffset = 152;
+
     /// <summary>Byte offset of <c>fadeintime</c>: how long this sequence takes to blend IN.</summary>
     /// <remarks>
     /// **The cross-fade either side of a sequence change** (<c>studio.h:854</c>, *"ideal cross fate

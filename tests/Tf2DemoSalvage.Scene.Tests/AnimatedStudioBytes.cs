@@ -1,5 +1,7 @@
 using System;
 
+using Tf2DemoSalvage.Content.Assets;
+
 namespace Tf2DemoSalvage.Scene.Tests;
 
 /// <summary>Studio bytes carrying one animation with a real frame count and rate.</summary>
@@ -49,7 +51,32 @@ internal static class AnimatedStudioBytes
     /// each animation's frames-a-second and frame count. Written by hand rather than copied from a
     /// shipped model, so the values under test are the ones this file put there.
     /// </remarks>
-    public static byte[] OneSecondLoop(int animations = 1, int sequences = 0)
+    public static byte[] OneSecondLoop(int animations = 1, int sequences = 0) =>
+        OneSecondLoop(animations, sequences, autoLayerOn: -1, autoLayers: null);
+
+    /// <summary>The same, with one sequence declaring autolayers.</summary>
+    /// <param name="animations">As above.</param>
+    /// <param name="sequences">As above.</param>
+    /// <param name="autoLayerOn">Which sequence declares them, or −1 for none.</param>
+    /// <param name="autoLayers">
+    /// The autolayers to write, in order. **More than one is what makes ORDER observable**: with a
+    /// single entry, a test asserting that the local pass comes first passes whichever pass runs
+    /// first, because the other produces an empty list. Found by sabotage, not by reading.
+    /// </param>
+    /// <returns>A <c>.mdl</c> body whose named sequence layers others over itself.</returns>
+    /// <remarks>
+    /// **Written into the BYTES rather than onto a record**, because that is what production reads:
+    /// `StudioAutoLayers.Read` opens the model and walks `autolayerindex` from the sequence
+    /// structure. Setting a field on a hand-built `StudioSequence` would leave the byte reader
+    /// untested and leave a correct implementation red — the mirror of the mistake the autoplay
+    /// fixture made, which wrote bytes nothing on that path reads.
+    ///
+    /// **The entries go after the sequence table**, so `autolayerindex` is the distance from the
+    /// declaring sequence's own start to there — not a file offset, which is the convention that
+    /// bites hardest because a file-relative read still lands on data.
+    /// </remarks>
+    public static byte[] OneSecondLoop(
+        int animations, int sequences, int autoLayerOn, StudioAutoLayer[]? autoLayers)
     {
         const int header = 256;
         const int stride = 100;
@@ -58,7 +85,12 @@ internal static class AnimatedStudioBytes
         int count = Math.Max(1, animations);
         int descriptors = header + (count * stride);
 
-        byte[] file = new byte[descriptors + (Math.Max(0, sequences) * sequenceStride)];
+        int table = descriptors + (Math.Max(0, sequences) * sequenceStride);
+
+        StudioAutoLayer[] written = autoLayers ?? [];
+        bool layering = autoLayerOn >= 0 && autoLayerOn < sequences && written.Length > 0;
+
+        byte[] file = new byte[table + (layering ? written.Length * AutoLayerStride : 0)];
 
         BitConverter.TryWriteBytes(file.AsSpan(180), animations);
         BitConverter.TryWriteBytes(file.AsSpan(184), header);
@@ -81,6 +113,31 @@ internal static class AnimatedStudioBytes
 
             BitConverter.TryWriteBytes(file.AsSpan(at + 104), FadeSeconds);
             BitConverter.TryWriteBytes(file.AsSpan(at + 108), FadeSeconds);
+
+            if (!layering || sequence != autoLayerOn)
+            {
+                continue;
+            }
+
+            // `numautolayers` at 148 and `autolayerindex` at 152, the index measured from THIS
+            // sequence's own start.
+            BitConverter.TryWriteBytes(file.AsSpan(at + 148), written.Length);
+            BitConverter.TryWriteBytes(file.AsSpan(at + 152), table - at);
+
+            for (int layer = 0; layer < written.Length; layer++)
+            {
+                int entry = table + (layer * AutoLayerStride);
+
+                // mstudioautolayer_t: two shorts, then flags and four floats.
+                BitConverter.TryWriteBytes(file.AsSpan(entry), (short)written[layer].Sequence);
+                BitConverter.TryWriteBytes(
+                    file.AsSpan(entry + 2), (short)written[layer].PoseParameter);
+                BitConverter.TryWriteBytes(file.AsSpan(entry + 4), written[layer].Flags);
+                BitConverter.TryWriteBytes(file.AsSpan(entry + 8), written[layer].Start);
+                BitConverter.TryWriteBytes(file.AsSpan(entry + 12), written[layer].Peak);
+                BitConverter.TryWriteBytes(file.AsSpan(entry + 16), written[layer].Tail);
+                BitConverter.TryWriteBytes(file.AsSpan(entry + 20), written[layer].End);
+            }
         }
 
         BitConverter.TryWriteBytes(file.AsSpan(188), sequences);
@@ -91,4 +148,7 @@ internal static class AnimatedStudioBytes
 
     /// <summary>The cross-fade window the fixture writes, which is studiomdl's own default.</summary>
     public const float FadeSeconds = 0.2f;
+
+    /// <summary>Bytes per <c>mstudioautolayer_t</c>.</summary>
+    private const int AutoLayerStride = 24;
 }

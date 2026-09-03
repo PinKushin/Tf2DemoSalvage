@@ -137,7 +137,13 @@ public sealed class BoneSetupConformanceTests
             "Blends the entity's own sequence in at weight 1. StudioBlendGrid resolves the grid, " +
             "StudioSequences picks the frame, StudioMotion supplies the ground speed for the " +
             "two-pass move_x/move_y rescale, and the animation-model bone remap is Valve's " +
-            "masterBone. This is the one stage that is genuinely there."),
+            "masterBone. Its own two layer passes are here too (B294): AddLocalLayers at weight " +
+            "one ahead of everything, AddSequenceLayers at the parent's weight after it, each " +
+            "claiming the autolayers the other skips, with the envelope, the spline, the " +
+            "cross-fade bias and the pose-driven index. Both are used by TF2 — sentry3's idle and " +
+            "c_engineer_arms' throwable arms. Not reproduced: a LOCAL layer on a non-main " +
+            "sequence, which needs a nested compose a flat layer list cannot express, and which " +
+            "no measured model asks for. Seq IK locks are absent with the rest of IK."),
 
         new BoneStage(
             "MaintainSequenceTransitions",

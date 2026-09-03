@@ -61,4 +61,13 @@ internal static class StudioReaderLimits
 
     /// <summary>Links in one IK chain. Three is the usual shape: hip, knee, foot.</summary>
     public const int IkLinks = 64;
+
+    /// <summary>Sequences one sequence may automatically layer over itself.</summary>
+    /// <remarks>
+    /// **Plausibility rather than an engine constant**, like <see cref="IkChains"/>: Valve caps
+    /// nothing here, and `numautolayers` is a number from a file that indexes 24-byte entries. A
+    /// sequence layering more than a few dozen others is a corrupt header, and measured TF2 content
+    /// is far below it — 1 of 76 sequences on one map and 6 of 142 on another declare ANY.
+    /// </remarks>
+    public const int MaximumAutoLayers = 256;
 }
