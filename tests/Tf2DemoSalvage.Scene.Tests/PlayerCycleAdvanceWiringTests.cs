@@ -325,6 +325,9 @@ public sealed class PlayerCycleAdvanceWiringTests
         public bool Airwalks(int playerClass) => true;
 
         /// <inheritdoc/>
+        public bool Lands(int playerClass) => true;
+
+        /// <inheritdoc/>
         public string? Hands(int playerClass) => null;
     }
 }

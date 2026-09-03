@@ -18235,14 +18235,39 @@ hour. A different index space again.
 `PRIMARY_reload_start` and `jumpland_primary` — and the scout stands in the run pose working the
 scattergun. Gate green on both phases.
 
+### Closed afterwards, in the same session
+
+**The activity rewrite is a TABLE, not a suffix.** `CTFPlayerAnimState::TranslateActivity`
+(`tf_playeranimstate.cpp:124`) calls `pWeapon->ActivityOverride`, which walks that weapon role's own
+`acttable_t` — twelve of them from `tf_weaponbase.cpp:3660`. Appending the role is right for reloads
+and landings and wrong for every attack, and `z1800.dem` carries 4,228 primary attacks.
+`WeaponActivityTable` is those 419 rows extracted from the SDK, with
+`WeaponActivityConformanceTests` re-parsing the same file in both directions so it cannot drift.
+**The extraction was wrong on the first pass and that test caught it**: four rows formatted
+differently were missed, and `ITEM1`'s `ACT_MP_ATTACK_STAND_PRIMARY_DEPLOYED` reddened it.
+
+**`bNewJump` is read, and the guess about it was wrong.** `DontDoNewJump` (`tf_classdata.cpp:188`)
+gates the landing gesture. This entry first predicted no shipped class sets it, which would have
+made the gate dead code. **Measured: the soldier and the medic both set it** — a rocket-jumping
+soldier and a medic never play `ACT_MP_JUMP_LAND`, and giving them one would add an animation TF2
+does not have. `ClassAirwalkTests` records the count, beside the air-walk exception read from the
+same script in the same pass.
+
+**`IsMinigun` and `IsSniperZoomed` are read**, from the weapon entity's server class and
+`TF_COND_ZOOMED` (condition bit 1). The engine asks `pWpn->GetWeaponID() == TF_WEAPON_MINIGUN` and
+`WeaponID_IsSniperRifleOrBow`, which covers the rifle, its decapitation and classic variants and the
+bow (`tf_weaponbase.cpp:6328`); a demo carries the class rather than the ID and the two are
+one-to-one.
+
 ### Still open, and named rather than implied
 
-- **`bNewJump`** gates the landing gesture on the class script's `DontDoNewJump`
-  (`tf_classdata.cpp:188`). Not read; every class lands.
-- **`GestureContext`'s other three fields** — `IsLoser`, `IsMinigun`, `IsSniperZoomed` — each change
-  which activity a gesture resolves to, and air-walk is derived over time rather than read.
-- **The attack family's suffix.** `PrimaryFireActivity` still emits
-  `ACT_MP_ATTACK_STAND_PRIMARYFIRE`, the minigun's own activity, where the plain attack is
-  `ACT_MP_ATTACK_STAND_{slot}`. An attack gesture that resolves to nothing draws nothing, so this is
-  a missing animation rather than a wrong one.
+- **`IsLoser`** selects `ACT_MP_DOUBLEJUMP_LOSERSTATE` over `ACT_MP_DOUBLEJUMP` and nothing else.
+  `CTFPlayerShared::IsLoser` (`tf_player_shared.cpp:13654`) wants the round state, the winning team,
+  whether the match is competitive, the stun flags and a disguised spy's disguise team. The gap is
+  one animation during humiliation.
+- **Air-walk is not in the gesture context.** It is derived over time from vertical speed rather
+  than read off the entity, and the gesture decode runs inside the packet walk where that history is
+  not to hand. A reload begun mid-rocket-jump takes the standing form.
 - **The two custom-gesture events** carry an activity NUMBER, which nothing resolves yet.
+- **`AddLocalLayers`** runs between `CalcPoseSingle` and `SlerpBones` in `AccumulatePose` and is not
+  implemented, so a sequence with local layers loses them.

@@ -36,6 +36,16 @@ namespace Tf2DemoSalvage.Core.Scene;
         + "name finds the code that reads it. docs/memory/wire-names-are-strings.md.")]
 public readonly record struct PlayerConditions(int Cond, int Ex, int Ex2, int Ex3, int Ex4)
 {
+    /// <summary><c>TF_COND_ZOOMED</c>, <c>tf_shareddefs.h:691</c> — a scoped sniper rifle.</summary>
+    /// <remarks>
+    /// **It selects a different ATTACK gesture, not just a viewmodel.**
+    /// `CTFPlayerAnimState::DoAnimationEvent` fires `ACT_MP_ATTACK_STAND_PRIMARYFIRE_DEPLOYED` for
+    /// a zoomed sniper and the ordinary stand activity otherwise
+    /// (`tf_playeranimstate.cpp:1013`), so a reader that ignores the zoom plays the wrong
+    /// animation for every scoped shot.
+    /// </remarks>
+    public const int Zoomed = 1;
+
     /// <summary><c>TF_COND_DISGUISED</c>, <c>tf_shareddefs.h:693</c>.</summary>
     public const int Disguised = 3;
 

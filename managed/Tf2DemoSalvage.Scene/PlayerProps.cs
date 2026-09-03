@@ -24,6 +24,18 @@ public interface IPlayerAppearance
     /// <summary>Whether a class air-walks at all. Only the medic opts out.</summary>
     public bool Airwalks(int playerClass);
 
+    /// <summary>Whether landing plays a gesture for this class.</summary>
+    /// <param name="playerClass">The class being drawn.</param>
+    /// <returns>True unless the class script sets <c>DontDoNewJump</c>.</returns>
+    /// <remarks>
+    /// **`bNewJump`, which gates the landing gesture and nothing else**
+    /// (`tf_playeranimstate.cpp:1482`). A class that sets `DontDoNewJump` still jumps; it just
+    /// never plays `ACT_MP_JUMP_LAND` on the way down. Asked here for the same reason
+    /// <see cref="Airwalks"/> is: the timeline knows the player landed and only the installed game
+    /// knows whether that class shows it.
+    /// </remarks>
+    public bool Lands(int playerClass);
+
     /// <summary>The arms a class shows in first person, or null when the install cannot say.</summary>
     /// <param name="playerClass">The class being drawn.</param>
     /// <returns>The <c>c_&lt;class&gt;_arms</c> model, or null.</returns>
@@ -62,6 +74,14 @@ public sealed record GameAppearance(PlayerClassModels? Classes, WeaponRoles? Rol
     /// TF2, which is a silent behaviour change rather than a missing asset.
     /// </remarks>
     public bool Airwalks(int playerClass) => Classes?.Airwalks(playerClass) != false;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// **True when the install cannot say**, for the same reason as <see cref="Airwalks"/>: landing
+    /// is the general case and `GetInt( "DontDoNewJump", 0 )` means an unmentioned key describes a
+    /// class that lands.
+    /// </remarks>
+    public bool Lands(int playerClass) => Classes?.Lands(playerClass) != false;
 
     /// <inheritdoc/>
     public string? Hands(int playerClass) => Classes?.Hands(playerClass);
@@ -232,9 +252,53 @@ public static class PlayerProps
                     // (B282). `tf_player.cpp:774` excludes `overlay_vars` from the player's send
                     // table, so the reload and the flinch arrive as `CTEPlayerAnimEvent` temp
                     // entities and the timeline turns them into slots.
-                    Gestures = player.Gestures,
+                    //
+                    // **`bNewJump` is applied here**, because it is the other half of the same
+                    // pattern as air-walk: the timeline knows the player landed and only the
+                    // installed game knows whether that class shows it
+                    // (`tf_playeranimstate.cpp:1482`). A class that sets `DontDoNewJump` loses the
+                    // JUMP slot and keeps every other gesture.
+                    Gestures = Landing(player.Gestures, appearance.Lands(playerClass)),
                 },
                 ClientSideAnimated: player.ClientSideAnimated));
         }
+    }
+
+    /// <summary>Drops the landing gesture for a class that does not play one.</summary>
+    /// <param name="gestures">What the timeline collected, or null.</param>
+    /// <param name="lands">Whether this class plays a landing gesture.</param>
+    /// <returns>The gestures to draw, or null when there are none.</returns>
+    /// <remarks>
+    /// **The engine never creates it for such a class** — `if ( bNewJump ) RestartGesture( … )`
+    /// (`tf_playeranimstate.cpp:1507`) — and the timeline cannot know, because `DontDoNewJump` is
+    /// in the class script rather than on the wire. Filtering here reaches the same drawn result
+    /// from the only layer that has the answer.
+    ///
+    /// **Only the JUMP slot, and only the landing.** The slot also carries the double jump, which
+    /// the demo really does send and which `bNewJump` does not gate.
+    /// </remarks>
+    private static IReadOnlyList<SceneGesture>? Landing(
+        IReadOnlyList<SceneGesture>? gestures, bool lands)
+    {
+        if (lands || gestures is not { Count: > 0 })
+        {
+            return gestures;
+        }
+
+        List<SceneGesture> kept = [];
+
+        foreach (SceneGesture gesture in gestures)
+        {
+            if (gesture.Slot != GestureSlot.Jump ||
+                !string.Equals(
+                    gesture.ActivityName,
+                    PlayerGestureFeed.LandActivity,
+                    StringComparison.Ordinal))
+            {
+                kept.Add(gesture);
+            }
+        }
+
+        return kept.Count > 0 ? kept : null;
     }
 }

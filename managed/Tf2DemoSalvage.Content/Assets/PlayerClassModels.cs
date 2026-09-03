@@ -75,6 +75,9 @@ public sealed class PlayerClassModels
     /// <summary>Which classes refuse the air-walk animation.</summary>
     private readonly HashSet<int> _noAirwalk = [];
 
+    /// <summary>Classes whose script sets <c>DontDoNewJump</c>, so landing plays no gesture.</summary>
+    private readonly HashSet<int> _noLandGesture = [];
+
     private PlayerClassModels()
     {
     }
@@ -139,6 +142,13 @@ public sealed class PlayerClassModels
             {
                 models._noAirwalk.Add(playerClass);
             }
+
+            // Same pass once more: this decides whether landing plays a gesture at all
+            // (`tf_playeranimstate.cpp:1507`, `if ( bNewJump )`).
+            if (ClassScript.DontDoNewJump(script))
+            {
+                models._noLandGesture.Add(playerClass);
+            }
         }
 
         return models;
@@ -167,6 +177,17 @@ public sealed class PlayerClassModels
     /// matches what the engine would draw if it somehow loaded one.
     /// </remarks>
     public bool Airwalks(int playerClass) => !_noAirwalk.Contains(playerClass);
+
+    /// <summary>Whether landing plays a gesture for this class.</summary>
+    /// <param name="playerClass">The class number, as the demo reports it.</param>
+    /// <returns>True unless the class script sets <c>DontDoNewJump</c>.</returns>
+    /// <remarks>
+    /// **`bNewJump` in `CTFPlayerAnimState::HandleJumping`** (`tf_playeranimstate.cpp:1482`), which
+    /// gates `RestartGesture( GESTURE_SLOT_JUMP, ACT_MP_JUMP_LAND )`. True by default for the same
+    /// reason as air-walk: `GetInt`'s default is zero, so a script that omits the key describes a
+    /// class that does land.
+    /// </remarks>
+    public bool Lands(int playerClass) => !_noLandGesture.Contains(playerClass);
 
     /// <summary>The class number of the demoman, from <c>tf_shareddefs.h</c>'s order.</summary>
     /// <remarks>

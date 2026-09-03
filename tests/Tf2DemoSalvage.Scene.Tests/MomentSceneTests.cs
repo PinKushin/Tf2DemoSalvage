@@ -774,6 +774,9 @@ public sealed class MomentSceneTests
 
         public bool Airwalks(int playerClass) => true;
 
+        /// <inheritdoc/>
+        public bool Lands(int playerClass) => true;
+
         public string? Hands(int playerClass) =>
             playerClass == SoldierClass ? "models/weapons/c_models/c_soldier_arms.mdl" : null;
     }

@@ -1206,5 +1206,13 @@ internal sealed class NoAppearance : IPlayerAppearance
     public bool Airwalks(int playerClass) => true;
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// True for the same reason as <see cref="Airwalks"/>: landing is the general case, and
+    /// `GetInt( "DontDoNewJump", 0 )` means a script that omits the key describes a class that
+    /// plays the gesture.
+    /// </remarks>
+    public bool Lands(int playerClass) => true;
+
+    /// <inheritdoc/>
     public string? Hands(int playerClass) => null;
 }

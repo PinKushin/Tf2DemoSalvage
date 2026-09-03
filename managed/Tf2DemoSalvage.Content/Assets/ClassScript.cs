@@ -58,6 +58,26 @@ internal static class ClassScript
         int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int set) &&
         set > 0;
 
+    /// <summary>Whether this class skips the landing gesture after a jump.</summary>
+    /// <param name="script">The decrypted class script.</param>
+    /// <returns>Whether the script sets <c>DontDoNewJump</c>.</returns>
+    /// <remarks>
+    /// **<c>tf_classdata.cpp:188</c>**, read the same way as its neighbour:
+    /// <c>m_bDontDoNewJump = ( pKeyValuesData-&gt;GetInt( "DontDoNewJump", 0 ) &gt; 0 )</c>.
+    ///
+    /// **It gates the LANDING gesture, not the jump.** `CTFPlayerAnimState::HandleJumping` runs
+    /// `if ( bNewJump ) RestartGesture( GESTURE_SLOT_JUMP, ACT_MP_JUMP_LAND )`
+    /// (`tf_playeranimstate.cpp:1507`), where `bNewJump` is this flag inverted — so a class that
+    /// sets it jumps normally and never plays a landing.
+    ///
+    /// Absent means false, as with air-walk: `GetInt`'s default is 0, so a script that omits the
+    /// key describes a class that does land.
+    /// </remarks>
+    public static bool DontDoNewJump(ReadOnlySpan<byte> script) =>
+        ScriptKeyValue.First(script, "DontDoNewJump") is { } value &&
+        int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int set) &&
+        set > 0;
+
     /// <summary>The first-person hands this class holds its weapons with.</summary>
     /// <param name="script">The decrypted class script.</param>
     /// <returns>The model path, forward-slashed, or <c>null</c> when the script omits the key.</returns>

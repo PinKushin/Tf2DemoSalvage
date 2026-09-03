@@ -181,6 +181,10 @@ public sealed class PlayerPropsTests
 
         public bool Airwalks(int playerClass) => playerClass != MedicClass;
 
+        // The medic is the class TF2 measures as setting BOTH DontDoAirwalk and DontDoNewJump, so
+        // the stub says the same thing rather than a convenient different one.
+        public bool Lands(int playerClass) => playerClass != MedicClass;
+
         public string? Hands(int playerClass) =>
             playerClass == SoldierClass ? "models/weapons/c_models/c_soldier_arms.mdl" : null;
     }

@@ -853,7 +853,7 @@ run Tf2DemoSalvage.Presentation.Tests presentation 438
 # 876 -> 882: FrameAt, the inter-frame fraction CalcPoseSingle keeps and this project dropped
 # (B279). Six cases, including the control that a loop still lands on the frame FrameFor always
 # gave it - only the fraction is new.
-run Tf2DemoSalvage.Content.Tests  content   886
+run Tf2DemoSalvage.Content.Tests  content   887
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2

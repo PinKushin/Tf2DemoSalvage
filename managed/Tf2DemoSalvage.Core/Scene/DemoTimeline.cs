@@ -2098,13 +2098,27 @@ public sealed class DemoTimeline
     /// <param name="entities">The entity table.</param>
     /// <returns>The context the activity choice is made against.</returns>
     /// <remarks>
-    /// **Four of the seven context fields, and the other three are named here rather than left
-    /// silently absent.** `IsLoser` needs `m_bIsLoser`; `IsMinigun` and `IsSniperZoomed` need the
-    /// player's active weapon and its state. Each changes WHICH activity a gesture resolves to —
-    /// a minigun's pre-fire auto-kills where a sniper's holds — so their absence is a known
-    /// divergence rather than a completed reading.
+    /// **Six of the seven context fields.** Each changes WHICH activity a gesture resolves to, and
+    /// an activity that resolves to no sequence draws nothing at all — so a field left unread is a
+    /// missing animation rather than a slightly wrong one.
     ///
-    /// **Air-walk is not asked here.** It is derived over time from vertical speed
+    /// **The weapon in hand answers two of them**, exactly as the engine asks
+    /// (`tf_playeranimstate.cpp:987`): `bIsMinigun` is
+    /// `pWpn->GetWeaponID() == TF_WEAPON_MINIGUN` and `bIsSniperRifle` is
+    /// `WeaponID_IsSniperRifleOrBow( … )`, which covers the rifle, its decapitation and classic
+    /// variants and the bow (`tf_weaponbase.cpp:6328`). A demo does not carry a weapon ID, but it
+    /// carries the weapon entity's SERVER CLASS, which is one-to-one with it.
+    ///
+    /// **`TF_COND_ZOOMED` is condition bit 1** (`tf_shareddefs.h:691`), and the zoom matters as
+    /// much as the rifle: an unzoomed sniper fires the ordinary stand activity.
+    ///
+    /// **`IsLoser` is NOT read, and it needs more than this pass has.**
+    /// `CTFPlayerShared::IsLoser` (`tf_player_shared.cpp:13654`) wants the round state, the winning
+    /// team, whether the match is competitive, the stun flags and a disguised spy's disguise team.
+    /// It selects `ACT_MP_DOUBLEJUMP_LOSERSTATE` over `ACT_MP_DOUBLEJUMP` and nothing else, so the
+    /// gap is one animation during humiliation.
+    ///
+    /// **Air-walk is not asked here either.** It is derived over time from vertical speed
     /// (`PlayerActivity.AirwalkRiseSpeed`) rather than read off the entity, and this runs inside
     /// the packet walk where that history is not to hand. A reload begun mid-rocket-jump therefore
     /// resolves to the standing form rather than the air-walking one.
@@ -2130,11 +2144,36 @@ public sealed class DemoTimeline
             return default;
         }
 
+        string? weapon = state.ActiveWeapon() is { } held &&
+            entities.TryGet(held, out EntityState? carried)
+                ? carried.ClassName
+                : null;
+
         return new GestureContext(
             InDuck: state.Flags() is { } flags &&
                 (flags & PlayerActivityState.Ducking) != 0,
-            InSwim: state.WaterLevel() >= PlayerActivityState.WaistDeepWaterLevel);
+            InSwim: state.WaterLevel() >= PlayerActivityState.WaistDeepWaterLevel,
+            IsMinigun: string.Equals(weapon, MinigunClass, StringComparison.Ordinal),
+            IsSniperZoomed: IsSniperRifleOrBow(weapon) &&
+                state.Conditions().Has(PlayerConditions.Zoomed));
     }
+
+    /// <summary>The server class of the weapon <c>bIsMinigun</c> tests for.</summary>
+    private const string MinigunClass = "CTFMinigun";
+
+    /// <summary>Whether a weapon class is one <c>WeaponID_IsSniperRifleOrBow</c> accepts.</summary>
+    /// <param name="weaponClass">The weapon entity's server class, or null.</param>
+    /// <returns>Whether it is a sniper rifle or the bow.</returns>
+    /// <remarks>
+    /// **`tf_weaponbase.cpp:6328` and `:6338`**, by class rather than by weapon ID: the rifle, the
+    /// decapitation rifle, the classic rifle and the compound bow. A demo carries the class and not
+    /// the ID, and the two are one-to-one.
+    /// </remarks>
+    private static bool IsSniperRifleOrBow(string? weaponClass) =>
+        weaponClass is "CTFSniperRifle"
+            or "CTFSniperRifleDecap"
+            or "CTFSniperRifleClassic"
+            or "CTFCompoundBow";
 
     private static void RecordViewmodels(
         EntityStateTable entities,
