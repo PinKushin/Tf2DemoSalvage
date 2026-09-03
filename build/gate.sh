@@ -546,7 +546,11 @@ run Tf2DemoSalvage.Animation.Tests animation 78
 # scene level before. Three: the scaled case, an unscaled control without which "no IK ran" and
 # "this fixture never had a chain" are the same observation, and a scale one float-epsilon from 1,
 # which is Valve's own test rather than an exact comparison.
-run Tf2DemoSalvage.Scene.Tests    scene     369
+# 369 -> 374: the 3D skybox camera transform (B152). Five: the sky camera's own position at the map
+# origin, the sixteenth-as-far movement that IS the illusion, scale 1 as the control that separates
+# "honours the scale" from "ignores the viewer", scale 0 where Valve guards the DIVISION and not the
+# offset, and the near and far planes, which are specific quantities rather than round numbers.
+run Tf2DemoSalvage.Scene.Tests    scene     374
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
