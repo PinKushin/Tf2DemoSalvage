@@ -18793,3 +18793,100 @@ test was inverted, while the two function tests correctly stayed green.
 believed: the fixture returned one rotation for every sequence, so the base and the layer were the
 same pose and any blend returned it unchanged; and the first sabotage made a conditional return the
 same value on both arms, which SonarAnalyzer rejects as a build error rather than a red test.
+
+## B293 — jiggle bones did not jiggle, and they are the only procedural rule TF2 uses — FIXED
+
+**`STUDIO_PROC_JIGGLE` is a spring simulation on a single bone** — an earbud cord, a weapon chain, a
+cosmetic tassel. `BuildTransformations` branches to it for a bone carrying both
+`BONE_ALWAYS_PROCEDURAL` and that `proctype` (`c_baseanimating.cpp:1545`), and
+`CJiggleBones::BuildJiggleTransformations` (`jigglebones.cpp:60`) integrates it. Nothing here did,
+so those bones were posed rigidly from the animation: a hat that does not sway.
+
+### The measurement that made this a small job instead of a large one
+
+`CalcProceduralBone` implements four rules and returns false for the fifth. "22 procedural bones"
+could have meant any of five unimplemented mechanisms, so the `bone-flags` probe was asked for
+`proctype`:
+
+| rule | `koth_harvest_final` | `cp_fulgur` |
+|---|---|---|
+| `STUDIO_PROC_JIGGLE` | 22 of 379 | 4 of 198 |
+| `AXISINTERP`, `QUATINTERP`, `AIMATBONE`, `AIMATATTACH` | 0 | 0 |
+
+**Every procedural bone in both demos is a jiggle bone.** One function, not five.
+
+### The reader, and how it was checked before anything was built on it
+
+`mstudiojigglebone_t` is one int and thirty-five consecutive floats, 140 bytes (`studio.h:195`).
+There are no counts, no indices and nothing self-describing, so a field read one slot early is a
+plausible number in the wrong place and never an exception. **The offset is relative to the BONE**,
+not the file: `pProcedure()` is `((byte *)this) + procindex` where `this` is the bone.
+
+Verified by reading real models through the probe rather than by re-reading the struct:
+
+```
+medic_earbuds.mdl:joint5        flags 0x31 length 200 tipMass 5   yaw 500/8  angleLimit 0.524
+fob_e_flamethrower.mdl:chain1   flags 0x21 length 20  tipMass 550 pitch 100/10
+fob_e_flamethrower.mdl:chain2   flags 0x21 length 15  tipMass 650
+fob_e_flamethrower.mdl:fob      flags 0x21 length 10  tipMass 600
+```
+
+Chain links descending 20, 15, 10; an angle limit of exactly π/6; two flag combinations that are
+each what an author would write. A wrong stride or field order does not produce that.
+
+**`length` is a tuning constant, not a size on screen.** Only the DIRECTION from base to tip reaches
+the matrix — `forward = tipPos - goalBasePosition; forward.NormalizeInPlace();` — so the earbuds'
+200 is a long lever arm that makes the bone rotate less per unit of tip travel, not a four-metre
+cord.
+
+### Four fields are read and never used, deliberately
+
+`yawFriction`, `yawBounce`, `pitchFriction` and `pitchBounce` appear in the struct and in no
+expression in `jigglebones.cpp`. Valve's comment at both constraint sites says why: *"removed
+friction and velocity clipping against constraint - was causing simulation blowups (MSB 12/9/2010)"*
+— the velocity is zeroed outright instead. They are parsed because they occupy bytes.
+
+### Ported branch for branch, including three that look like tidy-ups
+
+- **The two frame counters.** A new bone gets 16 forced simulation frames and a bone crossing back
+  above `cl_jiggle_bone_framerate_cutoff` gets 32, so the simulation cannot flicker on and off around
+  the cutoff. Getting this wrong is invisible until the framerate wobbles.
+- **`deltaT` clamped UP to a thousandth rather than skipped**, so a zero step or a backwards seek
+  takes a tiny forward step instead of integrating negative time.
+- **The reflex-angle branch in the angle constraint.** `acos` already returns [0, π], so
+  `2π − angleBetween` for a negative dot always exceeds any authored limit and the clamp always
+  fires. Reproduced: a bone more than ninety degrees off its goal is exactly what the limit is for.
+
+### Not reproduced, and stated rather than hidden
+
+**The parent's unscale** (`:1567`): Valve divides a scaled parent matrix out before building the
+goal so a big-head effect does not inflate the chain hanging off it. Nothing here scales a parent
+bone matrix, so there is nothing to divide out — this becomes a real gap the moment a model-scale
+effect is applied per bone rather than per entity.
+
+**`ShouldFlipViewModel`** is passed as false, since this viewer implements no left-handed viewmodel.
+When it does, the flag arrives at one call site.
+
+**The six debug overlays**, which draw through an interface the SDK ships no implementation of.
+
+### Verified, and one test could not fail
+
+Seven conformance tests, three sabotages. Inverting gravity reddened three; widening the re-seed
+window from half a second to ten thousand reddened exactly the one that measures it.
+
+**The third sabotage found a test measuring the wrong variable.** Deleting the length constraint's
+own reprojection changed nothing the suite could see, because
+`Build_WithALengthConstraint_HoldsTheTipOneLengthOut` asserted on the matrix's forward axis — which
+is normalised one line BEFORE the constraint runs and is a unit vector either way. Its name claimed
+something no assertion checked.
+
+The fix is the instrument, not the assertion: `JiggleBones.TipOf` exposes the simulated tip, which is
+the variable the claim is about and which the matrix cannot carry. Valve exposes the same value for
+the same reason, drawing a line to `data->tipPos` under `cl_jiggle_bone_debug`. With that, halving
+the constraint's length reddens the test immediately.
+
+**Two fixture faults were also caught rather than believed.** The first goal matrix pointed the bone
+along world Z, which is the axis gravity acts on — so gravity shortened the bone and never tilted
+it, and every tilt assertion passed on a direction that had not moved. And the framerate-cutoff test
+ran twenty calls when the forced-simulation counter is thirty-two, so it measured the counter rather
+than the cutoff.

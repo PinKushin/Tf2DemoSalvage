@@ -152,7 +152,7 @@ public sealed class BoneSetupConformanceTests
 
         new BoneStage(
             "AccumulateLayers",
-            StageState.Partial,
+            StageState.Implemented,
             "Overlays the entity's animation layers, in m_nOrder, each accumulated onto the result " +
             "of the last. SlerpBones' delta branch is implemented — QuaternionMA under " +
             "STUDIO_POST, QuaternionSM otherwise — with the per-bone weight list read through the " +
@@ -160,9 +160,10 @@ public sealed class BoneSetupConformanceTests
             "PLAYER the source is not the wire at all: tf_player.cpp:774 excludes overlay_vars, so " +
             "the layers come from CTEPlayerAnimEvent temp entities (B282), and an entity that DOES " +
             "send m_AnimOverlay — a sentry, a dispenser — has its array walked in m_nOrder (B285). " +
-            "Still partial for one reason: SlerpBones picks QuaternionSlerpNoAlign for a bone " +
-            "flagged BONE_FIXED_ALIGNMENT (bone_setup.cpp:1492) and every bone here takes the " +
-            "aligning form. The flag is on StudioBone.Flags and is not tested for."),
+            "The per-bone branch is honoured too: a bone flagged BONE_FIXED_ALIGNMENT takes " +
+            "QuaternionSlerpNoAlign rather than the aligning form (bone_setup.cpp:1492), in Valve's " +
+            "argument order, which matters because that function's antipodal arm is not symmetric " +
+            "(B292). No TF2 model measured sets the flag; it is implemented for parity."),
 
         new BoneStage(
             "Init",
@@ -320,8 +321,12 @@ public sealed class BoneSetupConformanceTests
             "BuildTransformations",
             StageState.Partial,
             "Turns local pos/q into bone-to-world down the hierarchy. Ours concatenates parents, " +
-            "but the merge runs AFTER rather than first, the bone mask is not consulted, and " +
-            "procedural and jiggle bones are not computed at all (B180, B182)."),
+            "and JIGGLE bones are now simulated on the matrix the concatenate produces, which is " +
+            "Valve's goalMX (B293) — the whole of jigglebones.cpp:60, including the frame counters, " +
+            "the clamped-up deltaT and the reflex-angle branch. Still partial: the merge runs AFTER " +
+            "rather than first, the bone mask is not consulted, and the FOUR rules CalcProceduralBone " +
+            "handles are absent (B180, B182) — though no bone in any demo measured uses one of them, " +
+            "22 of 379 and 4 of 198 procedural bones all being jiggle."),
 
         new BoneStage(
             "ControlMouth",

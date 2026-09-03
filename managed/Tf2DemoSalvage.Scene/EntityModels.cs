@@ -649,6 +649,13 @@ public sealed class EntityModelSet
             posed.Controllers = skinned.Controllers;
             posed.BoneControllers = where.BoneControllers;
 
+            // **The ROOT model's bytes, for the jiggle bones' own parameters** (B293).
+            // `mstudiobone_t::pProcedure()` is an offset from the BONE, and the bones being posed
+            // are `Models[0]`'s — reading it against an included animation model's bytes would land
+            // on arbitrary floats and produce springs with nonsense constants rather than an error.
+            // The same index-space rule the bone controllers follow.
+            posed.JiggleSource = skinned.Models.Count > 0 ? skinned.Models[0] : null;
+
             // **The placement, which is what makes the built bones WORLD space.** A merged item
             // takes its wearer's bones and those already carry the wearer's placement, so nothing
             // downstream has to know where a wearer stands — see D88 and finding 35 section 7a.

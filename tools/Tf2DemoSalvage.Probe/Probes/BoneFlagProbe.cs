@@ -125,6 +125,7 @@ public sealed class BoneFlagProbe : IProbe
 
         int bones = 0;
         int models = 0;
+        int springs = 0;
 
         foreach (string model in props
             .Select(prop => prop.ModelPath)
@@ -139,8 +140,10 @@ public sealed class BoneFlagProbe : IProbe
 
             models++;
 
-            foreach (StudioBone bone in skinned.Bones)
+            for (int index = 0; index < skinned.Bones.Count; index++)
             {
+                StudioBone bone = skinned.Bones[index];
+
                 bones++;
 
                 if (bone.ProcedureType != 0)
@@ -155,6 +158,27 @@ public sealed class BoneFlagProbe : IProbe
                     if (shown.Count < 4)
                     {
                         shown.Add($"{Path.GetFileName(model)}:{bone.Name}");
+                    }
+
+                    // **The parameters themselves, for the first few, because a stride or a field
+                    // order that is wrong reads as plausible numbers rather than as an error.** A
+                    // length of 3 to 12 units with stiffnesses in the tens or hundreds is what an
+                    // authored jiggle bone looks like; a length of 1e-38 or 4e9 is a misread.
+                    if (springs < 6 &&
+                        assets.Geometry(model)?.Skinned is { Models.Count: > 0 } withBytes &&
+                        StudioJiggleBones.Read(withBytes.Models[0], index) is { } jiggle)
+                    {
+                        springs++;
+
+                        output.WriteLine(
+                            string.Create(
+                                CultureInfo.InvariantCulture,
+                                $"  jiggle {Path.GetFileName(model)}:{bone.Name} " +
+                                $"flags 0x{jiggle.Flags:X2} length {jiggle.Length:0.##} " +
+                                $"tipMass {jiggle.TipMass:0.##} " +
+                                $"yaw {jiggle.YawStiffness:0.#}/{jiggle.YawDamping:0.#} " +
+                                $"pitch {jiggle.PitchStiffness:0.#}/{jiggle.PitchDamping:0.#} " +
+                                $"angleLimit {jiggle.AngleLimit:0.###}"));
                     }
                 }
 

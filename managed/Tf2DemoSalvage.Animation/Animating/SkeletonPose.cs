@@ -414,6 +414,13 @@ public sealed class SkeletonPose : IBonePose
                 _local[bone].CopyTo(destination, 0);
             }
 
+            // **`STUDIO_PROC_JIGGLE`, and it runs on the matrix the concatenate just produced**
+            // (B293). That matrix IS Valve's `goalMX` — the bone's local transform on its parent,
+            // which is exactly what `BuildTransformations` has in hand where it branches
+            // (`c_baseanimating.cpp:1557`). The simulation reads the goal's axes out of it and
+            // overwrites it with where the spring actually swung.
+            Jiggle(bone, currentTime, destination);
+
             alreadyWritten.Mark(bone);
         }
     }
@@ -688,6 +695,76 @@ public sealed class SkeletonPose : IBonePose
     /// <param name="degrees">The controller's value.</param>
     /// <returns>The same angle in radians.</returns>
     private static float Radians(float degrees) => degrees * (MathF.PI / 180f);
+
+    /// <summary>Runs a bone's spring physics over the matrix the concatenate produced.</summary>
+    /// <param name="bone">Which bone.</param>
+    /// <param name="currentTime">Now.</param>
+    /// <param name="destination">The bone's matrix, read as the goal and written as the result.</param>
+    /// <remarks>
+    /// **The gate is Valve's PAIR** (<c>c_baseanimating.cpp:1545</c>):
+    /// <c>(boneFlags(i) &amp; BONE_ALWAYS_PROCEDURAL) &amp;&amp; (pBone-&gt;proctype &amp;
+    /// STUDIO_PROC_JIGGLE)</c>. <see cref="StudioJiggleBones.Read"/> applies the second half, so a
+    /// bone that is procedural by some other rule reads back null and falls through unchanged —
+    /// which is what the engine does too, since `CalcProceduralBone` handles those four earlier and
+    /// they never reach this branch.
+    ///
+    /// **Returns before doing anything when the model carries no jiggle bone at all**, which is
+    /// almost every model: 22 of 379 bones on a real map, and most of those on two cosmetics.
+    ///
+    /// **Not reproduced: the parent's unscale.** Valve divides a parent matrix out by its own scale
+    /// before building the goal, so a big-head effect does not inflate the chain hanging off it
+    /// (<c>:1567</c>). Nothing here scales a parent bone matrix, so there is nothing to divide out;
+    /// this becomes a real gap the moment a model-scale effect is applied per bone rather than per
+    /// entity.
+    /// </remarks>
+    private void Jiggle(int bone, double currentTime, float[] destination)
+    {
+        if (JiggleSource is not { } model)
+        {
+            return;
+        }
+
+        if ((_bones[bone].Flags & StudioBoneFlags.AlwaysProcedural) == 0)
+        {
+            return;
+        }
+
+        if (StudioJiggleBones.Read(model, bone) is not { } jiggle)
+        {
+            return;
+        }
+
+        _jiggle ??= new JiggleBones();
+
+        _jiggle.Build(
+            bone,
+            (float)currentTime,
+            jiggle,
+            destination,
+            destination,
+
+            // **False, and it is a viewmodel question rather than a jiggle one.**
+            // `ShouldFlipViewModel` is true for a left-handed viewmodel (`cl_flipviewmodels`),
+            // which this viewer does not implement — see B292's neighbour. When it is, this is
+            // where the flag arrives.
+            flipped: false);
+    }
+
+    /// <summary>The model bytes a jiggle bone's parameters are read from, or null for none.</summary>
+    /// <remarks>
+    /// **The ROOT model's**, because `pProcedure()` is an offset from the bone structure and the
+    /// bones being posed are the root model's. An included animation model has its own bone table
+    /// and its own offsets, and reading one against the other lands on arbitrary bytes.
+    /// </remarks>
+    public ReadOnlyMemory<byte>? JiggleSource { get; set; }
+
+    /// <summary>The spring state, created on the first jiggle bone this entity actually has.</summary>
+    /// <remarks>
+    /// **Lazily, exactly as the engine does it** — `if (!m_pJiggleBones) m_pJiggleBones = new
+    /// CJiggleBones;` inside the branch (`c_baseanimating.cpp:1580`). Most entities have no jiggle
+    /// bone and allocate nothing.
+    /// </remarks>
+    private JiggleBones? _jiggle;
 
     /// <summary>Scratch for the controller pass, allocated once per entity.</summary>
     private readonly StudioBonePose[] _adjusted;
