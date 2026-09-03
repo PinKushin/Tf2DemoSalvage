@@ -528,7 +528,7 @@ run Tf2DemoSalvage.Animation.Tests animation 54
 # 329 -> 332: the client-side animation selection stays wired (written during B279 on a diagnosis
 # that was WRONG - the call was never missing; a grep truncated by `head -6` hid it). Kept because
 # the scene-level one is the only test that reddens if MomentScene.Build ever loses the call.
-run Tf2DemoSalvage.Scene.Tests    scene     344
+run Tf2DemoSalvage.Scene.Tests    scene     347
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -853,7 +853,7 @@ run Tf2DemoSalvage.Presentation.Tests presentation 438
 # 876 -> 882: FrameAt, the inter-frame fraction CalcPoseSingle keeps and this project dropped
 # (B279). Six cases, including the control that a loop still lands on the frame FrameFor always
 # gave it - only the fraction is new.
-run Tf2DemoSalvage.Content.Tests  content   887
+run Tf2DemoSalvage.Content.Tests  content   890
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2

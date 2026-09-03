@@ -446,6 +446,40 @@ public sealed class EntityModelSet
     /// </remarks>
     private readonly Dictionary<int, string> _entityModels = [];
 
+    /// <summary>Each entity's outgoing sequences, still fading — Valve's animation queue.</summary>
+    /// <remarks>
+    /// **`CSequenceTransitioner`, which the engine keeps ON the entity**
+    /// (`C_BaseAnimating::m_SequenceTransitioner`), so this does too. Without it every sequence
+    /// change is a cut: a player who stops running snaps from the run pose to the idle in one
+    /// frame, and a door that starts opening jumps to its first frame.
+    ///
+    /// **A list rather than one entry, because Valve's is a queue.** Two changes inside one fade
+    /// window leave two sequences fading at once, and dropping the older would make a fast
+    /// direction change snap in a way a slow one does not.
+    /// </remarks>
+    private readonly Dictionary<int, List<FadingSequence>> _transitions = [];
+
+    /// <summary>One sequence an entity has left, still contributing while it fades.</summary>
+    /// <param name="Sequence">The sequence being left.</param>
+    /// <param name="Cycle">Where its cycle stood when it stopped being current.</param>
+    /// <param name="LeftAtSeconds">Demo time at that moment — Valve's <c>m_flLayerAnimtime</c>.</param>
+    /// <param name="FadeOutSeconds">
+    /// How long it has to fade, <c>MIN( prevseqdesc.fadeouttime, seqdesc.fadeintime )</c>.
+    /// </param>
+    /// <param name="PlaybackRate">Its rate, so it keeps advancing while it fades.</param>
+    /// <remarks>
+    /// **It keeps PLAYING while it fades**, which is easy to miss:
+    /// `MaintainSequenceTransitions` advances the outgoing cycle by
+    /// `dt * m_flPlaybackRate * GetSequenceCycleRate( … )` before accumulating it
+    /// (`c_baseanimating.cpp:1853`). Freezing it instead would blend toward a still frame.
+    /// </remarks>
+    private readonly record struct FadingSequence(
+        int Sequence,
+        float Cycle,
+        double LeftAtSeconds,
+        float FadeOutSeconds,
+        float PlaybackRate);
+
     /// <summary>Which frame the bone caches belong to; advanced once per call.</summary>
     private readonly BoneFrameCounter _boneFrames = new();
 
@@ -578,11 +612,16 @@ public sealed class EntityModelSet
             (posed.Frame, posed.FrameFraction) = StudioSequences.FrameAt(
                 phase, skinned.Frames(sequence), skinned.Loops(sequence));
 
-            // **The gesture layers, which is `AccumulateLayers` in this project's terms** (B282).
-            // A player's `m_AnimOverlay` array is excluded from the wire (`tf_player.cpp:774`), so
-            // these come from the `CTEPlayerAnimEvent` stream the timeline collected; each one is
-            // resolved to a sequence HERE, because only this layer has the model.
-            posed.Layers = LayersFor(prop, skinned, seconds);
+            // **`MaintainSequenceTransitions` first, then `AccumulateLayers`**, which is the order
+            // `StandardBlendingRules` runs them in (`c_baseanimating.cpp:1957`) — and the order
+            // matters, because each accumulates onto the result of the last. The sequence being
+            // faded out is part of the BODY; a gesture goes over the top of whatever the body
+            // settled on (B286).
+            List<PoseLayer> composed = TransitionsFor(prop, skinned, sequence, phase, seconds);
+
+            composed.AddRange(LayersFor(prop, skinned, seconds));
+
+            posed.Layers = composed;
 
 
             // **`DoAnimationEvents`, and it has to be HERE** (B275). The walk asks what the cycle
@@ -996,6 +1035,131 @@ public sealed class EntityModelSet
 
         return layers;
     }
+
+    /// <summary>Keeps an entity's outgoing sequences alive while they fade.</summary>
+    /// <param name="prop">The entity.</param>
+    /// <param name="skinned">Its model.</param>
+    /// <param name="sequence">The sequence it is playing now.</param>
+    /// <param name="cycle">Where that sequence's cycle stands.</param>
+    /// <param name="seconds">Demo time now.</param>
+    /// <returns>A layer per sequence still fading, oldest first.</returns>
+    /// <remarks>
+    /// **`CSequenceTransitioner` and `MaintainSequenceTransitions` together**
+    /// (`sequence_Transitioner.cpp:17` and `c_baseanimating.cpp:1815`). Without them every sequence
+    /// change is a CUT — a player who stops running snaps out of the run pose in one frame, and a
+    /// door that starts opening jumps to its first frame (B286).
+    ///
+    /// **On a change, the outgoing sequence is pushed with a fade window taken from BOTH
+    /// sequences**: `MIN( prevseqdesc.fadeouttime, seqdesc.fadeintime )`. `STUDIO_SNAP` empties the
+    /// queue instead, which is how an authored cut stays a cut.
+    ///
+    /// **Each fading sequence keeps PLAYING**, advanced by
+    /// `dt * m_flPlaybackRate * GetSequenceCycleRate( … )` before it is accumulated
+    /// (`c_baseanimating.cpp:1853`) — freezing it would blend toward a still frame.
+    ///
+    /// **Weights come from `GetFadeout`'s spline**, and an entry at or below zero is removed rather
+    /// than accumulated at nothing, which is what bounds the queue.
+    ///
+    /// **Not reproduced: `m_nNewSequenceParity`.** The engine also forces a transition when the
+    /// parity counter moves, which restarts a sequence that has not changed number. This project
+    /// carries that counter on the pose as `ResetEventsParity`'s neighbour and uses it for the
+    /// animation start, so a restart already resets the cycle — but a restart of the SAME sequence
+    /// does not currently cross-fade.
+    /// </remarks>
+    private List<PoseLayer> TransitionsFor(
+        SceneProp prop, PropModels.SkinnedModel skinned, int sequence, float cycle, double seconds)
+    {
+        if (!_transitions.TryGetValue(prop.EntityIndex, out List<FadingSequence>? queue))
+        {
+            queue = [];
+            _transitions[prop.EntityIndex] = queue;
+        }
+
+        if (!_currentSequence.TryGetValue(prop.EntityIndex, out (int Sequence, float Cycle) was))
+        {
+            _currentSequence[prop.EntityIndex] = (sequence, cycle);
+
+            return [];
+        }
+
+        if (was.Sequence != sequence)
+        {
+            // `if ((seqdesc.flags & STUDIO_SNAP) || !bInterpolate) m_animationQueue.RemoveAll();`
+            if (skinned.SnapsTo(sequence))
+            {
+                queue.Clear();
+            }
+            else
+            {
+                float window = MathF.Min(
+                    skinned.FadeOut(was.Sequence), skinned.FadeIn(sequence));
+
+                if (window > 0f)
+                {
+                    queue.Add(new FadingSequence(
+                        was.Sequence, was.Cycle, seconds, window, prop.Pose.PlaybackRate));
+                }
+            }
+        }
+
+        _currentSequence[prop.EntityIndex] = (sequence, cycle);
+
+        if (queue.Count == 0)
+        {
+            return [];
+        }
+
+        List<PoseLayer> fading = [];
+
+        for (int index = queue.Count - 1; index >= 0; index--)
+        {
+            FadingSequence leaving = queue[index];
+
+            double elapsed = seconds - leaving.LeftAtSeconds;
+
+            float weight = StudioSequenceFade.Fadeout(elapsed, leaving.FadeOutSeconds);
+
+            // `if (s > 0) … else m_animationQueue.Remove( i )` — a finished entry leaves the queue
+            // rather than being accumulated at no weight, which is what stops it growing.
+            if (weight <= 0f)
+            {
+                queue.RemoveAt(index);
+                continue;
+            }
+
+            double advanced = leaving.Cycle +
+                (elapsed * skinned.CyclesPerSecond(leaving.Sequence) * leaving.PlaybackRate);
+
+            float wrapped = StudioSequences.ClampCycle(
+                (float)advanced, skinned.Loops(leaving.Sequence));
+
+            (int at, float part) = StudioSequences.FrameAt(
+                wrapped, skinned.Frames(leaving.Sequence), skinned.Loops(leaving.Sequence));
+
+            fading.Add(new PoseLayer(
+                leaving.Sequence,
+                at,
+                part,
+                weight,
+                skinned.BoneWeights(leaving.Sequence),
+                Delta: skinned.IsDelta(leaving.Sequence),
+                Post: skinned.IsPost(leaving.Sequence)));
+        }
+
+        // Oldest first, because the engine walks its queue from the front and each accumulates onto
+        // the last — and the loop above ran backwards so it could remove as it went.
+        fading.Reverse();
+
+        return fading;
+    }
+
+    /// <summary>What sequence each entity was playing last frame, and where its cycle stood.</summary>
+    /// <remarks>
+    /// **`UpdateCurrent`'s job**, kept per entity for the same reason the queue is. The cycle is
+    /// remembered as well as the number because a sequence being left has to carry on from where it
+    /// was rather than restarting.
+    /// </remarks>
+    private readonly Dictionary<int, (int Sequence, float Cycle)> _currentSequence = [];
 
     /// <summary>Walks one entity's events for this frame.</summary>
     /// <param name="prop">The entity.</param>

@@ -452,6 +452,24 @@ internal static class StudioLayout
     /// </remarks>
     public const int SequenceWeightListIndexOffset = 156;
 
+    /// <summary>Byte offset of <c>fadeintime</c>: how long this sequence takes to blend IN.</summary>
+    /// <remarks>
+    /// **The cross-fade either side of a sequence change** (<c>studio.h:854</c>, *"ideal cross fate
+    /// in time (0.2 default)"* — Valve's typo). `CSequenceTransitioner::CheckForSequenceChange`
+    /// keeps the outgoing sequence alive for
+    /// <c>MIN( prevseqdesc.fadeouttime, seqdesc.fadeintime )</c>
+    /// (<c>sequence_Transitioner.cpp:46</c>), so both halves are needed and neither alone is the
+    /// answer.
+    ///
+    /// **Arithmetic check, and it holds:** counting fields from `baseptr` puts `fadeintime` at 104
+    /// and `weightlistindex` at 156, which is the offset already measured against a real model
+    /// above. Two independent landings on 156 is what makes 104 believable.
+    /// </remarks>
+    public const int SequenceFadeInOffset = 104;
+
+    /// <summary>Byte offset of <c>fadeouttime</c>: how long this sequence takes to blend OUT.</summary>
+    public const int SequenceFadeOutOffset = 108;
+
     /// <summary>Bytes per <c>mstudioposeparamdesc_t</c>.</summary>
     public const int PoseParameterStride = 20;
 

@@ -2000,6 +2000,46 @@ public static class PropModels
             where.Local < Groups[where.Group].Sequences.Count &&
             StudioAnimation.IsDelta(
                 Models[where.Group], Groups[where.Group].Sequences[where.Local].Animation);
+        /// <summary>How long a sequence takes to blend in — <c>fadeintime</c>.</summary>
+        /// <param name="sequence">The merged sequence number.</param>
+        /// <returns>Its fade-in time in seconds, or zero.</returns>
+        /// <remarks>
+        /// **One half of the cross-fade window**; the other is the outgoing sequence's
+        /// <see cref="FadeOut"/>, and `CheckForSequenceChange` takes the smaller
+        /// (`sequence_Transitioner.cpp:46`).
+        /// </remarks>
+        public float FadeIn(int sequence) =>
+            Sequences.At(sequence) is { } where &&
+            where.Group < Models.Count &&
+            where.Local < Groups[where.Group].Sequences.Count
+                ? StudioSequenceFade.In(Models[where.Group], where.Local)
+                : 0f;
+
+        /// <summary>How long a sequence takes to blend out — <c>fadeouttime</c>.</summary>
+        /// <param name="sequence">The merged sequence number.</param>
+        /// <returns>Its fade-out time in seconds, or zero.</returns>
+        public float FadeOut(int sequence) =>
+            Sequences.At(sequence) is { } where &&
+            where.Group < Models.Count &&
+            where.Local < Groups[where.Group].Sequences.Count
+                ? StudioSequenceFade.Out(Models[where.Group], where.Local)
+                : 0f;
+
+        /// <summary>Whether entering a sequence cuts rather than fades — <c>STUDIO_SNAP</c>.</summary>
+        /// <param name="sequence">The merged sequence number.</param>
+        /// <returns>Whether it carries <c>STUDIO_SNAP</c>.</returns>
+        /// <remarks>
+        /// **An authored cut, and the engine honours it by emptying the queue**:
+        /// `if ((seqdesc.flags &amp; STUDIO_SNAP) || !bInterpolate) m_animationQueue.RemoveAll()`
+        /// (`sequence_Transitioner.cpp:41`). Fading such a sequence in would be adding a blend the
+        /// animator deliberately removed.
+        /// </remarks>
+        public bool SnapsTo(int sequence) =>
+            Sequences.At(sequence) is { } where &&
+            where.Group < Models.Count &&
+            where.Local < Groups[where.Group].Sequences.Count &&
+            Groups[where.Group].Sequences[where.Local].Snaps;
+
         /// <summary>Whether a sequence composes its delta after the base — <c>STUDIO_POST</c>.</summary>
         /// <param name="sequence">The merged sequence number.</param>
         /// <returns>Whether it carries <c>STUDIO_POST</c>.</returns>

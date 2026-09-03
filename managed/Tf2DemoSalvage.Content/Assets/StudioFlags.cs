@@ -60,6 +60,15 @@ internal static class StudioFlags
     /// </remarks>
     public const int SequenceDelta = 0x0004;
 
+    /// <summary><c>STUDIO_SNAP</c>, <c>studio.h:3079</c> — do not interpolate INTO this sequence.</summary>
+    /// <remarks>
+    /// **An authored cut.** `CSequenceTransitioner::CheckForSequenceChange` empties its whole queue
+    /// when the sequence being entered carries this (`sequence_Transitioner.cpp:41`), so nothing
+    /// fades out behind it. Cross-fading such a sequence in would add a blend the animator
+    /// deliberately removed.
+    /// </remarks>
+    public const int SequenceSnap = 0x0002;
+
     /// <summary><c>STUDIO_POST</c>, <c>studio.h:3082</c>.</summary>
     /// <remarks>
     /// **Only meaningful on a <see cref="SequenceDelta"/> sequence**, where it chooses which side

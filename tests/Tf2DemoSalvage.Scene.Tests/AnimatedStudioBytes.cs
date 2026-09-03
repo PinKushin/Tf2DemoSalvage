@@ -38,23 +38,32 @@ internal static class AnimatedStudioBytes
     /// <c>SyntheticSkinnedModel.With</c> numbers a model's animations from zero in the order the
     /// labels are given, so this wants the label count.
     /// </param>
+    /// <param name="sequences">
+    /// How many sequence DESCRIPTORS to write, each carrying a 0.2-second cross-fade. Zero writes
+    /// none, which is what every caller wanted before transitions existed — and a transition test
+    /// against a model with none would pass by never transitioning, since a zero window is no fade.
+    /// </param>
     /// <returns>A <c>.mdl</c> body carrying that many animation descriptions.</returns>
     /// <remarks>
     /// Only the four fields the readers touch: the animation count and index in the header, then
     /// each animation's frames-a-second and frame count. Written by hand rather than copied from a
     /// shipped model, so the values under test are the ones this file put there.
     /// </remarks>
-    public static byte[] OneSecondLoop(int animations = 1)
+    public static byte[] OneSecondLoop(int animations = 1, int sequences = 0)
     {
         const int header = 256;
         const int stride = 100;
+        const int sequenceStride = 212;
 
-        byte[] file = new byte[header + (Math.Max(1, animations) * stride)];
+        int count = Math.Max(1, animations);
+        int descriptors = header + (count * stride);
+
+        byte[] file = new byte[descriptors + (Math.Max(0, sequences) * sequenceStride)];
 
         BitConverter.TryWriteBytes(file.AsSpan(180), animations);
         BitConverter.TryWriteBytes(file.AsSpan(184), header);
 
-        for (int animation = 0; animation < animations; animation++)
+        for (int animation = 0; animation < count; animation++)
         {
             int at = header + (animation * stride);
 
@@ -62,6 +71,24 @@ internal static class AnimatedStudioBytes
             BitConverter.TryWriteBytes(file.AsSpan(at + 16), Frames);
         }
 
+        // **Sequence DESCRIPTORS, which are a different table from the animations** and which
+        // carry the cross-fade window. Without them `FadeIn` and `FadeOut` read zero, and a zero
+        // window means no transition at all — so a fixture that omitted these would make a
+        // transition test pass by never transitioning.
+        for (int sequence = 0; sequence < sequences; sequence++)
+        {
+            int at = descriptors + (sequence * sequenceStride);
+
+            BitConverter.TryWriteBytes(file.AsSpan(at + 104), FadeSeconds);
+            BitConverter.TryWriteBytes(file.AsSpan(at + 108), FadeSeconds);
+        }
+
+        BitConverter.TryWriteBytes(file.AsSpan(188), sequences);
+        BitConverter.TryWriteBytes(file.AsSpan(192), descriptors);
+
         return file;
     }
+
+    /// <summary>The cross-fade window the fixture writes, which is studiomdl's own default.</summary>
+    public const float FadeSeconds = 0.2f;
 }

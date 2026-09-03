@@ -136,10 +136,14 @@ public sealed class BoneSetupConformanceTests
 
         new BoneStage(
             "MaintainSequenceTransitions",
-            StageState.Absent,
+            StageState.Partial,
             "Keeps the previous sequences alive and decays them, so a sequence change eases " +
-            "rather than snapping. Nothing here holds a previous sequence at all, so every " +
-            "change is a cut."),
+            "rather than snapping. Implemented in EntityModelSet as Valve's queue (B286): the " +
+            "outgoing sequence is pushed with MIN( prev.fadeouttime, next.fadeintime ), keeps " +
+            "playing while it fades, is weighted by GetFadeout's 3s^2-2s^3 spline and is removed " +
+            "at zero; STUDIO_SNAP empties the queue. Still partial: m_nNewSequenceParity does not " +
+            "cross-fade a sequence RESTARTING at the same number, and the fade is not clipped to " +
+            "the time left in a non-looping sequence — which is a block Valve has commented out."),
 
         new BoneStage(
             "AccumulateLayers",

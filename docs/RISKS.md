@@ -18302,3 +18302,71 @@ other. Sabotaged by pointing the path marker at a property nothing sends: the te
 engine interpolates its layer array (`m_iv_AnimOverlay`) and `CheckForLayerChanges` exists to stop
 that interpolation crossing a sequence change. Ours steps at the snapshot rate where the engine's
 slides.
+
+## B286 — every sequence change was a cut; the engine cross-fades — FIXED
+
+**`MaintainSequenceTransitions` was one of the stages `BoneSetupConformanceTests` had filed as
+Absent**, and its own note said what that costs: *"Nothing here holds a previous sequence at all, so
+every change is a cut."* A player who stops running snapped out of the run pose in one frame, and a
+door that started opening jumped to its first frame.
+
+**Nothing below the whole-frame level could notice**, which is why it survived: each frame on its
+own was a correct pose of a correct sequence.
+
+### The mechanism, which is two functions
+
+`CSequenceTransitioner::CheckForSequenceChange` (`sequence_Transitioner.cpp:17`) pushes the outgoing
+sequence onto a queue when the number changes, with a window taken from BOTH sequences:
+
+```
+currentblend->m_flLayerFadeOuttime = MIN( prevseqdesc.fadeouttime, seqdesc.fadeintime );
+```
+
+and empties the queue instead when the incoming sequence carries `STUDIO_SNAP`, which is how an
+authored cut stays a cut.
+
+`MaintainSequenceTransitions` (`c_baseanimating.cpp:1815`) then accumulates each queued entry, and
+**the outgoing sequence keeps PLAYING while it fades** — easy to miss, and freezing it would blend
+toward a still frame:
+
+```
+float dt = (gpGlobals->curtime - blend->m_flLayerAnimtime);
+flCycle = blend->m_flCycle + dt * blend->m_flPlaybackRate * GetSequenceCycleRate( … );
+flCycle = ClampCycle( flCycle, IsSequenceLooping( … ) );
+boneSetup.AccumulatePose( pos, q, blend->m_nSequence, flCycle, blend->m_flWeight, … );
+```
+
+Weights come from `GetFadeout`'s spline, `3s² − 2s³` over `s = 1 − elapsed / window`
+(`animationlayer.h:84`), and an entry at or below zero is REMOVED rather than accumulated at
+nothing — which is what bounds the queue.
+
+**Valve's own backwards-clock guard is reproduced rather than trimmed.** `if ( s > 1.0f ) s = 1.0f;`
+carries the comment *"Shouldn't happen, but maybe curtime is behind animtime?"*, and a demo viewer
+that can scrub backwards makes it happen routinely.
+
+### Order matters, and it is Valve's
+
+`StandardBlendingRules` runs transitions BEFORE `AccumulateLayers`, and each accumulates onto the
+result of the last — the sequence being faded out is part of the BODY, where a gesture goes over
+whatever the body settled on. The two lists are concatenated in that order.
+
+### The offsets
+
+`fadeintime` and `fadeouttime` sit at 104 and 108 in `mstudioseqdesc_t`, by counting fields from
+`baseptr` — and the same count puts `weightlistindex` at 156, which was measured independently
+against a shipped model. That agreement is the argument, and `StudioSequenceFadeTests` checks the
+read against `scout.mdl`: every value lands under two seconds and at least one is exactly Valve's
+0.2 default, where a wrong offset would land on a frame count or a bounding-box coordinate.
+
+### Verified
+
+Three tests on what the skeleton was HANDED, sabotaged by forcing the window to zero: all three
+reddened. Gate green on both phases.
+
+### Not reproduced
+
+- **`m_nNewSequenceParity`.** The engine also forces a transition when the parity counter moves,
+  which cross-fades a sequence RESTARTING at the same number. The counter is decoded and used for
+  the animation start, so the restart happens; the cross-fade around it does not.
+- **The commented-out clip.** Valve's own source carries a disabled block that would shorten the
+  fade to the time left in a non-looping sequence. It is disabled there, so it is absent here.

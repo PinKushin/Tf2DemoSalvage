@@ -83,6 +83,15 @@ public readonly record struct StudioSequence(
     /// </remarks>
     public bool IsPost => (Flags & PostSequence) != 0;
 
+    /// <summary>Whether entering this sequence CUTS rather than cross-fades — <c>STUDIO_SNAP</c>.</summary>
+    /// <remarks>
+    /// **An authored cut, honoured by emptying the transition queue**:
+    /// <c>if ((seqdesc.flags &amp; STUDIO_SNAP) || !bInterpolate) m_animationQueue.RemoveAll()</c>
+    /// (<c>sequence_Transitioner.cpp:41</c>). Fading into such a sequence would add a blend the
+    /// animator deliberately removed.
+    /// </remarks>
+    public bool Snaps => (Flags & SnapSequence) != 0;
+
     /// <summary><c>STUDIO_LOOPING</c> from <c>studio.h</c>.</summary>
     private const int Looping = StudioFlags.SequenceLooping;
 
@@ -93,6 +102,9 @@ public readonly record struct StudioSequence(
 
     /// <summary><c>STUDIO_POST</c>, which only a delta sequence uses.</summary>
     private const int PostSequence = StudioFlags.SequencePost;
+
+    /// <summary><c>STUDIO_SNAP</c>, which refuses the cross-fade into this sequence.</summary>
+    private const int SnapSequence = StudioFlags.SequenceSnap;
 }
 
 /// <summary>
