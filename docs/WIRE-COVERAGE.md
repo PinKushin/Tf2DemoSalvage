@@ -14,7 +14,7 @@ ignorance rather than proof of use — a name can be mentioned and still not hon
 which is its own recurring bug here. A property this report calls read may still be
 decoded and dropped.
 
-**102 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
+**113 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
 
 ## Tables an entity this viewer draws composes
 
@@ -156,12 +156,12 @@ Not declared in this SDK.
 | `DT_RocketTrail` | 15 | 15 |
 | `DT_SmokeTrail` | 15 | 15 |
 | `DT_EnvProjectedTexture` | 14 | 14 |
-| `DT_PropVehicleChoreoGeneric` | 14 | 14 |
-| `DT_PropVehicleDriveable` | 14 | 14 |
 | `DT_TFPlayerSharedLocal` | 14 | 14 |
 | `DT_DustTrail` | 13 | 13 |
 | `DT_EnvWindShared` | 13 | 13 |
 | `DT_MaterialModifyControl` | 13 | 13 |
+| `DT_PropVehicleChoreoGeneric` | 13 | 14 |
+| `DT_PropVehicleDriveable` | 13 | 14 |
 | `DT_FuncSmokeVolume` | 11 | 11 |
 | `DT_PoseController` | 11 | 11 |
 | `DT_SteamJet` | 11 | 11 |
