@@ -83,6 +83,21 @@ public sealed class ModelProbe : IProbe
             + $"{families.ToString(CultureInfo.InvariantCulture)} skin families over "
             + $"{references.ToString(CultureInfo.InvariantCulture)} references");
 
+        // **IK chains, so the question can be asked of a model chosen by NAME.** The `bone-flags`
+        // census walks a demo's networked props, which are weapons, cosmetics and buildings — a
+        // player's body is not among them, and feet are exactly where IK lives. A zero from that
+        // census is a fact about its denominator until a player model has been asked directly.
+        IReadOnlyList<StudioIkChain> chains = StudioIkChains.Read(bytes);
+
+        output.WriteLine(
+            $"    ik chains {chains.Count.ToString(CultureInfo.InvariantCulture)}"
+            + (chains.Count == 0
+                ? string.Empty
+                : ": " + string.Join(
+                    ", ",
+                    chains.Select(chain =>
+                        $"{chain.Name} ({chain.Links.Count.ToString(CultureInfo.InvariantCulture)} links)"))));
+
         // **The models this one includes**, because a sequence list read from the root alone is
         // only half the answer for anything that animates — and "the root has no events" reads
         // identically to "this model has no events" until the include list is on screen (B275).

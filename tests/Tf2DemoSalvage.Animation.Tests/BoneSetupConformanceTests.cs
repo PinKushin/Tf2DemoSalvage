@@ -175,8 +175,12 @@ public sealed class BoneSetupConformanceTests
             "Init",
             StageState.Absent,
             "auto_ik.Init( hdr, angles, origin, time, framecount, boneMask ) — the throwaway IK " +
-            "context that CalcAutoplaySequences writes its IK rules into. No IK exists here, and " +
-            "the .mdl parser does not read ikchainindex, so the data is not even loaded."),
+            "context that CalcAutoplaySequences writes its IK rules into. No IK solver exists " +
+            "here. **The CHAINS are loaded, contrary to what this entry said**: " +
+            "StudioIkChains.Read has existed since the reader was written, and every TF2 player " +
+            "model declares four — rhand, lhand, rfoot, lfoot, three links each, measured on " +
+            "scout, heavy and engineer (B296). What is missing is the solver and the per-animation " +
+            "ikrule tracks, not the data."),
 
         new BoneStage(
             "CalcAutoplaySequences",

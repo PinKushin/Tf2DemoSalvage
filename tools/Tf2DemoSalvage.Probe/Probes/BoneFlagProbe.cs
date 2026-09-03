@@ -126,6 +126,9 @@ public sealed class BoneFlagProbe : IProbe
         int bones = 0;
         int models = 0;
         int springs = 0;
+        int chained = 0;
+        int links = 0;
+        List<string> ikExamples = [];
 
         foreach (string model in props
             .Select(prop => prop.ModelPath)
@@ -139,6 +142,23 @@ public sealed class BoneFlagProbe : IProbe
             }
 
             models++;
+
+            // **IK, measured with the same discipline as the procedural rules.** The chains are
+            // read already — `StudioIkChains.Read` has existed since the reader was written — and
+            // nothing solves them. Whether that matters is a count, and the conformance table has
+            // been claiming the data "is not even loaded", which is not true.
+            if (skinned.Models.Count > 0 &&
+                StudioIkChains.Read(skinned.Models[0]) is { Count: > 0 } chains)
+            {
+                chained++;
+                links += chains.Count;
+
+                if (ikExamples.Count < 4)
+                {
+                    ikExamples.Add(
+                        $"{Path.GetFileName(model)}:{chains.Count.ToString(CultureInfo.InvariantCulture)}");
+                }
+            }
 
             for (int index = 0; index < skinned.Bones.Count; index++)
             {
@@ -259,5 +279,11 @@ public sealed class BoneFlagProbe : IProbe
             string.Create(
                 CultureInfo.InvariantCulture,
                 $"SIMULATED {posed.JigglingBones} jiggle bones across {instances.Count} instances"));
+
+        output.WriteLine(
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"IK {chained} of {models} models declare chains, {links} chains total   " +
+                $"{(ikExamples.Count == 0 ? "none" : string.Join(", ", ikExamples))}"));
     }
 }

@@ -19013,3 +19013,60 @@ matching the census exactly. `cp_fulgur`: **0 layers reached 0 skeletons**, whic
 than broken: an autolayer applies only while its parent sequence is the one playing, and no entity
 at that tick is playing `throw_draw`, `deploy` or `ref`. The first demo is the positive control for
 the second.
+
+## B296 — IK is absent, every player model declares four chains — OPEN, and the biggest one left
+
+**Measured 2026-09-03**, with the discipline that has now paid three times: ask which content uses a
+mechanism before deciding how much of it to build.
+
+| model | IK chains |
+|---|---|
+| `models/player/scout.mdl` | 4 — `rhand`, `lhand`, `rfoot`, `lfoot`, three links each |
+| `models/player/heavy.mdl` | 4, the same |
+| `models/player/engineer.mdl` | 4, the same |
+| `models/props_gameplay/resupply_locker.mdl` | 0 |
+
+**The locker is the control**, and it is the reason the zeros elsewhere can be believed: a model
+with no limbs reads back no chains through the same call that finds four on a player.
+
+### The first measurement said zero, and it was a denominator fault
+
+The `bone-flags` census reported **0 of 62 models** on `koth_harvest_final` and **0 of 28** on
+`cp_fulgur`. That census walks a demo's networked PROPS — weapons, cosmetics, buildings — and a
+player's body is not among them. Feet are exactly where IK lives, so the one category that matters
+was the one category not counted.
+
+**Recorded because the wrong answer is the instructive part.** It is the same shape as B290's weapon
+scan and B182's flag count: a number with a denominator that silently excludes its own subject. The
+rule that caught it is the standing one — before believing an absence, ask the instrument for
+something that MUST be there.
+
+### What is actually missing, now that the data is not
+
+**The chains are loaded.** `StudioIkChains.Read` has existed since the reader was written, and the
+`BoneSetupConformanceTests` entry claiming *"the .mdl parser does not read ikchainindex, so the data
+is not even loaded"* was false — corrected in the same commit. That is the fourth stale conformance
+claim found in two days.
+
+What is absent is the SOLVER and the per-animation rule tracks:
+
+- `CIKContext::Init`, `AddDependencies`, `UpdateTargets`, `CalculateIKLocks`, `SolveDependencies`;
+- `AddAutoplayLocks` / `SolveAutoplayLocks` around `CalcAutoplaySequences`;
+- `AddSequenceLocks` / `SolveSequenceLocks` around `AccumulatePose`, gated on `seqdesc.numiklocks`;
+- `mstudioikrule_t` and the compressed `mstudioikerror_t` tracks inside each animation;
+- the two-bone solver itself, `Studio_SolveIK`.
+
+### What is visible while it is missing
+
+Hands not held to a weapon's grip, and feet not planted — the classic symptom being a player's feet
+sliding along the ground rather than staying put as the body moves over them. Every player on screen
+is affected, which makes this the largest remaining parity gap in the pose pipeline now that the
+layer passes, the procedural bones and the bone controllers are done.
+
+### Not established
+
+Whether TF2's own animations carry ik RULES, as distinct from the model declaring chains. A chain is
+the skeleton's declaration that a limb CAN be solved; a rule in an animation is what asks for it at a
+given cycle. The counts above establish the first and say nothing about the second, and the second
+is what decides how much of the solver ever runs. That is the next measurement, not the next
+implementation.
