@@ -18576,3 +18576,114 @@ pair was already in the scan by the plain route.
 Scanning it anyway would have made things worse, not better: it would add a key
 `C_TFWeaponBuilder` that no demo can produce, and the prefix rules would derive nothing sensible
 from the underscore — a red test reporting a weapon that does not exist on the wire.
+
+## B291 — a model that animates itself did not: `CalcAutoplaySequences` was absent — FIXED
+
+**`STUDIO_AUTOPLAY` is how a model animates part of itself with nothing driving it** — a flag in the
+wind, a chain, an idle machine. `CalcAutoplaySequences` (`bone_setup.cpp:4457`) accumulates every
+sequence carrying it on top of whatever the entity is already doing:
+
+```cpp
+int count = m_pStudioHdr->GetAutoplayList( &pList );
+for (i = 0; i < count; i++)
+{
+    int sequenceIndex = pList[i];
+    if (seqdesc.flags & STUDIO_AUTOPLAY)
+    {
+        float cps = Studio_CPS( m_pStudioHdr, seqdesc, sequenceIndex, m_flPoseParameter );
+        cycle = flRealTime * cps;
+        cycle = cycle - (int)cycle;
+        AccumulatePose( pos, q, sequenceIndex, cycle, 1.0, flRealTime, pIKContext );
+    }
+}
+```
+
+**For such a model this is not decoration, it is the only thing that moves.** The entity's own
+sequence is the idle it is already holding, so a viewer without this draws a still flag on a pole.
+Nothing reports it: the pose is a correct pose of a correct sequence, frame after frame.
+
+### There was nothing to parse, which is why it stayed absent so long
+
+The autoplay list looks like a table and is not one. `studiohdr_t::CountAutoplaySequences` and
+`CopyAutoplaySequences` (`studio.cpp:658`, `:672`) build Valve's list by walking every sequence and
+testing the flag; `virtualmodel_t::UpdateAutoplaySequences` (`studio_virtualmodel.cpp:220`) just
+calls those two. **The flag is the whole of the data.** Sequence flags were already read, at
+`mstudioseqdesc_t::flags` — the same field `Loops`, `Snaps` and `IsPost` come from — so the gap was
+entirely a missing loop.
+
+**Merged index space, and the trap is the one this project has hit twice.**
+`CopyAutoplaySequences` indexes through `pSeqdesc(i)`, which routes to the virtual model whenever
+`numincludemodels != 0` (`studio.cpp:263`). A TF2 player model's sequences live in its included
+animation model, so a list built from the root model's own sequences would be nearly empty and would
+look like "this model has no autoplay".
+
+### Three things that make it unlike every other layer here
+
+**The cycle comes from REAL TIME, not from the entity.** It runs on an entity standing still, it
+runs on one that is not client-side animated, and two copies of one model are always in step,
+because both read the same clock rather than their own state. That is the distinguishing case and
+it has its own test.
+
+**The weight is a literal 1.0**, never faded. There is no queue, no lifetime, no auto-kill.
+
+**It runs last of the three accumulating passes** — after `MaintainSequenceTransitions` and
+`AccumulateLayers`, before `CalcBoneAdj` (`c_baseanimating.cpp:1996`). Order matters because each
+accumulates onto the result of the last.
+
+### One thing reproduced rather than tidied
+
+`CalcAutoplaySequences` re-tests `seqdesc.flags & STUDIO_AUTOPLAY` on every index the list hands
+back, though the list's own producer already filtered on exactly that. Kept: the list is cached per
+model while the sequences are not, so the second test is what catches a stale one (D89 — an
+optimisation of Valve's is not ours to skip, and neither is a redundancy).
+
+### Verified
+
+Five tests, two sabotages. Breaking the clock while leaving the code compilable reddened exactly the
+two tests that measure advance-over-time and left the other three green; dropping the flag test from
+the list builder reddened the control that says an unflagged sequence is left alone.
+
+**The first attempt at the clock sabotage did not compile** — deleting the expression stranded two
+parameters and SonarAnalyzer refused the build. That is a fact about the analyzer and not about the
+tests, and a build failure is not a red test: the sabotage was rewritten to keep both parameters
+used before the claim was believed.
+
+### Measured on real demos, and the answer is zero
+
+The `autoplay` probe (new, `tools/Tf2DemoSalvage.Probe`) walks a demo's distinct prop models through
+the production geometry loader and asks the production accessor. **No networked prop model in the
+sampled demos carries the flag:**
+
+| demo | map | models opened | carrying | control: sequences looping |
+|---|---|---|---|---|
+| `z1800` | `koth_harvest_final` | 62 | 0 | 11 of 76 |
+| `tf2-2026-pub-pov-clean` | `cp_fulgur` | 28 | 0 | 36 of 142 |
+| `tf2-2007-build3258-pov` | `cp_granary` | 2 | 0 | 0 of 2 |
+
+**The control is the reason those zeros mean anything.** `STUDIO_LOOPING` and `STUDIO_AUTOPLAY` are
+two bits of the same `flags` word, read through the same merged table, so a looping count that also
+came back zero would say the flags were not being read at all. It fires on the first two rows. **It
+does not fire on the third**, which opened two models and found nothing either way — that row is
+evidence about the probe's sample, not about the demo, and it is left in rather than dropped.
+
+So the mechanism is implemented and matches the engine, and nothing in these three recordings
+exercises it. That is a real answer rather than a null result: it says a TF2 viewer will not visibly
+change because of this, and it says where to look if one ever does.
+
+**It also exposed a limit worth stating.** Only 28 of `cp_fulgur`'s 563 props opened as skinned
+models. The layered pose path — transitions, wire layers, gestures, bone controllers and now
+autoplay — runs only for a model the loader chose to SKIN; a baked model plays its main sequence
+from pre-computed frames and takes no layers at all. That is pre-existing and not introduced here,
+but it bounds every one of those five mechanisms and had not been written down.
+
+### Not established
+
+**Where the autoplay clock should be zeroed.** Valve passes `flRealTime`, which on a client is
+`gpGlobals->curtime` — time since the level loaded. This passes demo playback time, which starts at
+the demo's first tick rather than at the map's load. The two differ by however long the recording
+started after level start, so an autoplay animation is at a different phase here than it was on the
+recorder's screen. Nothing in a demo carries the server's level-load time, so this may not be
+recoverable; it is a phase offset on a looping animation rather than a wrong animation.
+
+**IK is still absent**, so `AddAutoplayLocks` and `SolveAutoplayLocks` around the loop are not
+reproduced. A model whose autoplay sequence is IK-driven will move its bones without the lock.

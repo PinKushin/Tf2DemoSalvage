@@ -47,16 +47,34 @@ internal static class SyntheticSkinnedModel
     /// name and the last-resort fallback asks by label, so a fixture that set only one of them
     /// would cover one path and silently skip the other.
     /// </remarks>
-    public static PropModels.SkinnedModel With(params string[] labels)
+    public static PropModels.SkinnedModel With(params string[] labels) =>
+        WithFlags([.. labels.Select(label => (label, 0))]);
+
+    /// <summary>The same, with each sequence's <c>mstudioseqdesc_t::flags</c> chosen.</summary>
+    /// <param name="labelled">Each sequence's label and its flags.</param>
+    /// <returns>The model.</returns>
+    /// <remarks>
+    /// **Flags rather than bytes, because this is where production reads them.**
+    /// <see cref="AnimatedStudioBytes"/> writes a real <c>.mdl</c> body and the fade window really
+    /// is read back out of it, but a sequence's flags reach <c>SkinnedModel</c> through the
+    /// <c>StudioSequence</c> records in <c>Groups</c> — which this fixture builds by hand. Writing
+    /// the flag into the bytes instead was tried and set a field nothing here reads: the test
+    /// stayed red with the implementation correct, which is the failure mode that looks like a
+    /// wrong fix.
+    ///
+    /// The byte-level read of <c>flags</c> is a separate claim, and belongs to whatever tests
+    /// <c>StudioSequences.Read</c> against real bytes rather than here.
+    /// </remarks>
+    public static PropModels.SkinnedModel WithFlags(params (string Label, int Flags)[] labelled)
     {
         List<StudioSequence> sequences =
         [
-            .. labels.Select((label, index) => new StudioSequence(
+            .. labelled.Select((sequence, index) => new StudioSequence(
                 Animation: index,
-                Flags: 0,
-                Label: label,
+                Flags: sequence.Flags,
+                Label: sequence.Label,
                 Blend: null,
-                Activity: label,
+                Activity: sequence.Label,
                 ActivityWeight: Weight)),
         ];
 

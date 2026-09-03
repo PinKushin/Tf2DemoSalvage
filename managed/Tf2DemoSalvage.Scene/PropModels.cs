@@ -1386,6 +1386,14 @@ public static class PropModels
         /// </remarks>
         private readonly Dictionary<int, float[]> _boneWeights = [];
 
+        /// <summary>The autoplay sequence list, built once — see <see cref="AutoplaySequences"/>.</summary>
+        /// <remarks>
+        /// **Null means "not yet asked", not "none"**, and the distinction is load-bearing: most
+        /// models genuinely have no autoplay sequence, so a plain empty list would make this
+        /// rebuild the whole scan on every frame for exactly the models where it finds nothing.
+        /// </remarks>
+        private List<int>? _autoplay;
+
         /// <summary>This model's bones mapped onto each group's, read once per group.</summary>
         private readonly Dictionary<int, int[]> _boneMaps = [];
 
@@ -2071,6 +2079,45 @@ public static class PropModels
             where.Group < Models.Count &&
             where.Local < Groups[where.Group].Sequences.Count &&
             Groups[where.Group].Sequences[where.Local].IsPost;
+
+        /// <summary>Every sequence that plays on its own — <c>STUDIO_AUTOPLAY</c>.</summary>
+        /// <returns>The merged sequence numbers, ascending.</returns>
+        /// <remarks>
+        /// **This IS Valve's autoplay list, built the way Valve builds it.**
+        /// `studiohdr_t::CountAutoplaySequences` and `CopyAutoplaySequences` (<c>studio.cpp:658</c>,
+        /// <c>:672</c>) walk every sequence testing the flag and write the indices out in order;
+        /// nothing is stored on disk, so there is no table to parse and no offset to get wrong.
+        ///
+        /// **Merged numbers, because Valve's are merged.** `CopyAutoplaySequences` indexes through
+        /// `pSeqdesc(i)`, which routes to the virtual model whenever `numincludemodels != 0`
+        /// (<c>studio.cpp:263</c>) — so on a TF2 player model the list spans the included animation
+        /// model, and a list built from the root model's own sequences would be nearly empty. The
+        /// same index-space trap that made a sequence label read correctly for the wrong reason.
+        ///
+        /// **Cached, because it is a property of the model and is asked once a frame per prop.**
+        /// The engine caches it too, per `studiohdr_t` in a global table
+        /// (<c>studio_generic_io.cpp:119</c>).
+        /// </remarks>
+        public IReadOnlyList<int> AutoplaySequences() => _autoplay ??= FindAutoplaySequences();
+
+        /// <summary>The autoplay list, computed once.</summary>
+        private List<int> FindAutoplaySequences()
+        {
+            List<int> found = [];
+
+            for (int sequence = 0; sequence < Sequences.Count; sequence++)
+            {
+                if (Sequences.At(sequence) is { } where &&
+                    where.Group < Groups.Count &&
+                    where.Local < Groups[where.Group].Sequences.Count &&
+                    Groups[where.Group].Sequences[where.Local].AutoPlays)
+                {
+                    found.Add(sequence);
+                }
+            }
+
+            return found;
+        }
 
 
         /// <summary>How many frames the animation behind a sequence has.</summary>

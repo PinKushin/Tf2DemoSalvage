@@ -92,6 +92,20 @@ public readonly record struct StudioSequence(
     /// </remarks>
     public bool Snaps => (Flags & SnapSequence) != 0;
 
+    /// <summary>Whether this sequence plays on its own, off the clock — <c>STUDIO_AUTOPLAY</c>.</summary>
+    /// <remarks>
+    /// **The membership test IS the autoplay list.** `studiohdr_t::CountAutoplaySequences` and
+    /// `CopyAutoplaySequences` (<c>studio.cpp:658</c>, <c>:672</c>) build the list by walking every
+    /// sequence and testing this bit, so nothing is stored on disk to read — which is why adding
+    /// the mechanism needed no new parsing.
+    ///
+    /// **`CalcAutoplaySequences` tests it a second time** on every index the list hands back
+    /// (<c>bone_setup.cpp:4478</c>), though its own producer already filtered on it. Reproduced
+    /// rather than optimised away: the redundancy is Valve's, and the list is cached per model
+    /// while the sequences are not, so the second test is what catches a stale one.
+    /// </remarks>
+    public bool AutoPlays => (Flags & AutoplaySequence) != 0;
+
     /// <summary><c>STUDIO_LOOPING</c> from <c>studio.h</c>.</summary>
     private const int Looping = StudioFlags.SequenceLooping;
 
@@ -105,6 +119,9 @@ public readonly record struct StudioSequence(
 
     /// <summary><c>STUDIO_SNAP</c>, which refuses the cross-fade into this sequence.</summary>
     private const int SnapSequence = StudioFlags.SequenceSnap;
+
+    /// <summary><c>STUDIO_AUTOPLAY</c>, which plays whatever the entity is doing.</summary>
+    private const int AutoplaySequence = StudioFlags.SequenceAutoplay;
 }
 
 /// <summary>

@@ -621,6 +621,12 @@ public sealed class EntityModelSet
 
             composed.AddRange(LayersFor(prop, skinned, seconds));
 
+            // **`CalcAutoplaySequences` LAST of the three, which is where the engine runs it**
+            // (`c_baseanimating.cpp:1996`, after `AccumulateLayers` and before `CalcBoneAdj`) —
+            // B291. Order matters because each accumulates onto the result of the last: a flag
+            // that autoplays goes over whatever the body settled on, not underneath it.
+            composed.AddRange(AutoplayFor(skinned, seconds));
+
             posed.Layers = composed;
 
 
@@ -1036,6 +1042,78 @@ public sealed class EntityModelSet
                 // **Every TF2 player gesture is a DELTA**, measured: `PRIMARY_reload_start` and
                 // `jumpland_primary` both carry the bit. `SlerpBones` composes those additively
                 // rather than blending toward them (B284).
+                Delta: skinned.IsDelta(sequence),
+                Post: skinned.IsPost(sequence)));
+        }
+
+        return layers;
+    }
+
+    /// <summary>The sequences a model plays on its own, off the clock.</summary>
+    /// <param name="skinned">The model.</param>
+    /// <param name="seconds">Demo time now, which is Valve's <c>flRealTime</c>.</param>
+    /// <returns>A layer per autoplay sequence, at full weight.</returns>
+    /// <remarks>
+    /// **`CalcAutoplaySequences`, <c>bone_setup.cpp:4457</c>**, whose whole body is:
+    ///
+    /// <code>
+    ///   int count = m_pStudioHdr->GetAutoplayList( &amp;pList );
+    ///   for (i = 0; i &lt; count; i++)
+    ///   {
+    ///       int sequenceIndex = pList[i];
+    ///       if (seqdesc.flags &amp; STUDIO_AUTOPLAY)
+    ///       {
+    ///           float cps = Studio_CPS( m_pStudioHdr, seqdesc, sequenceIndex, m_flPoseParameter );
+    ///           cycle = flRealTime * cps;
+    ///           cycle = cycle - (int)cycle;
+    ///           AccumulatePose( pos, q, sequenceIndex, cycle, 1.0, flRealTime, pIKContext );
+    ///       }
+    ///   }
+    /// </code>
+    ///
+    /// **This is how a model animates part of itself with nothing driving it** — a flag in the
+    /// wind, a chain, an idle machine. For such a model it is not decoration: the entity's own
+    /// sequence is the idle it is already holding, so autoplay is the only thing that moves.
+    ///
+    /// **The cycle comes from REAL TIME rather than from the entity**, which is what separates this
+    /// from every other layer here. It runs on an entity standing still, it runs on an entity that
+    /// is not client-side animated, and two copies of one model are always in step because both
+    /// read the same clock rather than their own state.
+    ///
+    /// **The wrap is `cycle - (int)cycle`, C's truncation toward zero**, which for a demo's
+    /// non-negative time is the same as a floor. Written through
+    /// <see cref="StudioSequences.ClampCycle(float, bool)"/>'s looping arm, which is that
+    /// expression with the negative guard Valve applies to a looping cycle.
+    ///
+    /// **Weight is a literal 1.0 and never fades.** There is no queue, no lifetime and no
+    /// auto-kill: an autoplay sequence is on for as long as the model is drawn.
+    /// </remarks>
+    private static List<PoseLayer> AutoplayFor(PropModels.SkinnedModel skinned, double seconds)
+    {
+        List<PoseLayer> layers = [];
+
+        foreach (int sequence in skinned.AutoplaySequences())
+        {
+            float rate = skinned.CyclesPerSecond(sequence);
+
+            // `if (weight[i] > 0 && panim[i]->numframes > 1)` — Studio_CPS sums nothing for a
+            // one-frame animation and returns zero, and `cycle = flRealTime * 0` is zero. That is
+            // the sequence's single frame, held, which is what a one-frame autoplay means.
+            float cycle = rate > 0f
+                ? StudioSequences.ClampCycle((float)(seconds * rate), loops: true)
+                : 0f;
+
+            (int frame, float fraction) = StudioSequences.FrameAt(
+                cycle, skinned.Frames(sequence), skinned.Loops(sequence));
+
+            layers.Add(new PoseLayer(
+                sequence,
+                frame,
+                fraction,
+
+                // `AccumulatePose( pos, q, sequenceIndex, cycle, 1.0, … )` — the literal.
+                1f,
+                skinned.BoneWeights(sequence),
                 Delta: skinned.IsDelta(sequence),
                 Post: skinned.IsPost(sequence)));
         }

@@ -105,11 +105,16 @@ public sealed class BoneSetupConformanceTests
     [
         new BoneStage(
             "GetPoseParameters",
-            StageState.Partial,
-            "Fills the pose parameter array before the blend. We compute move_x, move_y, " +
-            "body_pitch and body_yaw by NAME and normalise them (EntityModels.PoseValues), which " +
-            "is Valve's mechanism; what is missing is reading the networked m_flPoseParameter " +
-            "array, so any parameter the server set that we do not compute stays at zero."),
+            StageState.Implemented,
+            "Fills the pose parameter array before the blend, on BOTH of the engine's two paths, " +
+            "which is what this entry used to say was half missing. An entity that networks the " +
+            "array wins outright — server/baseanimating.cpp:243 sends it whole and " +
+            "c_baseanimating.cpp:1401 hands it straight to the blend, so a sentry's aim comes off " +
+            "the wire (EntityModels.PoseValues, the pose.PoseParameters branch). A player cannot " +
+            "take that path because tf_player.cpp:769 EXCLUDES the array for them, so move_x, " +
+            "move_y, body_pitch and body_yaw are derived as CBasePlayerAnimState derives them, " +
+            "matched by NAME rather than by index. The two are Valve's own split and an entity is " +
+            "only ever on one side of it."),
 
         new BoneStage(
             "boneSetup",
@@ -166,9 +171,13 @@ public sealed class BoneSetupConformanceTests
 
         new BoneStage(
             "CalcAutoplaySequences",
-            StageState.Absent,
+            StageState.Implemented,
             "Applies every sequence flagged STUDIO_AUTOPLAY, which is how a model animates parts " +
-            "of itself with nothing driving it — flags, chains, idle machinery."),
+            "of itself with nothing driving it — flags, chains, idle machinery (B291). " +
+            "EntityModels.AutoplayFor is the loop: the list is COMPUTED by walking the merged " +
+            "sequences for the flag, as studio.cpp:658 builds Valve's, the cycle is " +
+            "flRealTime * Studio_CPS wrapped, and the weight is a literal one. It runs last of " +
+            "the three accumulating passes, which is where c_baseanimating.cpp:1996 runs it."),
 
         new BoneStage(
             "GetBoneControllers",

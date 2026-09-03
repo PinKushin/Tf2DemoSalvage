@@ -69,6 +69,25 @@ internal static class StudioFlags
     /// </remarks>
     public const int SequenceSnap = 0x0002;
 
+    /// <summary><c>STUDIO_AUTOPLAY</c>, <c>studio.h:3081</c> — always plays, driven by the clock.</summary>
+    /// <remarks>
+    /// **The mechanism by which a model animates part of itself with nothing driving it** — a flag
+    /// in the wind, a chain, an idle machine. `CalcAutoplaySequences` (<c>bone_setup.cpp:4457</c>)
+    /// accumulates every sequence carrying this on top of whatever the entity is already doing, at
+    /// weight one, after the layers and before the bone controllers.
+    ///
+    /// **The autoplay list is COMPUTED, not stored.** `studiohdr_t::CountAutoplaySequences` and
+    /// `CopyAutoplaySequences` (<c>studio.cpp:658</c>, <c>:672</c>) walk every sequence testing this
+    /// bit, so there is no table to parse — the flag is the whole of the data.
+    ///
+    /// **Its cycle comes from REAL TIME rather than from the entity's** —
+    /// <c>cycle = flRealTime * cps; cycle = cycle - (int)cycle;</c> — which is why it keeps running
+    /// on an entity that is standing still, and why two copies of one model are always in step.
+    ///
+    /// Valve's own comment calls it "temporary", and it has outlived every engine that shipped it.
+    /// </remarks>
+    public const int SequenceAutoplay = 0x0008;
+
     /// <summary><c>STUDIO_TYPES</c>, <c>studio.h:3074</c> — the mask over a controller's type.</summary>
     /// <remarks>
     /// **<c>CalcBoneAdj</c> masks before it switches** (<c>bone_setup.cpp:2487</c>). The field
