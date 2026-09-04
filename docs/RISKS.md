@@ -20430,22 +20430,53 @@ from `studio.h` rather than trusting the arithmetic.
 it, so only the animated-Euler path aligns. Applying it to the raw paths would be a divergence in
 the opposite direction.
 
-**Measured: no TF2 content exercises any of this.** `bone-flags` on `tf2-2026-pub-pov-clean` at tick
-14051 reports `BONE_FIXED_ALIGNMENT 0 of 924` across 37 skinned models, while six other flags on the
-same 924 bones come back nonzero — so the instrument works and the zero is real. *Measured, one demo,
-one tick.*
+**Measured: no TF2 model in one scene SETS the flag.** `bone-flags` on `tf2-2026-pub-pov-clean` at
+tick 14051 reports `BONE_FIXED_ALIGNMENT 0 of 924` across 37 skinned models, while six other flags on
+the same 924 bones come back nonzero — so the instrument works and the zero is real. *Measured, one
+demo, one tick.*
 
-**And the tests SKIP rather than pass, which is the honest state.** The wiring tests flag a bone of a
-real model and predict an exact negation; no animation tried on `heavy.mdl` decodes a rotation
-through the animated-Euler path at all — every bone is a raw quaternion, which the engine does not
-align either. So the assertions are written and armed and currently have no input. That is a real
-gap, distinct from untested arithmetic: **the code is the engine's own line with its offset confirmed
-against the SDK, and it has never run on content.**
+**That is a fact about the FLAG, and it does not make the code untestable** — which is the trap this
+entry fell into once already, below. The other input the branch needs is an animated-Euler rotation
+track, and those exist; flagging a bone of a model that has one is a legitimate manipulation, since
+the flag is exactly the variable under test. **A zero denominator on one input is not a zero on the
+experiment.**
 
-**The first version of that test failed for a wrong CONDITION and the sweep is the fix.** It picked
-one bone for being turned away from its rest pose — which does not imply the animated-Euler branch,
-and that bone was a raw quaternion. Sweeping every posed bone and counting how many respond is what
-turned "this is broken" into "this branch is unreachable here".
+#### The tests run on real content — after three wrong ways of choosing the input
+
+**This was first recorded as an unclosable gap and that was wrong.** The entry said the wiring tests
+skip because *"no animation tried on `heavy.mdl` decodes a rotation through the animated-Euler path
+at all"*. True of `heavy.mdl`, and not true of TF2: widening to six models across four shapes of
+content — players, a viewmodel, a weapon, a prop — finds a track and **all three tests now run and
+pass**.
+
+**Three ways of picking the subject, and only the last is right.**
+
+1. *A bone turned away from its rest pose.* Being animated does not imply the animated-EULER
+   encoding, and the bone picked was a raw quaternion. The test failed and the code was correct.
+2. *Every posed bone of one animation, counted.* Honest — it reported zero reached the branch rather
+   than passing — but it answered "unreachable in animation 40 of `heavy.mdl`", which nobody asked.
+3. **Select by the flag the engine itself branches on.** `CalcBoneQuaternion` returns early for
+   `STUDIO_ANIM_RAWROT` and `RAWROT2`, so only `STUDIO_ANIM_ANIMROT` reaches the alignment — and
+   `StudioAnimation.Tracks` already reported each track's flags. **The instrument existed.**
+
+**The encoding IS the branch**, so choosing the input by it is not convenience; it is the only way to
+test that branch at all. Two hand-picked animation numbers preceded it and both were wrong.
+
+#### A fourth test, because the gate was untested and no sabotage could see it
+
+**Deleting the flag gate from the decode — aligning every non-delta animated rotation — reddened
+NOTHING.** Both wiring tests OR `BONE_FIXED_ALIGNMENT` onto their own subject bone, so the gate is
+already true for everything they exercise, and each states its expectation relative to a "before"
+reading that runs through the same code. Algebraically self-cancelling.
+
+**The distinguishing input is a bone that is NOT flagged**, handed an alignment antipodal to what it
+decodes to. The engine leaves it alone, because `qAlignment` means nothing without the flag; a decode
+missing the gate flips it. `Pose_WithAnAlignmentButNoFlag_IgnoresTheAlignmentEntirely` reddens on
+exactly that sabotage and on nothing else.
+
+**Found by asking the sabotage which tests reddened, not whether the right one did.** Two of the
+three manipulations were sensitive and the report of the third was *"CANNOT FAIL"* — a result that a
+run summary of `Failed: 0` presents as success.
 
 #### Three stale claims corrected in the same pass
 

@@ -907,7 +907,7 @@ run Tf2DemoSalvage.Presentation.Tests presentation 440
 # map that states none inheriting sv_skyname's default rather than having no sky, another entity
 # carrying the key being ignored - without which a reader answering the FIRST skyname passes both -
 # and the face order, which is vbsp's CUBE order and not the precache order that swaps bk and lf.
-run Tf2DemoSalvage.Content.Tests  content   924
+run Tf2DemoSalvage.Content.Tests  content   925
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2

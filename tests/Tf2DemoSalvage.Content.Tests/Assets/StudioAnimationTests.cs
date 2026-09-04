@@ -194,54 +194,22 @@ public sealed class StudioAnimationTests
     [Test]
     public void Pose_WithAFixedAlignmentBone_AlignsTheRotationToTheBonesOwnOrientation()
     {
-        if (Read("models/player/heavy.mdl") is not { } files)
+        if (AnimatedRotationTrack() is not var (model, bones, animation, subject))
         {
-            Assert.Ignore("the game is not installed");
+            Assert.Ignore(NoTrack);
             return;
         }
 
-        IReadOnlyList<StudioBone> bones = StudioBones.Read(files.Model);
-        int aligned = 0;
-        int untouched = 0;
+        (float X, float Y, float Z, float W) before = RotationOf(model, bones, animation, subject);
 
-        foreach (int subject in Posed(files.Model, bones))
-        {
-            (float X, float Y, float Z, float W) before = RotationOf(files.Model, bones, subject);
+        // Antipodal to what the bone decodes to, so `QuaternionAlign` must flip it.
+        (float X, float Y, float Z, float W) after = RotationOf(
+            model, Flagged(bones, subject, Negated(before)), animation, subject);
 
-            // Antipodal to what the bone decodes to, so `QuaternionAlign` must flip it — on the
-            // branch that reaches `QuaternionAlign` at all.
-            (float X, float Y, float Z, float W) after =
-                RotationOf(files.Model, Flagged(bones, subject, Negated(before)), subject);
-
-            if (Matches(after, before))
-            {
-                untouched++;
-                continue;
-            }
-
-            aligned++;
-
-            after.X.ShouldBe(-before.X, RotationTolerance, $"bone {subject} flipped exactly");
-            after.Y.ShouldBe(-before.Y, RotationTolerance);
-            after.Z.ShouldBe(-before.Z, RotationTolerance);
-            after.W.ShouldBe(-before.W, RotationTolerance);
-        }
-
-        // **Skipped rather than failed when nothing reaches the branch, and this is not a dodge.**
-        // Measured: no animation tried on `heavy.mdl` decodes a rotation through the animated-Euler
-        // path — every bone takes `STUDIO_ANIM_RAWROT`, which returns before `QuaternionAlign` in
-        // the engine too. So a red here would report our code broken when what is missing is an
-        // input, and the assertions above still run exactly when content provides one.
-        //
-        // **The gap is real and recorded** (B308): the decode-side alignment is the engine's own
-        // line with its offset confirmed against `studio.h`, and it is UNEXERCISED by any TF2
-        // content measured. That is worth knowing and is not the same as untested arithmetic.
-        if (aligned == 0)
-        {
-            Assert.Ignore(
-                $"no bone of animation {AlignmentAnimation} takes the animated-Euler branch; " +
-                $"all {untouched} are raw quaternions, which the engine does not align either");
-        }
+        after.X.ShouldBe(-before.X, RotationTolerance, "aligned to the opposite hemisphere");
+        after.Y.ShouldBe(-before.Y, RotationTolerance);
+        after.Z.ShouldBe(-before.Z, RotationTolerance);
+        after.W.ShouldBe(-before.W, RotationTolerance);
     }
 
     /// <remarks>
@@ -253,43 +221,60 @@ public sealed class StudioAnimationTests
     [Test]
     public void Pose_WithAnAlignmentTheRotationAlreadyMatches_LeavesItAlone()
     {
-        if (Read("models/player/heavy.mdl") is not { } files)
+        // The same track the test above uses, so "unchanged" here means the alignment DECLINED to
+        // flip rather than that the branch was never entered.
+        if (AnimatedRotationTrack() is not var (model, bones, animation, subject))
         {
-            Assert.Ignore("the game is not installed");
+            Assert.Ignore(NoTrack);
             return;
         }
 
-        IReadOnlyList<StudioBone> bones = StudioBones.Read(files.Model);
-
-        // A bone the sweep above proved reaches the alignment, so "unchanged" here means the
-        // alignment DECLINED to flip rather than that the branch was never entered.
-        int subject = -1;
-
-        foreach (int candidate in Posed(files.Model, bones))
-        {
-            (float X, float Y, float Z, float W) was = RotationOf(files.Model, bones, candidate);
-
-            if (!Matches(
-                    RotationOf(files.Model, Flagged(bones, candidate, Negated(was)), candidate),
-                    was))
-            {
-                subject = candidate;
-                break;
-            }
-        }
-
-        if (subject < 0)
-        {
-            Assert.Ignore("no bone takes the animated-Euler branch; see the sweep above (B308)");
-            return;
-        }
-
-        (float X, float Y, float Z, float W) before = RotationOf(files.Model, bones, subject);
+        (float X, float Y, float Z, float W) before = RotationOf(model, bones, animation, subject);
 
         (float X, float Y, float Z, float W) after =
-            RotationOf(files.Model, Flagged(bones, subject, before), subject);
+            RotationOf(model, Flagged(bones, subject, before), animation, subject);
 
         after.X.ShouldBe(before.X, RotationTolerance, "already on the same hemisphere");
+        after.Y.ShouldBe(before.Y, RotationTolerance);
+        after.Z.ShouldBe(before.Z, RotationTolerance);
+        after.W.ShouldBe(before.W, RotationTolerance);
+    }
+
+    /// <remarks>
+    /// **The gate itself, and nothing tested it until a sabotage said so.** Dropping
+    /// <c>(rest.Flags &amp; BONE_FIXED_ALIGNMENT) != 0</c> from the decode — aligning every non-delta
+    /// animated rotation — reddened NOTHING: both tests above OR the flag onto their own subject, so
+    /// the gate is already true for every case they exercise, and each defines its expectation
+    /// relative to a "before" reading that passes through the same code. Algebraically
+    /// self-cancelling, and invisible.
+    ///
+    /// **The distinguishing input is a bone that is NOT flagged.** Give it an alignment antipodal
+    /// to what it decodes to and the two readings diverge: the engine leaves it alone, because
+    /// `qAlignment` means nothing without the flag, while a decode missing the gate flips it.
+    /// </remarks>
+    [Test]
+    public void Pose_WithAnAlignmentButNoFlag_IgnoresTheAlignmentEntirely()
+    {
+        if (AnimatedRotationTrack() is not var (model, bones, animation, subject))
+        {
+            Assert.Ignore(NoTrack);
+            return;
+        }
+
+        (float X, float Y, float Z, float W) before = RotationOf(model, bones, animation, subject);
+
+        // The alignment a flagged bone would be flipped by — with the flag deliberately absent.
+        StudioBone[] unflagged = [.. bones];
+
+        unflagged[subject] = bones[subject] with { Alignment = Negated(before) };
+
+        unflagged[subject].Flags
+            .ShouldBe(bones[subject].Flags, "the manipulation is the alignment, not the flag");
+
+        (float X, float Y, float Z, float W) after =
+            RotationOf(model, unflagged, animation, subject);
+
+        after.X.ShouldBe(before.X, RotationTolerance, "qAlignment means nothing without the flag");
         after.Y.ShouldBe(before.Y, RotationTolerance);
         after.Z.ShouldBe(before.Z, RotationTolerance);
         after.W.ShouldBe(before.W, RotationTolerance);
@@ -313,47 +298,88 @@ public sealed class StudioAnimationTests
     private static (float X, float Y, float Z, float W) Negated(
         (float X, float Y, float Z, float W) q) => (-q.X, -q.Y, -q.Z, -q.W);
 
-    private static bool Matches(
-        (float X, float Y, float Z, float W) a, (float X, float Y, float Z, float W) b) =>
-        MathF.Abs(a.X - b.X) < 1e-6f && MathF.Abs(a.Y - b.Y) < 1e-6f &&
-        MathF.Abs(a.Z - b.Z) < 1e-6f && MathF.Abs(a.W - b.W) < 1e-6f;
-
-    /// <summary>Every bone the animation's own pose mentions, at <see cref="AlignmentFrame"/>.</summary>
-    private static List<int> Posed(
-        ReadOnlyMemory<byte> model, IReadOnlyList<StudioBone> bones)
-    {
-        List<int> posed = [];
-
-        foreach (StudioBonePose entry in
-            StudioAnimation.Pose(model, bones, AlignmentAnimation, AlignmentFrame))
-        {
-            posed.Add(entry.Bone);
-        }
-
-        return posed;
-    }
-
     /// <summary>How close two quaternion components must be to count as equal.</summary>
     private const double RotationTolerance = 1e-6;
 
     /// <summary>The frame the alignment tests read, chosen only for being past the first.</summary>
     private const int AlignmentFrame = 3;
 
-    /// <summary>The animation the alignment tests read.</summary>
+    /// <summary>Why the alignment tests skip when they do.</summary>
     /// <remarks>
-    /// **Animation 0 was tried first and reaches nothing**: every bone of it decodes through
-    /// `STUDIO_ANIM_RAWROT`, which returns before `QuaternionAlign` in the engine too, so the sweep
-    /// found zero aligned bones and said so rather than passing. A later animation is used because
-    /// a model mixes the two encodings — which is itself the reason the sweep counts.
+    /// **Skipping is the honest state and it is not a dodge.** The assertions below are exact and
+    /// armed; what is missing is an INPUT, and a red would report our code broken for the absence of
+    /// content. Recorded as a real gap in B308 — the decode-side alignment is the engine's own line
+    /// with its offset confirmed against `studio.h`, and it has never run.
     /// </remarks>
-    private const int AlignmentAnimation = 40;
+    private const string NoTrack =
+        "no track in any candidate model carries STUDIO_ANIM_ANIMROT without a raw rotation " +
+        "beside it, so nothing reaches QuaternionAlign — see B308";
+
+    /// <summary>An animation and bone whose rotation decodes through the animated-Euler branch.</summary>
+    /// <remarks>
+    /// **Selected by the flag the engine itself branches on**, not by a number picked by hand.
+    /// `CalcBoneQuaternion` returns before the alignment for `STUDIO_ANIM_RAWROT` and `RAWROT2`, so
+    /// only a track carrying `STUDIO_ANIM_ANIMROT` can reach it — and `StudioAnimation.Tracks`
+    /// already reports each track's flags.
+    ///
+    /// **Two magic numbers preceded this and both were wrong.** Animation 0 was tried first, then
+    /// 40; every bone of each is a raw quaternion, so the sweep found zero aligned bones and
+    /// correctly refused to pass. Choosing the input by its encoding is what a test of this branch
+    /// has to do, because the encoding is the branch.
+    /// </remarks>
+    private static (ReadOnlyMemory<byte> Model, IReadOnlyList<StudioBone> Bones, int Animation, int Bone)?
+        AnimatedRotationTrack()
+    {
+        foreach (string name in Candidates)
+        {
+            if (Read(name) is not { } files)
+            {
+                continue;
+            }
+
+            IReadOnlyList<StudioBone> bones = StudioBones.Read(files.Model);
+
+            for (int animation = 0; animation < StudioAnimation.Count(files.Model); animation++)
+            {
+                foreach ((int bone, int flags, _) in
+                    StudioAnimation.Tracks(files.Model, bones, animation, AlignmentFrame))
+                {
+                    if ((flags & StudioFlags.AnimationAnimatedRotation) != 0 &&
+                        (flags & StudioFlags.AnimationRawRotation) == 0 &&
+                        (flags & StudioFlags.AnimationRawRotation64) == 0)
+                    {
+                        return (files.Model, bones, animation, bone);
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Models searched for an animated-Euler rotation track.</summary>
+    /// <remarks>
+    /// **A spread rather than one model, because the encoding is a compile-time choice.**
+    /// `studiomdl` picks per track, so whether any exists is a fact about how Valve compiled its
+    /// content and cannot be settled from a single `.mdl`. Players, a viewmodel, a weapon and a
+    /// prop, so a zero here is a zero across four shapes of content rather than one.
+    /// </remarks>
+    private static readonly string[] Candidates =
+    [
+        "models/player/heavy.mdl",
+        "models/player/scout.mdl",
+        "models/player/spy.mdl",
+        "models/weapons/v_models/v_rocketlauncher_soldier.mdl",
+        "models/weapons/w_models/w_rocketlauncher.mdl",
+        "models/props_gameplay/resupply_locker.mdl",
+    ];
 
     /// <summary>One bone's decoded rotation at <see cref="AlignmentFrame"/>.</summary>
     private static (float X, float Y, float Z, float W) RotationOf(
-        ReadOnlyMemory<byte> model, IReadOnlyList<StudioBone> bones, int bone)
+        ReadOnlyMemory<byte> model, IReadOnlyList<StudioBone> bones, int animation, int bone)
     {
         foreach (StudioBonePose posed in
-            StudioAnimation.Pose(model, bones, AlignmentAnimation, AlignmentFrame))
+            StudioAnimation.Pose(model, bones, animation, AlignmentFrame))
         {
             if (posed.Bone == bone)
             {
