@@ -124,6 +124,17 @@ internal static class SyntheticPlayer
             [
                 Int("m_nWaterLevel", bits: 2),
                 Int("m_iTeamNum", bits: 3),
+
+                // **The three per-BONE scales** (B312), on `DT_TFPlayer` exactly as
+                // `c_tf_player.cpp:539` declares them — not on an exclusive table, so they arrive
+                // for every player rather than only the recorder.
+                //
+                // **Declared here so a demo can carry a value other than 1**, which the corpus
+                // cannot: every recording in it is ordinary play and reports all three at 1, so
+                // the only way to observe the behaviour end to end is to author the specimen.
+                Float("m_flHeadScale", low: 0f, high: 8f, bits: 16),
+                Float("m_flTorsoScale", low: 0f, high: 8f, bits: 16),
+                Float("m_flHandScale", low: 0f, high: 8f, bits: 16),
                 Table("baseplayer", "DT_BasePlayer"),
                 Table(
                     "exclusivedata",

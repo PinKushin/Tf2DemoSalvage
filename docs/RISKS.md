@@ -20817,6 +20817,29 @@ mistake B277 corrected for `m_flModelScale`.
 
 **Nothing on screen changes, and that is the expected result.** Every value in the corpus is 1.
 
+#### The specimen was AUTHORED, because the corpus can never provide one
+
+**A field that defaults to 1 and multiplies a scale is invisible at its default**, so no recording of
+ordinary play can tell a working implementation from a missing one — and every recording here is
+ordinary play. Waiting for a Halloween or MvM demo would leave this permanently unobserved.
+
+`SyntheticBoneScaleTests` writes a demo carrying `m_flHeadScale` at 2, `m_flTorsoScale` at 0.5 and
+`m_flHandScale` at 1.5, and reads them back off the `ScenePlayer` — through the real container, the
+real schema, the real entity decode and the real timeline. **Three DIFFERENT values, none of them
+1**, because equal ones would let a carry into the wrong field pass and 1 is what every hop defaults
+to when a value is lost. A sabotage swapping head and torso reddens it; so does the wrong table, and
+so does hardcoding the field.
+
+**The control is sensitive to its own claim too, which took a fourth sabotage to establish.** It
+asserts that a demo sending nothing leaves all three at 1 — the engine's own default
+(`c_tf_player.cpp:577`), not a fallback for missing data — and it stayed green through the three
+above because its input makes them all null either way. Changing the coalesce to `?? 0f` reddens it
+alone.
+
+**What this still does not cover, said plainly:** it observes the value reaching the scene, not a
+head drawn twice the size. The arithmetic is pinned by `PlayerBoneScaleConformanceTests` and the
+renderer hop by `PlayerBoneScaleWiringTests`; a picture needs a person looking at one.
+
 ### The original filing, kept: on the wire and read by nothing
 
 **TF2 networks a per-BONE scale for every player and this project ignores it.** Both are
