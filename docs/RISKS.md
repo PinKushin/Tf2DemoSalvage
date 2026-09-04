@@ -22394,7 +22394,7 @@ handled (`StudioTriangles`).
 where they should fade. Small, and precisely located — which is worth more than the number this
 entry started with.
 
-### B330 PART DONE 2026-09-04: `ItemTintColor`, TF2's paint — the value half is built, the proxy is not
+### B330 FIXED 2026-09-04: `ItemTintColor`, TF2's paint — value and proxy both built
 
 **Found by auditing `docs/CONFORMANCE.md`'s proxy section against what the game actually uses.** That
 section names six unimplemented proxies — `Subtract`, `PlayerProximity`, `Clamp`,
@@ -22627,3 +22627,91 @@ had no check at all.
 own suite could have: every one of its assertions is upstream of the buffer. What failed was two
 pixel tests on an unrelated feature, which is the argument for keeping pixel tests that measure a
 whole draw rather than only the value under construction.
+
+### B332 FIXED 2026-09-04: `$basetexturetransform` was parsed by nothing, and 21 of cp_process's materials state one
+
+**`docs/CONFORMANCE.md` filed this as "the transform machinery exists; nothing parses the matrix
+form out of a VMT yet", and both halves were true.** `TextureTransform` and the four constant-buffer
+rows have existed since the `TextureScroll` proxy landed; what was missing was the parse — and, it
+turned out, the resting value.
+
+#### The form is stated by the SDK, and so is the composition
+
+The parameter's own declared default gives the string's shape, which is the SDK answering a question
+about a parser it does not ship:
+
+```cpp
+SHADER_PARAM( BASETEXTURETRANSFORM, SHADER_PARAM_TYPE_MATRIX,
+              "center .5 .5 scale 1 1 rotate 0 translate 0 0", "$baseTexture texcoord transform" )
+```
+
+53 shaders declare it with exactly that string. And `CTextureTransformProxy::OnBind` builds the same
+matrix from separate variables, so it is the authority on what the packed form MEANS:
+
+```cpp
+MatrixBuildTranslation( mat,  -center.x, -center.y, 0.0f );
+MatrixBuildScale      ( temp,  scale.x,   scale.y,  1.0f );  MatrixMultiply( temp, mat, mat );
+MatrixBuildRotateZ    ( temp,  angle );                      MatrixMultiply( temp, mat, mat );
+MatrixBuildTranslation( temp,  center.x,  center.y, 0.0f );  MatrixMultiply( temp, mat, mat );
+MatrixBuildTranslation( temp,  translation… );               MatrixMultiply( temp, mat, mat );
+```
+
+`matrixproxy.cpp:75-113`. Read-from-source. `MatrixMultiply( A, B, out )` is `out = A * B` over
+column vectors, so each step composes on the LEFT and runs AFTER the ones before: centre to origin,
+scale, rotate, centre back, translate.
+
+**The order is the whole content of the conformance suite**, because every wrong order still
+produces a matrix and they all agree on the declared default. The fixtures therefore use a centre
+away from the origin, a scale that is not one and a rotation that is not zero — only then do the
+candidate orders disagree. Verified by sabotage: folding the translation in before the scale reddens
+exactly the test written for it.
+
+**The defaults for an absent keyword are Valve's, and a centre of zero is the trap.** The proxy
+initialises `center( 0.5, 0.5 )` before reading anything, so a string naming only a scale still
+scales about the middle of the texture; a centre defaulting to the origin would scale and rotate
+about a corner.
+
+#### The second gap, which the first one hid
+
+**The four transform rows were written as the IDENTITY at rest**, because until now only a
+`TextureScroll` proxy ever set them. So even with the parse in place, a material stating a static
+transform and running no proxy would have had it decoded, carried, and then overwritten — the same
+shape as the modulation gap this file already records, in the same four rows.
+
+#### Measured
+
+**21 of 412 materials on `cp_process_final` state a `$basetexturetransform`, and NONE of them is
+neutral.** Every one names a transform that changes something, so all 21 were being lost. They are
+the map's windows — `maps/cp_process_final/glass/glasswindow001a_*`, vbsp's cubemap-patched copies
+of one glass material.
+
+That measurement also corrected a test: it was first written asserting that SOME material states the
+neutral default, on the reasoning that asking for a no-op transform is still asking. Zero do. The
+count is a measure of what was being lost rather than of what was requested — though null and the
+identity are still kept apart in the type, since the distinction is real on a map that states it
+neutrally.
+
+**Visible when wrong:** cp_process's windows drawing with untransformed base coordinates.
+
+#### B332 addendum: the gap audit named its own marker, and this time all three steps happened
+
+The gate went red on `GapMarkers_WhoseFeatureNowWorks_AreReported`:
+
+```
+["SourceConformanceTests.TextureTransforms_AreNotParsed"]
+these markers claim a feature is unimplemented that demonstrably works; delete the test, its
+row here, and its section in docs/CONFORMANCE.md
+```
+
+**Which is the loop working, on the run that landed the feature.** Nobody had to remember; the audit
+noticed the moment `$basetexturetransform` entered `MaterialCensus.ImplementedParameters`.
+
+**All three steps were done in this change** — the marker, its row, and the `CONFORMANCE.md`
+section — which is the first time. The four previous firings each did the first two and left the
+prose, and that is precisely why the document itself is now policed by
+`TheCostOrderedGapList_NamesNoParameterThatIsImplemented`. The two checks caught the same feature
+from opposite ends this run: the audit named the test to delete, and the document police would have
+named the section had it survived.
+
+The pinned marker count came down 2 → 1 **with** the deletion rather than to make a run pass — the
+distinction the count is pinned to enforce.

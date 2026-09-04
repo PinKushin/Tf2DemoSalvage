@@ -64,7 +64,6 @@ public sealed class ConformanceGapAuditTests
     /// </remarks>
     private static readonly Marker[] Markers =
     [
-        new("SourceConformanceTests", "TextureTransforms_AreNotParsed", _ => Unread("$basetexturetransform")),
         new("SourceConformanceTests", "EyeRefract_IsNotImplemented", _ => Unread("$iris")),
     ];
 
@@ -77,6 +76,11 @@ public sealed class ConformanceGapAuditTests
     // designed rather than another lapse.** The marker was written, the feature was implemented in
     // the same session, the parameter moved into `MaterialCensus.Implemented` — and this audit went
     // red naming the marker to delete. That is the loop the owner asked for: nobody had to remember.
+    //
+    // **A fourth for `$basetexturetransform` (B332), the same way.** The audit reddened on the gate
+    // run that landed the parse; the marker, this row and the section in `docs/CONFORMANCE.md` all
+    // went in the same change — which is the part that had been skipped four times before the
+    // document itself was policed.
 
     [Test]
     public void GapMarkers_WhoseFeatureNowWorks_AreReported()
@@ -201,7 +205,10 @@ public sealed class ConformanceGapAuditTests
         //
         // Raise this WITH the row, never on its own. A count lowered to make a run pass is the
         // failure this whole file is about.
-        Markers.Length.ShouldBe(2, "every checkable gap marker needs a row here to be policed");
+        // 2 -> 1: `$basetexturetransform`'s marker went with B332, which is the audit working —
+        // it reddened, the marker went, and this count came down WITH it rather than being lowered
+        // to make a run pass. That distinction is the whole reason the number is pinned.
+        Markers.Length.ShouldBe(1, "every checkable gap marker needs a row here to be policed");
 
         Markers.Select(marker => $"{marker.Suite}.{marker.Test}").Distinct(StringComparer.Ordinal)
             .Count().ShouldBe(Markers.Length, "two rows must not name the same marker");

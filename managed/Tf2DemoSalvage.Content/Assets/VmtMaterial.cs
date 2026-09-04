@@ -510,6 +510,22 @@ public sealed class VmtMaterial
     ///
     /// Null when the material names none, which is every material that is not tintable.
     /// </remarks>
+    /// <summary>The transform a material applies to its base texture's coordinates (B332).</summary>
+    /// <remarks>
+    /// <c>$basetexturetransform</c>, whose packed string form the parameter's own declared default
+    /// states: <c>"center .5 .5 scale 1 1 rotate 0 translate 0 0"</c>, in 53 shaders. Null when the
+    /// material names none, which is nearly all of them — and null rather than the identity string
+    /// so a census can tell "not asked for" from "asked for and neutral".
+    /// </remarks>
+    public string? BaseTextureTransform => Value("$basetexturetransform");
+
+    /// <summary>The same for the second texture, where a shader has one.</summary>
+    /// <remarks>
+    /// <c>$texture2transform</c>. Both are applied to the SAME incoming coordinate, which is what
+    /// lets one texture hold still while the other moves.
+    /// </remarks>
+    public string? SecondTextureTransform => Value("$texture2transform");
+
     public (float Red, float Green, float Blue)? TintBase =>
         Value("$colortint_base") is null ? null : Colour("$colortint_base");
 

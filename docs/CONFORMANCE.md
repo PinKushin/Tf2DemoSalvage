@@ -300,9 +300,21 @@ The only unimplemented **shader** on cp_process. Already falls back to the iris 
 (`VmtMaterial.PrimaryTexture`), which is why eyes are not the missing-texture chequer, but the
 refraction and the cornea are absent.
 
-### `$basetexturetransform`, `$texture2transform`
-19 and 5 on brushwork. The transform machinery exists; nothing parses the matrix form
-(`center … scale … rotate … translate`) out of a VMT yet.
+### `$basetexturetransform`, `$texture2transform` — IMPLEMENTED (B332)
+19 and 5 on brushwork. The transform machinery existed; what was missing was the parse of the matrix
+form (`center … scale … rotate … translate`) — and, behind it, the resting value.
+
+**Implemented.** The string's shape is the parameter's own declared default, and the composition is
+`CTextureTransformProxy::OnBind` (`matrixproxy.cpp:75-113`): centre to origin, scale, rotate, centre
+back, translate. Every wrong order still yields a matrix and they all agree on the default, so the
+conformance suite uses a centre away from the origin, a scale that is not one and a non-zero
+rotation.
+
+**The second half was the resting value.** The four transform rows in the material constants were
+written as the identity, because only a `TextureScroll` proxy had ever set them — so a material
+stating a STATIC transform had it decoded and then overwritten. Measured on `cp_process_final`:
+**21 of 412 materials state one, none of them neutral**, all of them the map's glass windows. All 21
+were being lost.
 
 ## A gap list rots, so it is now policed
 

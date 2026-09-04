@@ -111,6 +111,171 @@ public static class MaterialProxies
             (0f, scale, 0f, Wrap(tOffset)));
     }
 
+    /// <summary>The matrix a <c>$basetexturetransform</c> string names (B332).</summary>
+    /// <param name="text">
+    /// The packed form, e.g. <c>center .5 .5 scale 1 1 rotate 0 translate 0 0</c>. Null, empty or
+    /// malformed gives the identity.
+    /// </param>
+    /// <returns>The transform's first two rows, which is all a shader is given.</returns>
+    /// <remarks>
+    /// **The string's form is stated by the parameter's own declared default**, which is the SDK
+    /// answering a question about a parser it does not ship:
+    ///
+    /// <code>
+    /// SHADER_PARAM( BASETEXTURETRANSFORM, SHADER_PARAM_TYPE_MATRIX,
+    ///               "center .5 .5 scale 1 1 rotate 0 translate 0 0", "$baseTexture texcoord transform" )
+    /// </code>
+    ///
+    /// 53 shaders declare it with exactly that string.
+    ///
+    /// **And the COMPOSITION is in the SDK, in a proxy that builds the same matrix from separate
+    /// variables** — so it is the authority on what the packed form means:
+    ///
+    /// <code>
+    /// MatrixBuildTranslation( mat,  -center.x, -center.y, 0.0f );
+    /// MatrixBuildScale      ( temp,  scale.x,   scale.y,  1.0f );  MatrixMultiply( temp, mat, mat );
+    /// MatrixBuildRotateZ    ( temp,  angle );                      MatrixMultiply( temp, mat, mat );
+    /// MatrixBuildTranslation( temp,  center.x,  center.y, 0.0f );  MatrixMultiply( temp, mat, mat );
+    /// MatrixBuildTranslation( temp,  translation… );               MatrixMultiply( temp, mat, mat );
+    /// </code>
+    ///
+    /// <c>CTextureTransformProxy::OnBind</c>, <c>matrixproxy.cpp:75-113</c>. Read-from-source.
+    /// <c>MatrixMultiply( A, B, out )</c> is <c>out = A * B</c> and Source applies matrices to
+    /// column vectors, so each step composes on the LEFT and runs AFTER the ones before it: move the
+    /// centre to the origin, scale, rotate, move it back, then translate.
+    ///
+    /// **Every wrong order still produces a matrix**, and for the declared default they all produce
+    /// the identity — which is why the conformance suite uses a centre away from the origin, a scale
+    /// that is not one and a rotation that is not zero.
+    ///
+    /// **The defaults for an absent keyword are Valve's, and a centre of zero is the trap.** The
+    /// proxy initialises <c>center( 0.5, 0.5 )</c> and <c>translation( 0, 0 )</c> before reading
+    /// anything, so a string naming only a scale still scales about the middle of the texture. A
+    /// centre defaulting to the origin would scale and rotate about a corner.
+    /// </remarks>
+    public static TextureTransform TextureTransformFrom(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return TextureTransform.Identity;
+        }
+
+        string[] words = text.Split(
+            [' ', '\t', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        // Valve's own initialisation, before any keyword is read.
+        (float X, float Y) centre = (0.5f, 0.5f);
+        (float X, float Y) scale = (1f, 1f);
+        (float X, float Y) translate = (0f, 0f);
+
+        float rotate = 0f;
+        bool understood = false;
+
+        // **Scanned rather than iterated**, because a keyword consumes the words after it and a
+        // `for` that advanced its own counter would be the analyzer's S127. The scan is the same
+        // shape either way: read a keyword, take its arguments, continue past them.
+        int at = 0;
+
+        while (at < words.Length)
+        {
+            if (Keyword(words[at], "center") && Pair(words, at, out (float X, float Y) read))
+            {
+                centre = read;
+                understood = true;
+                at += 3;
+            }
+            else if (Keyword(words[at], "scale") && Pair(words, at, out read))
+            {
+                scale = read;
+                understood = true;
+                at += 3;
+            }
+            else if (Keyword(words[at], "translate") && Pair(words, at, out read))
+            {
+                translate = read;
+                understood = true;
+                at += 3;
+            }
+            else if (Keyword(words[at], "rotate") && Single(words, at, out float angle))
+            {
+                rotate = angle;
+                understood = true;
+                at += 2;
+            }
+            else
+            {
+                // A word that is not a keyword, or one whose arguments are missing: skipped rather
+                // than abandoning the rest, so a malformed clause cannot silently drop a valid one
+                // after it.
+                at++;
+            }
+        }
+
+        // **Nothing understood is the identity, which is Valve's fallback for a variable that is not
+        // a matrix at all** — `transformation[0].Init( 1, 0, 0, 0 )`, `BaseVSShader.cpp:317-321`. A
+        // material naming a malformed transform draws as though it named none.
+        if (!understood)
+        {
+            return TextureTransform.Identity;
+        }
+
+        float radians = rotate * ToRadians;
+
+        float cos = (float)Math.Cos(radians);
+        float sin = (float)Math.Sin(radians);
+
+        // The rotation and scale, composed: R · S, with the scale applied first.
+        float m00 = cos * scale.X;
+        float m01 = -sin * scale.Y;
+        float m10 = sin * scale.X;
+        float m11 = cos * scale.Y;
+
+        // T(+c) · R · S · T(-c), then the translation on the outside. The centre's contribution is
+        // `c - M·c`, which is what makes a scale about the middle move the coordinate at all.
+        float tx = centre.X - ((m00 * centre.X) + (m01 * centre.Y)) + translate.X;
+        float ty = centre.Y - ((m10 * centre.X) + (m11 * centre.Y)) + translate.Y;
+
+        return new TextureTransform((m00, m01, 0f, tx), (m10, m11, 0f, ty));
+    }
+
+    /// <summary>Whether a word is this keyword, case-insensitively as KeyValues is.</summary>
+    private static bool Keyword(string word, string keyword) =>
+        word.Equals(keyword, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The two numbers after a keyword, or false when they are not both there.</summary>
+    private static bool Pair(string[] words, int at, out (float X, float Y) value)
+    {
+        value = default;
+
+        if (at + 2 >= words.Length ||
+            !Number(words[at + 1], out float x) ||
+            !Number(words[at + 2], out float y))
+        {
+            return false;
+        }
+
+        value = (x, y);
+
+        return true;
+    }
+
+    /// <summary>The one number after a keyword.</summary>
+    private static bool Single(string[] words, int at, out float value)
+    {
+        value = 0f;
+
+        return at + 1 < words.Length && Number(words[at + 1], out value);
+    }
+
+    /// <remarks>
+    /// **Invariant culture**, for the reason recorded on `PhysicsModel`: these strings write `.5`
+    /// with a full stop, and under a comma locale every number reads as zero — a transform that
+    /// collapses the texture rather than an error.
+    /// </remarks>
+    private static bool Number(string word, out float value) =>
+        float.TryParse(
+            word, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
+
     /// <summary>Brings an offset into 0..1 the way the engine does.</summary>
     private static float Wrap(float offset)
     {

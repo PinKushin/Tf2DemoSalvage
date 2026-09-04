@@ -42,3 +42,19 @@ that will not get updated. Point the check at the prose.
 Related: [[a-stale-not-implemented-is-a-todo-list]] — the disease.
 [[a-hand-maintained-numerator-drifts-downward]] — the same week, the same shape, a different
 document.
+
+## The loop closed on 2026-09-04, and both halves fired on the same run
+
+`$basetexturetransform` (B332) is the first gap where the audit's whole instruction was carried out.
+The gate reddened on `GapMarkers_WhoseFeatureNowWorks_AreReported` naming
+`TextureTransforms_AreNotParsed`, and the marker, its row and the `CONFORMANCE.md` section all went
+in that change.
+
+**Both checks covered the same feature from opposite ends.** The audit names the TEST to delete; the
+document police would have caught the SECTION had it been left. Before the second check existed,
+four firings in a row deleted the test and the row and left the prose — which is the failure the
+police was written for, and it is now redundant in the good way rather than the unused way.
+
+**And the pinned marker count came down 2 → 1 WITH the deletion**, not to make a run pass. That
+distinction is the entire reason the number is pinned, and it is worth stating in the comment beside
+it every time it moves.

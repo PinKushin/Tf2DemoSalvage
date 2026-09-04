@@ -2700,6 +2700,13 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // above — because that is the only entry carrying a material's own flags: a bump map's
             // `MapTexture` has them at their defaults, and reading the wrong one would turn the
             // branch off for every painted item.
+            // **The material's own coordinate transforms** (B332), identity where it states none —
+            // which is Valve's fallback for a variable that is not a matrix
+            // (`BaseVSShader.cpp:317-321`) and not a zeroed row, since a zeroed one collapses every
+            // coordinate onto the first texel.
+            TextureTransform baseTransform = surface?.BaseTransform ?? TextureTransform.Identity;
+            TextureTransform secondTransform = surface?.SecondTransform ?? TextureTransform.Identity;
+
             float tintByBaseAlpha = surface is { TintsByBaseAlpha: true } ? 1f : 0f;
             float tintOverBase = surface?.TintOverBase ?? 0f;
 
@@ -2747,10 +2754,15 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     // **The modulation's rest value is the material's own $color and $alpha**, not
                     // a hardcoded white — that was the gap: a material declaring a tint and no
                     // proxy had it decoded and then overwritten with one here.
-                    1f, 0f, 0f, 0f,
-                    0f, 1f, 0f, 0f,
-                    1f, 0f, 0f, 0f,
-                    0f, 1f, 0f, 0f,
+                    // **The material's OWN transform at rest, not the identity** (B332). A
+                    // `TextureScroll` proxy overwrites these rows per frame, so they used to be
+                    // identity and nothing noticed; a material stating a static
+                    // `$basetexturetransform` runs no proxy and had its transform decoded and then
+                    // replaced with one here — the same gap the modulation note below records.
+                    baseTransform.Row0.X, baseTransform.Row0.Y, baseTransform.Row0.Z, baseTransform.Row0.W,
+                    baseTransform.Row1.X, baseTransform.Row1.Y, baseTransform.Row1.Z, baseTransform.Row1.W,
+                    secondTransform.Row0.X, secondTransform.Row0.Y, secondTransform.Row0.Z, secondTransform.Row0.W,
+                    secondTransform.Row1.X, secondTransform.Row1.Y, secondTransform.Row1.Z, secondTransform.Row1.W,
                     tint.Red, tint.Green, tint.Blue, tint.Alpha,
 
                     multiplies, wrapsLight, 0f, 0f,
@@ -2799,10 +2811,15 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     // **The modulation's rest value is the material's own $color and $alpha**, not
                     // a hardcoded white — that was the gap: a material declaring a tint and no
                     // proxy had it decoded and then overwritten with one here.
-                    1f, 0f, 0f, 0f,
-                    0f, 1f, 0f, 0f,
-                    1f, 0f, 0f, 0f,
-                    0f, 1f, 0f, 0f,
+                    // **The material's OWN transform at rest, not the identity** (B332). A
+                    // `TextureScroll` proxy overwrites these rows per frame, so they used to be
+                    // identity and nothing noticed; a material stating a static
+                    // `$basetexturetransform` runs no proxy and had its transform decoded and then
+                    // replaced with one here — the same gap the modulation note below records.
+                    baseTransform.Row0.X, baseTransform.Row0.Y, baseTransform.Row0.Z, baseTransform.Row0.W,
+                    baseTransform.Row1.X, baseTransform.Row1.Y, baseTransform.Row1.Z, baseTransform.Row1.W,
+                    secondTransform.Row0.X, secondTransform.Row0.Y, secondTransform.Row0.Z, secondTransform.Row0.W,
+                    secondTransform.Row1.X, secondTransform.Row1.Y, secondTransform.Row1.Z, secondTransform.Row1.W,
                     tint.Red, tint.Green, tint.Blue, tint.Alpha,
 
                     multiplies, wrapsLight, 0f, 0f,

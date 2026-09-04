@@ -226,17 +226,13 @@ public sealed class SourceConformanceTests
         Assert.Ignore("EyeRefract: 13 materials; eyes flat, iris only.");
     }
 
-    [Test]
-    public void TextureTransforms_AreNotParsed()
-    {
-        // $basetexturetransform on 19 brushwork materials and $texture2transform on 5. The shader
-        // applies two transforms already; nothing reads the matrix form
-        // ("center .5 .5 scale 1 1 rotate 0 translate 0 0") out of a VMT.
-        //
-        // WHAT YOU SEE: any material that offsets or tiles its texture by transform draws at the
-        // texture's own scale and origin instead.
-        Assert.Ignore("$basetexturetransform: 24 materials; matrix form unparsed.");
-    }
+    // **`TextureTransforms_AreNotParsed` stood here and B332 closed it.** The matrix form is read —
+    // the string's shape from the parameter's own declared default, the composition from
+    // `CTextureTransformProxy::OnBind` — and the four transform rows now rest at the material's own
+    // transform rather than at the identity, which was the second half of the gap: only a
+    // `TextureScroll` proxy had ever written them. Measured on cp_process_final, 21 of 412
+    // materials state one and none is neutral, so all 21 were being lost. This audit named the
+    // marker to delete on the run that landed it.
 
     // **`AttachmentPoints_AreNotImplemented` stood here and was false.** B82 is closed:
     // `m_iParentAttachment` is read in `EntityState`, the wearer's attachment table is loaded, and

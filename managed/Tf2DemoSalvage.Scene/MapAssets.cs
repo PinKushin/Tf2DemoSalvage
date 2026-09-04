@@ -48,6 +48,11 @@ namespace Tf2DemoSalvage.Scene;
 /// <c>SelectFirstIfNonZero</c> every one of them pairs with <c>ItemTintColor</c>. Null for a
 /// material that is not tintable.
 /// </param>
+/// <param name="BaseTransform">
+/// <c>$basetexturetransform</c>, already composed into the two rows a shader is given (B332). Null
+/// when the material names none.
+/// </param>
+/// <param name="SecondTransform"><c>$texture2transform</c>, the same for the second texture.</param>
 /// <param name="IsDecal">
 /// Whether the material MARKS a surface rather than being one — <c>$decal</c>,
 /// <c>MATERIAL_VAR_DECAL</c>. Carried per material because that is where the engine keeps render
@@ -122,7 +127,14 @@ public readonly record struct MapTexture(
     // cannot be taken apart afterwards without dividing by a legally zero value. Null tint base
     // means the material is not tintable, which is nearly all of them.
     (float Red, float Green, float Blue) ColourFactor = default,
-    (float Red, float Green, float Blue)? TintBase = null);
+    (float Red, float Green, float Blue)? TintBase = null,
+
+    // **The coordinate transforms a material states for itself** (B332). Null is "names none",
+    // which is nearly every material, and is kept distinct from the identity so the census can tell
+    // the two apart. A scrolling proxy overwrites these rows per frame; a material that only states
+    // a static transform has no proxy and would otherwise draw untransformed.
+    TextureTransform? BaseTransform = null,
+    TextureTransform? SecondTransform = null);
 
 /// <summary>The tiny copy of itself that a VTF stores ahead of its mip chain.</summary>
 /// <param name="Width">From <c>lowResImageWidth</c>; 16 or less in every shipped texture measured.</param>
@@ -419,6 +431,17 @@ public sealed class MapAssets
         "models/player/shared/gold_player",
         "models/player/shared/ice_player",
     ];
+
+    /// <summary>One texture transform, composed, or null when the material states none.</summary>
+    /// <remarks>
+    /// **Null and the identity are kept apart on purpose.** A material naming
+    /// <c>"center .5 .5 scale 1 1 rotate 0 translate 0 0"</c> HAS asked for a transform that happens
+    /// to change nothing, and a census counting the parameter as consumed needs to see that; a
+    /// material naming none has not asked at all. Collapsing them would report the parameter as
+    /// unused on every map that states it neutrally (B332).
+    /// </remarks>
+    private static TextureTransform? Transform(string? text) =>
+        text is null ? null : MaterialProxies.TextureTransformFrom(text);
 
     /// <summary>Appends the whole-model override materials to the table, if the install has them.</summary>
     /// <param name="assets">Where resolution is reported.</param>
@@ -2015,7 +2038,12 @@ public sealed class MapAssets
 
                     // The two colours the paint proxies work on, kept apart (B330).
                     material.ColourFactor,
-                    material.TintBase);
+                    material.TintBase,
+
+                    // **Composed here rather than carried as a string** (B332), so the renderer is
+                    // handed the two rows a shader takes and nothing downstream has to parse.
+                    Transform(material.BaseTextureTransform),
+                    Transform(material.SecondTextureTransform));
             }
             catch (InvalidDataException failure)
             {

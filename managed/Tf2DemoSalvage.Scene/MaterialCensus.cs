@@ -131,6 +131,12 @@ internal static class MaterialCensus
         // appears at all; they arrive with the first cosmetic loaded.
         "$blendtintbybasealpha",
         "$blendtintcoloroverbase",
+
+        // **The coordinate transforms a material states for itself** (B332). The packed string form
+        // is `"center .5 .5 scale 1 1 rotate 0 translate 0 0"`, which 53 shaders declare as the
+        // parameter's own default, and the composition is `CTextureTransformProxy::OnBind`'s.
+        "$basetexturetransform",
+        "$texture2transform",
         "$decal",
         "%compilenodraw",
         "include",
