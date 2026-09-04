@@ -597,3 +597,58 @@ Worth generalising to the other formats this project reads. A `.mdl` has section
 opens; a BSP has lumps this renderer skips; a `.phy`'s Havok half is not read at all — and only the
 last of those is written down as a known gap. The others are unknown unknowns of exactly the shape
 `$selfillum` was.
+
+## TF2's paint, and what a material proxy actually is (B330, B331)
+
+**A proxy is per ENTITY per DRAW, and that is the whole reason paint could not be a material
+setting.** Two players wearing the same hat in different colours share one material; the colour is
+decided when that material is BOUND for one of them.
+
+`IMaterialProxy` has `Init`, `OnBind` and `Release` and no tick, which is the shape of the claim.
+This project already ran `Sine` and `TextureScroll` at the bind for that reason; what it could not do
+is run one that reads the entity.
+
+### The chain every tintable item declares
+
+```
+"ItemTintColor"        { "resultVar" "$colortint_tmp" }
+"SelectFirstIfNonZero" { "srcVar1" "$colortint_tmp"  "srcVar2" "$colortint_base"  "resultVar" "$color2" }
+```
+
+Three things about it are worth carrying to any other proxy work here:
+
+- **The pair is the mechanism.** `ItemTintColor` writes **zero** for an unpainted item — its result
+  starts at `Vector( 0, 0, 0 )` and is left there — and the `SelectFirstIfNonZero` beside it turns
+  that into "use the material's own colour". Implementing either alone gives a black hat or no paint
+  at all.
+- **One proxy's output is the other's input**, and `$colortint_tmp` is not a shader constant. A
+  proxy system that can only write constants cannot run this chain; it needs a variable table for
+  the duration of the bind.
+- **`IsZero` is all three channels** (`mathproxy.cpp:1050`), so a paint of pure black reads as no
+  paint. Valve's behaviour, and reproduced rather than corrected.
+
+### The value: `GetModifiedRGBValue`, and four traps
+
+The attribute's 32 bits are a **float whose VALUE is the packed colour** — `unRGB = (uint32)fRGB`, a
+numeric conversion. `1` is not a colour but `kPaintConstant_OldTeamColor`, selecting `RGB_INT_RED`
+12073019 and `RGB_INT_BLUE` 5801378. The sentinel is tested BEFORE the second paint attribute, so an
+item carrying both ignores its second colour. And the alt falls back to the primary, so a singly
+painted item matches on both teams.
+
+**Measured, through the production path, on two demos: 12 painted of 51 econ items, and 10 of 102.**
+Every colour that came back is nameable — Pink as Hell, Noble Hatter's Violet, A Distinctive Lack of
+Hue — which is what verifies the decode; a wrong read of those bits is still "a colour" and would
+have counted the same. **And two items came back as the old team-colour constants exactly**, so that
+branch is live in a 2026 match rather than a legacy curiosity.
+
+### The companion without which the paint is wrong anyway
+
+`$blendtintbybasealpha` confines the modulation to the region the base texture's alpha marks. Without
+it a painted hat is dyed end to end instead of on its band — a wrong colour rather than a missing
+feature, and the kind of defect that gets reported as bad art. `$blendtintcoloroverbase` lerps
+between multiplying the tint in and replacing the albedo with it, and self-illumination wins over
+both because the pixel shader cannot do both (`skin_dx9_helper.cpp:269`).
+
+Measured on a load with three cosmetics: **3 of 432 materials tint by base alpha, all three carrying
+a colour, and none of the map's own brushwork** — which is the control, since a reader answering
+true by default would change how every surface in the game draws.

@@ -742,7 +742,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
                 // Always null on a viewmodel — only a corpse sets one — but passed rather than
                 // omitted so the four draw sites stay one shape (B325).
-                overrideMaterial: instance.MaterialOverride);
+                overrideMaterial: instance.MaterialOverride,
+
+                // Always null on a viewmodel's own three, and passed anyway so the four draw sites
+                // stay one shape — a painted weapon a player HOLDS is a world model (B330).
+                paint: instance.Paint);
         }
 
         // **Both of the pass's changes are put back, and forgetting the camera was a real defect.**
@@ -1110,7 +1114,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
                         // Gold or ice on a corpse and the items it wears; null everywhere else
                         // (B325).
-                        overrideMaterial: instance.MaterialOverride);
+                        overrideMaterial: instance.MaterialOverride,
+
+                        // TF2's paint, feeding the ItemTintColor proxy at the bind (B330).
+                        paint: instance.Paint);
                 }
 
                 // **The see-through parts of models, after every solid one.** A hologram, a glass
@@ -1196,7 +1203,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                         // **The translucent half takes it too**, since the override replaces every
                         // material rather than a subset — an iced corpse whose model has a blended
                         // part must not draw that part unfrozen (B325).
-                        overrideMaterial: instance.MaterialOverride);
+                        overrideMaterial: instance.MaterialOverride,
+
+                        // TF2's paint, feeding the ItemTintColor proxy at the bind (B330).
+                        paint: instance.Paint);
                 }
 
                 WorldRenderer.ResetBlend(_context);

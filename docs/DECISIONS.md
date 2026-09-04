@@ -7465,3 +7465,45 @@ document. It is the executing file.
 untouchable, floors and comments included. Write the number somewhere else and apply it when the run
 exits. Every other file — source, tests, docs — stays fair game, which is what makes the exception
 narrow enough to keep.
+
+## D140 — four commits went straight to main, and the repair is five branches merged in order
+
+**The owner asked "have you been branching?" on 2026-09-04 and the answer was no.** Four commits —
+B325, B326/B327, B328/B58 and the coverage correction — went straight to `main`, with a fifth
+piece of work uncommitted on it. No branch was created and none was announced.
+
+**The rule was already written down twice.** The global standard says to create a feature branch
+before touching any files for anything reviewable on its own, and to announce the name in the first
+response. `docs/memory/branch-granularity-is-fine-here.md` goes further and is this repo's own
+instruction: *"Default to a branch per coherent piece, and sub-branch anything larger"*, because
+these features decompose cleanly — and *"when a second concern appears mid-branch, finish and merge
+the first rather than carrying both"*.
+
+**Why it happened, stated rather than excused.** The session ran as a continuous parity loop under a
+standing "keep going" instruction, and each new defect was found by the work on the previous one —
+B327 by B326's census, B331 by B330's material, B330's regression by B331's buffer. Each felt like
+the same thread rather than a new task. That is exactly the condition the memory describes and warns
+about: a name that stops describing its contents is the signal, and here no name was ever chosen, so
+the signal could not fire.
+
+**The repair, and it is cheap only because nothing was pushed.** `origin/main` was still at
+`4c000932`, so no public history is rewritten. Each commit already exists separately, so the fix is
+to give each a branch and merge them into `main` in order with `--no-ff` — which produces exactly
+the history a correct session would have:
+
+```
+feat/corpse-gold-and-ice        B325
+feat/vmt-directx-blocks         B326, B327
+feat/shader-fallback-and-phy    B328, B58
+fix/coverage-numerator          the SDK-COVERAGE understatement
+feat/item-paint                 B330, B331
+```
+
+**One branch for all five was considered and rejected.** They are sequentially dependent, so a
+single branch would merge in the same order anyway — but the repo's rule is per coherent piece, and
+five is what a reviewer can take one at a time. Choosing the convenient shape after the fact is how
+the rule would erode a second time.
+
+**What changes going forward: branch first, announce the name, and merge when the gate is green** —
+not at the end of a session. The merge gate already exists for this; what was missing is the branch
+for it to gate.

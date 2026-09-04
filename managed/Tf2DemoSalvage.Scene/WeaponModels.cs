@@ -179,6 +179,42 @@ public sealed class WeaponModels
         return false;
     }
 
+    /// <summary>The colour this item is painted, or null when it carries no paint (B330).</summary>
+    /// <param name="prop">The prop, whose econ attributes carry the paint.</param>
+    /// <param name="team">Its team, which chooses between a two-tone paint's two colours.</param>
+    /// <returns>Three channels in 0..1, or null for an unpainted item.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="prop"/> is null.</exception>
+    /// <remarks>
+    /// **The value half of TF2's `ItemTintColor` proxy**, resolved through the same
+    /// <see cref="AttributesFor"/> every other attribute question uses so the four branches of
+    /// `IterateAttributes` cannot be applied differently here. The arithmetic — the old-team
+    /// sentinel, the alt fallback, the branch order, the float-to-integer conversion — is
+    /// <see cref="ItemPaint"/>, with its citations.
+    ///
+    /// **`bAltColor` is BLU**, per `pEntity->GetTeam()->GetTeamNumber() == TF_TEAM_BLUE`
+    /// (`econ_wearable.cpp:521-524`). A prop with no team takes the primary, which is what the
+    /// engine's `kEconItemFlagClient_ForceBlueTeam` fallback resolves to for anything this project
+    /// draws.
+    /// </remarks>
+    public (float Red, float Green, float Blue)? PaintFor(SceneProp prop, int? team)
+    {
+        ArgumentNullException.ThrowIfNull(prop);
+
+        if (Schema() is not { } schema)
+        {
+            return null;
+        }
+
+        Dictionary<int, EconAttributeValue> byDefinition = [];
+
+        foreach (EconAttributeValue attribute in AttributesFor(prop))
+        {
+            byDefinition[attribute.DefinitionIndex] = attribute;
+        }
+
+        return ItemPaint.Tint(byDefinition, schema, alternate: team == SceneTeams.Blu);
+    }
+
     /// <summary>The extra models an item hangs on itself, for the team holding it.</summary>
     /// <param name="item">Its <c>m_iItemDefinitionIndex</c>, or null when the demo names none.</param>
     /// <param name="team">The owner's team, or null when it is not known.</param>

@@ -31,6 +31,23 @@ namespace Tf2DemoSalvage.Scene;
 /// The VTF's own low-resolution copy of itself, which <c>mat_showlowresimage</c> draws in place of
 /// the material. Null when the file carried none, which is legal.
 /// </param>
+/// <param name="TintsByBaseAlpha">
+/// <c>$blendtintbybasealpha</c>: whether the modulation lands only where the base texture's ALPHA
+/// says, which is what colours a painted hat's band rather than the whole hat (B331).
+/// </param>
+/// <param name="TintOverBase">
+/// <c>$blendtintcoloroverbase</c>, Valve's <c>g_fTintReplacementControl</c> — 0 multiplies the tint
+/// into the albedo and keeps its detail, 1 replaces the masked region with the flat colour.
+/// </param>
+/// <param name="ColourFactor">
+/// <c>$color</c> on its own — the factor <c>$color2</c> multiplies against — because TF2's paint
+/// proxy REPLACES <c>$color2</c> and <see cref="MapTexture.Modulation"/> is their product (B330).
+/// </param>
+/// <param name="TintBase">
+/// <c>$colortint_base</c>: the colour a tintable item wears unpainted, and the second input to the
+/// <c>SelectFirstIfNonZero</c> every one of them pairs with <c>ItemTintColor</c>. Null for a
+/// material that is not tintable.
+/// </param>
 /// <param name="IsDecal">
 /// Whether the material MARKS a surface rather than being one — <c>$decal</c>,
 /// <c>MATERIAL_VAR_DECAL</c>. Carried per material because that is where the engine keeps render
@@ -91,7 +108,21 @@ public readonly record struct MapTexture(
     // **The VTF's own thumbnail, for `mat_showlowresimage`.** Present only on a base texture and
     // only when the file carried one — a VTF is allowed not to, so null means "nothing to show"
     // rather than "not loaded yet".
-    MapThumbnail? Thumbnail = null);
+    MapThumbnail? Thumbnail = null,
+
+    // **Where the modulation lands, which TF2's paint makes load-bearing** (B331).
+    // `$blendtintbybasealpha` tints only where the base texture's ALPHA says — a hat's band rather
+    // than the whole hat — and `$blendtintcoloroverbase` lerps between multiplying the tint in and
+    // replacing the albedo with it. Both default to the branch every other material takes.
+    bool TintsByBaseAlpha = false,
+    float TintOverBase = 0f,
+
+    // **`$color` alone and `$colortint_base`, for TF2's paint proxies** (B330). The chain ends by
+    // REPLACING `$color2`, and `Modulation` above is the resting product of the two colours — which
+    // cannot be taken apart afterwards without dividing by a legally zero value. Null tint base
+    // means the material is not tintable, which is nearly all of them.
+    (float Red, float Green, float Blue) ColourFactor = default,
+    (float Red, float Green, float Blue)? TintBase = null);
 
 /// <summary>The tiny copy of itself that a VTF stores ahead of its mip chain.</summary>
 /// <param name="Width">From <c>lowResImageWidth</c>; 16 or less in every shipped texture measured.</param>
@@ -1976,7 +2007,15 @@ public sealed class MapAssets
                             decoded.LowResolutionWidth,
                             decoded.LowResolutionHeight,
                             TextureImage.Rgba(decoded.LowResolutionPixels))
-                        : null);
+                        : null,
+
+                    // Where the tint lands, for a material that names one (B331).
+                    material.TintsByBaseAlpha,
+                    material.TintOverBase,
+
+                    // The two colours the paint proxies work on, kept apart (B330).
+                    material.ColourFactor,
+                    material.TintBase);
             }
             catch (InvalidDataException failure)
             {

@@ -393,6 +393,20 @@ internal sealed unsafe class WorldRenderer : IDisposable
             //
             // rgb is the colour, w says whether one was supplied at all.
             float4 categoryColour;
+
+            // **How the modulation is applied to the albedo** (B331), which is a question TF2's
+            // painted items make load-bearing.
+            //
+            // x: `$blendtintbybasealpha` — 1 to tint only where the base texture's ALPHA says,
+            //    0 to multiply the tint across the whole surface, which is every other material.
+            // y: `$blendtintcoloroverbase`, Valve's `g_fTintReplacementControl` — 0 multiplies the
+            //    tint into the albedo and keeps its detail, 1 replaces the albedo with the flat
+            //    colour. Zero is the common case and TF2's cosmetics use it.
+            //
+            // **Appended rather than folded into an existing float4**, and every array feeding this
+            // buffer had to grow with it. The comment on `SetMaterial`'s length check records what
+            // happened the last time only two of three did.
+            float4 tintControl;
         };
 
         // **Valve's overbright.** A lightmap is stored halved so that light brighter than white
@@ -802,7 +816,41 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // here, once, after whichever combine produced the colour. Alpha goes with it: the
             // alpha test below reads albedo.a, and in the engine the test sees the shader's OUTPUT
             // alpha, modulation included.
-            albedo *= modulation;
+            // **`$blendtintbybasealpha` puts the tint only where the artist masked it** (B331), and
+            // without it a painted hat is tinted end to end instead of on its tintable region.
+            // Valve's branch, verbatim:
+            //
+            //   if (bBlendTintByBaseAlpha)
+            //   {
+            //       float3 tintedColor = albedo * g_DiffuseModulation.rgb;
+            //       tintedColor = lerp(tintedColor, g_DiffuseModulation.rgb, g_fTintReplacementControl);
+            //       albedo = lerp(albedo, tintedColor, baseColor.a);
+            //   }
+            //   else
+            //       albedo = albedo * g_DiffuseModulation.rgb;
+            //
+            // `skin_ps20b.fxc:317-326`. Three things in it are easy to lose:
+            //
+            // - **The base's ALPHA is the mask, and it is the UNMODULATED alpha** — `baseColor.a`,
+            //   the texture's own, not `albedo.a` after the multiply. They differ the moment a
+            //   material's `$alpha` is anything but one.
+            // - **`$blendtintcoloroverbase` lerps between MULTIPLYING the tint in and REPLACING the
+            //   albedo with it**, which is `g_fTintReplacementControl`. Zero — the common case, and
+            //   this hat's — keeps the texture's detail under the colour; one paints it flat.
+            // - **Alpha is modulated either way.** Valve's branch touches `.rgb` only, and the
+            //   alpha test below reads the shader's output alpha with modulation folded in.
+            if (tintControl.x > 0.5f)
+            {
+                float3 tinted = albedo.rgb * modulation.rgb;
+
+                tinted = lerp(tinted, modulation.rgb, tintControl.y);
+
+                albedo = float4(lerp(albedo.rgb, tinted, first.a), albedo.a * modulation.a);
+            }
+            else
+            {
+                albedo *= modulation;
+            }
 
             // **The detail goes in before the lighting, as Valve's shader does it.** It modifies
             // the albedo - the surface's own colour - and the lightmap then multiplies the result.
@@ -1740,6 +1788,17 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <summary>Each material's <c>$selfillummask</c>, or a null handle where it has none.</summary>
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _selfIllumMasks = [];
 
+    /// <summary>Each material's <c>$colortint_base</c>, null where it is not tintable (B330).</summary>
+    /// <remarks>
+    /// **Non-null is what marks a material as running TF2's paint chain**, so this doubles as the
+    /// gate: a material with no `$colortint_base` never builds the variable table and its proxies
+    /// cost nothing.
+    /// </remarks>
+    private readonly List<(float Red, float Green, float Blue)?> _tintBases = [];
+
+    /// <summary>Each material's <c>$color</c> alone, which <c>$color2</c> multiplies against.</summary>
+    private readonly List<(float Red, float Green, float Blue)> _colourFactors = [];
+
     /// <summary>The proxies each material runs, empty for the great majority.</summary>
     private IReadOnlyList<IReadOnlyList<MaterialProxy>> _proxies = [];
 
@@ -2637,6 +2696,19 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
             float hasSelfIllumMask = illumMask is null ? 0f : 1f;
 
+            // **Where the modulation lands** (B331). Off the BASE texture — `surface`, declared
+            // above — because that is the only entry carrying a material's own flags: a bump map's
+            // `MapTexture` has them at their defaults, and reading the wrong one would turn the
+            // branch off for every painted item.
+            float tintByBaseAlpha = surface is { TintsByBaseAlpha: true } ? 1f : 0f;
+            float tintOverBase = surface?.TintOverBase ?? 0f;
+
+            // **The two colours TF2's paint chain works on, kept apart from their product** (B330).
+            // `$colortint_base` non-null is also what marks a material as tintable at all, so a
+            // material without one never builds the proxy variable table.
+            _tintBases.Add(surface?.TintBase);
+            _colourFactors.Add(surface?.ColourFactor ?? (1f, 1f, 1f));
+
             float rimExponent = phong?.Rim?.Exponent ?? 4f;
             float rimBoost = phong?.Rim?.Boost ?? 1f;
             float hasRim = phong?.Rim is null ? 0f : 1f;
@@ -2705,6 +2777,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     // in the mapped buffer after this array is copied in. Present so the array
                     // stays the length the shader's struct declares (B219).
                     1f, 1f, 1f, 0f,
+
+                    // tintControl: `$blendtintbybasealpha` and `$blendtintcoloroverbase` (B331).
+                    tintByBaseAlpha, tintOverBase, 0f, 0f,
                 ]
                 :
                 [
@@ -2754,6 +2829,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     // in the mapped buffer after this array is copied in. Present so the array
                     // stays the length the shader's struct declares (B219).
                     1f, 1f, 1f, 0f,
+
+                    // tintControl: `$blendtintbybasealpha` and `$blendtintcoloroverbase` (B331).
+                    tintByBaseAlpha, tintOverBase, 0f, 0f,
                 ]);
         }
 
@@ -3358,6 +3436,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // rather than skipped, and this array must stay the same length as the shader's struct —
         // the comment above records what happened the last time it did not.
         1f, 1f, 1f, 0f,
+
+        // tintControl: no `$blendtintbybasealpha`, so the modulation multiplies across the whole
+        // surface — the branch every material but TF2's tintable items takes (B331).
+        0f, 0f, 0f, 0f,
     ];
 
     /// <summary>The model matrix for geometry already in world space.</summary>
@@ -3788,11 +3870,33 @@ internal sealed unsafe class WorldRenderer : IDisposable
     private const int SecondTransformRow0 = 24;
     private const int SecondTransformRow1 = 28;
     private const int ModulationRed = 32;
+
+    /// <summary>Where <c>categoryColour</c> starts, in floats from the struct's front.</summary>
+    /// <remarks>
+    /// **Named because addressing it from the END of the array was wrong the moment the struct
+    /// grew** (B331). It was written as `contents.Length - 4` while `categoryColour` happened to be
+    /// the last float4; appending `tintControl` after it sent the per-batch category colour into the
+    /// tint controls, whose x is read as `$blendtintbybasealpha` — so every reflective model took
+    /// the tint branch against a garbage mask and drew pure white.
+    ///
+    /// Seventeenth float4 of eighteen, counted from the shader's own struct: four uninterpreted,
+    /// four transform rows, modulation, combine, two envmap, three phong, rim, category, tint.
+    /// </remarks>
+    private const int CategoryColourRed = 64;
     private const int ModulationAlpha = 35;
 
     /// <summary>Runs a material's proxies for the current playback time.</summary>
     /// <param name="contents">The material's constants, already copied.</param>
     /// <param name="proxies">What the VMT declared, in declaration order.</param>
+    /// <param name="materialIndex">
+    /// Which material, so a proxy can read the material's own variables — <c>$colortint_base</c> and
+    /// the <c>$color</c> factor — rather than only the constants (B330).
+    /// </param>
+    /// <param name="paint">
+    /// The colour the ENTITY being drawn is painted, or null for an unpainted one. TF2's
+    /// <c>ItemTintColor</c> is a per-entity proxy, which is why it arrives at the bind rather than
+    /// being folded into the material at load.
+    /// </param>
     /// <remarks>
     /// **In order, because last wins.** Two proxies writing the same variable is legal and the
     /// engine resolves it by running them in the order the file lists them.
@@ -3802,8 +3906,30 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// skipped rather than guessed at, which leaves the material at its resting value: the same
     /// picture as before proxies existed, rather than a wrong one.
     /// </remarks>
-    private void ApplyProxies(float[] contents, IReadOnlyList<MaterialProxy> proxies)
+    private void ApplyProxies(
+        float[] contents,
+        IReadOnlyList<MaterialProxy> proxies,
+        int materialIndex,
+        (float Red, float Green, float Blue)? paint)
     {
+        // **A material variable table, because TF2's paint chain writes one proxy's output into
+        // another's input** (B330). `ItemTintColor` produces `$colortint_tmp` and
+        // `SelectFirstIfNonZero` consumes it — neither is a shader constant, and running the second
+        // without the first's result would be running half a mechanism.
+        //
+        // Seeded from the material rather than left empty: `$colortint_base` is what an UNPAINTED
+        // item wears, and a `SelectFirstIfNonZero` reading a missing variable as zero would paint
+        // every unpainted cosmetic black.
+        Dictionary<string, (float Red, float Green, float Blue)>? variables = null;
+
+        if (Tintable(materialIndex) is { } tintBase)
+        {
+            variables = new(StringComparer.OrdinalIgnoreCase)
+            {
+                ["$colortint_base"] = tintBase,
+            };
+        }
+
         foreach (MaterialProxy proxy in proxies)
         {
             if (proxy.Name.Equals("Sine", StringComparison.OrdinalIgnoreCase))
@@ -3814,7 +3940,99 @@ internal sealed unsafe class WorldRenderer : IDisposable
             {
                 ApplyTextureScroll(contents, proxy);
             }
+            else if (variables is not null &&
+                proxy.Name.Equals("ItemTintColor", StringComparison.OrdinalIgnoreCase))
+            {
+                ApplyItemTintColor(variables, proxy, paint);
+            }
+            else if (variables is not null &&
+                proxy.Name.Equals("SelectFirstIfNonZero", StringComparison.OrdinalIgnoreCase))
+            {
+                ApplySelectFirstIfNonZero(contents, variables, proxy, materialIndex);
+            }
         }
+    }
+
+    /// <summary>The colour an unpainted tintable item wears, or null for anything else.</summary>
+    private (float Red, float Green, float Blue)? Tintable(int materialIndex) =>
+        materialIndex >= 0 && materialIndex < _textures.Count &&
+        materialIndex < _tintBases.Count
+            ? _tintBases[materialIndex]
+            : null;
+
+    /// <summary>TF2's paint, written into whichever variable the proxy names (B330).</summary>
+    /// <remarks>
+    /// <c>CProxyItemTintColor::OnBind</c> (<c>econ_wearable.cpp:465-543</c>). **Zero when the item
+    /// is unpainted, and that is the mechanism rather than a fallback** — the result starts at
+    /// <c>Vector( 0, 0, 0 )</c> and is left there, which is precisely what makes the
+    /// <c>SelectFirstIfNonZero</c> beside it choose the material's own colour instead. Writing
+    /// white here, or skipping the write, would break the pair.
+    ///
+    /// The value itself — the attribute, the old-team sentinel, the alt fallback — is
+    /// <c>ItemPaint</c>, computed where the item's econ attributes are.
+    /// </remarks>
+    private static void ApplyItemTintColor(
+        Dictionary<string, (float Red, float Green, float Blue)> variables,
+        MaterialProxy proxy,
+        (float Red, float Green, float Blue)? paint)
+    {
+        if (proxy.Argument("resultVar") is not { Length: > 0 } result)
+        {
+            return;
+        }
+
+        variables[result] = paint ?? (0f, 0f, 0f);
+    }
+
+    /// <summary>Valve's <c>CSelectFirstIfNonZeroProxy</c>, over vectors (B330).</summary>
+    /// <remarks>
+    /// <code>
+    /// if ( !a.IsZero() ) m_pResult->SetVecValue( a.Base(), vecSize );
+    /// else               m_pResult->SetVecValue( b.Base(), vecSize );
+    /// </code>
+    ///
+    /// <c>mathproxy.cpp:1050-1062</c>. **`IsZero` is all three channels**, so a paint of pure black
+    /// would be indistinguishable from no paint — which is Valve's own behaviour and is reproduced
+    /// rather than improved on.
+    ///
+    /// **The result reaches the shader only for `$color2`**, which is where every shipped tintable
+    /// material sends it. The modulation constant holds `$color * $color2`, so the factor is
+    /// multiplied back in here — writing the selected colour raw would drop a material's own
+    /// `$color` on the floor.
+    /// </remarks>
+    private void ApplySelectFirstIfNonZero(
+        float[] contents,
+        Dictionary<string, (float Red, float Green, float Blue)> variables,
+        MaterialProxy proxy,
+        int materialIndex)
+    {
+        if (proxy.Argument("srcVar1") is not { Length: > 0 } first ||
+            proxy.Argument("srcVar2") is not { Length: > 0 } second ||
+            proxy.Argument("resultVar") is not { Length: > 0 } result)
+        {
+            return;
+        }
+
+        _ = variables.TryGetValue(first, out (float Red, float Green, float Blue) a);
+        _ = variables.TryGetValue(second, out (float Red, float Green, float Blue) b);
+
+        (float Red, float Green, float Blue) chosen = a is (0f, 0f, 0f) ? b : a;
+
+        variables[result] = chosen;
+
+        if (!result.Equals("$color2", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        (float Red, float Green, float Blue) factor =
+            materialIndex >= 0 && materialIndex < _colourFactors.Count
+                ? _colourFactors[materialIndex]
+                : (1f, 1f, 1f);
+
+        contents[ModulationRed] = factor.Red * chosen.Red;
+        contents[ModulationRed + 1] = factor.Green * chosen.Green;
+        contents[ModulationRed + 2] = factor.Blue * chosen.Blue;
     }
 
     /// <summary>Oscillates whichever variable the proxy names.</summary>
@@ -3920,7 +4138,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         ComPtr<ID3D11DeviceContext> context,
         int materialIndex,
         SurfaceCategory? category = null,
-        (float Red, float Green, float Blue)? tint = null)
+        (float Red, float Green, float Blue)? tint = null,
+        (float Red, float Green, float Blue)? paint = null)
     {
         // **The category view's underlay, chosen per material because that is what decides it.**
         // A material that resolved to nothing draws Valve's magenta-and-black chequer; everything
@@ -4042,7 +4261,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // the material's resting state, and a proxy must not bake this frame's value into it.
             contents = [.. contents];
 
-            ApplyProxies(contents, _proxies[materialIndex]);
+            ApplyProxies(contents, _proxies[materialIndex], materialIndex, paint);
         }
 
         // **Every array feeding this buffer must be exactly the shader struct's length, and this is
@@ -4067,6 +4286,21 @@ internal sealed unsafe class WorldRenderer : IDisposable
             throw new InvalidOperationException(
                 $"material {materialIndex} carries {contents.Length} constants where the shader " +
                 $"declares {NoDetail.Length}; a short array leaves the buffer's tail undefined");
+        }
+
+        // **And that the named offsets still point where they say** (B331). The length check above
+        // catches an array that grew without the struct; this catches the struct growing without
+        // the offsets — which is what happened when `tintControl` was appended after
+        // `categoryColour` and the per-batch write, addressed from the END, landed in it.
+        //
+        // Cheap, and it is a comparison against the one array that IS the struct's shape rather
+        // than a second hardcoded number that could drift the same way.
+        if (CategoryColourRed + 4 != NoDetail.Length - 4)
+        {
+            throw new InvalidOperationException(
+                $"categoryColour is declared at float {CategoryColourRed} of {NoDetail.Length}, "
+                + "which is no longer the float4 before the last; the shader struct has changed "
+                + "and the named offsets have not");
         }
 
         MappedSubresource mapped = default;
@@ -4107,12 +4341,21 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 colour = (colour.Red * entity.Red, colour.Green * entity.Green, colour.Blue * entity.Blue);
             }
 
+            // **Addressed from a NAMED offset, not from the end of the array** (B331). This read
+            // `contents.Length - 4` on the assumption that `categoryColour` is the struct's last
+            // float4 — true when it was written, and false the moment `tintControl` was appended
+            // after it. The category colour then landed in the tint controls, whose x is read as
+            // `$blendtintbybasealpha`: every reflective model took the tint branch with a garbage
+            // mask and drew pure white, which the two reflection render tests caught.
+            //
+            // The offset is derived from the struct rather than from the array's length, so
+            // appending another float4 cannot move it again.
             float* target = (float*)mapped.PData;
 
-            target[contents.Length - 4] = colour.Red;
-            target[contents.Length - 3] = colour.Green;
-            target[contents.Length - 2] = colour.Blue;
-            target[contents.Length - 1] = 1f;
+            target[CategoryColourRed] = colour.Red;
+            target[CategoryColourRed + 1] = colour.Green;
+            target[CategoryColourRed + 2] = colour.Blue;
+            target[CategoryColourRed + 3] = 1f;
         }
 
         context.Unmap(_material, 0);
@@ -4425,6 +4668,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         _usesLocalCubemap.Clear();
         _lightWarps.Clear();
         _selfIllumMasks.Clear();
+        _tintBases.Clear();
+        _colourFactors.Clear();
         _sortedTranslucent = [];
         _decals = [];
         _detailParameters.Clear();
@@ -4658,6 +4903,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// or to ice. Not a skin: a skin picks another entry from the model's own table, and this
     /// ignores the table. An unresolved path falls back to the model's own materials.
     /// </param>
+    /// <param name="paint">
+    /// The colour this ENTITY's item is painted, or null for an unpainted one (B330). Feeds TF2's
+    /// <c>ItemTintColor</c> proxy at the bind, which is where the engine runs it — a proxy is
+    /// per entity per draw, so this cannot be folded into the material at load.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **One matrix and one draw per entity, which is the engine's shape.** The vertices were
@@ -4684,7 +4934,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         (float X, float Y, float Z)? origin = null,
         (float Red, float Green, float Blue)? tint = null,
         IReadOnlyList<LocalLight>? locals = null,
-        string? overrideMaterial = null)
+        string? overrideMaterial = null,
+        (float Red, float Green, float Blue)? paint = null)
     {
         ArgumentNullException.ThrowIfNull(matrix);
         ArgumentNullException.ThrowIfNull(batches);
@@ -5081,7 +5332,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
             // A model's own batches carry their category too — `Prop`, or `Missing` where the
             // material did not resolve. A brush entity adds its class colour on top (B219).
-            SetMaterial(context, material, batch.Category, tint);
+            SetMaterial(context, material, batch.Category, tint, paint);
 
             drawn += batch.VertexCount;
 

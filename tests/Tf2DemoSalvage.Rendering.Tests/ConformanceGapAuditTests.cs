@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 
@@ -107,6 +108,88 @@ public sealed class ConformanceGapAuditTests
         ];
 
         missing.ShouldBeEmpty("a row naming a marker that no longer exists checks nothing; remove it");
+    }
+
+    /// <remarks>
+    /// **The audit policed the TESTS and nothing policed the DOCUMENT, so the document rotted.**
+    /// `GapMarkers_WhoseFeatureNowWorks_AreReported` works exactly as designed — it went red for
+    /// `$normalmapalphaenvmapmask` the session that feature landed, and its message says what to do:
+    /// *"delete the test, its row here, and its section in docs/CONFORMANCE.md"*. The first two were
+    /// done; the third was skipped, three times.
+    ///
+    /// Found 2026-09-04: `$normalmapalphaenvmapmask`, `$lightwarptexture` and `$rimlight` were all
+    /// sitting under **"Not implemented, ordered by what it costs"** while all three are in the
+    /// shader — the reflection mask as `envmapControl.y == 2`, the ramp as a clamped double sample,
+    /// the rim as `rimControl`. A reader planning work off that list would have built one of them
+    /// twice, which is the exact cost this file's own header describes having paid once already.
+    ///
+    /// **The check is the census, which is maintained for its own reasons.** A heading under that
+    /// section naming a parameter that `MaterialCensus.ImplementedParameters` contains is a
+    /// contradiction between two documents, and one of them is enforced.
+    ///
+    /// **Only the headings are read, not the prose.** A section may discuss an implemented parameter
+    /// — the `$normalmapalphaenvmapmask` entry explains the mask it is mutually exclusive with — and
+    /// that is not a claim. What a heading says IS the claim.
+    /// </remarks>
+    [Test]
+    public void TheCostOrderedGapList_NamesNoParameterThatIsImplemented()
+    {
+        string path = Path.GetFullPath(Path.Combine(
+            TestContext.CurrentContext.TestDirectory,
+            "..", "..", "..", "..", "..", "docs", "CONFORMANCE.md"));
+
+        if (!File.Exists(path))
+        {
+            Assert.Ignore($"docs/CONFORMANCE.md is not beside the tests at {path}");
+            return;
+        }
+
+        string[] lines = File.ReadAllLines(path);
+
+        int from = Array.FindIndex(
+            lines, line => line.StartsWith("## Not implemented", StringComparison.Ordinal));
+
+        from.ShouldBeGreaterThanOrEqualTo(
+            0, "the gap list's heading has been renamed and this audit is reading nothing");
+
+        int to = Array.FindIndex(
+            lines,
+            from + 1,
+            lines.Length - from - 1,
+            line => line.StartsWith("## ", StringComparison.Ordinal));
+
+        to.ShouldBeGreaterThan(from, "the gap list runs to the end of the file, which it should not");
+
+        // Only the `###` headings inside that section, which is where a claim lives.
+        string[] claims =
+        [
+            .. lines[from..to]
+                .Where(line => line.StartsWith("### ", StringComparison.Ordinal)),
+        ];
+
+        claims.Length.ShouldBeGreaterThan(
+            2, "the gap list is suspiciously short; the section markers have probably moved");
+
+        List<string> stale = [];
+
+        foreach (string parameter in MaterialCensus.ImplementedParameters)
+        {
+            foreach (string claim in claims)
+            {
+                // A heading may say IMPLEMENTED in as many words, which is how a section that
+                // outlived its gap is kept for the history rather than deleted.
+                if (claim.Contains($"`{parameter}`", StringComparison.OrdinalIgnoreCase) &&
+                    !claim.Contains("IMPLEMENTED", StringComparison.Ordinal))
+                {
+                    stale.Add($"{parameter} in '{claim.Trim()}'");
+                }
+            }
+        }
+
+        stale.ShouldBeEmpty(
+            "these are listed as gaps in docs/CONFORMANCE.md and are in "
+            + "MaterialCensus.ImplementedParameters; the two documents contradict each other and "
+            + "somebody will plan work off the wrong one");
     }
 
     [Test]

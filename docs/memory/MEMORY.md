@@ -144,3 +144,7 @@
 - [Shipped data settles what closed code cannot](shipped-data-settles-what-closed-code-cannot.md) — Valve shipped no bump map that draws on no hardware.
 - [A .phy is text except for the hulls](a-phy-is-text-except-for-the-hulls.md) — masses, bone names and joint limits are KeyValues.
 - [A hand-maintained numerator drifts downward](a-hand-maintained-numerator-drifts-downward.md) — coverage understated by 2 lumps and 7 structures.
+- [Police the document, not just the test](police-the-document-not-just-the-test.md) — the audit's last instruction is the one skipped.
+- [Print a value somebody can recognise](print-a-value-somebody-can-recognise.md) — Pink as Hell verifies a decode; a count of 12 does not.
+- [A proxy is per entity per draw](a-proxy-is-per-entity-per-draw.md) — paint cannot live on the material; the chain needs both proxies.
+- [Address a struct by name, not from its end](address-a-struct-by-name-not-from-its-end.md) — fourth time this buffer bit; reflections went white.

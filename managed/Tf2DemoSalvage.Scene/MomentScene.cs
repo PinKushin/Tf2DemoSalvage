@@ -294,6 +294,15 @@ public sealed class MomentScene : IGameSystemPerFrame
             // the first-person hands.
             prop.FirstPerson ? AttachedModel.ViewModel : AttachedModel.WorldModel);
 
+        // **The paint, asked per prop for the same reason and needing the same team** (B330).
+        // `CProxyItemTintColor` picks between a two-tone paint's two colours on
+        // `pEntity->GetTeam()->GetTeamNumber() == TF_TEAM_BLUE` (`econ_wearable.cpp:521-524`), and
+        // the owner's team is the scene's to know — a worn item carries none of its own.
+        //
+        // Set every rebuild, like the line above, because `players` is this moment's list.
+        _models.Paint = prop => Weapons.PaintFor(
+            prop, TeamOf(prop.OwnedBy ?? prop.AttachedTo, players));
+
         ReportUndressedPlayers(players);
 
         // **The model set resolves the mask's body part**, because only it has the .mdl. A spy's

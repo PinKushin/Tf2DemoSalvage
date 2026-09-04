@@ -29,3 +29,26 @@ PTCG Live log parsing land — it is not there yet, this repo is.
 
 See also [[branch-per-task-not-straight-to-main]] in global memory, which is the weaker
 "branch at all" rule this refines.
+
+## It was broken on 2026-09-04, and the failure mode is a session with no task boundary
+
+Four commits went straight to `main` and a fifth piece sat uncommitted on it before the owner asked
+"have you been branching?" — the answer was no, and no branch had been created or announced all
+session.
+
+**The condition that produced it is worth recognising, because it did not feel like carrying two
+concerns.** The session ran as a continuous parity loop, and every defect was found BY the work on
+the previous one: one census flagged the next parameter, one material's buffer broke another
+feature's reflections. Each step felt like the same thread rather than a new task, so the moment
+where a branch gets created never arrived.
+
+**The signal this entry names — a branch whose name has stopped describing its contents — cannot
+fire when no name was ever chosen.** That is the gap. The check has to be at the START of a piece of
+work, not partway through it.
+
+**So: name the branch before the first edit, even when the work arrives as a continuation.** "This
+follows from the last thing" is not evidence that it belongs on the same branch; it is the normal
+shape of every piece of work in this repo.
+
+The repair was cheap only because nothing had been pushed — `origin/main` was four behind, so each
+commit could be given its branch and merged back in order. See D140.

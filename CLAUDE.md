@@ -268,7 +268,7 @@ dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -- <name> [args]
 dotnet run --project tools/Tf2DemoSalvage.Probe -c Release --                # lists them
 ```
 
-Thirty-one of them. The ones worth knowing before writing a thirty-second:
+Thirty-two of them. The ones worth knowing before writing a thirty-third:
 
 | probe | answers |
 |---|---|
@@ -283,6 +283,7 @@ Thirty-one of them. The ones worth knowing before writing a thirty-second:
 | `procedural-bones` | the same question over every `.mdl` the GAME ships, not one demo's models |
 | `ragdoll-constraints` | what a `.phy` holds — masses, joint limits and bone names are TEXT; only the hulls are Havok |
 | `vmt-blocks [name]` | sub-blocks the 30,684 shipped materials open, and the parameters they hide |
+| `paint <demo> <tick>` | which items are painted and with what — hex, so a wrong read is recognisable |
 | `corpses <demo>` | what each `CTFRagdoll` says about itself, and how many are drawn at a tick |
 | `autoplay <demo>` | which models animate themselves off the clock — `STUDIO_AUTOPLAY` |
 
