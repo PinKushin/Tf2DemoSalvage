@@ -304,7 +304,7 @@ nothing. The corpses are not lost in the decode. They were never described.
 | skin | `m_iTeam == TF_TEAM_RED ? 0 : 1`, adjusted again by `AdjustSkinIndexForZombie` |
 | body | copied off the player, after `RecalcBodygroupsIfDirty`, unless `m_bFeignDeath` without `m_bWasDisguised` |
 | origin | `m_vecRagdollOrigin`; angles from the player's render angles |
-| cosmetics | `CreateBoneAttachmentsFromWearables` — and `m_hRagWearables` IS networked, eight ehandles, so this half is reproducible |
+| cosmetics | `CreateBoneAttachmentsFromWearables`, off the PLAYER's wearable list — **not** off `m_hRagWearables`, see below |
 | head/torso/hand scale | read off the player, not off the wire, despite `m_flHeadScale` etc. being sent |
 
 **One branch cannot be reproduced, and it is worth knowing before anyone tries.** Whether a death
@@ -319,6 +319,22 @@ Three quarters of eligible deaths discard the animation, by a `RandomFloat` on t
 client's own stream, recorded nowhere. So a replay cannot know which of the two a given corpse
 showed — it is a client-generated decision, the same class as
 `docs/memory/sound-the-demo-does-not-carry.md`, not a decode gap.
+
+**"Eligible" was carrying almost all the weight in that sentence and this entry did not say so.**
+`GetSequenceForDeath` is a `switch` on `m_iDamageCustom` with two cases and no default
+(`tf_player_shared.cpp:13441-13455`): headshots, decapitations and backstabs get one of TF2's two
+death animations, and **every other death returns -1** and goes straight to physics. Measured:
+
+| demo | corpses | eligible |
+|---|---|---|
+| `serveme-627619-stv-2026-08-07` (comp 6v6) | 159 | **0** |
+| `20120707-0042-koth_idioteque_a3` | 457 | 22 |
+| `20140607_2350_koth_pro_viaduct_rc4` | 147 | 5 |
+
+A quarter of those keep the animation, so **about one corpse in a hundred plays one**. The comp match
+scores zero because a 6v6 fields no sniper and no spy — and the control that the field decodes at all
+is the spread of values there: `TF_DMG_CUSTOM_NONE`, `STANDARD_STICKY`, `ROCKET_DIRECTHIT`,
+`AIR_STICKY_BURST`. **So the corpse pose is a physics question, essentially entirely.**
 
 **This paragraph used to say the choice was "a divergence to be ASKED about rather than chosen
 quietly", and that was wrong** (D136). The owner, put the question: *"you should of done it valves
@@ -399,9 +415,31 @@ shows. Visibility comes from the previous frame's posed set, the same arrangemen
 | creation → entity delete | 57 at once | the server's ragdoll outlives the drawn corpse by design |
 | … → also entity `Leave` | 61 at once | STV keeps corpses in its PVS, so leaves barely fire |
 
-**Still open, and each for its own reason:** the physics (B58), `m_nBody` from the player, **the
-POSE — B316, and the obvious fix for it is the wrong branch**, the cosmetics through
-`m_hRagWearables`, and the gold/ice/zombie overrides.
+**`m_hRagWearables` is networked and is NOT how a corpse gets its hats.** This entry previously said
+it was, which is the third wrong-mechanism claim in this one function. Valve's own declaration doubts
+it:
+
+```cpp
+CUtlVector<CHandle<CEconWearable > > m_hRagWearables;		// These look like they are no longer used?
+```
+
+`c_tf_player.h:1132`. The client touches it in exactly one place — `EndFadeOut`, to
+`AddEffects( EF_NODRAW )` and `SetMoveType( MOVETYPE_NONE )` them (`c_tf_player.cpp:1652-1660`) —
+and never draws from it; the server only `Remove()`s them (`tf_player.cpp:401-408`). It is a
+networked field whose whole client life is being hidden.
+
+The real path is `CreateBoneAttachmentsFromWearables( pRagdoll, m_bWasDisguised )`
+(`c_tf_player.cpp:10169-10251`), which walks the **PLAYER's** wearable list, skips viewmodel
+wearables, disguise mismatches and `EF_NODRAW` items, builds a `C_EconWearableGib` per survivor from
+`pItem->GetModel()`, takes `m_nSkin` off the item and the team off the ragdoll, and then
+`MoveBoneAttachments` moves them across. **That list this project already has** — the player's
+wearables are ordinary bone-merged entities in the demo — so the cosmetics are reachable, just not
+through the field that looked like it was for them.
+
+**Still open, and each for its own reason:** the physics (B58) — **which the measurement above makes
+the only thing that matters for the pose** — `m_nBody` from the player, the cosmetics off the
+player's wearable list, and the gold/ice/zombie overrides. B316 is filed but is now known to be worth
+little on its own.
 
 **B316 is worth reading before touching the pose.** A corpse currently stands upright, and the line
 everyone finds is `LookupSequence( "RagdollSpawn" )` — which is the `else` of

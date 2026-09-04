@@ -168,6 +168,54 @@ public sealed class CorpseProbe : IProbe
         // enough that the count is a usable instrument.
         output.WriteLine($"  {facing} face a direction taken from the player they were");
 
+        // **How many corpses could play a death ANIMATION at all.** `GetSequenceForDeath` is a
+        // switch on `m_iDamageCustom` with two cases and no default — headshots and their
+        // decapitation variants, and backstabs — returning -1 for every other death
+        // (`tf_player_shared.cpp:13441-13454`). Of those, only a quarter keep it (the `RandomFloat`,
+        // D136). So this count bounds the whole feature, and if it is small the pose question is
+        // almost entirely about PHYSICS rather than about animations.
+        int eligible = 0;
+        int noCustom = 0;
+
+        foreach (SceneRagdoll corpse in timeline.Corpses)
+        {
+            if (corpse.DamageCustom is not { } how)
+            {
+                noCustom++;
+                continue;
+            }
+
+            if (how is DeathAnimEligible.Headshot or DeathAnimEligible.Backstab
+                or DeathAnimEligible.Decapitation or DeathAnimEligible.BarbarianSwing
+                or DeathAnimEligible.HeadshotDecapitation)
+            {
+                eligible++;
+            }
+        }
+
+        output.WriteLine(
+            $"  {eligible} could play a death animation ({noCustom} sent no m_iDamageCustom); " +
+            "a quarter of those would");
+
+        // **The control on that zero.** A field that decodes to its default for every entity looks
+        // identical to a field nobody eligible triggered, and only the spread tells them apart
+        // (`docs/memory/an-empty-search-needs-a-control.md`). A comp 6v6 has no sniper and no spy,
+        // so zero headshots and zero backstabs is the expected answer — but it has to be shown
+        // rather than assumed, and a single value repeated 159 times would mean the decode.
+        Dictionary<int, int> kinds = [];
+
+        foreach (SceneRagdoll corpse in timeline.Corpses)
+        {
+            if (corpse.DamageCustom is { } how)
+            {
+                kinds[how] = kinds.TryGetValue(how, out int seenBefore) ? seenBefore + 1 : 1;
+            }
+        }
+
+        output.WriteLine(
+            "  m_iDamageCustom seen: " +
+            string.Join(", ", kinds.OrderByDescending(k => k.Value).Select(k => $"{k.Key}x{k.Value}")));
+
         // **The control that says whether "most at once" is corpses or double-counting.** Two
         // corpses may share an entity slot, and if their windows overlap the count is inflated by
         // an arithmetic fault rather than reporting the scene. The server keeps one ragdoll per
@@ -287,5 +335,22 @@ public sealed class CorpseProbe : IProbe
         }
 
         return best;
+    }
+
+    /// <summary>
+    /// The only <c>TF_DMG_CUSTOM_*</c> ordinals <c>GetSequenceForDeath</c> answers for.
+    /// </summary>
+    /// <remarks>
+    /// Counted off the enumerators of `ETFDmgCustom` (`tf_shareddefs.h:1181`), comments excluded —
+    /// the first attempt at these numbers took line offsets and would have been wrong for every
+    /// value after the first comment in the block.
+    /// </remarks>
+    private static class DeathAnimEligible
+    {
+        public const int Headshot = 1;
+        public const int Backstab = 2;
+        public const int Decapitation = 20;
+        public const int BarbarianSwing = 24;
+        public const int HeadshotDecapitation = 51;
     }
 }

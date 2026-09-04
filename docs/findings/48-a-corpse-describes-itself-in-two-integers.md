@@ -199,7 +199,7 @@ one would guess.
 | **gibbed** | **`m_bGib`** | — |
 | burning, electrocuted, dissolving, gold, ice, ash, cloaked, feign, disguised | each its own bool | — |
 | manner of death | `m_iDamageCustom` | — |
-| cosmetics worn | `m_hRagWearables`, eight ehandles | the gib entities built from them |
+| cosmetics worn | `m_hRagWearables`, eight ehandles — **and the client only ever hides them** | the attachments, built from the PLAYER's wearable list instead |
 | **death animation or physics** | — | **an unrecorded coin flip** |
 
 The last row is the only genuinely unrecoverable one:
@@ -212,6 +212,61 @@ if ( !m_bIceRagdoll && !tf_always_deathanim.GetBool() && (RandomFloat( 0, 1 ) > 
 `c_tf_player.cpp:829-832`. Three quarters of eligible deaths discard the animation and fall as
 physics, decided by a draw on the recording client's own random stream and stored nowhere. Same
 class as the client-predicted footsteps: not a decode gap, a thing that was never in the file.
+
+### "Eligible" is doing far more work in that sentence than it looks
+
+The coin flip is the famous half. The gate in front of it decides almost everything, and it is a
+`switch` with two cases and no default:
+
+```cpp
+switch ( nCustomDeath )
+{
+case TF_DMG_CUSTOM_HEADSHOT_DECAPITATION:
+case TF_DMG_CUSTOM_TAUNTATK_BARBARIAN_SWING:
+case TF_DMG_CUSTOM_DECAPITATION:
+case TF_DMG_CUSTOM_HEADSHOT:
+    iDeathSeq = pRagdoll->LookupSequence( "primary_death_headshot" );
+    break;
+case TF_DMG_CUSTOM_BACKSTAB:
+    iDeathSeq = pRagdoll->LookupSequence( "primary_death_backstab" );
+    break;
+}
+
+return iDeathSeq;
+```
+
+`CTFPlayerShared::GetSequenceForDeath`, `tf_player_shared.cpp:13441-13455`. Read-from-source.
+**Every death that is not a headshot, a decapitation or a backstab returns -1** — no death animation
+exists for it, and the corpse goes straight to physics. TF2 ships exactly two death animations,
+`primary_death_headshot` and `primary_death_backstab`.
+
+`m_bBurning` is passed into the function and never used: the burning branch is present and
+**commented out** (`:13437-13440`), one more conditionally-dead thing in this corner of the engine.
+
+Measured on three demos, counting corpses whose `m_iDamageCustom` is one of the five eligible
+ordinals:
+
+| demo | corpses | eligible | would animate (¼) |
+|---|---|---|---|
+| `serveme-627619-stv-2026-08-07` (comp 6v6) | 159 | **0** | 0 |
+| `20120707-0042-koth_idioteque_a3` | 457 | 22 | ~6 |
+| `20140607_2350_koth_pro_viaduct_rc4` | 147 | 5 | ~1 |
+
+```bash
+dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -- corpses <demo>
+```
+
+**So about one corpse in a hundred plays a death animation.** The comp match scores zero because a
+6v6 runs no sniper and no spy — and that is the control on the whole measurement, not a curiosity:
+the observed `m_iDamageCustom` values there are `0×138, 31×9, 28×7, 25×5`, which is
+`TF_DMG_CUSTOM_NONE`, `STANDARD_STICKY`, `ROCKET_DIRECTHIT` and `AIR_STICKY_BURST` — a soldier and
+demo match, exactly. The two koth demos, which do carry snipers and spies, are where ordinals 1 and 2
+appear at all. A field decoding to its default for everything would have looked identical to a real
+zero, and the spread is what separates them.
+
+**The consequence for anyone planning work here: the pose problem is physics, not animation.** Both
+the death animation and the copied player sequence are worth almost nothing to how a corpse looks;
+what makes a body lie down is `InitAsClientRagdoll`, and every corpse in that comp match takes it.
 
 **Three networked fields are conditionally vestigial, which is a shape worth naming.** The corpse
 sends its own `m_flHeadScale`, `m_flTorsoScale` and `m_flHandScale`, and `CreateTFRagdoll` opens by
@@ -235,6 +290,25 @@ code reads at all; this is a field with one live branch out of two.
 The angles are the mirror image — nothing is sent, and the client reaches back through the networked
 `m_hPlayer` for `GetRenderAngles()`. Both facts point the same way: **for a corpse, the player entity
 is part of the format.**
+
+**And one field is fully vestigial, with Valve saying so in the declaration.** `m_hRagWearables` is
+eight networked ehandles that look exactly like the corpse's cosmetics list:
+
+```cpp
+CUtlVector<CHandle<CEconWearable > > m_hRagWearables;		// These look like they are no longer used?
+```
+
+`c_tf_player.h:1132`. The client's only use of it is inside `EndFadeOut`, hiding them
+(`AddEffects( EF_NODRAW )`, `SetMoveType( MOVETYPE_NONE )`, `:1652-1660`); the server only `Remove()`s
+them (`tf_player.cpp:401-408`). Nothing ever draws from it. A corpse's hats come from
+`CreateBoneAttachmentsFromWearables`, which walks the **player's** wearable list
+(`c_tf_player.cpp:10169-10251`).
+
+This is the third time in one function that the field or line which looks like the answer is not:
+the skin (the player's rule, not the ragdoll's), the pose (`RagdollSpawn`, the local-player branch),
+and now the cosmetics. `CreateTFRagdoll` is unusually rich in plausible wrong answers, and the reason
+seems to be its age — it carries several mechanisms that were replaced without the old ones being
+deleted.
 
 **`m_bGib` is not part of that and the two get conflated.** Gibbing is networked
 (`RecvPropBool( RECVINFO( m_bGib ) )`, `:524`) and read rather than guessed. The coin flip is

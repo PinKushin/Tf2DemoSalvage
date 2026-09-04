@@ -192,3 +192,4 @@
 - [A shared helper may hold another function's rule](a-shared-helper-may-hold-another-functions-rule.md) — two engine functions agreeing everywhere but the `default`; the DRY move is the defect.
 - [A restarted timer is not a lifetime](a-restarted-timer-is-not-a-lifetime.md) — read the think, not just the Start; a looked-at corpse never fades.
 - [The cited line may be the wrong branch](the-cited-line-may-be-the-wrong-branch.md) — a demo settles `IsLocalPlayer` globally; check which branch it takes before implementing.
+- [Measure the gate before building the branch](measure-the-gate-before-building-the-branch.md) — the famous coin flip sat behind a switch only 1% of corpses passed.

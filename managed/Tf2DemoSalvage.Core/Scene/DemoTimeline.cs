@@ -419,6 +419,11 @@ public readonly record struct TimelineFrame(
 /// `m_angRotation`; zero when the player could not be resolved, which is what leaves every body in a
 /// match facing the same way.
 /// </param>
+/// <param name="DamageCustom">
+/// <c>m_iDamageCustom</c> — how the death happened, and the only thing that decides whether a death
+/// ANIMATION is even possible. `GetSequenceForDeath` switches on it and returns -1 for everything
+/// but headshots, decapitations and backstabs (`tf_player_shared.cpp:13441-13454`).
+/// </param>
 /// <remarks>
 /// **The reason corpses are invisible is that they were never DESCRIBED, not that they were lost.**
 /// `DT_TFRagdoll` is `NOBASE`, so it inherits no model index, no skin, no body and no angles; a prop
@@ -440,7 +445,8 @@ public readonly record struct SceneRagdoll(
     bool WasDisguised,
     int FirstTick,
     int LastTick,
-    float Yaw = 0f);
+    float Yaw = 0f,
+    int? DamageCustom = null);
 
 
 /// <summary>
@@ -2618,7 +2624,7 @@ public sealed class DemoTimeline
 
             corpses[entity.EntityIndex] = new SceneRagdoll(
                 entity.EntityIndex, corpse.SerialNumber, playerClass, team, x, y, z,
-                gib, burning, feign, disguised, born, tick, facing);
+                gib, burning, feign, disguised, born, tick, facing, corpse.DamageCustom());
         }
 
         if (entity.UpdateType == EntityUpdateType.Delete)

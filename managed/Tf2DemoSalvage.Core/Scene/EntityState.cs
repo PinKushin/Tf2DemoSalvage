@@ -1953,6 +1953,20 @@ public sealed class EntityState
         };
     }
 
+    /// <summary>How this corpse was made — <c>m_iDamageCustom</c>.</summary>
+    /// <returns>A <c>TF_DMG_CUSTOM_*</c> ordinal, or null when this entity sent none.</returns>
+    /// <remarks>
+    /// **The whole death-animation question turns on this one integer**, and it excludes far more
+    /// than it admits. `CTFPlayerShared::GetSequenceForDeath` is a `switch` on it with two cases and
+    /// no default (`tf_player_shared.cpp:13425-13456`): headshot, decapitation and their taunt
+    /// variants get `primary_death_headshot`, backstab gets `primary_death_backstab`, and **every
+    /// other death returns -1** — no animation at all, straight to physics.
+    ///
+    /// So the "25% of deaths play an animation" reading is wrong by a wide margin: 25% of the
+    /// ELIGIBLE deaths do, and eligibility is only these.
+    /// </remarks>
+    public int? DamageCustom() => Integer($"{RagdollTable}.m_iDamageCustom");
+
     /// <summary>Which player this corpse was — <c>m_hPlayer</c>.</summary>
     /// <returns>The raw handle, or null when this entity sent none.</returns>
     /// <remarks>

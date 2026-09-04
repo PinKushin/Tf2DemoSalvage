@@ -21355,5 +21355,18 @@ of death, which is a different reach than anything B315 needed.
   `EF_NODRAW` (`docs/memory/death-is-ef-nodraw-not-an-animation.md`) and stopped being posed.
 - What `Interp_Copy` brings across that `SetSequence` alone does not — the cycle is not set
   explicitly in that branch, so it must arrive through the interpolator copy.
-- Whether the 25% death-animation branch (D136) should be built first, since `ResetSequence(iDeathSeq)`
-  overrides the copied sequence outright and would make the copy moot for those corpses.
+- ~~Whether the 25% death-animation branch (D136) should be built first~~ — **answered by
+  measurement, and the answer is no.** `GetSequenceForDeath` is a `switch` on `m_iDamageCustom` with
+  two cases and no default (`tf_player_shared.cpp:13441-13455`), so only headshots, decapitations and
+  backstabs are eligible at all. Counted with the `corpses` probe: **0 of 159** in
+  `serveme-627619-stv-2026-08-07`, 22 of 457 in `20120707-0042-koth_idioteque_a3`, 5 of 147 in
+  `20140607_2350_koth_pro_viaduct_rc4`. A quarter of those keep it, so roughly **one corpse in a
+  hundred** plays a death animation. The comp match scores zero because a 6v6 runs no sniper and no
+  spy; the control that the field decodes is the spread there — `NONE`, `STANDARD_STICKY`,
+  `ROCKET_DIRECTHIT`, `AIR_STICKY_BURST`, which is a soldier-and-demo match exactly.
+
+**So B316 is worth much less than it looked, and B58 is worth much more.** Neither the copied
+sequence nor the death animation makes a body lie down — both leave it standing, in a running or an
+idle pose. What lays a corpse out is `InitAsClientRagdoll`, which every corpse in that comp match
+takes. **The corpse pose is a physics question, essentially entirely**, and effort spent on B316
+before B58 buys a change from one upright pose to another.
