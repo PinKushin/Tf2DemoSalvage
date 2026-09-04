@@ -21179,3 +21179,36 @@ twice and we fix it up afterwards.
 `IK_ATTACHMENT`, `IK_GROUND` and `IK_UNLATCH` — with `IK_SELF` commented out of its own switch — and
 the census over 8,743 animations reports **GROUND 0, ATTACHMENT 0, UNLATCH 0**, against SELF 1,948
 and RELEASE 14,907. There is nothing for it to update.
+
+#### `ComputeFxBlend` and `GetRenderGroup`, checked and complete — 2026-09-04
+
+Audited by the same method and found with no gaps, which is worth recording because "we checked and
+it is right" is otherwise indistinguishable from "nobody looked".
+
+**Every case matches.** `C_BaseEntity::ComputeFxBlend` (`c_baseentity.cpp:3343`, 35 branches)
+switches on sixteen render-fx values plus a default; `FxBlend` has all sixteen — the five pulses,
+two fades, two solids, three strobes, two flickers, hologram and distort — and the default that
+answers 255.
+
+**Including the tail, which is easy to stop before.** After the clamp the engine looks for a
+client-side distance fade and multiplies it in:
+
+```cpp
+unsigned char nFadeAlpha = GetClientSideFade();
+if ( nFadeAlpha != 255 ) { blend = (int)( flBlend * flFade * 255.0f + 0.5f ); … }
+```
+
+`EntityFade` is that (B268), and it is applied where the engine applies it — after the fx blend,
+not instead of it.
+
+**And the last line of the function, which is not about alpha at all.** `ComputeFxBlend` ends by
+re-sorting the entity: `SetRenderGroup( GetRenderHandle(), GetRenderGroup() )`, and `GetRenderGroup`
+turns on the blend it just computed — `if ( ( nFXBlend != 255 ) || IsTransparent() )` moves an
+entity to the translucent pass. So a distance fade does not merely dim an entity, it changes which
+pass draws it. `Device3D.Classify` reads `instance.Alpha` and passes it to `RenderGroups.Lists`,
+which is the same dependence.
+
+**The interesting part is that the last line is the one that would have been missed.** A reader
+following "what alpha does this entity get" stops at `m_nRenderFXBlend = blend;` — the answer is
+there, and the re-sort two lines further on is a different subject wearing the same function name.
+That is the shape of B309's fourth site as well.
