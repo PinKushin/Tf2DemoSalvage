@@ -20875,3 +20875,61 @@ where the number would differ, and the corpus has neither.
 **The command is recorded beside the number on purpose.** A measurement written down as a conclusion
 expires silently when the corpus grows; written down as a command it can be re-run by whoever
 doubts it.
+
+### B313 2026-09-04: the coaching team substitution, and a lookup that could never match
+
+**Two findings, and the second was found while implementing the first.**
+
+#### The coaching branch — implemented, name-verified, NOT exercised
+
+`C_TFPlayer::IsEnemyPlayer` substitutes the student's team for the coach's own
+(`c_tf_player.cpp:10136`), and the engine repeats it where the disguise colour is chosen (`:5394`)
+under the comment *"if we are coaching, use the team of the student"*:
+
+```cpp
+int iMyApparentTeam = GetTeamNumber();
+if ( m_bIsCoaching && m_hStudent )
+    iMyApparentTeam = m_hStudent->GetTeamNumber();
+```
+
+**A coach has no team of their own that means anything** — they sit on `TEAM_SPECTATOR` while
+attached — so without this every player in a coached recording reads as friendly, enemies included.
+
+**Both fields are `DT_TFLocalPlayerExclusive`**, sent only to the local player, who in a POV demo is
+the recorder. So a coached recording carries exactly what this needs.
+
+**What is NOT established, stated plainly: no test executes this branch.** The corpus has no
+coaching demo — `m_bIsCoaching` is 0 on all 33 of its appearances in `z1800` — and a synthetic
+fixture needs a schema-bound decoder carrying both properties plus a second player, which is a
+larger piece than the four lines it would cover. What IS verified: the two property names, read off
+a real demo's send tables with the `schema` probe, and the handle dereference, which is delegated to
+`EntityStateTable.Resolve` rather than reimplemented.
+
+**And it nearly reimplemented B231.** The first version masked the handle's low eleven bits.
+`Resolve` exists because masking alone dereferences a DANGLING handle to a real, existing, different
+entity — once measured as a resupply locker composed onto a door. Worse here: the invalid sentinel
+is 21 bits of ones whose low 11 mask to **2047**, a perfectly ordinary-looking slot, so every
+non-coaching player would have resolved to entity 2047 rather than to nothing.
+
+#### The recorder's team came from a lookup that could never match
+
+`m_iTeam` on `CTFPlayerResource` is keyed by ENTITY INDEX, zero-padded to three digits — confirmed
+against a dump of `z1800`, whose keys run `m_iTeam.000` upward. The player loop keyed it correctly.
+**The recorder's line, sixty lines away, passed the SLOT and did not pad**:
+
+```csharp
+resource?.Integer($"m_iTeam.{recording}")     // "m_iTeam.0", which matches nothing
+```
+
+**It returned null every time, and a `??` fell through to the player's own `m_iTeamNum`.** The code
+read as "prefer the resource, fall back to the entity" while only ever doing the second half — which
+is `docs/memory/a-fallback-that-makes-sound-hides-itself.md`: a fallback that works stops anyone
+noticing the path in front of it is dead.
+
+**Latent on this corpus, and measured so rather than assumed.** `spy-draw` on
+`tf2-2026-pub-pov-clean` reports `SPY 2 class 8 team 3 enemy False` both before and after the fix —
+identical output, because a POV demo's local player does carry its own `m_iTeamNum`. The resource
+path matters where that is absent.
+
+**Extracted to `ResourceTeam` so the two callers cannot disagree again.** One had it right and one
+had it wrong for as long as both have existed, which is what two spellings of one key produce.

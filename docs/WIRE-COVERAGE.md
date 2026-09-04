@@ -14,7 +14,7 @@ ignorance rather than proof of use — a name can be mentioned and still not hon
 which is its own recurring bug here. A property this report calls read may still be
 decoded and dropped.
 
-**121 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
+**123 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
 
 ## Tables an entity this viewer draws composes
 
@@ -100,12 +100,12 @@ m_ConditionList, m_askForBallTime, m_bArenaFirstBloodBoost, m_bCarryingObject, m
 
 ### DT_TFLocalPlayerExclusive
 
-**2 of 9** mentioned.
+**4 of 9** mentioned.
 
 Not mentioned anywhere in a shipped assembly:
 
 ```
-m_bIsCoaching, m_bMatchSafeToLeave, m_hCoach, m_hStudent, m_nCurrency, m_nExperienceLevel, m_nExperienceLevelProgress
+m_bMatchSafeToLeave, m_hCoach, m_nCurrency, m_nExperienceLevel, m_nExperienceLevelProgress
 ```
 
 ### DT_TFNonLocalPlayerExclusive

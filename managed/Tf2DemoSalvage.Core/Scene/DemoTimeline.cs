@@ -1641,7 +1641,8 @@ public sealed class DemoTimeline
             int? recorderTeam =
                 recorderSlot is { } recording
                 && entities.TryGet(recording + 1, out EntityState? recorder)
-                    ? resource?.Integer($"m_iTeam.{recording}")
+                    ? Coached(entities, recorder, resource)
+                        ?? ResourceTeam(resource, recording + 1)
                         ?? First(recorder, TeamProperties)
                     : null;
 
@@ -3381,6 +3382,83 @@ public sealed class DemoTimeline
             (SceneTeams.Blu, SceneTeams.Red) => true,
             _ => false,
         };
+
+    /// <summary>The STUDENT's team when the recorder is coaching, else null.</summary>
+    /// <param name="entities">The entity table, for looking the student up by index.</param>
+    /// <param name="recorder">The recording player.</param>
+    /// <param name="resource">The player resource, whose team array is preferred where it exists.</param>
+    /// <returns>The student's team number, or null when nobody is being coached.</returns>
+    /// <remarks>
+    /// **`iMyApparentTeam = m_hStudent->GetTeamNumber();`** under
+    /// <c>if ( m_bIsCoaching &amp;&amp; m_hStudent )</c> (`c_tf_player.cpp:10136`), and it repeats
+    /// where the disguise colour is chosen (`:5394`) under a comment saying *"if we are coaching,
+    /// use the team of the student"*.
+    ///
+    /// **A coach has no team of their own that means anything.** They are on `TEAM_SPECTATOR` while
+    /// attached to a player, so the recorder's own team answers "neither", and every player in the
+    /// demo then reads as friendly — including the enemies the coach can see.
+    ///
+    /// **Both fields are `DT_TFLocalPlayerExclusive`**, sent only to the local player. That is
+    /// exactly the recorder in a POV demo, so a coached recording carries what this needs and no
+    /// other player's copy is ever consulted.
+    ///
+    /// **Null rather than a fallback when the student cannot be resolved.** A handle naming an
+    /// entity the table does not hold is a coach whose student has left, and answering with the
+    /// coach's own spectator team is what the caller already does.
+    ///
+    /// **Measured inert on the corpus** (B313): `m_bIsCoaching` is 0 on all 33 of its appearances
+    /// in `z1800` and `m_hCoach` sits at the 2097151 invalid-handle sentinel throughout. There is no
+    /// coaching demo here, so this is written from the engine and exercised only by its tests.
+    /// </remarks>
+    private static int? Coached(
+        EntityStateTable entities, EntityState recorder, EntityState? resource)
+    {
+        if (recorder.Integer($"{CoachTable}.m_bIsCoaching") is not (int and not 0) ||
+            recorder.Integer($"{CoachTable}.m_hStudent") is not { } handle)
+        {
+            return null;
+        }
+
+        // **Through `Resolve`, not by masking, and this nearly went the other way** (B231). A
+        // handle is an index AND a serial; masking alone resolves a DANGLING handle to a real,
+        // existing, different entity — measured once as a resupply locker composed onto a door.
+        // Worse here: the invalid sentinel is 21 bits of ones whose low 11 mask to 2047, a
+        // perfectly ordinary-looking slot, so every non-coaching player in the corpus would have
+        // resolved to entity 2047 rather than to nothing.
+        if (entities.Resolve(handle) is not { } student ||
+            !entities.TryGet(student, out EntityState? taught))
+        {
+            return null;
+        }
+
+        return ResourceTeam(resource, student) ?? First(taught, TeamProperties);
+    }
+
+    /// <summary>One player's team from the resource entity's array.</summary>
+    /// <param name="resource">The <c>CTFPlayerResource</c>, or null when the demo has none.</param>
+    /// <param name="entity">The player's ENTITY index, not their slot.</param>
+    /// <returns>The team, or null when the resource does not carry one for them.</returns>
+    /// <remarks>
+    /// **The key is the entity index zero-padded to three digits** — `m_iTeam.003`, confirmed
+    /// against a dump of `z1800`, whose keys run `m_iTeam.000` upward. Two things in that sentence
+    /// were each got wrong once at the recorder's call site (B313): it passed the SLOT, and it did
+    /// not pad.
+    ///
+    /// **The result was a lookup that could never match, hidden by a `??`.** It returned null every
+    /// time and the fallback to the player's own `m_iTeamNum` answered instead — so the code read
+    /// as "prefer the resource, fall back to the entity" while only ever doing the second half.
+    /// That is `docs/memory/a-fallback-that-makes-sound-hides-itself.md`: a fallback that works
+    /// stops anyone noticing the path in front of it is dead.
+    ///
+    /// **Extracted so the two callers cannot disagree.** The player loop had it right and the
+    /// recorder's line had it wrong, sixty lines apart, for as long as both have existed.
+    /// </remarks>
+    private static int? ResourceTeam(EntityState? resource, int entity) =>
+        resource?.Integer(
+            $"m_iTeam.{entity.ToString("D3", CultureInfo.InvariantCulture)}");
+
+    /// <summary>The table carrying the coaching pair, sent only to the local player.</summary>
+    private const string CoachTable = "DT_TFLocalPlayerExclusive";
 
     /// <summary>Where everyone was at a tick, or the most recent moment before it.</summary>
     /// <param name="tick">The tick being shown.</param>
