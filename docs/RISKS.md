@@ -19990,3 +19990,91 @@ matching the VMT's own mean of (206, 177, 129).
 `sky_harvest_01` shares ONE texture across all four sides and uses a single pixel for its floor, so
 a face-order or rotation fault is invisible on it. Showing one needs a sky with four distinct
 sides, and neither corpus map has one.
+
+### B254 re-measured 2026-09-03: the entity cull works, and the entry's headline is stale
+
+B254 says *"Nothing is being removed — every prop the tick carries is posed, lit, skinned and
+instanced, every frame"*, from `drawn 600` against `props 560`. Measured again on the same demo and
+tick with `--measure`:
+
+```
+moment cost, mean over 100 rebuilds: 5.9 ms
+  = sample 0.2, drawlist 0.2, models 0.4, pose 5, weapons 0, viewmodel 0.2
+  pose = lighting 0.2, simulate 1.9, wornlight 0, setup 2.2, skin 0.1, anim 0.7, rest 0.4
+  posed 9.4 of 567.3 selected, 0.3 hidden by pvs, 6.5 unjudgeable
+```
+
+**Nine of five hundred and sixty-seven.** The cull runs ahead of the pose and removes the rest.
+
+**`0.3 hidden by pvs` is not evidence against that, and reading it as such is the trap here.**
+`CulledByVisibility` counts only the PVS half of `Culls`, and the frustum test runs FIRST and
+returns without counting — deliberately, because six dot products reject most of a map more cheaply
+than a tree walk. So the small number means the frustum got there first, not that the cull is idle.
+A counter that reports one of two exits reads as a failure of the whole (see
+`docs/memory/a-ledger-must-cover-every-exit.md`, which is about exactly this).
+
+**What the pose phase actually spends its time on** is roughly a dozen SKINNED entities — players
+and their weapons. `Simulate`'s loop walks every prop but its body early-outs for anything without
+a `Skinned` model, which is ~535 of the 550. So `simulate 1.9` and `setup 2.2` are per-player work,
+not per-prop work.
+
+**The remaining divergence from `BuildRenderablesList` is one of SHAPE, not of amount**: the engine
+maintains per-leaf renderable lists across frames and iterates the visible leaves; this tests each
+prop against the frustum and then the tree. Same answer, and the engine's ordering is a consequence
+of a structure this project does not keep. Recorded so the next reader does not re-derive it.
+
+### B258 re-measured 2026-09-03: `sample` is a tenth of what the entry records
+
+B258 rests on one number — *"`sample` is the same size as `pose` while being untouched by everything
+the cull work did"* — from `moment cost 5.2 ms = sample 2.0, drawlist 0.6, models 0.5, pose 2.1`.
+
+Same demo, same tick, same first-person view, measured with `--measure`:
+
+```
+moment cost, mean over 100 rebuilds: 6.3 ms
+  = sample 0.3 (players 0.16), drawlist 0.2, models 0.4, pose 5.4, weapons 0, viewmodel 0.3
+```
+
+**`sample` is 0.3 against `pose` 5.4.** The premise that the two are comparable is gone, and with it
+the argument for reaching for `g_InterpolationList` next: interpolation is now about five per cent
+of the moment.
+
+The engine's list is still what the engine does, and the reading of `ShouldInterpolate` and
+`ProcessInterpolatedList` below stays worth having. What is no longer true is the RANKING — this is
+not where the frame is.
+
+### Three stale OPEN entries in one session, and the pattern is worth naming
+
+B157 described a substitution that had been built. B254 said every prop is posed when nine of 567
+are. B258 quotes a cost that has fallen by a factor of ten. None was wrong when written.
+
+**What they have in common is that a MEASUREMENT was recorded as a CONCLUSION.** "Sample is 2.0 ms"
+is a fact about one build on one day; "sample is the same size as pose, so it is next" is a ranking
+that expires the moment either number moves. The entries state the second and are read as the first.
+
+The cheap fix is already in this file's own habits and was not applied here: put the command that
+produced the number next to it, so a reader can re-run it in one line rather than believing it. Every
+number in this section came from
+
+```
+TF2VIEW_AUTOPLAY=1 tf2demoview <demo> --tick 14000 --first-person --measure 12 +fps_max 0
+```
+
+### B255 re-measured 2026-09-03: the frustum IS passed, and the cull is not inert
+
+B255 says *"the cull itself is built and tested … and it is inert until a frustum is passed, which
+nothing does yet"*. Something does. `MainForm` (`:4218`):
+
+```
+if (_device is { } device)
+{
+    _moments.PoseNow(device.Frustum, device.VisibleByLeaf);
+}
+```
+
+taking both halves from the SAME device so a frustum and a visible set from different frames cannot
+reach the cull together — the fix this entry asked for, with the ordering hazard it warned about
+handled in its own comment. And the measurement agrees: `posed 13.3 of 550.2 selected`.
+
+**Fourth stale OPEN entry found tonight**, after B157, B254 and B258. Same shape as the others and
+recorded under B258's note on why: a state of the work was written down as a standing fact.

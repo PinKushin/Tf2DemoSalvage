@@ -177,3 +177,4 @@
 - [A sabotage must compile](a-sabotage-must-compile.md) — a build failure is not a red test; and feed the field production reads.
 - [Every densifying step needs the delta flag](every-densifying-step-needs-the-delta-flag.md) — there were two, and only one knew.
 - [A defect that survives its cause is in the instrument](a-defect-that-survives-its-cause-is-in-the-instrument.md) — a denominator of ALL is a warning, not a finding.
+- [A measurement recorded as a conclusion expires](a-measurement-recorded-as-a-conclusion-expires.md) — put the command beside the number; three OPEN entries were stale.
