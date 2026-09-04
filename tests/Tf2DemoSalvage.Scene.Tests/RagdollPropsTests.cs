@@ -30,7 +30,13 @@ public sealed class RagdollPropsTests
         corpse.ModelPath.ShouldBe("models/player/medic.mdl");
         corpse.Pose.Skin.ShouldBe(1);
         corpse.Pose.X.ShouldBe(-5446f);
-        corpse.EntityIndex.ShouldBe(40);
+
+        // **NOT the corpse's own entity index of 40** (B318). A drawn corpse takes an index of its
+        // own, above every networked one, because `EntityModelSet` keys its pose and skinning
+        // caches by index and a slot is reused — a corpse inheriting the caches of whatever held
+        // slot 40 before crashed the viewer on the first frame one came into view. The first corpse
+        // in the list draws as the first of the reserved range.
+        corpse.EntityIndex.ShouldBe(RagdollProps.FirstCorpseEntityIndex);
 
         // **The yaw, because a corpse that does not carry it faces north** — and every body in a
         // match facing the same way is the kind of defect that reads as "the models are broken".
@@ -132,7 +138,10 @@ public sealed class RagdollPropsTests
 
         SceneRagdoll lingering = Corpse(team: SceneTeams.Red) with { LastTick = 20_000 };
 
-        HashSet<int> watched = [lingering.EntityIndex];
+        // **The DRAWN index, not the corpse's own** (B318). The renderer's visible set holds what it
+        // drew, so a fade asking under the networked slot would find no corpse ever visible and
+        // expire every one of them on the long timer — a plausible-looking fade that is never right.
+        HashSet<int> watched = [RagdollProps.FirstCorpseEntityIndex];
 
         for (double at = 100d; at <= 300d; at += 1d)
         {

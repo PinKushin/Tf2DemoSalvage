@@ -428,6 +428,14 @@ public sealed class SkeletonPose : IBonePose
             // which is exactly what `BuildTransformations` has in hand where it branches
             // (`c_baseanimating.cpp:1557`). The simulation reads the goal's axes out of it and
             // overwrites it with where the spring actually swung.
+            // **`STUDIO_PROC_QUATINTERP`, and it REPLACES what the concatenate just wrote** (B317).
+            // `CalcProceduralBone` returns true and `BuildTransformations` then does `continue`
+            // (`c_baseanimating.cpp:1527`), so a procedural bone's keyframed rotation never reaches
+            // the skeleton at all — this is not an adjustment layered on the animation, it is the
+            // other of two answers. Before the jiggle because that is the engine's order, though no
+            // bone can take both: `proctype` names one rule.
+            QuatInterp(bone, into, destination);
+
             Jiggle(bone, currentTime, destination);
 
             alreadyWritten.Mark(bone);
@@ -1037,6 +1045,102 @@ public sealed class SkeletonPose : IBonePose
             // where the flag arrives.
             flipped: false);
     }
+
+    /// <summary>Runs a bone's <c>STUDIO_PROC_QUATINTERP</c> rule, if it has one.</summary>
+    /// <param name="bone">The bone being built.</param>
+    /// <param name="into">The bones built so far, for the control and the two parents.</param>
+    /// <param name="destination">The bone's world matrix, overwritten when the rule applies.</param>
+    /// <remarks>
+    /// **The control bone must already be built**, which is Valve's own assumption rather than one
+    /// added here: `CalcProceduralBone` reads `bonetoworld.GetBone( pProc->control )` from inside
+    /// the same forward walk. On TF2's player models the control is `bip_hand_L`/`bip_hand_R` and
+    /// the driven bone is `hlp_forearm_L`/`hlp_forearm_R`, which the bone order satisfies.
+    ///
+    /// **A control that is the ROOT is refused rather than reproduced.** The engine's `bonematrix`
+    /// is uninitialised on that path and concatenated anyway (`bone_setup.cpp:4709, 4769`), so there
+    /// is no behaviour to copy — this leaves the bone at its animated transform. Measured
+    /// unreachable on every model that carries the rule (B317): each control has a parent.
+    /// </remarks>
+    private void QuatInterp(int bone, BoneAccessor into, float[] destination)
+    {
+        // **The flag first, because it is the most selective test on the hottest loop.** Measured
+        // on `serveme-627619-stv-2026-08-07`: 22 of 540 bones are procedural at all, so this one
+        // comparison turns away 96% of the work before anything else is touched.
+        if ((_bones[bone].Flags & StudioBoneFlags.AlwaysProcedural) == 0)
+        {
+            return;
+        }
+
+        if (JiggleSource is not { } model)
+        {
+            return;
+        }
+
+        int parent = _bones[bone].Parent;
+
+        if (parent < 0)
+        {
+            return;
+        }
+
+        // **Cached, because this is per bone per frame and the read allocates.** The rule is a
+        // property of the MODEL and cannot change while a skeleton lives, so re-parsing it every
+        // frame would be work proportional to nothing.
+        if (!_quatInterp.TryGetValue(bone, out StudioQuatInterp? rule))
+        {
+            rule = StudioQuatInterp.Read(model, bone);
+            _quatInterp[bone] = rule;
+        }
+
+        if (rule is not { } driven)
+        {
+            return;
+        }
+
+        int controlParent = _bones[driven.Control].Parent;
+
+        if (controlParent < 0)
+        {
+            return;
+        }
+
+        Span<float> was = stackalloc float[12];
+
+        destination.CopyTo(was);
+
+        QuatInterpBones.Build(
+            driven,
+            into.Bone(driven.Control),
+            into.Bone(controlParent),
+            into.Bone(parent),
+            destination);
+
+        QuatInterpBonesBuilt++;
+
+        QuatInterpFurthestMove =
+            MathF.Max(QuatInterpFurthestMove, QuatInterpBones.Moved(was, destination));
+    }
+
+    /// <summary>The furthest any rule has moved a bone from where the animation had put it.</summary>
+    /// <remarks>
+    /// **The count says the rule RAN; this says it MATTERED.** A rule whose triggers happened to
+    /// reproduce the animated pose would score a full count and change nothing on screen, which is
+    /// the distinction `docs/memory/it-ran-and-it-mattered-are-two-claims.md` exists for — and the
+    /// same pair `IkLocks` reports as applied-versus-moved.
+    /// </remarks>
+    public float QuatInterpFurthestMove { get; private set; }
+
+    /// <summary>How many bones this skeleton has posed by a quaternion-interpolation rule.</summary>
+    /// <remarks>
+    /// **Counted where the work happens, not derived from how many bones declare the rule.** A
+    /// count computed by a second route is free to be right while the code does nothing, which is
+    /// the fault `docs/memory/instrument-bugs-outnumber-decoder-bugs.md` collects — and the wiring
+    /// test asserts on this rather than on a model's declaration for exactly that reason.
+    /// </remarks>
+    public int QuatInterpBonesBuilt { get; private set; }
+
+    /// <summary>Each bone's rule, parsed once. A null value means "asked, and it has none".</summary>
+    private readonly Dictionary<int, StudioQuatInterp?> _quatInterp = [];
 
     /// <summary>The model bytes a jiggle bone's parameters are read from, or null for none.</summary>
     /// <remarks>

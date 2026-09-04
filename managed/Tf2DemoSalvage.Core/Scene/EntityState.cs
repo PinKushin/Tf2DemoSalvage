@@ -1982,6 +1982,31 @@ public sealed class EntityState
     /// </remarks>
     public int? RagdollPlayerHandle() => Integer($"{RagdollTable}.m_hPlayer");
 
+    /// <summary>
+    /// Which player this corpse was, under the name older builds send — <c>m_iPlayerIndex</c>.
+    /// </summary>
+    /// <returns>The player's entity index directly, or null when this entity sent none.</returns>
+    /// <remarks>
+    /// **TF2 renamed this field, and the two are not the same KIND of value** (B319). Measured on
+    /// the corpus with the CLI's trace:
+    ///
+    /// | demo | field | values |
+    /// |---|---|---|
+    /// | `serveme-627619-stv-2026-08-07` | <c>m_hPlayer</c> | 24587, 174093, 311301, … |
+    /// | `z1800` | <c>m_iPlayerIndex</c> | 2, 3, 4, 5, … |
+    ///
+    /// The first is a packed ehandle needing <c>EntityStateTable.Resolve</c>; the second is a player
+    /// entity index used as it stands. Reading either one as the other gives a plausible number and
+    /// the wrong player — index 24587 does not exist, and handle 3 resolves to whatever occupies
+    /// slot 3 with serial 0.
+    ///
+    /// **`m_iPlayerIndex` is not in the published SDK at all**, not even as a `RECVINFO_NAME`
+    /// alias, so nothing but a demo can date it. That is this project's premise working as intended
+    /// (`docs/memory/the-demo-dates-its-own-fields.md`): the schema travels with the file, and the
+    /// SDK is one build's snapshot.
+    /// </remarks>
+    public int? RagdollPlayerIndex() => Integer($"{RagdollTable}.m_iPlayerIndex");
+
     /// <summary>The table a corpse's own fields live on.</summary>
     private const string RagdollTable = "DT_TFRagdoll";
 

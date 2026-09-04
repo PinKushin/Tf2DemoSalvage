@@ -3340,7 +3340,21 @@ replay, and `CTFPlayerAnimState` has to be emulated rather than read. So even wi
 right sequence is a separate emulation problem. Ordered: reach the data, skin on the GPU, then
 emulate the choice.
 
-## B58 — jiggle bones and ragdolls, neither of which is rigid-body physics — OPEN, not urgent
+## B58 — jiggle bones and ragdolls, neither of which is rigid-body physics — HALF DONE (jiggle), ragdolls OPEN
+
+**The jiggle half is implemented and this entry no longer describes the code.** `JiggleBones` and
+`StudioJiggleBones` exist, `SkeletonPose` runs the simulation inside its bone loop, and the
+`bone-flags` probe reports **24 jiggle bones simulated across 265 instances** on
+`serveme-627619-stv-2026-08-07`. The entry's own prediction held: it needed no physics engine, no
+collision and no broadphase, and it dropped into the bone pipeline.
+
+**Its sibling procedural rule did NOT, and finding that is what re-opened this entry.** The same
+probe reports `proctype QUATINTERP` on `hlp_forearm_L` and `hlp_forearm_R` of every class model,
+each **SKINNED to vertices** — a helper bone whose whole job is to keep a forearm from pinching as
+the wrist turns, computed by nothing here. B317.
+
+**And the corpse count below is stale: it is 159, not 299** — see B315, which also replaces it in
+`docs/PARITY-AUDIT.md` with the command that measures it.
 
 **Dangling cosmetics and the floppy fish are jiggle bones, not physics.** `studio.h` defines
 `STUDIO_PROC_JIGGLE` (5) with `mstudiojigglebone_t` and the `JIGGLE_IS_FLEXIBLE` /
@@ -21370,3 +21384,190 @@ sequence nor the death animation makes a body lie down — both leave it standin
 idle pose. What lays a corpse out is `InitAsClientRagdoll`, which every corpse in that comp match
 takes. **The corpse pose is a physics question, essentially entirely**, and effort spent on B316
 before B58 buys a change from one upright pose to another.
+
+### B317 FIXED 2026-09-04: the forearm twist helper is decoded, named, and computed by nothing
+
+**`STUDIO_PROC_QUATINTERP` is on every TF2 class model and this project does not run it.** The
+`bone-flags` probe on `serveme-627619-stv-2026-08-07`:
+
+```
+proctype QUATINTERP   4 of 540   demo.mdl:hlp_forearm_L SKINNED, demo.mdl:hlp_forearm_R SKINNED,
+                                 scout.mdl:hlp_forearm_L SKINNED, scout.mdl:hlp_forearm_R SKINNED
+```
+
+**The `SKINNED` marker is the whole reason this is a defect rather than bookkeeping**, and it was
+added to the probe for this question. A procedural bone nothing is weighted to computes a transform
+that reaches no mesh; these have vertices on them, so an unrun rule is a forearm that does not twist
+with the wrist. Four per model on the two classes present at that tick — every class model carries
+the pair.
+
+**It was decoded and named and never honoured**, the shape
+`docs/memory/decoding-a-field-is-not-honouring-it.md` describes: `StudioProcedureType` declares all
+five constants with citations, `StudioBone.ProcedureType` reads the field, and a repository-wide grep
+for a consumer of `QuaternionInterpolate` outside its own declaration returns nothing. The type's own
+remarks said "this project implements none of them yet", which had gone stale in the other direction
+too — jiggle bones have been implemented since.
+
+**The rule**, `DoQuatInterpBone`, `bone_setup.cpp:4700-4770`. Read-from-source. The control bone's
+transform *relative to its own parent* becomes a quaternion; each authored trigger is weighed by
+`1 - 2·acos(|dot|)·inv_tolerance` clamped at zero; the triggers' positions and rotations are blended
+by those weights, or trigger zero is used outright when nothing weighs anything.
+
+**Three things a reimplementation gets wrong, and each has a test:**
+
+- **The control is read RELATIVE to its parent**, not in world space. Reading the world matrix gives
+  the right answer whenever the parent happens to be unrotated — which is every simple fixture and no
+  real skeleton.
+- **It REPLACES the animated transform.** `CalcProceduralBone` returns true and the engine's loop
+  `continue`s (`c_baseanimating.cpp:1527`), so the keyframed rotation never reaches a procedural
+  bone. Applying the rule on top of the animation blends two answers where the engine takes one.
+- **`fabs` on the dot product**, because a quaternion and its negation are the same rotation. Without
+  it a control on the far side of the hemisphere weighs nothing and the bone snaps to the fallback.
+
+**One thing the engine does that cannot be reproduced, and it is a Valve bug rather than a choice.**
+`DoQuatInterpBone` declares `matrix3x4_t bonematrix;` uninitialised, fills it only inside
+`if (pProc && pbones[pProc->control].parent != -1)`, and then concatenates it into the bone
+*outside* that guard — so a rule whose control bone is the ROOT writes stack garbage into the
+skeleton. There is no defined behaviour to copy.
+
+**Measured, and it is unreachable on these models**, which is why the departure costs nothing:
+
+```
+quatinterp demo.mdl:hlp_forearm_L  control bip_hand_L triggers 3 control has a parent
+quatinterp demo.mdl:hlp_forearm_R  control bip_hand_R triggers 3 control has a parent
+quatinterp scout.mdl:hlp_forearm_L control bip_hand_L triggers 3 control has a parent
+quatinterp scout.mdl:hlp_forearm_R control bip_hand_R triggers 3 control has a parent
+```
+
+**The control is the HAND**, which also confirms the mechanism reads correctly rather than merely
+parsing: the forearm helper follows the wrist, which is the twist it exists to spread. Three
+authored triggers each. Every control has a parent, so the uninitialised branch cannot be entered —
+this project leaves such a bone at its animated transform and says so, rather than reproducing
+undefined behaviour.
+
+#### B317 FIXED, same day
+
+`StudioQuatInterp` reads the rule, `QuatInterpBones` computes it, and `SkeletonPose.QuatInterp`
+dispatches it inside the bone loop where `CalcProceduralBone` sits in the engine — before the jiggle,
+though no bone can take both, since `proctype` names one rule.
+
+**Measured on a real demo, which is the only thing that says it is wired:**
+
+```
+proctype QUATINTERP  4 of 540   demo.mdl:hlp_forearm_L SKINNED, … scout.mdl:hlp_forearm_R SKINNED
+DRIVEN 10 bones posed by a quaternion-interpolation rule, furthest move 0.72 units
+```
+
+The first line counts bones that ASK; the second counts bones that GOT it, carried from where the
+work happened rather than recomputed. Both are printed by `bone-flags` precisely so a disagreement
+between them is visible.
+
+**0.72 units on a point one unit from the bone origin is 2·sin(θ/2), so a 42-degree twist** — large,
+and exactly the magnitude a wrist roll should spread down a forearm. The count says the rule ran;
+this says it mattered.
+
+**And the first version of that magnitude said ZERO, which was the instrument.** It measured only the
+translation, and `hlp_forearm` is a TWIST: it rotates about a fixed origin, so its translation is
+identical by construction. Measuring the one quantity that cannot change reported `furthest move 0
+units` for ten driven bones — a number that reads as "the rule does nothing" and would have argued
+for reverting correct work. `CLAUDE.md`'s first failure route, the unfaithful proxy, on an instrument
+written the same hour to guard against exactly this class of mistake. Taking the furthest of the
+origin and the three unit axes measures rotation and translation together.
+
+**A sabotage found a test that could not fail, and it is the finding worth keeping.** Removing
+`MathF.Abs` from the dot product left all four original conformance tests GREEN. Every dot product
+they compute is non-negative — each fixture's half-angles fall in [-π/2, π/2], and the one half-turn
+case gives exactly zero where the sign is moot — so the call was a no-op on the entire suite. The
+distinguishing input is a trigger stored as its own NEGATION: the same physical rotation, opposite
+sign, raw dot −1 and absolute dot 1. With the call the trigger weighs fully; without it the trigger
+weighs nothing, the total falls under the epsilon, and the bone snaps to trigger zero. Two visibly
+different answers from one missing call, and no fixture in the file produced either.
+
+**One sabotage could not be run at all, and that is a property of this repository rather than of the
+test.** Disabling the `scale <= 0.001` fallback does not compile: `if (false)` is CS0162 and leaves
+the constant unused (S1144, CA1823), and deleting the branch trips S1199. The branch was proved
+sensitive another way — pointing the fallback at the LAST trigger instead of the first reddens
+`Build_WithTheControlFarFromEveryTrigger_FallsBackToTheFirst` and nothing else. Worth recording that
+strict analyzers can refuse a sabotage, so "it would not compile" is a reason to find another edit
+rather than to conclude the test is weak.
+
+**The wiring is likewise sabotage-proof by accident:** deleting the call to `QuatInterp` fails the
+build, because an unused private method is S1144. Gating the method to return early is the edit that
+compiles, and it reddens `Build_ForABoneDeclaringTheRule_RunsIt` alone.
+
+### B318 FIXED 2026-09-04: a drawn corpse shared per-entity caches with the slot it borrowed, and crashed the viewer
+
+**B315 shipped a crash and the gate did not catch it.** Twelve assemblies and the UI suite were green
+across two full runs, and the viewer dies on the first frame with a corpse in view:
+
+```
+Unhandled exception. System.ArgumentOutOfRangeException: Index was out of range.
+   at Tf2DemoSalvage.Scene.EntityModelSet.Skinning(...) EntityModels.cs:2623
+```
+
+`Skinning` walks `for (bone = 0; bone < accessor.Count; bone++)` and indexes `bones[bone]` — the
+model's bone list. It overruns when the entity's cached pose is sized for a DIFFERENT model with more
+bones. `EntityModelSet` keys its per-entity state by entity index, and an index is reused: slot 752
+is a prop, then a corpse wearing a player model with ~130 bones, then something else. The corpse
+inherited whatever was cached under its borrowed slot.
+
+**Caught by `--measure`, not by any test**, which is the useful part. No unit test builds a scene
+where one entity index carries two models over time, and the corpus suites do not render. The
+twenty-second playback measurement — run to check B317 had not cost frame time — is what found it,
+and it found it immediately.
+
+**The engine has the identical problem and answers it by leaving the networked index space.**
+`CreateTFRagdoll` ends with `m_nRenderFX = kRenderFxRagdoll` and `InitAsClientRagdoll`
+(`c_tf_player.cpp:883-921`), which makes the ragdoll a CLIENT-side entity. Source gives those indices
+at or above `MAX_EDICTS` = 2048 (`const.h:65-67`) while the client entity list holds
+`NUM_ENT_ENTRIES` = 8192, so a client ragdoll cannot share a slot with anything the server sends.
+This project already had the precedent — `ViewmodelScene` puts the arms and weapon at 4096..4098 for
+exactly this reason — so corpses take 2048..4095.
+
+**The offset is the corpse's position in the list, not its entity index, and that distinction is the
+whole fix.** Shifting the slot range up by 2048 would still give the second occupant of a reused slot
+the first one's caches, and two class models do not have the same bone count. That is the same crash,
+reached less often — the worst kind of fix, since it would have survived this measurement.
+
+**And one consequence had to be followed through:** the fade asks whether a corpse was visible last
+frame, and the renderer's visible set holds what it DREW. Asking under the corpse's own slot would
+report every corpse unseen and expire each one on the long timer — a fade that looks plausible, runs,
+and is never right.
+
+### B319 FIXED 2026-09-04: a corpse names its player under two field names, in two encodings
+
+**Every corpse in an older demo faced north, and the corpus said so immediately.** B315 read the
+corpse's player through `m_hPlayer`, which is what the published SDK declares. Measured with the
+`corpses` probe:
+
+| demo | corpses with an orientation |
+|---|---|
+| `serveme-627619-stv-2026-08-07` (2026) | 159 of 159 |
+| `z1800` (2020 or later) | **0 of 407** |
+
+The CLI's trace names the reason. The two demos send different fields, and they are not the same
+KIND of value:
+
+```
+DT_TFRagdoll.m_hPlayer        values 24587, 174093, 311301, 571401, …   packed ehandles
+DT_TFRagdoll.m_iPlayerIndex   values 2, 3, 4, 5, 6, …                    player entity indices
+```
+
+The first must go through `EntityStateTable.Resolve`; the second is used as it stands. Reading either
+as the other gives a plausible number and the wrong player — index 174,093 does not exist, and handle
+6 resolves to whatever occupies slot 6 with serial 0.
+
+**`m_iPlayerIndex` is not in the published SDK at all**, not even preserved as a `RECVINFO_NAME`
+alias — Valve deleted it outright. So nothing but a demo can tell you it exists, which is this
+project's founding premise doing its job (`docs/memory/the-demo-dates-its-own-fields.md`,
+`docs/memory/wire-names-are-strings.md`). It also means the rename cannot be dated from source; it
+happened somewhere between `z1800` and 2026.
+
+**What made it visible was running the probe on a SECOND demo.** The feature was measured 159/159 on
+the demo it was developed against and looked finished. One era specimen from the committed corpus
+turned a complete feature into a half of one.
+
+**Fixed** by decoding each as what it is and preferring the modern name, with reader tests pinning
+that a corpse from one era answers null under the other's field — because null is what sends the
+caller to the other branch, and a reader defaulting to zero would send every old-era corpse to entity
+0, the world, which resolves and draws nothing and looks like the feature working.

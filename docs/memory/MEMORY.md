@@ -193,3 +193,6 @@
 - [A restarted timer is not a lifetime](a-restarted-timer-is-not-a-lifetime.md) — read the think, not just the Start; a looked-at corpse never fades.
 - [The cited line may be the wrong branch](the-cited-line-may-be-the-wrong-branch.md) — a demo settles `IsLocalPlayer` globally; check which branch it takes before implementing.
 - [Measure the gate before building the branch](measure-the-gate-before-building-the-branch.md) — the famous coin flip sat behind a switch only 1% of corpses passed.
+- [A sabotage that reddens nothing names the missing input](a-sabotage-that-reddens-nothing-names-the-missing-input.md) — green after breaking it means no fixture distinguishes the two; it tells you which input is absent.
+- [A new entity must not borrow an index](a-new-entity-must-not-borrow-an-index.md) — per-entity caches key on it and slots are reused; --measure found the crash two green gates missed.
+- [Measure a new feature on a second demo](measure-a-new-feature-on-a-second-demo.md) — 159/159 on one file, 0/407 on an era specimen; the wire name had been renamed.

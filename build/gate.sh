@@ -262,7 +262,14 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # UPDATE whose id resolved to another table's name - a resolver that took every table would pass
 # every other case and would name an effect after a sound. Verified by sabotage: relaxing the update
 # guard to `tableName is not null` reddens exactly the second of those.
-run Tf2DemoSalvage.Core.Tests     core     1689
+# 1689 -> 1693: a corpse names its player under TWO field names in two encodings (B319).
+# m_hPlayer is a packed ehandle needing Resolve; m_iPlayerIndex, which older builds send and the
+# published SDK does not contain at all, is the entity index itself. Reading only the modern name
+# left 0 of 407 corpses in z1800 with an orientation against 159 of 159 on the demo it was developed
+# against. Four: each name read, and each returning NULL under the other's field — null is what
+# sends the caller to the other branch, and a zero default would point every old-era corpse at the
+# world.
+run Tf2DemoSalvage.Core.Tests     core     1693
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
@@ -363,7 +370,14 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 # release that is APPLIED from one that is ignored, since at full weight "returned it" and "never
 # solved" look alike. Nearly, not fully: AddDependencies drops a full-strength release after
 # clearing its chain, so weight 1 cannot reach the solver.
-run Tf2DemoSalvage.Animation.Tests animation 103
+# 103 -> 111: STUDIO_PROC_QUATINTERP, decoded and named and run by nothing (B317). Conformance (5)
+# — the control read RELATIVE to its parent, the scale<=0.001 fallback to trigger ZERO, a genuine
+# blend of two equal weights, and the fabs on the dot product, which a sabotage proved the first
+# four were all blind to: every dot they compute is non-negative, so the call was a no-op on the
+# whole suite until a trigger stored as its own negation was added. Wiring (3), because the
+# arithmetic passing says nothing about whether a bone ever reaches it — measured DRIVEN 10 on a
+# real demo.
+run Tf2DemoSalvage.Animation.Tests animation 111
 
 # 23: the scene layer's first test project of its own, and the reason it exists is B184 — Scene is
 # plain net10.0 and holds the densest behaviour in the renderer, but every test of it lived in the
@@ -915,7 +929,12 @@ run Tf2DemoSalvage.Presentation.Tests presentation 440
 # map that states none inheriting sv_skyname's default rather than having no sky, another entity
 # carrying the key being ignored - without which a reader answering the FIRST skyname passes both -
 # and the face order, which is vbsp's CUBE order and not the precache order that swaps bk and lf.
-run Tf2DemoSalvage.Content.Tests  content   934
+# 934 -> 939: reading mstudioquatinterpbone_t and its 48-byte triggers (B317). Every field of the
+# fixture distinct and ascending, because a struct read with a wrong stride or field order returns
+# plausible numbers rather than an error — the position and the rotation are adjacent runs of floats.
+# Includes the control that a JIGGLE bone does NOT answer here: proctype is dispatched by `switch`,
+# an exact match, and 5's low bits include 2, which is what makes a bitwise test wrong.
+run Tf2DemoSalvage.Content.Tests  content   939
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2

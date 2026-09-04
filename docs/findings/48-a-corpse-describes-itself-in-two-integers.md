@@ -291,6 +291,30 @@ The angles are the mirror image — nothing is sent, and the client reaches back
 `m_hPlayer` for `GetRenderAngles()`. Both facts point the same way: **for a corpse, the player entity
 is part of the format.**
 
+### The field naming that player has been renamed, and the old name is gone from the SDK
+
+The two demos in front of this work disagree, and not merely about spelling:
+
+```
+serveme-627619-stv-2026-08-07   DT_TFRagdoll.m_hPlayer        24587, 174093, 311301, 571401, …
+z1800                           DT_TFRagdoll.m_iPlayerIndex   2, 3, 4, 5, 6, …
+```
+
+Measured from the CLI's trace. **A packed ehandle in one and a plain player entity index in the
+other** — so the rename changed the encoding as well as the name, and reading either as the other
+yields a plausible number pointing at the wrong entity.
+
+**`m_iPlayerIndex` does not appear in `source-sdk-2013` at all** — not on the ragdoll, and not
+preserved as a `RECVINFO_NAME` alias the way some retired names are. Valve deleted it. So the SDK
+cannot date the change, cannot describe the old encoding, and cannot even reveal that the field ever
+existed; only a demo carries it. This is the clearest example in this document of why the parser
+decodes off the schema each file embeds rather than off any one build's headers.
+
+**What it cost**: reading only the modern name left every corpse in `z1800` — 407 of them — facing
+due north, while the demo the feature was written against scored 159 of 159 and looked finished.
+`z1800` is a committed era specimen, and one command on it is what turned a complete feature into
+half of one.
+
 **And one field is fully vestigial, with Valve saying so in the declaration.** `m_hRagWearables` is
 eight networked ehandles that look exactly like the corpse's cosmetics list:
 

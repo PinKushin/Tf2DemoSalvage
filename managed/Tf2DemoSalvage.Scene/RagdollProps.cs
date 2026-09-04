@@ -78,13 +78,32 @@ public static class RagdollProps
                 continue;
             }
 
+            // **One index per CORPSE, not per slot** (B318). Keying on the corpse's own entity index
+            // would give the second occupant of a reused slot the first one's per-entity caches, and
+            // two class models do not have the same bone count — which is the crash this fixes,
+            // narrowed rather than removed. The position in the list is unique for the life of the
+            // timeline, which is what a per-entity cache needs.
+            int drawnAs = FirstCorpseEntityIndex + at;
+
+            if (drawnAs >= ViewmodelScene.ArmsEntityIndex)
+            {
+                // Past the range reserved for corpses. A match reaching this has about 2,000 dead,
+                // some hours long; drawing one under a viewmodel's index would be worse than not
+                // drawing it, and silently is the only option left at this point.
+                continue;
+            }
+
             // **The entity's lifetime is the OUTER bound and the fade is the real one.** The server
             // keeps one ragdoll per player until that player next dies, so the window above admits
             // far more bodies than TF2 ever draws — 57 at once against a twelve-player roster,
             // measured. `RagdollFade` is `ClientThink`'s rule, which is what actually removes them.
+            //
+            // **Visibility is asked under the DRAWN index**, since that is what the renderer put in
+            // the set — asking under the corpse's own slot would report every corpse unseen and
+            // expire each one on the long timer, a fade that looks plausible and is never right.
             if (fade is not null &&
                 fade.Gone(corpse, tick * fade.IntervalPerTick,
-                    visible?.Contains(corpse.EntityIndex) ?? false))
+                    visible?.Contains(drawnAs) ?? false))
             {
                 continue;
             }
@@ -98,7 +117,7 @@ public static class RagdollProps
             }
 
             into.Add(new SceneProp(
-                corpse.EntityIndex,
+                drawnAs,
                 model,
                 ScenePropTrack.Classify(model),
                 // **Sequence 0 is a KNOWN gap, not the engine's answer** (B316). An earlier version
@@ -141,4 +160,30 @@ public static class RagdollProps
 
     /// <summary>The server class a corpse arrives as.</summary>
     private const string RagdollClassName = "CTFRagdoll";
+
+    /// <summary>Where a drawn corpse's entity index starts, above every networked one.</summary>
+    /// <remarks>
+    /// **A corpse must not draw under the slot the demo gave it, and this is a crash rather than a
+    /// nicety** (B318). `EntityModelSet` keys its per-entity caches — the pose, the skinning
+    /// buffers — by entity index, and an index is reused: slot 752 is a corpse for a few seconds
+    /// and something else before and after. The stale pose is sized for whichever model had more
+    /// bones, and `Skinning` then indexes the new model's shorter bone list with it:
+    /// `ArgumentOutOfRangeException`, on the first frame with a corpse in view.
+    ///
+    /// **The engine has the same problem and answers it by moving the corpse out of the networked
+    /// index space.** `CreateTFRagdoll` ends with `m_nRenderFX = kRenderFxRagdoll` and
+    /// `InitAsClientRagdoll` (`c_tf_player.cpp:883-921`), making the ragdoll a CLIENT-side entity;
+    /// Source gives those indices at or above `MAX_EDICTS`, which is 2048 (`const.h:65-67`), while
+    /// the client entity list holds `NUM_ENT_ENTRIES` = 8192. A client ragdoll therefore cannot
+    /// share a slot with anything the server sends, which is exactly the guarantee needed here.
+    ///
+    /// 2048 is Valve's own boundary and leaves 2048..4095 for corpses, clear of the viewmodel's
+    /// 4096..4098 — this project's own numbering, and the precedent for doing it at all.
+    ///
+    /// **The offset is the corpse's position in the list, not its entity index.** Moving the whole
+    /// slot range up would leave two corpses that reused one slot still sharing a cache, and two
+    /// class models do not have the same bone count — the same crash, reached less often, which is
+    /// the worst kind of fix.
+    /// </remarks>
+    public const int FirstCorpseEntityIndex = 2048;
 }
