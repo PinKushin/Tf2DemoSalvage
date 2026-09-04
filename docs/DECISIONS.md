@@ -7312,7 +7312,11 @@ spectator HUD prints. The defect was three comments and one line of `--help` nam
 not exist. **A wrong key in help text is worse than no key**, because the reader presses it, nothing
 happens, and a working feature reads as broken — which is exactly how it was found.
 
-### D134 — an unrecoverable value is still reproduced Valve's way, not put to the owner as a menu
+## D136 — an unrecoverable value is still reproduced Valve's way, not put to the owner as a menu
+
+**Filed as "D134" when it was written and that number was already taken** — by the third-person
+launch option above, and at `###` rather than `##`, so it did not appear in the document's own index
+at all. Renumbered 2026-09-04. Anything citing it as D134 means this.
 
 **The owner, 2026-09-04, on being asked how the viewer should resolve TF2's animation-versus-ragdoll
 coin flip:** *"you should of done it valves way, but too late for that."*

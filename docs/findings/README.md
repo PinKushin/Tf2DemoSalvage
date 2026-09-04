@@ -90,6 +90,10 @@ in any public writeup found:
 - **`PlayerAnimEvent_t` is append-only across TF2's whole history** — the gesture-trigger enum's
   ordinals 0–29 are identical from the Orange Box era to today, so one event→gesture mapping decodes
   every protocol. Established by comparing three SDK generations, not assumed ([25](25-gesture-layer.md)).
+- **A corpse's whole appearance is seven bits** — `DT_TFRagdoll` is `NOBASE` and sends no model, no
+  skin and no body; the client rebuilds all three from a 4-bit class and a 3-bit team. The model
+  paths are not in Valve's code at all but in shipped script files, so a viewer without the game
+  installed genuinely cannot know them ([48](48-a-corpse-describes-itself-in-two-integers.md)).
 
 ## Conventions used throughout
 

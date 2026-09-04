@@ -484,6 +484,8 @@ that a divergence is recorded rather than merely absent.
 | file | what it compares now |
 |---|---|
 | `DecalRenderStateConformanceTests` | 7 tests, each parsing a Valve number or rule and asserting `DecalState` / `Device3D.DepthFormat` / `VmtMaterial.IsDecal` against it. Every one verified sensitive by sabotage — the value changed, the predicted test observed red, the value restored |
+| `RagdollAppearanceConformanceTests` | 4 tests calling `RagdollAppearance.Of` and asserting the model and skin it returns against `CreateTFRagdoll`'s derivation. **One was red before the code existed** — the no-team case, which fails against reusing `PlayerSkin.ForTeam`, since `C_TFPlayer::GetSkin` ends `default: 0` where the ragdoll's bare `else` gives 1 |
+| `RagdollFadeConformanceTests` | 8 tests calling `RagdollFade.Gone` against `C_TFRagdoll::ClientThink`. Four verified sensitive by sabotage; **one was measured INSENSITIVE and is worth more than the four** — see below |
 
 **Verify by sabotage, one value at a time.** Four of the five corrections that made
 `OverlayOcclusionRenderTests` mean anything produced a green test first, and on this file one
@@ -491,3 +493,23 @@ sabotage passed — `IsDecal => Flag("$decal") || Flag("$basetexture")` — beca
 and the control fixture's `$basetexture "concrete/wall"` is not a number. **The sabotage was
 insensitive, not the test**, which is a distinction worth making before rewriting an assertion that
 was fine.
+
+**And sometimes it is the test, which is the case worth writing down.**
+`Gone_ForACorpseWatchedThroughout_IsNeverTrue` looks like the test for the engine's `return` inside
+`if ( IsRagdollVisible() )` — the line that makes a watched corpse persist. Deleting that line leaves
+it GREEN. Watching a corpse from before its timer expires re-arms the deadline ~4.95 seconds ahead on
+every call while the loop steps by one, so the fall-through's stale check is true by a fixed margin
+for any loop length: correct and broken predict the same observation, and the assertion never sees
+the difference. The **wrong condition**, exactly as `CLAUDE.md` describes it, and the instinct to
+strengthen the assertion would not have helped.
+
+The distinguishing input is a corpse whose FIRST check while visible lands after its unseen deadline
+— `Gone(corpse, seconds: 120, visible: true)` for a corpse created at second 100, where the seeded
+deadline is 115. Correct returns false; without the `return` the stale 115 is already behind 120 and
+a corpse the viewer is looking straight at vanishes, permanently. It arises here and not in the
+engine because the client thinks every frame from creation, where this viewer can open mid-match or
+seek forward past a death.
+
+**Both the sabotage-verifier and the author derived that same input independently**, from opposite
+directions — one from watching nothing redden, the other from predicting what the edit would do. That
+agreement is the reason to trust it.

@@ -263,11 +263,23 @@ the same family as footsteps, where `docs/memory/sound-the-demo-does-not-carry.m
 reproducing them is authoring rather than decoding. Whatever is decided for one should be decided
 for both, and separately from the visual half.
 
-### 4. Every corpse is missing, and it is an APPEARANCE gap rather than the physics one B58 filed — OPEN
+### 4. Every corpse is missing, and it is an APPEARANCE gap rather than the physics one B58 filed — FIXED (B315)
 
 Top of the branch-count list at 40 branches, and the measurement is blunt:
-**`serveme-627619-stv-2026-08-07` contains 299 `CTFRagdoll` entities. We decode all of them and
-draw none.**
+**`serveme-627619-stv-2026-08-07` contains 159 `CTFRagdoll` entities. We decoded all of them and
+drew none.**
+
+```bash
+dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -- corpses serveme-627619-stv-2026-08-07
+```
+
+**That number was recorded here as 299 and could not be reproduced.** The command above did not
+exist when it was written, and nothing survives to say how it was counted — which is exactly what
+`docs/memory/a-measurement-recorded-as-a-conclusion-expires.md` is about. 159 is the count of
+distinct corpses, keyed by entity index AND serial; the first attempt at the probe keyed on index
+alone and said **87**, because slots are reused briskly and every reuse collapsed into its
+predecessor (B92's lesson, met again). Whether 299 counted per-tick observations or something else
+is not knowable now. Measured, and the command is beside it so the next reader can check.
 
 **B58 already covers this and covers the wrong half.** It reads `DT_TFRagdoll`, lists the fields,
 and concludes correctly that the physics START CONDITION is fully networked — origin, force, force
@@ -309,7 +321,7 @@ showed — it is a client-generated decision, the same class as
 `docs/memory/sound-the-demo-does-not-carry.md`, not a decode gap.
 
 **This paragraph used to say the choice was "a divergence to be ASKED about rather than chosen
-quietly", and that was wrong** (D134). The owner, put the question: *"you should of done it valves
+quietly", and that was wrong** (D136). The owner, put the question: *"you should of done it valves
 way."* **Valve's way is the branch itself** — the engine draws a random number, so we draw one, and
 a 25/75 split is not an approximation of the engine but a reproduction of it. An unrecoverable INPUT
 does not make the LOGIC a choice; `a-divergence-is-asked-not-documented.md` covers deliberately doing
@@ -325,8 +337,71 @@ sets `iDeathSeq = -1` (`:831`), which clears `bPlayDeathAnim` (`:836`); the spli
 against plain ragdoll physics and nothing else.
 
 **Priority argument, from the owner's own scoping.** B59 records that ragdolls are wanted "for frag
-vid makers" and that deaths are much of what a frag video shows. 299 in one match, every one
-decoded and invisible, is the largest single visible gap this audit has measured.
+vid makers" and that deaths are much of what a frag video shows. 159 in one match, every one
+decoded and invisible, was the largest single visible gap this audit has measured.
+
+#### What was done — B315
+
+**The appearance half is closed.** A corpse now derives its model from `m_iClass` and its skin from
+`m_iTeam`, exactly as `CreateTFRagdoll` does, and reaches the scene as an ordinary `SceneProp`:
+
+- `RagdollAppearance.Of` — the derivation, with `c_tf_player.cpp:681-720` quoted beside it.
+- `RagdollProps.Fill` — corpses into the prop buffer, appended after `PropsAt` rather than instead
+  of it.
+- `RagdollFade` — `C_TFRagdoll::ClientThink`'s expiry rule, without which the map fills with bodies.
+- `TimelineMoments.ClassModels` — where the class table comes from, read per call because the
+  archives and the demo open on independent schedules.
+
+**The orientation is the same gap as the model, one field along.** `DT_TFRagdoll` carries no angles
+either, so a corpse faces north — every body in a match pointing the same way. The client reaches
+back through the networked `m_hPlayer` for `SetAbsAngles( pPlayer->GetRenderAngles() )`
+(`c_tf_player.cpp:766`), and yaw only: a player's pitch lives in the head's pose parameters, so
+carrying it tips the corpse over backwards for anyone who died looking up.
+
+**A divergence was caught by the conformance test before it shipped, and it is the kind that hides.**
+The obvious implementation reuses `PlayerSkin.ForTeam`, which is already this project's team-to-skin
+rule. It is the wrong rule for a corpse. The two come from two different engine functions that agree
+on RED and BLU and disagree on everything else:
+
+```cpp
+// C_TFPlayer::GetSkin, c_tf_player.cpp:7807-7817
+case TF_TEAM_RED:  nSkin = 0; break;
+case TF_TEAM_BLUE: nSkin = 1; break;
+default:           nSkin = 0; break;
+
+// C_TFRagdoll::CreateTFRagdoll, c_tf_player.cpp:712-719
+if ( m_iTeam == TF_TEAM_RED ) m_nSkin = 0; else m_nSkin = 1;
+```
+
+A player with no team falls to RED; a corpse with no team falls to BLU. `Skin_ForNoTeamAtAll_IsBlu`
+failed against the reuse, which is the whole reason the test was written before the code.
+
+**And reading the fade changed what the fade IS — then measurement showed the feature does not work
+without it.** `cl_ragdoll_fade_time` defaults to 15 and a corpse does not last 15 seconds.
+`C_TFRagdoll::ClientThink` calls `StartFadeOut( cl_ragdoll_fade_time.GetFloat() * 0.33f )` and
+RETURNS whenever `IsRagdollVisible()` (`c_tf_player.cpp:1532-1545`), so the timer is restarted on
+every think a corpse is on screen. **A corpse being looked at never fades at all**; one that has left
+view expires 4.95 seconds later.
+
+The first implementation drew a corpse for as long as its ENTITY existed, which looked defensible and
+was measured wrong: the server keeps one ragdoll per player and destroys it only at that player's
+next death (`UTIL_Remove`, `tf_player.cpp:15602`), so bodies accumulate across a match — **36 alive a
+quarter through, 43 at half, 57 at three quarters, against a twelve-player roster.** `RagdollFade` is
+`ClientThink`'s rule and brings the same three samples to **4, 2 and 4 drawn**, which is what TF2
+shows. Visibility comes from the previous frame's posed set, the same arrangement
+`EntityModels.PosedEntities` already uses for the interpolation list and for the same engine reason.
+
+**Three intermediate readings were wrong on the way there, and each was measured rather than argued:**
+
+| window tried | what it gave | why it was wrong |
+|---|---|---|
+| creation → last update | every corpse drawn for ONE tick | 158 of 159 corpses receive exactly one update — everything `DT_TFRagdoll` sends is a fact about the moment of death |
+| creation → entity delete | 57 at once | the server's ragdoll outlives the drawn corpse by design |
+| … → also entity `Leave` | 61 at once | STV keeps corpses in its PVS, so leaves barely fire |
+
+**Still open, and each for its own reason:** the physics (B58), `m_nBody` from the player, the
+`RagdollSpawn` sequence lookup, the cosmetics through `m_hRagWearables`, and the gold/ice/zombie
+overrides.
 
 ### 5. A prop with an EMPTY model path is reported DRAWN — ANSWERED: the probe, and a miscount
 

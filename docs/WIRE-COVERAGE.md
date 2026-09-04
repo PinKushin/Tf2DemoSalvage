@@ -14,7 +14,7 @@ ignorance rather than proof of use — a name can be mentioned and still not hon
 which is its own recurring bug here. A property this report calls read may still be
 decoded and dropped.
 
-**123 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
+**124 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
 
 ## Tables an entity this viewer draws composes
 
@@ -170,11 +170,11 @@ Not declared in this SDK.
 | `DT_BaseBeam` | 10 | 15 |
 | `DT_EntityDissolve` | 10 | 10 |
 | `DT_PointCamera` | 10 | 10 |
-| `DT_TFPlayerClassShared` | 10 | 10 |
 | `DT_World` | 10 | 10 |
 | `DT_BreakableSurface` | 9 | 9 |
 | `DT_PropCoreBall` | 9 | 9 |
 | `DT_PropScalable` | 9 | 9 |
+| `DT_TFPlayerClassShared` | 9 | 10 |
 | `DT_PointCommentaryNode` | 8 | 8 |
 | `DT_PointWorldText` | 8 | 8 |
 | `DT_SlideshowDisplay` | 8 | 8 |

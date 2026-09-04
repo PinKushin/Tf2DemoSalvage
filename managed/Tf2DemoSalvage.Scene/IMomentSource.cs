@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 using Tf2DemoSalvage.Core.Scene;
@@ -83,6 +84,36 @@ public interface IMomentSource
 /// </remarks>
 public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
 {
+    /// <summary>
+    /// Where the class table a corpse's model is derived from comes from, or null to draw none.
+    /// </summary>
+    /// <remarks>
+    /// **A corpse is the one thing in the scene whose model is not in the demo** — `DT_TFRagdoll` is
+    /// `NOBASE` and sends no model index, so the client derives the path from `m_iClass` through the
+    /// game's own `scripts/playerclasses/*.txt` (`c_tf_player.cpp:689-696`). That needs the install,
+    /// which `DemoTimeline` deliberately does not have.
+    ///
+    /// **Read per call rather than captured, because the install arrives on its own schedule.**
+    /// `PlayerAppearances` exists for exactly this and already says why: *"Two settable properties,
+    /// because there are genuinely two lifecycles"* — the demo can open before the archives or after
+    /// them. Taking `Game.Classes` once, here, would cache whichever half happened to be missing at
+    /// construction, and a demo opened first would show no corpses for its whole life.
+    ///
+    /// **Null draws nothing, and that is the honest answer rather than a fallback.** With no game
+    /// folder there is no way to know which model a class wears — guessing `models/player/spy.mdl`
+    /// from the class name would be this project inventing a path that the era it is decoding may
+    /// not even use.
+    /// </remarks>
+    /// <remarks>
+    /// **A supplier rather than the holder, which is Interface Segregation doing real work here.**
+    /// What this needs is "a class table when one exists"; taking `PlayerAppearances` would drag in
+    /// the weapon roles, the timeline and the log, and would make every test of the corpse wiring
+    /// require a TF2 install to construct a `GameContent`. Production passes
+    /// <c>() =&gt; appearances.Game?.Classes?.Model</c>, which is the same per-call read.
+    /// </remarks>
+    public Func<Func<int, string?>?>? ClassModels { get; set; }
+
+
     /// <inheritdoc />
     public float IntervalPerTick => timeline.IntervalPerTick;
 
@@ -92,8 +123,35 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
 
     /// <inheritdoc />
     public void PropsAt(
-        double tick, ICollection<SceneProp> into, IReadOnlySet<int>? interpolate = null) =>
+        double tick, ICollection<SceneProp> into, IReadOnlySet<int>? interpolate = null)
+    {
         timeline.PropsAt(tick, into, interpolate);
+
+        // **After, because `PropsAt` clears the buffer first.** Corpses are not prop tracks and
+        // never reach that walk — see `RagdollProps` for why the layering puts them here.
+        if (ClassModels?.Invoke() is { } classes)
+        {
+            // **A rewind forgets every corpse's timer**, for the reason `DemoTimeline.PropsAt`
+            // rebuilds its whole sample on one: state carried across frames is wrong the moment the
+            // clock runs backwards, and a corpse expired on the way forward would otherwise be
+            // missing from a scrub back past its own death (D131).
+            if (tick < _lastTick)
+            {
+                _fade.Rewound();
+            }
+
+            _lastTick = tick;
+
+            // **`interpolate` IS the previous frame's visible set** — the interface says so, and
+            // both uses come from the same place in the engine: `g_InterpolationList` membership
+            // and `IsRagdollVisible` are each gated on what the last render could see. Reusing it
+            // is not a shortcut but the avoidance of a second copy that the presenter would have to
+            // remember to set, which is precisely the wiring this project has shipped unset three
+            // times. Null is the first frame, where treating every corpse as unseen is right: their
+            // timers have only just started.
+            RagdollProps.Fill(timeline.Corpses, tick, classes, into, _fade, interpolate);
+        }
+    }
 
     /// <inheritdoc />
     public int? RoundStateAt(double tick) => timeline.RoundStateAt(tick);
@@ -106,4 +164,10 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
             track.PoseParameterLoops = looping;
         }
     }
+
+    /// <summary>When each corpse expires — <c>C_TFRagdoll::ClientThink</c>'s rule.</summary>
+    private readonly RagdollFade _fade = new(timeline.IntervalPerTick);
+
+    /// <summary>The last tick asked for, so a rewind can be noticed.</summary>
+    private double _lastTick;
 }
