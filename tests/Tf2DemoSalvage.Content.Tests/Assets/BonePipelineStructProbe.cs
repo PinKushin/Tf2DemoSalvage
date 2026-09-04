@@ -51,6 +51,7 @@ public sealed class BonePipelineStructProbe
             // `CIKContext::AddSequenceLocks` read that this project does not: `posekeyindex`,
             // `numiklocks` and `iklockindex`.
             "mstudioseqdesc_t",
+            "mstudioiklock_t",
         ];
 
         foreach (string name in wanted)

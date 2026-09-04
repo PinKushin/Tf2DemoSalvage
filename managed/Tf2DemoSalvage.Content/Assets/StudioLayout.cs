@@ -472,6 +472,23 @@ internal static class StudioLayout
     /// <summary>Byte offset of <c>iklockindex</c>.</summary>
     public const int SequenceIkLockIndexOffset = 168;
 
+    /// <summary>Bytes per <c>mstudioiklock_t</c>.</summary>
+    /// <remarks>
+    /// Four fields and four unused integers. The unused run is half the structure, so a stride
+    /// computed from the fields alone would be 16 and would read every lock but the first from the
+    /// wrong place — the trap `docs/memory/struct-padding-is-on-disk.md` records.
+    /// </remarks>
+    public const int IkLockStride = 32;
+
+    /// <summary>Byte offset of <c>flPosWeight</c> within a lock.</summary>
+    public const int IkLockPositionWeightOffset = 4;
+
+    /// <summary>Byte offset of <c>flLocalQWeight</c>.</summary>
+    public const int IkLockRotationWeightOffset = 8;
+
+    /// <summary>Byte offset of <c>flags</c>.</summary>
+    public const int IkLockFlagsOffset = 12;
+
     /// <summary>Byte offset of <c>paramindex</c>: which pose parameters drive the grid.</summary>
     public const int SequenceParameterIndexOffset = 76;
 

@@ -57,6 +57,16 @@ public sealed class BonePipelineStructTests
         // reader that skipped it still got every field on either side right.
         bone.Offset("qAlignment").ShouldBe(StudioLayout.BoneAlignmentOffset);
 
+        // **The lock a sequence puts on an IK chain** (B311). Half its 32 bytes are an unused run,
+        // so a stride computed from the four fields alone would be 16 and would read every lock
+        // after the first from the wrong place.
+        CLayout iklock = Layout("mstudioiklock_t");
+
+        iklock.Size.ShouldBe(StudioLayout.IkLockStride);
+        iklock.Offset("flPosWeight").ShouldBe(StudioLayout.IkLockPositionWeightOffset);
+        iklock.Offset("flLocalQWeight").ShouldBe(StudioLayout.IkLockRotationWeightOffset);
+        iklock.Offset("flags").ShouldBe(StudioLayout.IkLockFlagsOffset);
+
         // **The count matters as much as the offset**, because the six slots are read as a run: one
         // too few silently drops the ZR axis, one too many reads `pos.x` as a controller index and
         // then indexes the controller table with a float's bit pattern.

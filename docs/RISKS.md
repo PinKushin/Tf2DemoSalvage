@@ -20649,3 +20649,55 @@ census does not say the flag is confined to bosses.
 
 **What is NOT established:** how many of those 1,333 are on models a normal match loads. The census
 walks the archive, not a demo, so it counts what SHIPS rather than what is drawn.
+
+### B311 OPEN 2026-09-04: IK locks are read, and nothing applies them yet
+
+**A lock is what keeps a hand still while the body moves under it.** `AccumulatePose` brackets its
+whole body with two calls (`bone_setup.cpp:2425`, `:2451`): `AddSequenceLocks` records where each
+locked chain's end effector sits BEFORE the sequence is applied, and `SolveSequenceLocks` puts it
+back afterwards, weighted.
+
+**Measured first, and it is on screen.** 1,333 of 26,387 sequences declare locks, 2,666 chains — and
+**814 of those sequences are under `models/player/`**: `PRIMARY_aimmatrix_idle`,
+`PRIMARY_aimmatrix_run`, `AttackStand_PRIMARY`. Those are drawn every frame of every match, not
+Halloween boss content, which is what the archive-versus-player split was added to separate.
+
+**This entry closes the READER and nothing more.** `StudioIkLocks.Read` decodes
+`mstudioiklock_t` — chain, `flPosWeight`, `flLocalQWeight`, flags — with the struct pinned against
+`studio.h`. Applying them is not done.
+
+#### Why the application is a bigger change than the reader
+
+**Both engine calls run in the MODEL's space, not the world's**, which removes the hardest part:
+`seq_ik.Init( m_pStudioHdr, vec3_angle, vec3_origin, 0.0, 0, m_boneMask )` under Valve's own comment
+*"local space relative so absolute position doesn't mater"*. No entity placement is involved.
+
+**And everything `SolveLock` needs already exists here** — `Studio_SolveIK`, `BuildBoneChain`,
+`SolveBone`, the chains and their knee directions. It is wiring rather than a new mechanism.
+
+**The structural problem is WHERE the bracket goes.** The engine applies one sequence at a time and
+can wrap each; this project composes a layer LIST and solves IK once on the result
+(`SkeletonPose.ReachWithIk`). The seam exists — `Accumulate` already walks the layers in order — but
+the capture needs model-space matrices part way through a composition that works in local space.
+
+**What is NOT established:** whether the 814 player sequences that lock are ones a demo selects, or
+whether the flag rides on sequences the roster never plays. The census reads the archive; a per-demo
+count would need the probe to walk a real recording.
+
+#### Three test defects the sabotages found, two of them mine
+
+The corpus tests read a real `engineer_animations.mdl` and assert ranges. That could not see:
+
+- **A wrong STRIDE.** Halving 32 to 16 reads lock 1 out of lock 0's reserved run — four zero
+  integers, which satisfy every range check. Only the SDK-derived struct test caught it.
+- **The two WEIGHTS swapped.** Both are checked with the identical predicate over the identical
+  domain, so exchanging them is undetectable by any input whatsoever.
+- **A count of exactly ONE.** Nothing exercised it: the hand-built table wrote two, and the corpus
+  assertions (`locked > 0`, `chains >= locked`) both fall equally when a single-lock sequence reads
+  as empty.
+
+**All three are now caught by hand-built tables**, which is D38's argument in one place: a corpus
+test does not know the right answer and must compare two readings, while a synthetic fixture HAS
+ground truth because the test put the values there. **Two locks with different values makes the
+stride visible; two distinct weights makes the swap visible; a one-lock table makes the boundary
+visible.** None of that is possible with a range check over real bytes.
