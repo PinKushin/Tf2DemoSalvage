@@ -21131,3 +21131,26 @@ be right for the duck and draw the release twice as wrong.
 applied without checking the GROUND flag sinks every crouching player twenty units into the floor;
 one applied without checking DUCKING drags every rocket jump down. Either is a worse defect than the
 one being fixed, and the airborne-crouching test alone would pass against both.
+
+#### `C_TFPlayer::BuildTransformations` is now accounted for end to end
+
+The function makes three calls after the base transformations, and reading it to its closing brace
+is what produced two of this session's findings. All three are now settled:
+
+| call | state |
+|---|---|
+| the duck-jump offset (`:8764`) | **implemented** — B314, and it was absent |
+| the three per-bone scales (`:8815`) | **implemented** — B312, and they were absent |
+| `BuildFirstPersonMeathookTransformations` (`:8820`) | **inapplicable, for the engine's own reason** |
+
+**The meathook is not a gap, and that is checked rather than assumed.** It shifts the whole skeleton
+so the head bone lands at the camera's neck pivot and then zeroes the head, helmet and hat — but it
+returns early at `if( !ShouldDrawThisPlayer() )` (`c_baseplayer.cpp:2944`). TF2's "see your own body"
+cvar is off by default, so the engine skips it in ordinary first person; **this project hides the
+viewed player entirely in first person, cosmetics included** (`FirstPersonVisibility`), which is the
+same condition arrived at independently. There is no skeleton to shift.
+
+**Two of the three were found only by re-reading a function already opened.** The scales came from
+the tail and the duck jump from the head, on separate passes, because the first pass stopped at the
+line it came for. `docs/memory/read-the-sdk-for-the-whole-mechanism.md` says finding the flag is the
+easy half; this is the same rule applied to a function rather than a flag.
