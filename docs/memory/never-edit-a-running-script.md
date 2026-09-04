@@ -25,3 +25,27 @@ project, so an edit either arrives too late to be tested or splits the tree in h
 So: while a gate is in flight, edit DOCS. Everything else waits for the exit, and the earlier runs in
 this session that appeared to work only did so because the edits happened to finish before the gate
 reached those projects.
+
+## And a PROBE run is an instrument, so editing source under it fabricates findings
+
+Third variant, same afternoon. A scan was backgrounded — 139 `dotnet run --project …Probe -- vmt
+<material>` invocations, grepping each material's text for `transform` — while source was being
+edited in another window.
+
+`dotnet run` BUILDS. So the probe's output for each material became whichever build errors the tree
+had at that instant, and the grep matched them:
+
+```
+=== METAL/IBEAM001
+… error CS1573: Parameter 'BaseTransform' has no matching param tag …
+```
+
+**Two materials "found", both false**, and they look exactly like findings — a material name, then
+text containing the word searched for.
+
+The gate at least fails loudly when a project will not build. A probe does not: it exits zero per
+material and its output is prose, so a contaminated run reads as data. The real number came from a
+test run after a clean build — 21 of 412 — and disagreed with the scan entirely.
+
+**So the rule extends past the gate: while ANY backgrounded command builds this repo, the source is
+frozen.** Gate, probe, or a loop of either. Docs remain fair game, which is enough to stay busy.

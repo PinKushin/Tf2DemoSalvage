@@ -623,7 +623,12 @@ run Tf2DemoSalvage.Animation.Tests animation 111
 # colour, and the control that an unpainted item answers null; four that the value reaches the drawn
 # instance PER ENTITY, which is the assertion a material-level implementation cannot pass; and two
 # that `MomentScene` supplies the delegate at all, the hop that has shipped three no-ops here.
-run Tf2DemoSalvage.Scene.Tests    scene     452
+# 452 -> 459: `$basetexturetransform` (B332). Seven for the matrix itself — the identity a bare
+# material composes to, the centre the rotation turns about (which is what makes this more than a
+# scale and offset), the translation applied AFTER the rotation as `CTextureTransformProxy` applies
+# it, a rotation and a scale each alone, the two-row 3x4 shape the constant buffer wants, and the
+# control that a material stating nothing yields the identity rather than a null.
+run Tf2DemoSalvage.Scene.Tests    scene     459
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -1292,7 +1297,14 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     156
 # per-batch write, addressed from the array's END, landed in the tint controls — every reflective
 # model drew pure white. Nothing in the paint suite could see it; every assertion there sits upstream
 # of the buffer.
-run Tf2DemoSalvage.Rendering.Tests rendering 740
+#
+# 740 -> 741: `$basetexturetransform` reaching the drawn frame (B332). ONE test, and it is the one
+# that could fail — `TextureTransformWiringTests` asks cp_process_final's own 412 materials how many
+# state a transform and how many of those are the identity. The answer is 21 and NONE, which is why
+# the resting value had to stop being the identity: every one of the 21 was being lost. Its first
+# version asserted the opposite (that some material states a neutral transform) and measured zero,
+# which is a wrong premise rather than a bug.
+run Tf2DemoSalvage.Rendering.Tests rendering 741
 # 101 -> 103 on 2026-08-29: LaunchOptionWiringTests (B223, D118). Two tests, and they cost about
 # seventeen seconds EACH, because each builds a real MainForm and loads a corpus demo — which reads
 # cp_badlands.bsp when Team Fortress 2 is installed. That is the most expensive pair in this file
