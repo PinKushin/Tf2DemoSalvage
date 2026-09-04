@@ -19925,3 +19925,68 @@ if( !( oldReadableBones & BONE_USED_BY_ATTACHMENT ) && ( boneMask & BONE_USED_BY
 point concatenated the same matrices twice. Now one table per entity per pass, cleared per pass
 rather than per frame because the viewmodel pass corrects its attachments and the world pass does
 not.
+
+## B303 — the 2D skybox was not drawn at all — FIXED
+
+Every map has one. This viewer threw away every `SURF_SKY` and `SURF_SKY2D` face at read time:
+
+```
+private const SurfaceProperties NotDrawn =
+    SurfaceProperties.Sky | SurfaceProperties.Sky2D | SurfaceProperties.NoDraw | ...
+```
+
+under a comment reading *"Sky and Sky2D are the skybox, which is irrelevant to a map overview"* —
+ortho-era reasoning of exactly the kind that made B152's own premise wrong. The colour behind the
+horizon was the window's clear colour.
+
+### What the engine does, and where each part is written down
+
+| piece | source |
+|---|---|
+| the name | `worldspawn`'s `skyname` sets `sv_skyname` (`world.cpp:417`), declared with a default of `sky_urb01` (`movevars_shared.cpp:105`) |
+| the materials | `skybox/<skyname><suffix>` (`skyboxswapper.cpp:63`) |
+| the face ORDER | vbsp's `facingName[6] = { "rt", "lf", "bk", "ft", "up", "dn" }` (`cubemap.cpp:195`) |
+| the states | the `sky` shader forces them: `SET_FLAGS( MATERIAL_VAR_NOFOG ); SET_FLAGS( MATERIAL_VAR_IGNOREZ );` (`sky_dx9.cpp:28`) |
+| the toggle | `r_skybox`, default 1, **FCVAR_CHEAT** (`viewrender.cpp:114`) |
+
+**Two arrays of those six strings exist in the SDK, in different orders, and only one means a
+direction.** `skyboxswapper.cpp` and `vscript_server.cpp` both use `{ rt, bk, lf, ft, up, dn }` —
+for PRECACHING, where order is irrelevant. vbsp's is the one that assigns directions, because its
+output is a cubemap and the index IS the cube face. Taking the precache array swaps `bk` and `lf`
+and puts two walls of the sky on each other's side: a plausible picture with the horizon wrong.
+
+**`$nofog` and `$ignorez` in every shipped sky VMT are redundant**, not load-bearing — the shader
+sets both regardless. `IGNOREZ` is what puts the sky behind everything: it neither tests nor writes
+depth, so DRAW ORDER decides, and it is drawn first of all, ahead of the 3D room, because the room
+is scenery in the sky.
+
+### Two faults found by building it
+
+**The winding.** A box seen from inside wants the opposite winding to a solid one, and getting it
+wrong draws a sky that is present, textured and entirely invisible. `Face_EveryTriangle_FacesTheEye
+AtTheCentre` was red before anything was drawn — and the pass STILL drew nothing afterwards, because
+which winding is front-facing is a property of the RASTERISER and this renderer inherited whatever
+state the previous pass left. Culling is now off for the sky deliberately: a box around the eye
+cannot occlude itself, so culling saves six triangles of twelve and a convention error costs the
+whole sky.
+
+**The map's own pakfile.** The first loader read the game's VPKs only, and `cp_fulgur` names
+`sky_island_02`, which is not in TF2's content at all — it is packed into the BSP. The all-six-or-
+none rule then correctly drew nothing, which is a right answer to a question asked in the wrong
+place. Both the VMT and its VTF now come from the map's archive first, which is also the order
+`gameinfo.txt` mounts them in.
+
+### Measured
+
+```
+koth_harvest_final   2D skybox 'sky_harvest_01': 6 faces, 512x256 x4, 512x512, 1x1
+cp_fulgur            2D skybox 'sky_island_02':  6 faces, 512x256 x4, 512x512, 8x8   (from the pak)
+```
+
+and the horizon on `koth_harvest_final` is now that sky's warm tan rather than the clear colour,
+matching the VMT's own mean of (206, 177, 129).
+
+**What no test here can settle, and it is worth naming:** whether a given face is the right way up.
+`sky_harvest_01` shares ONE texture across all four sides and uses a single pixel for its floor, so
+a face-order or rotation fault is invisible on it. Showing one needs a sky with four distinct
+sides, and neither corpus map has one.

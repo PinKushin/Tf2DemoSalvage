@@ -963,6 +963,21 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             // would put a shaded grey slab over the map's own textures.
             if (_world is { HasMap: true })
             {
+                // **The 2D skybox first of everything**, because `MATERIAL_VAR_IGNOREZ` means it
+                // neither tests nor writes depth and only draw ORDER puts it behind the world
+                // (`sky_dx9.cpp:28`). It goes ahead of the 3D room too: the room is scenery IN the
+                // sky, so the flat sky is what sits behind IT (B303).
+                //
+                // **Gated on the same visibility the 3D room uses.** `r_skybox` is a bool where
+                // `r_3dsky` is an int, which is Valve's own asymmetry — and cheat-gated where the
+                // other is not, because turning the 3D room off is a preference and turning the sky
+                // off is seeing through the world.
+                if (DrawSkybox && _skybox is { HasSky: true } flatSky &&
+                    _skyVisible != SkyboxVisibility.None && _worldCamera is { } through)
+                {
+                    flatSky.Draw(_device, _context, _eye, through.Matrix, SkyReach);
+                }
+
                 _context.OMSetDepthStencilState(_depthOn, 0);
 
                 // **The 3D skybox, first and from its own view** — `CSkyboxView` runs before
@@ -1389,6 +1404,70 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         _skyRoom = skyCamera;
     }
 
+    /// <summary>The 2D skybox, drawn around the eye.</summary>
+    private SkyboxRenderer? _skybox;
+
+    /// <summary>Where the camera stands, for the sky box that is centred on it.</summary>
+    private (float X, float Y, float Z) _eye;
+
+    /// <summary>How far from the eye the sky box sits.</summary>
+    /// <remarks>
+    /// **Any distance inside the far plane draws the same picture**, because the sky writes no
+    /// depth and nothing is ever behind it — the box's size cancels out of the projection. It is a
+    /// specific number only so it cannot be clipped: the world's far plane is 28,000 units
+    /// (`FreeCamera.FarZ`), and a box beyond it vanishes in a way that looks exactly like a sky
+    /// that failed to load.
+    /// </remarks>
+    private const float SkyReach = 4_000f;
+
+    /// <summary>Whether the 2D skybox draws — Valve's <c>r_skybox</c>.</summary>
+    /// <remarks>
+    /// <c>static ConVar r_skybox( "r_skybox","1", FCVAR_CHEAT, "Enable the rendering of sky boxes" );</c>
+    /// (<c>viewrender.cpp:114</c>). **Cheat-gated, where `r_3dsky` on the line above is not** — and
+    /// that difference is Valve's rather than a choice here: turning the 3D room off is a legitimate
+    /// preference, turning the sky itself off is seeing through the world.
+    ///
+    /// Read as a bool, because Valve reads it as one: `r_skybox.GetBool()` at
+    /// <c>viewrender.cpp:1426</c>, <c>:2849</c> and <c>:4982</c>, unlike `r_3dsky`'s `GetInt()`.
+    /// </remarks>
+    public bool DrawSkybox { get; set; } = true;
+
+    /// <summary>Gives the 2D skybox its six faces, replacing whichever it had.</summary>
+    /// <param name="faces">
+    /// The six textures in <c>SkyboxGeometry</c>'s order, or empty for a map whose sky would not
+    /// load — which draws no sky rather than a partial box.
+    /// </param>
+    /// <exception cref="ArgumentNullException"><paramref name="faces"/> is null.</exception>
+    public void SetSkyFaces(IReadOnlyList<MapTexture?> faces)
+    {
+        ArgumentNullException.ThrowIfNull(faces);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        foreach (ComPtr<ID3D11ShaderResourceView> held in _skyTextures)
+        {
+            held.Dispose();
+        }
+
+        _skyTextures.Clear();
+
+        if (faces.Count != SkyboxGeometry.Faces)
+        {
+            _skybox?.SetFaces([]);
+            return;
+        }
+
+        _skybox ??= SkyboxRenderer.Create(_device);
+
+        foreach (MapTexture? face in faces)
+        {
+            _skyTextures.Add(WorldRenderer.UploadTexture(_device, _context, face));
+        }
+
+        _skybox.SetFaces(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_skyTextures));
+    }
+
+    private readonly List<ComPtr<ID3D11ShaderResourceView>> _skyTextures = [];
+
     /// <summary>Gives the device the map's visibility, or takes it away.</summary>
     /// <param name="culling">The map's culling, or null for a map that cannot be culled.</param>
     /// <exception cref="ObjectDisposedException">The device has been disposed.</exception>
@@ -1483,6 +1562,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             // eye, before the sky camera's offset is applied.
             _skyVisible = _culling?.SkyVisibleFrom(
                 camera.Origin.X, camera.Origin.Y, camera.Origin.Z) ?? SkyboxVisibility.None;
+
+            // The 2D box is centred here. Kept from the same camera the cull used, so the sky and
+            // the world cannot disagree about where the viewer is standing.
+            _eye = (camera.Origin.X, camera.Origin.Y, camera.Origin.Z);
 
             if (_skyRoom is { } room && _culling is { } cull &&
                 SkyboxView.Draws(Draw3dSky, _skyVisible, cull.SkyArea))

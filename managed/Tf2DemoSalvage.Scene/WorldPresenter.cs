@@ -175,6 +175,10 @@ public sealed class WorldPresenter(ILogger render)
             // over one without the other gives either a room nothing draws or a view of nothing.
             upload.SetSkyCamera(BspEntities.SkyCamera(level.Level.Entities));
 
+            // The 2D sky, loaded with the map's other textures and handed over with them. Empty
+            // when any of the six would not resolve, which draws no sky rather than a holed box.
+            upload.SetSkyFaces(level.Assets?.SkyFaces ?? []);
+
             render.LogInformation(
                 "{Message}",
                 culling is null

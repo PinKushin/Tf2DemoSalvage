@@ -90,6 +90,9 @@ public sealed class WorldPresenterTests
         public void SetSkyCamera(((float X, float Y, float Z) Origin, float Scale)? skyCamera) =>
             Calls.Add(skyCamera is null ? "no-sky" : "sky");
 
+        public void SetSkyFaces(IReadOnlyList<MapTexture?> faces) =>
+            Calls.Add(faces.Count == 0 ? "no-sky-faces" : "sky-faces");
+
         public void SetCamera(float[] matrix, bool surfaceColours = false) =>
             Calls.Add("camera");
 

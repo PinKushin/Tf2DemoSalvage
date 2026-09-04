@@ -1433,6 +1433,20 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// clipping on it would punch holes through solid walls. Forcing it here means one shader path
     /// serves both without a per-batch switch.
     /// </remarks>
+    /// <summary>Uploads one texture, for a caller outside this type's material table.</summary>
+    /// <param name="device">The device.</param>
+    /// <param name="context">The device context.</param>
+    /// <param name="texture">The image, or null for no texture.</param>
+    /// <returns>A view, or a default handle when there was nothing to upload.</returns>
+    /// <remarks>
+    /// **Exposed for the 2D skybox, whose materials are not in the map's table at all** — sky
+    /// brushes carry `tools/toolsskybox` and the sky itself comes from `worldspawn`'s `skyname`
+    /// (B303). Sharing this rather than copying it keeps one answer to what a VTF becomes.
+    /// </remarks>
+    internal static ComPtr<ID3D11ShaderResourceView> UploadTexture(
+        ComPtr<ID3D11Device> device, ComPtr<ID3D11DeviceContext> context, MapTexture? texture) =>
+        Upload(device, context, texture);
+
     private static ComPtr<ID3D11ShaderResourceView> Upload(
         ComPtr<ID3D11Device> device, ComPtr<ID3D11DeviceContext> context, MapTexture? texture)
     {

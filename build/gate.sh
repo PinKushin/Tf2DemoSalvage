@@ -561,7 +561,11 @@ run Tf2DemoSalvage.Animation.Tests animation 78
 # arithmetic", viewmodel_fov 0 collapsing onto the axis rather than doing nothing (Valve's
 # `viewx ? ... : 0.0f`, under a comment naming that exact case), the inverse round trip, and an eye
 # away from the origin - without which a correction written against (0,0,0) passes everything.
-run Tf2DemoSalvage.Scene.Tests    scene     385
+# 385 -> 390: the 2D skybox's six quads (B303). Five: each face on its own plane, each covering its
+# whole square, each using its whole texture, the four sides meeting edge to edge - and the WINDING,
+# which was genuinely red first. A box seen from inside wants the opposite winding to a solid one,
+# and getting it wrong draws a sky that is present, textured and entirely invisible.
+run Tf2DemoSalvage.Scene.Tests    scene     390
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -894,7 +898,11 @@ run Tf2DemoSalvage.Presentation.Tests presentation 438
 # visibility they encode (B152). Two on the flags themselves - one leaf carrying both an area and
 # flags, and a large area that must not leak upward - and three on LEAF_FLAGS_SKY vs SKY2D vs
 # neither, where the last is the control that stops an unconditional answer passing the first two.
-run Tf2DemoSalvage.Content.Tests  content   918
+# 918 -> 922: worldspawn's skyname and the six faces it names (B303). Four: a map that states one, a
+# map that states none inheriting sv_skyname's default rather than having no sky, another entity
+# carrying the key being ignored - without which a reader answering the FIRST skyname passes both -
+# and the face order, which is vbsp's CUBE order and not the precache order that swaps bk and lf.
+run Tf2DemoSalvage.Content.Tests  content   922
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2

@@ -62,6 +62,20 @@ public sealed class SkyCameraProbe : IProbe
 
         IReadOnlyList<BspEntity> entities = BspEntities.ReadFrom(file);
 
+        // **The 2D sky, which every map has and only some maps state.** Reported first because a
+        // map with no `sky_camera` returns below and would otherwise say nothing about its sky at
+        // all — and `sv_skyname`'s default means "stated none" is not "has none".
+        string skyName = BspEntities.SkyName(entities);
+
+        output.WriteLine(
+            $"{Path.GetFileName(path)} skyname '{skyName}'" +
+            $"{(skyName == BspEntities.DefaultSkyName ? " (sv_skyname's default — the map states none)" : string.Empty)}");
+
+        foreach (string face in BspEntities.SkyFaces(skyName))
+        {
+            output.WriteLine($"    {face}");
+        }
+
         if (BspEntities.SkyCamera(entities) is not { } sky)
         {
             output.WriteLine(

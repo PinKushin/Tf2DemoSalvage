@@ -991,6 +991,15 @@ public sealed class MapAssets
             LightWarps = table.LightWarps,
             DevGrid = LoadDevGrid(assets, archives, maximumTextureSize),
 
+            // The 2D skybox, from worldspawn's `skyname` — every map has one, because `sv_skyname`
+            // carries a default and a map silent on the key inherits it (B303).
+            SkyFaces = LoadSky(
+                assets,
+                archives,
+                pak,
+                maximumTextureSize,
+                BspEntities.SkyName(BspEntities.ReadFrom(map))),
+
             // Valve's own luxel grid, for mat_luxels. Same loader, different candidates — it ships
             // only in the Half-Life 2 archives, which TF2's gameinfo.txt mounts after its own.
             LuxelGrid = LoadDebugTexture(
@@ -1015,6 +1024,101 @@ public sealed class MapAssets
     /// Null when none of them resolve, which the renderer treats as "flat colours, as before". A
     /// missing debug texture must not stop a map drawing.
     /// </remarks>
+    /// <summary>The map's 2D skybox, six faces in <c>SkyboxGeometry</c>'s order.</summary>
+    /// <remarks>
+    /// **Loaded apart from the map's material table because a sky material is not IN it.** The
+    /// BSP's texdata names what the brushes are textured with — sky brushes carry
+    /// <c>tools/toolsskybox</c> — and the sky itself comes from <c>worldspawn</c>'s <c>skyname</c>,
+    /// which is a keyvalue rather than a surface.
+    ///
+    /// **Through the VMT, not by guessing the VTF's name.** `sky_harvest_01up` declares
+    /// <c>$basetexture "skybox/sky_harvest_01_up"</c> — an extra underscore the material name does
+    /// not have — and its four sides all declare the SAME texture, `sky_harvest_01_side`. A loader
+    /// that appended the suffix to a texture path would miss every one of them.
+    /// </remarks>
+    public IReadOnlyList<MapTexture?> SkyFaces { get; private init; } = [];
+
+    /// <summary>Reads the six sky faces, or an empty list when the map's sky will not load.</summary>
+    /// <remarks>
+    /// **All six or none.** A box missing a face shows the clear colour through a hole, which reads
+    /// as a rendering fault rather than as a missing asset — and a partial sky is not something the
+    /// engine can produce.
+    /// </remarks>
+    private static MapTexture?[] LoadSky(
+        ILogger assets,
+        GameArchives archives,
+        PakFile pak,
+        int maximumTextureSize,
+        string skyName)
+    {
+        string[] materials = BspEntities.SkyFaces(skyName);
+        MapTexture?[] faces = new MapTexture?[materials.Length];
+
+        for (int face = 0; face < materials.Length; face++)
+        {
+            byte[]? vmt;
+
+            try
+            {
+                // **The map's OWN archive first, because a community map ships its own sky.**
+                // `cp_fulgur` names `sky_island_02`, which is not in TF2's content at all — it is
+                // packed into the BSP. Reading only the game's VPKs answered "no sky" for it, and
+                // the all-six-or-none rule then drew nothing: a correct refusal to a question asked
+                // in the wrong place.
+                vmt = pak.ReadFile($"materials/{materials[face]}.vmt")
+                    ?? archives.Read($"materials/{materials[face]}.vmt");
+            }
+            catch (Exception failure) when (failure is IOException or InvalidDataException)
+            {
+                assets.LogWarning(failure, "reading the sky material {Name}", materials[face]);
+                return [];
+            }
+
+            if (vmt is null || VmtMaterial.Parse(vmt).PrimaryTexture is not { } texture)
+            {
+                assets.LogWarning(
+                    "the sky material {Name} is missing or names no texture", materials[face]);
+
+                return [];
+            }
+
+            // **Both archives again, and for the same map.** A community sky's VMT and its VTF are
+            // packed together, so finding the material in the pak and then looking for its texture
+            // only in the game's VPKs would fail on the second half of every custom sky.
+            faces[face] = LoadPackedTexture(
+                assets, archives, pak, maximumTextureSize, $"materials/{texture}.vtf");
+
+            if (faces[face] is null)
+            {
+                assets.LogWarning(
+                    "the sky texture {Texture} for {Name} would not load",
+                    texture,
+                    materials[face]);
+
+                return [];
+            }
+        }
+
+        // **Said on SUCCESS, because a silent success and a call that never happened look the
+        // same** — which is exactly how the first run of this was read. The sizes are here because
+        // they are what says the six are DIFFERENT images: `sky_harvest_01` shares one texture
+        // across all four sides and uses a 1x1 for its floor, so a face-order fault is invisible on
+        // that map and would need a sky with four distinct sides to show.
+        assets.LogInformation(
+            "2D skybox '{Sky}': {Faces} faces, {Sizes}",
+            skyName,
+            faces.Length,
+            string.Join(
+                ", ",
+                Array.ConvertAll(
+                    faces,
+                    face => face is { } present
+                        ? $"{present.Width}x{present.Height}"
+                        : "missing")));
+
+        return faces;
+    }
+
     private static MapTexture? LoadDevGrid(
         ILogger assets, GameArchives archives, int maximumTextureSize) =>
         LoadDebugTexture(
@@ -1076,6 +1180,47 @@ public sealed class MapAssets
             "the view that uses it falls back");
 
         return null;
+    }
+
+    /// <summary>Reads one texture from the map's own archive first, then the game's.</summary>
+    /// <remarks>
+    /// **The order matters and it is the game's own.** `gameinfo.txt` mounts the map's pakfile
+    /// ahead of the VPKs, which is what lets a community map override a stock asset — and what lets
+    /// it ship a sky the game has never heard of. `cp_fulgur` names `sky_island_02`, absent from
+    /// TF2's content entirely.
+    /// </remarks>
+    private static MapTexture? LoadPackedTexture(
+        ILogger assets, GameArchives archives, PakFile pak, int maximumTextureSize, string path)
+    {
+        byte[]? file;
+
+        try
+        {
+            file = pak.ReadFile(path) ?? archives.Read(path);
+        }
+        catch (Exception failure) when (failure is IOException or InvalidDataException)
+        {
+            assets.LogWarning(failure, "reading {Name}", path);
+            return null;
+        }
+
+        if (file is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            VtfTexture decoded = VtfTexture.Read(file, maximumTextureSize);
+
+            return new MapTexture(decoded.Width, decoded.Height, decoded.Image, false);
+        }
+        catch (InvalidDataException failure)
+        {
+            assets.LogWarning(failure, "decoding {Name}", path);
+
+            return null;
+        }
     }
 
     private static LightmapAtlas PackLighting(ILogger assets, ReadOnlyMemory<byte> map)

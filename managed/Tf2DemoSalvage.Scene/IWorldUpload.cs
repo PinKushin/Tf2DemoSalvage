@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace Tf2DemoSalvage.Scene;
 
 /// <summary>Somewhere to put a level's world geometry and its textures.</summary>
@@ -51,6 +53,14 @@ public interface IWorldUpload
     /// either a room nothing draws or a view of nothing.
     /// </remarks>
     public void SetSkyCamera(((float X, float Y, float Z) Origin, float Scale)? skyCamera);
+
+    /// <summary>The map's 2D skybox faces, or empty when its sky would not load.</summary>
+    /// <param name="faces">Six textures in <c>SkyboxGeometry</c>'s order.</param>
+    /// <remarks>
+    /// **All six or none** (B303). A box missing a face shows the clear colour through a hole,
+    /// which reads as a rendering fault rather than as a missing asset.
+    /// </remarks>
+    public void SetSkyFaces(IReadOnlyList<MapTexture?> faces);
 
     /// <summary>Points the world at a camera.</summary>
     /// <param name="matrix">The view-projection, row major, sixteen floats.</param>

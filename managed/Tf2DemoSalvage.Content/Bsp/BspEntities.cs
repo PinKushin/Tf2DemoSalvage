@@ -262,6 +262,86 @@ public static class BspEntities
     /// <summary>`sky_camera`'s default `scale`, as `base.fgd` declares it.</summary>
     private const float DefaultSkyScale = 16f;
 
+    /// <summary>The map's 2D skybox name — <c>worldspawn</c>'s <c>skyname</c>.</summary>
+    /// <param name="entities">Entities from <see cref="Parse"/>.</param>
+    /// <returns>The name, or <see cref="DefaultSkyName"/> when the map states none.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="entities"/> is null.</exception>
+    /// <remarks>
+    /// **`worldspawn` sets a CONVAR, which is why a map without the key still has a sky.**
+    /// `CWorld::KeyValue` (<c>server/world.cpp:417</c>):
+    ///
+    /// <code>
+    ///   if ( FStrEq(szKeyName, "skyname") )
+    ///   {
+    ///       ConVarRef skyname( "sv_skyname" );
+    ///       skyname.SetValue( szValue );
+    ///   }
+    /// </code>
+    ///
+    /// and `sv_skyname` is declared with a default (<c>movevars_shared.cpp:105</c>):
+    /// <c>ConVar sv_skyname( "sv_skyname", "sky_urb01", FCVAR_ARCHIVE | FCVAR_REPLICATED, ... )</c>.
+    /// So the fallback is a real sky rather than nothing, and it is Valve's rather than a guess.
+    ///
+    /// **A CONVAR and not a per-map field also means it persists**: a map that does not set it
+    /// keeps whatever the last one did. Reproducing that would need a session-wide value; answering
+    /// the default here is the behaviour of a freshly started client, which is what opening a demo
+    /// is.
+    /// </remarks>
+    public static string SkyName(IReadOnlyList<BspEntity> entities)
+    {
+        ArgumentNullException.ThrowIfNull(entities);
+
+        foreach (BspEntity entity in entities)
+        {
+            if (entity.TryGetValue("classname", out string? classname) &&
+                string.Equals(classname, "worldspawn", StringComparison.OrdinalIgnoreCase) &&
+                entity.TryGetValue("skyname", out string? name) &&
+                name.Length > 0)
+            {
+                return name;
+            }
+        }
+
+        return DefaultSkyName;
+    }
+
+    /// <summary>`sv_skyname`'s default — <c>movevars_shared.cpp:105</c>.</summary>
+    public const string DefaultSkyName = "sky_urb01";
+
+    /// <summary>The six sky faces, in CUBE FACE order.</summary>
+    /// <returns>The material names, relative to <c>materials/</c>, without extension.</returns>
+    /// <param name="skyName">The map's <c>skyname</c>.</param>
+    /// <remarks>
+    /// **Two arrays of these six strings exist in the SDK, in DIFFERENT orders, and only one of
+    /// them means a direction.** `skyboxswapper.cpp:60` and `vscript_server.cpp:2190` both use
+    /// <c>{ "rt", "bk", "lf", "ft", "up", "dn" }</c> — but only to precache, where order is
+    /// irrelevant. The one that assigns directions is vbsp's, because its output is a CUBEMAP and
+    /// the index IS the cube face (<c>cubemap.cpp:195</c>):
+    ///
+    /// <code>
+    ///   const char *facingName[6] = { "rt", "lf", "bk", "ft", "up", "dn" };
+    /// </code>
+    ///
+    /// Cube faces run +X, −X, +Y, −Y, +Z, −Z, so in Source's axes — X forward, Y left, Z up —
+    /// `rt` is +X, `lf` is −X, `bk` is +Y, `ft` is −Y, `up` is +Z and `dn` is −Z. **Taking the
+    /// precache array instead swaps `bk` and `lf`**, which puts two walls of the sky on each
+    /// other's side: a plausible picture with the horizon in the wrong place.
+    /// </remarks>
+    public static string[] SkyFaces(string skyName)
+    {
+        ArgumentNullException.ThrowIfNull(skyName);
+
+        string[] facing = ["rt", "lf", "bk", "ft", "up", "dn"];
+        string[] materials = new string[facing.Length];
+
+        for (int face = 0; face < facing.Length; face++)
+        {
+            materials[face] = $"skybox/{skyName}{facing[face]}";
+        }
+
+        return materials;
+    }
+
     /// <summary>Index of the entity lump in the directory.</summary>
     private const int EntityLump = BspLumpIndex.Entities;
 
