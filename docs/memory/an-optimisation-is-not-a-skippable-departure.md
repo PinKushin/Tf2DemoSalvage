@@ -26,4 +26,4 @@ and D86 in `docs/DECISIONS.md`).
 Note also what the threading actually is, because the name misleads and that was part of the
 misjudgement: it is a **speculative prefetch of last frame's expensive roots**, run between simulate
 and render, not a parallel-for over the draw loop. See `docs/findings/35-the-bone-pipeline-audit.md`
-§8 and D88. Related: [[read-the-sdk-for-the-whole-mechanism]], [[measure-the-output-not-the-capability]].
+§8 and D88. Related: [[parity-is-the-search-not-the-defence]], [[measure-the-output-not-the-capability]].

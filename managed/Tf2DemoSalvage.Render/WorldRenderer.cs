@@ -432,6 +432,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // only debug substitution that has to be rebound with the material.
         Texture2D    lowResMap   : register(t9);
 
+        // **`$selfillummask`: which parts of the surface light themselves, where a texture says
+        // so** (B327). Sampled on the BASE texture's coordinates, not a set of its own, and read
+        // only where phongTint.w is 1 — otherwise the base map's alpha decides, which is what the
+        // engine's own `lerp( baseColor.aaa, mask, control )` collapses to.
+        Texture2D    selfIllumMask : register(t10);
+
         SamplerState wrapSampler : register(s0);
         SamplerState clampSampler: register(s1);
 
@@ -1195,9 +1201,26 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // replaces the lit colour with the MATERIAL's own tint, so a self-illuminated surface
             // would report its material instead of its category — a lamp housing reading as
             // something other than the prop it is.
+            //
+            // **`$selfillummask` REPLACES that alpha where a material names one** (B327), which is
+            // Valve's own arrangement written as one lerp rather than a branch:
+            //
+            //   float3 vSelfIllumMask = tex2D( SelfIllumMaskSampler, i.baseTexCoord.xy );
+            //   vSelfIllumMask = lerp( baseColor.aaa, vSelfIllumMask, g_SelfIllumMaskControl );
+            //   diffuseComponent = lerp( diffuseComponent, g_SelfIllumTint * albedo, vSelfIllumMask );
+            //
+            // `vertexlit_and_unlit_generic_ps2x.fxc:441-443`. Two details are Valve's and both are
+            // easy to lose: the mask is sampled on the BASE coordinates rather than a set of its
+            // own, and it is a full RGB rather than one channel — a mask can tint which parts glow
+            // per channel, so collapsing it to a scalar would be a different effect.
             if (bump.z > 0.5f && surfaceColours.x < 0.5f)
             {
-                lit = lerp(lit, selfIllumTint.rgb * albedo.rgb, albedo.a);
+                float3 illumMask = lerp(
+                    albedo.aaa,
+                    selfIllumMask.Sample(wrapSampler, input.uv).rgb,
+                    phongTint.w);
+
+                lit = lerp(lit, selfIllumTint.rgb * albedo.rgb, illumMask);
             }
 
             // **The specular highlight, added like the reflection and for the same reason.** Valve's
@@ -1713,6 +1736,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
     /// <summary>The authored lighting ramp for each material, empty where there is none.</summary>
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _lightWarps = [];
+
+    /// <summary>Each material's <c>$selfillummask</c>, or a null handle where it has none.</summary>
+    private readonly List<ComPtr<ID3D11ShaderResourceView>> _selfIllumMasks = [];
 
     /// <summary>The proxies each material runs, empty for the great majority.</summary>
     private IReadOnlyList<IReadOnlyList<MaterialProxy>> _proxies = [];
@@ -2599,6 +2625,18 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
             float hasLightWarp = warp is null ? 0f : 1f;
 
+            // **`$selfillummask`, which REPLACES the base map's alpha rather than adding anything**
+            // (B327). The engine writes both cases as one lerp whose control is 1 exactly when a
+            // mask is bound — `vSelfIllumMask = lerp( baseColor.aaa, vSelfIllumMask,
+            // g_SelfIllumMaskControl )`, `vertexlit_and_unlit_generic_ps2x.fxc:442` — so this
+            // uploads a texture for 53 of TF2's materials and changes nothing for the rest.
+            MapTexture? illumMask =
+                index < assets.SelfIllumMasks.Count ? assets.SelfIllumMasks[index] : null;
+
+            _selfIllumMasks.Add(illumMask is { } mask ? Upload(device, context, mask) : default);
+
+            float hasSelfIllumMask = illumMask is null ? 0f : 1f;
+
             float rimExponent = phong?.Rim?.Exponent ?? 4f;
             float rimBoost = phong?.Rim?.Boost ?? 1f;
             float hasRim = phong?.Rim is null ? 0f : 1f;
@@ -2657,7 +2695,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     // return 1 everywhere the moment the flag was set.
                     phongExponent, phongBoost, hasPhong, phongBaseAlphaMask,
                     phongFresnel.Low, phongFresnel.Mid, phongFresnel.High, hasLightWarp,
-                    phongTint.Red, phongTint.Green, phongTint.Blue, 0f,
+                    // phongTint's spare w carries `$selfillummask`'s presence (B327), the same way
+                    // phongFresnel's carries the light warp's and for the same reason: a constant
+                    // buffer is sized in whole float4s and this slot was already there.
+                    phongTint.Red, phongTint.Green, phongTint.Blue, hasSelfIllumMask,
                     rimExponent, rimBoost, hasRim, 0f,
 
                     // categoryColour, a placeholder: it is per BATCH, so SetMaterial overwrites it
@@ -2703,7 +2744,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     // return 1 everywhere the moment the flag was set.
                     phongExponent, phongBoost, hasPhong, phongBaseAlphaMask,
                     phongFresnel.Low, phongFresnel.Mid, phongFresnel.High, hasLightWarp,
-                    phongTint.Red, phongTint.Green, phongTint.Blue, 0f,
+                    // phongTint's spare w carries `$selfillummask`'s presence (B327), the same way
+                    // phongFresnel's carries the light warp's and for the same reason: a constant
+                    // buffer is sized in whole float4s and this slot was already there.
+                    phongTint.Red, phongTint.Green, phongTint.Blue, hasSelfIllumMask,
                     rimExponent, rimBoost, hasRim, 0f,
 
                     // categoryColour, a placeholder: it is per BATCH, so SetMaterial overwrites it
@@ -3302,6 +3346,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         // phongFresnel: the encoded [0 0.5 1], and w = 0 for "no light warp".
         1f, 0.5f, 1f, 0f,
+
+        // phongTint: white, and w = 0 for "no $selfillummask" — which means the base map's alpha
+        // decides which parts light themselves, the engine's own fallback (B327).
         1f, 1f, 1f, 0f,
 
         // rimControl: exponent 4 (its own declared default, not phong's 5), boost 1, no rim.
@@ -4360,7 +4407,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
     {
         foreach (ComPtr<ID3D11ShaderResourceView> texture in
                  _textures.Concat(_blendTextures).Concat(_details).Concat(_bumps).Concat(_cubemaps)
-                     .Concat(_placedCubemaps).Concat(_lightWarps).Concat(_thumbnails)
+                     .Concat(_placedCubemaps).Concat(_lightWarps).Concat(_selfIllumMasks)
+                     .Concat(_thumbnails)
                      .Where(texture => texture.Handle is not null))
         {
             texture.Dispose();
@@ -4376,6 +4424,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         _placements.Clear();
         _usesLocalCubemap.Clear();
         _lightWarps.Clear();
+        _selfIllumMasks.Clear();
         _sortedTranslucent = [];
         _decals = [];
         _detailParameters.Clear();
@@ -5017,6 +5066,18 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 material >= 0 && material < _lightWarps.Count ? _lightWarps[material] : default;
 
             context.PSSetShaderResources(6, 1, ref ramp);
+
+            // **`$selfillummask`, bound the same way and for the same reason** (B327): every draw
+            // sets it, including the null handle, so a material without one cannot sample whatever
+            // the previous draw left in the slot. The shader reads it only when phongTint.w says
+            // so, and takes the base map's alpha otherwise — which is the engine's own fallback,
+            // written as one lerp rather than a branch.
+            ComPtr<ID3D11ShaderResourceView> illumMask =
+                material >= 0 && material < _selfIllumMasks.Count
+                    ? _selfIllumMasks[material]
+                    : default;
+
+            context.PSSetShaderResources(10, 1, ref illumMask);
 
             // A model's own batches carry their category too — `Prop`, or `Missing` where the
             // material did not resolve. A brush entity adds its class colour on top (B219).

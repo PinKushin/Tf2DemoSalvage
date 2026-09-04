@@ -105,6 +105,6 @@ through UIA has the same trap.
 
 ---
 
-Related: [[measure-every-hop-before-blaming-one]], [[logs-are-the-debugger]],
-[[a-test-can-outlive-its-design]], [[three-test-levels-and-the-third-is-missing]],
+Related: [[nothing-is-closed]], [[logs-are-the-debugger]],
+[[a-test-can-outlive-its-design]], [[output-level-assertion-or-it-is-not-done]],
 [[a-negative-retry-is-a-sleep]].

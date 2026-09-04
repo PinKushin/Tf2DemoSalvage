@@ -32,5 +32,5 @@ chosen the entire time**. Every instrument said the feature worked.
 this instant rather than what HAPPENED at it. And on a seek, a reposition or a first frame, that
 question has to be asked at all — see [[a-pass-must-establish-its-own-state]]. The engine never
 faces this because a live client starts the source once and it simply runs; a viewer that can jump
-anywhere does. Related: [[read-the-sdk-for-the-whole-mechanism]] — `UpdateAudioParams` alone gives
+anywhere does. Related: [[parity-is-the-search-not-the-defence]] — `UpdateAudioParams` alone gives
 the wrong answer, and the rule that matters is one function further on.

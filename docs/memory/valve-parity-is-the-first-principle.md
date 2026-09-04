@@ -47,4 +47,4 @@ valves imp is blazingly fast"*. Same argument, and it was right then too.
   Parity restorations that happen to be faster are the ordinary case, not a lucky one.
 
 Related: [[an-optimisation-is-not-a-skippable-departure]], [[name-the-trade-before-fixing-valve]],
-[[a-threshold-instrument-cannot-see-a-sum]], [[read-the-sdk-for-the-whole-mechanism]].
+[[instrument-bugs-outnumber-decoder-bugs]], [[parity-is-the-search-not-the-defence]].

@@ -45,6 +45,5 @@ caller on the machine through the global `DBWinMutex`. One line cost ~120 ms. Fi
 - **Read `[Conditional]` and build-configuration-gated code as a hiding place**, because its cost is
   invisible in the configuration users run and only ever paid by developers.
 
-Related: [[a-threshold-instrument-cannot-see-a-sum]], [[measure-every-hop-before-blaming-one]],
-[[instrument-bugs-outnumber-decoder-bugs]], [[logs-are-the-debugger]],
+Related: [[instrument-bugs-outnumber-decoder-bugs]], [[nothing-is-closed]],
 [[logs-are-the-debugger]].

@@ -35,7 +35,7 @@ than one that claims less.
 decorative.** `DemoTimeline` has a private constructor and a `Build` that takes the bytes of a real
 file, so anything sampling one directly cannot be tested without shipping a demo into the test
 project — which is exactly why that code had no tests. `IMomentSource` was load-bearing, not
-ceremony. [[three-test-levels-and-the-third-is-missing]] is the other half: the extraction is only
+ceremony. [[output-level-assertion-or-it-is-not-done]] is the other half: the extraction is only
 proved by the real application still drawing.
 
-Related: [[a-partial-thin-view-is-worse-than-none]], [[a-moves-regressions-are-wiring]].
+Related: [[a-partial-thin-view-is-worse-than-none]], [[output-level-assertion-or-it-is-not-done]].

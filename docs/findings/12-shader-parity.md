@@ -385,3 +385,161 @@ default alone", and reading it as "clip at zero" keeps every texel and turns a g
 the exact inverse of the defect. And **the declared default is spelled differently by different
 shaders**: `"0.0"` in the generic shaders, `""` in `depthwrite`. The conformance test pins the
 meaning for that reason; its first draft pinned the empty string and failed against correct code.
+
+## A parameter can be present in the file and absent from the material (B326)
+
+**5,415 of the 30,684 materials TF2 ships declare `$selfillum`, and this project read it in none of
+them.** Not because the flag is unimplemented — `VmtMaterial.IsSelfIlluminated` has existed
+throughout — but because those materials declare it inside a sub-block the reader did not descend
+into:
+
+```
+"LightmappedGeneric"
+{
+	"$basetexture" "signs/exit"
+
+	">=DX90"
+	{
+		"$selfillum" "1"
+	}
+}
+```
+
+A block named for a DirectX support level gates its keys on that level. The reader treated depth-two
+keys as belonging to somebody else — correct for `Proxies`, correct for a patch's `replace`, and
+wrong for these.
+
+### The measurement, and what it corrected
+
+Filed first from ONE material — `gold_player.vmt`, whose `$envmap` is gated this way while its
+`$envmaptint` is not, so a golden corpse carried the tint of a reflection it had no cubemap for. The
+filing guessed at the scope and guessed wrong in both directions. Walking every shipped material
+settled it:
+
+| block | materials | | key inside `>=DX90` | materials |
+|---|---|---|---|---|
+| `>=DX90` | 5,688 | | `$selfillum` | 5,415 |
+| `<dx90` | 281 | | `$envmap` | 59 |
+| `>=dx90_20b` | 10 | | `$envmaptint` | 58 |
+| `<dx90_20b` | 5 | | `$selfillummask` | 53 |
+
+```bash
+dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -- vmt-blocks ">=DX90"
+```
+
+Two corrections fell out of it. **The spellings guessed at — `>=DX80`, `>=DX70`, the `if($...)`
+forms — appear nowhere in TF2's materials**; only those four exist. And **the cubemap that found the
+gap is 59 materials against `$selfillum`'s 5,415**, so the defect worth naming is not the one that
+was noticed.
+
+### `<dx90` must stay refused
+
+The symmetry is not decoration. The low blocks carry `$bumpmap` (60), `$baseTexture` (56),
+`$outlinecolor` (54) and `$fallbackmaterial` (51) — a whole cheap-hardware path. Flattening every
+sub-block would read those instead, swapping a common bug for a rarer and stranger one.
+
+### `<Shader>_DX<n>` is a different mechanism, and the first reading of it was wrong
+
+Written first as: *"Ignoring them happens to be right here because every one TF2 ships is a low-end
+fallback."* That was an inference from the block NAMES — fallback sounds like low-end — and nothing
+had been looked at inside one. It is wrong.
+
+```bash
+dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -- vmt-blocks "LightmappedGeneric_DX9"
+```
+
+| inside `LightmappedGeneric_DX9` | materials |
+|---|---|
+| `$bumpmap` | 89 |
+| `$envmaptint` | 84 |
+| `$normalmapalphaenvmapmask` | 64 |
+| `$envmap` / `$envmapcontrast` / `$envmapsaturation` | 49 each |
+| `$parallaxmap` | 8 |
+
+Bump maps, cubemap reflections and parallax — the DX9 path's features, not a cheap substitute for
+them. About **520 of the ~800 blocks name DX9 or HDR_DX9**, and a Direct3D 11 renderer satisfies
+both. Filed as B328.
+
+The mechanism itself is a shader FALLBACK, which the SDK states plainly:
+
+```cpp
+SHADER_FALLBACK
+{
+    if( g_pHardwareConfig->GetDXSupportLevel() < 90 )
+        return "LightmappedGeneric_DX8";
+    return 0;
+}
+```
+
+`lightmappedgeneric_dx9.cpp:139-145`, with `DEFINE_FALLBACK_SHADER( LightmappedGeneric,
+LightmappedGeneric_DX8 )` registering the substitute (`lightmappedgeneric_dx8.cpp:21`). A VMT block
+named for a shader supplies parameters for the material WHEN THAT SHADER IS THE ONE IN USE.
+
+**What is NOT established, and it is the part that decides the implementation:** no shader is
+registered as `LightmappedGeneric_DX9` anywhere in `source-sdk-2013` — only helper types and
+functions carry that spelling — so 403 materials name a block for a shader the published SDK does
+not declare. Either TF2's engine registers it (the SDK is one branch's snapshot), or the material
+system matches these by a rule other than the exact shader name. That has to be settled before the
+blocks are applied, because applying a `_HDR_DX9` block on an LDR renderer would be a divergence in
+the other direction.
+
+## Evidence
+
+**Shipped data plus convention — NOT read-from-source, and the difference is load-bearing.**
+`source-sdk-2013` publishes `shaderapidx9` and `stdshaders` but not the material system's VMT
+loader, so the merge cannot be quoted from Valve. What is measured is which spellings exist in
+30,684 files and what each contains; that `>=` means "at least this level" is the convention those
+files are written against. The DirectX level this project reports is **95**, Source's own numbering
+for shader model 3.0, chosen as a constant because this renderer has one backend — a
+machine-dependent value would make a material's parameters vary by GPU.
+
+**Not established:** whether the engine's own comparison is on the same scale for the `_20b`
+suffixed forms, which are parsed here as "90, with a suffix that rides along". Ten materials use
+`>=dx90_20b` and five use `<dx90_20b`; every reading that puts them at or below 95 gives the same
+answer for this renderer, so the corpus cannot distinguish them.
+
+## `$selfillummask`, and what "unimplemented" was hiding (B327)
+
+Landing B326 made the parameter census go red in the same run, on a parameter nobody had seen:
+`$selfillummask`. It had been in TF2's materials all along and in nothing this project could reach,
+because **all 53 materials that declare one declare it inside a `>=DX90` block**.
+
+It is not a new effect. Valve's shader writes the masked and unmasked cases as ONE expression:
+
+```hlsl
+float3 vSelfIllumMask = tex2D( SelfIllumMaskSampler, i.baseTexCoord.xy );
+vSelfIllumMask = lerp( baseColor.aaa, vSelfIllumMask, g_SelfIllumMaskControl );
+diffuseComponent = lerp( diffuseComponent, g_SelfIllumTint * albedo, vSelfIllumMask );
+```
+
+`vertexlit_and_unlit_generic_ps2x.fxc:441-443`. The control is 1 exactly when a mask is bound, so
+the mask-less case collapses to `baseColor.aaa` — which is what this project already did. The fix
+replaces the third argument of a lerp; everything else was already right.
+
+**The parameter's own declaration is the clearest statement of it anywhere in the SDK**, and it is a
+one-line comment rather than code: *"If we bind a texture here, it overrides base alpha (if any) for
+self illum"* (`vertexlitgeneric_dx9.cpp:62`).
+
+Four details that are easy to get wrong, all of them Valve's:
+
+| detail | where |
+|---|---|
+| gated on `$selfillum` — a mask alone is inert | `vertexlitgeneric_dx9_helper.cpp:289` |
+| sampled on the BASE coordinates, not its own set | `…ps2x.fxc:441` |
+| full RGB, not one channel — glow can be tinted per channel | same |
+| absent means "the base alpha decides", NOT "nothing glows" | the lerp's first argument |
+
+The last is the one that would produce a plausible wrong picture: a resolver that substituted the
+base texture for a missing mask would glow wherever the albedo is bright rather than wherever it is
+transparent.
+
+Measured: 15 of 412 materials on the map the render tests load.
+
+### The general shape, worth carrying
+
+**A census over what real data ASKS FOR is a different instrument from a coverage list of what the
+SDK declares**, and only the first can catch a parameter that was unreachable. `SdkCoverageTests`
+enumerates 489 shader parameters and could never have flagged this, because `$selfillummask` was
+already in its denominator and already counted as "declared, not implemented" — indistinguishable
+from the 400 others nobody has needed. What made it a finding was a real map asking for it and
+nothing accounting for the request.

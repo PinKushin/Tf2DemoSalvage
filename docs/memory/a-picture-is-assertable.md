@@ -36,5 +36,4 @@ other mode". Reach for "a person decides" only for open-ended correctness, and t
 reference so the next person does not have to. And never let "a person decides" stand in for an
 assertion that needs no judgement at all.
 
-Related: [[output-level-assertion-or-it-is-not-done]], [[instrument-bugs-outnumber-decoder-bugs]],
-[[instrument-bugs-outnumber-decoder-bugs]], [[three-test-levels-and-the-third-is-missing]].
+Related: [[output-level-assertion-or-it-is-not-done]], [[instrument-bugs-outnumber-decoder-bugs]].

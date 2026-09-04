@@ -275,6 +275,10 @@ public readonly record struct MapPlacedCubemap(
 /// </param>
 /// <param name="Phong">The specular highlight this material asks for, or null.</param>
 /// <param name="LightWarp">The authored lighting ramp, or null for a linear falloff.</param>
+/// <param name="SelfIllumMask">
+/// Which parts light themselves, or null — in which case the base map's ALPHA says, which is the
+/// engine's own fallback rather than "nothing glows" (B327).
+/// </param>
 /// <remarks>
 /// A record rather than a longer and longer tuple: at four members the positional form stops
 /// saying which is which at the call site, and two of these are the same type.
@@ -290,7 +294,8 @@ public readonly record struct ResolvedMaterial(
     MapCubemap? Cubemap = null,
     MapEnvmapShading? LocalReflection = null,
     MapPhong? Phong = null,
-    MapTexture? LightWarp = null);
+    MapTexture? LightWarp = null,
+    MapTexture? SelfIllumMask = null);
 
 // GameArchives moved to Tf2DemoSalvage.Content.Assets on 2026-08-22 (D53's sibling): every other
 // reader of the game's files already lived there, and sound needs it now as well as the renderer.
@@ -569,6 +574,26 @@ public sealed class MapAssets
     /// artist draws the falloff instead of accepting Lambert's.
     /// </remarks>
     public IReadOnlyList<MapTexture?> LightWarps { get; private init; } = [];
+
+    /// <summary>Which parts of each material light themselves, where a texture says so.</summary>
+    /// <remarks>
+    /// <c>$selfillummask</c>, null for every material that has none — which is nearly all of them,
+    /// and for those the BASE MAP'S ALPHA decides it instead. That fallback is the important half:
+    /// the engine writes the two as one expression,
+    ///
+    /// <code>
+    /// vSelfIllumMask = lerp( baseColor.aaa, vSelfIllumMask, g_SelfIllumMaskControl );
+    /// </code>
+    ///
+    /// (<c>vertexlit_and_unlit_generic_ps2x.fxc:442</c>), where the control is 1 exactly when a mask
+    /// texture is bound. So this list does not add a feature so much as replace an input to one that
+    /// already worked (B327).
+    ///
+    /// **53 of the 30,684 materials TF2 ships declare one**, every single one inside a
+    /// <c>&gt;=DX90</c> block — so none of them was visible at all until those blocks were read
+    /// (B326). The census tripwire is what surfaced it, in the same run.
+    /// </remarks>
+    public IReadOnlyList<MapTexture?> SelfIllumMasks { get; private init; } = [];
 
     /// <summary>The proxies each material runs, empty for the great majority that run none.</summary>
     /// <remarks>
@@ -1096,6 +1121,7 @@ public sealed class MapAssets
             PlacedCubemaps = LoadPlacedCubemaps(assets, map, pak, maximumTextureSize),
             Phong = table.Phong,
             LightWarps = table.LightWarps,
+            SelfIllumMasks = table.SelfIllumMasks,
             DevGrid = LoadDevGrid(assets, archives, maximumTextureSize),
 
             // The 2D skybox, from worldspawn's `skyname` — every map has one, because `sv_skyname`
@@ -1589,7 +1615,36 @@ public sealed class MapAssets
             ResolveCubemap(),
             ResolveLocalReflection(),
             ResolvePhong(),
-            ResolveLightWarp());
+            ResolveLightWarp(),
+            ResolveSelfIllumMask());
+
+        MapTexture? ResolveSelfIllumMask()
+        {
+            // **Only where the material actually lights itself**, which is the engine's own gate:
+            //
+            //   bool bHasSelfIllumMask = IS_FLAG_SET( MATERIAL_VAR_SELFILLUM ) &&
+            //       (info.m_nSelfIllumMask != -1) && params[info.m_nSelfIllumMask]->IsDefined();
+            //
+            // `vertexlitgeneric_dx9_helper.cpp:289`. A mask on a material with no `$selfillum` is
+            // inert in TF2 and is inert here, so resolving it would load a texture nothing samples.
+            if (!material.IsSelfIlluminated || material.SelfIllumMask is not { } name)
+            {
+                return null;
+            }
+
+            if (Load(name) is not { } decoded)
+            {
+                assets.LogWarning(
+                    "{Message}",
+                    $"self-illumination mask {name}, named by materials/{materialName}.vmt, " +
+                    "could not be read");
+
+                return null;
+            }
+
+            return new MapTexture(
+                decoded.Width, decoded.Height, decoded.Image, IsTransparent: false);
+        }
 
         MapPhong? ResolvePhong()
         {

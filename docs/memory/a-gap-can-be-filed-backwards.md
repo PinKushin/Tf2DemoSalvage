@@ -35,4 +35,4 @@ implemented under a name nobody thought to search, which is the same reason
 The tell is that the feature's *machinery* turns up while its *decision* does not. Correct
 implementation, no caller that chooses — that is a feature applied unconditionally, not one that is
 missing. Related: [[measure-the-output-not-the-capability]], and
-[[an-impossibility-claim-expires]] for the same shape in the other direction.
+[[filing-a-divergence-is-not-fixing-it]] for the same shape in the other direction.

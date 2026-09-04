@@ -32,5 +32,5 @@ The general shape: **a design that is defensible locally can still leave a featu
 observers.** Count the references before trusting the design.
 
 Related: [[output-level-assertion-or-it-is-not-done]],
-[[three-test-levels-and-the-third-is-missing]], [[measure-the-output-not-the-capability]],
-[[a-null-object-default-hides-a-missed-wiring]], [[one-place-or-it-drifts]].
+[[measure-the-output-not-the-capability]],
+[[logs-are-the-debugger]], [[one-place-or-it-drifts]].

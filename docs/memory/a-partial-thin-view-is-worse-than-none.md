@@ -52,5 +52,5 @@ means out of the PROJECT.** Only a rule the compiler enforces survives the next 
 - **Scope is not a reason to stop short.** *"i know the scope is large but this project needs to be
   a true view, no knowledge about the domain is allowed."*
 
-Related: [[decide-home-and-parity-before-writing]], [[three-test-levels-and-the-third-is-missing]],
+Related: [[decide-home-and-parity-before-writing]], [[output-level-assertion-or-it-is-not-done]],
 [[one-place-or-it-drifts]], [[valve-parity-is-the-first-principle]].

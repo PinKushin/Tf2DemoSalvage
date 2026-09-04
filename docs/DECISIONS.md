@@ -7434,3 +7434,34 @@ taken with the wrong instrument.
   and proves nothing about it. The control here was one line: ask the trx, which is what the
   disputed number came from. `docs/memory/an-empty-search-needs-a-control.md` says this about
   absence; it is just as true of a disagreement.
+
+## D139 — the gate script is off limits while a gate is running, floors included
+
+Second occurrence, 2026-09-04, of the fault `docs/memory/never-edit-a-running-script.md` was written
+for on 2026-09-02 — with that memory in place and read at session start.
+
+`bash` reads a script by byte offset as it executes, so an edit that changes its length shifts
+everything the interpreter has not reached. Editing a floor comment in `build/gate.sh` while the
+gate ran produced:
+
+```
+corpus: 156 executed, 0 failed (floor 156)
+build/gate.sh: line 1042: en: command not found
+
+[exited with code 0]
+```
+
+**Ten of twelve assemblies, and exit 0.** Rendering and the viewer — the two the change most needed
+— never ran. The new tell is the second line: the interpreter resumed mid-word and executed the tail
+of one, so a **nonsense command name that is a fragment of a real word** is the signature, buried in
+a hundred lines of test output and followed by a clean exit.
+
+**Why knowing the rule did not prevent it.** The trigger is identical both times and it is not
+inattention: a long gate is backgrounded, the wait is used productively, and updating a floor feels
+like documentation — a floor lives beside a paragraph explaining it, and the file reads like a
+document. It is the executing file.
+
+**So the rule is mechanical, not a matter of care.** While a gate is in flight, `build/gate.sh` is
+untouchable, floors and comments included. Write the number somewhere else and apply it when the run
+exits. Every other file — source, tests, docs — stays fair game, which is what makes the exception
+narrow enough to keep.

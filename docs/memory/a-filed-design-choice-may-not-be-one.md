@@ -23,7 +23,7 @@ model vertex then carries fields only brushwork uses" — was already paid years
   the entry still read as authoritative.
 - **A dilemma in a risk entry is a signal the source has not been read yet.** Two plausible shapes
   usually means nobody has looked at what the engine does. See
-  [[read-the-spec-before-measuring-our-data]] and [[nothing-is-closed]].
+  [[nothing-is-closed]].
 - **vrad lights brush entities where the mapper left them, once.** An opening door carries its
   closed-position lighting. No relighting step; the transform moves the geometry and the light rides
   on the vertices.

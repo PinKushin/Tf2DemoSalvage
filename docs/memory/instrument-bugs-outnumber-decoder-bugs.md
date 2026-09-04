@@ -1,6 +1,6 @@
 ---
 name: instrument-bugs-outnumber-decoder-bugs
-description: On this project the tests have been wrong far more often than the readers they test — with the worked examples of every way an instrument goes blind.
+description: On this project the tests and diagnostics have been wrong far more often than the code they check — the casebook of every way an instrument goes blind, cause-surviving defects, unread instruments, sampled and mis-keyed logs, thresholds blind to sums, counts hiding identity, execution mistaken for effect, ledgers with uncovered exits, re-derived cameras, and a clean-checkout rerun mistaken for a second instrument.
 metadata:
   type: project
 ---
@@ -12,7 +12,8 @@ instinct has been wrong more often than not.
 This is the project's casebook for the global standard's *"a test that cannot fail is an experiment
 insensitive to the manipulation"*. **Six memories were merged into it on 2026-08-27** — the index
 had grown a separate entry per example, which buried the one thing they all say. Their names are
-kept as headings below, because that is what they were and several were linked by name.
+kept as headings below. **Ten more were folded in on 2026-09-04** for the same reason, at ten times
+the scale — see the sections below the original six.
 
 ---
 
@@ -97,7 +98,7 @@ without an item fails; an item deleted fails; nobody maintains a number, so it c
 
 This is the same split `SdkCoverageTests` uses in this repo — **the generated instrument catches what
 is MISSING, the hand-written one catches what is WRONG** — and only the first kind survives someone
-forgetting to update it. See [[the-denominator-is-already-written-down]].
+forgetting to update it. See [[nothing-is-closed]].
 
 **When a test iterates a collection, ask what it would do if the collection were empty.** If the
 answer is "pass", the missing half is a count or a set comparison against a denominator that comes
@@ -271,6 +272,347 @@ extraction called `paused`, and two readings of one file cannot both be right.
 - The general form is the first entry in this file, arriving through a different door: **the
   instrument was not faithful to the variable.** Here it measured a real quantity — GC pause — and
   reported it as playback state.
+
+---
+
+## `a-defect-that-survives-its-cause-is-in-the-instrument` — the census that outlived its own cause
+
+**A control that removes the cause and does not change the reading is evidence about the
+INSTRUMENT.** Hunting upside-down players (B298), a census reported *every* skeleton on the map
+collapsed — and still reported it with every animation layer disabled. That total, surviving its
+own cause, was the tell. The census was reading `ModelInstance.Bones`, which is the SKINNING
+palette: `Concatenate(boneToWorld, poseToBone)`, whose translation column is a mixture of placement
+and bind offset and is not a bone's position.
+
+**Why:** a real defect has a cause; remove it and the number moves. A number that will not move, or
+that indicts 100% of a population, is usually measuring something that was never the variable.
+B222 had already recorded this exact mistake on the viewmodel size check, in a doc comment in the
+same file, and it was not read first.
+
+**How to apply:**
+
+- **Pick the variable the symptom is about.** "Upside down" is not size — an inverted skeleton has
+  the same bone spread as an upright one. Spread found nothing; head-above-foot found seven of
+  fifteen.
+- **Print a control the instrument cannot fake**, next to the measurement, every run. Here: the
+  BIND-pose rise beside the posed rise. It immediately caught a second error — bind space is Y-up
+  and world space is Z-up, so the first version read the wrong axis and reported a bind rise of 4
+  on a model whose bind rise is 71.
+- **A denominator of ALL is a warning, not a finding.**
+
+See [[an-empty-search-needs-a-control]], [[measure-the-output-not-the-capability]].
+
+---
+
+## `an-instrument-unread-is-not-an-instrument` — a plan is not a measurement
+
+**Adding a diagnostic is half the work. Read it on a real run, in the same session, or it is not an
+instrument yet.**
+
+**Why:** `SoundPresenter.ReportAudioOutput` was written days before it was read — submitted against
+dropped-for-zero-gain, reported at 1, 10, 100, 1000 so a broken run says so immediately. The handoff
+carried it as *"added and has never been read on a run"*. Reading it cost one launch, and **the line
+was simply absent**: 23,772 sounds on the timeline, 542 precached, 110 frames drawn, nothing
+submitted. The whole sound path had been dead (B228).
+
+An unread instrument is worse than none, because it looks like coverage. The intent to measure gets
+remembered as a measurement.
+
+**How to apply:**
+
+- **Check the instrument ran before believing what it says.** The first attempt here reported
+  "no audio" from a run that drew **zero frames** — a 45-second timeout against a map that takes 40
+  seconds to load. An absent line means "never reached" as readily as "reached and zero", and those
+  are opposite findings. Confirm the surrounding activity — frames drawn, ticks advanced — first.
+- **Absence is a reading, but only against a control.** No `sound output:` line AND no `loop '...'`
+  line AND a live frame count is three facts agreeing. One of them alone is not.
+- Prefer an instrument that reports on the FIRST occurrence. At 1, 10, 100 a healthy run says one
+  line and goes quiet, while a dead one says nothing at all — which is exactly the signal wanted.
+
+**And the shape it found is worth its own line: a later call silently undoing an earlier one.** Three
+of these turned up in one day — autoplay switched off by `SetDemoLength`, a stale clock left by an
+early return, and the demo's sounds deleted by a map read. All three are assignments, so none of them
+logged anything. When a feature "does nothing", grep for everything that WRITES the field it depends
+on, and check the order against the caller — do not start by reading the feature.
+
+Related: [[logs-are-the-debugger]], [[output-level-assertion-or-it-is-not-done]],
+[[ask-valve-before-designing-not-after]].
+
+---
+
+## `log-the-event-not-a-sample-of-it` — six ways a diagnostic log went blind
+
+**A log added to catch a defect can be blind to that defect, and it looks exactly like evidence of
+absence.** Six ways this happened in one evening, 2026-08-28, hunting a viewmodel that vanished for
+a few frames at a time (B222). Every one produced a confident wrong conclusion first.
+
+**1. A sampled log cannot see an event shorter than the sample.** The viewmodel pass was reported
+once a second, and the weapon vanished for ~60 ms. The log read `drawing 2` on both sides of every
+gap, so the gap never happened as far as it was concerned. The owner: *"why tf are you using a
+second timeout jesus fning christ that is stupid"* — and he was right; the caveat had already been
+written down and then reasoned straight past.
+
+**The fix is not a shorter interval, it is a TRANSITION log.** Fire when the value changes, and a
+two-frame flicker writes a line while a stable state writes nothing. That removes the blind spot and
+the spam problem at once, and it is the right shape for any state whose *changes* are the signal.
+Cap it per subject so a pathological flip cannot fill the disk.
+
+**2. A degeneracy test that checks the wrong degeneracies.** Bones were tested for all-zero and
+non-finite. A matrix that is finite and non-zero with a **zero-length basis row** collapses its
+vertices just as thoroughly, and the first version reported `0 degenerate` on a confirmed
+reproduction. The failure mode was named in that method's own doc comment and not implemented.
+
+**3. A COUNT is not an IDENTITY.** The pass instrument reported `2 drawn` throughout, and was
+correct: two props were drawn. The second had silently become a *different weapon*. `MomentScene`
+warns about this in as many words eight lines from the code being instrumented — *"the count says
+two and cannot say two of WHAT"* — and the instrument was written anyway. **Log what a thing IS, not
+how many there are.**
+
+**4. Comparing two measurements from different moments.** A weapon's bone centre at 17:37:37 was
+compared against the arms' centre logged at 17:37:34 and the 4,400-unit difference reported as a
+misplaced viewmodel. The player had run across the map in between. Measured against the arms **in
+the same frame** it was correct, and the owner confirmed by looking. A difference between two
+timestamps is not a difference between two things.
+
+**5. A threshold chosen without asking what size of effect must survive it.** A weapon's distance
+from the hands was bucketed as "over 100 units = AWAY". A viewmodel lives within tens of units of the
+eye, so a weapon fifty units out — completely off screen — reported `with the hands`. The fix was
+5-unit buckets, and the fault was choosing the resolution before asking what had to be visible
+through it.
+
+**6. A global report budget where the subject is per-model.** A "what did this model submit"
+line was capped at 200 reports total, in a method that runs for every one of 250 props a frame. Two
+animating props — `cappoint_hologram` and `demo_scotchbonnet` — spent the entire budget within
+seconds, and the viewmodel, the only subject it was built for, never reported once. A whole
+reproduction was wasted. **A shared budget is a resolution choice too**, and the noisiest subject
+spends it.
+
+**Why:** each of these is the "wrong instrument" failure from the testing section applied to a LOG
+rather than to a test, and a log has no red state to warn you — silence reads as "the thing did not
+happen". So the question to ask of any diagnostic before believing it is the same one:
+**is there a state where broken and working produce different output, and can this line see it?**
+
+**How to apply:** prefer transition logs to sampled ones. Name the subject, never just count it.
+Test the property that makes the symptom, not one adjacent to it. And when a proxy is unavoidable —
+bone-translation span standing in for "does the model have size" — say so where it is read, because
+the next person to look will otherwise treat the number as the finding.
+
+Related: [[measure-the-output-not-the-capability]], [[logs-are-the-debugger]].
+
+---
+
+## `a-threshold-instrument-cannot-see-a-sum` — six slow frames, one stall logged
+
+**A per-event instrument with a threshold is blind to accumulation.** `Sample()` logged
+`STALL decoding '<name>' took N ms` when a single decode passed `StallSeconds` (0.03). Measured
+2026-08-25 on cp_process: **six of eleven slow frames were dominated by the sound step at 27–91 ms,
+and exactly ONE decode stall was logged.** A frame that starts three sounds pays three decodes that
+each fall under 30 ms, so the event instrument reported almost nothing while frames visibly froze.
+
+The frame **ledger** saw it immediately, because it times a *phase* between two timestamps and
+prints every bucket plus an `unaccounted` residual:
+
+```
+SLOW FRAME 99 ms: sound 90.7, camera 0, project 0, advance 6.2, capture 0, hud 0, draw 1.7
+```
+
+**Why:** a threshold answers "was any ONE occurrence expensive". The question a stall asks is "was
+this FRAME expensive, and where did it go" — a different question, and no per-event threshold can
+be tuned into answering it. Lowering the threshold makes it log constantly without ever summing.
+
+**And this was a repeat.** B163's commit message already said: *"No counter named it, because it
+sits outside both `_posingTicks` and `_drawTicks`. Every performance investigation had been reading
+numbers structurally incapable of seeing it."* This session then spent its whole first half
+optimising `posing` — the exact counter named there — and bought ~20 ms of 545 while the real cost
+sat in a bucket nothing was reading. The lesson had been written down and was not applied.
+
+**How to apply:**
+
+- **Read the phase ledger FIRST**, before optimising any named counter. If `posing` and `draw` read
+  1.7–2.6 ms on the slow frames, the stall is not in posing or drawing, and no amount of work there
+  will move it.
+- **The residual is the important column.** A large `unaccounted` says the cost is somewhere nobody
+  has thought to measure, which is where every one of these has been found.
+- When adding a stall log for an operation that can happen several times per frame, **accumulate
+  per frame and report the total**, or accept it can only ever catch the single worst case.
+- Ask the owner what the previous fix actually was — "check the commits where we fixed the stutter
+  and hiccup the last time" located this in one step after a long stretch of guessing.
+
+Related: [[measure-the-output-not-the-capability]], [[logs-are-the-debugger]], [[nothing-is-closed]].
+
+---
+
+## `print-what-was-added-not-how-many` — a rising count reads as success either way
+
+**When new work makes a number go up, print the NAMES of what it added, not the number.** A count
+rising is exactly what a working feature and a wrong one both look like.
+
+Measured (B320). Hanging a corpse's cosmetics on it took the drawn count at one tick from 4 to 24.
+That is the right shape — four corpses, twenty items, five each — and it is what a success looks
+like. Printing the model names took one more line and said:
+
+```
+c_grenadelauncher.mdl   c_stickybomb_launcher.mdl   c_bottle.mdl   c_pickaxe.mdl
+```
+
+All four of a demoman's WEAPONS, holstered ones included, hung on his corpse. The scan had walked
+every bone-merged child of the dead player; the engine walks the econ wearable list, and a weapon is
+not in it. Twenty items was never going to reveal that. Four names did, instantly.
+
+**The general rule: a count answers "did something happen", and the thing that goes wrong is usually
+WHICH something.** Wrong set, wrong owner, wrong era's field, the same item twice. None of those
+changes the magnitude in a way anyone would notice, and several make it look better.
+
+**Cheap enough that there is no trade.** Cap the list at a handful and print it beside the count —
+the count still shows the scale, the names still show the identity. Every probe in this repository
+that earns its keep does both.
+
+Related: [[measure-the-output-not-the-capability]].
+
+---
+
+## `it-ran-and-it-mattered-are-two-claims` — a counter that proves execution cannot prove effect
+
+**A counter that proves a stage RAN cannot say it changed anything, and the difference is usually
+the whole question.** Instrument the effect, not the execution.
+
+B311, 2026-09-04. `IkLocks.Applied` reported 88 sequence locks running on a real demo — good enough
+to prove the wiring, and useless for the thing anyone cares about. A lock whose remembered position
+already equals where the sequence left the foot solves to the same place: **the bracket runs, the
+pose is unchanged, and on screen that is indistinguishable from the lock never running at all.**
+
+Adding the distance settled it: `88 moved, furthest 3.81 units`, on an 83-unit-tall player — about a
+foot's width, which is the slide being removed.
+
+**This is how a "needs a person looking" question becomes answerable.** A screenshot cannot show
+that a foot stopped sliding without a before and an after of the same motion. A bone position is
+deterministic, so the correction has a magnitude, and a magnitude can be asserted.
+
+**Report the COUNT and the MAXIMUM, never one alone.** A hundred corrections of a thousandth of a
+unit is arithmetic running, not a foot being held — and a threshold (0.01 here) is what separates a
+correction from float noise.
+
+**Carry both out of the loop that did the work:** the pre-solve value is the one the solve was
+handed, the post-solve one comes from re-reading what the solve wrote. A second derivation of
+either is free to be wrong and looks authoritative.
+
+---
+
+## `look-for-the-instrument-before-building-one` — grep the logs before writing a counter
+
+**Three times in one session (2026-09-03) a measurement was about to be built that already existed.**
+
+- B254's *"every prop is posed"* is answered by `posed N of M selected` in the moment cost log,
+  which reports 9 of 567.
+- B258's *"sample is 2.0 ms"* is re-taken by `--measure`, one flag, and comes back 0.3.
+- B262's *"count second-cull rejections"* is answered by `opaque draw order: 152 of 152 models
+  kept` — a line that had been printed on every run and read by nobody.
+
+For the third, a counter and a second log line were actually written before the existing line was
+noticed. Two routes to one number, free to disagree, which is what B243 is about — the fix was
+to delete the new one.
+
+**Why:** this project instruments heavily, so the prior probability that a number already exists is
+high. Building a second one costs more than the code: it makes the two answers independent, and
+when they differ nothing says which is right.
+
+**How to apply:**
+
+- **Grep the logs for the quantity before writing a counter.** `grep -i <thing>` over a viewer log
+  is seconds; the alternative is a divergent instrument.
+- **Read the whole line, not the part you came for.** `opaque draw order` was printing "152 of 152"
+  next to bucket counts that were being read for something else.
+- **A stale entry that asks for a measurement often predates the instrument that answers it.** Take
+  the measurement first; it may close the entry outright.
+
+See [[filing-a-divergence-is-not-fixing-it]].
+
+---
+
+## `a-ledger-must-cover-every-exit` — a ledger wired into two of three exits
+
+**A ledger that misses one exit reports a clean bill of health, and that is worse than no ledger.**
+Hunting missing geometry, a counter was added to the world build to name every dropped face by
+reason and material. It was wired into the visibility skip and the tool-material skip and **not**
+into the play-area skip — the only rule that discards geometry by POSITION, which is what was being
+looked for. It reported "1,556 faces dropped, every one a tool material", which reads as proof that
+nothing structural is being culled, and the search moved elsewhere for several hours.
+
+**A second instrument in the same hunt measured its input instead of its output.** The world log
+reported `props.Count / 3` prop triangles — the number handed to `AppendProps`, not the number
+`AppendProps` appended. Removing a cull therefore could not move that figure, and did not, and the
+figure was never wrong; it simply was not measuring the thing it was being read for. The brush-face
+count beside it moved by exactly the 133 the ledger predicted, which made the pair look like
+corroboration.
+
+**Three instruments were wrong in one session** — those two plus a category view whose white was
+read first as "uncoloured surface" and then as "the sign", when it meant overlays.
+
+**How to apply:** when adding a counter to a loop with several `continue` paths, enumerate the exits
+first and cover all of them, or state in the log which are counted. Count on the way OUT, never on
+the way in: a total taken before the filters cannot observe a filter. And when a ledger reports that
+a whole category is empty, check whether it can see that category at all before believing it — an
+absence produced by not looking is identical to an absence produced by nothing being there.
+
+Related: [[an-empty-search-needs-a-control]], [[measure-the-output-not-the-capability]],
+[[logs-are-the-debugger]].
+
+---
+
+## `one-camera-or-the-cull-lies` — pass the camera, never re-derive it
+
+When a second thing starts being derived from the camera, pass **the camera**, not the thing you
+already derived from it. `Device3D.SetCamera` took a `float[]` matrix; adding frustum culling meant
+it needed six planes as well, and the tempting shapes — a second `SetFrustum` call, or inverting the
+matrix back into planes — are both a **second derivation of the camera**.
+
+Take the camera object and produce both from it in one place. Upstream, make "which camera is this
+frame seen through" a single function (`ViewCamera.Active`) that the matrix path also goes through,
+so the two cannot answer differently.
+
+**Why:** the failure is invisible until it is dramatic. A frustum built from the free camera while
+the picture is drawn through a player's eyes culls exactly the geometry the viewer is looking at —
+in first person only, and only once the two cameras diverge. This project has already shipped the
+neighbouring version: a build-time top-down culling shortcut that broke the moment the free camera
+moved. See [[build-time-shortcuts-assume-the-camera]] and [[one-place-or-it-drifts]].
+
+**How to apply:** the test is not "are these values equal now" but "can they ever disagree". If two
+call sites each compute a camera-derived value from the same raw inputs, they can. Keep the raw
+inputs behind one accessor and derive everything past it. Where an old overload must stay — here the
+viewmodel pass, which has a camera of its own — have it leave the derived state ALONE rather than
+clearing it or reconstructing it, and say in the doc comment which callers rely on that.
+
+---
+
+## `two-agreeing-measurements-can-share-one-instrument` — a clean-checkout rerun is not a control
+
+**When a measurement contradicts a number somebody wrote down, suspect the two INSTRUMENTS before
+suspecting the subject** — and a second run of the same command is not a second instrument, however
+clean the checkout.
+
+Measured 2026-09-04. `build/gate.sh` said the rendering floor was **726**. A plain
+`dotnet test tests/Tf2DemoSalvage.Rendering.Tests` reported `Total: 725` with seven tests just
+added, so the assembly looked eight short. The check that "confirmed" it was a `git worktree` at the
+very commit that set 726, built clean, run the same way: **718**, twice, agreeing.
+
+Everything about that reads like proof. It was two readings from one instrument.
+
+**`dotnet test`'s console summary and the `.trx` counters count different things.** Console
+`Total: 725` is 672 passed + 53 skipped. The trx's `total="733"` is 672 executed + 61 not-executed.
+The eight `[Explicit]` tests are in one and not the other, and `build/assert-test-count.sh` greps
+`total="…"` out of the trx on purpose — its own comment says why. 726 was right the whole time.
+
+**How to not spend an hour on this:**
+
+- Measure the way the thing you are disputing measures. The floor comes from the trx, so ask the
+  trx: `grep -oE 'total="[0-9]+"' tests/<Project>/TestResults/<name>.trx`.
+- Reproducing a reading is not controlling it. A control uses a DIFFERENT route to the same value —
+  see [[two-recordings-of-one-value]] and [[an-empty-search-needs-a-control]].
+- Rendering is the only project here where the two totals disagree, which is why it is the one that
+  catches the mistake. Other projects agree, so the wrong habit passes everywhere else.
+
+Related: [[read-the-trx-total-not-the-console]], which says to read the trx and did not say that the
+console's number is a different quantity rather than a truncation of the same one.
 
 ---
 

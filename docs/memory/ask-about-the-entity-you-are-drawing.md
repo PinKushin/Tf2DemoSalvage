@@ -25,7 +25,7 @@ already prevented and the prevention bypassed.
 - Grep for every call to the neighbour before assuming yours is the only wrong one. There were two —
   `Effective` and `Chase` — and fixing only the first would have dropped a POV demo out of the
   recorder's eyes and landed it behind a stranger: a NEW visible defect manufactured by half a fix
-  ([[half-a-mechanism-is-not-parity]]).
+  ([[parity-is-the-search-not-the-defence]]).
 - Give the resolver a name that says which question it answers. `Target` and `Viewed` differ by one
   concept and the difference was invisible at the call site.
 
@@ -43,6 +43,5 @@ zero, the theory is wrong however green the suite is. See [[run-the-control-befo
 logged one mode line and no fall to third person. That absence was sitting in the file the whole
 time; nobody had looked, because the demo had never run forward unattended until autoplay was fixed.
 
-Related: [[lookups-must-match-exactly]], [[measure-every-hop-before-blaming-one]],
-[[log-the-event-not-a-sample-of-it]], [[output-level-assertion-or-it-is-not-done]],
-[[suspect-the-input-not-the-algorithm]].
+Related: [[lookups-must-match-exactly]], [[nothing-is-closed]],
+[[instrument-bugs-outnumber-decoder-bugs]], [[output-level-assertion-or-it-is-not-done]].

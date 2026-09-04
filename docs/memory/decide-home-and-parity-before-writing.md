@@ -38,4 +38,4 @@ the refactors — it is caused by the two minutes not spent when the code was wr
 Recorded as a decision in `docs/DECISIONS.md` under D89.
 
 Related: [[valve-parity-is-the-first-principle]], [[refactors-are-when-to-check-parity]],
-[[conformance-test-before-implementation]], [[three-test-levels-and-the-third-is-missing]].
+[[conformance-test-before-implementation]], [[output-level-assertion-or-it-is-not-done]].

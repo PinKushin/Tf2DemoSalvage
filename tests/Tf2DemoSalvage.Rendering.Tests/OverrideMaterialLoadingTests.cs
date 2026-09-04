@@ -71,28 +71,25 @@ public sealed class OverrideMaterialLoadingTests
     /// **That asymmetry is the control.** One entry returned under both keys, or an index that
     /// pointed at the player material, would answer the same light warp for both.
     ///
-    /// **What is deliberately NOT asserted, and it is a gap rather than an oversight: gold's
-    /// cubemap.** `$envmap cubemaps/cubemap_gold001` is nearly all of what makes gold look like
-    /// metal, and this project reads none of it, because the VMT declares it inside a `">=DX90"`
-    /// block and the VMT parser does not apply DirectX-level sub-blocks at all. `$envmaptint
-    /// [1.5 1.2 .2]` sits outside the block and does arrive, so the material carries the tint of a
-    /// reflection it has no cubemap for. Filed as B326; measured here rather than asserted, because
-    /// pinning `Cubemaps[gold]` as null would turn the gap into a requirement.
+    /// **Gold's cubemap was a documented gap here for exactly one commit, and is now asserted**
+    /// (B326). `$envmap cubemaps/cubemap_gold001` is nearly all of what makes gold look like metal
+    /// rather than brown, and it arrived as nothing because the VMT declares it inside a `"&gt;=DX90"`
+    /// block that the reader did not descend into — while `$envmaptint [1.5 1.2 .2]`, outside the
+    /// block, did arrive. The material carried the tint of a reflection it had no cubemap for.
     /// </remarks>
     [Test]
-    public void OverrideMaterials_TheEntriesTheyPointAt_CarryTheirOwnPhongAndWarps()
+    public void OverrideMaterials_TheEntriesTheyPointAt_CarryTheirOwnPhongCubemapAndWarps()
     {
         MapAssets assets = MapCache.Load();
 
         int gold = assets.OverrideMaterials[RagdollAppearance.GoldMaterial];
         int ice = assets.OverrideMaterials[RagdollAppearance.IceMaterial];
 
-        TestContext.Out.WriteLine(
-            $"gold cubemap {(assets.Cubemaps[gold] is null ? "none" : "resolved")} — B326, " +
-            "$envmap is inside a >=DX90 block");
-
         assets.Phong[gold].ShouldNotBeNull("gold declares $phong 1");
         assets.Phong[ice].ShouldNotBeNull("ice declares $phong 1");
+
+        assets.Cubemaps[gold].ShouldNotBeNull(
+            "gold reflects cubemaps/cubemap_gold001, declared inside its >=DX90 block (B326)");
 
         assets.LightWarps[ice].ShouldNotBeNull(
             "ice declares $lightwarptexture and gold declares none");

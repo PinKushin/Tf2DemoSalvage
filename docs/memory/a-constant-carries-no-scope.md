@@ -62,7 +62,6 @@ error as adopting Valve's decal bias for the wrong surfaces — a scope mismatch
 equal constants, read what each is applied TO; before borrowing one, read whether its documentation
 describes your use.
 
-Related: [[nothing-is-closed]], [[read-the-spec-before-measuring-our-data]],
-[[arithmetic-settles-disputes]], [[a-filed-design-choice-may-not-be-one]],
-[[read-the-sdk-for-the-whole-mechanism]], [[never-revert-without-asking]],
+Related: [[nothing-is-closed]], [[arithmetic-settles-disputes]], [[a-filed-design-choice-may-not-be-one]],
+[[parity-is-the-search-not-the-defence]], [[never-revert-without-asking]],
 [[one-place-or-it-drifts]].

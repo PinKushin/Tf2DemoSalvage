@@ -41,6 +41,8 @@ public sealed class MaterialTable
     private readonly List<MapEnvmapShading?> _localReflections = [];
     private readonly List<MapPhong?> _phong = [];
     private readonly List<MapTexture?> _lightWarps = [];
+
+    private readonly List<MapTexture?> _selfIllumMasks = [];
     private readonly List<IReadOnlyList<MaterialProxy>> _proxies = [];
 
     /// <summary>How many materials the table holds.</summary>
@@ -87,6 +89,11 @@ public sealed class MaterialTable
     /// <summary>The authored lighting ramp for each material, null for a linear falloff.</summary>
     public IReadOnlyList<MapTexture?> LightWarps => _lightWarps;
 
+    /// <summary>
+    /// The self-illumination mask for each material, null where the base map's alpha decides it.
+    /// </summary>
+    public IReadOnlyList<MapTexture?> SelfIllumMasks => _selfIllumMasks;
+
     /// <summary>The proxies each material runs, empty for the great majority.</summary>
     public IReadOnlyList<IReadOnlyList<MaterialProxy>> Proxies => _proxies;
 
@@ -111,6 +118,7 @@ public sealed class MaterialTable
         _localReflections.Add(resolved.LocalReflection);
         _phong.Add(resolved.Phong);
         _lightWarps.Add(resolved.LightWarp);
+        _selfIllumMasks.Add(resolved.SelfIllumMask);
         _proxies.Add(resolved.Proxies ?? []);
 
         // **The shader name, kept because "no base texture" is only a fault for SOME shaders**

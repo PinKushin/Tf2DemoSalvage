@@ -37,4 +37,4 @@ was fine. **Ask what ELSE is missing before instrumenting the thing that was rep
 reported as the part that was noticed, not as its full extent.
 
 Related: [[ask-which-input-differs-before-bisecting]], [[the-f12-demo-is-the-parity-reference]],
-[[log-the-event-not-a-sample-of-it]], [[suspect-the-input-not-the-algorithm]].
+[[instrument-bugs-outnumber-decoder-bugs]], [[nothing-is-closed]].

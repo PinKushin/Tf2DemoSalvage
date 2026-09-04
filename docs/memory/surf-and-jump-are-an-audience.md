@@ -33,4 +33,4 @@ session that reads one as the other will build the wrong thing confidently.
 here; the numbers cannot. A wrong material is a cosmetic defect for this audience and a wrong tick,
 angle or origin is a falsified record.
 
-Related: [[read-the-spec-before-measuring-our-data]], [[decode-must-be-total]].
+Related: [[nothing-is-closed]], [[decode-must-be-total]].

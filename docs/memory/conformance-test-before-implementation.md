@@ -43,7 +43,7 @@ by extraction and can never go stale; the hand-written conformance suites carry 
 cost of each gap. Only the generated half catches a MISSING feature; only the hand-written half
 catches a WRONG one — an extraction cannot tell you `$detail` uses the wrong blend mode.
 
-Related: [[read-the-spec-before-measuring-our-data]], [[measure-every-hop-before-blaming-one]].
+Related: [[nothing-is-closed]].
 
 ---
 
@@ -96,4 +96,4 @@ take. Re-deriving it by hand is slower, produces a subset, and cannot be checked
 **Check the generated report first whenever the question is "what is missing".** Measurement can only
 find data that is wrong; it cannot find a feature that was never implemented.
 
-Related: [[read-the-spec-before-measuring-our-data]], [[an-uncoverable-gap-is-usually-your-reader]].
+Related: [[nothing-is-closed]], [[an-uncoverable-gap-is-usually-your-reader]].

@@ -29,7 +29,7 @@ the eye. A hypothesis that predicts the observations is still a hypothesis.
 **How to apply:** when a question is "what range does this data occupy", the answer is in the
 compiled file, not in the tool that wrote it. Read the lump. It is usually a dozen lines and a
 `dotnet test` away, and it is the same rule as
-[[read-the-spec-before-measuring-our-data]] pointing the other way — read the source to learn the
+[[nothing-is-closed]] pointing the other way — read the source to learn the
 MECHANISM, measure the data to learn the VALUES. Confusing which question you have is what makes a
 wrong answer feel cited.
 

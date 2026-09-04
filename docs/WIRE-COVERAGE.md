@@ -138,6 +138,10 @@ Not declared in this SDK.
 
 Not declared in this SDK.
 
+### DT_TFRagdoll
+
+Not declared in this SDK.
+
 ## Every other table, worst first
 
 | table | unread | declared |

@@ -150,6 +150,35 @@ public sealed class GameArchives
         return new GameArchives(sources);
     }
 
+    /// <summary>Every path the ARCHIVES declare, for a measurement over what the game ships.</summary>
+    /// <returns>Each packed path, in no particular order; duplicates across archives are possible.</returns>
+    /// <remarks>
+    /// **For probes and censuses, not for drawing anything.** Nothing in the render path enumerates
+    /// the game — a map names its materials and a model names its own — and this exists so a
+    /// question about the SHIPPED DATA can have a denominator (B326). CLAUDE.md's fifth source is
+    /// the game's own files, and a claim about them needs to be counted rather than sampled.
+    ///
+    /// **Loose folders are deliberately not walked.** A VPK carries a directory this can read
+    /// without touching the disk; a folder source would mean a recursive scan of a `custom/` tree
+    /// of unknown size, and a census of what VALVE ships must not silently include what the user
+    /// added. <see cref="Read"/> still searches both, as it must.
+    /// </remarks>
+    public IEnumerable<string> Paths()
+    {
+        foreach ((_, VpkArchive? archive) in _sources)
+        {
+            if (archive is null)
+            {
+                continue;
+            }
+
+            foreach (string path in archive.Paths)
+            {
+                yield return path;
+            }
+        }
+    }
+
     /// <summary>Finds a file, searching every source in the order the game declares.</summary>
     /// <param name="path">Path such as <c>materials/concrete/x.vmt</c>.</param>
     /// <returns>The bytes, or null.</returns>
