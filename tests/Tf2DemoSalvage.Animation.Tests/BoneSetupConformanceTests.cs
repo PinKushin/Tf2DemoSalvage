@@ -294,48 +294,80 @@ public sealed class BoneSetupConformanceTests
     [
         new BoneStage(
             "GetMoveParent",
-            StageState.Absent,
-            "Read twice and both uses are stages. It gates enrolment into the threaded pre-pass — " +
-            "only ROOTS are enrolled, which is what keeps the merge recursion and the parallelism " +
-            "from ever overlapping (c_baseanimating.cpp:2897) — and it is the parent link the " +
-            "merge follows. Nothing here has an equivalent; the ordering is a depth sort (B181)."),
+            StageState.Partial,
+            "Read twice and both uses are stages. The PARENT LINK half is here and always was: " +
+            "AnimatingEntity.Follows is what the merge follows, and asking it to set its own bones " +
+            "is Valve's whole ordering mechanism (bone_merge_cache.cpp:130). " +
+            "THIS ENTRY SAID 'Nothing here has an equivalent; the ordering is a depth sort (B181)' " +
+            "UNTIL 2026-09-03, and both halves were stale — B181 and D88 DELETED that depth sort, " +
+            "having found the engine has no ordering code at all, which is the same wrong claim the " +
+            "boneSetup entry above carried. " +
+            "What is genuinely absent is the other use: gating enrolment into the THREADED pre-pass " +
+            "so that only roots are enrolled and the merge recursion can never overlap the " +
+            "parallelism (c_baseanimating.cpp:2897). There is no threaded pre-pass here, so the " +
+            "guard has nothing to guard."),
 
         new BoneStage(
             "StandardBlendingRules",
             StageState.Partial,
-            "The blend itself. Its own twelve stages are the table above: one implemented, three " +
-            "partial, six absent, two not applicable."),
+            "The blend itself. Its own thirteen stages are the table above: eight implemented, one " +
+            "partial, two absent, two not applicable. " +
+            "IT READ 'one implemented, three partial, six absent' UNTIL 2026-09-03 — a count taken " +
+            "when it was written and never retaken, which is the same fault as the four stale " +
+            "OPEN entries in RISKS.md found the same night. Recount it when a state changes; the " +
+            "numbers are one awk over this table."),
 
         new BoneStage(
             "Init",
-            StageState.Absent,
+            StageState.NotApplicable,
             "m_pIk->Init( hdr, angles, origin, time, framecount, mask ) — the entity's real IK " +
-            "context, distinct from the throwaway one CalcAutoplaySequences uses. Preceded by a " +
-            "teleport guard that clears targets, which is the engine's own answer to the question " +
-            "a scrubbing viewer raises: what happens to a stateful simulation across a seek."),
+            "context, distinct from the throwaway one CalcAutoplaySequences uses. What Init stores " +
+            "is the root transform, the frame counter and the bone mask, and every one of those is " +
+            "read by the CIKTarget half alone: the root transform positions a GROUND target's " +
+            "floor, and the frame counter ages a LATCH. With ATTACHMENT and GROUND measured at " +
+            "zero across 16,417 animations there is nothing for it to hold (B299). " +
+            "IkContext takes what it needs per call instead. " +
+            "The teleport guard is the same story — `if (Teleported() || IsNoInterpolationFrame()) " +
+            "m_pIk->ClearTargets()` clears targets, and a context with no targets has nothing to " +
+            "clear across a seek. That answer is worth keeping written down, because a scrubbing " +
+            "viewer WILL raise the question again the moment a latching rule type appears."),
 
         new BoneStage(
             "UpdateIKLocks",
-            StageState.Absent,
-            "Applies the locks the game code asked for this frame, before the targets are solved."),
+            StageState.NotApplicable,
+            "Applies the locks the game code asked for this frame, before the targets are solved. " +
+            "Unreachable for TF2 with the two stages below, and for the same measured reason: it " +
+            "acts on CIKTarget entries, and nothing establishes one."),
 
         new BoneStage(
             "UpdateTargets",
-            StageState.Absent,
-            "Resolves each chain's goal into world space — for a foot, where the ground is."),
+            StageState.NotApplicable,
+            "Resolves each chain's goal into world space — for a foot, where the ground is. " +
+            "PROVABLY DEAD FOR TF2, and the proof is in the switch rather than in our data: only " +
+            "IK_ATTACHMENT and IK_GROUND establish a target (bone_setup.cpp:3741), with " +
+            "`// case IK_SELF:` commented out beside them; IK_RELEASE and IK_UNLATCH only reduce a " +
+            "weight on a target something else made, and the closing loop is gated on " +
+            "est.flWeight > 0. Measured over 16,417 animations of every model two demos draw: " +
+            "ATTACHMENT 0, GROUND 0. So every target stays weightless (B299)."),
 
         new BoneStage(
             "CalculateIKLocks",
-            StageState.Absent,
-            "Traces against the world to decide where a locked foot actually rests. This is the " +
-            "one that makes feet plant, and heavy.mdl declares chains for HANDS as well, which is " +
-            "how an off-hand grip is pinned to a weapon."),
+            StageState.NotApplicable,
+            "Traces against the world to decide where a locked foot actually rests — the one that " +
+            "makes feet plant. TF2 declares no IK_GROUND rule at all, which is why the famous " +
+            "symptom of missing IK, a sliding foot, is not what this project's IK ever fixed. Same " +
+            "CIKTarget dependency as UpdateTargets."),
 
         new BoneStage(
             "SolveDependencies",
-            StageState.Absent,
-            "The two-bone solve itself, writing the result into the bone array and marking each " +
-            "bone it computed so BuildTransformations skips it."),
+            StageState.Implemented,
+            "The two-bone solve itself, writing the result into the bone array and rebuilding the " +
+            "local pose through SolveBone. Both types TF2 actually declares are here: IK_SELF " +
+            "(B296) and IK_RELEASE (B299), the latter blending the chain's target back toward the " +
+            "animation's own end position without touching the chain's weight, under Valve's " +
+            "comment 'move target back towards original location'. The other four are Valve's own " +
+            "no-ops — IK_WORLD is Assert(0), ATTACHMENT and GROUND are bare breaks whose work is " +
+            "in UpdateTargets, and UNLATCH's body is commented out."),
 
         new BoneStage(
             "BuildTransformations",
