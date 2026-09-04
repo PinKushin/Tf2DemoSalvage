@@ -21154,3 +21154,28 @@ same condition arrived at independently. There is no skeleton to shift.
 the tail and the duck jump from the head, on separate passes, because the first pass stopped at the
 line it came for. `docs/memory/read-the-sdk-for-the-whole-mechanism.md` says finding the flag is the
 easy half; this is the same rule applied to a function rather than a flag.
+
+#### And the BASE `C_BaseAnimating::BuildTransformations` beneath it
+
+Read to its closing brace for the same reason. Five things happen in it and none is an open
+divergence:
+
+| | |
+|---|---|
+| the ragdoll branch (`m_pRagdoll`) | the known corpse gap — `PARITY-AUDIT.md` #4, filed and deliberately ranked low |
+| `MergeMatchingBones` for `EF_BONEMERGE` | implemented — `BoneMergeCache` |
+| `CalcProceduralBone` | implemented — jiggle and the four procedural rules, with their denominators measured |
+| the `boneComputed` skip | a different ROUTE to the same result, below |
+| `UpdateTargets` before the solve | serves three rule types TF2 declares **zero** of |
+
+**The `boneComputed` skip is an ordering difference, not a behavioural one.** `SetupBones` runs
+`UpdateTargets` and `SolveDependencies` BEFORE `BuildTransformations` (`c_baseanimating.cpp:2995`),
+so IK has already written both the world matrices and the local pose, and the concatenation loop
+skips what IK touched. This project concatenates first and then moves the chain, rebuilding
+everything below the lowest bone that moved. Same answer; the engine avoids concatenating a bone
+twice and we fix it up afterwards.
+
+**`UpdateTargets` is inapplicable and that is measured, not assumed.** It switches on
+`IK_ATTACHMENT`, `IK_GROUND` and `IK_UNLATCH` — with `IK_SELF` commented out of its own switch — and
+the census over 8,743 animations reports **GROUND 0, ATTACHMENT 0, UNLATCH 0**, against SELF 1,948
+and RELEASE 14,907. There is nothing for it to update.
