@@ -36,3 +36,16 @@ while you are adding is never explained by your additions.
   measurement that existed. Grep first: the cost is seconds and the alternative is deleting work.
 - A count that moves the wrong way is a finding, never an accounting nuisance. See
   [[read-the-trx-total-not-the-console]].
+
+**It happened again on 2026-09-03, and the gate is what caught it.** A new
+`ViewmodelAttachmentTests.cs` was written for the viewmodel FOV correction onto a path that already
+held `ViewmodelAttachmentTests` for B252's display-flag mask — an unrelated subject. The write
+result said **"updated successfully"**, not "created", and that word was read past.
+
+Nothing failed. Every test passed, the build was clean, and the only trace was the SCENE COUNT:
+385 expected, **383** executed. Two tests had been deleted and six added.
+
+- **The name collided because the subject sounded the same.** "Viewmodel attachment" is the display
+  mask AND the projection correction. `ls` on the directory before writing costs nothing.
+- **Exact floors are why this was recoverable.** A floor written as "at least 379" would have
+  passed at 383 and the deletion would have shipped.

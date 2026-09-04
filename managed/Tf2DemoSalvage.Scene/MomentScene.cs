@@ -891,6 +891,18 @@ public sealed class MomentScene : IGameSystemPerFrame
         // Where the eye is, so the viewmodel's own report can measure itself against it (B222).
         _models.ViewmodelEye = (camera.Origin.X, camera.Origin.Y, camera.Origin.Z);
 
+        // **The view `FormatViewModelAttachment` reads**, set here beside the eye and from the same
+        // camera. `SetupBones_AttachmentHelper` corrects every attachment it resolves through a
+        // virtual whose base body is empty; this is the pass where that virtual is not empty, and
+        // leaving it null on every other pass is that empty body.
+        _models.ViewmodelProjection = new ViewmodelProjection(
+            (camera.Origin.X, camera.Origin.Y, camera.Origin.Z),
+            AngleVectors.Right(camera.Angles.Yaw),
+            AngleVectors.Up(camera.Angles.Pitch, camera.Angles.Yaw),
+            AngleVectors.Forward(camera.Angles.Pitch, camera.Angles.Yaw),
+            camera.FieldOfView,
+            info.ViewmodelFieldOfView);
+
         // **One call for all of them, because Instances CLEARS the list it is given.** Posing the
         // arms and then the weapon into the same list threw the arms away and drew the gun alone.
         _models.Instances(

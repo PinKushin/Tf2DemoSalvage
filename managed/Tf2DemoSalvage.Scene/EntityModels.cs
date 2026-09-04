@@ -512,6 +512,9 @@ public sealed class EntityModelSet
         // point anywhere in the list. This is what CalcAbsolutePosition walks (c_baseentity.cpp:4387).
         _propsByEntity.Clear();
 
+        // Resolved attachments belong to this pass's camera, not to the entity — see the field.
+        _attachments.Clear();
+
         // Events are a per-frame answer; the WALK's state is per entity and survives.
         _fired.Clear();
 
@@ -833,26 +836,37 @@ public sealed class EntityModelSet
             return;
         }
 
-        StudioAttachment attachment = attachments[point - 1];
-
-        if (attachment.Bone < 0 ||
-            attachment.Bone >= wearer.Bones.Count ||
-            !wearer.SetupBones(StudioBoneFlags.UsedByAnything, seconds))
+        if (!wearer.SetupBones(StudioBoneFlags.UsedByAnything, seconds))
         {
             return;
         }
+
+        // **The whole TABLE, once per entity, which is the shape of the engine's own call.**
+        // `SetupBones_AttachmentHelper` (`c_baseanimating.cpp:2055`) loops every attachment the
+        // model declares and caches each with `PutAttachment( i + 1, world )`, and `SetupBones`
+        // runs it exactly once per entity per frame:
+        //
+        //     if( !( oldReadableBones & BONE_USED_BY_ATTACHMENT ) &&
+        //         ( boneMask & BONE_USED_BY_ATTACHMENT ) )
+        //
+        // — "not readable before, wanted now". Resolving one attachment per CHILD, as this did,
+        // gives the same arithmetic and repeats it: two items on one attachment point concatenated
+        // the same matrices twice, and a wearer with several did the bone lookup once per item.
+        float[][] resolved = AttachmentsOf(prop.AttachedTo ?? -1, wearer, attachments);
+
+        if (point > resolved.Length || resolved[point - 1] is not { } placement)
+        {
+            return;
+        }
+
+        StudioAttachment attachment = attachments[point - 1];
 
         // Identity for the wearer's own transform, because its bones are already in world space —
         // the placement it used to need is folded into them (finding 35 section 7a).
         //
         // Back through MatrixConvention, because AttachmentPlacement returns a MODEL matrix and an
         // entity placement is a matrix3x4_t. Same boundary as PlacementOf, same one crossing point.
-        posed.EntityTransform = MatrixConvention.ToBoneMatrix(
-            AttachmentPlacement.Matrix(
-                wearer.Bones.Bone(attachment.Bone).ToArray(),
-                attachment.Local,
-                PropTransform.Identity.ToMatrix(),
-                attachment.IsWorldAligned));
+        posed.EntityTransform = placement;
 
         if (_props.IsEnabled(LogLevel.Debug) && _reportedPoses.Add(prop.ModelPath + "#attached"))
         {
@@ -862,6 +876,103 @@ public sealed class EntityModelSet
                 $"(point {point}, bone {attachment.Bone}) on {wearerModel}");
         }
     }
+
+    /// <summary>Every attachment of one entity, resolved once — Valve's <c>PutAttachment</c>.</summary>
+    /// <remarks>
+    /// **Cleared per PASS rather than per frame**, in `Simulate` beside `_propsByEntity`. The
+    /// viewmodel pass corrects its attachments for the viewmodel's projection and the world pass
+    /// does not, so a table carried between them would be wrong for one of the two. The reserved
+    /// viewmodel entity indices mean the two passes cannot collide today; clearing anyway is what
+    /// keeps that from becoming load-bearing.
+    /// </remarks>
+    private readonly Dictionary<int, float[][]> _attachments = [];
+
+    /// <summary>Resolves every attachment a wearer declares, once.</summary>
+    /// <remarks>
+    /// **<c>SetupBones_AttachmentHelper</c>, `c_baseanimating.cpp:2055`**, loop and all:
+    ///
+    /// <code>
+    ///   for (int i = 0; i &lt; hdr-&gt;GetNumAttachments(); i++)
+    ///   {
+    ///       const mstudioattachment_t &amp;pattachment = hdr-&gt;pAttachment( i );
+    ///       int iBone = hdr-&gt;GetAttachmentBone( i );
+    ///       if ( (pattachment.flags &amp; ATTACHMENT_FLAG_WORLD_ALIGN) == 0 )
+    ///           ConcatTransforms( GetBone( iBone ), pattachment.local, world );
+    ///       else
+    ///           ...position only, identity rotation...
+    ///       FormatViewModelAttachment( i, world );
+    ///       PutAttachment( i + 1, world );
+    ///   }
+    /// </code>
+    ///
+    /// **The correction is inside the loop, applied to every attachment**, which is why it lives
+    /// here rather than at the one call site that used to need it.
+    /// </remarks>
+    private float[][] AttachmentsOf(
+        int entity, AnimatingEntity wearer, IReadOnlyList<StudioAttachment> attachments)
+    {
+        if (_attachments.TryGetValue(entity, out float[][]? cached))
+        {
+            return cached;
+        }
+
+        float[][] resolved = new float[attachments.Count][];
+
+        for (int index = 0; index < attachments.Count; index++)
+        {
+            StudioAttachment attachment = attachments[index];
+
+            if (attachment.Bone < 0 || attachment.Bone >= wearer.Bones.Count)
+            {
+                continue;
+            }
+
+            float[] placement = MatrixConvention.ToBoneMatrix(
+                AttachmentPlacement.Matrix(
+                    wearer.Bones.Bone(attachment.Bone).ToArray(),
+                    attachment.Local,
+                    PropTransform.Identity.ToMatrix(),
+                    attachment.IsWorldAligned));
+
+            // **`FormatViewModelAttachment`, a virtual whose base body is EMPTY** — nothing for a
+            // world model, everything for a viewmodel, which is why a null projection here is that
+            // empty body rather than a missing feature. Only the POSITION moves: Valve reads the
+            // matrix's translation, corrects it and writes it back with `PositionMatrix`, leaving
+            // the rotation the bone gave it.
+            if (ViewmodelProjection is { } projection && IsViewmodel(entity))
+            {
+                (float x, float y, float z) = ViewmodelAttachment.Correct(
+                    (placement[3], placement[7], placement[11]),
+                    projection.Eye,
+                    projection.Right,
+                    projection.Up,
+                    projection.Forward,
+                    projection.WorldFieldOfView,
+                    projection.ViewmodelFieldOfView);
+
+                placement[3] = x;
+                placement[7] = y;
+                placement[11] = z;
+            }
+
+            resolved[index] = placement;
+        }
+
+        _attachments[entity] = resolved;
+
+        return resolved;
+    }
+
+    /// <summary>Whether an entity is one of the viewmodel pass's own.</summary>
+    /// <remarks>
+    /// **The reserved indices rather than a new flag**, because <see cref="ViewmodelScene"/> already
+    /// owns that numbering and a second answer to "is this a viewmodel" is a second thing to
+    /// disagree with.
+    /// </remarks>
+    private static bool IsViewmodel(int entity) =>
+        entity is ViewmodelScene.ArmsEntityIndex
+            or ViewmodelScene.WeaponEntityIndex
+            or ViewmodelScene.OffHandEntityIndex;
 
     /// <summary>Where each entity's light is sampled, so a worn item can borrow its wearer's.</summary>
     private readonly Dictionary<int, (float X, float Y, float Z)> _lightPoints = [];
@@ -1286,6 +1397,11 @@ public sealed class EntityModelSet
             Quaternion rotation = default;
             float total = 0f;
 
+            // The ENVELOPE weight, which every corner of one grid computes from the same shared
+            // envelope and the same cycle — so it is one value, not a sum, exactly as Valve takes
+            // it once before the corner loop.
+            float envelope = 0f;
+
             foreach ((int animation, float weight) in blend)
             {
                 float influence = StudioIkRules.Weight(
@@ -1336,18 +1452,66 @@ public sealed class EntityModelSet
                     rotation += corner * (Quaternion.Dot(rotation, corner) < 0f ? -weight : weight);
                 }
 
-                total += weight * influence;
+                // **`total += weight[i]`, the corner's blend weight ALONE** — `default:` and the
+                // success arm of the switch both add exactly that (`bone_setup.cpp:3175`). It was
+                // `weight * influence` here, which conflated the two quantities below.
+                total += weight;
+
+                envelope = influence;
             }
 
-            if (total <= 0f || (carriesAnError && rotation.LengthSquared() <= 0f))
+            // **`total` is a NORMALISER, and `flWeight` is the envelope. They are not the same
+            // number and using one as the other is a divergence that hides in the common case.**
+            // `Studio_IKSequenceError` computes the envelope once, up front, and returns false when
+            // it is nothing:
+            //
+            //     ikRule.flWeight = Studio_IKRuleWeight( ikRule, flCycle );
+            //     if (ikRule.flWeight <= 0.001f) { ...IK_GROUND looping special case... return false; }
+            //
+            // then uses `total` for one thing only, at `:3188`:
+            //
+            //     if (total <= 0.0001f) return false;
+            //     if (total < 0.999f)
+            //     {
+            //         VectorScale( ikRule.pos, 1.0f / total, ikRule.pos );
+            //         QuaternionScale( ikRule.q, 1.0f / total, ikRule.q );
+            //     }
+            //
+            // and the weight the solver applies is `pRule->flWeight * pRule->flRuleWeight` — the
+            // envelope times the sequence's influence, with `total` nowhere in it.
+            //
+            // **The two agree whenever every corner reports**, because the corner weights sum to
+            // one; they part company when one corner's error read fails. Valve keeps the full
+            // envelope weight and rescales the error by the share that DID report. Ours reduced the
+            // weight instead, which asks for less correction rather than for the same correction
+            // derived from less data.
+            if (total <= 0.0001f || envelope <= 0.001f ||
+                (carriesAnError && rotation.LengthSquared() <= 0f))
             {
                 continue;
+            }
+
+            if (total < 0.999f)
+            {
+                position /= total;
+
+                // **`QuaternionScale`, which scales the ANGLE rather than the components**
+                // (`mathlib_base.cpp:1757`, `sinsom = sin( asin( sinom ) * t )`, carrying the sign
+                // of `w` across under Valve's own note *"keep sign of rotation"*). A component
+                // divide would be a different rotation, and `Quaternion.Normalize` — which this
+                // used unconditionally — is a third thing again.
+                (float qx, float qy, float qz, float qw) = StudioBones.Scale(
+                    (rotation.X, rotation.Y, rotation.Z, rotation.W), 1f / total);
+
+                rotation = new Quaternion(qx, qy, qz, qw);
             }
 
             // **Scaled by the SEQUENCE's own influence**, which is what `AddDependencies` receives
             // as `flWeight` — an autolayer at half weight asks for half the correction, exactly as
             // its pose contributes half.
-            float asked = Math.Clamp(total * influenceOfSequence, 0f, 1f);
+            // `flWeight * flRuleWeight` — the envelope times the sequence's influence, which is
+            // what `SolveDependencies` multiplies (`bone_setup.cpp:4103`). `total` is not in it.
+            float asked = Math.Clamp(envelope * influenceOfSequence, 0f, 1f);
 
             // **A rule at full strength clears every rule already on its chain, and a RELEASE at
             // full strength is then not added at all** — `AddDependencies`, `bone_setup.cpp:3319`:
@@ -2472,6 +2636,18 @@ public sealed class EntityModelSet
     /// every world pass, which is what keeps this out of the two hundred props a frame.
     /// </remarks>
     public (float X, float Y, float Z)? ViewmodelEye { get; set; }
+
+    /// <summary>The view a viewmodel is drawn through, for <c>FormatViewModelAttachment</c>.</summary>
+    /// <remarks>
+    /// **Set by the caller that knows the camera, beside <see cref="ViewmodelEye"/>**, and null for
+    /// every world pass — which is what keeps the correction off the two hundred props a frame that
+    /// must not receive it. `SetupBones_AttachmentHelper` calls the correction unconditionally and
+    /// relies on the base implementation being an empty body; null here is that empty body.
+    ///
+    /// Carries the whole of what `FormatViewModelAttachment` reads out of `CViewSetup` and the main
+    /// view vectors, so the correction cannot derive any of it a second way.
+    /// </remarks>
+    public ViewmodelProjection? ViewmodelProjection { get; set; }
 
     /// <summary>Where the view is, for the distance fade; null leaves everything unfaded.</summary>
     /// <remarks>

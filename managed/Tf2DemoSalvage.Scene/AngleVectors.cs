@@ -81,4 +81,33 @@ public static class AngleVectors
 
         return (sinYaw, -cosYaw, 0f);
     }
+
+    /// <summary>The UP vector of an angle pair — <c>AngleVectors</c>' third output.</summary>
+    /// <param name="pitch">Pitch in degrees.</param>
+    /// <param name="yaw">Yaw in degrees.</param>
+    /// <returns>The basis's up vector.</returns>
+    /// <remarks>
+    /// **<c>mathlib_base.cpp:953</c>**, written for a general roll:
+    ///
+    /// <code>
+    ///   up-&gt;x = (cr*sp*cy + -sr*-sy);
+    ///   up-&gt;y = (cr*sp*sy + -sr*cy);
+    ///   up-&gt;z = cr*cp;
+    /// </code>
+    ///
+    /// **With <c>sr = 0</c> and <c>cr = 1</c> that collapses to <c>(sp·cy, sp·sy, cp)</c>** — and
+    /// unlike <see cref="Right"/>, PITCH does not drop out: it is the whole of the first two
+    /// components. So this needs both angles where that one needs only yaw, which is the reason the
+    /// two have different signatures rather than an oversight.
+    ///
+    /// Nothing in this viewer rolls, as recorded on <see cref="Right"/>. If one ever does, the
+    /// three-line form above is what replaces this.
+    /// </remarks>
+    public static (float X, float Y, float Z) Up(float pitch, float yaw)
+    {
+        (float sinPitch, float cosPitch) = MathF.SinCos(pitch * Radians);
+        (float sinYaw, float cosYaw) = MathF.SinCos(yaw * Radians);
+
+        return (sinPitch * cosYaw, sinPitch * sinYaw, cosPitch);
+    }
 }

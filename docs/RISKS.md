@@ -19858,3 +19858,70 @@ the horizon is the clear colour, not a sky.
 **So the 2D skybox is its own unbuilt feature**, not a missing toggle: the `skyname` keyvalue on
 `worldspawn`, six `sky_<name><face>` materials, and a cube drawn at the eye. Filed here rather than
 left as a loose end on B152.
+
+## B302 — four half measures, closed
+
+Recorded together because the pattern is the finding. Each was a place where the engine's behaviour
+was READ correctly, written down accurately, and then not implemented — filed as a difference, a
+performance note, or an unreachable case. The owner, on being shown the list: *"no half measures
+damnit"*.
+
+### 1. `r_3dsky` and `r_skybox`
+
+Deferred with the words *"I'll leave as the recorded remainder rather than half-build"*. `r_3dsky`
+is now implemented with all three of its states and verified through a real `settings.cfg`; see the
+B152 section above. `r_skybox` is deliberately NOT exposed, and that is a different thing from a
+half measure: the 2D skybox is not drawn at all, so the cvar would be inert. Filed as its own
+unbuilt feature.
+
+### 2. The IK rule's applied weight
+
+B299 recorded this as *"Not yet fixed, and not yet shown to matter"*. `Studio_IKSequenceError` uses
+`total` for exactly one purpose (`bone_setup.cpp:3188`):
+
+```
+if (total <= 0.0001f) return false;
+if (total < 0.999f)
+{
+    VectorScale( ikRule.pos, 1.0f / total, ikRule.pos );
+    QuaternionScale( ikRule.q, 1.0f / total, ikRule.q );
+}
+```
+
+and the weight the solver applies is `pRule->flWeight * pRule->flRuleWeight` — the ENVELOPE times
+the sequence's influence, with `total` nowhere in it. Ours folded the corner weights into the
+weight and never divided the error at all.
+
+**They agree whenever every corner reports**, because the corner weights sum to one — which is why
+the measured result on both demos is unchanged. They part company when one corner's error read
+fails: Valve keeps the full envelope weight and rescales the error by the share that reported;
+ours asked for less correction instead. Also fixed: the quaternion is now scaled with
+`QuaternionScale`, which scales the ANGLE and carries the sign of `w`, where this used
+`Quaternion.Normalize` — a third operation again.
+
+### 3. `FormatViewModelAttachment`
+
+Recorded as unreachable because nothing in the corpus is parented to a viewmodel attachment. That
+measurement was right and the conclusion was not: the engine calls it on every attachment it
+resolves, and a viewer that ever hangs anything off a viewmodel would be wrong with no warning.
+Written exactly, including the case Valve names in a comment — `viewmodel_fov 0` gives a factor of
+ZERO, collapsing the attachment onto the view axis rather than leaving it alone.
+
+`AngleVectors.Up` came with it, because the correction needs the view's up vector and only
+`Forward` and `Right` existed. Unlike `Right`, PITCH does not drop out of it at zero roll — it is
+the whole of the first two components — which is why the two have different signatures.
+
+### 4. The attachment helper's shape
+
+Filed as *"ours recomputes per child instead of once per entity"*. `SetupBones_AttachmentHelper`
+resolves the whole table in one loop and caches each entry with `PutAttachment( i + 1, world )`,
+and `SetupBones` runs it exactly once per entity per frame, gated on
+
+```
+if( !( oldReadableBones & BONE_USED_BY_ATTACHMENT ) && ( boneMask & BONE_USED_BY_ATTACHMENT ) )
+```
+
+— "not readable before, wanted now". Ours resolved one attachment per CHILD, so two items on one
+point concatenated the same matrices twice. Now one table per entity per pass, cleared per pass
+rather than per frame because the viewmodel pass corrects its attachments and the world pass does
+not.

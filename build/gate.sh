@@ -555,7 +555,13 @@ run Tf2DemoSalvage.Animation.Tests animation 78
 # here because this viewer has a free camera that can stand where a map never expected. Plus the
 # no-sky_camera case, which has to beat state 2, and the default, which is Valve's 1 and NOT
 # cheat-gated where r_skybox on the next line is.
-run Tf2DemoSalvage.Scene.Tests    scene     379
+# 379 -> 385: FormatViewModelAttachment, the one line of SetupBones_AttachmentHelper that was
+# recorded as unreachable instead of written. Six: the view axis it never touches, the outward
+# scale, both fields of view agreeing as the control that separates "honours the fovs" from "does
+# arithmetic", viewmodel_fov 0 collapsing onto the axis rather than doing nothing (Valve's
+# `viewx ? ... : 0.0f`, under a comment naming that exact case), the inverse round trip, and an eye
+# away from the origin - without which a correction written against (0,0,0) passes everything.
+run Tf2DemoSalvage.Scene.Tests    scene     385
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
