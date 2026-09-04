@@ -965,7 +965,12 @@ run Tf2DemoSalvage.Presentation.Tests presentation 440
 # The other twenty-six are drift: the floor sat 26 below the measured total for some time, which is
 # safe (a floor only catches a DROP) and weak (it cannot catch a drop of 26). Raised to what the
 # trx reports, which is the only number that should ever be written here — see D138.
-run Tf2DemoSalvage.Content.Tests  content   971
+# 971 -> 989: six for the shader-fallback blocks (B328) and eight for the `.phy` reader (B58). The
+# fallback set is mostly REFUSALS — a `_DX8` block, another shader's block, an HDR variant — because
+# the rule is "level 90 and above", not "at or below ours", and only a refusal test can tell those
+# apart. The `.phy` set includes one authored specimen: every file TF2 ships ends with a trailing
+# `editparams` block, so removing the reader's final block-close reddens nothing on real data.
+run Tf2DemoSalvage.Content.Tests  content   989
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
@@ -1266,7 +1271,11 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     156
 # investigation on 2026-09-04, complete with a clean worktree at 635dea33 to prove the assembly had
 # "never held 726". It had. `assert-test-count.sh` greps `total="…"` deliberately; measure the same
 # way it does.
-run Tf2DemoSalvage.Rendering.Tests rendering 733
+# 733 -> 736: `$selfillummask` reaching the list the renderer uploads (B327). Three, and the middle
+# one is the structural check — the list must be index-parallel with the materials, since a list
+# built by appending only the materials that HAVE a mask would have the right count and paint the
+# wrong surfaces.
+run Tf2DemoSalvage.Rendering.Tests rendering 736
 # 101 -> 103 on 2026-08-29: LaunchOptionWiringTests (B223, D118). Two tests, and they cost about
 # seventeen seconds EACH, because each builds a real MainForm and loads a corpus demo — which reads
 # cp_badlands.bsp when Team Fortress 2 is installed. That is the most expensive pair in this file

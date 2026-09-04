@@ -89,8 +89,15 @@ public sealed class RagdollConstraintProbe : IProbe
                 continue;
             }
 
+            // **The production reader, not a second one** (B58). This probe counted markers in the
+            // raw text before `PhysicsModel` existed, which was the right way to establish what a
+            // `.phy` holds and the wrong way to keep reporting it: a probe that reimplements the
+            // thing it measures agrees with whoever wrote the probe. Now the numbers below come
+            // from the same code the ragdoll work will use, so the two cannot disagree.
+            PhysicsModel physics = PhysicsModel.Read(bytes);
+
             int size = BitConverter.ToInt32(bytes, 0);
-            int solids = BitConverter.ToInt32(bytes, 8);
+            int solids = physics.DeclaredSolidCount;
 
             // **The text block is found by looking for it, not by arithmetic**, because the solids
             // between the header and it are Havok's format and this project cannot walk them. A
@@ -101,8 +108,8 @@ public sealed class RagdollConstraintProbe : IProbe
 
             int text = tail.IndexOf("solid {", StringComparison.Ordinal);
 
-            int joints = Count(tail, "ragdollconstraint");
-            int solidBlocks = Count(tail, "solid {");
+            int joints = physics.Constraints.Count;
+            int solidBlocks = physics.Solids.Count;
 
             output.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
@@ -145,21 +152,4 @@ public sealed class RagdollConstraintProbe : IProbe
     /// <summary>Bytes of <c>phyheader_t</c>.</summary>
     private const int HeaderSize = 16;
 
-    /// <summary>How many times a marker appears.</summary>
-    /// <param name="text">The file, read as ASCII.</param>
-    /// <param name="marker">What to count.</param>
-    /// <returns>The count.</returns>
-    private static int Count(string text, string marker)
-    {
-        int found = 0;
-        int at = 0;
-
-        while ((at = text.IndexOf(marker, at, StringComparison.Ordinal)) >= 0)
-        {
-            found++;
-            at += marker.Length;
-        }
-
-        return found;
-    }
 }
