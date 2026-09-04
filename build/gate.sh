@@ -570,7 +570,7 @@ run Tf2DemoSalvage.Animation.Tests animation 78
 # whole square, each using its whole texture, the four sides meeting edge to edge - and the WINDING,
 # which was genuinely red first. A box seen from inside wants the opposite winding to a solid one,
 # and getting it wrong draws a sky that is present, textured and entirely invisible.
-run Tf2DemoSalvage.Scene.Tests    scene     390
+run Tf2DemoSalvage.Scene.Tests    scene     391
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -717,7 +717,7 @@ run Tf2DemoSalvage.Audio.Tests    audio     183
 # rather than reporting the one that crossed the count.
 # 434 -> 438: --measure and --help (LaunchOptions). Both malformed twins included, per that file's own
 # rule that a parser ignoring an option passes any test that only checks the bad input is refused.
-run Tf2DemoSalvage.Presentation.Tests presentation 438
+run Tf2DemoSalvage.Presentation.Tests presentation 440
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.

@@ -8,11 +8,13 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="Gen1">Gen 1 collections since the process started.</param>
 /// <param name="Gen2">Gen 2 collections since the process started.</param>
 /// <param name="Paused">Time spent with managed threads suspended, since the process started.</param>
+/// <param name="Allocated">Bytes allocated on the managed heap since the process started.</param>
 /// <remarks>
 /// **Every field is a TOTAL, not a rate**, which is the trap the counter exists to avoid: printed
 /// raw they grow all session and read as a leak.
 /// </remarks>
-public readonly record struct GarbageReading(int Gen0, int Gen1, int Gen2, TimeSpan Paused)
+public readonly record struct GarbageReading(
+    int Gen0, int Gen1, int Gen2, TimeSpan Paused, long Allocated)
 {
     /// <summary>Reads the counters as they stand now.</summary>
     /// <returns>The current totals.</returns>
@@ -23,10 +25,21 @@ public readonly record struct GarbageReading(int Gen0, int Gen1, int Gen2, TimeS
     ///
     /// <c>GC.GetTotalPauseDuration()</c> is the runtime's own accounting of time spent with threads
     /// suspended, so a pause reported here is not inferred from a gap in the log — it is the pause,
-    /// reported by the thing that caused it.
+    /// reported by the thing that caused it. The same holds for the byte count: it is the runtime's
+    /// own total, not a sum of allocations this code knows about, so it cannot miss a caller.
+    ///
+    /// **<c>precise: false</c>**, which reads each thread's own allocation context rather than
+    /// suspending to total them exactly. The imprecision is bounded by one allocation buffer per
+    /// thread — kilobytes against the tens of megabytes a second being measured — and the precise
+    /// form would make reading the counter cost the very pause the counter beside it reports.
     /// </remarks>
     public static GarbageReading FromRuntime() =>
-        new(GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2), GC.GetTotalPauseDuration());
+        new(
+            GC.CollectionCount(0),
+            GC.CollectionCount(1),
+            GC.CollectionCount(2),
+            GC.GetTotalPauseDuration(),
+            GC.GetTotalAllocatedBytes(precise: false));
 }
 
 /// <summary>Collections and pause time since the previous reading.</summary>
@@ -53,6 +66,13 @@ public sealed class GarbageCounter
     /// </remarks>
     private static readonly TimeSpan Noise = TimeSpan.FromMilliseconds(1);
 
+    /// <summary>The unit allocation is reported in.</summary>
+    /// <remarks>
+    /// **Megabytes because the measured rate is tens to hundreds of them a second** (B262), so bytes
+    /// would print nine digits and kilobytes six, on a line already carrying six other numbers.
+    /// </remarks>
+    private const long Megabyte = 1024L * 1024L;
+
     private GarbageReading? _previous;
 
     /// <summary>What has happened since the last call, or empty when nothing has.</summary>
@@ -75,15 +95,22 @@ public sealed class GarbageCounter
             return string.Empty;
         }
 
-        (int Gen0, int Gen1, int Gen2, TimeSpan Paused) since = (
+        (int Gen0, int Gen1, int Gen2, TimeSpan Paused, long Allocated) since = (
             now.Gen0 - previous.Gen0,
             now.Gen1 - previous.Gen1,
             now.Gen2 - previous.Gen2,
-            now.Paused - previous.Paused);
+            now.Paused - previous.Paused,
+            now.Allocated - previous.Allocated);
 
         // **`&&`, not `||`, and the difference is a whole class of stall.** Pause time can grow
         // without any COUNT moving — a single long gen2 that began before this second and finished
         // inside it. An `||` here would discard exactly the seconds worth reporting.
+        //
+        // **Allocation is deliberately NOT part of this test**, though it is reported below. Every
+        // frame allocates, so a second reported because bytes moved is a second reported always, and
+        // the suffix would land on every line in the log — drowning the ones that matter, which is
+        // the outcome this guard exists to prevent. A second quiet enough not to provoke a collection
+        // allocated less than the gen 0 budget, and the empty line already says that.
         if (since is { Gen0: 0, Gen1: 0, Gen2: 0 } && since.Paused < Noise)
         {
             return string.Empty;
@@ -91,6 +118,7 @@ public sealed class GarbageCounter
 
         return string.Create(
             CultureInfo.InvariantCulture,
-            $"; gc {since.Gen0}/{since.Gen1}/{since.Gen2} paused {since.Paused.TotalMilliseconds:0.#} ms");
+            $"; gc {since.Gen0}/{since.Gen1}/{since.Gen2} paused {since.Paused.TotalMilliseconds:0.#} ms" +
+            $", allocated {since.Allocated / (double)Megabyte:0.#} MB");
     }
 }

@@ -20190,7 +20190,40 @@ is a statement about correctness of structure. The work it does is not merely du
 provably inert on this population.
 
 **It does not change the conclusion about HOW to fix it.** The entry is right that this falls out of
-per-leaf grouping rather than being worth a cache, and the other two numbers are still untaken.
+per-leaf grouping rather than being worth a cache.
+
+#### The other two numbers, taken 2026-09-03
+
+**Classify is called exactly twice per instance per frame, by construction.** `Device3D.cs:1068` and
+`Device3D.cs:1140` each open their pass's loop with it, and nothing between them can change its
+inputs — so the second call re-derives an answer the first already had. *Read-from-source, not
+measured*: it is a fact about the loop heads, and a counter would only confirm arithmetic.
+
+**Allocation is 1.05 MB per frame.** Measured on `tf2-2026-pub-pov-clean`, tick 14000, first person,
+twelve seconds of playback, six warmed seconds:
+
+```
+gc 26/0/0 paused 18.2 ms, allocated 163.1 MB   at 122.8 fps
+gc 24/0/0 paused 16.5 ms, allocated 140.7 MB   at 210.4 fps
+gc 32/0/0 paused 22.9 ms, allocated 194.1 MB   at 184.7 fps
+gc 30/0/0 paused 20.6 ms, allocated 181.0 MB   at 185.7 fps
+gc 34/0/0 paused 24.1 ms, allocated 204.8 MB   at 167.2 fps
+gc 32/1/0 paused 18.4 ms, allocated 193.3 MB   at 125.3 fps
+```
+
+**140 to 205 MB a second, and the per-frame figure is steadier than either column alone** — 0.67 to
+1.54 MB, mean 1.05. The rate tracks the frame rate because the allocation is per frame, which is
+itself the finding: this is steady-state drawing, not a warm-up or a one-off.
+
+**The cost is 1.6% to 2.4% of wall clock spent with every managed thread suspended**, and no gen 2
+collection at all across the run. So it is not B163's stall — it is a constant tax, in the band where
+it shortens frames rather than freezing the app.
+
+**The counter had to be extended to answer this, and it is worth saying why the old one could not.**
+The line already reported gen 0 COUNTS, which move with allocation but are quantised by the runtime's
+gen 0 budget: 26 against 34 says "more" and never how much more. `GC.GetTotalAllocatedBytes` is the
+runtime's own total, carried to the line rather than recomputed — the B243 rule — and the byte figure
+is what "allocations per warmed frame" asked for.
 
 **A counter was nearly added for this, and removing it is the point.** The first attempt added
 `SecondCullRejected`/`Considered` to `OpaqueBuckets` and a second log line — two routes to one

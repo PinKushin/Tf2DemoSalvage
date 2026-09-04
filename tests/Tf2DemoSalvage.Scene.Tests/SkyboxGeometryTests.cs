@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Tf2DemoSalvage.Scene.Tests;
 
@@ -156,6 +157,62 @@ public sealed class SkyboxGeometryTests
             leaving.Z.ShouldBe(arriving.Z, Tolerance);
         }
     }
+
+    /// <remarks>
+    /// **The box is closed: the four walls' top edges end exactly on the `up` face's corners, and
+    /// their bottom edges on the `dn` face's.** That catches a cap at the wrong size, the wrong
+    /// place, or spanning the wrong axes.
+    ///
+    /// **It does NOT catch a cap rotated a quarter turn, and this comment claimed it did until a
+    /// sabotage said otherwise.** Turning the `up` face's u and v a quarter turn leaves the same
+    /// four CORNERS in the same four places — only which UV sits at each one changes — so a
+    /// comparison of corner sets is blind to it. The sabotage was applied expecting a red test and
+    /// every one stayed green, which is the wrong-instrument fault this repository has a casebook
+    /// for: a proxy that is unfaithful to the variable
+    /// (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md`).
+    ///
+    /// **And a rotation is not settleable geometrically at all.** Which quarter turn is right is a
+    /// fact about how the artist authored the image against the cube-face convention, not about the
+    /// box — so it needs a sky with four DISTINCT sides and a person looking at it. Neither corpus
+    /// map has one: `sky_harvest_01` shares a single texture across all four sides and uses one
+    /// pixel for its floor.
+    /// </remarks>
+    [Test]
+    public void Face_TheTopAndBottom_MeetTheFourSides()
+    {
+        (int Cap, float SideV)[] caps = [(4, 0f), (5, 1f)];
+
+        foreach ((int cap, float sideV) in caps)
+        {
+            HashSet<string> capCorners = [];
+
+            foreach (SkyboxGeometry.Corner corner in SkyboxGeometry.Face(cap, Reach))
+            {
+                capCorners.Add(Key(corner));
+            }
+
+            HashSet<string> sideEdges = [];
+
+            foreach (int side in (int[])[0, 1, 2, 3])
+            {
+                foreach (SkyboxGeometry.Corner corner in SkyboxGeometry.Face(side, Reach))
+                {
+                    if (MathF.Abs(corner.V - sideV) < 1e-4f)
+                    {
+                        sideEdges.Add(Key(corner));
+                    }
+                }
+            }
+
+            sideEdges.SetEquals(capCorners).ShouldBeTrue(
+                $"face {cap}'s corners are exactly where the four walls' edges end; " +
+                $"walls gave {sideEdges.Count} distinct, cap has {capCorners.Count}");
+        }
+    }
+
+    /// <summary>A corner's position as a key, so two faces' corners can be compared as sets.</summary>
+    private static string Key(SkyboxGeometry.Corner corner) =>
+        $"{MathF.Round(corner.X, 3)},{MathF.Round(corner.Y, 3)},{MathF.Round(corner.Z, 3)}";
 
     private static SkyboxGeometry.Corner Corner(int face, float u, float v)
     {

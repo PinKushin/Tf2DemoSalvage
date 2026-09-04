@@ -21,9 +21,9 @@ public sealed class GarbageCounterTests
         // and "never read anything" would be the same observation.
         GarbageCounter counter = new();
 
-        counter.Since(new GarbageReading(10, 5, 2, Milliseconds(400)));
+        counter.Since(new GarbageReading(10, 5, 2, Milliseconds(400), Bytes));
 
-        counter.Since(new GarbageReading(10, 5, 2, Milliseconds(400))).ShouldBeEmpty();
+        counter.Since(new GarbageReading(10, 5, 2, Milliseconds(400), Bytes)).ShouldBeEmpty();
     }
 
     [Test]
@@ -35,10 +35,10 @@ public sealed class GarbageCounterTests
         // 12/6/2 against 2/1/0.
         GarbageCounter counter = new();
 
-        counter.Since(new GarbageReading(10, 5, 2, Milliseconds(400)));
+        counter.Since(new GarbageReading(10, 5, 2, Milliseconds(400), Bytes));
 
-        counter.Since(new GarbageReading(12, 6, 2, Milliseconds(430)))
-            .ShouldBe("; gc 2/1/0 paused 30 ms");
+        counter.Since(new GarbageReading(12, 6, 2, Milliseconds(430), Bytes + Megabyte))
+            .ShouldBe("; gc 2/1/0 paused 30 ms, allocated 1 MB");
     }
 
     [Test]
@@ -51,10 +51,10 @@ public sealed class GarbageCounterTests
         // the pause number is there at all.
         GarbageCounter counter = new();
 
-        counter.Since(new GarbageReading(3, 1, 0, Milliseconds(100)));
+        counter.Since(new GarbageReading(3, 1, 0, Milliseconds(100), Bytes));
 
-        counter.Since(new GarbageReading(3, 1, 0, Milliseconds(640)))
-            .ShouldBe("; gc 0/0/0 paused 540 ms");
+        counter.Since(new GarbageReading(3, 1, 0, Milliseconds(640), Bytes + (2 * Megabyte)))
+            .ShouldBe("; gc 0/0/0 paused 540 ms, allocated 2 MB");
     }
 
     [Test]
@@ -64,9 +64,9 @@ public sealed class GarbageCounterTests
         // put a `gc 0/0/0` on almost every line and drown the seconds that matter.
         GarbageCounter counter = new();
 
-        counter.Since(new GarbageReading(3, 1, 0, Milliseconds(100)));
+        counter.Since(new GarbageReading(3, 1, 0, Milliseconds(100), Bytes));
 
-        counter.Since(new GarbageReading(3, 1, 0, Milliseconds(100.6))).ShouldBeEmpty();
+        counter.Since(new GarbageReading(3, 1, 0, Milliseconds(100.6), Bytes)).ShouldBeEmpty();
     }
 
     [Test]
@@ -78,7 +78,47 @@ public sealed class GarbageCounterTests
         // wrong so much as meaningless.
         GarbageCounter counter = new();
 
-        counter.Since(new GarbageReading(40, 12, 3, Milliseconds(900))).ShouldBeEmpty();
+        counter.Since(new GarbageReading(40, 12, 3, Milliseconds(900), Bytes)).ShouldBeEmpty();
+    }
+
+    /// <remarks>
+    /// **Collections are a proxy for allocation and the bytes are the variable** (B262). The audit
+    /// asked for *"allocations per warmed frame"* and the line answered with gen 0 COUNTS, which move
+    /// with the allocation rate but are quantised by whatever the runtime's gen 0 budget happens to
+    /// be — so 26 against 35 says "more" and never says how much more.
+    ///
+    /// **The delta rule is the same one every other field here follows**, and for the same reason:
+    /// <c>GC.GetTotalAllocatedBytes</c> is monotonic since process start, so printed raw it grows all
+    /// session and reads as a leak.
+    /// </remarks>
+    [Test]
+    public void Since_AfterAllocations_ReportsTheBytesRatherThanTheTotal()
+    {
+        GarbageCounter counter = new();
+
+        counter.Since(new GarbageReading(10, 5, 2, Milliseconds(400), 900_000_000L));
+
+        counter.Since(new GarbageReading(12, 6, 2, Milliseconds(430), 1_000_000_000L))
+            .ShouldBe("; gc 2/1/0 paused 30 ms, allocated 95.4 MB");
+    }
+
+    /// <remarks>
+    /// **Allocation alone must not break the quiet-second rule.** Every frame allocates something, so
+    /// a second reported because bytes moved is a second reported ALWAYS — which would put a `gc`
+    /// suffix on every line in the log and drown the seconds where something happened, the exact
+    /// outcome <see cref="Since_WithAPauseUnderAMillisecond_IsEmpty"/> exists to prevent.
+    ///
+    /// **And nothing is lost by it.** A second that allocated without provoking a collection
+    /// allocated less than the gen 0 budget, which is the same statement the empty line already makes.
+    /// </remarks>
+    [Test]
+    public void Since_WithAllocationButNoCollectionOrPause_IsStillEmpty()
+    {
+        GarbageCounter counter = new();
+
+        counter.Since(new GarbageReading(3, 1, 0, Milliseconds(100), 5_000L));
+
+        counter.Since(new GarbageReading(3, 1, 0, Milliseconds(100), 4_000_000L)).ShouldBeEmpty();
     }
 
     // **`GarbageReading.FromRuntime` has no test here, and the reason is worth stating rather than
@@ -98,6 +138,15 @@ public sealed class GarbageCounterTests
     // the precedent for that shape: *"deliberately trivial: everything worth testing lives in the
     // presenter, which is why this exists at all."* Everything with a decision in it — the delta,
     // the first-reading guard, the quiet-second threshold, the format — is above and is covered.
+
+    /// <summary>A plausible process-lifetime allocation total to take deltas against.</summary>
+    /// <remarks>
+    /// **Large on purpose.** The counter's whole job is to report the delta rather than the total, so
+    /// a start value near zero would let a bug that printed the total pass three of these tests.
+    /// </remarks>
+    private const long Bytes = 900_000_000L;
+
+    private const long Megabyte = 1024L * 1024L;
 
     private static TimeSpan Milliseconds(double value) => TimeSpan.FromMilliseconds(value);
 }
