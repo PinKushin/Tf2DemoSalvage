@@ -124,6 +124,9 @@ internal static class DemoScan
         List<(int Tick, UserMessage Message)> userMessages = [];
         List<(int Tick, DecodedSound Sound)> sounds = [];
         List<(int Tick, string ClassName, DecodedTempEntity Effect)> effects = [];
+
+        // The EffectDispatch precache, so a dispatch can be named rather than numbered (B305).
+        EffectNames effectNames = new();
         int total = 0;
         int scanned = 0;
 
@@ -218,7 +221,20 @@ internal static class DemoScan
                         break;
 
                     case TempEntitiesMessage temp when decoder is not null && temp.BodyBits > 0:
-                        RecordEffects(decoder, temp, command.Tick, classNames, effects);
+                        RecordEffects(decoder, temp, command.Tick, classNames, effectNames, effects);
+                        break;
+
+                    // **The EffectDispatch table, which is what turns `m_iEffectName 3` into a
+                    // name** (B305). `CTEEffectDispatch` is a dispatcher: everything else in its
+                    // record is one effect's argument list, and without this the record says where
+                    // something happened and not what. Measured in `z1800`: 1,697 dispatches
+                    // across seven distinct indices.
+                    case CreateStringTableMessage create:
+                        effectNames.Add(create);
+                        break;
+
+                    case UpdateStringTableMessage tableUpdate:
+                        effectNames.Add(tableUpdate, state.StringTableName(tableUpdate.TableId));
                         break;
 
                     case PacketEntitiesMessage snapshot when decoder is not null:
@@ -265,6 +281,7 @@ internal static class DemoScan
         TempEntitiesMessage message,
         int tick,
         Dictionary<int, string> classNames,
+        EffectNames effectNames,
         List<(int Tick, string ClassName, DecodedTempEntity Effect)> into)
     {
         try
@@ -274,7 +291,7 @@ internal static class DemoScan
             {
                 into.Add((
                     tick,
-                    classNames.TryGetValue(effect.ClassId, out string? name) ? name : string.Empty,
+                    Named(effect, classNames, effectNames),
                     effect));
             }
         }
@@ -283,6 +300,45 @@ internal static class DemoScan
             // Skipped for the same reason as a sounds body: everything else in the dump is
             // independent of this one, and salvaging what is readable is the point of the project.
         }
+    }
+
+    /// <summary>The class of one temp entity, with the dispatched effect's name when it has one.</summary>
+    /// <remarks>
+    /// **Only <c>CTEEffectDispatch</c> carries an effect name**, because only it is a dispatcher —
+    /// every other temp entity IS its effect and its class name says so. Appending the name is what
+    /// makes the difference visible in a dump: the class alone says a dispatch happened, the class
+    /// with a name says which.
+    ///
+    /// **The index stays in the properties either way.** This adds a reading rather than replacing
+    /// one, so a record whose table never arrived still shows the number and a reader can tell an
+    /// unnamed index from an absent one (B305).
+    /// </remarks>
+    private static string Named(
+        DecodedTempEntity effect,
+        Dictionary<int, string> classNames,
+        EffectNames effectNames)
+    {
+        if (!classNames.TryGetValue(effect.ClassId, out string? className))
+        {
+            return string.Empty;
+        }
+
+        for (int at = 0; at < effect.Properties.Count; at++)
+        {
+            DecodedProperty property = effect.Properties[at];
+
+            if (!string.Equals(
+                property.Definition.Property.Name, "m_iEffectName", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            return effectNames.Name((int)property.Value.AsInt) is { } named
+                ? $"{className}({named})"
+                : className;
+        }
+
+        return className;
     }
 
     /// <summary>

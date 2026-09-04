@@ -20197,3 +20197,34 @@ per-leaf grouping rather than being worth a cache, and the other two numbers are
 number, free to disagree, which is exactly what B243 is about. The existing line already said it.
 **Look for the instrument before building one**; this file is now three for three on measurements
 that already existed (B254's counters, B258's `--measure`, and this).
+
+### B305 CLOSED: the seven are named
+
+`EffectNames` reads the `EffectDispatch` precache and `DemoScan` reports the dispatched effect
+beside the class, so a dump says which effect happened rather than which number. Run over `z1800`:
+
+| effect | dispatches |
+|---|---:|
+| `Impact` | 474 |
+| `Tracer` | 427 |
+| `TF_3rdPersonMuzzleFlash_SentryGun` | 427 |
+| `ClientProjectile_Syringe` | 253 |
+| `TFBoltImpact` | 64 |
+| `bloodimpact` | 48 |
+| `ParticleEffect` | 4 |
+
+**Seven names against the thirty-nine base-game classes `SDK-COVERAGE.md` counts**, and they are
+the useful list: two impacts, a tracer, a muzzle flash, a projectile and a blood effect. That is
+what a TF2 demo asks for through this path, and it is now readable from the dump rather than
+inferred.
+
+**Built with a consumer, not as a field.** B305 said a reader alone would be another
+decoded-and-unread value — the pattern this audit kept finding — so the name reaches the JSON Lines
+and text output in the same change. `CTEEffectDispatch(Impact)` where the class alone stood before;
+the index stays in the properties, so an unnamed one still shows its number and a reader can tell
+"table absent" from "index unknown".
+
+**The extraction is still owed.** `soundprecache`, `modelprecache` and `EffectDispatch` are three
+readers of one shape. This is the third copy, added because generalising two working readers is a
+larger change than adding the missing one — but the next table makes it four, and that is the point
+to stop and extract.

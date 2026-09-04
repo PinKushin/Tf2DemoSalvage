@@ -257,7 +257,12 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # 1668 -> 1669: the spline's third sample is chosen on the changetime gap, not on arrival (B278).
 # The test needed its CONDITION fixed rather than its assertion: the first version sampled a moment
 # sitting on the last keyframe, so `At` returned early and never reached the spline.
-run Tf2DemoSalvage.Core.Tests     core     1678
+# 1678 -> 1684: the EffectDispatch precache, which turns m_iEffectName into a name (B305). Six, and
+# the two that earn their place are the CONTROLS: another table's create being ignored, and an
+# UPDATE whose id resolved to another table's name - a resolver that took every table would pass
+# every other case and would name an effect after a sound. Verified by sabotage: relaxing the update
+# guard to `tableName is not null` reddens exactly the second of those.
+run Tf2DemoSalvage.Core.Tests     core     1684
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
