@@ -181,3 +181,5 @@
 - [Look for the instrument before building one](look-for-the-instrument-before-building-one.md) — three measurements in one session already existed and were unread.
 - [A stale "not implemented" is a to-do list](a-stale-not-implemented-is-a-todo-list.md) — four were false in one grep; the document ages, not the code.
 - [The half you have may be the wrong half](the-half-you-have-may-be-the-wrong-half.md) — a NoAlign/Fast/Raw variant means its precondition ran elsewhere.
+- [Follow the call, not the value](follow-the-call-not-the-value.md) — an override one call deeper is invisible from the arithmetic.
+- [Predictions must not sit on a boundary](predictions-must-not-sit-on-a-boundary.md) — exact decimal vs float floors to the frame below.
