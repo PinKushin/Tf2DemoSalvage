@@ -21309,3 +21309,51 @@ everywhere else.
 the player under its own guard; the `RagdollSpawn` sequence, which needs the model opened and so sits
 further down the render path; the cosmetics, whose `m_hRagWearables` IS networked as eight ehandles;
 and the gold, ice and zombie overrides.
+
+### B316 OPEN 2026-09-04: a corpse stands upright, and `RagdollSpawn` is the wrong branch to fix it with
+
+**A corpse is drawn at sequence 0 and so stands to attention where a body should be lying down.**
+Visible in the first screenshot taken of B315's work: corpse 752 on `cp_sunshine`, right model, right
+BLU skin, right resting position, standing up straight on a balcony.
+
+**The obvious fix is wrong and was nearly implemented.** `CreateTFRagdoll` contains
+`int iSeq = LookupSequence( "RagdollSpawn" ); if ( iSeq == -1 ) { Assert( false ); iSeq = 0; }`, and
+B315 shipped a comment citing that as the rule with `iSeq = 0` as its fallback. **It is the `else`
+branch — the LOCAL player.** Everyone else takes:
+
+```cpp
+if ( !pPlayer->IsLocalPlayer() && pPlayer->IsInterpolationEnabled() )
+{
+    Interp_Copy( pPlayer );
+    SetAbsAngles( pPlayer->GetRenderAngles() );
+    m_flAnimTime = pPlayer->m_flAnimTime;
+    SetSequence( pPlayer->GetSequence() );
+    m_flPlaybackRate = pPlayer->GetPlaybackRate();
+}
+```
+
+`c_tf_player.cpp:757-766`. Read-from-source.
+
+**A SourceTV recording has no local player at all**, so in this project's own reference demo EVERY
+corpse takes the copy branch and none takes `RagdollSpawn`. In a POV recording exactly one corpse per
+match — the recorder's own — takes the neutral pose. Implementing `RagdollSpawn` would have been a
+cited, plausible fix to the minority case, leaving the visible defect untouched everywhere it
+actually appears. The same shape as B315's skin finding: the right-looking engine line, from the
+wrong function's branch.
+
+**Why it is not a one-liner.** A player's sequence and cycle are NOT on the wire — `DT_TFPlayer`
+strips them and the client rebuilds them from movement
+(`docs/memory/the-player-send-table-excludes-the-animation.md`, and
+`docs/findings/47-a-players-animation-is-not-on-the-wire.md`). So `pPlayer->GetSequence()` reads a
+client-side computation, and this project's equivalent lives in its own animation layer rather than in
+`DemoTimeline`. The corpse needs the dying player's *computed* animation state sampled at the instant
+of death, which is a different reach than anything B315 needed.
+
+**Open questions, stated rather than guessed:**
+
+- Whether the player is still being animated on the tick its corpse appears, or has already gone
+  `EF_NODRAW` (`docs/memory/death-is-ef-nodraw-not-an-animation.md`) and stopped being posed.
+- What `Interp_Copy` brings across that `SetSequence` alone does not — the cycle is not set
+  explicitly in that branch, so it must arrive through the interpolator copy.
+- Whether the 25% death-animation branch (D136) should be built first, since `ResetSequence(iDeathSeq)`
+  overrides the copied sequence outright and would make the copy moot for those corpses.

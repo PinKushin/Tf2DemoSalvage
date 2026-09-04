@@ -191,3 +191,4 @@
 - [An unrecoverable input is not an open choice](an-unrecoverable-input-is-not-an-open-choice.md) — reproduce the mechanism and draw the input as the engine does; do not offer a menu.
 - [A shared helper may hold another function's rule](a-shared-helper-may-hold-another-functions-rule.md) — two engine functions agreeing everywhere but the `default`; the DRY move is the defect.
 - [A restarted timer is not a lifetime](a-restarted-timer-is-not-a-lifetime.md) — read the think, not just the Start; a looked-at corpse never fades.
+- [The cited line may be the wrong branch](the-cited-line-may-be-the-wrong-branch.md) — a demo settles `IsLocalPlayer` globally; check which branch it takes before implementing.

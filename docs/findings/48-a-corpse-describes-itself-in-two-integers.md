@@ -144,6 +144,45 @@ which is itself the finding: everything `DT_TFRagdoll` carries is a fact about t
 and the corpse is a client-side simulation from then on. Adding the PVS `Leave` to the delete barely
 moved the count (57 to 61), because SourceTV's camera follows the action and corpses lie in it.
 
+## The pose has two branches and the famous one is the rare one
+
+`RagdollSpawn` is the name that turns up when anyone asks how a corpse is posed, and it is reached
+only for the LOCAL player:
+
+```cpp
+if ( !pPlayer->IsLocalPlayer() && pPlayer->IsInterpolationEnabled() )
+{
+    Interp_Copy( pPlayer );
+    SetAbsAngles( pPlayer->GetRenderAngles() );
+    GetRotationInterpolator().Reset();
+    m_flAnimTime = pPlayer->m_flAnimTime;
+    SetSequence( pPlayer->GetSequence() );
+    m_flPlaybackRate = pPlayer->GetPlaybackRate();
+}
+else
+{
+    // This is the local player, so set them in a default pose ...
+    int iSeq = LookupSequence( "RagdollSpawn" );
+    if ( iSeq == -1 ) { Assert( false ); iSeq = 0; }
+    SetSequence( iSeq );
+    SetCycle( 0.0 );
+}
+```
+
+`c_tf_player.cpp:757-784`. Read-from-source.
+
+**In a SourceTV recording there is no local player at all**, so every corpse in one takes the first
+branch and inherits the dying player's sequence, cycle, animation time and playback rate. In a POV
+recording exactly one corpse per match — the recorder's own — takes the second. The neutral standing
+pose is the exception, not the rule, and a reader who found `RagdollSpawn` first would implement the
+minority case and think it general.
+
+**And the copy is harder than it looks, for a reason particular to this format.** A player's sequence
+and cycle are not networked at all — `DT_TFPlayer` strips them and the client rebuilds them from
+movement (see `47-a-players-animation-is-not-on-the-wire.md`). So `pPlayer->GetSequence()` is reading
+a client-side computation, which means a demo player cannot copy the corpse's pose off the wire
+either: it has to run the same animation and sample it at the instant of death.
+
 ## What is recorded and what is invented
 
 The line between them is sharper here than almost anywhere else in the format, and it is not where

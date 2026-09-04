@@ -399,9 +399,15 @@ shows. Visibility comes from the previous frame's posed set, the same arrangemen
 | creation → entity delete | 57 at once | the server's ragdoll outlives the drawn corpse by design |
 | … → also entity `Leave` | 61 at once | STV keeps corpses in its PVS, so leaves barely fire |
 
-**Still open, and each for its own reason:** the physics (B58), `m_nBody` from the player, the
-`RagdollSpawn` sequence lookup, the cosmetics through `m_hRagWearables`, and the gold/ice/zombie
-overrides.
+**Still open, and each for its own reason:** the physics (B58), `m_nBody` from the player, **the
+POSE — B316, and the obvious fix for it is the wrong branch**, the cosmetics through
+`m_hRagWearables`, and the gold/ice/zombie overrides.
+
+**B316 is worth reading before touching the pose.** A corpse currently stands upright, and the line
+everyone finds is `LookupSequence( "RagdollSpawn" )` — which is the `else` of
+`if ( !pPlayer->IsLocalPlayer() && ... )`. A SourceTV recording has no local player, so every corpse
+in one takes the OTHER branch and copies `pPlayer->GetSequence()`. Implementing `RagdollSpawn` would
+be a cited, plausible fix to the case this project's reference demo never contains.
 
 ### 5. A prop with an EMPTY model path is reported DRAWN — ANSWERED: the probe, and a miscount
 

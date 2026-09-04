@@ -101,12 +101,23 @@ public static class RagdollProps
                 corpse.EntityIndex,
                 model,
                 ScenePropTrack.Classify(model),
-                // **Sequence 0, which is the engine's own fallback rather than an absence of
-                // thought.** `CreateTFRagdoll` wants `LookupSequence( "RagdollSpawn" )` for a corpse
-                // it cannot copy a pose from, and takes `iSeq = 0` when the model does not have one
-                // (`c_tf_player.cpp:775-780`). Resolving the name needs the model, which is opened
-                // further down the render path than this — so a corpse currently always takes the
-                // branch the engine takes only when the lookup fails.
+                // **Sequence 0 is a KNOWN gap, not the engine's answer** (B316). An earlier version
+                // of this comment cited `LookupSequence( "RagdollSpawn" )` as the rule and that is
+                // the wrong branch: `CreateTFRagdoll` reaches for RagdollSpawn only under
+                // `else` — the LOCAL player — and takes
+                //
+                //     SetSequence( pPlayer->GetSequence() );
+                //
+                // for everyone else (`c_tf_player.cpp:757-766`). A SourceTV recording has no local
+                // player at all, so in this project's own reference demo EVERY corpse takes the
+                // copy branch. Zero is neither rule; it is what a `ScenePose` holds when nothing
+                // has set it, and it is why a corpse stands up straight.
+                //
+                // Copying needs the player's sequence and cycle, which for a player are NOT on the
+                // wire — the client rebuilds them
+                // (`docs/memory/the-player-send-table-excludes-the-animation.md`) — so the value
+                // lives in this project's own client-side animation and not in the timeline. That
+                // is the shape of the fix, and it is why it is not one line here.
                 new ScenePose
                 {
                     X = corpse.X,
