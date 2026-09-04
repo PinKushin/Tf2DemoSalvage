@@ -32,6 +32,12 @@ namespace Tf2DemoSalvage.Animation.Animating;
 /// chooses <c>QuaternionMA</c> over <c>QuaternionSM</c>. Meaningless without
 /// <paramref name="Delta"/>.
 /// </param>
+/// <param name="Locks">
+/// The IK chains this layer's sequence pins while it plays — <c>mstudioseqdesc_t::pIKLock</c>, and
+/// null for the sequences that declare none. Every `AccumulatePose` is bracketed by
+/// `AddSequenceLocks` and `SolveSequenceLocks`, so the locks belong to the layer rather than to the
+/// entity (B311).
+/// </param>
 /// <remarks>
 /// **The per-bone list is the whole mechanism, not a refinement.** A gesture's weight list is 1 on
 /// the arms and 0 on the legs, which is how a reload plays on a running player without stopping
@@ -47,7 +53,8 @@ public readonly record struct PoseLayer(
     float Weight,
     IReadOnlyList<float> BoneWeights,
     bool Delta = false,
-    bool Post = false);
+    bool Post = false,
+    IReadOnlyList<StudioIkLock>? Locks = null);
 
 /// <summary>
 /// A real studio skeleton, driven by whatever the animation says its bones are doing.
@@ -526,6 +533,27 @@ public sealed class SkeletonPose : IBonePose
     /// </remarks>
     public IReadOnlyList<StudioIkChain> IkChains { get; set; } = [];
 
+    /// <summary>The MAIN sequence's IK locks, if it declares any.</summary>
+    /// <remarks>
+    /// **A layer's locks ride on the layer; these are the base sequence's** (B311), because the
+    /// engine brackets every `AccumulatePose` and the first of them is the main sequence. Its
+    /// "before" is the bind pose, since that is what `InitPose` left in `pos`/`q`.
+    /// </remarks>
+    public IReadOnlyList<StudioIkLock> Locks { get; set; } = [];
+
+    /// <summary>The lock bracket, built once for a model that has one.</summary>
+    /// <remarks>
+    /// **Lazily, like the IK context beside it**, because a prop declares no chains and most
+    /// sequences no locks — so the arrays this allocates would be per-entity waste on almost
+    /// everything drawn.
+    /// </remarks>
+    private IkLocks Held()
+    {
+        _parents ??= [.. _bones.Select(bone => bone.Parent)];
+
+        return _held ??= new IkLocks(_parents, _bones.Count);
+    }
+
     /// <summary>Every rule that asked for something this frame, with its target and weight.</summary>
     /// <remarks>
     /// **Computed on the scene side because the blend weights live there.** A rule's influence is
@@ -545,8 +573,18 @@ public sealed class SkeletonPose : IBonePose
     /// <summary>How many chains the last build actually solved.</summary>
     public int SolvedChains => _ik?.Solved ?? 0;
 
+    /// <summary>How many sequence IK locks were applied while this pose was built.</summary>
+    /// <remarks>
+    /// **The wiring question, answerable only from production** (B311). The unit tests prove a lock
+    /// pins an effector when `IkLocks` is called; this says whether anything calls it on a real
+    /// demo, which is the half that has shipped broken three times this session.
+    /// </remarks>
+    public int AppliedLocks => _held?.Applied ?? 0;
+
     /// <summary>The IK state, created on the first entity that actually has a chain.</summary>
     private IkContext? _ik;
+
+    private IkLocks? _held;
 
     /// <summary>Each bone's parent, built once for a model with chains.</summary>
     private int[]? _parents;
@@ -586,7 +624,7 @@ public sealed class SkeletonPose : IBonePose
     /// </remarks>
     private IReadOnlyList<StudioBonePose> Accumulate(IReadOnlyList<StudioBonePose> basePose)
     {
-        if (Layers.Count == 0)
+        if (Layers.Count == 0 && Locks.Count == 0)
         {
             return basePose;
         }
@@ -599,6 +637,16 @@ public sealed class SkeletonPose : IBonePose
                 bone, _bones[bone].Position, _bones[bone].Rotation);
         }
 
+        // **The MAIN sequence's bracket, and its "before" is the BIND pose** (B311). The engine's
+        // first `AccumulatePose` runs on `pos`/`q` straight out of `InitPose`, so
+        // `AddSequenceLocks` records where the chain ends in the rest skeleton — which is why a
+        // locked sequence holds a foot at its bind position rather than at wherever the previous
+        // frame left it.
+        if (Locks.Count > 0 && IkChains.Count > 0)
+        {
+            Held().Capture(Locks, IkChains, result);
+        }
+
         for (int entry = 0; entry < basePose.Count; entry++)
         {
             StudioBonePose moved = basePose[entry];
@@ -607,6 +655,11 @@ public sealed class SkeletonPose : IBonePose
             {
                 result[moved.Bone] = moved;
             }
+        }
+
+        if (Locks.Count > 0 && IkChains.Count > 0)
+        {
+            Held().Solve(Locks, IkChains, result);
         }
 
         foreach (PoseLayer layer in Layers)
@@ -618,6 +671,18 @@ public sealed class SkeletonPose : IBonePose
             }
 
             float weight = MathF.Min(1f, layer.Weight);
+
+            // **Each layer is its own `AccumulatePose`, so each carries its own lock bracket**
+            // (B311). This is the case TF2 actually ships: every one of the 814 locking sequences
+            // under `models/player/` is an aim matrix or an attack stand, and the aim matrices
+            // arrive here as autolayers. Their "before" is the pose as the previous layers left it,
+            // not the bind pose — which is what the engine's `pos`/`q` hold at that point.
+            bool holds = layer.Locks is { Count: > 0 } && IkChains.Count > 0;
+
+            if (holds)
+            {
+                Held().Capture(layer.Locks!, IkChains, result);
+            }
 
             IReadOnlyList<StudioBonePose> sampled =
                 _animation(layer.Sequence, layer.Frame, layer.FrameFraction, PoseValues);
@@ -700,6 +765,13 @@ public sealed class SkeletonPose : IBonePose
                     (_bones[bone].Flags & StudioBoneFlags.FixedAlignment) != 0
                         ? StudioBones.SlerpNoAlign(over.Rotation, under.Rotation, s1)
                         : StudioBones.Slerp(under.Rotation, over.Rotation, s2));
+            }
+
+            // `if (seqdesc.numiklocks) seq_ik.SolveSequenceLocks( seqdesc, pos, q );` — the closing
+            // half, after the layer has been composed and before the next one begins.
+            if (holds)
+            {
+                Held().Solve(layer.Locks!, IkChains, result);
             }
         }
 

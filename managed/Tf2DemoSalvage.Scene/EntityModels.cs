@@ -727,6 +727,15 @@ public sealed class EntityModelSet
 
             posed.IkChains = scaled ? [] : skinned.IkChains;
 
+            // **The MAIN sequence's locks** (B311). A layer carries its own; this is the first
+            // `AccumulatePose`'s bracket, whose "before" is the bind pose.
+            //
+            // **Dropped for a scaled model for the same reason the chains are** (B301): a solver
+            // measures the chain's links from the posed skeleton, so a model the entity has resized
+            // reports link lengths that do not match the animation's, and the solve reaches for a
+            // point the leg can no longer make.
+            posed.Locks = scaled ? [] : skinned.LocksOf(sequence);
+
             // **Every accumulated sequence contributes its rules, not just the main one** (B297).
             // `AccumulatePose` calls `AddDependencies` for each sequence it accumulates and
             // `AddSequenceLayers` then recurses, so a layer's rules count at the layer's own
@@ -1174,7 +1183,8 @@ public sealed class EntityModelSet
                 sent.Weight,
                 skinned.BoneWeights(sent.Sequence),
                 Delta: skinned.IsDelta(sent.Sequence),
-                Post: skinned.IsPost(sent.Sequence)));
+                Post: skinned.IsPost(sent.Sequence),
+                Locks: skinned.LocksOf(sent.Sequence)));
         }
 
         if (prop.Pose.Gestures is not { Count: > 0 } gestures)
@@ -1264,7 +1274,8 @@ public sealed class EntityModelSet
                 // `jumpland_primary` both carry the bit. `SlerpBones` composes those additively
                 // rather than blending toward them (B284).
                 Delta: skinned.IsDelta(sequence),
-                Post: skinned.IsPost(sequence)));
+                Post: skinned.IsPost(sequence),
+                Locks: skinned.LocksOf(sequence)));
         }
 
         return layers;
@@ -1789,7 +1800,8 @@ public sealed class EntityModelSet
                 layerWeight,
                 skinned.BoneWeights(target),
                 Delta: skinned.IsDelta(target),
-                Post: skinned.IsPost(target)));
+                Post: skinned.IsPost(target),
+                Locks: skinned.LocksOf(target)));
 
             // **A layered sequence can layer further sequences**, because Valve reaches them through
             // `AccumulatePose` and that calls both passes again. Bounded rather than trusted: the
@@ -1903,7 +1915,8 @@ public sealed class EntityModelSet
                 1f,
                 skinned.BoneWeights(sequence),
                 Delta: skinned.IsDelta(sequence),
-                Post: skinned.IsPost(sequence)));
+                Post: skinned.IsPost(sequence),
+                Locks: skinned.LocksOf(sequence)));
         }
 
         return layers;
@@ -2048,7 +2061,8 @@ public sealed class EntityModelSet
                 weight,
                 skinned.BoneWeights(leaving.Sequence),
                 Delta: skinned.IsDelta(leaving.Sequence),
-                Post: skinned.IsPost(leaving.Sequence)));
+                Post: skinned.IsPost(leaving.Sequence),
+                Locks: skinned.LocksOf(leaving.Sequence)));
         }
 
         // Oldest first, because the engine walks its queue from the front and each accumulates onto
@@ -2192,6 +2206,31 @@ public sealed class EntityModelSet
             }
 
             return solved;
+        }
+    }
+
+    /// <summary>How many sequence IK locks the pose path actually applied.</summary>
+    /// <remarks>
+    /// **The same question `SolvedIkChains` answers for rules, asked of locks** (B311): the unit
+    /// tests prove `IkLocks` pins an effector when it is called, and only this says whether a real
+    /// demo ever calls it. A lock naming a chain the model lacks, or a chain `Studio_SolveIK`
+    /// refuses, leaves this at zero while every part looks wired.
+    /// </remarks>
+    public int AppliedIkLocks
+    {
+        get
+        {
+            int applied = 0;
+
+            foreach (AnimatingEntity animating in _entities.Values)
+            {
+                if (animating.Pose is SkeletonPose posed)
+                {
+                    applied += posed.AppliedLocks;
+                }
+            }
+
+            return applied;
         }
     }
 

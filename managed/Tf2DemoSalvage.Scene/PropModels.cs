@@ -1386,6 +1386,8 @@ public static class PropModels
         /// </remarks>
         private readonly Dictionary<int, float[]> _boneWeights = [];
 
+        private readonly Dictionary<int, IReadOnlyList<StudioIkLock>> _locks = [];
+
         /// <summary>The autoplay sequence list, built once — see <see cref="AutoplaySequences"/>.</summary>
         /// <remarks>
         /// **Null means "not yet asked", not "none"**, and the distinction is load-bearing: most
@@ -1992,6 +1994,36 @@ public static class PropModels
             where.Group < Groups.Count &&
             where.Local < Groups[where.Group].Sequences.Count &&
             Groups[where.Group].Sequences[where.Local].Loops;
+
+        /// <summary>The IK chains a merged sequence pins while it plays.</summary>
+        /// <param name="sequence">The merged sequence number.</param>
+        /// <returns>Its locks, empty when it declares none.</returns>
+        /// <remarks>
+        /// **Read from the sequence's OWN group** — a lock is declared beside the sequence, so it
+        /// comes from whichever included animation model holds it — **while the chain index it
+        /// carries addresses the ROOT model's list** (B311). Those two facts look contradictory and
+        /// are not: `CStudioHdr::pIKChain( i )` forwards straight to the root header
+        /// (`studio.h:2536`), with none of the translation `paramindex` needs.
+        ///
+        /// **Cached, because it is asked per layer per entity per frame** and the answer is a
+        /// property of the file. Every locking TF2 sequence declares exactly two.
+        /// </remarks>
+        public IReadOnlyList<StudioIkLock> LocksOf(int sequence)
+        {
+            if (_locks.TryGetValue(sequence, out IReadOnlyList<StudioIkLock>? cached))
+            {
+                return cached;
+            }
+
+            IReadOnlyList<StudioIkLock> read =
+                Sequences.At(sequence) is { } where && where.Group < Models.Count
+                    ? StudioIkLocks.Read(Models[where.Group], where.Local)
+                    : [];
+
+            _locks[sequence] = read;
+
+            return read;
+        }
 
         /// <summary>Whether the sequence takes its cycle from the clock.</summary>
         /// <param name="sequence">The merged sequence number.</param>

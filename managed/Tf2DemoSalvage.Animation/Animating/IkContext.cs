@@ -290,8 +290,14 @@ public sealed class IkContext
     /// direction: with one, the direction is rotated into world space by the first link's own
     /// matrix and the knee's current position is used as the preference; without one, the solver
     /// derives a preference from where the animation already had the knee.
+    ///
+    /// **Internal rather than private because <see cref="IkLocks"/> needs the same solve** (B311).
+    /// The engine reaches `Studio_SolveIK` from both `SolveDependencies` and `SolveLock`, and the
+    /// alternative here was a second copy of the preference arithmetic above — sixty lines whose
+    /// two versions would diverge on the next reading of the engine rather than at the moment of
+    /// copying.
     /// </remarks>
-    private static bool SolveChain(StudioIkChain chain, Vector3 target, BoneAccessor bones)
+    internal static bool SolveChain(StudioIkChain chain, Vector3 target, BoneAccessor bones)
     {
         int thigh = chain.Links[0].Bone;
         int knee = chain.Links[1].Bone;

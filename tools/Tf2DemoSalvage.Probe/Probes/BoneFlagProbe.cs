@@ -360,6 +360,14 @@ public sealed class BoneFlagProbe : IProbe
                 $"IK work: {chainedOn} chains reached the pose, {ruled} SELF rules read, " +
                 $"{weighed} weighed"));
 
+        // **Whether the lock bracket runs on a real demo** (B311). The unit tests prove a lock pins
+        // an effector when `IkLocks` is called; only production says whether anything calls it.
+        // Zero here with a non-zero sequence-flags census means the wiring, not the content.
+        output.WriteLine(
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"IK locks APPLIED on the pose path: {posed.AppliedIkLocks}"));
+
         // **How far a skeleton's bones sit from its own root.** A TF2 player stands about 83 units
         // tall and a hat is a few units across, so a pose that has come apart says so in one
         // number, without a screenshot and without the desktop.

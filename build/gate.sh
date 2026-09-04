@@ -363,7 +363,7 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 # release that is APPLIED from one that is ignored, since at full weight "returned it" and "never
 # solved" look alike. Nearly, not fully: AddDependencies drops a full-strength release after
 # clearing its chain, so weight 1 cannot reach the solver.
-run Tf2DemoSalvage.Animation.Tests animation 79
+run Tf2DemoSalvage.Animation.Tests animation 89
 
 # 23: the scene layer's first test project of its own, and the reason it exists is B184 — Scene is
 # plain net10.0 and holds the densest behaviour in the renderer, but every test of it lived in the

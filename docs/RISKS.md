@@ -20650,7 +20650,36 @@ census does not say the flag is confined to bosses.
 **What is NOT established:** how many of those 1,333 are on models a normal match loads. The census
 walks the archive, not a demo, so it counts what SHIPS rather than what is drawn.
 
-### B311 OPEN 2026-09-04: IK locks are read, and nothing applies them yet
+### B311 FIXED 2026-09-04: IK locks — read, applied, and measured on a real demo
+
+**Closed by the commit that followed this entry; the text below is kept as it was written, because
+the order it was worked out in is the useful part.** What landed:
+
+- **`BoneChain`** — `BuildBoneChain`: a bone's model-space matrix concatenated from a LOCAL pose,
+  which the composition had no way to ask for. Memoised, and iterative rather than recursive because
+  the parent chain comes from a file and a cycle would otherwise be a stack overflow.
+- **`IkLocks`** — `AddSequenceLocks` and `SolveSequenceLocks`, reusing `IkContext.SolveChain` rather
+  than a second copy of `Studio_SolveIK`'s knee-preference arithmetic. Sixty duplicated lines would
+  have diverged on the next reading of the engine rather than at the moment of copying.
+- **The bracket in `Accumulate`**: the main sequence against the BIND pose, each layer against the
+  pose the previous layers left — which is where TF2 puts them, the aim matrices arriving as
+  autolayers.
+- **Dropped for a scaled model**, for the reason B301 dropped IK chains: a solver measures link
+  lengths from the posed skeleton, so a resized model reaches for a point its leg can no longer make.
+
+**Measured on the pose path, not in a unit test: `IK locks APPLIED on the pose path: 88`** for
+`tf2-2026-pub-pov-clean` at tick 14051. That is the number the unit tests cannot produce — they
+prove a lock pins an effector when `IkLocks` is called, and only production says whether anything
+calls it. A branch written and never fed is the fault this session found three times in its own work.
+
+**And a test failure that was not a defect.** `Solve_AfterTheRootMoves_PutsTheEffectorBack` missed by
+0.054 because the fixture's leg was too short: links of ±2 give a reach of 20.40 against a target
+20.62 away once the root moves, so the solver correctly placed the foot as close as it could get.
+The code was right and the FIXTURE's geometry was the wrong condition — ±5 gives 22.36 and it lands
+exactly. Worth keeping because "the solve is slightly off" is precisely what a real IK bug looks
+like.
+
+### The original filing, kept: IK locks are read, and nothing applies them yet
 
 **A lock is what keeps a hand still while the body moves under it.** `AccumulatePose` brackets its
 whole body with two calls (`bone_setup.cpp:2425`, `:2451`): `AddSequenceLocks` records where each
