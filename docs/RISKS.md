@@ -22311,3 +22311,63 @@ numbers now come from the code the ragdoll work will use.
 
 **Still not readable, and still the open question:** the `IVPS` hulls, which are what a falling body
 contacts the world with. `"volume"` is given per solid, which is not a shape.
+
+### B329 OPEN 2026-09-04: `$vertexcolor` on 55 brush materials — probably inert, and that is not established
+
+**Re-opened from a 2026-08 note that called it "wholly unimplemented"**, which is true of the flag
+and may be true of nothing else. What is established now, against what is not, because the gap
+between them is the whole entry.
+
+**Valve's rule is a two-branch vertex shader**, not a shading feature:
+
+```hlsl
+if (!g_bVertexColor)
+    o.vertexColor = float4( 1.0f, 1.0f, 1.0f, cModulationColor.a );
+else
+    o.vertexColor = v.vColor;                    // alpha *= cModulationColor.a
+```
+
+`lightmappedgeneric_vs20.fxc:213-232`, with the combo set from
+`SET_STATIC_VERTEX_SHADER_COMBO( VERTEXCOLOR, IS_FLAG_SET( MATERIAL_VAR_VERTEXCOLOR ) )`
+(`lightmappedgeneric_dx9_helper.cpp:539`). Read-from-source.
+
+**So the flag decides whether the vertex's colour is USED or replaced by white**, and this project's
+world shader ends its lighting on `albedo.rgb * light * input.vc` with `input.vc` set to
+`(1, 1, 1)` for every world vertex — `MapWorld` comments it "White, always". **That is exactly
+Valve's `!g_bVertexColor` branch**, so for the materials WITHOUT the flag we already match, and for
+the 55 with it the question is what `v.vColor` would have held.
+
+**The stream exists only when asked for:**
+
+```cpp
+unsigned int flags = VERTEX_POSITION | VERTEX_NORMAL;
+if ( bWorldVertexTransition || bUsingVertexColor )
+    flags |= VERTEX_COLOR;
+```
+
+`BaseVSShader.cpp:1712-1719` — so `$vertexcolor` and `WorldVertexTransition` are the two things that
+add a colour channel to a brush face's vertex format.
+
+#### What is NOT established, and why it needs the engine rather than the SDK
+
+**Where a brush face's `v.vColor` comes from.** The BSP has no per-vertex colour: `dvertex_t` is
+position alone, and the per-vertex data a world surface does carry — displacement alpha — is a
+blend factor for `WorldVertexTransition`, not a colour. So on an ordinary brush face the stream is
+declared and the BSP supplies nothing to fill it, which points at white and therefore at no
+divergence at all. **Pointing at is not knowing.** The world mesh builder is engine-side and not in
+`source-sdk-2013`, so settling this is a shipped-data or decompiler question
+(`docs/memory/nothing-is-closed.md`).
+
+**Filed as a QUESTION rather than a defect deliberately.** D137 is about not deferring a divergence
+that has been established; this one has not been. Asserting either answer today would be an
+interpolation dressed as a measurement — and the last two of those in this area, both about DirectX
+blocks, were wrong in opposite directions.
+
+**What settles it, in order of cost:** whether any material carrying `$vertexcolor` is on a face
+this renderer draws at all rather than on an overlay or a prop (measurable now); what
+`StudioTriangles` already does for models, where the answer is known and different — a static prop's
+colours come from its `.vhv` and ARE read, with the `origMeshVertID` subtlety handled; and finally
+the engine's own world mesh builder.
+
+**Visible if it turns out to be a divergence:** brushwork tinted where it should be plain, or plain
+where it should be tinted — 55 materials on `cp_process_final`, more than `$envmap` carries.
