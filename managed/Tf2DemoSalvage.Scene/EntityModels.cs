@@ -2027,8 +2027,16 @@ public sealed class EntityModelSet
             double advanced = leaving.Cycle +
                 (elapsed * skinned.CyclesPerSecond(leaving.Sequence) * leaving.PlaybackRate);
 
-            float wrapped = StudioSequences.ClampCycle(
-                (float)advanced, skinned.Loops(leaving.Sequence));
+            // **The FOURTH site of `STUDIO_REALTIME`, found by asking where else `AccumulatePose`
+            // runs** (B309). `MaintainSequenceTransitions` ends with
+            // `boneSetup.AccumulatePose( pos, q, blend->m_nSequence, flCycle, … )`
+            // (`c_baseanimating.cpp:1863`), so a sequence FADING OUT goes through `CalcPoseSingle`
+            // like every other and takes the clock if it is flagged. The engine computes and clamps
+            // `flCycle` just above that call and `CalcPoseSingle` then discards it — which is easy
+            // to read as the clamp being the final word.
+            float wrapped = skinned.Realtime(leaving.Sequence)
+                ? Fraction((float)(seconds * skinned.CyclesPerSecond(leaving.Sequence)))
+                : StudioSequences.ClampCycle((float)advanced, skinned.Loops(leaving.Sequence));
 
             (int at, float part) = StudioSequences.FrameAt(
                 wrapped, skinned.Frames(leaving.Sequence), skinned.Loops(leaving.Sequence));

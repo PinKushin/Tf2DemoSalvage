@@ -20533,10 +20533,18 @@ correcting it, so a server-animated entity still animates when its sequence carr
 **All 32 are named `layer_*`** — MvM bot `layer_primary_jump_floatNoise` and its neighbours — so the
 autolayer path is the case the flag exists for, and it was the path least likely to be covered.
 
-**Three sites, because Valve applies it inside `CalcPoseSingle`**, which `AccumulatePose` runs for
-the main sequence, each wire layer and each autolayer alike. Implementing only the first would be
-half a mechanism: a realtime sequence would take the clock when played and the wire's cycle when
-layered.
+**FOUR sites, because Valve applies it inside `CalcPoseSingle`** — which `AccumulatePose` runs for
+the main sequence, each wire layer, each autolayer, and each sequence FADING OUT. Implementing only
+the first would be half a mechanism: a realtime sequence would take the clock when played and the
+wire's cycle when layered.
+
+**The fourth was found by asking where else `AccumulatePose` runs**, not by reading `CalcPoseSingle`
+again. `MaintainSequenceTransitions` ends with
+`boneSetup.AccumulatePose( pos, q, blend->m_nSequence, flCycle, … )` (`c_baseanimating.cpp:1863`) —
+and the engine computes and clamps `flCycle` in the line directly above that call, which reads as
+the clamp being the final word. **That is the shape of every site missed here: the override is
+applied one call deeper than the arithmetic it overrides**, so following the cycle forward from
+where it is computed finds three of four and following the CALL finds all four.
 
 **The wrap is `cycle - (int)cycle`, not `ClampCycle`**, and that is why it is a separate branch
 rather than a parameter: the truncation ignores `STUDIO_LOOPING`, so a non-looping realtime sequence
@@ -20568,7 +20576,12 @@ B284's trap, walked into while writing a comment citing B284.
   layers and declared no autolayers, so two of the three `Realtime(...)` checks were not merely
   unasserted — nothing reached them. That is the decoded-but-not-honoured pattern this audit hunts
   in Valve's code, arrived at in our own, and only a sabotage that asked *which* tests reddened
-  could see it. Both now redden exactly one test each.
+  could see it. **All four sites are now reached, and each sabotage reddens exactly its own test.**
+- **A frame BOUNDARY, for the second time in two days.** The fade test first predicted frame 9 from
+  `frac(3.30) = 0.3` of 30 frames, and measured 8: `3.3f - 3` is 0.29999995, so the product is
+  8.999998 and floors to 8. B307's remap test had made the same mistake with a different number.
+  **A prediction computed in exact decimal and measured on a float path must not sit on an integer
+  boundary** — 3.35 lands on 10.5, where rounding cannot reach a neighbour.
 - **`Fraction` cannot be distinguished from `ClampCycle(x, true)` by any test here.** They are the
   same function for every `x >= 0`, and every value this branch sees is demo seconds times a positive
   rate. Written the engine's way regardless; the equivalence is recorded rather than chased, since a

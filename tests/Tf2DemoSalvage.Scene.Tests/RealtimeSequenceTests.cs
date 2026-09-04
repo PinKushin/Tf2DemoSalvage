@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 
+using Tf2DemoSalvage.Animation.Animating;
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
 
@@ -179,6 +180,78 @@ public sealed class RealtimeSequenceTests
             .ShouldContain(
                 layer => layer.Sequence == LayeredTarget && layer.Frame == 7,
                 "the autolayer target carries STUDIO_REALTIME, so it is sampled at frac(3.25)");
+    }
+
+    /// <remarks>
+    /// **The fourth site, and it was found by asking where else `AccumulatePose` runs** rather than
+    /// by reading `CalcPoseSingle` again. `MaintainSequenceTransitions` ends with
+    /// <c>boneSetup.AccumulatePose( pos, q, blend-&gt;m_nSequence, flCycle, … )</c>
+    /// (<c>c_baseanimating.cpp:1863</c>), so a sequence FADING OUT goes through `CalcPoseSingle`
+    /// like every other and takes the clock if it is flagged.
+    ///
+    /// **The engine computes and clamps `flCycle` in the line directly above that call**, which
+    /// reads as the clamp being the final word — and `CalcPoseSingle` then discards it. That is the
+    /// shape of every site missed here so far: the override is applied one call deeper than the
+    /// arithmetic it overrides.
+    /// </remarks>
+    [Test]
+    public void Pose_ForARealtimeSequenceFadingOut_SamplesItOnTheClock()
+    {
+        EntityModelSet models = new() { Geometry = _ => Fading() };
+
+        List<SceneProp> drawn = [Held(cycle: 0.9f) with { Pose = new ScenePose { Sequence = 0 } }];
+
+        models.Add(drawn, _ => Fading());
+        models.Instances(drawn, [], seconds: 3.25d);
+
+        models.LayersOf(9).ShouldNotBeNull().ShouldBeEmpty("nothing has changed yet");
+
+        // Sequence 1 is ordinary, so the REALTIME sequence 0 is the one now fading.
+        drawn[0] = drawn[0] with { Pose = new ScenePose { Sequence = 1 } };
+
+        // **3.35 rather than 3.30, and the difference is a frame BOUNDARY.** 0.3 of 30 frames is 9
+        // in decimal and 8.999998 in float, so the index floors to 8 — the same trap B307's remap
+        // test fell into. 0.35 lands on 10.5, where rounding cannot reach a neighbour.
+        models.Instances(drawn, [], seconds: 3.35d);
+
+        IReadOnlyList<PoseLayer> fading = models.LayersOf(9).ShouldNotBeNull();
+
+        fading.Count.ShouldBe(1, "the sequence just left is fading out");
+        fading[0].Sequence.ShouldBe(0, "and it is the OLD sequence");
+
+        fading[0].Frame.ShouldBe(
+            10,
+            "the fading sequence carries STUDIO_REALTIME, so it is sampled at frac(3.35 x 1) " +
+            "= 0.35 and 0.35 of 30 frames is 10.5 — not advanced from where it was left");
+
+        fading[0].FrameFraction.ShouldBe(0.5f, 1e-4d, "half past frame 10");
+    }
+
+    /// <summary>A model whose FIRST sequence is realtime, so leaving it puts it in the fade queue.</summary>
+    private static PropModels.ModelFrames Fading()
+    {
+        PropModels.SkinnedModel model = SyntheticSkinnedModel.WithFlags(
+            ("first", Realtime | 0x0001), ("second", 0x0001), ("third", 0x0001));
+
+        return new PropModels.ModelFrames(
+            [
+                new PropVertex[]
+                {
+                    new(1f, 0f, 0f, 0f, 0f, MaterialIndex: 3),
+                    new(0f, 1f, 0f, 1f, 0f, MaterialIndex: 3),
+                    new(0f, 0f, 1f, 0f, 1f, MaterialIndex: 3),
+                },
+            ],
+            new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)>
+            {
+                [0] = (0, 1, 0f),
+            },
+            [0],
+            [true],
+            Skinned: model with
+            {
+                Models = [AnimatedStudioBytes.OneSecondLoop(animations: 3, sequences: 3)],
+            });
     }
 
     /// <summary>Which sequence the autolayer names.</summary>
