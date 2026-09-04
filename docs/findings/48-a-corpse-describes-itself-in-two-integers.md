@@ -315,6 +315,33 @@ due north, while the demo the feature was written against scored 159 of 159 and 
 `z1800` is a committed era specimen, and one command on it is what turned a complete feature into
 half of one.
 
+### The era axis, walked
+
+With both names handled, every committed specimen that can be entity-decoded reads a corpse's class,
+position and orientation for **every** corpse it contains:
+
+| specimen | corpses | class + position + orientation |
+|---|---|---|
+| `tf2-2007-build3258-stv-cp_granary` | — | **no entity decoding at all** (below) |
+| `tf2-2007-build3258-pov-cp_granary` | 0 | a solo recording; nobody dies in it |
+| `tf2-2008-build3420-stv-cp_granary` | 2 | 2 |
+| `tf2-2009-build3862-pov-cp_badlands` | 2 | 2 |
+| `tf2-2011-build4604-stv-koth_viaduct` | 2 | 2 |
+| `tf2-2013-build1729296-stv-cp_foundry` | 1 | 1 |
+| `z1800` | 407 | 407 |
+| `serveme-627619-stv-2026-08-07` | 159 | 159 |
+
+**The 2007 SourceTV specimen cannot be entity-decoded and that is the file, not the parser.** Its
+`dem_datatables` is cut off at exactly 65,536 bytes by the writer's own cap — the finding in
+`03-string-tables.md`, established by comparing a POV and a SourceTV recording of the same session.
+A schema truncated on the wire cannot be completed by guessing. The `corpses` probe now reports that
+rather than throwing, so walking the corpus does not stop at it and nobody reads a stack trace as a
+corpse defect.
+
+**The counts are small on the era specimens for a reason worth stating**: they are the owner's own
+solo recordings on period clients, so a handful of deaths is all there is. They establish that the
+decode works at those protocols; they cannot establish anything about how a match looks.
+
 **And one field is fully vestigial, with Valve saying so in the declaration.** `m_hRagWearables` is
 eight networked ehandles that look exactly like the corpse's cosmetics list:
 

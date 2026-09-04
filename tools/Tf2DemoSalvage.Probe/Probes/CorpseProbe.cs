@@ -54,7 +54,22 @@ public sealed class CorpseProbe : IProbe
             return;
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline;
+
+        try
+        {
+            timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        }
+        catch (InvalidDataException truncated)
+        {
+            // **Only this exception, and it is a fact about the FILE rather than a failure here.**
+            // The 2007 SourceTV specimen's `dem_datatables` is cut off at 65,536 bytes by the
+            // writer's own cap (`docs/findings/03-string-tables.md`), so no entity decoding is
+            // possible for it at all — reported so that walking the corpus does not stop at it, and
+            // so nobody reads a stack trace as a corpse defect. Anything else propagates.
+            output.WriteLine($"{Path.GetFileName(path)}: no entity decoding — {truncated.Message}");
+            return;
+        }
 
         int seen = 0;
         int described = 0;

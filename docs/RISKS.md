@@ -21580,3 +21580,19 @@ turned a complete feature into a half of one.
 that a corpse from one era answers null under the other's field — because null is what sends the
 caller to the other branch, and a reader defaulting to zero would send every old-era corpse to entity
 0, the world, which resolves and draws nothing and looks like the feature working.
+
+**Then the whole era axis was walked, since one demo had already proved insufficient.** Every
+committed specimen that can be entity-decoded now reads class, position AND orientation for every
+corpse it holds: 2008 (2 of 2), 2009 (2 of 2), 2011 (2 of 2), 2013 (1 of 1), `z1800` (407 of 407),
+2026 (159 of 159). The 2007 POV specimen contains none — a solo recording in which nobody dies.
+
+**And the two field names are the ONLY difference across those eras.** Diffing the full
+`DT_TFRagdoll` property list between `z1800` and the 2026 demo returns exactly one name on each
+side; class, team, gib, burning, damage type, origin, force and the three scales are identically
+named throughout. So this was the whole era gap for this table rather than the first of several.
+
+**The 2007 SourceTV specimen cannot be entity-decoded at all**, and that is the file: its
+`dem_datatables` is cut off at 65,536 bytes by the writer's own cap
+(`docs/findings/03-string-tables.md`). The probe now reports that instead of throwing, so a walk over
+the corpus does not stop at it and nobody reads the stack trace as a corpse defect. Only the specific
+`InvalidDataException` is caught; anything else still propagates.
