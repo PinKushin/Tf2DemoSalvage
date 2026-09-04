@@ -911,7 +911,7 @@ public sealed class VmtMaterial
                 }
                 else
                 {
-                    if (DescribesTheSurface(blocks))
+                    if (DescribesTheSurface(blocks) || TakesThisFallback(blocks, shader))
                     {
                         values[PlatformIndependent(pendingKey)] = token;
                     }
@@ -1051,6 +1051,109 @@ public sealed class VmtMaterial
         }
 
         return atLeast ? DirectXLevel >= level : DirectXLevel < level;
+    }
+
+    /// <summary>Whether a block names the shader FALLBACK this renderer would actually be using.</summary>
+    /// <param name="blocks">The open block names; only a depth-two block can be one.</param>
+    /// <param name="shader">The material's own shader, which the block's name must extend.</param>
+    /// <returns>True to merge its keys.</returns>
+    /// <remarks>
+    /// **A block named for a shader supplies the material's parameters for when THAT shader draws
+    /// it** (B328). The mechanism is the fallback chain, and the SDK states it plainly:
+    ///
+    /// <code>
+    /// SHADER_FALLBACK
+    /// {
+    ///     if( g_pHardwareConfig->GetDXSupportLevel() &lt; 90 )
+    ///         return "LightmappedGeneric_DX8";
+    ///     return 0;
+    /// }
+    /// </code>
+    ///
+    /// `lightmappedgeneric_dx9.cpp:139-145`, with `DEFINE_FALLBACK_SHADER( LightmappedGeneric,
+    /// LightmappedGeneric_DX8 )` at `lightmappedgeneric_dx8.cpp:21`.
+    ///
+    /// **This is NOT the same test as the `&gt;=DX90` conditions** — see
+    /// <see cref="SatisfiesTheDirectXCondition"/>. Those gate parameters inside one shader; these
+    /// name another shader entirely, and the difference decides the comparison. **A `_DX8` block is
+    /// refused even though 80 is below this renderer's 95**, because it belongs to the substitute
+    /// the engine uses below 90 and we are not using it. "At or below our level" is the wrong rule
+    /// and would paint the cheap path on expensive hardware.
+    ///
+    /// **Measured, and it corrected a claim made without looking inside one.** These blocks were
+    /// first written off as low-end fallbacks in their entirety. Over TF2's 30,684 materials,
+    /// `LightmappedGeneric_DX9` appears in 403 — and 89 of those declare `$bumpmap` ONLY there, 49
+    /// `$envmap`, 8 `$parallaxmap`. `tile/tilefloor018a_c17.vmt` keeps its whole bump-and-reflection
+    /// setup in one, so it drew flat and matte.
+    ///
+    /// **The HDR variants are refused because this renderer is LDR**, by the decision recorded on
+    /// `BspLightmaps.Read`: it reads lump 8 in preference to lump 53 because the two are scaled
+    /// differently and preferring HDR washed the map out.
+    ///
+    /// **Both spellings of a level are the same level.** TF2 ships `Water_DX90` beside
+    /// `Water_DX80`, and `LightmappedGeneric_DX9` beside `LightmappedGeneric_DX8`, so a single
+    /// digit is a major version and reads as ninety.
+    ///
+    /// **What is NOT established**, and it is recorded rather than smoothed over: no shader is
+    /// registered as `LightmappedGeneric_DX9` anywhere in `source-sdk-2013` — only helper types and
+    /// functions carry the spelling — yet 403 materials name a block for it. Either TF2's engine
+    /// registers it and this SDK snapshot omits it, or the material system matches these by some
+    /// other rule. The BEHAVIOUR is settled by the shipped data either way: Valve did not author a
+    /// bump map that draws on no hardware.
+    /// </remarks>
+    private static bool TakesThisFallback(List<string> blocks, string shader)
+    {
+        if (blocks.Count != 2 || shader.Length == 0)
+        {
+            return false;
+        }
+
+        string block = blocks[1];
+
+        // The block must extend the material's own shader — `VertexLitGeneric_DX9` inside a
+        // `LightmappedGeneric` material names somebody else's.
+        if (block.Length <= shader.Length ||
+            !block.StartsWith(shader, StringComparison.OrdinalIgnoreCase) ||
+            block[shader.Length] != '_')
+        {
+            return false;
+        }
+
+        ReadOnlySpan<char> suffix = block.AsSpan(shader.Length + 1);
+
+        // LDR, deliberately: `BspLightmaps.Read` prefers the LDR lump, so the HDR fallback is not
+        // the shader this renderer would be running.
+        if (suffix.Contains("HDR", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        int marker = suffix.LastIndexOf("DX", StringComparison.OrdinalIgnoreCase);
+
+        // `LightmappedGeneric_NoBump_DX8` reaches here and is refused by its LEVEL below, not by
+        // its infix — the rule is about which shader is drawing, and DX8's is not.
+        if (marker < 0)
+        {
+            return false;
+        }
+
+        ReadOnlySpan<char> digits = suffix[(marker + 2)..];
+
+        if (digits.Length == 0 ||
+            !int.TryParse(digits, NumberStyles.None, CultureInfo.InvariantCulture, out int level))
+        {
+            return false;
+        }
+
+        // `_DX9` and `_DX90` are one level in two spellings; a single digit is a major version.
+        if (level < 10)
+        {
+            level *= 10;
+        }
+
+        // **90 and above only**, which is the whole difference from the condition blocks: below it
+        // the engine is running a different shader, and its parameters are not ours to take.
+        return level >= 90 && level <= DirectXLevel;
     }
 
     /// <summary>The DirectX support level this renderer reports to a material's conditions.</summary>

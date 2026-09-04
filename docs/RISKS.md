@@ -21058,7 +21058,7 @@ solve wrote into. A second derivation of either is free to be wrong and would lo
 are both reported because neither alone is enough — a hundred locks each moving a thousandth of a
 unit is arithmetic running, not a foot being held.
 
-### B314 OPEN 2026-09-04: the duck-jump interpolation, absent — a 20-unit pop on every crouch jump
+### B314 FIXED 2026-09-04: the duck-jump interpolation, absent — a 20-unit pop on every crouch jump
 
 **`C_TFPlayer::BuildTransformations` opens with it** (`c_tf_player.cpp:8764`), before the per-bone
 scales and before the meathook, and this project has none of it:
@@ -22153,7 +22153,7 @@ when a shipped file cannot supply the case.
 **Visible when wrong:** a surface whose glowing parts are chosen by its albedo's transparency instead
 of by the mask its artist drew — lit panels, screens and signage glowing in the wrong shape.
 
-### B328 OPEN: shader-fallback VMT blocks are ignored, and ~520 of them are the DX9 path, not a cheap one
+### B328 FIXED 2026-09-04: shader-fallback VMT blocks were ignored, and ~520 are the DX9 path, not a cheap one
 
 **Found by correcting a wrong claim in B326's own entry.** That entry said the `<Shader>_DX<n>`
 blocks were "all low-end fallbacks" and therefore safe to ignore. The claim was an inference from
@@ -22207,12 +22207,107 @@ block for it. Two readings, and they differ in what should be applied:
 2. The material system matches these blocks by a rule other than the exact registered name, in
    which case the rule has to be read before any of them is applied.
 
-**Settle it before implementing**, because the failure mode runs both ways: ignoring 520 blocks
-loses bump maps and reflections on hundreds of materials, and applying the wrong ones — the
-`_HDR_DX9` variants on an LDR renderer, or a `_DX8` block — paints a different wrong picture. The
-material system is closed, so this is a shipped-data and decompiler question rather than an SDK one
-(`docs/memory/nothing-is-closed.md` for the order).
+**Settled by the shipped data rather than by the SDK**, which is where the entry above said to stop
+and think. One material answers it:
 
-**Visible when wrong:** brushwork that should be bumped and reflective drawing flat and matte —
-which is indistinguishable from a map that simply does not use those features, and is why nothing
-has reported it.
+```
+// envmaptint_fix
+"LightmappedGeneric"
+{
+	"$basetexture" "Tile/tilefloor018a"
+	"$surfaceprop" "tile"
+
+	 "LightmappedGeneric_DX9"
+	{
+		"$bumpmap" "tile/tilefloor018a_normal"
+		"$envmap" "env_cubemap"
+		"$normalmapalphaenvmapmask" 1
+		"$envmapcontrast" 1
+		"$envmapsaturation" 1
+		"$envmaptint" "[ .80 .80 .80 ]"
+	}
+}
+```
+
+`tile/tilefloor018a_c17.vmt`, whole. Its entire bump-and-reflection setup is in the block and
+nowhere else, so under the "ignore them" reading Valve authored a bump map that draws on no hardware
+at all. That is not a tenable reading of shipped content.
+
+#### The rule, and why "at or below our level" is the wrong one
+
+- **Level 90 and above only.** A `_DX8` block belongs to the substitute shader the engine uses below
+  90 (`SHADER_FALLBACK`, `lightmappedgeneric_dx9.cpp:139`), and we are not using it. 80 is below 95,
+  so a naive "≤ ours" test would paint the cheap path on expensive hardware.
+- **Not the HDR variants.** This renderer reads the LDR lightmap lump by deliberate decision
+  (`BspLightmaps.Read`), so `_HDR_DX9` is not the path it is on.
+- **The prefix must be the material's own shader**, or `VertexLitGeneric_DX9` would be read inside a
+  `LightmappedGeneric` material.
+- **`_DX9` and `_DX90` are one level**; TF2 ships both spellings, so a single digit is a major
+  version.
+
+#### The measured effect on TF2 content is NIL, and that is stated rather than glossed
+
+**cp_process_final is unchanged**: 55 of 412 materials carry a cubemap and 16 are masked by
+normal-map alpha, before and after, measured by disabling the rule and re-running. Every material
+that loses a key to this is Half-Life 2 content TF2 mounts —
+`MATERIALS/TILE/TILEFLOOR018A_C17`, `MATERIALS/PLASTER/PLASTERWALLPAPER006A_C17`,
+`MODELS/COMBINE_DROPSHIP/DROPSHIPSHEET`, `MODELS/PROPS_VEHICLES/CAR002A_01`, and their kin.
+
+So this fixes a divergence that TF2's own maps and models do not exercise. It is done anyway,
+because a divergence is a defect whatever it costs (D89) and rarity sets priority rather than
+permission (D137) — and it will matter to a community map built on HL2 assets, which is the
+population this corpus does not contain.
+
+**Visible when wrong:** brushwork and props that should be bumped and reflective drawing flat and
+matte — indistinguishable from a map that simply does not use those features, which is why nothing
+had reported it.
+
+### B58 progress 2026-09-04: the `.phy` reader is production code, and the probe now uses it
+
+**Everything a ragdoll needs except the collision hulls is now READ rather than measured.**
+`PhysicsModel` in `Tf2DemoSalvage.Content` reads `phyheader_t` (`phyfile.h:14-21`) and the plain-text
+KeyValues block after the Havok section, producing per solid: index, **bone name**, parent,
+surfaceprop, mass, inertia, damping, rotdamping, volume and drag; and per joint: parent, child, and
+three axes of minimum, maximum and friction.
+
+**The block names are the engine's own**, dispatched on identically:
+
+```cpp
+if ( !strcmpi( pBlock, "solid" ) )                  { … ParseSolid( &solid, &g_SolidSetup ); … }
+else if ( !strcmpi( pBlock, "ragdollconstraint" ) ) { … ParseRagdollConstraint( &constraint, NULL ); … }
+```
+
+`ragdoll_shared.cpp:283-293`. The field names come from `solid_t` (`vcollide_parse.h:16-24`),
+`objectparams_t` (`vphysics_interface.h:1062-1075`) and `constraint_axislimit_t`
+(`constraints.h:61-79`) — where `friction` is Valve's `torque`, assigned by
+`SetAxisFriction( rmin, rmax, friction )` with angular velocity left at zero. Read-from-source
+throughout.
+
+**`collisionrules` is the third block Valve parses and is deliberately not read**: it disables
+collision between named pairs, which needs a collision system to mean anything.
+
+#### Two things the tests pin that a re-reading would get wrong
+
+- **The header's `solidCount` is compared against the number of `solid` blocks in the text.** They
+  describe the same bodies from opposite ends of the file — one from the closed binary section, one
+  from the ASCII — so a text scan landing at the wrong offset produces a plausible list of the wrong
+  length and nothing else notices. They agree on every class model.
+- **Invariant culture, everywhere.** A `.phy` writes `"-35.000000"`; parsed under a comma locale
+  every joint limit reads zero, and every ragdoll is perfectly rigid on somebody else's computer
+  with no error anywhere.
+
+#### A sabotage that reddened nothing, and the specimen written for it
+
+Removing the reader's final block-close changes no count on any `.phy` TF2 ships — every one ends
+with a trailing `editparams` block, whose opening closes the last constraint. That makes the line
+look dead and it is not: the format does not require the trailing block. An authored specimen — a
+sixteen-byte header and a text ending exactly on its last `ragdollconstraint` — now reddens when the
+line is removed.
+
+**The probe was rewritten onto this reader in the same change.** `ragdoll-constraints` counted
+markers in raw text, which was the right way to find out what a `.phy` holds and the wrong way to
+keep reporting it: a probe that reimplements its subject agrees with whoever wrote the probe. Its
+numbers now come from the code the ragdoll work will use.
+
+**Still not readable, and still the open question:** the `IVPS` hulls, which are what a falling body
+contacts the world with. `"volume"` is given per solid, which is not a shape.

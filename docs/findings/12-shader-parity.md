@@ -475,13 +475,45 @@ SHADER_FALLBACK
 LightmappedGeneric_DX8 )` registering the substitute (`lightmappedgeneric_dx8.cpp:21`). A VMT block
 named for a shader supplies parameters for the material WHEN THAT SHADER IS THE ONE IN USE.
 
-**What is NOT established, and it is the part that decides the implementation:** no shader is
-registered as `LightmappedGeneric_DX9` anywhere in `source-sdk-2013` — only helper types and
-functions carry that spelling — so 403 materials name a block for a shader the published SDK does
-not declare. Either TF2's engine registers it (the SDK is one branch's snapshot), or the material
-system matches these by a rule other than the exact shader name. That has to be settled before the
-blocks are applied, because applying a `_HDR_DX9` block on an LDR renderer would be a divergence in
-the other direction.
+**What is NOT established:** no shader is registered as `LightmappedGeneric_DX9` anywhere in
+`source-sdk-2013` — only helper types and functions carry that spelling — so 403 materials name a
+block for a shader the published SDK does not declare. Either TF2's engine registers it (the SDK is
+one branch's snapshot), or the material system matches these by some other rule.
+
+**The BEHAVIOUR is settled by the shipped data regardless**, which is the useful move when the code
+is closed. One material decides it:
+
+```
+// envmaptint_fix
+"LightmappedGeneric"
+{
+	"$basetexture" "Tile/tilefloor018a"
+
+	 "LightmappedGeneric_DX9"
+	{
+		"$bumpmap" "tile/tilefloor018a_normal"
+		"$envmap" "env_cubemap"
+		…
+	}
+}
+```
+
+Under "ignore these blocks", Valve authored a bump map that draws on no hardware at all. That is not
+a tenable reading of shipped content, so the block applies and this project now takes it — level 90
+and above, non-HDR, prefix matching the material's own shader.
+
+### The effect on TF2 content is nil, and saying so is the point
+
+`cp_process_final` is unchanged by the fix: 55 of 412 materials carry a cubemap and 16 are masked by
+normal-map alpha, before and after, measured by disabling the rule and re-running. Every material
+that loses a key to it is **Half-Life 2 content TF2 mounts** — `TILE/TILEFLOOR018A_C17`,
+`PLASTER/PLASTERWALLPAPER006A_C17`, `MODELS/COMBINE_DROPSHIP/DROPSHIPSHEET`,
+`MODELS/PROPS_VEHICLES/CAR002A_01`.
+
+Worth writing down for two reasons. It is the honest scope of the change, against a measurement that
+could easily have been reported as "403 materials fixed". And it locates the population that WOULD
+be affected — a community map built on HL2 assets — which is exactly the kind of content this
+corpus, ten official specimens and a pile of competitive matches, contains none of.
 
 ## Evidence
 
@@ -543,3 +575,25 @@ enumerates 489 shader parameters and could never have flagged this, because `$se
 already in its denominator and already counted as "declared, not implemented" — indistinguishable
 from the 400 others nobody has needed. What made it a finding was a real map asking for it and
 nothing accounting for the request.
+
+## Postscript: what the DirectX work says about reading a format at all
+
+Three defects in one afternoon — B326, B327, B328 — and all three were the same shape: **a reader
+that understood the syntax and stopped one level short of the semantics.**
+
+The VMT parser handled nested blocks correctly. It knew a `Proxies` block was not the material's
+keys, and it knew a patch's `replace` block was. What it did not know is that a *third* kind of
+depth-two block exists — the conditional and the fallback — and the failure of that omission is
+silent by construction: a key that never arrives is indistinguishable from a material that never
+declared one.
+
+**The measurement that finds this class of defect is a census of the CONTAINER, not of the
+parameters.** "Which parameters do we implement" was answered and re-answered for months while
+5,415 materials carried a `$selfillum` nobody could see. The question that found it was "what
+structures do the shipped files contain that we do not read", and it took one probe over 30,684
+files.
+
+Worth generalising to the other formats this project reads. A `.mdl` has sections nothing here
+opens; a BSP has lumps this renderer skips; a `.phy`'s Havok half is not read at all — and only the
+last of those is written down as a known gap. The others are unknown unknowns of exactly the shape
+`$selfillum` was.

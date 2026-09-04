@@ -141,3 +141,5 @@
 - [A parameter can be gated by a sub-block](a-parameter-can-be-gated-by-a-sub-block.md) — the file having the key is not the material having it.
 - [A census of requests beats a list of features](a-census-of-requests-beats-a-list-of-features.md) — only it catches an unreachable parameter.
 - [No workflows; a scoped subagent is fine](no-workflows-or-subagents.md) — reversed in part; no auto fan-out, but delegate rather than defer.
+- [Shipped data settles what closed code cannot](shipped-data-settles-what-closed-code-cannot.md) — Valve shipped no bump map that draws on no hardware.
+- [A .phy is text except for the hulls](a-phy-is-text-except-for-the-hulls.md) — masses, bone names and joint limits are KeyValues.
