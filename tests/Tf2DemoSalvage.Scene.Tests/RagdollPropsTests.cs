@@ -186,6 +186,40 @@ public sealed class RagdollPropsTests
         }
     }
 
+    /// <remarks>
+    /// **A corpse keeps what it was wearing, bone-merged onto itself** (B320) — the engine's
+    /// `CreateBoneAttachmentsFromWearables` builds one attachment per item and moves them across
+    /// (`c_tf_player.cpp:10169-10251`). Merged rather than placed, because a worn item carries no
+    /// transform: `FollowEntity` zeroes its local origin and angles, and the wearer's bones put it
+    /// where it belongs.
+    ///
+    /// **Each item needs its own index too**, for B318's reason — they are not the wearable
+    /// entities the demo sent, which belong to a player who is alive again by now and wearing them.
+    /// </remarks>
+    [Test]
+    public void Fill_ForACorpseThatDiedWearingThings_HangsThemOnItBoneMerged()
+    {
+        List<SceneProp> scene = [];
+
+        SceneRagdoll dressed = Corpse(team: SceneTeams.Blu) with
+        {
+            Worn = ["models/player/items/soldier/summer_hat.mdl", "models/player/items/all/beard.mdl"],
+        };
+
+        RagdollProps.Fill([dressed], tick: 150d, Classes, scene).ShouldBe(3);
+
+        SceneProp body = scene[0];
+
+        foreach (SceneProp item in scene.GetRange(1, scene.Count - 1))
+        {
+            item.BoneMerged.ShouldBeTrue("a worn item takes the corpse's bones, not a position");
+            item.AttachedTo.ShouldBe(body.EntityIndex);
+            item.EntityIndex.ShouldNotBe(body.EntityIndex);
+        }
+
+        scene[1].EntityIndex.ShouldNotBe(scene[2].EntityIndex, "one index per item");
+    }
+
     /// <summary>A corpse of a medic, spoken about between ticks 100 and 200.</summary>
     private static SceneRagdoll Corpse(int team) =>
         new(EntityIndex: 40,

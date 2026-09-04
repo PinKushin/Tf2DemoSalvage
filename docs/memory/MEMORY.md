@@ -196,3 +196,4 @@
 - [A sabotage that reddens nothing names the missing input](a-sabotage-that-reddens-nothing-names-the-missing-input.md) — green after breaking it means no fixture distinguishes the two; it tells you which input is absent.
 - [A new entity must not borrow an index](a-new-entity-must-not-borrow-an-index.md) — per-entity caches key on it and slots are reused; --measure found the crash two green gates missed.
 - [Measure a new feature on a second demo](measure-a-new-feature-on-a-second-demo.md) — 159/159 on one file, 0/407 on an era specimen; the wire name had been renamed.
+- [Print what was added, not how many](print-what-was-added-not-how-many.md) — 4 to 24 read as success; the four model names were a demoman's weapons.

@@ -21596,3 +21596,42 @@ named throughout. So this was the whole era gap for this table rather than the f
 (`docs/findings/03-string-tables.md`). The probe now reports that instead of throwing, so a walk over
 the corpus does not stop at it and nobody reads the stack trace as a corpse defect. Only the specific
 `InvalidDataException` is caught; anything else still propagates.
+
+### B320 FIXED 2026-09-04: a corpse wore nothing, and the first attempt dressed it in its weapons
+
+**Corpses drew bare.** The engine gives them what the player was wearing —
+`CreateBoneAttachmentsFromWearables( pRagdoll, m_bWasDisguised )` runs from inside `CreateTFRagdoll`
+and walks the PLAYER's econ wearable list (`c_tf_player.cpp:10169-10251`), building one attachment
+per item and moving them onto the corpse.
+
+**Measured before building, and the measurement is what said it was possible.** The wearables have to
+still exist at the moment of death, since a corpse lasts seconds and its owner respawns wearing the
+same hats on a new entity. On `serveme-627619-stv-2026-08-07`: **150 of 159 corpses have their
+player's wearables present on the tick they appear, 531 in total** — about 3.5 each. The nine that do
+not are players the recorder could not see.
+
+**The first version scanned every bone-merged child of the dead player, and that is not the same
+set.** It put a demoman's grenade launcher, sticky launcher, bottle and pickaxe on his corpse, all
+four at once, holstered ones included — visible as an object hanging in the air beside the body.
+`GetWearable( wbl )` is the econ wearable list; a weapon is a `CTFWeaponBase` and is not in it.
+Filtered on the class name, which is where the engine draws the same line.
+
+**What made that obvious was printing the model NAMES.** The probe had reported "24 drawn" against
+"4 drawn" before, and the increase read as the feature working. The list —
+`c_grenadelauncher.mdl, c_stickybomb_launcher.mdl, c_bottle.mdl, c_pickaxe.mdl` — named the bug in
+one line. A count cannot.
+
+**And the instrument written to check the placement was wrong twice over.** It compared the item's
+`SceneProp.Pose` against the corpse's and reported "off the origin". A bone-merged item carries no
+transform at all — `FollowEntity` zeroes its local origin and angles — so that comparison is between
+two INPUTS and says nothing about where anything is drawn. Removed rather than fixed: the question it
+was asking is answered by looking, and looking answered it. A BLU soldier's corpse wears its summer
+hat on its head.
+
+**Two engine filters are applied and three are not**, stated rather than left to be discovered.
+Applied: bone-merged econ wearables only, and the disguise pairing — the engine takes disguise
+wearables when the corpse's `m_bWasDisguised` is set and ordinary ones when it is not, so a spy who
+died disguised leaves a corpse in the disguise's gear. Not applied: the `EF_NODRAW` skip (an inactive
+Razorback), the drop-type skip for items that become falling gibs, and the decapitation rule that
+drops head and misc slots. Each needs the item schema or per-tick effect flags at a point that has
+neither.
