@@ -604,8 +604,27 @@ public sealed class EntityModelSet
             // `FrameFor` holds a finished one-shot on its last frame and takes the loop flag to do
             // it, and could never run that branch, because the wrap here had already erased the
             // evidence that the cycle went past one.
-            float phase = StudioSequences.ClampCycle(
-                (float)advanced, skinned.Loops(sequence));
+            // **`STUDIO_REALTIME` discards all of that** (B309). It is `CalcPoseSingle`'s FIRST
+            // branch, before anything else the function does with a cycle
+            // (`bone_setup.cpp:1955`):
+            //
+            //     if (seqdesc.flags & STUDIO_REALTIME)
+            //     {
+            //         float cps = Studio_CPS( pStudioHdr, seqdesc, sequence, poseParameter );
+            //         cycle = flTime * cps;
+            //         cycle = cycle - (int)cycle;
+            //     }
+            //
+            // The flag's own words are *"cycle index is taken from a real-time clock, not the
+            // animations cycle index"* — so the entity's cycle is not corrected, it is ignored,
+            // and a SERVER-animated entity still animates when its sequence carries this.
+            //
+            // **The wrap is a truncation and not `ClampCycle`**, which is why this is its own
+            // branch: `cycle - (int)cycle` ignores `STUDIO_LOOPING`, so a non-looping realtime
+            // sequence wraps where an ordinary one would be held on its last frame.
+            float phase = skinned.Realtime(sequence)
+                ? Fraction((float)(seconds * skinned.CyclesPerSecond(sequence)))
+                : StudioSequences.ClampCycle((float)advanced, skinned.Loops(sequence));
 
             posed.Sequence = sequence;
 
@@ -629,14 +648,16 @@ public sealed class EntityModelSet
             // pose IS the base here, so a local layer at full weight over it is exact — see B294
             // for the case this does not reproduce.
             List<PoseLayer> composed =
-                AutoLayersFor(skinned, sequence, phase, 1f, poseValues, local: true, LayerDepth);
+                AutoLayersFor(
+                    skinned, sequence, phase, 1f, poseValues, local: true, LayerDepth, seconds);
 
             // **Then `AddSequenceLayers` for the main sequence, before the transitions.**
             // `AccumulatePose` runs it as its last step (`:2449`), and `StandardBlendingRules` calls
             // `AccumulatePose` for the main sequence before `MaintainSequenceTransitions` — so the
             // main sequence's own layers land ahead of anything fading out behind it.
             composed.AddRange(
-                AutoLayersFor(skinned, sequence, phase, 1f, poseValues, local: false, LayerDepth));
+                AutoLayersFor(
+                    skinned, sequence, phase, 1f, poseValues, local: false, LayerDepth, seconds));
 
             composed.AddRange(TransitionsFor(prop, skinned, sequence, phase, seconds));
 
@@ -1132,8 +1153,16 @@ public sealed class EntityModelSet
             }
 
             // `fCycle = ClampCycle( fCycle, IsSequenceLooping( … ) )`, the same wrap the main
-            // sequence takes.
-            float wrapped = StudioSequences.ClampCycle(sent.Cycle, skinned.Loops(sent.Sequence));
+            // sequence takes — and the same `STUDIO_REALTIME` override before it (B309).
+            //
+            // **The override belongs to every sequence, not to the main one.** Valve applies it
+            // inside `CalcPoseSingle` (`bone_setup.cpp:1955`), which `AccumulatePose` runs for the
+            // main sequence, for each layer and for each autolayer alike. Putting it only on the
+            // main sequence would be half a mechanism — a realtime sequence would take the clock
+            // when played and the wire's cycle when layered.
+            float wrapped = skinned.Realtime(sent.Sequence)
+                ? Fraction((float)(seconds * skinned.CyclesPerSecond(sent.Sequence)))
+                : StudioSequences.ClampCycle(sent.Cycle, skinned.Loops(sent.Sequence));
 
             (int at, float part) = StudioSequences.FrameAt(
                 wrapped, skinned.Frames(sent.Sequence), skinned.Loops(sent.Sequence));
@@ -1556,6 +1585,24 @@ public sealed class EntityModelSet
     /// **A one-frame sequence is cycle zero rather than a division by zero**, which is also what
     /// the engine's `numframes - 1` scaling implies for it.
     /// </remarks>
+    /// <summary>Valve's <c>cycle = cycle - (int)cycle</c>, for a realtime sequence.</summary>
+    /// <param name="cycle">Time times cycles a second.</param>
+    /// <returns>Its fractional part.</returns>
+    /// <remarks>
+    /// **A C cast to <c>int</c> truncates toward zero**, so this is not `Math.Floor` and the two
+    /// disagree for a negative input. Demo time never runs backwards past zero, so the difference
+    /// cannot arise here — written the engine's way regardless, because the one that matches is
+    /// free and the one that nearly matches is a bug waiting for a caller.
+    ///
+    /// **No test can tell this from <c>ClampCycle(x, true)</c>, and a sabotage said so rather than
+    /// a reading.** Swapping one for the other reddened nothing: the two are the same function for
+    /// every <c>x >= 0</c>, and every value this branch has ever seen is a product of demo seconds
+    /// and a positive cycle rate. The distinguishing input is a NEGATIVE product, which nothing
+    /// constructs. Stated here instead of chased, because a test written to force it would be
+    /// asserting against an input the program cannot produce.
+    /// </remarks>
+    private static float Fraction(float cycle) => cycle - (int)cycle;
+
     private static float FractionOf(PropModels.SkinnedModel skinned, PoseLayer layer)
     {
         int frames = skinned.Frames(layer.Sequence);
@@ -1571,6 +1618,10 @@ public sealed class EntityModelSet
     /// <param name="values">The pose parameters in force, for a <c>STUDIO_AL_POSE</c> layer.</param>
     /// <param name="local">Which of Valve's two passes to run.</param>
     /// <param name="budget">How much deeper the recursion may go.</param>
+    /// <param name="seconds">
+    /// Demo time, for a layer whose sequence carries <c>STUDIO_REALTIME</c> and therefore takes its
+    /// cycle from the clock rather than from the parent's (B309).
+    /// </param>
     /// <returns>A layer per autolayer whose envelope is open, in file order.</returns>
     /// <remarks>
     /// **Two passes over one array, and every autolayer belongs to exactly one of them.**
@@ -1601,7 +1652,8 @@ public sealed class EntityModelSet
         float weight,
         IReadOnlyList<float> values,
         bool local,
-        int budget)
+        int budget,
+        double seconds)
     {
         List<PoseLayer> layers = [];
 
@@ -1716,8 +1768,17 @@ public sealed class EntityModelSet
                 continue;
             }
 
+            // **`STUDIO_REALTIME` on the layered sequence, and this is where TF2 actually puts it**
+            // (B309). All 32 sequences carrying the flag are named `layer_*` — MvM bot
+            // `layer_primary_jump_floatNoise` and its neighbours — so an autolayer target is the
+            // case the flag exists for. The window arithmetic above still decides WHETHER the layer
+            // plays and at what weight; the flag decides only where in the animation it is sampled.
+            float sampled = skinned.Realtime(target)
+                ? Fraction((float)(seconds * skinned.CyclesPerSecond(target)))
+                : StudioSequences.ClampCycle(layerCycle, skinned.Loops(target));
+
             (int frame, float fraction) = StudioSequences.FrameAt(
-                StudioSequences.ClampCycle(layerCycle, skinned.Loops(target)),
+                sampled,
                 skinned.Frames(target),
                 skinned.Loops(target));
 
@@ -1736,7 +1797,14 @@ public sealed class EntityModelSet
             // terminate.
             layers.AddRange(
                 AutoLayersFor(
-                    skinned, target, layerCycle, layerWeight, values, local: false, budget - 1));
+                    skinned,
+                    target,
+                    layerCycle,
+                    layerWeight,
+                    values,
+                    local: false,
+                    budget - 1,
+                    seconds));
         }
 
         return layers;

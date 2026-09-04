@@ -20499,3 +20499,77 @@ Referenced only by `EntityTrackerTests`. Its own remarks call instance baselines
 `BaselineBuilder` implements them for the path production actually uses. This is the shape B206 and
 B207 removed — a superseded type keeping its tests green — and it is recorded rather than deleted
 because deleting it is a separate decision with a floor to lower and a reason to write beside it.
+
+### B309 measured and FIXED 2026-09-04: four flags `CalcPoseSingle` branches on, and only one mattered
+
+**`CalcPoseSingle` reads four sequence-level flags this project did not** — `STUDIO_REALTIME`,
+`STUDIO_CYCLEPOSE`, `STUDIO_ALLZEROS` and `STUDIO_HIDDEN`. Whether any of them matters is a question
+about Valve's CONTENT, not about the engine, so it was measured before anything was written.
+
+`sequence-flags` censuses **every `.mdl` in `tf2_misc_dir.vpk`** — 14,109 models, 26,387 sequences,
+28,712 animations — rather than a hand-picked list, because a sample chosen by someone expecting a
+zero returns a zero:
+
+```
+dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -- sequence-flags
+```
+
+| flag | sequences | animations | verdict |
+|---|---:|---:|---|
+| `STUDIO_REALTIME` | **32** | 0 | **implemented** — three sites |
+| `STUDIO_ALLZEROS` | 0 | **810** | measured inert; see below |
+| `STUDIO_CYCLEPOSE` | 0 | 0 | nothing in TF2 sets it |
+| `STUDIO_HIDDEN` | 1,980 | 0 | correctly ignored — tool UI only |
+
+**The controls fire**: `STUDIO_LOOPING` at 2,982 sequences and `STUDIO_DELTA` at 6,378 animations,
+on the same walk. A zero row here is a fact about the game and not about the probe.
+
+#### `STUDIO_REALTIME` — implemented, and it is on the layer sequences
+
+*"Cycle index is taken from a real-time clock, not the animations cycle index"* (`studio.h:3086`).
+`CalcPoseSingle`'s FIRST branch (`bone_setup.cpp:1955`) DISCARDS the entity's cycle rather than
+correcting it, so a server-animated entity still animates when its sequence carries this.
+
+**All 32 are named `layer_*`** — MvM bot `layer_primary_jump_floatNoise` and its neighbours — so the
+autolayer path is the case the flag exists for, and it was the path least likely to be covered.
+
+**Three sites, because Valve applies it inside `CalcPoseSingle`**, which `AccumulatePose` runs for
+the main sequence, each wire layer and each autolayer alike. Implementing only the first would be
+half a mechanism: a realtime sequence would take the clock when played and the wire's cycle when
+layered.
+
+**The wrap is `cycle - (int)cycle`, not `ClampCycle`**, and that is why it is a separate branch
+rather than a parameter: the truncation ignores `STUDIO_LOOPING`, so a non-looping realtime sequence
+still wraps where an ordinary one is held on its last frame. `CIKContext::AddDependencies`
+(`bone_setup.cpp:3270`) repeats the same rewrite so the IK rules sample where the pose does; our main
+sequence already passes the corrected phase to `IkFor`, so that site follows for free.
+
+#### `STUDIO_ALLZEROS` — 810 animations, and we already produce the right answer
+
+`PoseIsAllZeros` (`bone_setup.cpp:1816`) makes `CalcPoseSingle` return false, or makes `ScaleBones`
+scale the surviving corner instead of blending against an empty one. **Not implemented, and the
+measurement is why:**
+
+- **All 810 are DELTA animations.** `ScaleBones` is `QuaternionIdentityBlend` plus a position scale —
+  an additive operation — and our `ExpandIdentity` already fills an all-zeros delta corner with
+  identity and zero, so blending against it computes what `ScaleBones` computes.
+- **None sits on a `STUDIO_LOCAL` sequence.** That is the one case where `bResult = false` loses real
+  work, because it skips `AddLocalLayers` as well as `SlerpBones`; skipping the slerp of an
+  all-zeros delta adds nothing either way.
+
+**The first reading of this said the opposite — 810 of 810 "ordinary" — and it was the wrong FIELD.**
+The probe checked the SEQUENCE's delta bit where `PoseIsAllZeros` reads the ANIMATION's. A TF2 taunt
+is an ordinary sequence whose animations are additive, so the two disagree exactly here. That is
+B284's trap, walked into while writing a comment citing B284.
+
+#### What the sabotages found, which reading did not
+
+- **Sites B and C were never EXECUTED.** The first version of `RealtimeSequenceTests` sent no wire
+  layers and declared no autolayers, so two of the three `Realtime(...)` checks were not merely
+  unasserted — nothing reached them. That is the decoded-but-not-honoured pattern this audit hunts
+  in Valve's code, arrived at in our own, and only a sabotage that asked *which* tests reddened
+  could see it. Both now redden exactly one test each.
+- **`Fraction` cannot be distinguished from `ClampCycle(x, true)` by any test here.** They are the
+  same function for every `x >= 0`, and every value this branch sees is demo seconds times a positive
+  rate. Written the engine's way regardless; the equivalence is recorded rather than chased, since a
+  test forcing a negative product would assert against an input the program cannot produce.

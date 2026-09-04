@@ -63,6 +63,19 @@ public readonly record struct StudioSequence(
     /// </remarks>
     public bool Loops => (Flags & Looping) != 0;
 
+    /// <summary>Whether the sequence's cycle comes from the clock rather than the entity.</summary>
+    /// <remarks>
+    /// <c>STUDIO_REALTIME</c> (<c>studio.h:3086</c>) — *"cycle index is taken from a real-time
+    /// clock, not the animations cycle index"*. `CalcPoseSingle` acts on it before anything else it
+    /// does with a cycle (<c>bone_setup.cpp:1955</c>), DISCARDING what the entity carries rather
+    /// than correcting it.
+    ///
+    /// **Its wrap is a plain truncation, not <c>StudioSequences.ClampCycle</c>.** `cycle - (int)cycle`
+    /// ignores <see cref="Loops"/> entirely, so a non-looping realtime sequence still wraps — which
+    /// is the one place the two normalisations disagree.
+    /// </remarks>
+    public bool Realtime => (Flags & RealtimeCycle) != 0;
+
     /// <summary>Whether this is a name held open for an included model to fill in.</summary>
     /// <remarks>
     /// <c>STUDIO_OVERRIDE</c>, which <c>studio.h</c> describes as "a forward declared sequence
@@ -131,6 +144,8 @@ public readonly record struct StudioSequence(
 
     /// <summary><c>STUDIO_LOOPING</c> from <c>studio.h</c>.</summary>
     private const int Looping = StudioFlags.SequenceLooping;
+
+    private const int RealtimeCycle = StudioFlags.SequenceRealtime;
 
     /// <summary><c>STUDIO_OVERRIDE</c> from <c>studio.h</c>.</summary>
     private const int ForwardDeclared = StudioFlags.SequenceForwardDeclared;

@@ -1993,6 +1993,25 @@ public static class PropModels
             where.Local < Groups[where.Group].Sequences.Count &&
             Groups[where.Group].Sequences[where.Local].Loops;
 
+        /// <summary>Whether the sequence takes its cycle from the clock.</summary>
+        /// <param name="sequence">The merged sequence number.</param>
+        /// <returns><c>true</c> when it carries <c>STUDIO_REALTIME</c>.</returns>
+        /// <remarks>
+        /// **`studio.h:3086` — *"cycle index is taken from a real-time clock, not the animations
+        /// cycle index"*.** `CalcPoseSingle` acts on it before anything else it does with a cycle
+        /// (`bone_setup.cpp:1955`), and `CIKContext::AddDependencies` repeats the same rewrite
+        /// (`:3270`) so the IK rules are sampled at the same place in the animation.
+        ///
+        /// **32 of 26,387 sequences carry it** across all 14,109 models in `tf2_misc_dir.vpk`
+        /// (B309) — the MvM bot animation models, `layer_primary_jump_floatNoise` and its
+        /// neighbours. Rare, and on content a demo can contain.
+        /// </remarks>
+        public bool Realtime(int sequence) =>
+            Sequences.At(sequence) is { } where &&
+            where.Group < Groups.Count &&
+            where.Local < Groups[where.Group].Sequences.Count &&
+            Groups[where.Group].Sequences[where.Local].Realtime;
+
         /// <summary>The events a merged sequence carries, resolved through the include chain.</summary>
         /// <param name="sequence">The merged sequence number.</param>
         /// <returns>Its events, or empty when the number names nothing.</returns>

@@ -570,7 +570,7 @@ run Tf2DemoSalvage.Animation.Tests animation 79
 # whole square, each using its whole texture, the four sides meeting edge to edge - and the WINDING,
 # which was genuinely red first. A box seen from inside wants the opposite winding to a solid one,
 # and getting it wrong draws a sky that is present, textured and entirely invisible.
-run Tf2DemoSalvage.Scene.Tests    scene     393
+run Tf2DemoSalvage.Scene.Tests    scene     398
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

@@ -97,6 +97,17 @@ internal static class StudioFlags
     /// </remarks>
     public const int SequenceLocal = 0x0200;
 
+    /// <summary><c>STUDIO_REALTIME</c>, <c>studio.h:3086</c> — the cycle comes from the clock.</summary>
+    /// <remarks>
+    /// **Two engine sites, and they must agree or the IK samples a different frame than the pose.**
+    /// `CalcPoseSingle` (<c>bone_setup.cpp:1955</c>) and `CIKContext::AddDependencies`
+    /// (<c>:3270</c>) each rewrite the cycle as <c>flTime * cps</c> truncated to its fraction.
+    ///
+    /// **32 of 26,387 sequences carry it** across all 14,109 models in `tf2_misc_dir.vpk` — the MvM
+    /// bot animation models (B309). The census is `sequence-flags`.
+    /// </remarks>
+    public const int SequenceRealtime = 0x0100;
+
     /// <summary><c>STUDIO_TYPES</c>, <c>studio.h:3074</c> — the mask over a controller's type.</summary>
     /// <remarks>
     /// **<c>CalcBoneAdj</c> masks before it switches** (<c>bone_setup.cpp:2487</c>). The field
