@@ -153,10 +153,83 @@ public static class RagdollProps
                 ClassName: RagdollClassName));
 
             drawn++;
+
+            drawn += Worn(corpse, drawnAs, at, into);
         }
 
         return drawn;
     }
+
+    /// <summary>Hangs a corpse's cosmetics on it.</summary>
+    /// <param name="corpse">The corpse.</param>
+    /// <param name="drawnAs">The index the corpse itself is drawn under.</param>
+    /// <param name="at">Its position in the list, which its wearables' indices are derived from.</param>
+    /// <param name="into">The buffer to append to.</param>
+    /// <returns>How many were added.</returns>
+    /// <remarks>
+    /// **Bone-merged onto the corpse, which is how they were worn in life.** The engine builds a
+    /// `C_EconWearableGib` per item and calls `MoveBoneAttachments` to bring them across
+    /// (`c_tf_player.cpp:10169-10251`); here the model is simply re-attached to the corpse's own
+    /// index, and the existing merge path matches the bones by name exactly as it does for a living
+    /// player (`docs/memory/bone-merge-sends-no-position.md`).
+    ///
+    /// **Their indices are derived from the corpse's position and their own**, never from the
+    /// wearable entity they came from — the same reasoning as B318. A hat borrowed its owner's
+    /// index while its owner is alive and wearing another one, and `EntityModelSet` would be keying
+    /// both to the same cache.
+    /// </remarks>
+    private static int Worn(SceneRagdoll corpse, int drawnAs, int at, ICollection<SceneProp> into)
+    {
+        if (corpse.Worn is not { Count: > 0 } worn)
+        {
+            return 0;
+        }
+
+        int added = 0;
+
+        for (int item = 0; item < worn.Count && item < MostWornPerCorpse; item++)
+        {
+            into.Add(new SceneProp(
+                FirstWornEntityIndex + (at * MostWornPerCorpse) + item,
+                worn[item],
+                ScenePropTrack.Classify(worn[item]),
+
+                // **No transform of its own, and that is not an omission.** `FollowEntity` sets
+                // `EF_BONEMERGE` and then zeroes the local origin and angles
+                // (`baseentity_shared.cpp:2360-2371`), so a worn item never carries one — the
+                // corpse's bones place it.
+                new ScenePose { Skin = corpse.Team == SceneTeams.Red ? 0 : 1 },
+                AttachedTo: drawnAs,
+                BoneMerged: true,
+                OwnedBy: drawnAs,
+                ClassName: WearableClassName));
+
+            added++;
+        }
+
+        return added;
+    }
+
+    /// <summary>Most cosmetics one corpse's block of indices has room for.</summary>
+    /// <remarks>
+    /// **Eight, which is what the engine reserves.** `m_hRagWearables` is declared
+    /// `RecvPropUtlVector( RECVINFO_UTLVECTOR( m_hRagWearables ), 8, … )` (`c_tf_player.cpp:535`) —
+    /// the field itself is dead (nothing draws from it), but its width is Valve's own statement of
+    /// how many a corpse can carry. Measured: 531 wearables across 150 corpses, 3.5 each.
+    /// </remarks>
+    private const int MostWornPerCorpse = 8;
+
+    /// <summary>Where a corpse's cosmetics take their entity indices from.</summary>
+    /// <remarks>
+    /// **Its own range again, for B318's reason.** These are not the wearable entities the demo
+    /// sent — those belong to a player who is alive again by now, wearing them — so borrowing their
+    /// indices would key two different models to one per-entity cache. Above the corpses' own
+    /// 2048..4095 and the viewmodel's 4096..4098, with room for eight per corpse.
+    /// </remarks>
+    private const int FirstWornEntityIndex = 8192;
+
+    /// <summary>The server class a cosmetic arrives as.</summary>
+    private const string WearableClassName = "CTFWearable";
 
     /// <summary>The server class a corpse arrives as.</summary>
     private const string RagdollClassName = "CTFRagdoll";

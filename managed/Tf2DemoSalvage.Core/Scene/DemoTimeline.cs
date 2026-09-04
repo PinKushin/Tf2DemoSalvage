@@ -424,6 +424,18 @@ public readonly record struct TimelineFrame(
 /// ANIMATION is even possible. `GetSequenceForDeath` switches on it and returns -1 for everything
 /// but headshots, decapitations and backstabs (`tf_player_shared.cpp:13441-13454`).
 /// </param>
+/// <param name="PlayerIndex">
+/// Which player entity this corpse was, already resolved from whichever of the two fields its era
+/// sends (B319). Null when the player could not be found — out of the recorder's PVS, or gone.
+/// **The corpse's cosmetics hang off this**, since the engine builds them by walking the PLAYER's
+/// wearable list rather than the corpse's own <c>m_hRagWearables</c>, which nothing draws from.
+/// </param>
+/// <param name="Worn">
+/// The models the player was wearing at the moment of death, captured then because they are gone
+/// later (B320). The engine does the same and at the same moment:
+/// <c>CreateBoneAttachmentsFromWearables</c> runs from inside <c>CreateTFRagdoll</c> and reads
+/// <c>GetNumWearables()</c> on the PLAYER (`c_tf_player.cpp:10169`).
+/// </param>
 /// <remarks>
 /// **The reason corpses are invisible is that they were never DESCRIBED, not that they were lost.**
 /// `DT_TFRagdoll` is `NOBASE`, so it inherits no model index, no skin, no body and no angles; a prop
@@ -446,7 +458,9 @@ public readonly record struct SceneRagdoll(
     int FirstTick,
     int LastTick,
     float Yaw = 0f,
-    int? DamageCustom = null);
+    int? DamageCustom = null,
+    int? PlayerIndex = null,
+    IReadOnlyList<string>? Worn = null);
 
 
 /// <summary>
@@ -2528,6 +2542,69 @@ public sealed class DemoTimeline
         return slots;
     }
 
+    /// <summary>What a player was wearing, for the corpse being made of them.</summary>
+    /// <param name="tracks">Every prop track so far.</param>
+    /// <param name="player">The dying player's entity index, or null when it is unknown.</param>
+    /// <param name="disguised">The corpse's <c>m_bWasDisguised</c>.</param>
+    /// <returns>The models to hang on the corpse, or null when there are none.</returns>
+    /// <remarks>
+    /// **`CreateBoneAttachmentsFromWearables` walks the player and skips four kinds** — a viewmodel
+    /// wearable, a disguise mismatch, one hidden with `EF_NODRAW`, and one whose drop type makes it
+    /// a falling gib instead (`c_tf_player.cpp:10169-10251`). Two of those are applied here:
+    /// bone-merged world wearables only, and the disguise pairing.
+    ///
+    /// **The disguise rule is a pairing, not a filter.** The engine takes disguise wearables when
+    /// the corpse's <c>m_bWasDisguised</c> is set and ordinary ones when it is not — a pair of
+    /// mirrored `continue`s on `IsDisguiseWearable()`. A spy who died disguised leaves a corpse
+    /// wearing the disguise's gear, which is the point of the branch.
+    ///
+    /// **Not applied, and stated rather than left to be found:** the `EF_NODRAW` skip (a Razorback
+    /// that was inactive), the drop-type skip, and the decapitation rule that drops head and misc
+    /// slots. Each needs the item schema or per-tick effect flags at a point that has neither.
+    /// </remarks>
+    private static List<string>? WornAtDeath(
+        Dictionary<int, ScenePropTrack> tracks, int? player, bool disguised)
+    {
+        if (player is not { } owner)
+        {
+            return null;
+        }
+
+        List<string>? worn = null;
+
+        foreach (ScenePropTrack track in tracks.Values)
+        {
+            if (track.AttachedTo != owner ||
+                !track.BoneMerged ||
+                track.OfDisguise != disguised ||
+                string.IsNullOrEmpty(track.ModelPath))
+            {
+                continue;
+            }
+
+            // **A WEAPON is not a wearable, and the first version of this put all four of a
+            // demoman's on his corpse.** `CreateBoneAttachmentsFromWearables` walks
+            // `GetWearable( wbl )` (`c_tf_player.cpp:10178`) — the econ wearable list — and a
+            // weapon is a `CTFWeaponBase`, which is not in it. Every bone-merged child of a player
+            // is not the same set: it also holds the grenade launcher, the sticky launcher, the
+            // bottle, and whatever else is holstered.
+            //
+            // The class name is the distinction the engine draws — `CEconWearable` against
+            // `CTFWeaponBase` — and it is on the track, where a weapon's per-tick carry state is
+            // not.
+            if (!track.ClassName.Contains("Wearable", StringComparison.Ordinal) &&
+                !track.ClassName.Contains("PowerupBottle", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            worn ??= [];
+            worn.Add(track.ModelPath);
+        }
+
+        return worn;
+    }
+
     /// <summary>Closes a corpse's window at the tick it stopped being drawable.</summary>
     /// <param name="corpses">The corpses recorded so far, by entity slot.</param>
     /// <param name="entityIndex">The slot that left or was destroyed.</param>
@@ -2630,9 +2707,25 @@ public sealed class DemoTimeline
                 facing = looking.Yaw;
             }
 
+            // **The cosmetics are captured HERE, at the moment of death, because they are gone
+            // afterwards** (B320). That is also exactly when the engine takes them:
+            // `CreateBoneAttachmentsFromWearables` runs from inside `CreateTFRagdoll` and walks the
+            // PLAYER's wearable list. A corpse lasts seconds and its owner respawns wearing the same
+            // hats on a new entity, so reading them later finds either nothing or somebody's living
+            // gear.
+            //
+            // Measured on `serveme-627619-stv-2026-08-07`: 150 of 159 corpses have their player's
+            // wearables present on the tick they appear, 531 in total. The nine that do not are
+            // players the recorder could not see.
+            IReadOnlyList<string>? worn =
+                facedBefore.Serial == corpse.SerialNumber && facedBefore.Worn is { } already
+                    ? already
+                    : WornAtDeath(tracks, deadIndex, disguised);
+
             corpses[entity.EntityIndex] = new SceneRagdoll(
                 entity.EntityIndex, corpse.SerialNumber, playerClass, team, x, y, z,
-                gib, burning, feign, disguised, born, tick, facing, corpse.DamageCustom());
+                gib, burning, feign, disguised, born, tick, facing, corpse.DamageCustom(),
+                deadIndex ?? facedBefore.PlayerIndex, worn);
         }
 
         if (entity.UpdateType == EntityUpdateType.Delete)

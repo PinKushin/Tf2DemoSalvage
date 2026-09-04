@@ -183,6 +183,52 @@ public sealed class CorpseProbe : IProbe
         // enough that the count is a usable instrument.
         output.WriteLine($"  {facing} face a direction taken from the player they were");
 
+        // **Whether a corpse's cosmetics are reachable at all**, which is the question that decides
+        // whether the next piece of work exists. The engine builds them by walking the PLAYER's
+        // wearable list at the moment of death — `CreateBoneAttachmentsFromWearables`,
+        // `c_tf_player.cpp:10169` — and NOT from the corpse's own `m_hRagWearables`, which the
+        // client only ever hides. So the question is whether that player's wearable entities are
+        // still in the scene on the tick the corpse arrives. If they are gone by then, this is
+        // authoring rather than decoding and the answer is to leave it alone.
+        int withPlayer = 0;
+        int withWearables = 0;
+        int wearablesFound = 0;
+
+        List<SceneProp> atDeath = [];
+
+        foreach (SceneRagdoll corpse in timeline.Corpses)
+        {
+            if (corpse.PlayerIndex is not { } player)
+            {
+                continue;
+            }
+
+            withPlayer++;
+
+            atDeath.Clear();
+            timeline.PropsAt(corpse.FirstTick, atDeath);
+
+            int worn = 0;
+
+            foreach (SceneProp prop in atDeath)
+            {
+                if (prop.AttachedTo == player && prop.BoneMerged)
+                {
+                    worn++;
+                }
+            }
+
+            if (worn > 0)
+            {
+                withWearables++;
+                wearablesFound += worn;
+            }
+        }
+
+        output.WriteLine(
+            $"  {withWearables} of {withPlayer} had wearables on the tick they appeared, " +
+            $"{wearablesFound} in total");
+
         // **How many corpses could play a death ANIMATION at all.** `GetSequenceForDeath` is a
         // switch on `m_iDamageCustom` with two cases and no default — headshots and their
         // decapitation variants, and backstabs — returning -1 for every other death
@@ -281,6 +327,28 @@ public sealed class CorpseProbe : IProbe
                 timeline.Corpses, when, ClassModel, drawnAt, fade, visible: null);
 
             output.WriteLine($"  tick {when}: {alive} entities alive, {drawnAt.Count} drawn");
+
+            // **WHICH models a corpse carries, which is what caught the first version of this.**
+            // The engine walks the player's WEARABLE list — `GetWearable(wbl)`,
+            // `c_tf_player.cpp:10178` — and a weapon is a `CTFWeaponBase`, not a `CEconWearable`,
+            // so it is not in it. Scanning every bone-merged child of the player instead put all
+            // four of a demoman's weapons on his corpse, holstered ones included. Naming them is
+            // what made that obvious; a count would have read as a success.
+            //
+            // **Nothing here says where they are DRAWN.** A bone-merged item carries no transform
+            // of its own, so comparing `SceneProp.Pose` between item and corpse compares two inputs
+            // and answers nothing about placement — the first version of this block did exactly
+            // that and reported "off the origin" for items sitting on it.
+            // **Which corpse each item belongs to**, so a picture can be aimed at a body that
+            // actually has one. Nothing here says where the item is DRAWN: a bone-merged item
+            // carries no transform of its own, so comparing `SceneProp.Pose` between item and
+            // corpse compares two inputs. The first version of this block did that and reported
+            // "off the origin" for items it could not have placed.
+            foreach (SceneProp prop in drawnAt.Where(p => p.AttachedTo is not null))
+            {
+                output.WriteLine(
+                    $"    worn {Path.GetFileName(prop.ModelPath)} on corpse {prop.AttachedTo}");
+            }
 
             // **Where they are, so the claim can be checked by LOOKING.** Nothing here can say a
             // corpse appears on screen — that needs the viewer and a person — but it can say where

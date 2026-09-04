@@ -597,7 +597,12 @@ run Tf2DemoSalvage.Animation.Tests animation 111
 # tests — nothing in the suites renders a scene where one index carries two models. The test also
 # rejects the plausible wrong fix: offsetting the SLOT rather than giving each corpse its own index
 # still hands the second occupant of a reused slot the first one's caches.
-run Tf2DemoSalvage.Scene.Tests    scene     423
+# 423 -> 424: a corpse keeps what it died wearing, bone-merged onto itself (B320). The first
+# version scanned every bone-merged child of the dead player and put all four of a demoman's
+# weapons on his corpse, holstered ones included — the engine walks the econ WEARABLE list, and a
+# weapon is a CTFWeaponBase, which is not in it. Naming the models in the probe is what made that
+# obvious; a count of ten would have read as a success.
+run Tf2DemoSalvage.Scene.Tests    scene     424
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
