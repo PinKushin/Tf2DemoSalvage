@@ -20677,8 +20677,23 @@ Halloween boss content, which is what the archive-versus-player split was added 
 
 **The structural problem is WHERE the bracket goes.** The engine applies one sequence at a time and
 can wrap each; this project composes a layer LIST and solves IK once on the result
-(`SkeletonPose.ReachWithIk`). The seam exists — `Accumulate` already walks the layers in order — but
-the capture needs model-space matrices part way through a composition that works in local space.
+(`SkeletonPose.ReachWithIk`). The seam exists — `Accumulate` already walks the layers in order over a
+dense local pose array — but the capture needs model-space matrices part way through a composition
+that works in local space.
+
+**A lock's chain index needs NO remapping, and that had to be read rather than assumed.** A lock is
+declared on a sequence, sequences come from included animation models, and this project reads its
+chains from the ROOT model only — so the obvious worry is that the two lists disagree. They do not:
+`CStudioHdr::pIKChain( int i )` forwards straight to `m_pStudioHdr->pIKChain( i )`
+(`studio.h:2536`), the root header's array, with no virtual-model translation of any kind. **Compare
+`paramindex`, which DOES need translating** through `masterPose` and whose omission once made every
+player run backwards — so the two look alike and behave oppositely, and only reading both says
+which is which.
+
+**Also settled: the whole bracket is in MODEL space.** `seq_ik.Init( m_pStudioHdr, vec3_angle,
+vec3_origin, 0.0, 0, m_boneMask )` — an identity transform, under Valve's comment *"local space
+relative so absolute position doesn't mater"*. No entity placement, no world matrices, and the
+capture and the restore are therefore comparable without knowing where the player is standing.
 
 **What is NOT established:** whether the 814 player sequences that lock are ones a demo selects, or
 whether the flag rides on sequences the roster never plays. The census reads the archive; a per-demo
