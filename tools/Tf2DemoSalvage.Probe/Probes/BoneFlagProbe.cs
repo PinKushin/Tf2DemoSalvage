@@ -368,6 +368,17 @@ public sealed class BoneFlagProbe : IProbe
                 CultureInfo.InvariantCulture,
                 $"IK locks APPLIED on the pose path: {posed.AppliedIkLocks}"));
 
+        (int lockMoved, float lockFurthest) = posed.IkLockEffect;
+
+        // **Whether they HOLD anything, which the count above cannot say.** A lock whose remembered
+        // position already equals where the sequence left the foot solves to the same place — the
+        // bracket runs, the pose is unchanged, and on screen that is indistinguishable from the
+        // lock never running. This is the foot-sliding question in numbers.
+        output.WriteLine(
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"IK locks that MOVED an effector: {lockMoved}, furthest {lockFurthest:0.##} units"));
+
         // **How far a skeleton's bones sit from its own root.** A TF2 player stands about 83 units
         // tall and a hat is a few units across, so a pose that has come apart says so in one
         // number, without a screenshot and without the desktop.

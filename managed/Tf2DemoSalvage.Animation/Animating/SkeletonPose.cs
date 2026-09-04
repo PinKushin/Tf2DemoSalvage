@@ -602,6 +602,15 @@ public sealed class SkeletonPose : IBonePose
     /// </remarks>
     public int AppliedLocks => _held?.Applied ?? 0;
 
+    /// <summary>Of those, how many moved the effector, and the furthest one.</summary>
+    /// <remarks>
+    /// **"It ran" and "it mattered" are different claims** (B311). A lock whose remembered position
+    /// already equals where the sequence left the foot solves to the same place, so a count of
+    /// solves cannot tell a pose needing no correction from a correction computing zero.
+    /// </remarks>
+    public (int Moved, float Furthest) LockEffect =>
+        (_held?.Moved ?? 0, _held?.FurthestMove ?? 0f);
+
     /// <summary>The IK state, created on the first entity that actually has a chain.</summary>
     private IkContext? _ik;
 

@@ -68,6 +68,30 @@ public sealed class IkLocks
     /// </remarks>
     public int Applied { get; private set; }
 
+    /// <summary>Of those, how many actually MOVED the effector.</summary>
+    /// <remarks>
+    /// **`Applied` says the bracket ran; this says it mattered** — and they are different questions
+    /// with different failure modes. A lock whose captured position already equals where the
+    /// sequence left the foot solves to the same place, so the count of solves cannot distinguish
+    /// "the pose needed no correction" from "the correction is computing zero".
+    ///
+    /// **This is the numeric form of a question that would otherwise need eyes**: whether a foot
+    /// stops sliding during an aim matrix. A screenshot cannot settle it without a before and an
+    /// after of the same motion; a distance can.
+    /// </remarks>
+    public int Moved { get; private set; }
+
+    /// <summary>The furthest any effector was moved, in units.</summary>
+    /// <remarks>
+    /// **A count alone cannot separate a real pin from float noise**, and the difference is the
+    /// whole finding: a hundred locks each moving a thousandth of a unit is arithmetic running, not
+    /// a foot being held.
+    /// </remarks>
+    public float FurthestMove { get; private set; }
+
+    /// <summary>Below this a move is float noise rather than a correction.</summary>
+    private const float NoticeableMove = 0.01f;
+
     /// <summary>Prepares a lock bracket for one skeleton.</summary>
     /// <param name="parents">Each bone's parent, or −1 for a root.</param>
     /// <param name="bones">How many bones the skeleton has.</param>
@@ -217,6 +241,22 @@ public sealed class IkLocks
             // Counted here rather than at the top of the loop, so a lock that named nothing or
             // whose chain the solver refused is not reported as work done.
             Applied++;
+
+            // **The distance the effector actually travelled**, measured between where the sequence
+            // left it and where the lock put it — carried out of this loop rather than recomputed
+            // by a second route (B243). `now` is the pre-solve position read above; rebuilding the
+            // chain gives the post-solve one.
+            _chain.Reset();
+            _chain.Build(bone, pose);
+
+            float travelled = (Position(_chain.Matrix(bone)) - now).Length();
+
+            if (travelled > NoticeableMove)
+            {
+                Moved++;
+            }
+
+            FurthestMove = MathF.Max(FurthestMove, travelled);
         }
     }
 

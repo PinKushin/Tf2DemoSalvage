@@ -21014,3 +21014,31 @@ out: the bracket is not costing tens of milliseconds a frame.
 
 **Why it is cheap is legible rather than lucky.** A lock runs only for a sequence that declares one,
 and `BoneChain`'s memo means two locks sharing a spine walk it once.
+
+### B311 measured 2026-09-04: the locks HOLD something — 88 of 88, up to 3.81 units
+
+**"It ran" and "it mattered" are different claims, and only the second answers the question.** The
+apply counter said the bracket executes 88 times on `tf2-2026-pub-pov-clean` at tick 14051. That
+does not distinguish a lock holding a foot from a lock solving to the position the sequence already
+had — which runs, changes nothing, and looks identical on screen to never running.
+
+```
+IK locks APPLIED on the pose path: 88
+IK locks that MOVED an effector: 88, furthest 3.81 units
+```
+
+**Every one of them corrects something, by up to 3.81 units.** A TF2 player is about 83 units tall,
+so that is roughly the width of a foot — the distance an effector would otherwise sit from where the
+engine puts it, and the amount of slide the bracket removes.
+
+**This is the foot-sliding question converted from a judgement into a number**, which matters because
+the alternative was unanswerable. A screenshot cannot settle whether a foot stops sliding without a
+before and an after of the same motion; a distance can, and a bone position is deterministic.
+
+**Carried out of the loop that did the work, not recomputed by a second route** (B243): the pre-solve
+position is the one the solve was handed, and the post-solve one comes from rebuilding the chain the
+solve wrote into. A second derivation of either is free to be wrong and would look authoritative.
+
+**A threshold of 0.01 units separates a correction from float noise**, and the count and the maximum
+are both reported because neither alone is enough — a hundred locks each moving a thousandth of a
+unit is arithmetic running, not a foot being held.

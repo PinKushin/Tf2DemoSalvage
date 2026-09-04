@@ -2242,6 +2242,36 @@ public sealed class EntityModelSet
         }
     }
 
+    /// <summary>How many applied locks actually moved an effector, and the furthest move.</summary>
+    /// <remarks>
+    /// **The question a screenshot cannot answer**, made numeric: whether a lock holds a foot or
+    /// merely runs. `AppliedIkLocks` says the bracket executed; this says it changed the pose, and
+    /// by how far. Zero moves with a non-zero apply count would mean the solve is computing the
+    /// position the sequence already had — which looks identical on screen and is a different
+    /// defect from not running at all.
+    /// </remarks>
+    public (int Moved, float Furthest) IkLockEffect
+    {
+        get
+        {
+            int moved = 0;
+            float furthest = 0f;
+
+            foreach (AnimatingEntity animating in _entities.Values)
+            {
+                if (animating.Pose is SkeletonPose posed)
+                {
+                    (int entityMoved, float entityFurthest) = posed.LockEffect;
+
+                    moved += entityMoved;
+                    furthest = MathF.Max(furthest, entityFurthest);
+                }
+            }
+
+            return (moved, furthest);
+        }
+    }
+
     /// <summary>What the IK pass was handed, for telling apart the ways it can do nothing.</summary>
     /// <remarks>
     /// **Three numbers because "nothing solved" has three causes** and they need different fixes: no
