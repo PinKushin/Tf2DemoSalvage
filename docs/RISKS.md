@@ -20286,3 +20286,119 @@ Forcing it through would hide both behind a shape that happens to match.
 is actually depended on; a third suite asserting the same rules would be the duplication this
 change removed, in the tests instead of the code. The controls that matter already live with the
 users — a create for another table, and an update whose id resolved to another table's name.
+
+### B306 FIXED 2026-09-03: `CalcBoneAdj` ran on bones the engine's mask excludes
+
+**The engine wraps the entire body of its controller loop in a mask test**
+(`bone_setup.cpp:2480`), and we had every other branch of `CalcBoneAdj` but not this one:
+
+```cpp
+k = pbonecontroller->bone;
+
+if (pStudioHdr->boneFlags( k ) & boneMask)
+{
+    i = pbonecontroller->inputfield;
+    value = controllers[i];
+    ...
+}
+```
+
+**A bone outside the mask is skipped before the lerp is even computed.** Ours computed the value and
+applied it to every bone a controller named. *Read-from-source*, found by reading `CalcBoneAdj` to
+its closing brace rather than by any measurement.
+
+**Production asks for `BONE_USED_BY_ANYTHING`** (`0x0007FF00`, `EntityModels.cs:839` and `:3663`), so
+in practice the guard rejects exactly one thing: a bone used by no hitbox, no attachment and no
+vertex at any LOD. `SkeletonPose.Adjust` now tests it.
+
+**The visible symptom is nothing, and saying so is the honest half of this entry.** Every
+`BONE_USED_BY_*` flag reads *"bone (or child) is used by"* (`studio.h:415`), so a bone carrying none
+of them has no descendant used by anything either — bending it moved nothing drawn, hit-tested or
+hung from. This is Valve's economy, not Valve's correctness.
+
+**It was fixed anyway, for two reasons.** An optimisation of the engine's is not a departure this
+project gets to skip; and the guard becomes correctness the moment any caller asks for a mask
+narrower than everything, which is precisely when nobody would think to look for it.
+
+**Not established: whether any real TF2 model has a controller on such a bone.** The `bone-flags`
+probe could answer it and was not run, because the answer does not change what the code should do.
+
+#### And a neighbouring test that could not fail, found by the same sabotage
+
+`Build_WithAHalfwayInput_LandsBetweenTheControllersEndpoints` used endpoints of −30 and 30 at a
+halfway input, predicting 0 — **which is also where the bone rests**. So "the lerp is right" and "the
+controller never ran" were the same observation, and the test stayed green through a deliberately
+inverted guard that skipped the bone entirely.
+
+**The wrong-CONDITION fault**, and the fix is the input rather than the assertion: 10 to 30 at
+halfway separates all three readings — 20 if the lerp is right, 0.5 if the raw input is used, 0 if
+nothing is applied.
+
+**It was the sabotage's CONTROL that found it, not the sabotage.** Inverting the guard was expected
+to redden the six tests whose bones carry every flag; four did. Reading why the other two did not is
+what surfaced this, and it is the argument for asking a sabotage which tests reddened rather than
+whether the right one did.
+
+### B307 FIXED 2026-09-03: the local autolayer pass read a pose parameter the engine never gives it
+
+**The two autolayer passes are separate engine functions and only one of them knows about poses.**
+`AddSequenceLayers` (`bone_setup.cpp:2148`) chooses its window variable:
+
+```cpp
+if (!(pLayer->flags & STUDIO_AL_POSE))
+    index = cycle;
+else
+{
+    int iSequence = m_pStudioHdr->iRelativeSeq( sequence, pLayer->iSequence );
+    int iPose = m_pStudioHdr->GetSharedPoseParameter( iSequence, pLayer->iPose );
+    ...
+    index = m_flPoseParameter[ iPose ] * (Pose.end - Pose.start) + Pose.start;
+}
+```
+
+`AddLocalLayers` (`bone_setup.cpp:2244`) has no such branch. It tests the raw cycle, and there is no
+`index`, no `iPose` and no `m_flPoseParameter` anywhere in it:
+
+```cpp
+if (cycle < pLayer->start)  continue;
+if (cycle >= pLayer->end)   continue;
+```
+
+**And it ends with an UNGUARDED remap**, where the non-local pass guards the same line with
+`if (!(pLayer->flags & STUDIO_AL_POSE))`:
+
+```cpp
+layerCycle = (cycle - pLayer->start) / (pLayer->end - pLayer->start);
+```
+
+**We ran one implementation for both passes**, so a local layer that also carried `STUDIO_AL_POSE`
+was windowed on the pose value and then not remapped. Two divergences from one shared branch.
+*Read-from-source*, found by reading both functions to their closing braces rather than by any
+measurement.
+
+**This is not an oversight of Valve's, which is worth stating because it looks like one.** The local
+pass composes into the sequence's own pose BEFORE that pose is blended in, so the only variable that
+has walked anywhere by then is the sequence's own cycle — a local layer's window is in cycle units
+by construction, and there is nothing for a pose branch to read.
+
+**The symptom, had a model hit it: a local layer that fires at the wrong time or never.** With no
+pose parameter bound the index is 0, so any window opening above zero rejects the layer outright —
+it simply would not appear. Where it did appear, it would play from the parent's cycle rather than
+from its own window, so the wrong part of the animation.
+
+**Not established: whether any TF2 model sets both flags on one layer.** `bone-flags` and `autoplay`
+could answer it and were not run, because it does not change what the code should do. The
+`c_engineer_arms` `throw_draw` case already recorded on the neighbouring test carries
+`STUDIO_AL_LOCAL` on a `STUDIO_LOCAL` sequence, so the local pass is reached by real content; only
+the pose flag's co-occurrence is unmeasured.
+
+**Verified against absence, not against a number.** The distinguishing input is a local layer
+carrying `STUDIO_AL_POSE` whose window opens at 0.1: the pose index is 0 and outside it, the cycle is
+0.25 and inside it, so correct and broken predict a layer present against a layer absent. The remap
+is then pinned separately at frame 5.625 against the parent's 7.5.
+
+**And the first prediction of that frame was wrong for a reason worth keeping.** The window was 0.2
+to 0.7, which makes the remapped cycle land on a frame BOUNDARY — `0.05f / 0.5f` is 0.099999994, not
+0.1, so thirty frames of it is 2.9999998 and floors to 2. The measurement was right and the
+prediction was exact-decimal arithmetic applied to a float path. Off a boundary the rounding cannot
+reach the neighbouring frame.

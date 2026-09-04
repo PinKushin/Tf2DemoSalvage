@@ -222,6 +222,81 @@ public sealed class AutoLayerTests
             Layered, "the local pass is the first thing accumulated onto the base");
     }
 
+    /// <remarks>
+    /// **`AddLocalLayers` has no pose branch at all**, and that is the divergence (B307). The two
+    /// passes are separate functions and only one of them reads a pose parameter —
+    /// `AddSequenceLayers` (`bone_setup.cpp:2148`) chooses
+    /// <c>index = cycle</c> or the pose value on <c>STUDIO_AL_POSE</c>, while `AddLocalLayers`
+    /// (`bone_setup.cpp:2244`) tests the raw cycle and nothing else:
+    ///
+    /// <code>
+    ///   if (cycle &lt; pLayer->start) continue;
+    ///   if (cycle >= pLayer->end) continue;
+    /// </code>
+    ///
+    /// **The distinguishing input is a local layer that ALSO carries `STUDIO_AL_POSE`.** With no
+    /// pose parameter bound, the pose index is 0 and falls outside a window opening at 0.2, so a
+    /// reader that consulted it drops the layer — while the cycle, at 0.25, is inside and the engine
+    /// applies it. Correct and broken predict presence against absence, which is as far apart as
+    /// this can be made.
+    /// </remarks>
+    [Test]
+    public void Instances_WithAPoseFlaggedLocalLayer_WindowsItOnTheCycle()
+    {
+        EntityModelSet models = Loaded(
+            Window(0.1f, 0.1f, 0.9f, 0.9f) with
+            {
+                Flags = StudioAutoLayerFlags.Local | StudioAutoLayerFlags.Pose,
+            },
+            localSequence: true);
+
+        models.Instances([Playing()], [], seconds: 0.25d);
+
+        models.LayersOf(4).ShouldNotBeNull()
+            .Select(entry => entry.Sequence)
+            .ShouldContain(Layered, "the local pass reads the cycle, never the pose parameter");
+    }
+
+    /// <remarks>
+    /// **The other half of the same divergence: the local pass remaps UNCONDITIONALLY.**
+    /// `AddSequenceLayers` guards its remap with <c>if (!(pLayer->flags &amp; STUDIO_AL_POSE))</c>,
+    /// because a pose-driven layer's window is in pose units and the cycle is not the variable that
+    /// walked through it. `AddLocalLayers` has no such guard — its window is in cycle units by
+    /// construction, so the remap always applies:
+    ///
+    /// <code>
+    ///   layerCycle = (cycle - pLayer->start) / (pLayer->end - pLayer->start);
+    /// </code>
+    ///
+    /// **Frame 5.625 against frame 7.5 is the measurement.** The fixture animation is 31 frames at
+    /// 30 a second, so a remapped cycle of <c>(0.25 − 0.1) / (0.9 − 0.1) = 0.1875</c> lands five
+    /// frames and five eighths in, where the parent's own 0.25 would land on 7.5.
+    ///
+    /// **The window was 0.2 to 0.7 first, and it landed on a frame BOUNDARY**, which is the one
+    /// place a prediction should not sit: <c>0.05f / 0.5f</c> is 0.099999994 rather than 0.1, so
+    /// thirty frames of it is 2.9999998 and the frame index floors to 2, not 3. The measurement was
+    /// right and the prediction was arithmetic done in exact decimal on a float path. Off a boundary
+    /// the rounding cannot reach the neighbouring frame.
+    /// </remarks>
+    [Test]
+    public void Instances_WithAPoseFlaggedLocalLayer_RemapsItsCycleIntoTheWindow()
+    {
+        EntityModelSet models = Loaded(
+            Window(0.1f, 0.1f, 0.9f, 0.9f) with
+            {
+                Flags = StudioAutoLayerFlags.Local | StudioAutoLayerFlags.Pose,
+            },
+            localSequence: true);
+
+        models.Instances([Playing()], [], seconds: 0.25d);
+
+        PoseLayer applied = models.LayersOf(4).ShouldNotBeNull()
+            .Single(entry => entry.Sequence == Layered);
+
+        applied.Frame.ShouldBe(5, "(0.25 - 0.1) / (0.9 - 0.1) = 0.1875, and 0.1875 of 30 frames is 5.625");
+        applied.FrameFraction.ShouldBe(0.625f, 1e-4d, "five eighths past frame 5, nowhere near 7.5");
+    }
+
     /// <summary>An autolayer naming <see cref="Layered"/> over the given window.</summary>
     private static StudioAutoLayer Window(float start, float peak, float tail, float end) =>
         new(

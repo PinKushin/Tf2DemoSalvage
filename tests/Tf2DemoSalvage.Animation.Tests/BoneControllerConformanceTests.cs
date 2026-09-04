@@ -75,6 +75,16 @@ public sealed class BoneControllerConformanceTests
     /// **The value is a LERP between the controller's own endpoints**, not the raw input:
     /// <c>value = (1.0 - value) * start + value * end</c>. A reader that used the normalised number
     /// directly would move every bone by at most one unit.
+    ///
+    /// **The endpoints are asymmetric ON PURPOSE, and they were −30 to 30 until a sabotage said
+    /// why that was wrong.** Halfway between −30 and 30 is 0, which is also where the bone rests —
+    /// so "the lerp is right" and "the controller never ran at all" predicted the SAME observation,
+    /// and the test stayed green while a deliberately broken guard skipped the bone entirely. That
+    /// is the wrong-CONDITION fault: an input for which correct and broken agree, fixed by changing
+    /// the input rather than by strengthening the assertion.
+    ///
+    /// **10 to 30 at halfway separates all three readings**: 20 if the lerp is right, 0.5 if the raw
+    /// input is used, 0 if nothing is applied.
     /// </remarks>
     [Test]
     public void Build_WithAHalfwayInput_LandsBetweenTheControllersEndpoints()
@@ -83,12 +93,12 @@ public sealed class BoneControllerConformanceTests
 
         SkeletonPose pose = Posed(
             new StudioBoneController(
-                Bone: 1, Type: StudioBoneController.TranslateX, Start: -30f, End: 30f),
+                Bone: 1, Type: StudioBoneController.TranslateX, Start: 10f, End: 30f),
             value: 0.5f);
 
         pose.Build(boneMask: ~0, currentTime: 0d, into, new BoneBitList(2));
 
-        XOf(into, 1).ShouldBe(0f, Tolerance, "halfway between −30 and 30");
+        XOf(into, 1).ShouldBe(20f, Tolerance, "halfway between 10 and 30, and not the rest position");
     }
 
     /// <remarks>
@@ -167,6 +177,58 @@ public sealed class BoneControllerConformanceTests
     }
 
     /// <summary>A pose carrying one controller and one input value.</summary>
+    /// <remarks>
+    /// **The engine's own guard, and the only branch of <c>CalcBoneAdj</c> we did not have**
+    /// (<c>bone_setup.cpp:2480</c>):
+    ///
+    /// <code>
+    ///   k = pbonecontroller->bone;
+    ///   if (pStudioHdr->boneFlags( k ) &amp; boneMask)
+    /// </code>
+    ///
+    /// **A bone outside the mask is skipped entirely** — the lerp is not even computed. Production
+    /// asks for <c>BONE_USED_BY_ANYTHING</c> (`0x0007FF00`, `EntityModels.cs:839` and `:3663`), so
+    /// the test reduces to "the bone is used by a hitbox, an attachment or a vertex at some LOD",
+    /// and a bone flagged only <c>BONE_ALWAYS_PROCEDURAL</c> (`0x04`) fails it.
+    ///
+    /// **The symptom of getting this wrong is nothing visible, and that is worth stating plainly.**
+    /// Every <c>BONE_USED_BY_*</c> flag reads *"bone (or child) is used by"*, so a bone with none of
+    /// them has no descendant used by anything either — bending it moves nothing that is drawn,
+    /// hit-tested or hung from. The guard is Valve's economy, not Valve's correctness. It is here
+    /// because an optimisation of the engine's is not a departure this project gets to skip
+    /// (`docs/memory/an-optimisation-is-not-a-skippable-departure.md`), and because a mask narrower
+    /// than <c>UsedByAnything</c> would make it correctness immediately.
+    /// </remarks>
+    [Test]
+    public void Build_WithAControllerOnABoneOutsideTheMask_LeavesItAlone()
+    {
+        BoneAccessor into = new(2);
+
+        SkeletonPose pose = new(
+            [
+                new StudioBone("root", -1, (0f, 0f, 0f), (0f, 0f, 0f, 1f), default, Flags: ~0),
+
+                // Procedural, and used by nothing: the exact bone the engine's guard rejects.
+                new StudioBone(
+                    "helper", -1, (0f, 0f, 0f), (0f, 0f, 0f, 1f), default,
+                    Flags: StudioBoneFlags.AlwaysProcedural),
+            ],
+            (_, _, _, _) => [])
+        {
+            Controllers =
+            [
+                new StudioBoneController(
+                    Bone: 1, Type: StudioBoneController.TranslateX, Start: 0f, End: 10f),
+            ],
+            BoneControllers = [1f],
+        };
+
+        pose.Build(boneMask: ~0, currentTime: 0d, into, new BoneBitList(2));
+
+        XOf(into, 1).ShouldBe(
+            0f, Tolerance, "boneFlags(k) & BONE_USED_BY_ANYTHING is zero, so the engine skips it");
+    }
+
     private static SkeletonPose Posed(StudioBoneController controller, float value) =>
         new(Bones(), (_, _, _, _) => [])
         {

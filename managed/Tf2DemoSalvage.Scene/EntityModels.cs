@@ -1642,7 +1642,16 @@ public sealed class EntityModelSet
 #pragma warning disable S1244
             if (entry.Start != entry.End)
             {
-                float index = entry.DrivenByPose
+                // **`STUDIO_AL_POSE` belongs to the non-local pass alone** (B307). They are two
+                // separate engine functions and only one of them has the branch:
+                // `AddSequenceLayers` (`bone_setup.cpp:2148`) chooses between the cycle and a pose
+                // parameter, while `AddLocalLayers` (`bone_setup.cpp:2244`) reads `cycle` and
+                // nothing else — no `index`, no `iPose`, no `m_flPoseParameter`.
+                //
+                // **Not an oversight of Valve's: a local layer's window is in CYCLE units.** The
+                // local pass composes into the sequence's own pose before that pose is blended, so
+                // the only variable that has walked anywhere by then is the sequence's own cycle.
+                float index = entry.DrivenByPose && !local
                     ? PoseIndex(skinned, target, entry, values)
                     : cycle;
 
@@ -1683,8 +1692,11 @@ public sealed class EntityModelSet
                     layerWeight = weight * ramp;
                 }
 
-                // **Not remapped for a pose-driven layer**, whose cycle stays the parent's.
-                if (!entry.DrivenByPose)
+                // **Not remapped for a pose-driven layer**, whose cycle stays the parent's — and
+                // `AddSequenceLayers` is the only pass that says so. `AddLocalLayers` ends with a
+                // bare `layerCycle = (cycle - pLayer->start) / (pLayer->end - pLayer->start);`
+                // under no guard at all, because its window was in cycle units to begin with.
+                if (!entry.DrivenByPose || local)
                 {
                     layerCycle = (cycle - entry.Start) / (entry.End - entry.Start);
                 }

@@ -770,6 +770,20 @@ public sealed class SkeletonPose : IBonePose
                 continue;
             }
 
+            // **`if (pStudioHdr->boneFlags( k ) & boneMask)`** (`bone_setup.cpp:2480`), which wraps
+            // the whole body of the engine's loop — a bone outside the mask does not even have its
+            // lerp computed. Production asks for `BONE_USED_BY_ANYTHING`, so this rejects a bone
+            // used by no hitbox, no attachment and no vertex at any LOD.
+            //
+            // **Every one of those flags reads "bone (or CHILD) is used by"**, so such a bone has no
+            // descendant used by anything either and bending it was already invisible. This is
+            // Valve's economy rather than Valve's correctness — and it becomes correctness the
+            // moment a caller asks for a mask narrower than everything.
+            if ((_bones[bone].Flags & StudioBoneFlags.UsedByAnything) == 0)
+            {
+                continue;
+            }
+
             float value = controller.Value(BoneControllers[controller.InputField]);
 
             StudioBonePose current = adjusted[bone];
