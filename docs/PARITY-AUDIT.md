@@ -305,10 +305,24 @@ if ( !m_bIceRagdoll && !tf_always_deathanim.GetBool() && (RandomFloat( 0, 1 ) > 
 
 Three quarters of eligible deaths discard the animation, by a `RandomFloat` on the recording
 client's own stream, recorded nowhere. So a replay cannot know which of the two a given corpse
-showed. That is the same class as `docs/memory/sound-the-demo-does-not-carry.md` — a client-generated
-decision, not a decode gap — and the honest options are to pick one deterministically and say so, or
-to expose it as a viewer setting. It is a divergence to be ASKED about rather than chosen quietly
-(`docs/memory/a-divergence-is-asked-not-documented.md`).
+showed — it is a client-generated decision, the same class as
+`docs/memory/sound-the-demo-does-not-carry.md`, not a decode gap.
+
+**This paragraph used to say the choice was "a divergence to be ASKED about rather than chosen
+quietly", and that was wrong** (D134). The owner, put the question: *"you should of done it valves
+way."* **Valve's way is the branch itself** — the engine draws a random number, so we draw one, and
+a 25/75 split is not an approximation of the engine but a reproduction of it. An unrecoverable INPUT
+does not make the LOGIC a choice; `a-divergence-is-asked-not-documented.md` covers deliberately doing
+something else, and this is not that.
+
+**The one thing genuinely forced on us is the SEED**, and it is a consequence of a capability the
+client lacks: this project can seek, so the draw must be keyed to the corpse rather than taken from
+a running stream, or scrubbing backwards would show a different death each time.
+
+**And `m_bGib` is not part of this.** It is networked — `RecvPropBool( RECVINFO( m_bGib ) )`
+(`c_tf_player.cpp:524`) — so gibbing is recorded in the demo and read rather than guessed. The draw
+sets `iDeathSeq = -1` (`:831`), which clears `bPlayDeathAnim` (`:836`); the split is death animation
+against plain ragdoll physics and nothing else.
 
 **Priority argument, from the owner's own scoping.** B59 records that ragdolls are wanted "for frag
 vid makers" and that deaths are much of what a frag video shows. 299 in one match, every one

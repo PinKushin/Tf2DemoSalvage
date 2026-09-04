@@ -188,3 +188,4 @@
 - [A sabotage can change behaviour without testing the claim](a-sabotage-can-change-behaviour-without-testing-the-claim.md) — for an absence claim, the WRONG answer must be reachable.
 - [A default-valued field is untestable on the corpus](a-default-valued-field-is-untestable-on-the-corpus.md) — inert at its default means impossible to observe, not merely unfound; author the specimen.
 - [It ran and it mattered are two claims](it-ran-and-it-mattered-are-two-claims.md) — instrument the effect, not the execution; a magnitude answers what a screenshot cannot.
+- [An unrecoverable input is not an open choice](an-unrecoverable-input-is-not-an-open-choice.md) — reproduce the mechanism and draw the input as the engine does; do not offer a menu.

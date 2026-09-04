@@ -7311,3 +7311,40 @@ has defaulted to `SPACE` under `+jump` since it was written, matching the `[%jum
 spectator HUD prints. The defect was three comments and one line of `--help` naming a key that does
 not exist. **A wrong key in help text is worse than no key**, because the reader presses it, nothing
 happens, and a working feature reads as broken — which is exactly how it was found.
+
+### D134 — an unrecoverable value is still reproduced Valve's way, not put to the owner as a menu
+
+**The owner, 2026-09-04, on being asked how the viewer should resolve TF2's animation-versus-ragdoll
+coin flip:** *"you should of done it valves way, but too late for that."*
+
+**What I did wrong.** `CreateTFRagdoll` decides whether a corpse plays a death animation or falls as
+physics with a `RandomFloat` on the recording client's own stream (`c_tf_player.cpp:829`), which no
+demo records. I treated "the value is unrecoverable" as "the behaviour is undecided" and offered
+three options — always animate, always simulate, or a viewer setting. Two of those are not Valve's
+way, and the standing decision says never to ask which of Valve's way and another to take.
+
+**Valve's way is the branch itself.** The engine draws a random number; so do we. A 25% chance of the
+death animation and 75% plain ragdoll is not an approximation of the engine — it IS the engine, and
+reproducing the draw reproduces the distribution a viewer would have seen. The only adaptation
+forced on us is that the draw must be seeded per corpse so scrubbing backwards shows the same one
+twice, because this project can seek and the client could not.
+
+**The general rule this sets: an unrecoverable INPUT does not make the LOGIC a choice.** Where the
+engine's own answer comes from a source a demo cannot carry, reproduce the mechanism that consumes
+it and pick the input the way the engine picks it. `docs/memory/a-divergence-is-asked-not-documented.md`
+covers a real divergence — where we deliberately do something else — and this is not one. Asking here
+converted a decided thing into an open one.
+
+**Where the finding said to ask, it was wrong, and it is mine.** `PARITY-AUDIT.md` #4 records the
+random branch as *"a divergence to be ASKED about rather than chosen quietly"*. That framing is what
+I followed; it should have read that the draw is reproduced and the seed is the only thing to
+settle.
+
+#### And a factual correction, checked rather than assumed
+
+The owner's reading of the split — *"25% is gibs the 75% is ragdolls i think"* — is not what the code
+does, and the hedge invited the check. **`m_bGib` is networked**: `RecvPropBool( RECVINFO( m_bGib ) )`
+(`c_tf_player.cpp:524`), so gibbing is recorded in the demo and is not decided by the draw at all.
+The `RandomFloat` sets `iDeathSeq = -1` (`:831`), which clears `bPlayDeathAnim` (`:836`) — so the
+split is **death animation against plain ragdoll physics**, with gibs a separate networked boolean we
+can simply read.
