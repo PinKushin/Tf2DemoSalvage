@@ -20228,3 +20228,28 @@ the index stays in the properties, so an unnamed one still shows its number and 
 readers of one shape. This is the third copy, added because generalising two working readers is a
 larger change than adding the missing one — but the next table makes it four, and that is the point
 to stop and extract.
+
+### The precache extraction, done rather than owed
+
+B305 closed with a debt written next to it: `soundprecache`, `modelprecache` and `EffectDispatch`
+are readers of one shape, and the third was a third copy. Deferring that is the pattern this
+session spent hours correcting — a note recording work as owed, read later as a fact about the
+code. `PrecacheTable` now holds it and `SoundNames` and `EffectNames` delegate, keeping their
+public shapes so no caller moved.
+
+**What is shared is not the dictionary.** Three rules travel with it, each learned once:
+
+- keyed on the entry's own INDEX, not its position — the two agree in a fresh table and stop
+  agreeing the moment an update arrives out of order;
+- updates count as well as the create, or a late precache leaves the reader stale mid-demo;
+- an entry with no text carries only user data, and storing it would blank a name that had arrived.
+
+**`ModelPrecache` is deliberately NOT built on it, and that is the interesting half.** It looks like
+a fourth of the same thing and is not: a model index is packed with the protocol's own bit layout
+and needs unpacking before it means anything, and it carries a second table for dynamic models.
+Forcing it through would hide both behind a shape that happens to match.
+
+**No new test suite for the base.** It is exercised through both users, which is where its behaviour
+is actually depended on; a third suite asserting the same rules would be the duplication this
+change removed, in the tests instead of the code. The controls that matter already live with the
+users — a create for another table, and an update whose id resolved to another table's name.

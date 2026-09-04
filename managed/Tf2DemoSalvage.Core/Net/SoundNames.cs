@@ -27,10 +27,14 @@ public sealed class SoundNames
     /// <summary>The string table sound indices address.</summary>
     public const string TableName = "soundprecache";
 
-    private readonly Dictionary<int, string> _byIndex = [];
+    /// <summary>
+    /// The shared precache reader — the index keying, the update rule and the empty-text rule all
+    /// live there now rather than in a copy per table (B305).
+    /// </summary>
+    private readonly PrecacheTable _table = new(TableName);
 
     /// <summary>Number of resolvable names held.</summary>
-    public int Count => _byIndex.Count;
+    public int Count => _table.Count;
 
     /// <summary>Every precached name held, in no particular order.</summary>
     /// <remarks>
@@ -40,22 +44,12 @@ public sealed class SoundNames
     /// <see cref="TableName"/> filter above, so the caller would be measuring its own copy of the
     /// rule rather than this one.
     /// </remarks>
-    public IEnumerable<string> Names => _byIndex.Values;
+    public IEnumerable<string> Names => _table.Entries.Values;
 
     /// <summary>Takes the entries of a created string table, if it is the sound table.</summary>
     /// <param name="table">Any created string table; non-sound tables are ignored.</param>
     /// <exception cref="ArgumentNullException"><paramref name="table"/> is null.</exception>
-    public void Add(CreateStringTableMessage table)
-    {
-        ArgumentNullException.ThrowIfNull(table);
-
-        if (!string.Equals(table.Name, TableName, StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        Add(table.Entries);
-    }
+    public void Add(CreateStringTableMessage table) => _table.Add(table);
 
     /// <summary>Applies a string table update, if it targets the sound table.</summary>
     /// <param name="update">The update.</param>
@@ -63,17 +57,8 @@ public sealed class SoundNames
     /// Name the update's table id resolved to, or <c>null</c> when it could not be resolved.
     /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="update"/> is null.</exception>
-    public void Add(UpdateStringTableMessage update, string? tableName)
-    {
-        ArgumentNullException.ThrowIfNull(update);
-
-        if (!string.Equals(tableName, TableName, StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        Add(update.Entries);
-    }
+    public void Add(UpdateStringTableMessage update, string? tableName) =>
+        _table.Add(update, tableName);
 
     /// <summary>The precached path for a sound index, or <c>null</c> if it is not known.</summary>
     /// <param name="soundIndex">Index as <c>svc_Sounds</c> or <c>svc_Prefetch</c> carries it.</param>
@@ -83,20 +68,5 @@ public sealed class SoundNames
     /// index loses nothing, while inventing a name would put a wrong path in a trace that reads
     /// like a decoded one.
     /// </remarks>
-    public string? Resolve(int soundIndex) =>
-        _byIndex.TryGetValue(soundIndex, out string? name) ? name : null;
-
-    private void Add(IReadOnlyList<StringTableEntry> entries)
-    {
-        // Keyed on the entry's own index, not its position in the list. The two agree in a
-        // freshly created table and stop agreeing the moment an update arrives out of order, and
-        // it is the entry's index that a sound message refers to.
-        //
-        // An entry with no text is a real entry carrying only user data - skipped rather than
-        // stored, so it cannot resolve to a sound named "".
-        foreach (StringTableEntry entry in entries.Where(e => !string.IsNullOrEmpty(e.Text)))
-        {
-            _byIndex[entry.Index] = entry.Text!;
-        }
-    }
+    public string? Resolve(int soundIndex) => _table.Resolve(soundIndex);
 }

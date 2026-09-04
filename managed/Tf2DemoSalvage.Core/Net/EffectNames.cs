@@ -40,26 +40,18 @@ public sealed class EffectNames
     /// </remarks>
     public const string TableName = "EffectDispatch";
 
-    private readonly Dictionary<int, string> _byIndex = [];
+    private readonly PrecacheTable _table = new(TableName);
 
     /// <summary>Number of resolvable names held.</summary>
-    public int Count => _byIndex.Count;
+    public int Count => _table.Count;
 
-    /// <summary>Every precached effect name held, in index order where indices are contiguous.</summary>
-    public IReadOnlyDictionary<int, string> Names => _byIndex;
+    /// <summary>Every precached effect name held, by index.</summary>
+    public IReadOnlyDictionary<int, string> Names => _table.Entries;
 
     /// <summary>Takes the entries of a created string table, if it is the effect table.</summary>
     /// <param name="table">Any created string table; others are ignored.</param>
     /// <exception cref="ArgumentNullException"><paramref name="table"/> is null.</exception>
-    public void Add(CreateStringTableMessage table)
-    {
-        ArgumentNullException.ThrowIfNull(table);
-
-        if (string.Equals(table.Name, TableName, StringComparison.Ordinal))
-        {
-            Add(table.Entries);
-        }
-    }
+    public void Add(CreateStringTableMessage table) => _table.Add(table);
 
     /// <summary>Applies a string table update, if it targets the effect table.</summary>
     /// <param name="update">The update.</param>
@@ -67,15 +59,8 @@ public sealed class EffectNames
     /// Name the update's table id resolved to, or null when it could not be resolved.
     /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="update"/> is null.</exception>
-    public void Add(UpdateStringTableMessage update, string? tableName)
-    {
-        ArgumentNullException.ThrowIfNull(update);
-
-        if (string.Equals(tableName, TableName, StringComparison.Ordinal))
-        {
-            Add(update.Entries);
-        }
-    }
+    public void Add(UpdateStringTableMessage update, string? tableName) =>
+        _table.Add(update, tableName);
 
     /// <summary>The name at an index, or null when it is not held.</summary>
     /// <param name="index">The <c>m_iEffectName</c> value.</param>
@@ -85,22 +70,5 @@ public sealed class EffectNames
     /// printing something that reads like a real effect. An index this does not hold is a table
     /// that did not arrive, not an effect that has no name.
     /// </remarks>
-    public string? Name(int index) =>
-        _byIndex.TryGetValue(index, out string? name) ? name : null;
-
-    private void Add(IReadOnlyList<StringTableEntry> entries)
-    {
-        for (int at = 0; at < entries.Count; at++)
-        {
-            StringTableEntry entry = entries[at];
-
-            // **An entry with no text is an update to an existing one's USER DATA**, which this
-            // table does not carry anything in — overwriting the name with an empty string there
-            // would blank an effect that had already arrived.
-            if (entry.Text is { Length: > 0 } name)
-            {
-                _byIndex[entry.Index] = name;
-            }
-        }
-    }
+    public string? Name(int index) => _table.Resolve(index);
 }
