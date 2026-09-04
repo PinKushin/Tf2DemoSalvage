@@ -65,4 +65,13 @@ Not handled:
 C_TEArmorRicochet, C_TEBeamEntPoint, C_TEBeamEnts, C_TEBeamFollow, C_TEBeamLaser, C_TEBeamPoints, C_TEBeamRing, C_TEBeamRingPoint, C_TEBeamSpline, C_TEBloodSprite, C_TEBloodStream, C_TEBreakModel, C_TEBSPDecal, C_TEBubbles, C_TEBubbleTrail, C_TEClientProjectile, C_TEDecal, C_TEDynamicLight, C_TEEffectDispatch, C_TEEnergySplash, C_TEExplosion, C_TEFizz, C_TEFootprintDecal, C_TEGlowSprite, C_TEImpact, C_TEKillPlayerAttachments, C_TELargeFunnel, C_TEMetalSparks, C_TEMuzzleFlash, C_TEPhysicsProp, C_TEPlayerDecal, C_TEProjectedDecal, C_TEShatterSurface, C_TEShowLine, C_TESmoke, C_TESparks, C_TESprite, C_TESpriteSpray, C_TEWorldDecal
 ```
 
-None of the temp entity effects are drawn. See `EffectConformanceTests`.
+None of the BASE GAME's temp entity effects are drawn. See `EffectConformanceTests`.
+
+**This denominator is `source-sdk-2013`'s, and TF2 does not send most of it** (B304). Measured over whole demos, three of the four commonest temp entities are TF2's own classes, absent from the list above: `CTEPlayerAnimEvent` (40,288 in `z1800`, 74% of every temp entity in the file), `CTEFireBullets` (3,601) and `CTETFBlood` (2,899). **And the largest of them IS handled** — `CTEPlayerAnimEvent` is the gesture feed, decoded and drawn; it is not counted here because it is not one of the 39.
+
+The count that ranks the work is a per-class census of a real demo:
+
+```
+Cli -j -o out.jsonl <demo>
+grep '"type":"effect"' out.jsonl | grep -oE '"class":"[A-Za-z]+"' | sort | uniq -c | sort -rn
+```

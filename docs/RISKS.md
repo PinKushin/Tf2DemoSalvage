@@ -20078,3 +20078,94 @@ handled in its own comment. And the measurement agrees: `posed 13.3 of 550.2 sel
 
 **Fourth stale OPEN entry found tonight**, after B157, B254 and B258. Same shape as the others and
 recorded under B258's note on why: a state of the work was written down as a standing fact.
+
+## B304 — "0 of 39 temp entity effects" counts the wrong 39
+
+`SDK-COVERAGE.md` reports **0 of 39** temp entity effects handled, generated from the classes
+`source-sdk-2013` declares. Measured against what TF2 actually SENDS, that denominator is the wrong
+one and the numerator is wrong too.
+
+**Counted over whole demos, by class** (`Cli -j`, then group the `"type":"effect"` lines):
+
+| class | `z1800` | `pub-pov-clean` | in the SDK's 39? |
+|---|---:|---:|---|
+| `CTEPlayerAnimEvent` | **40,288** | **20,415** | no — TF2's own |
+| `CTEFireBullets` | 3,601 | 2,737 | no — TF2's own |
+| `CTETFBlood` | 2,899 | 1,205 | no — TF2's own |
+| `CTEEffectDispatch` | 1,946 | 243 | yes |
+| `CTEWorldDecal` | 1,618 | 753 | yes |
+| `CTETFExplosion` | 1,473 | 430 | no — TF2's own |
+| `CTEDust` | 1,399 | 490 | no |
+| `CTETFParticleEffect` | 464 | — | no — TF2's own |
+| `CTEDecal` | 190 | 85 | yes |
+| `CTESparks` | 170 | 70 | yes |
+
+**54,246 temp entities in `z1800` alone.** Three of the top four classes by volume are TF2's own
+and appear nowhere in the SDK list the report is generated from — so "0 of 39" is a fact about
+`source-sdk-2013`'s base game, not about this viewer against TF2.
+
+**And the single largest is already handled.** `CTEPlayerAnimEvent` is 74 per cent of every temp
+entity in `z1800` and it is the gesture feed — decoded, dispatched and drawn. The report says zero
+because that class is not one of the 39.
+
+### What this changes about the work
+
+Not "implement 39 effects". The ranking says the reachable set is small and TF2-shaped:
+
+- **Decals** — `CTEWorldDecal`, `CTEDecal`, `CTEBSPDecal` together are ~1,800 a demo. These are
+  bullet holes and scorch marks on the world, and they persist, so they accumulate visibly.
+- **`CTEEffectDispatch`** is a dispatcher rather than an effect: it names an effect by string and
+  hands it a `CEffectData`. Reading it once tells you what TF2 dispatches through it.
+- **`CTEFireBullets`** is the tracer and impact source, 3,601 a demo.
+- The rest are under 200 each.
+
+**The instrument is not wrong, its DENOMINATOR is** — the same fault as
+`docs/memory/the-denominator-decides-what-can-be-lost.md`, one level up: a generated denominator
+cannot go stale, but it can be generated from the wrong population. `SdkCoverageTests` extracts from
+the SDK because that is what can be extracted; TF2's own `C_TE*` classes are in the closed client,
+and the demo's own schema names all of them (`schema <demo> TE` lists them).
+
+**The cheap fix to the report** is to say what it is counting. It reads as "none of the effects are
+drawn"; it means "none of the base game's 39 are". The count that matters is a per-class census of
+a real demo, and the command for it is above.
+
+## B305 — `m_iEffectName` is decoded and unnameable: the `EffectDispatch` string table is not read
+
+Following B304's census. `CTEEffectDispatch` is a DISPATCHER rather than an effect: it names one by
+index and hands it a `CEffectData`. `DT_EffectData` declares the index —
+
+```
+m_vOrigin, m_vStart, m_vAngles, m_vNormal, m_fFlags, m_flMagnitude, m_flScale,
+m_nAttachmentIndex, m_nSurfaceProp, m_iEffectName, m_nMaterial, m_nDamageType, m_nHitBox,
+entindex, m_nColor, m_flRadius, m_bCustomColors, ... m_ControlPoint1.m_vecOffset[2]
+```
+
+— and this project decodes it. Counted in `z1800`, `m_iEffectName` is sent **1,697 times** across
+**seven distinct values**:
+
+```
+474 x 3    427 x 5    427 x 4    253 x 1    64 x 2    48 x 6    4 x 0
+```
+
+**Seven effects, not thirty-nine.** That is the whole of what TF2 dispatches through this path in a
+sixteen-minute demo, and it is a far more useful denominator than the SDK's class list.
+
+**The index is unresolvable, because the table it addresses is not read.** Four string tables are
+tracked — `userinfo`, `soundprecache`, `modelprecache`, `instancebaseline` — and `EffectDispatch` is
+not among them. It IS in the demo: a trace of `z1800` carries one `EffectDispatch` create message,
+with `soundprecache` beside it as the control that says the search works.
+
+### Deliberately not half-built
+
+A reader on its own would be another decoded-and-unread field — the exact pattern this audit keeps
+turning up (`m_bClientSideAnimation`, `m_nResetEventsParity`, `m_flPlaybackRate`,
+`SkyCameraOrigin`). What it needs to be worth having:
+
+1. the reader, shaped like `SoundNames` — **and note those two plus `modelprecache` are now three
+   tables of one shape**, which is where the extraction belongs rather than a third copy;
+2. the wiring in `DemoTimeline` beside the other three;
+3. a consumer that draws or reports something, so the names reach an output;
+4. the census above re-run to name the seven, which is the measurement that says what to draw.
+
+Step 4 is the cheap one and it comes first: with the reader alone, one run turns `3, 5, 4, 1, 2, 6,
+0` into seven strings and tells us exactly which effects a TF2 demo asks for.

@@ -83,7 +83,17 @@ public sealed class SdkCoverageTests
             SdkInventory.Report("Network messages", messages, ImplementedMessages()) +
             "\n" +
             SdkInventory.Report("Temp entity effects", effects, []) +
-            "\nNone of the temp entity effects are drawn. See `EffectConformanceTests`.\n";
+            "\nNone of the BASE GAME's temp entity effects are drawn. See `EffectConformanceTests`.\n" +
+            "\n**This denominator is `source-sdk-2013`'s, and TF2 does not send most of it** " +
+            "(B304). Measured over whole demos, three of the four commonest temp entities are TF2's " +
+            "own classes, absent from the list above: `CTEPlayerAnimEvent` (40,288 in `z1800`, 74% " +
+            "of every temp entity in the file), `CTEFireBullets` (3,601) and `CTETFBlood` (2,899). " +
+            "**And the largest of them IS handled** — `CTEPlayerAnimEvent` is the gesture feed, " +
+            "decoded and drawn; it is not counted here because it is not one of the 39.\n" +
+            "\nThe count that ranks the work is a per-class census of a real demo:\n" +
+            "\n```\nCli -j -o out.jsonl <demo>\n" +
+            "grep '\"type\":\"effect\"' out.jsonl | grep -oE '\"class\":\"[A-Za-z]+\"' | " +
+            "sort | uniq -c | sort -rn\n```\n";
 
         Directory.CreateDirectory(Path.GetDirectoryName(ReportPath)!);
         File.WriteAllText(ReportPath, report);
