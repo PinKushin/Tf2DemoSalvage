@@ -618,7 +618,12 @@ run Tf2DemoSalvage.Animation.Tests animation 111
 # fixture on purpose: the engine repaints a corpse's cosmetics in a SECOND pass over the entities
 # following it (c_tf_player.cpp:982-993), because an override is per renderable, and a body-only
 # implementation leaves a golden corpse in a normal-coloured hat.
-run Tf2DemoSalvage.Scene.Tests    scene     441
+# 441 -> 452: TF2's paint. Five for `GetModifiedRGBValue`'s arithmetic (B330) — the float-to-integer
+# conversion, the old-team sentinel, the branch order that tests the sentinel BEFORE the second
+# colour, and the control that an unpainted item answers null; four that the value reaches the drawn
+# instance PER ENTITY, which is the assertion a material-level implementation cannot pass; and two
+# that `MomentScene` supplies the delegate at all, the hop that has shipped three no-ops here.
+run Tf2DemoSalvage.Scene.Tests    scene     452
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -970,7 +975,11 @@ run Tf2DemoSalvage.Presentation.Tests presentation 440
 # the rule is "level 90 and above", not "at or below ours", and only a refusal test can tell those
 # apart. The `.phy` set includes one authored specimen: every file TF2 ships ends with a trailing
 # `editparams` block, so removing the reader's final block-close reddens nothing on real data.
-run Tf2DemoSalvage.Content.Tests  content   989
+# 989 -> 993: `$blendtintbybasealpha` and `$blendtintcoloroverbase` (B331), which decide WHERE a
+# tint lands. One of the four is the control that an ordinary material takes the other branch, and
+# one pins that self-illumination wins where both are asked for — a pixel-shader limit Valve states
+# with a SKIP, not an art decision.
+run Tf2DemoSalvage.Content.Tests  content   993
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
@@ -1275,7 +1284,15 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     156
 # one is the structural check — the list must be index-parallel with the materials, since a list
 # built by appending only the materials that HAVE a mask would have the right count and paint the
 # wrong surfaces.
-run Tf2DemoSalvage.Rendering.Tests rendering 736
+# 736 -> 740: the tint blend reaching the renderer's material state (B331), three of them, plus the
+# document police that caught four sections of docs/CONFORMANCE.md claiming features that work.
+#
+# **The two REFLECTION tests already here are what caught this work's regression**, and that is the
+# argument for keeping them: appending a float4 to the material struct moved `categoryColour` and the
+# per-batch write, addressed from the array's END, landed in the tint controls — every reflective
+# model drew pure white. Nothing in the paint suite could see it; every assertion there sits upstream
+# of the buffer.
+run Tf2DemoSalvage.Rendering.Tests rendering 740
 # 101 -> 103 on 2026-08-29: LaunchOptionWiringTests (B223, D118). Two tests, and they cost about
 # seventeen seconds EACH, because each builds a real MainForm and loads a corpus demo — which reads
 # cp_badlands.bsp when Team Fortress 2 is installed. That is the most expensive pair in this file

@@ -46,6 +46,11 @@ public readonly record struct FiredAnimationEvent(
 /// <paramref name="SkinSwap"/>: a skin picks another entry from the model's own table, and this
 /// ignores the table.
 /// </param>
+/// <param name="Paint">
+/// The colour this item is painted, or null for an unpainted one (B330). Feeds TF2's
+/// <c>ItemTintColor</c> proxy, which is per ENTITY — two players in the same hat and different
+/// paints share a material and must draw different colours, so this cannot live on the material.
+/// </param>
 /// <param name="Mirrored">
 /// Whether this is a viewmodel, drawn mirrored — which reverses its winding, so the cull has to
 /// flip with it or the weapon draws inside out.
@@ -102,6 +107,11 @@ public readonly record struct ModelInstance(
     // `ForcedMaterialOverride`, which a gold or iced corpse draws with. Null for everything else.
     // Not a `SkinSwap`: that picks another entry from the model's OWN table, and this ignores it.
     string? MaterialOverride = null,
+
+    // **The colour this item is PAINTED** (B330), feeding TF2's `ItemTintColor` proxy at the bind.
+    // Per entity rather than per material, which is what a proxy is: two players wearing the same
+    // hat in different paints share one material and draw different colours.
+    (float Red, float Green, float Blue)? Paint = null,
     bool Mirrored = false,
 
     // **Where the model stands, which its Matrix does not always say** (B170). A baked model is put
@@ -233,6 +243,18 @@ public sealed class EntityModelSet
     /// without a game install.
     /// </remarks>
     public Func<SceneProp, IReadOnlyList<string>>? Attachments { get; set; }
+
+    /// <summary>The colour a prop's item is painted, asked per prop, or null for none (B330).</summary>
+    /// <remarks>
+    /// **A delegate for the same reason <see cref="Attachments"/> is one**: the answer needs the
+    /// econ attribute resolution and `items_game.txt`, which live a layer up, and it needs the
+    /// owner's TEAM to choose between a two-tone paint's two colours. Production supplies
+    /// `WeaponModels.PaintFor`.
+    ///
+    /// Null when nothing supplies it — every test that does not care, and every viewer with no game
+    /// install, where an unpainted item is the right answer rather than a guessed one.
+    /// </remarks>
+    public Func<SceneProp, (float Red, float Green, float Blue)?>? Paint { get; set; }
 
     /// <summary>Where the entities this set builds report, so the bone merge can say what paired.</summary>
     private readonly ILoggerFactory _loggers;
@@ -4226,6 +4248,11 @@ public sealed class EntityModelSet
                 // (`c_tf_player.cpp:1281-1290`), and each wearable applies its own copy through
                 // `GetEconWeaponMaterialOverride` (`econ_entity.cpp:1793`).
                 MaterialOverride: prop.MaterialOverride,
+
+                // **TF2's paint, per entity** (B330). Asked here rather than carried on the prop
+                // because it needs the econ resolution and the item schema, which this layer
+                // reaches through a delegate exactly as it does for attached models.
+                Paint: Paint?.Invoke(prop),
                 Mirrored: false,
                 Origin: origin,
 

@@ -450,6 +450,69 @@ public sealed class VmtMaterial
         }
     }
 
+    /// <summary>Whether the tint lands only where the base texture's alpha says (B331).</summary>
+    /// <remarks>
+    /// <c>$blendtintbybasealpha</c>, which is what makes TF2's paint colour a hat's band and not the
+    /// whole hat. The shader branches on it:
+    ///
+    /// <code>
+    /// if (bBlendTintByBaseAlpha)
+    /// {
+    ///     float3 tintedColor = albedo * g_DiffuseModulation.rgb;
+    ///     tintedColor = lerp(tintedColor, g_DiffuseModulation.rgb, g_fTintReplacementControl);
+    ///     albedo = lerp(albedo, tintedColor, baseColor.a);
+    /// }
+    /// else
+    ///     albedo = albedo * g_DiffuseModulation.rgb;
+    /// </code>
+    ///
+    /// <c>skin_ps20b.fxc:317-326</c>. The mask is the base texture's OWN alpha rather than the
+    /// modulated one, and the two differ as soon as a material names <c>$alpha</c>.
+    ///
+    /// **Self-illumination wins where both are asked for**, which is a shader limit rather than an
+    /// art decision: <c>bBlendTintByBaseAlpha = IsBoolSet( … ) &amp;&amp; !bHasSelfIllum; // Pixel
+    /// shader can't do both BLENDTINTBYBASEALPHA and SELFILLUM, so let selfillum win</c>
+    /// (<c>skin_dx9_helper.cpp:269</c>), and the shader declares
+    /// <c>SKIP: ( $BLENDTINTBYBASEALPHA ) &amp;&amp; ( $SELFILLUM )</c> so the combination cannot
+    /// even be compiled. Reproduced here rather than left to the renderer, because a material
+    /// asking for both is a question about the MATERIAL.
+    /// </remarks>
+    public bool TintsByBaseAlpha => Flag("$blendtintbybasealpha") && !IsSelfIlluminated;
+
+    /// <summary>How much the tint REPLACES the albedo rather than multiplying into it.</summary>
+    /// <remarks>
+    /// <c>$blendtintcoloroverbase</c>, Valve's <c>g_fTintReplacementControl</c>, lerping between the
+    /// two in the branch quoted on <see cref="TintsByBaseAlpha"/>. **Zero by default and zero on
+    /// TF2's cosmetics**, which keeps the texture's detail visible under the colour; one paints the
+    /// masked region flat.
+    /// </remarks>
+    public float TintOverBase => Number("$blendtintcoloroverbase", 0f);
+
+    /// <summary><c>$color</c> alone, the factor <c>$color2</c> is multiplied against (B330).</summary>
+    /// <remarks>
+    /// **Carried separately because a proxy REPLACES `$color2` and not the product.** TF2's paint
+    /// chain ends `SelectFirstIfNonZero( $colortint_tmp, $colortint_base ) -> $color2`, so the
+    /// modulation a painted item draws with is `$color * paint` — and this project's
+    /// <see cref="Modulation"/> is the resting product of the two, which cannot be taken apart
+    /// afterwards without dividing by a value that is legally zero.
+    ///
+    /// White where the material names none, which is Valve's initialisation:
+    /// <c>color.Init( 1.0, 1.0, 1.0, 1.0 )</c>.
+    /// </remarks>
+    public (float Red, float Green, float Blue) ColourFactor => Colour("$color");
+
+    /// <summary>The colour a tintable item wears when it is NOT painted (B330).</summary>
+    /// <remarks>
+    /// <c>$colortint_base</c>, the second input to the `SelectFirstIfNonZero` every tintable TF2
+    /// item pairs with `ItemTintColor`. Shipped materials initialise `$color2` to the same value, so
+    /// the resting modulation already carries it — this is here so the proxy chain can be run as the
+    /// chain rather than as an assumption about that initialisation holding.
+    ///
+    /// Null when the material names none, which is every material that is not tintable.
+    /// </remarks>
+    public (float Red, float Green, float Blue)? TintBase =>
+        Value("$colortint_base") is null ? null : Colour("$colortint_base");
+
     /// <summary>Whether the modulation is anything other than the identity.</summary>
     /// <remarks>
     /// Asked so a renderer can skip the work for the overwhelming majority of materials that name

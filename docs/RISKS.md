@@ -22363,11 +22363,267 @@ that has been established; this one has not been. Asserting either answer today 
 interpolation dressed as a measurement — and the last two of those in this area, both about DirectX
 blocks, were wrong in opposite directions.
 
-**What settles it, in order of cost:** whether any material carrying `$vertexcolor` is on a face
-this renderer draws at all rather than on an overlay or a prop (measurable now); what
-`StudioTriangles` already does for models, where the answer is known and different — a static prop's
-colours come from its `.vhv` and ARE read, with the `origMeshVertID` subtlety handled; and finally
-the engine's own world mesh builder.
+#### Measured: it is 3 of 139 on brushwork, not 55, and two of the three are overlays
 
-**Visible if it turns out to be a divergence:** brushwork tinted where it should be plain, or plain
-where it should be tinted — 55 materials on `cp_process_final`, more than `$envmap` carries.
+The "55 materials" figure counts every material the map LOAD resolves, which includes every prop's.
+Asking the narrower question — which materials are on a world FACE — gives a very different answer.
+Every material on brush model 0 of `cp_process_final`, 139 of them, checked against its own VMT:
+
+```
+OVERLAYS/DUST_GRADIENT01
+OVERLAYS/DUST_GRADIENT02
+TOOLS/TOOLSINVISIBLEDISPLACEMENT
+```
+
+**Three, and one of them is invisible by construction.** `TOOLSINVISIBLEDISPLACEMENT` is a tool
+texture — 518 faces on this map and not drawn — so the population that could possibly differ is
+**two dust-gradient overlays**.
+
+That reframes the entry rather than closing it. It is no longer "55 brush materials are
+unimplemented"; it is "two overlays declare a flag whose data source is unknown, on a map where the
+rest of the brushwork provably does not use it". The priority is small; the question is unchanged,
+because a flag that TF2's own maps put on gradient overlays is exactly where a gradient would come
+from if it came from anywhere.
+
+**What still settles it:** what Valve's overlay mesh builder writes into the colour stream. That is
+engine-side, so a decompiler question. The MODEL half is known and different — a static prop's
+per-vertex colours come from its `.vhv` and ARE read here, with the `origMeshVertID` subtlety
+handled (`StudioTriangles`).
+
+**Visible if it turns out to be a divergence:** two dust-gradient overlays on this map drawing flat
+where they should fade. Small, and precisely located — which is worth more than the number this
+entry started with.
+
+### B330 PART DONE 2026-09-04: `ItemTintColor`, TF2's paint — the value half is built, the proxy is not
+
+**Found by auditing `docs/CONFORMANCE.md`'s proxy section against what the game actually uses.** That
+section names six unimplemented proxies — `Subtract`, `PlayerProximity`, `Clamp`,
+`PlayerTeamMatch`, `Divide`, `Multiply` — and does not mention the two commonest in TF2's own
+materials. Counted over all 30,684 shipped VMTs with the `vmt-blocks` probe:
+
+| proxy | materials |
+|---|---|
+| `SelectFirstIfNonZero` | 60 |
+| `ItemTintColor` | 60 |
+| `Sine` | 8 |
+
+They appear together because they are a pair, and the pairing is the mechanism: `ItemTintColor`
+writes **zero** for an unpainted item and `SelectFirstIfNonZero` then takes the material's own
+colour instead.
+
+#### The engine's rule, read in full
+
+```cpp
+static CSchemaAttributeDefHandle pAttr_Paint ( "set item tint rgb" );
+static CSchemaAttributeDefHandle pAttr_Paint2( "set item tint rgb 2" );
+
+if ( FindAttribute…( this, pAttr_Paint, &fRGB ) ) { unRGB = (uint32)fRGB; unRGBAlt = unRGB; }
+
+if ( unRGB == kPaintConstant_OldTeamColor )       { unRGB = RGB_INT_RED; unRGBAlt = RGB_INT_BLUE; }
+else if ( FindAttribute…( this, pAttr_Paint2, &fRGBAlt ) ) { unRGBAlt = (uint32)fRGBAlt; }
+else                                                unRGBAlt = unRGB;
+```
+
+`CEconItemView::GetModifiedRGBValue`, `econ_item_view.cpp:1596-1633`, unpacked by
+`CProxyItemTintColor::OnBind` (`econ_wearable.cpp:465-543`). Read-from-source. **Four traps, all
+pinned by tests:**
+
+- **The 32 bits are a FLOAT whose VALUE is the packed colour**, converted with `(uint32)fRGB`.
+  Reinterpreting the bits instead gives a plausible-looking and completely wrong colour.
+- **1 is a SENTINEL, not a colour.** `kPaintConstant_OldTeamColor` selects `RGB_INT_RED` 12073019
+  and `RGB_INT_BLUE` 5801378 (`econ_item_constants.h:501-502`); reading it as a colour paints an
+  item almost black.
+- **The sentinel is tested BEFORE the second attribute**, so an item carrying both ignores its
+  second colour. Writing the branches the natural way round passes the two obvious tests and fails
+  this one — measured, by sabotage, which also caught that the swap returns `1` for the RED side.
+- **No paint is ZERO, not white**, because `SelectFirstIfNonZero` is what turns that into the
+  material's own colour.
+
+#### What is built, and what is not
+
+**Built:** `ItemPaint` in `Tf2DemoSalvage.Scene` — the whole of `GetModifiedRGBValue` plus Valve's
+unpack, with five conformance tests on a synthetic schema. Everything it needs was already reachable:
+the wire carries `EconAttributeValue(DefinitionIndex, RawBits)` per item (B234) and
+`ItemSchema.AttributeDefinitionIndex` bridges the two attribute NAMES to their indices, the way
+`CSchemaAttributeDefHandle` does.
+
+**Not built: the proxy, because the material layer has no entity.** `ApplyProxies` runs per MATERIAL
+at bind — which is where the engine runs proxies, correctly — and `ItemTintColor` needs the item
+being drawn. That is B80's architectural gap, and the shape of the fix is visible: `SetMaterial`
+already carries a per-BATCH tint for brush entities (B219), so a per-draw econ tint can ride the
+same route. `SelectFirstIfNonZero` is a two-input pick and is trivial once a proxy can see a value.
+
+**Not measured yet: how many items in this corpus are painted.** That decides priority, never
+whether the parity is owed (D137) — and unlike the gold ragdoll, paint is common in real play, so
+the expectation is that this one is visible rather than authored-for.
+
+**Visible when wrong:** every painted cosmetic in every demo drawing in its default colour.
+
+#### B330 measured: paint is common, and the sentinel branch fires on real data
+
+The `paint` probe, through the production `WeaponModels.PaintFor`:
+
+```
+serveme-627619-stv-2026-08-07 @ 18303:  12 painted of 51 econ items, 383 props
+z1800 @ 30000:                          10 painted of 102 econ items, 158 props
+```
+
+**Roughly a quarter of the cosmetics in a competitive match are painted**, which is the opposite of
+the gold ragdoll — that flag appears on 0 of 566 corpses and had to be authored a specimen. This one
+is everywhere, and every painted item is currently drawn in its default colour.
+
+**The values are self-verifying, which is why they are printed as hex rather than counted.** Every
+colour that came back is a TF2 paint somebody can name:
+
+| colour | paint |
+|---|---|
+| `#FF69B4` | Pink as Hell |
+| `#E6E6E6` | An Extraordinary Abundance of Tinge |
+| `#7D4071` | Noble Hatter's Violet |
+| `#141414` | A Distinctive Lack of Hue |
+| `#C5AF91` | Peculiarly Drab Tincture |
+| `#694D3A` | Radigan Conagher Brown |
+
+A wrong read of those 32 bits gives a number, and a number is not recognisable. `0xE7B53B` read as
+raw bits instead of a truncated float is `0x4B67B53B`, which is still "a colour" and is nothing
+anybody has ever equipped.
+
+**And two items came back `#B8383B / BLU #5885A2`** — which is `RGB_INT_RED` 12073019 and
+`RGB_INT_BLUE` 5801378 exactly. **The old-team-colour sentinel is not a legacy curiosity; it is live
+in a 2026 match**, on `hwn2019_horrible_horns` and `summer_hat_Soldier`. That branch would have been
+invisible to a synthetic-only test, and reading its 1 as a colour would paint both items
+`#000001` — near-black, on two hats, in every demo that contains them.
+
+### B331 FIXED 2026-09-04: `$blendtintbybasealpha` — the tint covered the whole model
+
+**Found while building the paint proxy (B330), and it has to land first.** A painted cosmetic
+modulates by `$color2`; without this branch that colour multiplies across the entire model instead
+of the region the artist masked. A hat comes out dyed end to end rather than on its band, which
+looks like a wrong colour rather than a missing feature.
+
+```hlsl
+if (bBlendTintByBaseAlpha)
+{
+    float3 tintedColor = albedo * g_DiffuseModulation.rgb;
+    tintedColor = lerp(tintedColor, g_DiffuseModulation.rgb, g_fTintReplacementControl);
+    albedo = lerp(albedo, tintedColor, baseColor.a);
+}
+else
+{
+    albedo = albedo * g_DiffuseModulation.rgb;
+}
+```
+
+`skin_ps20b.fxc:317-326`. Read-from-source. Four things in it are easy to lose:
+
+- **The mask is the base texture's OWN alpha**, `baseColor.a`, sampled before the modulation — not
+  the modulated `albedo.a`. They differ as soon as a material names `$alpha`.
+- **`$blendtintcoloroverbase` is a LERP, not a flag** — Valve's `g_fTintReplacementControl`, between
+  multiplying the tint into the albedo and replacing the albedo with it. Zero is the default and
+  every shipped cosmetic uses it, so a reader defaulting it to one paints every tintable region
+  flat.
+- **Self-illumination wins where both are asked for**, and it is a shader limit rather than an art
+  decision: `bBlendTintByBaseAlpha = IsBoolSet( … ) && !bHasSelfIllum; // Pixel shader can't do both`
+  (`skin_dx9_helper.cpp:269`), with `SKIP: ( $BLENDTINTBYBASEALPHA ) && ( $SELFILLUM )` in the
+  shader so the pair cannot even be compiled. Reproduced on the MATERIAL, since it is a question
+  about the material.
+- **Alpha is modulated either way.** Valve's branch touches `.rgb` only.
+
+**Measured on a real load with three cosmetics: 3 of 432 materials tint by base alpha, all three
+carrying a colour, and 0 of the map's own brush materials.** That last is the control — it is a
+tintable-item mechanism, and a reader answering true by default would change how every surface in
+the game draws.
+
+#### A pixel test was written, measured, and cannot be made decisive — recorded rather than dropped
+
+The first version rendered a quad twice at different VERTEX alphas and asserted the pixels differed.
+They did not, and **the code was right**: the branch reads `first.a`, the base TEXTURE's alpha at
+the sampled UV, which a quad's vertex alpha never reaches. An input the manipulation does not touch
+is the "wrong condition" case, and it produced a red test against correct code.
+
+Three further conditions were considered and each is confounded, so the reasons are written on the
+test rather than left for somebody to rediscover:
+
+1. **Two UVs of one texture** — the alpha differs and so does the albedo, so a plain multiply also
+   gives two different pixels.
+2. **A texel at alpha 0 against one at alpha 1** — the two branches differ by a factor of the
+   modulation, which cancels only if the texels share an albedo, and no shipped texture guarantees a
+   region of constant colour and varying alpha.
+3. **A control material identical but for the flag** — does not exist in shipped content.
+
+So the branch is verified by reading, by the conformance suite, and by a wiring assertion that the
+material state arrives populated. The same shape `PhongRenderTests` records for
+`$lightwarptexture`.
+
+#### B330 DONE: the proxy chain, and painted items draw painted
+
+**Both proxies implemented, per entity, at the bind — which is where the engine runs them.** The
+chain every tintable TF2 item declares:
+
+```
+"ItemTintColor"        { "resultVar" "$colortint_tmp" }
+"SelectFirstIfNonZero" { "srcVar1" "$colortint_tmp"  "srcVar2" "$colortint_base"  "resultVar" "$color2" }
+```
+
+`ItemTintColor` writes the paint, or **zero** for an unpainted item — which is the mechanism rather
+than a fallback, since zero is exactly what makes the `SelectFirstIfNonZero` beside it choose the
+material's own colour (`CProxyItemTintColor::OnBind` starts its result at `Vector( 0, 0, 0 )`).
+`SelectFirstIfNonZero` is Valve's `!a.IsZero()` over all three channels
+(`mathproxy.cpp:1050-1062`), so a paint of pure black is indistinguishable from no paint — Valve's
+behaviour, reproduced rather than improved on.
+
+**A variable table, because one proxy's output is the other's input.** `$colortint_tmp` is not a
+shader constant, and running the second proxy without the first's result would be running half a
+mechanism. The table is seeded with `$colortint_base` from the material — a `SelectFirstIfNonZero`
+reading a missing variable as zero would paint every unpainted cosmetic black.
+
+**`$color` is carried apart from `$color2`**, which is why `MapTexture` gained a `ColourFactor`. The
+modulation constant holds their PRODUCT, and the chain replaces only the second — recovering the
+first by dividing is impossible when it is legally zero.
+
+**Per entity, and that is the assertion a material-level implementation cannot pass.** Two players
+wearing the same hat in different paints share one material and must draw different colours;
+`PaintProxyWiringTests` pins exactly that, and its two controls pin that an unpainted prop and a
+missing delegate both answer null rather than tinting the game.
+
+Threaded `MomentScene` → `EntityModelSet.Paint` → `ModelInstance.Paint` → `Device3D` → `DrawModel` →
+`SetMaterial` → `ApplyProxies`, with the owner's TEAM supplied at the top because a two-tone paint
+picks by it and a worn item carries no team of its own.
+
+#### B331 addendum: the constant buffer bit for the FOURTH time, and this one is fixed structurally
+
+Appending `tintControl` to the material struct turned every reflective model pure white, caught by
+`ReflectionRenderTests` in the gate — two tests, both reporting `(255, 255, 255)` where a cubemap
+should have shown.
+
+**The cause is one line that was correct when written.** The per-batch category colour is written
+into the mapped buffer after the material's own constants are copied, and it was addressed from the
+END:
+
+```csharp
+target[contents.Length - 4] = colour.Red;
+```
+
+True while `categoryColour` was the struct's last float4. Appending `tintControl` after it sent the
+category colour into the tint controls instead — whose `x` is read as `$blendtintbybasealpha`, so
+every model took the tint branch against a garbage mask.
+
+**This file already records three earlier versions of the same fault**: a buffer created 160 bytes
+wide against a declared 192, and a `categoryColour` addition where a replace-all matched two of three
+arrays. Each was fixed by getting that instance right. This one is fixed by removing the assumption:
+the offset is now a named constant, and a guard beside the existing length check asserts it is still
+the float4 before the last —
+
+```
+categoryColour is declared at float 60 of 72, which is no longer the float4 before the last;
+the shader struct has changed and the named offsets have not
+```
+
+— verified by moving the constant and watching it throw. The length check catches an array that grew
+without the struct; this catches the struct growing without the offsets, which is the direction that
+had no check at all.
+
+**And the tests that caught it were about reflections, not about tint.** Nothing in the paint work's
+own suite could have: every one of its assertions is upstream of the buffer. What failed was two
+pixel tests on an unrelated feature, which is the argument for keeping pixel tests that measure a
+whole draw rather than only the value under construction.

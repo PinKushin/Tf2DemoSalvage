@@ -217,7 +217,7 @@ sabotages predicted before they were run, and each failed exactly the case predi
 
 ## Not implemented, ordered by what it costs
 
-### `$phong` — every model is dull
+### `$phong` — IMPLEMENTED; what remains is the exponent texture
 330 materials, with `$phongboost` 329, `$phongfresnelranges` 329, `$phongexponent` 323,
 `$basemapalphaphongmask` 102. This is Source's specular for characters, and its absence is the
 single largest visual difference on players. **Read `vertexlitgeneric_dx9_helper.cpp` and
@@ -234,7 +234,7 @@ engine sums it over the light cache's local lights as well, and those do not rea
 highlight appears where the sun reaches and nowhere else. That is smaller than TF2's and it is what
 the decoded data supports.
 
-### `$normalmapalphaenvmapmask` — reflective props shine everywhere at once
+### `$normalmapalphaenvmapmask` — IMPLEMENTED, and this section outlived it
 15 prop materials on cp_badlands, `cap_point_base` and its two team skins among them. The three
 reflection masks are mutually exclusive by construction — the shader declares
 `SKIP: $NORMALMAPALPHAENVMAPMASK && $BASEALPHAENVMAPMASK` — and this project implements the
@@ -242,26 +242,58 @@ base-alpha one and not this. **A material with a bump map cannot use `$basealpha
 (`lightmappedgeneric_dx9_helper.cpp:197` warns and drops the envmap outright), which is why TF2's
 model materials use this one.
 
-WHAT YOU SEE: a capture point reflects uniformly, across the painted and worn parts the artist
-masked out. **Too shiny rather than too dark** — the opposite of B83's original symptom, and only
-reachable now that reflections draw at all.
+WHAT YOU SAW, before it landed: a capture point reflecting uniformly across the painted and worn
+parts the artist masked out. **Too shiny rather than too dark** — the opposite of B83's original
+symptom, and only reachable once reflections drew at all.
 
-### Material proxies — the entity-state half
+**Implemented.** `envmapControl.y` carries a MODE rather than a flag — 1 is `$basealphaenvmapmask`,
+2 is this — because the two masks pull opposite ways and the shader forbids both at once
+(`SKIP: $NORMALMAPALPHAENVMAPMASK && $BASEALPHAENVMAPMASK`). Mode 2 is **not** inverted:
+`specularFactor = normalTexel.a`, assigned rather than subtracted from one
+(`vertexlit_and_unlit_generic_bump_ps2x.fxc:169`), so an alpha of 1 reflects most — the exact
+opposite of the base-alpha mask beside it, where Valve's own comment reads *"Reversing alpha
+blows!"*. Measured on the map the tests load: **16 reflective materials masked this way.**
+
+### Material proxies — the entity-state half, now partly crossed
 `TextureScroll` and `Sine` are ported, the `Proxies` block is parsed, and proxies are evaluated at
 BIND on both the world and the entity model paths — which is what the engine does, since
 `IMaterialProxy` has `Init`, `OnBind` and `Release` and no tick.
 
-What remains reads the ENTITY the material is drawn on: `Subtract`, `PlayerProximity`, `Clamp`,
-`PlayerTeamMatch`, `Divide` and `Multiply` are functions of team and distance, not of time, and the
-material layer has no entity. An unrecognised proxy leaves the material at its resting value rather
-than guessing. Filed as B80.
+**`ItemTintColor` and `SelectFirstIfNonZero` are ported too, and they are the two commonest in TF2's
+own materials** — 60 each over the 30,684 shipped, against `Sine`'s 8. They are TF2's paint, and
+they were missing from this section's list entirely while it named six rarer ones: counted with
 
-### `$lightwarptexture` — lighting curve is linear where TF2's is authored
-308 materials. A one-dimensional ramp the engine looks up with `N·L`, which is a large part of
-TF2's flat, illustrative look.
+```bash
+dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -- vmt-blocks
+```
 
-### `$rimlight` — no edge light
+Porting them crossed the barrier this section describes. A proxy reading the ENTITY needs the entity,
+and the route is now built — `MomentScene` supplies a per-prop delegate, `ModelInstance` carries the
+value, and it reaches `ApplyProxies` at the bind with a variable table for one proxy to hand its
+result to the next. B330 has the mechanism; the remaining entity proxies are plumbing along the same
+path rather than an architectural gap.
+
+What still remains: `Subtract`, `PlayerProximity`, `Clamp`, `PlayerTeamMatch`, `Divide` and
+`Multiply`. An unrecognised proxy leaves the material at its resting value rather than guessing.
+Filed as B80.
+
+### `$lightwarptexture` — IMPLEMENTED, and this section outlived it
+308 materials. A one-dimensional ramp the engine looks up with `N·L`, which is a large part of TF2's
+flat, illustrative look.
+
+**Implemented**, sampled with the CLAMP sampler — wrapping would send a surface at the end of the
+curve back to the other end of it — and **doubled**, `2.0f * lightWarp.Sample(...)`, so a mid-grey
+ramp is neutral rather than a white one. The half-Lambert square is skipped where a warp is present,
+because the ramp already carries that curve (`common_vertexlitgeneric_dx9.h:86`).
+
+### `$rimlight` — IMPLEMENTED, and this section outlived it
 301 materials, with boost and exponent. Cheap next to `$phong` and visible on silhouettes.
+
+**Implemented.** `rimControl` carries the exponent, the boost and whether there is a rim at all —
+and the third is only ever set alongside phong, because the rim lives in the Skin shader and
+`VertexLitGeneric` reaches it on `$phong` alone. Its discriminator is the angle to the EYE rather
+than to the light: `Fresnel4` is `(1 - N·V)²²`, so a surface facing the camera contributes nothing
+and one seen edge-on contributes most.
 
 ### `EyeRefract` — 13 materials
 The only unimplemented **shader** on cp_process. Already falls back to the iris texture
@@ -286,6 +318,31 @@ whether it produced anything. **It is policed in both directions** — a row nam
 longer exists fails too, because otherwise the audit quietly checks nothing.
 
 See `docs/DECISIONS.md` D45.
+
+### It policed the TESTS, and this document rotted anyway
+
+**Four sections above were false on 2026-09-04** — `$phong`, `$normalmapalphaenvmapmask`,
+`$lightwarptexture` and `$rimlight`, all sitting under *"Not implemented, ordered by what it costs"*
+while all four are in the shader.
+
+**The audit was not broken; its instruction was followed two-thirds of the way.**
+`GapMarkers_WhoseFeatureNowWorks_AreReported` fires when a marker outlives its gap and its message
+says exactly what to do: *"delete the test, its row here, and its section in docs/CONFORMANCE.md"*.
+The test went, the row went, the section stayed. Four times.
+
+**So the document is now policed on the same terms as the tests.**
+`TheCostOrderedGapList_NamesNoParameterThatIsImplemented` reads the `###` headings inside this
+section and fails when one names a parameter that `MaterialCensus.ImplementedParameters` contains —
+two documents contradicting each other, with one of them enforced. A heading may say **IMPLEMENTED**
+in as many words, which is how a section outliving its gap is kept for the history instead of being
+deleted; that is what the four above now do.
+
+**Only the headings are read, never the prose.** A section may legitimately discuss an implemented
+parameter — the `$normalmapalphaenvmapmask` entry explains the mask it is mutually exclusive with —
+and that is not a claim about this project. What a heading says IS the claim.
+
+**It caught a fourth nobody had noticed.** `$phong`'s section carried "Implemented 2026-08-21, B128"
+in its BODY and "every model is dull" in its heading, and the heading is what a reader skims.
 
 ## Deliberately not ours
 

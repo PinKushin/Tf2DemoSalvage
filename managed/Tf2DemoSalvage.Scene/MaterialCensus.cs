@@ -123,6 +123,14 @@ internal static class MaterialCensus
         // of the shipped materials that declare one declare it in there — and the census firing on
         // it in that same run is what the tripwire is for.
         "$selfillummask",
+
+        // **Where a tint LANDS, which TF2's painted items make load-bearing** (B331).
+        // `$blendtintbybasealpha` confines the modulation to the region the base texture's alpha
+        // marks — a hat's band rather than the whole hat — and `$blendtintcoloroverbase` lerps
+        // between multiplying the colour in and replacing the albedo with it. On brushwork neither
+        // appears at all; they arrive with the first cosmetic loaded.
+        "$blendtintbybasealpha",
+        "$blendtintcoloroverbase",
         "$decal",
         "%compilenodraw",
         "include",
