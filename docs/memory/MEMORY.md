@@ -186,3 +186,4 @@
 - [A fixture can be outside the algorithm's domain](a-fixture-can-be-outside-the-algorithms-domain.md) — a small miss in a solver may be a refused input, not a bug.
 - [A key format is two facts](a-key-format-is-two-facts.md) — a built key encodes several; one wrong kills it and a `??` hides it.
 - [A sabotage can change behaviour without testing the claim](a-sabotage-can-change-behaviour-without-testing-the-claim.md) — for an absence claim, the WRONG answer must be reachable.
+- [A default-valued field is untestable on the corpus](a-default-valued-field-is-untestable-on-the-corpus.md) — inert at its default means impossible to observe, not merely unfound; author the specimen.
