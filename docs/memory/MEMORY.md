@@ -184,3 +184,4 @@
 - [Follow the call, not the value](follow-the-call-not-the-value.md) — an override one call deeper is invisible from the arithmetic.
 - [Predictions must not sit on a boundary](predictions-must-not-sit-on-a-boundary.md) — exact decimal vs float floors to the frame below.
 - [A fixture can be outside the algorithm's domain](a-fixture-can-be-outside-the-algorithms-domain.md) — a small miss in a solver may be a refused input, not a bug.
+- [A key format is two facts](a-key-format-is-two-facts.md) — a built key encodes several; one wrong kills it and a `??` hides it.
