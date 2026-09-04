@@ -21686,3 +21686,42 @@ implemented or measured inert:
 noticing about `CreateTFRagdoll` itself rather than only about this project: it is 40 branches long
 and most of them are for cases a real match does not contain. The parts that decide what a corpse
 looks like are the model, the skin, the angles, the cosmetics and the fall.
+
+### B322 ANSWERED 2026-09-04: TF2 uses two of the five procedural bone rules, and both are implemented
+
+**The question B317 left behind, closed by counting rather than by reasoning.** `CalcProceduralBone`
+dispatches five rules; this project implements `STUDIO_PROC_JIGGLE` and, since B317,
+`STUDIO_PROC_QUATINTERP`. The obvious worry is that one of the other three is used by some weapon or
+building nobody happened to look at.
+
+Counted over **every `.mdl` in `tf2_misc_dir.vpk` — 14,109 models, 0 unreadable**:
+
+```
+AXISINTERP        0 bones (0 skinned) across 0 models
+QUATINTERP       14 bones (14 skinned) across 7 models
+AIMATBONE         0 bones (0 skinned) across 0 models
+AIMATATTACH       0 bones (0 skinned) across 0 models
+JIGGLE         3472 bones (3472 skinned) across 1535 models
+```
+
+```bash
+dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -- procedural-bones
+```
+
+**Three of Valve's five rules are dead in TF2's content** — present in the engine, numbered in
+`studio.h`, dispatched by `CalcProceduralBone`, and asked for by no model in the game. `AIMATBONE`
+and `AIMATATTACH` are Half-Life 2 mechanisms (a turret barrel tracking a target); TF2's sentry aims
+with pose parameters. Implementing them would be writing code for content that does not exist, the
+same trap as `$modblend`.
+
+**Every procedural bone in the game is skinned.** Not one of the 3,486 is a helper nothing is
+weighted to. Worth recording because that test is what decided B317 was worth doing, and it could
+have gone the other way.
+
+**Both figures are needed and they answer different questions.** `bone-flags <demo>` says what a
+demo draws — 18 jiggle and 4 quatinterp bones across 44 models at one tick. `procedural-bones` says
+what the game contains. A rule could be common in the content and absent from every demo, or the
+reverse.
+
+**Not established:** QUATINTERP is on seven models where TF2 has nine classes, so two class models
+carry no forearm helper. Which two, and whether it shows, is unmeasured.

@@ -47,3 +47,15 @@ silently inverted denominator rather than a bigger one.
 
 Then the question asked properly instead of once: enumerate every macro whose body contains the
 declaration, rather than reading the one file the failures happened to live in.
+
+**"What a demo draws" and "what the game contains" are two denominators, and a parity question needs
+the second.** Measured 2026-09-04 on the procedural bone rules. One tick of one demo covers 44
+models and reported `AXISINTERP`, `AIMATBONE` and `AIMATATTACH` on no bone at all — which is a fact
+about that demo, not about TF2, and would have left "some weapon somewhere might use one" open for
+ever. Counting every `.mdl` in `tf2_misc_dir.vpk` — 14,109 models — closed it: those three rules are
+asked for by NO model in the game, so implementing them would be writing code for content that does
+not exist.
+
+Both denominators are needed and they answer different questions: a rule can be common in the
+content and absent from every demo, or the reverse. Keep both probes rather than replacing one with
+the other, and say which you ran.

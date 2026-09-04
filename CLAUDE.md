@@ -268,7 +268,7 @@ dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -- <name> [args]
 dotnet run --project tools/Tf2DemoSalvage.Probe -c Release --                # lists them
 ```
 
-Twenty-five of them. The ones worth knowing before writing a twenty-sixth:
+Twenty-nine of them. The ones worth knowing before writing a thirtieth:
 
 | probe | answers |
 |---|---|
@@ -280,6 +280,8 @@ Twenty-five of them. The ones worth knowing before writing a twenty-sixth:
 | `weapon-models`, `viewmodels`, `spy-draw` | weapons that resolve to nothing; what the recorder holds |
 | `parity [filter]` | engine functions we cite, ranked by Valve's branch count |
 | `bone-flags <demo>` | which per-bone flags and procedural rules real models set, with denominators |
+| `procedural-bones` | the same question over every `.mdl` the GAME ships, not one demo's models |
+| `corpses <demo>` | what each `CTFRagdoll` says about itself, and how many are drawn at a tick |
 | `autoplay <demo>` | which models animate themselves off the clock — `STUDIO_AUTOPLAY` |
 
 **Probes run the PRODUCTION path or they are worthless.** `DemoCorpus` lives here and

@@ -381,19 +381,40 @@ second, that is where the headroom is.
 ## 9. Procedural bones: five rules, two of which TF2 actually uses
 
 `mstudiobone_t` carries `proctype` and `procindex`, and `CalcProceduralBone` dispatches on the first
-of them with a `switch` (`bone_setup.cpp:4932-4965`). Five rules exist. Measured across every model
-drawn in one tick of `serveme-627619-stv-2026-08-07` — 540 bones over 44 models — TF2 uses exactly
-two:
+of them with a `switch` (`bone_setup.cpp:4932-4965`). Five rules exist. **Counted over every `.mdl`
+TF2 ships — 14,109 models — it uses two of them and the other three on nothing at all:**
 
-| rule | bones | what carries it |
-|---|---|---|
-| `STUDIO_PROC_JIGGLE` (5) | 18 | cosmetics — a ghost gibus, a djinn lamp, a medic's rabbit ears |
-| `STUDIO_PROC_QUATINTERP` (2) | 4 | `hlp_forearm_L` / `hlp_forearm_R`, on every class model |
-| `AXISINTERP`, `AIMATBONE`, `AIMATATTACH` | 0 | nothing measured |
+| rule | bones | skinned | models |
+|---|---|---|---|
+| `STUDIO_PROC_JIGGLE` (5) | 3,472 | **3,472** | 1,535 |
+| `STUDIO_PROC_QUATINTERP` (2) | 14 | **14** | 7 |
+| `STUDIO_PROC_AXISINTERP` (1) | 0 | — | 0 |
+| `STUDIO_PROC_AIMATBONE` (3) | 0 | — | 0 |
+| `STUDIO_PROC_AIMATATTACH` (4) | 0 | — | 0 |
 
 ```bash
-dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -- bone-flags <demo>
+dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -- procedural-bones
 ```
+
+**Every procedural bone in the game carries vertices.** Not one of the 3,486 is a helper nothing is
+skinned to, which is worth stating because that was the question that decided whether QUATINTERP was
+worth implementing at all — and had the answer gone the other way for jiggle bones, a thousand
+cosmetics would have been simulated for nothing.
+
+**Three of Valve's five rules are dead in TF2's content.** They exist in the engine, `studio.h`
+numbers them, `CalcProceduralBone` dispatches them, and no model in the game asks for one.
+`AIMATBONE` and `AIMATATTACH` are Half-Life 2 mechanisms — a turret barrel tracking a target — and
+TF2's sentry does its aiming with pose parameters instead. Implementing them would be writing code
+for content that does not exist, which is the same trap as the `$modblend` shader parameter
+(`12-shader-parity.md`).
+
+**QUATINTERP is on seven models, not nine.** TF2 has nine classes, so two class models do not carry
+the forearm helper. Which two, and whether their forearms pinch in the game as a result, is not
+established here.
+
+The one-tick figures this section first carried — 18 jiggle bones and 4 quatinterp across 44 models —
+came from `bone-flags <demo>`, which measures what a demo draws rather than what the game contains.
+Both are useful and they answer different questions.
 
 **Four bones out of 540 sounds like nothing, and the count is the wrong number to look at.** What
 decides whether an unimplemented rule is visible is whether any vertex is weighted to the bone it
