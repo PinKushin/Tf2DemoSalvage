@@ -20978,3 +20978,39 @@ path matters where that is absent.
 
 **Extracted to `ResourceTeam` so the two callers cannot disagree again.** One had it right and one
 had it wrong for as long as both have existed, which is what two spellings of one key produce.
+
+### The pose path was looked at, not only tested — 2026-09-04
+
+**This session rewrote the middle of the pose pipeline** — a lock bracket inside `Accumulate`, three
+per-bone scale passes after IK, the autolayer window and cycle changed twice — and every one of
+those is the kind of change whose failure a green suite cannot see. B298 is the precedent: seven of
+fifteen players upside down, found by the owner looking, with the suite green.
+
+**So a frame was captured and read.** `cp_fulgur` at tick 14000, third person over the spy at
+(2238, −1925, 148):
+
+```
+TF2VIEW_CAMERA="2338 -1825 190 10 225" tf2demoview <demo> --tick 14000 --shot out.png
+```
+
+**Upright, limbs in sensible positions, feet on the ground, other players drawn behind.** That is
+the whole claim — it is a check against gross breakage, not evidence that any individual change is
+correct.
+
+#### And the added work costs nothing the instrument can resolve
+
+The bracket runs a chain build per locked layer per entity per frame, so it was measured rather than
+assumed. Same demo, tick, first person, twelve seconds, before and after:
+
+| | frames a second | posing, ms of the second | allocated |
+|---|---|---|---|
+| before | 122–210 | 529–604 | 140–205 MB |
+| after | 122–217 | 567–621 | 147–207 MB |
+
+**Overlapping ranges, so: no regression this can resolve.** Not "faster" and not "identical" — a
+per-second sample of a scene whose contents vary cannot separate a few percent, and saying otherwise
+would be reading precision the instrument does not have. What it rules out is the thing worth ruling
+out: the bracket is not costing tens of milliseconds a frame.
+
+**Why it is cheap is legible rather than lucky.** A lock runs only for a sequence that declares one,
+and `BoneChain`'s memo means two locks sharing a spine walk it once.
