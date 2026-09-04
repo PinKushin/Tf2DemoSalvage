@@ -1516,6 +1516,17 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _textures = [];
 
+    /// <summary>Which table index each whole-model override material took, by VMT path.</summary>
+    /// <remarks>
+    /// **A path in and an ordinary material index out**, so an override needs no second bind path of
+    /// its own — see <see cref="MapAssets.OverrideMaterials"/>, which appends them to the same table
+    /// every face and every model batch indexes. `DrawModel` substitutes the index and everything
+    /// downstream follows: textures, detail, bump, cubemap, light warp, constants, proxies, blend
+    /// and depth.
+    /// </remarks>
+    private IReadOnlyDictionary<string, int> _overrideMaterials =
+        new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Which materials the engine adds rather than paints, by index.</summary>
     /// <remarks>
     /// **Drawn in a second pass with additive blending, which is what the engine does.** Source
@@ -2330,6 +2341,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
             _textures.Add(uploaded);
 
+
             // **The material's thumbnail, for `mat_showlowresimage`.** Uploaded beside the texture
             // rather than lazily when the mode is first switched on: the mode is a debug view and
             // building a few hundred 16x16 textures at that moment would stall the frame it was
@@ -2415,6 +2427,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
         {
             _blendTextures.Add(Upload(device, context, texture));
         }
+
+        // **Where the two whole-model override materials landed in the table** (B325). Nothing is
+        // uploaded here: they were appended to `assets` alongside every other material, so the loops
+        // above and below have already uploaded them. This is only the path-to-index map a draw
+        // needs, since a corpse asks for gold by name and knows no index.
+        _overrideMaterials = assets.OverrideMaterials;
 
         for (int index = 0; index < assets.Details.Count; index++)
         {
@@ -4585,6 +4603,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <param name="locals">
     /// The direct lights near this model, at most four (B170). Empty where none reach it.
     /// </param>
+    /// <param name="overrideMaterial">
+    /// One material's VMT path replacing EVERY one of the model's own, or null for the ordinary
+    /// case (B325) — the engine's <c>ForcedMaterialOverride</c>, which a corpse uses to turn gold
+    /// or to ice. Not a skin: a skin picks another entry from the model's own table, and this
+    /// ignores the table. An unresolved path falls back to the model's own materials.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **One matrix and one draw per entity, which is the engine's shape.** The vertices were
@@ -4603,13 +4627,15 @@ internal sealed unsafe class WorldRenderer : IDisposable
         int bones = 0,
         IReadOnlyDictionary<int, int>? skin = null,
         ModelPass pass = ModelPass.EntireModel,
+        // See the bind site: one material replacing every one of the model's own, by VMT path.
         IReadOnlyList<(int Base, int Count)>? bodyParts = null,
         int body = 0,
         bool mirrored = false,
         bool bothSides = false,
         (float X, float Y, float Z)? origin = null,
         (float Red, float Green, float Blue)? tint = null,
-        IReadOnlyList<LocalLight>? locals = null)
+        IReadOnlyList<LocalLight>? locals = null,
+        string? overrideMaterial = null)
     {
         ArgumentNullException.ThrowIfNull(matrix);
         ArgumentNullException.ThrowIfNull(batches);
@@ -4738,6 +4764,30 @@ internal sealed unsafe class WorldRenderer : IDisposable
             int material = skin is not null && skin.TryGetValue(batch.MaterialSlot, out int swapped)
                 ? swapped
                 : batch.MaterialIndex;
+
+            // **A whole-model override replaces the resolved material outright, which is what makes
+            // it different from a skin** (B325). A skin picks another entry from the model's own
+            // table — the lookup directly above — and this ignores the table:
+            // `modelrender->ForcedMaterialOverride( pOverrideMaterial )` (`c_baseanimating.cpp:3438`)
+            // binds ONE material for the whole draw, so a gold corpse's hands, coat and boots all
+            // paint from it.
+            //
+            // **Substituted here, before anything reads `material`, so the override is a material
+            // rather than a texture.** Gold's look is mostly `$envmap cubemaps/cubemap_gold001` with
+            // `$envmaptint [1.5 1.2 .2]` and a rim term, and ice adds a bump, a phong warp and a
+            // light warp — swapping slot 0 alone would have kept the PLAYER material's cubemap,
+            // phong, detail and blend state under a flat swatch, which draws something and is not
+            // the engine's answer.
+            //
+            // **An override that did not resolve leaves the model's own**, rather than falling to
+            // the white chequer. A machine without TF2 has neither material, and a corpse in its own
+            // skin is far closer to right than a magenta one — and is what the engine shows when
+            // `m_MaterialOverride.Init` fails.
+            if (overrideMaterial is not null &&
+                _overrideMaterials.TryGetValue(overrideMaterial, out int forced))
+            {
+                material = forced;
+            }
 
             // **Culling per material, because that is where the engine keeps it.** $nocull sets
             // MATERIAL_VAR_NOCULL and shaders test it per material (imaterial.h:369,

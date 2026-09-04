@@ -269,7 +269,12 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # against. Four: each name read, and each returning NULL under the other's field — null is what
 # sends the caller to the other branch, and a zero default would point every old-era corpse at the
 # world.
-run Tf2DemoSalvage.Core.Tests     core     1693
+# 1693 -> 1696: the gold and ice specimen (B325). No demo in the corpus carries either flag — 0 of
+# 566 corpses measured — so the decode is exercised by an authored one: the schema written into a
+# dem_datatables, the entity encoded into a real svc_PacketEntities, DemoTimeline.Build reading it
+# back. Three, and the third is the control: an ordinary corpse must answer false to both, without
+# which a decode returning true unconditionally passes the other two.
+run Tf2DemoSalvage.Core.Tests     core     1696
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
@@ -602,7 +607,18 @@ run Tf2DemoSalvage.Animation.Tests animation 111
 # weapons on his corpse, holstered ones included — the engine walks the econ WEARABLE list, and a
 # weapon is a CTFWeaponBase, which is not in it. Naming the models in the probe is what made that
 # obvious; a count of ten would have read as a success.
-run Tf2DemoSalvage.Scene.Tests    scene     424
+# 424 -> 437: the corpse death animation (B323, 9) and the gold/ice material overrides (B324, 4).
+# The death suite includes the case that found two of the three taunt-kill exclusions to be
+# unreachable — GetSequenceForDeath has no case for either guitar, so both fail the `iDeathSeq > -1`
+# test in the same condition and never reach the coin flip they are excused from. The material pair
+# includes the both-gold-and-ice case, because ice is assigned SECOND in the engine and wins.
+# 437 -> 441: the material override's wiring, corpse to drawn instance (B325). Four, and the fourth
+# is the control — every corpse in this corpus is an ordinary one, so an override applied
+# unconditionally would paint the whole match gold and pass the other three. The hat is in the
+# fixture on purpose: the engine repaints a corpse's cosmetics in a SECOND pass over the entities
+# following it (c_tf_player.cpp:982-993), because an override is per renderable, and a body-only
+# implementation leaves a golden corpse in a normal-coloured hat.
+run Tf2DemoSalvage.Scene.Tests    scene     441
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -1233,7 +1249,19 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     156
 # everything as before, a sky area leaves the room out of the main pass, the sky set holds it alone,
 # and the main runs SURVIVE the sky set being built - which they would not if both passes shared
 # VisibleWorld's one reused list, a fault that can only exist once both passes do.
-run Tf2DemoSalvage.Rendering.Tests rendering 726
+# 726 -> 733: B325's seven — three that the two override materials load and land past every map and
+# model material, four that draw them on a real device and compare pixels.
+#
+# **Read the number out of the `.trx`, NOT off the console line, and this floor is where that bites
+# hardest.** `dotnet test`'s summary reports `Total: 725` for this project where the trx reports
+# `total="733"`, because the console's total counts 672 passed plus 53 skipped and the trx counts
+# 672 executed plus all 61 not-executed — the eight `[Explicit]` tests appear in one and not the
+# other. Rendering is the only project where the two disagree, which is exactly why it is the one
+# that catches somebody using the wrong instrument: an hour went on a "the floor is 8 too high"
+# investigation on 2026-09-04, complete with a clean worktree at 635dea33 to prove the assembly had
+# "never held 726". It had. `assert-test-count.sh` greps `total="…"` deliberately; measure the same
+# way it does.
+run Tf2DemoSalvage.Rendering.Tests rendering 733
 # 101 -> 103 on 2026-08-29: LaunchOptionWiringTests (B223, D118). Two tests, and they cost about
 # seventeen seconds EACH, because each builds a real MainForm and loads a corpus demo — which reads
 # cp_badlands.bsp when Team Fortress 2 is installed. That is the most expensive pair in this file

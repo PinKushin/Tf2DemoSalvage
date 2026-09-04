@@ -109,17 +109,49 @@ public sealed class SkinOverrideConformanceTests
         player.ShouldContain("m_bGoldRagdoll || m_iDamageCustom == TF_DMG_CUSTOM_GOLD_WRENCH");
         player.ShouldContain("to maintain old demos involving the golden wrench");
 
-        // The gap, with its control, so this marker fails when the override lands (D45).
-        SchemaGap.AnyProductionAssemblyMentions(SchemaGap.KnownPresent).ShouldBeTrue(
-            "the search cannot find a name that is demonstrably compiled in");
+        // **And what the two routes actually DO, which is not the same thing** (B325). This was a
+        // gap marker until the override landed, and it asked for both routes to be covered. They
+        // are, and they differ:
+        //
+        //   if ( m_bGoldRagdoll || m_iDamageCustom == TF_DMG_CUSTOM_GOLD_WRENCH )
+        //   {
+        //       EmitSound( "Saxxy.TurnGold" );
+        //       m_bFixedConstraints = true;                       // :730-734, BOTH routes
+        //   }
+        //   …
+        //   if ( m_bFixedConstraints )
+        //       if ( m_bGoldRagdoll )
+        //           materialOverrideFilename = "…gold_player.vmt"; // :963-969, the FLAG only
+        //
+        // So the legacy damage type earns stiff constraints and a sound and keeps its own skin.
+        // Reproduced as written; recorded in B325 because it reads like an oversight and the code
+        // is unambiguous. The constraints half belongs to ragdoll physics, which this project does
+        // not simulate at all (B58), so there is nothing here for it to be asserted against.
+        RagdollAppearance.MaterialFor(Corpse(gold: true)).ShouldBe(
+            RagdollAppearance.GoldMaterial, "the new-style flag paints");
 
-        SchemaGap.AnyProductionAssemblyMentions("m_bGoldRagdoll").ShouldBeFalse(
-            "the gold ragdoll is now detected — replace this marker with a parity test, and cover "
-            + "BOTH of Valve's routes, since the old one exists precisely for old demos");
-
-        Assert.Ignore(
-            "the gold ragdoll override is not implemented. Note that Valve keeps TWO detection " +
-            "routes for it explicitly to keep old demos rendering — the game's own client carries " +
-            "backward compatibility for the same reason this project exists.");
+        RagdollAppearance.MaterialFor(Corpse(gold: false, damageCustom: GoldWrench)).ShouldBeNull(
+            "the old-style damage type is checked for the constraints and NOT for the material");
     }
+
+    /// <summary><c>TF_DMG_CUSTOM_GOLD_WRENCH</c>, counted off `ETFDmgCustom`'s enumerators.</summary>
+    private const int GoldWrench = 35;
+
+    /// <summary>A corpse carrying only what the golden-wrench question turns on.</summary>
+    private static SceneRagdoll Corpse(bool gold, int? damageCustom = null) =>
+        new(EntityIndex: 40,
+            Serial: 1,
+            PlayerClass: 5,
+            Team: SceneTeams.Red,
+            X: 0f,
+            Y: 0f,
+            Z: 0f,
+            Gib: false,
+            Burning: false,
+            FeignDeath: false,
+            WasDisguised: false,
+            FirstTick: 100,
+            LastTick: 200,
+            DamageCustom: damageCustom,
+            Gold: gold);
 }

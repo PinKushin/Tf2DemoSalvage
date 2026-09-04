@@ -2061,6 +2061,46 @@ public static class PropModels
                 ? Groups[where.Group].Sequences[where.Local].FiredEvents
                 : [];
 
+        /// <summary>The sequence with this exact label — the engine's <c>LookupSequence</c>.</summary>
+        /// <param name="label">The name studiomdl gave the sequence, such as <c>ragdollspawn</c>.</param>
+        /// <returns>Its merged index, or −1 when the model has no such sequence.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="label"/> is null.</exception>
+        /// <remarks>
+        /// **By LABEL and exactly, where <see cref="SequenceByActivity"/> matches an activity by
+        /// substring.** The two are different fields and different questions: an activity is a
+        /// shared name several sequences answer to with weights, and a label names one sequence.
+        /// `LookupSequence` is what `CreateTFRagdoll` and `GetSequenceForDeath` both use —
+        /// `LookupSequence( "primary_death_headshot" )`, `tf_player_shared.cpp:13448` — so a death
+        /// animation is found this way and never by activity.
+        ///
+        /// **Case-insensitive**, because `C_BaseAnimating::LookupSequence` compares with
+        /// `Q_stricmp` (`c_baseanimating.cpp:5872`), and a model's labels are not consistently cased.
+        /// </remarks>
+        public int SequenceByLabel(string label)
+        {
+            ArgumentNullException.ThrowIfNull(label);
+
+            for (int index = 0; index < Sequences.Count; index++)
+            {
+                if (Sequences.At(index) is not { } at ||
+                    at.Group >= Groups.Count ||
+                    at.Local >= Groups[at.Group].Sequences.Count)
+                {
+                    continue;
+                }
+
+                if (string.Equals(
+                    Groups[at.Group].Sequences[at.Local].Label,
+                    label,
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    return index;
+                }
+            }
+
+            return -1;
+        }
+
         /// <summary>The first merged sequence whose activity contains a fragment.</summary>
         /// <param name="fragment">Part of an activity name, such as <c>VM_IDLE</c>.</param>
         /// <returns>The merged sequence number, or −1 when no sequence claims it.</returns>

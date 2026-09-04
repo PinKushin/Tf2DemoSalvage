@@ -324,6 +324,21 @@ public sealed class WeaponModels
     /// condition every other asset lookup here already tolerates — the viewer draws what it can find
     /// and says what it could not.
     /// </remarks>
+    /// <summary>The econ item schema, read on first use, or null when the install has none.</summary>
+    /// <remarks>
+    /// **Published because a corpse's cosmetics need the same two facts a weapon does** (B324): an
+    /// item's `drop_type` decides whether it stays on the body or becomes a falling gib, and its
+    /// loadout slot decides whether a decapitation takes it. Both live in `items_game.txt`, which is
+    /// eight megabytes — reading it a second time for the ragdoll path would be the same file parsed
+    /// twice per demo.
+    ///
+    /// **Reading this is a WRITE the first time**, since the parse is lazy
+    /// (`docs/memory/a-lazy-cache-makes-reading-a-write.md`). That is the existing shape of this
+    /// class rather than something introduced here, and the flag beside it means the eight-megabyte
+    /// read is attempted once whether it succeeds or not.
+    /// </remarks>
+    public ItemSchema? Items => Schema();
+
     private ItemSchema? Schema()
     {
         if (_schema is not null || _missing)

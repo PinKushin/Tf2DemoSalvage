@@ -459,6 +459,24 @@ public readonly record struct ScenePose
 /// Whether the CLIENT advances this entity's cycle — <c>m_bClientSideAnimation</c>, which is
 /// membership in the engine's client-side animation list (B259).
 /// </param>
+/// <param name="DeathSequence">
+/// The death animation a CORPSE plays, by label, or null for everything else (B323).
+/// <para>
+/// **A name rather than an index, because only the model knows which index a label is.** The
+/// decision — which of TF2's two death animations, and whether the coin flip kept it — is made
+/// where models cannot be opened; <c>EntityModelSet.UpdateClientSideAnimations</c> resolves it with
+/// <c>SequenceByLabel</c>, which is the engine's own <c>LookupSequence</c>.
+/// </para>
+/// </param>
+/// <param name="MaterialOverride">
+/// One VMT path replacing EVERY material this model has, or null for the ordinary case (B325).
+/// <para>
+/// **This is the engine's <c>ForcedMaterialOverride</c>, not a skin.** A skin picks another entry
+/// from the model's own material table; this ignores the table entirely. TF2 sets it from
+/// <c>m_bGoldRagdoll</c> and <c>m_bIceRagdoll</c> on a corpse, and — because the override is per
+/// renderable rather than per entity — sets it again on each of that corpse's worn items.
+/// </para>
+/// </param>
 /// <param name="AttachmentPoint">
 /// Which of that entity's named attachment points it hangs from, one-based, or <c>null</c> when it
 /// is bone-merged instead.
@@ -556,7 +574,22 @@ public sealed record SceneProp(
     //
     // Appended for the reason every parameter above says: they are positional, so inserting one
     // silently re-maps every call site.
-    bool ClientSideAnimated = false);
+    bool ClientSideAnimated = false,
+
+    // **The death animation a CORPSE plays, by label, or null for everything else** (B323). Carried
+    // as a NAME rather than an index because only the model knows which index a label is, and the
+    // decision is made where models cannot be opened — `RagdollDeath.SequenceFor` reads the damage
+    // type and draws the coin, `EntityModelSet.UpdateClientSideAnimations` resolves it with
+    // `SequenceByLabel`, which is the engine's own `LookupSequence`.
+    //
+    // Appended, like every parameter above and for the same reason: they are positional, so
+    // inserting one silently re-maps every call site.
+    string? DeathSequence = null,
+
+    // **One material replacing all of the model's own, by VMT path** — `ForcedMaterialOverride`.
+    // A gold or iced corpse, and each item it wears, because the engine's override is per
+    // renderable rather than per entity. Null everywhere else, which is nearly everywhere.
+    string? MaterialOverride = null);
 
 /// <summary>
 /// One entity's pose over the whole demo, stored as the moments it changed.

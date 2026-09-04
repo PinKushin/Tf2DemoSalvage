@@ -79,6 +79,13 @@ public sealed class NetworkedPropertyCoverageTests
         "DT_TFWearable",
         "DT_DynamicProp",
         "DT_BaseViewModel",
+
+        // **The corpse, added once corpses were drawn** (B315-B325). It belongs here for a reason
+        // the others do not share: `DT_TFRagdoll` is `IMPLEMENT_CLIENTCLASS_DT_NOBASE`
+        // (`c_tf_player.cpp:518`), so it inherits nothing and every property a corpse has is
+        // declared in this one table. A gap here cannot be covered by `DT_BaseAnimating` the way
+        // it would be for any other drawn entity.
+        "DT_TFRagdoll",
     ];
 
     [Test]

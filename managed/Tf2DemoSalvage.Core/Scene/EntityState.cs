@@ -1926,6 +1926,30 @@ public sealed class EntityState
          Integer($"{RagdollTable}.m_bFeignDeath") is int and not 0,
          Integer($"{RagdollTable}.m_bWasDisguised") is int and not 0);
 
+    /// <summary>Whether a corpse was on the ground when it was made — <c>m_bOnGround</c>.</summary>
+    /// <returns>True when the flag is set.</returns>
+    /// <remarks>
+    /// **It vetoes the death animation, which is its only use in `CreateTFRagdoll`:**
+    /// <c>if ( !m_bOnGround &amp;&amp; bPlayDeathAnim &amp;&amp; !bPlayDeathInAir ) bPlayDeathAnim = false;</c>
+    /// (`c_tf_player.cpp:838-839`), under Valve's own comment *"Don't play most death anims in the
+    /// air (headshot, etc)"* — a body already falling should not stand up to be shot again.
+    /// </remarks>
+    public bool RagdollOnGround() => Integer($"{RagdollTable}.m_bOnGround") is int and not 0;
+
+    /// <summary>Whether this corpse turned to gold — <c>m_bGoldRagdoll</c>.</summary>
+    /// <returns>True when the flag is set.</returns>
+    /// <remarks>
+    /// A Saxxy or Golden Wrench kill. **Absent from older tables**: the 2014 era specimen's
+    /// `DT_TFRagdoll` carries no such property at all, so this reads false there — which is what
+    /// that era's client saw too, since the field did not exist to be sent.
+    /// </remarks>
+    public bool RagdollGold() => Integer($"{RagdollTable}.m_bGoldRagdoll") is int and not 0;
+
+    /// <summary>Whether this corpse froze — <c>m_bIceRagdoll</c>.</summary>
+    /// <returns>True when the flag is set.</returns>
+    /// <remarks>A Spy-cicle backstab. Absent from older tables, like the gold flag beside it.</remarks>
+    public bool RagdollIce() => Integer($"{RagdollTable}.m_bIceRagdoll") is int and not 0;
+
     /// <summary>Where a corpse came to rest — <c>m_vecRagdollOrigin</c>.</summary>
     /// <returns>The position, or null when this entity sent none.</returns>
     /// <remarks>

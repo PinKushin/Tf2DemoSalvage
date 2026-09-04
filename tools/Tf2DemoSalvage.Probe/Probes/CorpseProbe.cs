@@ -4,8 +4,11 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 
+using Microsoft.Extensions.Logging.Abstractions;
+
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
+using Tf2DemoSalvage.Presentation;
 using Tf2DemoSalvage.Scene;
 
 namespace Tf2DemoSalvage.Probe.Probes;
@@ -145,6 +148,30 @@ public sealed class CorpseProbe : IProbe
         }
 
         output.WriteLine($"  {feigned} feigned death, {wasDisguised} died disguised");
+
+        // **How many corpses actually PLAY a death animation** (B323) — the count after all three of
+        // the engine's gates, not just the first. Eligibility excludes everything but headshots,
+        // decapitations and backstabs; the coin flip discards three quarters of what is left; and
+        // being airborne vetoes the rest. Reported next to the eligible count so the two can be
+        // compared, since a quarter of a small number is the whole point of this branch.
+        int animated = 0;
+        int grounded = 0;
+
+        foreach (SceneRagdoll corpse in timeline.Corpses)
+        {
+            if (corpse.OnGround)
+            {
+                grounded++;
+            }
+
+            if (RagdollDeath.SequenceFor(corpse) is not null)
+            {
+                animated++;
+            }
+        }
+
+        output.WriteLine(
+            $"  {grounded} died on the ground; {animated} play a death animation");
 
         // **The number that says whether the feature is VISIBLE.** A match's total is a decode
         // measurement; how many lie on the floor at one moment is what somebody looking at the
@@ -332,6 +359,66 @@ public sealed class CorpseProbe : IProbe
         RagdollFade fade = new(timeline.IntervalPerTick);
         List<SceneProp> drawnAt = [];
 
+        // **The real schema, because the two new skips are no-ops without it** (B324) — and a probe
+        // that quietly passed null would report the pre-filter count while looking like it measured
+        // the filtered one.
+        // **Through `GameContent`, not a single VPK.** `items_game.txt` is reached through the whole
+        // archive SET the install exposes, and a probe opening one `.vpk` by hand reported "not
+        // read" against an install that has it — an instrument answering about itself. This is also
+        // the accessor production uses, so the probe and the viewer cannot disagree about which
+        // schema they filtered with.
+        ItemSchema? schema =
+            new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder)
+                    .FindGameFolder() is { } install
+                ? GameContent.Open(install, NullLoggerFactory.Instance).Weapons.Items
+                : null;
+
+        output.WriteLine(
+            $"  item schema {(schema is null ? "NOT read — the two econ skips are inert" : "read")}");
+
+        // **Do TF2's player models actually HAVE the two death animations?** The whole death branch
+        // resolves a LABEL through `SequenceByLabel`, and a label that does not exist resolves to -1
+        // and silently changes nothing — a feature that runs, counts, and draws the same pose. The
+        // engine has the same dependency: `GetSequenceForDeath` returns whatever
+        // `LookupSequence( "primary_death_headshot" )` gives, including -1.
+        if (new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder)
+                .FindGameFolder() is { } where &&
+            File.Exists(Path.Combine(where, "tf2_misc_dir.vpk")))
+        {
+            VpkArchive models = VpkArchive.Open(Path.Combine(where, "tf2_misc_dir.vpk"));
+
+            foreach (string model in (string[])["models/player/scout.mdl", "models/player/spy.mdl"])
+            {
+                if (models.ReadFile(model) is not { } bytes)
+                {
+                    continue;
+                }
+
+                int headshot = -1;
+                int backstab = -1;
+                int index = -1;
+
+                foreach (string label in StudioSequences.Read(bytes).Select(one => one.Label))
+                {
+                    index++;
+
+                    if (string.Equals(
+                        label, RagdollDeath.HeadshotSequence, StringComparison.OrdinalIgnoreCase))
+                    {
+                        headshot = index;
+                    }
+                    else if (string.Equals(
+                        label, RagdollDeath.BackstabSequence, StringComparison.OrdinalIgnoreCase))
+                    {
+                        backstab = index;
+                    }
+                }
+
+                output.WriteLine(
+                    $"  {Path.GetFileName(model)}: headshot death at {headshot}, backstab at {backstab}");
+            }
+        }
+
         foreach (int fraction in (int[])[1, 2, 3, 4])
         {
             int when = first + (((last - first) * fraction) / 4);
@@ -348,7 +435,7 @@ public sealed class CorpseProbe : IProbe
             drawnAt.Clear();
 
             RagdollProps.Fill(
-                timeline.Corpses, when, ClassModel, drawnAt, fade, visible: null);
+                timeline.Corpses, when, ClassModel, drawnAt, fade, visible: null, items: schema);
 
             output.WriteLine($"  tick {when}: {alive} entities alive, {drawnAt.Count} drawn");
 

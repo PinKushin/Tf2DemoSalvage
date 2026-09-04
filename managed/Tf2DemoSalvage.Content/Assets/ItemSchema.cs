@@ -82,6 +82,12 @@ public sealed class ItemSchema
         /// <summary>Its <c>attach_to_hands</c>, or null when it does not say.</summary>
         public bool? AttachToHands { get; set; }
 
+        /// <summary>Its <c>drop_type</c>, or null when it does not say.</summary>
+        public string? DropType { get; set; }
+
+        /// <summary>Its <c>item_slot</c>, or null when it does not say.</summary>
+        public string? LoadoutSlot { get; set; }
+
         /// <summary>Its <c>model_player_per_class</c> entries, keyed by the schema's class name.</summary>
         public Dictionary<string, string> PerClass { get; } = new(StringComparer.OrdinalIgnoreCase);
 
@@ -457,6 +463,205 @@ public sealed class ItemSchema
     public bool AttachesToHands(int definitionIndex) =>
         Inherited(definitionIndex, entry => entry.AttachToHands is true ? "1" : null) is not null;
 
+    /// <summary>
+    /// <c>ITEM_DROP_TYPE_NONE</c> — the item stays attached to the body (<c>econ_wearable.h:33</c>),
+    /// and what <see cref="DropType"/> answers for an item that does not say.
+    /// </summary>
+    /// <remarks>
+    /// **This is the constructor's default, and it is NOT the number a loaded item actually carries
+    /// for a missing key — that distinction is the finding here.**
+    /// <c>CEconItemDefinition::BInitFromKV</c> (<c>econ_item_schema.cpp:3173</c>) unconditionally
+    /// overwrites the constructor's <c>m_iDropType( 1 )</c> (<c>econ_item_schema.cpp:2302</c>) with
+    /// <c>StringFieldToInt( m_pKVItem-&gt;GetString("drop_type"), g_szDropTypeStrings, 4 )</c>, every
+    /// time the schema loads. <c>GetString</c>'s own default-default is <c>""</c>
+    /// (<c>KeyValues.h:176</c>), and <c>StringFieldToInt</c>'s guard —
+    /// <c>if ( !szValue || !szValue[0] ) return -1;</c> (<c>econ_item.cpp:33</c>) — fires before the
+    /// comparison loop ever runs. So a missing OR blank <c>drop_type</c> lands on <b>-1</b> at
+    /// runtime, never on the constructor's 1 — and that same guard is why the string table's own
+    /// <c>""</c> entry (index 0, <c>ITEM_DROP_TYPE_NULL</c>) can never be what the loop matches
+    /// either; it is a documented value nothing can parse into.
+    ///
+    /// **Returned here anyway, because no consumer in the SDK can tell -1 from 1 apart.** Every
+    /// reader of <c>GetDropType()</c> compares specifically against <see cref="DropTypeDrop"/>:
+    /// <c>c_tf_player.cpp:7525</c> (<c>!= ITEM_DROP_TYPE_DROP</c>), <c>c_tf_player.cpp:10199</c>
+    /// (<c>&gt;= ITEM_DROP_TYPE_DROP</c>), <c>econ_wearable.cpp:819</c>
+    /// (<c>== ITEM_DROP_TYPE_DROP</c>). -1, 0 and 1 are interchangeable at every one of them, so this
+    /// wrapper answers with the named, in-range value rather than reproducing the parse artefact.
+    /// </remarks>
+    public const int DropTypeNone = 1;
+
+    /// <summary>
+    /// <c>ITEM_DROP_TYPE_NULL</c> (<c>econ_wearable.h:32</c>) — the string table's <c>""</c> entry.
+    /// Named for completeness; <see cref="DropType"/> can never return it — see
+    /// <see cref="DropTypeNone"/>'s remarks for why the parse that would produce it never runs.
+    /// </summary>
+    public const int DropTypeNull = 0;
+
+    /// <summary><c>ITEM_DROP_TYPE_DROP</c> — the item drops off the body (<c>econ_wearable.h:34</c>).</summary>
+    public const int DropTypeDrop = 2;
+
+    /// <summary>
+    /// <c>ITEM_DROP_TYPE_BREAK</c> (<c>econ_wearable.h:35</c>). Valve's own comment calls it "Not
+    /// implemented, but an example of a type that could be added" (<c>econ_item_schema.cpp:74</c>).
+    /// </summary>
+    public const int DropTypeBreak = 3;
+
+    /// <summary>
+    /// The table <c>StringFieldToInt</c> matches a <c>drop_type</c> value against, in enum order.
+    /// </summary>
+    /// <remarks>
+    /// <c>g_szDropTypeStrings</c>, <c>econ_item_schema.cpp:69-74</c>. Index 0 is kept only so the
+    /// table's shape matches the engine's; see <see cref="DropTypeNone"/>'s remarks for why a real
+    /// value can never land there.
+    /// </remarks>
+    private static readonly string[] DropTypeStrings = ["", "none", "drop", "break"];
+
+    /// <summary>
+    /// <c>GetDropType()</c> — whether an item drops or breaks off the body on death, or stays on it.
+    /// </summary>
+    /// <param name="itemDefinitionIndex">The item, as <c>m_iItemDefinitionIndex</c> gives it.</param>
+    /// <returns>
+    /// <see cref="DropTypeNone"/>, <see cref="DropTypeDrop"/> or <see cref="DropTypeBreak"/>.
+    /// </returns>
+    /// <remarks>
+    /// <c>m_iDropType = StringFieldToInt( m_pKVItem-&gt;GetString("drop_type"), g_szDropTypeStrings,
+    /// ARRAYSIZE(g_szDropTypeStrings) )</c> (<c>econ_item_schema.cpp:3173</c>), matched
+    /// case-insensitively (<c>Q_stricmp</c>, <c>econ_item.cpp:37</c>). Inherited through the prefab
+    /// chain like every other field here, because <c>BInitFromKV</c> reads this off <c>m_pKVItem</c>
+    /// AFTER <c>MergeDefinitionPrefab</c> has already folded the prefab chain into it
+    /// (<c>econ_item_schema.cpp:3023-3024</c>) — the same reason <see cref="ModelFor"/> searches
+    /// prefabs rather than reading only the item's own block.
+    ///
+    /// See <see cref="DropTypeNone"/>'s remarks for why a missing, blank or unrecognised value all
+    /// resolve here rather than to the engine's literal runtime sentinel of -1.
+    /// </remarks>
+    public int DropType(int itemDefinitionIndex)
+    {
+        if (Inherited(itemDefinitionIndex, entry => entry.DropType) is { } raw)
+        {
+            for (int ordinal = 0; ordinal < DropTypeStrings.Length; ordinal++)
+            {
+                if (string.Equals(raw, DropTypeStrings[ordinal], StringComparison.OrdinalIgnoreCase))
+                {
+                    return ordinal;
+                }
+            }
+        }
+
+        return DropTypeNone;
+    }
+
+    /// <summary><c>LOADOUT_POSITION_INVALID</c> (<c>tf_item_constants.h:49</c>).</summary>
+    /// <remarks>
+    /// What <c>m_iDefaultLoadoutSlot</c> is constructed with (<c>tf_item_schema.cpp:892</c>) and
+    /// what it STAYS as for an item with no <c>item_slot</c> key: unlike <c>drop_type</c>, the parse
+    /// is skipped entirely rather than run on a blank string —
+    /// <c>if ( *pszLoadoutSlot ) { … }</c> (<c>tf_item_schema.cpp:939-952</c>) — so this one default
+    /// is unambiguous both in the constructor and at runtime.
+    /// </remarks>
+    public const int LoadoutSlotInvalid = -1;
+
+    /// <summary><c>LOADOUT_POSITION_PRIMARY</c> (<c>tf_item_constants.h:51</c>).</summary>
+    public const int LoadoutSlotPrimary = 0;
+
+    /// <summary><c>LOADOUT_POSITION_SECONDARY</c> (<c>tf_item_constants.h:52</c>).</summary>
+    public const int LoadoutSlotSecondary = 1;
+
+    /// <summary><c>LOADOUT_POSITION_MELEE</c> (<c>tf_item_constants.h:53</c>).</summary>
+    public const int LoadoutSlotMelee = 2;
+
+    /// <summary><c>LOADOUT_POSITION_UTILITY</c> (<c>tf_item_constants.h:54</c>).</summary>
+    public const int LoadoutSlotUtility = 3;
+
+    /// <summary><c>LOADOUT_POSITION_BUILDING</c> (<c>tf_item_constants.h:55</c>).</summary>
+    public const int LoadoutSlotBuilding = 4;
+
+    /// <summary><c>LOADOUT_POSITION_PDA</c> (<c>tf_item_constants.h:56</c>).</summary>
+    public const int LoadoutSlotPda = 5;
+
+    /// <summary><c>LOADOUT_POSITION_PDA2</c> (<c>tf_item_constants.h:57</c>).</summary>
+    public const int LoadoutSlotPda2 = 6;
+
+    /// <summary>
+    /// <c>LOADOUT_POSITION_HEAD</c> (<c>tf_item_constants.h:59</c>). **Not reachable from
+    /// <see cref="DefaultLoadoutSlot"/> for a schema-declared default slot** — see that method's
+    /// remarks for the rewrite that sends every "head" to <see cref="LoadoutSlotMisc"/> instead.
+    /// </summary>
+    public const int LoadoutSlotHead = 7;
+
+    /// <summary><c>LOADOUT_POSITION_MISC</c> (<c>tf_item_constants.h:60</c>).</summary>
+    public const int LoadoutSlotMisc = 8;
+
+    /// <summary><c>LOADOUT_POSITION_ACTION</c> (<c>tf_item_constants.h:63</c>).</summary>
+    public const int LoadoutSlotAction = 9;
+
+    /// <summary><c>LOADOUT_POSITION_TAUNT</c> (<c>tf_item_constants.h:69</c>).</summary>
+    public const int LoadoutSlotTaunt = 11;
+
+    /// <summary>
+    /// The table <c>StringFieldToInt</c> matches an <c>item_slot</c> value against, in enum order.
+    /// </summary>
+    /// <remarks>
+    /// <c>g_szLoadoutStrings</c>, <c>tf_item_schema.cpp:1513-1533</c>, for <c>EQUIP_TYPE_CLASS</c> —
+    /// the table every wearable and weapon uses, since <c>"class"</c> is the schema's default
+    /// <c>equip_type</c> (<c>tf_item_schema.cpp:928</c>) and the account table has no head or misc
+    /// position at all. Index 10 (<c>LOADOUT_POSITION_MISC2</c>) ships blank in the SDK and is
+    /// unreachable by the same guard as the drop-type table's index 0; the blank
+    /// <c>taunt2</c>–<c>taunt8</c> tail that follows it there is the same shape and is not worth
+    /// carrying here.
+    /// </remarks>
+    private static readonly string[] LoadoutSlotStrings =
+    [
+        "primary", "secondary", "melee", "utility", "building", "pda", "pda2",
+        "head", "misc", "action", "", "taunt",
+    ];
+
+    /// <summary><c>GetDefaultLoadoutSlot()</c> — which loadout slot an item occupies by default.</summary>
+    /// <param name="itemDefinitionIndex">The item, as <c>m_iItemDefinitionIndex</c> gives it.</param>
+    /// <returns>
+    /// One of the <c>LoadoutSlot*</c> constants, or <see cref="LoadoutSlotInvalid"/> when the schema
+    /// does not say.
+    /// </returns>
+    /// <remarks>
+    /// <c>const char *pszLoadoutSlot = pKVInitValues-&gt;GetString("item_slot", "");</c>
+    /// (<c>tf_item_schema.cpp:939</c>), read off the same prefab-merged <c>m_pKVItem</c>
+    /// <see cref="DropType"/> reads, so it is inherited the same way.
+    ///
+    /// **The one rewrite that makes this worth having its own test.** Immediately before the table
+    /// lookup, the engine does
+    /// <c>if ( !V_strcmp( pszLoadoutSlot, "head" ) ) pszLoadoutSlot = "misc";</c>
+    /// (<c>tf_item_schema.cpp:941-944</c>), and <c>V_strcmp</c> is plain, case-SENSITIVE <c>strcmp</c>
+    /// (<c>strtools.h:160</c>) — unlike the case-insensitive table match
+    /// (<c>Q_stricmp</c> inside <c>StringFieldToInt</c>) that follows it. So a schema-declared
+    /// <c>item_slot "head"</c> can NEVER resolve to <see cref="LoadoutSlotHead"/>; it always becomes
+    /// <see cref="LoadoutSlotMisc"/> instead, and the real armory UI already assumes this —
+    /// <c>charinfo_armory_subpanel.cpp:605</c> tests only <c>== LOADOUT_POSITION_MISC</c>. A
+    /// differently-cased declaration such as <c>"Head"</c> is NOT caught by the exact-case rewrite
+    /// and resolves to <see cref="LoadoutSlotHead"/> via the case-insensitive lookup below — an
+    /// accident of Valve's own comparison, not a second deliberate rule.
+    /// </remarks>
+    public int DefaultLoadoutSlot(int itemDefinitionIndex)
+    {
+        if (Inherited(itemDefinitionIndex, entry => entry.LoadoutSlot) is not { } raw)
+        {
+            return LoadoutSlotInvalid;
+        }
+
+        // Valve rewrites the exact, lower-case "head" to "misc" before resolving it — see the
+        // remarks above for the citation and why a different casing is not caught by it.
+        string resolved = string.Equals(raw, "head", StringComparison.Ordinal) ? "misc" : raw;
+
+        for (int ordinal = 0; ordinal < LoadoutSlotStrings.Length; ordinal++)
+        {
+            if (string.Equals(resolved, LoadoutSlotStrings[ordinal], StringComparison.OrdinalIgnoreCase))
+            {
+                return ordinal;
+            }
+        }
+
+        return LoadoutSlotInvalid;
+    }
+
     /// <summary>The stock item's model for a weapon entity class, such as <c>tf_weapon_wrench</c>.</summary>
     /// <param name="itemClass">The weapon's entity class, from its script name.</param>
     /// <param name="playerClass">Whose hands, as <c>m_iClass</c> gives it.</param>
@@ -790,6 +995,18 @@ public sealed class ItemSchema
         if (string.Equals(key, "item_class", StringComparison.OrdinalIgnoreCase))
         {
             entry.ItemClass = value;
+            return;
+        }
+
+        if (string.Equals(key, "drop_type", StringComparison.OrdinalIgnoreCase))
+        {
+            entry.DropType = value;
+            return;
+        }
+
+        if (string.Equals(key, "item_slot", StringComparison.OrdinalIgnoreCase))
+        {
+            entry.LoadoutSlot = value;
             return;
         }
 

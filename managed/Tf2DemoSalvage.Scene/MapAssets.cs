@@ -337,6 +337,106 @@ public sealed class MapAssets
         Missing = missing;
     }
 
+    /// <summary>
+    /// Materials that replace a whole model's own, keyed by their VMT path (B325).
+    /// </summary>
+    /// <remarks>
+    /// **The engine's `ForcedMaterialOverride`, which is not a skin swap.** A skin picks a different
+    /// entry from the model's OWN material table; this replaces every one of them with a single
+    /// material the model never mentions —
+    /// <c>m_MaterialOverride.Init( materialOverrideFilename, TEXTURE_GROUP_CLIENT_EFFECTS )</c> in
+    /// `C_TFRagdoll::CreateTFRagdoll` (`c_tf_player.cpp:972`), bound by
+    /// `modelrender->ForcedMaterialOverride( pOverrideMaterial )`
+    /// (`c_baseanimating.cpp:3438`).
+    ///
+    /// **Resolved at map load rather than on demand, and the reason is where the loaders live.**
+    /// `Resolve` needs the pakfile and the game archives, which exist only while a map is being
+    /// read — `MapAssets` keeps neither. Two textures is a negligible eager cost against retaining
+    /// both readers for the life of a map, and it avoids a lazy cache whose first READ is a write
+    /// (`docs/memory/a-lazy-cache-makes-reading-a-write.md`).
+    ///
+    /// **A missing entry is normal.** These live in the game install, so a machine without TF2
+    /// resolves none of them and a corpse keeps its own materials — which is the same thing the
+    /// engine does when `m_MaterialOverride` fails to init.
+    ///
+    /// **An INDEX into the ordinary material table, not a texture, and the difference is the whole
+    /// point.** A material is not its base map: gold's look is mostly
+    /// `$envmap cubemaps/cubemap_gold001` with `$envmaptint [1.5 1.2 .2]`, `$phongboost` and a rim
+    /// term, and ice adds a bump, a phong warp and a light warp. The first version of this held a
+    /// <c>MapTexture</c> per path and swapped only slot 0, so a golden corpse would have drawn a
+    /// flat 32-pixel swatch with the PLAYER material's cubemap, phong and detail still applied —
+    /// the shape of a divergence that looks implemented. Appending them to the table the map's own
+    /// and every model's materials already share means the whole material follows: every texture
+    /// slot, every shader constant, the proxies, the blend state and the depth state.
+    /// </remarks>
+    public IReadOnlyDictionary<string, int> OverrideMaterials { get; init; } =
+        new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Every material the scene may ask for by name rather than by index.</summary>
+    /// <remarks>
+    /// **A fixed list, because the engine's are fixed.** `CreateTFRagdoll` names exactly two paths
+    /// as string literals; nothing computes one. Keeping the list here rather than accepting an
+    /// arbitrary path means a map load cannot be made to read whatever a demo asks for.
+    /// </remarks>
+    private static readonly string[] OverrideMaterialPaths =
+    [
+        "models/player/shared/gold_player",
+        "models/player/shared/ice_player",
+    ];
+
+    /// <summary>Appends the whole-model override materials to the table, if the install has them.</summary>
+    /// <param name="assets">Where resolution is reported.</param>
+    /// <param name="table">The material table every face and every model already indexes into.</param>
+    /// <param name="pak">The map's own pakfile, which is searched first.</param>
+    /// <param name="archives">The game's archives.</param>
+    /// <param name="maximumTextureSize">The upload limit, as for every other material.</param>
+    /// <returns>The table index each path took, keyed by the name the scene asks with.</returns>
+    /// <remarks>
+    /// **Appended last, after the brushwork and after every model**, because the table's order is
+    /// load-bearing for everything before it: a face indexes it and a model's batches index it. Two
+    /// entries on the end change nothing already in it.
+    ///
+    /// **A `BspMaterial` is fabricated for each, and its reflectivity is not read from anywhere.**
+    /// That field is the map's own radiosity input, taken from the BSP's texdata lump; an override
+    /// bounces no light because it is never on a brush face. Zero is the honest value rather than a
+    /// guess — see `docs/memory/sentinels-conflate-unknown-with-answer.md` for the case against
+    /// inventing one.
+    /// </remarks>
+    private static Dictionary<string, int> LoadOverrideMaterials(
+        ILogger assets,
+        MaterialTable table,
+        PakFile pak,
+        GameArchives archives,
+        int maximumTextureSize)
+    {
+        Dictionary<string, int> loaded = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (string path in OverrideMaterialPaths)
+        {
+            // `report: false` because a machine without TF2 misses all of them, and one warning per
+            // map load per material would bury the failures that matter.
+            ResolvedMaterial material =
+                Resolve(assets, path, pak, archives, maximumTextureSize, report: false);
+
+            if (material.Texture is null)
+            {
+                continue;
+            }
+
+            loaded[path + ".vmt"] = table.Add(
+                new BspMaterial(path, (0f, 0f, 0f), material.Texture.Value.Width,
+                    material.Texture.Value.Height),
+                material);
+        }
+
+        assets.LogInformation(
+            "{Message}",
+            $"{loaded.Count} of {OverrideMaterialPaths.Length} whole-model override materials " +
+            $"resolved{(loaded.Count == 0 ? string.Empty : $" at {string.Join(", ", loaded.Select(entry => $"{entry.Key}={entry.Value}"))}")}");
+
+        return loaded;
+    }
+
     /// <summary>The map's placed models, in world space, three corners per triangle.</summary>
     /// <remarks>
     /// **Their materials continue the map's own table**, so a prop's material index indexes
@@ -847,6 +947,12 @@ public sealed class MapAssets
             }
         }
 
+        // **The two whole-model overrides, appended after everything that indexes the table** — a
+        // corpse's gold and ice, which no map and no model names, so nothing above would ever pull
+        // them in (B325).
+        Dictionary<string, int> overrides =
+            LoadOverrideMaterials(assets, table, pak, archives, maximumTextureSize);
+
         // **And now the props and models, which the census could not see (B81).** Reported
         // separately from the brushwork rather than merged into it: the two are drawn by different
         // paths and a gap in one says nothing about the other, so a combined number would hide
@@ -980,6 +1086,7 @@ public sealed class MapAssets
             resolved,
             missing)
         {
+            OverrideMaterials = overrides,
             EntityModels = models,
             UnimplementedParameters = census,
             UnimplementedShaders = shaderCensus,

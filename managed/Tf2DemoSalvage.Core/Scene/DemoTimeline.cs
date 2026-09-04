@@ -436,6 +436,20 @@ public readonly record struct TimelineFrame(
 /// <c>CreateBoneAttachmentsFromWearables</c> runs from inside <c>CreateTFRagdoll</c> and reads
 /// <c>GetNumWearables()</c> on the PLAYER (`c_tf_player.cpp:10169`).
 /// </param>
+/// <param name="OnGround">
+/// <c>m_bOnGround</c>, which vetoes the death animation: <c>if ( !m_bOnGround &amp;&amp; bPlayDeathAnim
+/// &amp;&amp; !bPlayDeathInAir ) bPlayDeathAnim = false;</c> (`c_tf_player.cpp:838-839`), under Valve's
+/// comment *"Don't play most death anims in the air (headshot, etc)"*.
+/// </param>
+/// <param name="Gold">
+/// <c>m_bGoldRagdoll</c> — a Saxxy or Golden Wrench kill, which paints the whole corpse with
+/// <c>models/player/shared/gold_player.vmt</c>.
+/// </param>
+/// <param name="Ice">
+/// <c>m_bIceRagdoll</c> — a Spy-cicle backstab, painting it with
+/// <c>models/player/shared/ice_player.vmt</c>. **Tested second in the engine and so wins over gold**
+/// (`c_tf_player.cpp:962-971`).
+/// </param>
 /// <remarks>
 /// **The reason corpses are invisible is that they were never DESCRIBED, not that they were lost.**
 /// `DT_TFRagdoll` is `NOBASE`, so it inherits no model index, no skin, no body and no angles; a prop
@@ -460,7 +474,21 @@ public readonly record struct SceneRagdoll(
     float Yaw = 0f,
     int? DamageCustom = null,
     int? PlayerIndex = null,
-    IReadOnlyList<string>? Worn = null);
+    IReadOnlyList<SceneWornItem>? Worn = null,
+    bool OnGround = false,
+    bool Gold = false,
+    bool Ice = false);
+
+/// <summary>One thing a corpse was wearing when it died.</summary>
+/// <param name="Model">The model to draw, bone-merged onto the corpse.</param>
+/// <param name="ItemDefinitionIndex">
+/// Its econ item definition, or null when the entity did not say. **The two filters the engine
+/// applies that this project could not, before B324, both key on it**: an item whose `drop_type` is
+/// `drop` becomes a falling gib instead of staying on the body, and a decapitation drops the head
+/// and misc slots. Both need `items_game.txt`, which the decode layer has no access to — so the
+/// index travels and the Scene layer, which can open the install, does the filtering.
+/// </param>
+public readonly record struct SceneWornItem(string Model, int? ItemDefinitionIndex);
 
 
 /// <summary>
@@ -2562,7 +2590,7 @@ public sealed class DemoTimeline
     /// that was inactive), the drop-type skip, and the decapitation rule that drops head and misc
     /// slots. Each needs the item schema or per-tick effect flags at a point that has neither.
     /// </remarks>
-    private static List<string>? WornAtDeath(
+    private static List<SceneWornItem>? WornAtDeath(
         Dictionary<int, ScenePropTrack> tracks, int? player, bool disguised)
     {
         if (player is not { } owner)
@@ -2570,7 +2598,7 @@ public sealed class DemoTimeline
             return null;
         }
 
-        List<string>? worn = null;
+        List<SceneWornItem>? worn = null;
 
         foreach (ScenePropTrack track in tracks.Values)
         {
@@ -2599,7 +2627,7 @@ public sealed class DemoTimeline
             }
 
             worn ??= [];
-            worn.Add(track.ModelPath);
+            worn.Add(new SceneWornItem(track.ModelPath, track.ItemDefinitionIndex));
         }
 
         return worn;
@@ -2717,7 +2745,7 @@ public sealed class DemoTimeline
             // Measured on `serveme-627619-stv-2026-08-07`: 150 of 159 corpses have their player's
             // wearables present on the tick they appear, 531 in total. The nine that do not are
             // players the recorder could not see.
-            IReadOnlyList<string>? worn =
+            IReadOnlyList<SceneWornItem>? worn =
                 facedBefore.Serial == corpse.SerialNumber && facedBefore.Worn is { } already
                     ? already
                     : WornAtDeath(tracks, deadIndex, disguised);
@@ -2725,7 +2753,8 @@ public sealed class DemoTimeline
             corpses[entity.EntityIndex] = new SceneRagdoll(
                 entity.EntityIndex, corpse.SerialNumber, playerClass, team, x, y, z,
                 gib, burning, feign, disguised, born, tick, facing, corpse.DamageCustom(),
-                deadIndex ?? facedBefore.PlayerIndex, worn);
+                deadIndex ?? facedBefore.PlayerIndex, worn, corpse.RagdollOnGround(),
+                corpse.RagdollGold(), corpse.RagdollIce());
         }
 
         if (entity.UpdateType == EntityUpdateType.Delete)

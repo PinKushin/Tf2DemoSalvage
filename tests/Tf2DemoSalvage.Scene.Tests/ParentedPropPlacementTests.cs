@@ -149,6 +149,26 @@ public sealed class ParentedPropPlacementTests
                 // that quietly lost the flag would stop advancing its own animation and look like
                 // a frozen model rather than a missing field.
                 nameof(SceneProp.ClientSideAnimated),
+
+                // **`DeathSequence`, the corpse's death animation by label** (B323). Null is the
+                // true answer at every site but `RagdollProps`, and for a stronger reason than the
+                // fields above: only a CORPSE has one at all. `GetSequenceForDeath` is a switch on
+                // `m_iDamageCustom`, which lives on `DT_TFRagdoll` and nowhere else — a player's
+                // prop, a viewmodel and the synthetic load-set prop have no damage type to switch
+                // on, so null is not a default they decline to fill in, it is the only value the
+                // question has for them.
+                //
+                // This tripwire caught the field being added, which is what it is for.
+                nameof(SceneProp.DeathSequence),
+
+                // **`MaterialOverride`, the engine's `ForcedMaterialOverride`** (B325). Null is the
+                // true answer everywhere but a gold or iced corpse and the items it wears, and the
+                // reason is the same shape as `DeathSequence`'s: the flags that set it,
+                // `m_bGoldRagdoll` and `m_bIceRagdoll`, are on `DT_TFRagdoll` and nowhere else, so
+                // no other construction site has a question to answer. A player's prop, a viewmodel
+                // and the synthetic load-set prop all draw with the model's own materials, which is
+                // what null means.
+                nameof(SceneProp.MaterialOverride),
             ],
             ignoreOrder: true,
             "a defaulted field on SceneProp is a claim every construction site makes silently. "

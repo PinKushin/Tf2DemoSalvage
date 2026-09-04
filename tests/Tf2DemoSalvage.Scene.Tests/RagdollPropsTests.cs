@@ -203,7 +203,11 @@ public sealed class RagdollPropsTests
 
         SceneRagdoll dressed = Corpse(team: SceneTeams.Blu) with
         {
-            Worn = ["models/player/items/soldier/summer_hat.mdl", "models/player/items/all/beard.mdl"],
+            Worn =
+            [
+                new SceneWornItem("models/player/items/soldier/summer_hat.mdl", ItemDefinitionIndex: null),
+                new SceneWornItem("models/player/items/all/beard.mdl", ItemDefinitionIndex: null),
+            ],
         };
 
         RagdollProps.Fill([dressed], tick: 150d, Classes, scene).ShouldBe(3);
