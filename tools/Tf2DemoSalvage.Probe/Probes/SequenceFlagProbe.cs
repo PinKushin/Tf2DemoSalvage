@@ -105,7 +105,9 @@ public sealed class SequenceFlagProbe : IProbe
         int locked = 0;
         int lockedChains = 0;
         int playerLocked = 0;
+        int weighted = 0;
         List<string> playerLockExamples = [];
+        List<string> weightExamples = [];
         List<string> ordinaryExamples = [];
         List<string> poseKeyExamples = [];
         List<string> lockExamples = [];
@@ -169,6 +171,26 @@ public sealed class SequenceFlagProbe : IProbe
                     // cannot separate those from a player model would rank this by shipped volume
                     // instead of by what is on screen, which is the axis `docs/PARITY-AUDIT.md`
                     // was once wrongly ranked by.
+                    // **A lock with both weights at zero is a no-op**, and the engine still runs
+                    // the whole bracket for it. Counting the weights decides whether implementing
+                    // this changes any pixel or merely spends time — the same question the
+                    // all-zeros corners answered the other way.
+                    foreach (StudioIkLock entry in StudioIkLocks.Read(model, local))
+                    {
+                        if (entry.PositionWeight > 0f || entry.LocalRotationWeight > 0f)
+                        {
+                            weighted++;
+                        }
+
+                        if (weightExamples.Count < 4 &&
+                            (entry.PositionWeight > 0f || entry.LocalRotationWeight > 0f))
+                        {
+                            weightExamples.Add(
+                                $"{Path.GetFileName(path)}:{sequence.Label} chain {entry.Chain} " +
+                                $"pos {entry.PositionWeight:0.##} rot {entry.LocalRotationWeight:0.##}");
+                        }
+                    }
+
                     if (path.Contains("/player/", StringComparison.OrdinalIgnoreCase))
                     {
                         playerLocked++;
@@ -305,6 +327,11 @@ public sealed class SequenceFlagProbe : IProbe
             (playerLockExamples.Count > 0
                 ? $": {string.Join(", ", playerLockExamples)}"
                 : ", so none"));
+
+        output.WriteLine(
+            $"  {weighted} of {lockedChains} locks carry a non-zero weight — the rest are no-ops " +
+            "the engine still runs the bracket for" +
+            (weightExamples.Count > 0 ? $": {string.Join("; ", weightExamples)}" : string.Empty));
     }
 
     /// <summary>`STUDIO_ALLZEROS` (<c>studio.h:3083</c>) — the animation carries no real data.</summary>

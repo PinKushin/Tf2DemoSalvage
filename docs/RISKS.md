@@ -20666,6 +20666,29 @@ Halloween boss content, which is what the archive-versus-player split was added 
 `mstudioiklock_t` — chain, `flPosWeight`, `flLocalQWeight`, flags — with the struct pinned against
 `studio.h`. Applying them is not done.
 
+#### Every lock is weighted, and they all pin a FOOT in position
+
+**2,666 of 2,666 carry a non-zero weight**, so none of this is inert the way `STUDIO_ALLZEROS`
+turned out to be. The pattern is uniform:
+
+```
+MELEE_aimmatrix_run   chain 2  pos 1  rot 0
+MELEE_aimmatrix_run   chain 3  pos 1  rot 0
+MELEE_swing4          chain 2  pos 1  rot 0
+```
+
+**`flPosWeight` 1 and `flLocalQWeight` 0, on chains 2 and 3** — a full positional pin with no
+rotation slam, on the two chains a player model declares after `rhand` and `lhand`. Two locks per
+sequence, both feet.
+
+**So the symptom is nameable: the feet SLIDE.** An aim matrix or a melee swing turns the upper body,
+the legs follow through the skeleton, and nothing pins the feet to where they were — so they skate
+along the ground instead of staying planted. That is a thing a person can see, which makes it
+checkable by looking rather than only by test.
+
+**And it simplifies the implementation**, because the dominant case is the simple one: put the
+effector back exactly where it was, and do not touch its rotation.
+
 #### Why the application is a bigger change than the reader
 
 **Both engine calls run in the MODEL's space, not the world's**, which removes the hardest part:
