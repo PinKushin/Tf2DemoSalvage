@@ -216,6 +216,22 @@ public sealed class SdkCoverageTests
     /// `LUMP_VERTNORMALINDICES` are decoded into `MapLevel.Normals` and nothing consumes them yet;
     /// they are handled, because the question this report answers is whether the file is understood.
     /// What each gap COSTS on screen is `docs/CONFORMANCE.md`'s job.
+    ///
+    /// **The predicted failure arrived on 2026-09-04**, with `LUMP_CUBEMAPS` and `LUMP_VISIBILITY`
+    /// missing here while `BspCubemaps` and `BspVisibility` read them, and seven studio structures
+    /// missing below. The report published 29 of 66 and 10 of 54; it is 31 and 18.
+    ///
+    /// **A source-text check was attempted to stop it recurring, and it cannot work — recorded so
+    /// nobody builds it twice.** The idea was that a name claimed here must appear somewhere in
+    /// `managed/`, which catches the dangerous direction: a typo or an aspiration reading as
+    /// coverage for ever. Its positive control failed immediately. `LUMP_FACES` appears nowhere in
+    /// this project — the lumps are `BspLumpIndex.Faces` — and `mstudioanimvalue_t` appears nowhere
+    /// either, though `ExtractAnimValue` is fully implemented. The SDK's own spelling reaches this
+    /// codebase only where somebody happened to cite it, which is most places and not all, so the
+    /// check produces false accusations against correct entries.
+    ///
+    /// An assembly search is wrong for the opposite reason: these names live in comments, so
+    /// `SchemaGap.AnyProductionAssemblyMentions` would report every one of them absent.
     /// </remarks>
     private static string[] ImplementedLumps() =>
     [
@@ -227,14 +243,36 @@ public sealed class SdkCoverageTests
         "LUMP_LEAF_AMBIENT_INDEX", "LUMP_LEAF_AMBIENT_LIGHTING", "LUMP_TEXDATA_STRING_DATA",
         "LUMP_TEXDATA_STRING_TABLE", "LUMP_PAKFILE", "LUMP_FACES_HDR", "LUMP_LIGHTING_HDR",
         "LUMP_LEAF_AMBIENT_INDEX_HDR", "LUMP_LEAF_AMBIENT_LIGHTING_HDR",
+
+        // **Both were missing and both are read, which is this list's predicted failure arriving.**
+        // The remark above says a reader added without its name here "makes the generated report
+        // understate coverage" — it did, for two lumps, and the report has been published saying so.
+        // `LUMP_CUBEMAPS` is `BspCubemaps` (42, `dcubemapsample_t`) and `LUMP_VISIBILITY` is
+        // `BspVisibility` (4). Verified by opening each reader, not by the name appearing somewhere:
+        // `LUMP_BRUSHES` also appears in this project and only inside a comment explaining that
+        // Source's collision is brush-based and this tree is not, so it stays out.
+        "LUMP_CUBEMAPS", "LUMP_VISIBILITY",
     ];
 
     /// <summary>The studio structures this project reads.</summary>
+    /// <remarks>
+    /// **Seven were missing on 2026-09-04**, every one with a dedicated reader — the same drift the
+    /// lump list carried, found by grepping this project for each name the report called unhandled
+    /// and then opening what turned up. A name appearing in a comment is not a reader, so each was
+    /// checked rather than counted: `mstudioikchain_t` earns its place through
+    /// `StudioLayout.IkChainStride` and the layout that walks it, and `mstudiojigglebone_t` through
+    /// `JiggleBones` — whose own comment notes that four of its fields are parsed and deliberately
+    /// never read, because Valve removed the friction and bounce terms for causing blowups.
+    /// </remarks>
     private static string[] ImplementedStructures() =>
     [
         "mstudiobone_t", "mstudioseqdesc_t", "mstudioanimdesc_t", "mstudiobodyparts_t",
         "mstudiomodel_t", "mstudiomesh_t", "mstudiotexture_t", "mstudioposeparamdesc_t",
         "mstudiomodelgroup_t", "mstudioanim_t", "mstudioanimvalue_t",
+
+        "mstudioquatinterpbone_t", "mstudioquatinterpinfo_t", "mstudiojigglebone_t",
+        "mstudioattachment_t", "mstudioevent_t", "mstudioikchain_t", "mstudiovertex_t",
+        "mstudioautolayer_t",
     ];
 
     /// <summary>The network messages this project decodes.</summary>

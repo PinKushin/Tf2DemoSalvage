@@ -143,3 +143,4 @@
 - [No workflows; a scoped subagent is fine](no-workflows-or-subagents.md) — reversed in part; no auto fan-out, but delegate rather than defer.
 - [Shipped data settles what closed code cannot](shipped-data-settles-what-closed-code-cannot.md) — Valve shipped no bump map that draws on no hardware.
 - [A .phy is text except for the hulls](a-phy-is-text-except-for-the-hulls.md) — masses, bone names and joint limits are KeyValues.
+- [A hand-maintained numerator drifts downward](a-hand-maintained-numerator-drifts-downward.md) — coverage understated by 2 lumps and 7 structures.

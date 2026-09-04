@@ -31,22 +31,22 @@ ALLOWALPHATOCOVERAGE, DEBUG, ENVMAPCAMERASPACE, ENVMAPMODE, ENVMAPSPHERE, FLAT, 
 
 ## BSP lumps
 
-**29 of 66** declared by the engine are handled here.
+**31 of 66** declared by the engine are handled here.
 
 Not handled:
 
 ```
-LUMP_AREAPORTALS, LUMP_AREAS, LUMP_BRUSHES, LUMP_BRUSHSIDES, LUMP_CLIPPORTALVERTS, LUMP_CUBEMAPS, LUMP_DISP_LIGHTMAP_ALPHAS, LUMP_DISP_LIGHTMAP_SAMPLE_POSITIONS, LUMP_DISP_TRIS, LUMP_FACEIDS, LUMP_FACES_VERSION, LUMP_FACE_MACRO_TEXTURE_INFO, LUMP_LEAFBRUSHES, LUMP_LEAFMINDISTTOWATER, LUMP_LEAFS_VERSION, LUMP_LEAFWATERDATA, LUMP_LEAF_AMBIENT_LIGHTING_VERSION, LUMP_LIGHTING_VERSION, LUMP_MAP_FLAGS, LUMP_OCCLUSION, LUMP_OCCLUSION_VERSION, LUMP_ORIGINALFACES, LUMP_OVERLAY_FADES, LUMP_PHYSCOLLIDE, LUMP_PHYSCOLLIDESURFACE, LUMP_PHYSDISP, LUMP_PRIMINDICES, LUMP_PRIMITIVES, LUMP_PRIMVERTS, LUMP_UNUSED0, LUMP_UNUSED1, LUMP_UNUSED2, LUMP_UNUSED3, LUMP_VISIBILITY, LUMP_WATEROVERLAYS, LUMP_WORLDLIGHTS_HDR, LUMP_XZIPPAKFILE
+LUMP_AREAPORTALS, LUMP_AREAS, LUMP_BRUSHES, LUMP_BRUSHSIDES, LUMP_CLIPPORTALVERTS, LUMP_DISP_LIGHTMAP_ALPHAS, LUMP_DISP_LIGHTMAP_SAMPLE_POSITIONS, LUMP_DISP_TRIS, LUMP_FACEIDS, LUMP_FACES_VERSION, LUMP_FACE_MACRO_TEXTURE_INFO, LUMP_LEAFBRUSHES, LUMP_LEAFMINDISTTOWATER, LUMP_LEAFS_VERSION, LUMP_LEAFWATERDATA, LUMP_LEAF_AMBIENT_LIGHTING_VERSION, LUMP_LIGHTING_VERSION, LUMP_MAP_FLAGS, LUMP_OCCLUSION, LUMP_OCCLUSION_VERSION, LUMP_ORIGINALFACES, LUMP_OVERLAY_FADES, LUMP_PHYSCOLLIDE, LUMP_PHYSCOLLIDESURFACE, LUMP_PHYSDISP, LUMP_PRIMINDICES, LUMP_PRIMITIVES, LUMP_PRIMVERTS, LUMP_UNUSED0, LUMP_UNUSED1, LUMP_UNUSED2, LUMP_UNUSED3, LUMP_WATEROVERLAYS, LUMP_WORLDLIGHTS_HDR, LUMP_XZIPPAKFILE
 ```
 
 ## Studio structures
 
-**10 of 54** declared by the engine are handled here.
+**18 of 54** declared by the engine are handled here.
 
 Not handled:
 
 ```
-mstudioactivitymodifier_t, mstudioaimatbone_t, mstudioanimblock_t, mstudioanimsections_t, mstudioanim_valueptr_t, mstudioattachment_t, mstudioautolayer_t, mstudioaxisinterpbone_t, mstudiobbox_t, mstudiobonecontroller_t, mstudioboneflexdrivercontrol_t, mstudioboneflexdriver_t, mstudioboneweight_t, mstudiocompressedikerror_t, mstudiodata_t, mstudioevent_t, mstudioeyeball_t, mstudioflexcontrollerui_t, mstudioflexcontroller_t, mstudioflexdesc_t, mstudioflexop_t, mstudioflexrule_t, mstudioflex_t, mstudiohitboxset_t, mstudioiface_t, mstudioikchain_t, mstudioikerror_t, mstudioiklink_t, mstudioiklock_t, mstudioikrule_t, mstudiojigglebone_t, mstudiolinearbone_t, mstudiolocalhierarchy_t, mstudiomodelgrouplookup_t, mstudiomouth_t, mstudiomovement_t, mstudioquatinterpbone_t, mstudioquatinterpinfo_t, mstudiosrcbonetransform_t, mstudiovertanim_t, mstudiovertanim_wrinkle_t, mstudiovertex_t, mstudio_meshvertexdata_t, mstudio_modelvertexdata_t
+mstudioactivitymodifier_t, mstudioaimatbone_t, mstudioanimblock_t, mstudioanimsections_t, mstudioanim_valueptr_t, mstudioaxisinterpbone_t, mstudiobbox_t, mstudiobonecontroller_t, mstudioboneflexdrivercontrol_t, mstudioboneflexdriver_t, mstudioboneweight_t, mstudiocompressedikerror_t, mstudiodata_t, mstudioeyeball_t, mstudioflexcontrollerui_t, mstudioflexcontroller_t, mstudioflexdesc_t, mstudioflexop_t, mstudioflexrule_t, mstudioflex_t, mstudiohitboxset_t, mstudioiface_t, mstudioikerror_t, mstudioiklink_t, mstudioiklock_t, mstudioikrule_t, mstudiolinearbone_t, mstudiolocalhierarchy_t, mstudiomodelgrouplookup_t, mstudiomouth_t, mstudiomovement_t, mstudiosrcbonetransform_t, mstudiovertanim_t, mstudiovertanim_wrinkle_t, mstudio_meshvertexdata_t, mstudio_modelvertexdata_t
 ```
 
 ## Network messages
