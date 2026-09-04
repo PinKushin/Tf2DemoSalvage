@@ -122,6 +122,30 @@ public sealed class CorpseProbe : IProbe
 
         output.WriteLine($"  {gibs} gibbed, {burning} burning");
 
+        // **How many corpses `m_nBody` could possibly change**, which is the gate in front of the
+        // last unimplemented piece of `CreateTFRagdoll`'s appearance. The engine copies the body
+        // group off the player under `if ( !m_bFeignDeath || m_bWasDisguised )`
+        // (`c_tf_player.cpp:790-793`) — but a TF2 player's body group is non-zero in exactly one
+        // case, a disguised spy wearing a mask (`PlayerProps`, and `ValidateModelIndex`'s tail at
+        // `c_tf_player.cpp:9024`). Everything else is zero, and copying zero onto zero is nothing.
+        int feigned = 0;
+        int wasDisguised = 0;
+
+        foreach (SceneRagdoll corpse in timeline.Corpses)
+        {
+            if (corpse.FeignDeath)
+            {
+                feigned++;
+            }
+
+            if (corpse.WasDisguised)
+            {
+                wasDisguised++;
+            }
+        }
+
+        output.WriteLine($"  {feigned} feigned death, {wasDisguised} died disguised");
+
         // **The number that says whether the feature is VISIBLE.** A match's total is a decode
         // measurement; how many lie on the floor at one moment is what somebody looking at the
         // viewer would see, and it is also how a tick worth screenshotting gets picked.

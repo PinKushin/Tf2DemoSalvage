@@ -21635,3 +21635,54 @@ died disguised leaves a corpse in the disguise's gear. Not applied: the `EF_NODR
 Razorback), the drop-type skip for items that become falling gibs, and the decapitation rule that
 drops head and misc slots. Each needs the item schema or per-tick effect flags at a point that has
 neither.
+
+### B321 ANSWERED 2026-09-04: `m_nBody` on a corpse is inert, and that closes the appearance half
+
+**The last unimplemented piece of `CreateTFRagdoll`'s appearance is worth nothing on real data.** The
+engine copies the body group off the player:
+
+```cpp
+if ( !m_bFeignDeath || m_bWasDisguised )
+{
+    pPlayer->RecalcBodygroupsIfDirty();
+    m_nBody = pPlayer->GetBody();
+}
+```
+
+`c_tf_player.cpp:790-793`. Read-from-source. But **a TF2 player's body group is non-zero in exactly
+one case** — a disguised spy wearing a mask, set by `ValidateModelIndex`'s tail
+(`c_tf_player.cpp:9024`) in the same two cases `GetSkin` adds its offset for. Everything else is
+zero, so the copy moves zero onto zero.
+
+Counted with the `corpses` probe:
+
+| demo | corpses | died disguised | feigned death |
+|---|---|---|---|
+| `serveme-627619-stv-2026-08-07` | 159 | **0** | 0 |
+| `z1800` | 407 | **0** | 13 |
+| `20120707-0042-koth_idioteque_a3` | 457 | **0** | 1 |
+
+**Zero of 1,023.** And the fourteen feign deaths take the guard's OTHER branch — `!m_bFeignDeath` is
+false and `m_bWasDisguised` is false, so the engine skips the copy for exactly those. Implementing it
+would reproduce a no-op.
+
+**So the appearance half of the corpse is complete**, in the sense that every branch is either
+implemented or measured inert:
+
+| `CreateTFRagdoll` does | here |
+|---|---|
+| model from `m_iClass` | B315 |
+| skin from `m_iTeam` | B315, and NOT the player's rule |
+| angles from the player | B315 / B319, both era field names |
+| the fade | B315, `ClientThink`'s real rule |
+| cosmetics off the player's wearables | B320 |
+| `m_nBody` | **inert** — 0 of 1,023 |
+| the death animation | **~1 in 100** — B316 |
+| `m_hRagWearables` | **dead in the engine** — nothing draws from it |
+| gold, ice, zombie, ash, dissolve overrides | each its own networked flag, none measured yet |
+| **the physics** | **B58, and the only thing left that changes what a corpse looks like** |
+
+**Three separate branches of one function measured as essentially never taken.** That is worth
+noticing about `CreateTFRagdoll` itself rather than only about this project: it is 40 branches long
+and most of them are for cases a real match does not contain. The parts that decide what a corpse
+looks like are the model, the skin, the angles, the cosmetics and the fall.

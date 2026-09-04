@@ -379,6 +379,33 @@ looked authoritative. The serial is what separates them, which is the same field
 The 299 could not be reproduced and nothing survives to say how it was counted. It has been replaced
 with the measured number and the command that produces it.
 
+## Most of `CreateTFRagdoll` is for cases a real match does not contain
+
+The function is 40 branches long and was the top entry on an audit ranked by branch count. Having
+implemented it, the striking thing is how few of those branches a demo ever reaches. Three were
+measured separately, each because it looked worth building:
+
+| branch | how often it fires |
+|---|---|
+| the death animation, `GetSequenceForDeath` | **~1 corpse in 100** — only headshots, decapitations and backstabs are eligible, and a quarter of those keep it |
+| `m_nBody` off the player | **0 of 1,023 corpses** — a player's body group is non-zero only for a disguised spy, so the copy moves zero onto zero |
+| `m_hRagWearables` | **never** — the client's only use of it is `EF_NODRAW`, and Valve's declaration asks *"no longer used?"* |
+
+Counted across `serveme-627619-stv-2026-08-07`, `z1800` and `20120707-0042-koth_idioteque_a3` with
+the `corpses` probe.
+
+**What actually decides how a corpse looks is five things**: the model from `m_iClass`, the skin from
+`m_iTeam`, the angles borrowed from the player, the cosmetics off the player's wearable list, and the
+physics. Everything else in those 40 branches is gold wrenches, ice statues, zombies, Bombinomicons,
+birthday party hats and Mann-vs-Machine — each its own networked flag, each essentially absent from
+ordinary play.
+
+**This is the argument against ranking parity work by branch count, stated with numbers.** A function
+implemented well and one implemented badly have the same branch count, and a long function is not the
+same as an important one. The instructive comparison is `STUDIO_PROC_QUATINTERP`: a rule small enough
+to be invisible on that ranking, on four bones out of 540, and it is a forearm that does not twist on
+every player in every demo.
+
 ## Evidence
 
 Read-from-source throughout for the engine behaviour, `c_tf_player.cpp` at the lines cited. The
