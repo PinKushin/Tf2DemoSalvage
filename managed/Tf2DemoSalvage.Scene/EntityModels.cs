@@ -736,6 +736,14 @@ public sealed class EntityModelSet
             // point the leg can no longer make.
             posed.Locks = scaled ? [] : skinned.LocksOf(sequence);
 
+            // **The three per-BONE scales, carried from the wire** (B312). Unlike the IK above,
+            // these are NOT dropped for a scaled model: `m_flModelScale` and `m_flHeadScale` are
+            // different mechanisms that TF2 applies together — a mini-sentry at 0.75 with a
+            // Halloween head is both.
+            posed.HeadScale = prop.Pose.HeadScale;
+            posed.TorsoScale = prop.Pose.TorsoScale;
+            posed.HandScale = prop.Pose.HandScale;
+
             // **Every accumulated sequence contributes its rules, not just the main one** (B297).
             // `AccumulatePose` calls `AddDependencies` for each sequence it accumulates and
             // `AddSequenceLayers` then recurses, so a layer's rules count at the layer's own

@@ -194,6 +194,14 @@ public static class PlayerProps
                     Z = player.Z,
                     Yaw = player.Yaw,
                     Scale = 1f,
+
+                    // **Carried through, because this pose is built field by field** (B312). A
+                    // value with no assignment here is one the renderer never sees whatever the
+                    // timeline decoded — the failure `docs/memory/a-moves-regressions-are-wiring.md`
+                    // records, where three fields shipped lost with the suite green.
+                    HeadScale = player.HeadScale,
+                    TorsoScale = player.TorsoScale,
+                    HandScale = player.HandScale,
                     Speed = player.Speed,
                     Flags = player.Flags,
                     Slot = appearance.WeaponSuffix(player.WeaponClass, player.PlayerClass),

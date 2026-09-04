@@ -64,6 +64,22 @@ public readonly record struct ScenePose
     /// <summary>Size relative to the model as authored.</summary>
     public float Scale { get; init; } = 1f;
 
+    /// <summary>TF2's per-BONE head scale — <c>m_flHeadScale</c>.</summary>
+    /// <remarks>
+    /// **Three separate fields rather than one, because the engine applies three separate passes**
+    /// (`c_tf_player.cpp:8815`) and they do different things: the head is scaled where it stands,
+    /// the torso is COMPRESSED toward the pelvis without any basis being touched, and the hands are
+    /// scaled along with every descendant. Collapsing them would look right only while a demo set
+    /// them equal, which is exactly what an ordinary match does by setting all three to 1 (B312).
+    /// </remarks>
+    public float HeadScale { get; init; } = 1f;
+
+    /// <summary>TF2's per-bone torso scale — <c>m_flTorsoScale</c>.</summary>
+    public float TorsoScale { get; init; } = 1f;
+
+    /// <summary>TF2's per-bone hand scale — <c>m_flHandScale</c>.</summary>
+    public float HandScale { get; init; } = 1f;
+
     /// <summary>The alpha byte of <c>m_clrRender</c>; 255 when the entity never said.</summary>
     /// <remarks>
     /// **Not nullable, because the default IS the answer** — an entity nobody has tinted is opaque,
@@ -1495,6 +1511,13 @@ public sealed class ScenePropTrack
             // invent a ramp the demo never contained.
             Scale = from.Scale,
 
+            // **Carried, because this rebuilds the pose field by field** (B312) — the second hop
+            // these three had to survive, and the completeness test is what found it. Silent in
+            // production, since the default of 1 they would fall back to is also a legitimate value.
+            HeadScale = from.HeadScale,
+            TorsoScale = from.TorsoScale,
+            HandScale = from.HandScale,
+
             Sequence = from.Sequence,
             Cycle = cycle,
 
@@ -1735,6 +1758,18 @@ public sealed class ScenePropTrack
             Y = float.Lerp(previous.Y, start.Y, fraction),
             Z = float.Lerp(previous.Z, start.Z, fraction),
             Scale = float.Lerp(previous.Scale, start.Scale, fraction),
+
+            // **Held at the previous sample rather than blended** (B312). The engine's interpolated
+            // set is exactly what `AddVar` registers, and B277 enumerated it: origin, angles, eye
+            // angles, velocity, view offset, punch, cycle, pose parameters, encoded controllers,
+            // flex weights, viewtarget, lean, shift, IK target, the ragdoll's transform and the
+            // overlay layers. These three are not among them — `BuildTransformations` reads them
+            // straight off `C_TFPlayer` — so blending two values would invent a ramp no recording
+            // contains, which is the same mistake B277 corrected for `m_flModelScale`.
+            HeadScale = previous.HeadScale,
+            TorsoScale = previous.TorsoScale,
+            HandScale = previous.HandScale,
+
             Sequence = previous.Sequence,
             Cycle = previous.Sequence == start.Sequence
                 ? LoopingLerp(previous.Cycle, start.Cycle, fraction)

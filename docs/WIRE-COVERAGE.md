@@ -14,7 +14,7 @@ ignorance rather than proof of use — a name can be mentioned and still not hon
 which is its own recurring bug here. A property this report calls read may still be
 decoded and dropped.
 
-**117 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
+**121 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
 
 ## Tables an entity this viewer draws composes
 
@@ -80,12 +80,12 @@ m_flFOVTime, m_flMaxspeed, m_hObserverTarget, m_hUseEntity, m_hVehicle, m_hViewM
 
 ### DT_TFPlayer
 
-**1 of 44** mentioned.
+**4 of 44** mentioned.
 
 Not mentioned anywhere in a shipped assembly:
 
 ```
-m_AttributeManager, m_PlayerClass, m_Shared, m_bAllowMoveDuringTaunt, m_bArenaSpectator, m_bFlipViewModels, m_bForcedSkin, m_bGlowEnabled, m_bIsABot, m_bIsMiniBoss, m_bIsReadyToHighFive, m_bRegenerating, m_bSaveMeParity, m_bUseBossHealthBar, m_bUsingActionSlot, m_bUsingVRHeadset, m_bViewingCYOAPDA, m_flCurrentTauntMoveSpeed, m_flHandScale, m_flHeadScale, m_flHelpmeButtonPressTime, m_flInspectTime, m_flKartNextAvailableBoost, m_flMvMLastDamageTime, m_flTauntYaw, m_flTorsoScale, m_flVehicleReverseTime, m_hGrapplingHookTarget, m_hHighFivePartner, m_hItem, m_hOffHandWeapon, m_hRagdoll, m_hSecondaryLastWeapon, m_iCampaignMedals, m_iKartHealth, m_iKartState, m_iPlayerSkinOverride, m_iSpawnCounter, m_iTauntItemDefIndex, m_nActiveTauntSlot, m_nBotSkill, m_nForceTauntCam, m_nForcedSkin
+m_AttributeManager, m_PlayerClass, m_Shared, m_bAllowMoveDuringTaunt, m_bArenaSpectator, m_bFlipViewModels, m_bForcedSkin, m_bGlowEnabled, m_bIsABot, m_bIsMiniBoss, m_bIsReadyToHighFive, m_bRegenerating, m_bSaveMeParity, m_bUseBossHealthBar, m_bUsingActionSlot, m_bUsingVRHeadset, m_bViewingCYOAPDA, m_flCurrentTauntMoveSpeed, m_flHelpmeButtonPressTime, m_flInspectTime, m_flKartNextAvailableBoost, m_flMvMLastDamageTime, m_flTauntYaw, m_flVehicleReverseTime, m_hGrapplingHookTarget, m_hHighFivePartner, m_hItem, m_hOffHandWeapon, m_hRagdoll, m_hSecondaryLastWeapon, m_iCampaignMedals, m_iKartHealth, m_iKartState, m_iPlayerSkinOverride, m_iSpawnCounter, m_iTauntItemDefIndex, m_nActiveTauntSlot, m_nBotSkill, m_nForceTauntCam, m_nForcedSkin
 ```
 
 ### DT_TFPlayerShared

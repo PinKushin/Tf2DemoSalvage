@@ -111,6 +111,18 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// <c>overlay_vars</c> from the player's send table, so <c>m_AnimOverlay</c> is never networked for
 /// a player. See <see cref="PlayerGestureFeed"/>.
 /// </param>
+/// <param name="HeadScale">
+/// TF2's per-BONE head scale, <c>m_flHeadScale</c> — distinct from the whole-model scale, and 1 for
+/// everything but a Halloween or MvM effect (B312). Carried on the PLAYER rather than read from the
+/// pose because `PlayerProps.Add` builds a player's pose field by field: a value that is not a
+/// parameter here is one the renderer never sees, which is how three fields have been lost before.
+/// </param>
+/// <param name="TorsoScale">
+/// <c>m_flTorsoScale</c>. Compresses the spine toward the pelvis rather than scaling anything.
+/// </param>
+/// <param name="HandScale">
+/// <c>m_flHandScale</c>. Scales each hand and every bone below it.
+/// </param>
 /// <param name="ClientSideAnimated">
 /// Whether the client runs this player's animation cycle itself — <c>m_bClientSideAnimation</c>,
 /// one unsigned bit from <c>DT_BaseAnimating</c> (<c>baseanimating.cpp:250</c>).
@@ -170,7 +182,10 @@ public readonly record struct ScenePlayer(
     int? WeaponItem = null,
     int? ObserverMode = null,
     bool ClientSideAnimated = false,
-    IReadOnlyList<SceneGesture>? Gestures = null)
+    IReadOnlyList<SceneGesture>? Gestures = null,
+    float HeadScale = 1f,
+    float TorsoScale = 1f,
+    float HandScale = 1f)
 {
     /// <summary>Whether the player is crouched, when the recording says.</summary>
     /// <remarks>
@@ -1895,7 +1910,15 @@ public sealed class DemoTimeline
                     // depends on the sequence its activity resolves to, which only the scene can
                     // answer. Null when the player has raised nothing, so the common case costs no
                     // allocation.
-                    Gestures: GesturesFor(gestures, player.EntityIndex)));
+                    Gestures: GesturesFor(gestures, player.EntityIndex),
+
+                    // **The three per-BONE scales** (B312), defaulting to 1 exactly as
+                    // `C_TFPlayer`'s own members do (`c_tf_player.cpp:577`) — a demo that never
+                    // sends them is one where TF2 would also have used 1, so this is the engine's
+                    // default rather than a fallback for missing data.
+                    HeadScale: player.BoneScales().Head ?? 1f,
+                    TorsoScale: player.BoneScales().Torso ?? 1f,
+                    HandScale: player.BoneScales().Hand ?? 1f));
             }
 
             // **Only when the tick advanced.** Several commands can share a tick, and recording a
@@ -2881,6 +2904,13 @@ public sealed class DemoTimeline
                 // clamps — InterpolateCycle, where a sequence change is a cut — saw a change that
                 // never happened and froze the cycle at that boundary.
                 Scale = state.ModelScale() ?? 1f,
+
+                // **The three per-BONE scales, defaulting to 1 like the engine's own members do**
+                // (`c_tf_player.cpp:577`). A demo that never sends them is a demo where TF2 would
+                // also have used 1, so the default is the engine's rather than a fallback (B312).
+                HeadScale = state.BoneScales().Head ?? 1f,
+                TorsoScale = state.BoneScales().Torso ?? 1f,
+                HandScale = state.BoneScales().Hand ?? 1f,
                 Sequence = state.AnimationSequence() ?? 0,
 
                 // The third factor in Valve's advance, c_baseanimating.cpp:5493. Retained and

@@ -1882,6 +1882,27 @@ public sealed class EntityState
         Number($"{AnimatingTable}.{ModelScaleProperty}")
         ?? Number($"{AnimatingTable}.{LegacyModelScaleProperty}");
 
+    /// <summary>TF2's three per-BONE scales, distinct from the whole-model one above.</summary>
+    /// <returns>Head, torso and hand scale; each null when the demo did not send it.</returns>
+    /// <remarks>
+    /// **`RecvPropFloat` on `DT_TFPlayer`** (`c_tf_player.cpp:539`), and
+    /// `C_TFPlayer::BuildTransformations` runs all three unconditionally at its end
+    /// (`c_tf_player.cpp:8815`) — the call is not gated, the VALUE is what makes it a no-op.
+    ///
+    /// **Nothing read these until B312, and no measurement could have found them.** Each defaults
+    /// to 1, and a field that multiplies a scale and defaults to one draws an identical picture when
+    /// ignored — so every rendering comparison agreed and every count matched. That is exactly what
+    /// happened to `m_flPlaybackRate`, decoded and retained and unit-tested while every animation
+    /// played at rate 1.
+    ///
+    /// **On `DT_TFPlayer` rather than a local/non-local exclusive**, so they arrive for every
+    /// player rather than only for the recorder — unlike the origin, which splits.
+    /// </remarks>
+    public (float? Head, float? Torso, float? Hand) BoneScales() =>
+        (Number($"{TfPlayerTable}.m_flHeadScale"),
+         Number($"{TfPlayerTable}.m_flTorsoScale"),
+         Number($"{TfPlayerTable}.m_flHandScale"));
+
     /// <summary>The entity's world position, if it has sent one.</summary>
     /// <returns>The position, or <c>null</c> when no origin has arrived.</returns>
     /// <remarks>

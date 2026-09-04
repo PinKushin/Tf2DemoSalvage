@@ -434,6 +434,14 @@ public sealed class SkeletonPose : IBonePose
         }
 
         ReachWithIk(boneMask, into, alreadyWritten);
+
+        // **TF2's three per-bone scales, last of all** (B312), which is where
+        // `C_TFPlayer::BuildTransformations` runs them — after the base transformations, after the
+        // duck offset, on the finished matrices (`c_tf_player.cpp:8815`). Each is a no-op at 1,
+        // which is every value in an ordinary match and the reason nothing missed them.
+        PlayerBoneScales.Head(into, _bones, HeadScale);
+        PlayerBoneScales.Torso(into, _bones, TorsoScale);
+        PlayerBoneScales.Hands(into, _bones, HandScale);
     }
 
     /// <summary>Pulls each chain's end to where its rules ask — <c>CIKContext::SolveDependencies</c>.</summary>
@@ -540,6 +548,19 @@ public sealed class SkeletonPose : IBonePose
     /// "before" is the bind pose, since that is what `InitPose` left in `pos`/`q`.
     /// </remarks>
     public IReadOnlyList<StudioIkLock> Locks { get; set; } = [];
+
+    /// <summary>TF2's per-bone head scale — <c>m_flHeadScale</c>, 1 for everything ordinary.</summary>
+    /// <remarks>
+    /// **Three fields, because the engine runs three different passes** and only one of them is a
+    /// scale in the ordinary sense; see <see cref="PlayerBoneScales"/> (B312).
+    /// </remarks>
+    public float HeadScale { get; set; } = 1f;
+
+    /// <summary>TF2's per-bone torso scale — <c>m_flTorsoScale</c>.</summary>
+    public float TorsoScale { get; set; } = 1f;
+
+    /// <summary>TF2's per-bone hand scale — <c>m_flHandScale</c>.</summary>
+    public float HandScale { get; set; } = 1f;
 
     /// <summary>The lock bracket, built once for a model that has one.</summary>
     /// <remarks>

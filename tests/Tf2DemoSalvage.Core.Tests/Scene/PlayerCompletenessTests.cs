@@ -157,7 +157,16 @@ public sealed class PlayerCompletenessTests
         // A reload in the slot it belongs to, because null is the default here and a player who
         // holds no gesture is indistinguishable from one whose gestures were dropped in a rebuild.
         Gestures: [new SceneGesture(
-            GestureSlot.AttackAndReload, "ACT_MP_RELOAD_STAND", null, AutoKill: true, 900)]);
+            GestureSlot.AttackAndReload, "ACT_MP_RELOAD_STAND", null, AutoKill: true, 900)],
+
+        // **Three DIFFERENT values, because the default of 1 is what they would hold if the wiring
+        // dropped them** (B312) — and different from each other, so a carry into the wrong field is
+        // visible too. This test is what caught all three when they were added: it enumerates the
+        // record's properties and demands each be given a distinctive value, so a field cannot be
+        // introduced without being covered.
+        HeadScale: 1.5f,
+        TorsoScale: 0.5f,
+        HandScale: 2f);
 
     /// <summary>Every property of a type that a test can read.</summary>
     private static IEnumerable<PropertyInfo> Readable<T>() =>

@@ -363,7 +363,7 @@ run Tf2DemoSalvage.Fonts.Tests    fonts       7
 # release that is APPLIED from one that is ignored, since at full weight "returned it" and "never
 # solved" look alike. Nearly, not fully: AddDependencies drops a full-strength release after
 # clearing its chain, so weight 1 cannot reach the solver.
-run Tf2DemoSalvage.Animation.Tests animation 89
+run Tf2DemoSalvage.Animation.Tests animation 96
 
 # 23: the scene layer's first test project of its own, and the reason it exists is B184 — Scene is
 # plain net10.0 and holds the densest behaviour in the renderer, but every test of it lived in the
@@ -570,7 +570,7 @@ run Tf2DemoSalvage.Animation.Tests animation 89
 # whole square, each using its whole texture, the four sides meeting edge to edge - and the WINDING,
 # which was genuinely red first. A box seen from inside wants the opposite winding to a solid one,
 # and getting it wrong draws a sky that is present, textured and entirely invisible.
-run Tf2DemoSalvage.Scene.Tests    scene     399
+run Tf2DemoSalvage.Scene.Tests    scene     401
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

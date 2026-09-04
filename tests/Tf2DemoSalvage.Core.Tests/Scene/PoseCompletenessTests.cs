@@ -189,6 +189,13 @@ public sealed class PoseCompletenessTests
         Yaw = -139f,
         Roll = 7f,
         Scale = 2.5f,
+
+        // **The three per-BONE scales, distinct from each other and from the model scale above**
+        // (B312). All four are floats defaulting to 1, so equal values would let a carry into the
+        // wrong one pass.
+        HeadScale = 1.5f,
+        TorsoScale = 0.5f,
+        HandScale = 3f,
         Sequence = 5,
         Cycle = 0.25f,
 

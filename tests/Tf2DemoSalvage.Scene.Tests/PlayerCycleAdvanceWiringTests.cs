@@ -312,22 +312,5 @@ public sealed class PlayerCycleAdvanceWiringTests
     }
 
 
-    /// <summary>An appearance that names a player model for every class.</summary>
-    private sealed class StubAppearance : IPlayerAppearance
-    {
-        /// <inheritdoc/>
-        public string? ModelOf(int playerClass) => "models/player/scout.mdl";
-
-        /// <inheritdoc/>
-        public string? WeaponSuffix(string? weaponClass, int? playerClass) => "PRIMARY";
-
-        /// <inheritdoc/>
-        public bool Airwalks(int playerClass) => true;
-
-        /// <inheritdoc/>
-        public bool Lands(int playerClass) => true;
-
-        /// <inheritdoc/>
-        public string? Hands(int playerClass) => null;
-    }
+    // `StubAppearance` moved to its own file when a second wiring test needed it (B312).
 }

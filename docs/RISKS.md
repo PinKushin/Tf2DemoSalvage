@@ -20769,7 +20769,55 @@ ground truth because the test put the values there. **Two locks with different v
 stride visible; two distinct weights makes the swap visible; a one-lock table makes the boundary
 visible.** None of that is possible with a range check over real bytes.
 
-### B312 OPEN 2026-09-04: `m_flHeadScale` and `m_flTorsoScale` are on the wire and read by nothing
+### B312 FIXED 2026-09-04: TF2's three per-bone scales, decoded and applied
+
+**Closed by the commit following this entry. The filing below is kept as written**, because it
+records why a field read by nothing was invisible — which is the transferable part.
+
+`PlayerBoneScales` implements all three passes and they are the engine's, not one generalised
+scale:
+
+- **Head** — `MatrixScaleBy` on `bip_head`, which multiplies the 3×3 and leaves the translation, so
+  the head grows where it stands. `prp_helmet` and `prp_hat` are then scaled AND moved out along
+  their own offset, because scaling a hat's basis alone leaves it buried in the skull.
+- **Torso** — not a scale at all. Each of `bip_spine_0..3` and `bip_neck` is COMPRESSED toward the
+  one below it, each moved bone becoming the next target, with every descendant carried by the
+  offset. No basis is touched.
+- **Hands** — `bip_hand_L` and `bip_hand_R` and every descendant, so fingers do not stay small on a
+  giant palm.
+
+**Two predictions of mine were wrong and the code was right, both worth keeping.**
+
+The torso test predicted spine_1 at 12.5 and measured 10. **Correct:** spine_1 is a DESCENDANT of
+spine_0, so the child carry had already pulled it from 20 to 15 before its own step ran, and its
+step then measured from the moved spine_0 at 5. Reading the two halves of that loop separately gives
+12.5; they interact, which is what Valve's *"must be in this order"* comment is about.
+
+And a comment justified behaviour the engine does not have. It claimed a missing spine bone must
+abandon the pass before touching anything, reasoning that half a compression is worse than none.
+**The `return` is INSIDE the loop** — every bone before the gap stays moved and the model is left
+half compressed. The test had encoded my reasoning rather than Valve's branch.
+
+#### Four hops, three of which rebuild the pose field by field
+
+The wiring is where this would have died with every unit test green, and **two of the hops were
+found by guards that already existed** rather than by me:
+
+- `PlayerProps.Add` builds a player's pose field by field; a value with no assignment there never
+  reaches the renderer. That is `docs/memory/a-moves-regressions-are-wiring.md` exactly.
+- `ScenePropTrack.At` rebuilds it again for interpolation.
+  `EveryFieldOfAPose_SurvivesInterpolation` caught that one, and its own message says why it would
+  otherwise be silent: **the default they fall back to is also a legitimate value.**
+- `EveryFieldOfAPlayer_HasADistinctiveValueInThisTest` caught the record additions immediately.
+
+**Held rather than blended through interpolation.** The engine's interpolated set is exactly what
+`AddVar` registers, which B277 enumerated; these three are not on it, and `BuildTransformations`
+reads them straight off `C_TFPlayer`. Blending would invent a ramp no recording contains — the same
+mistake B277 corrected for `m_flModelScale`.
+
+**Nothing on screen changes, and that is the expected result.** Every value in the corpus is 1.
+
+### The original filing, kept: on the wire and read by nothing
 
 **TF2 networks a per-BONE scale for every player and this project ignores it.** Both are
 `RecvPropFloat` on `DT_TFPlayer` (`c_tf_player.cpp:539`), and the schema probe finds them in the
