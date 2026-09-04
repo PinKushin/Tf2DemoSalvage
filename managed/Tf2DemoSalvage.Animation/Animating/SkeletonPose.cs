@@ -435,6 +435,23 @@ public sealed class SkeletonPose : IBonePose
 
         ReachWithIk(boneMask, into, alreadyWritten);
 
+        // **The duck-jump correction, BEFORE the scales** (B314), which is the order
+        // `C_TFPlayer::BuildTransformations` uses: the base transformations, then this, then the
+        // per-bone scales, then the meathook (`c_tf_player.cpp:8764`).
+        //
+        // **Every bone, by the same vector.** It is a correction to the whole model's placement
+        // rather than a pose change — the origin moved when the hull shrank and this cancels it —
+        // so a partial application would tear the skeleton rather than shift it.
+        if (DuckJumpOffset != 0f)
+        {
+            for (int bone = 0; bone < _bones.Count; bone++)
+            {
+                float[] matrix = into.BoneForWrite(bone);
+
+                matrix[11] -= DuckJumpOffset;
+            }
+        }
+
         // **TF2's three per-bone scales, last of all** (B312), which is where
         // `C_TFPlayer::BuildTransformations` runs them — after the base transformations, after the
         // duck offset, on the finished matrices (`c_tf_player.cpp:8815`). Each is a no-op at 1,
@@ -548,6 +565,18 @@ public sealed class SkeletonPose : IBonePose
     /// "before" is the bind pose, since that is what `InitPose` left in `pos`/`q`.
     /// </remarks>
     public IReadOnlyList<StudioIkLock> Locks { get; set; } = [];
+
+    /// <summary>How far to lower the whole skeleton for a crouch jump, in units.</summary>
+    /// <remarks>
+    /// **Already multiplied by the hull difference** — the caller owns the twenty units, because
+    /// the hull sizes are TF2's game rules rather than anything a skeleton knows
+    /// (`tf_gamerules.cpp:1313`). This carries the finished distance so the pose applies it without
+    /// re-deriving it, which is the B243 rule about a value having one route.
+    ///
+    /// **Zero for everything that is not an airborne crouching player** (B314), which is most of a
+    /// frame — a prop, a weapon, a player on the ground.
+    /// </remarks>
+    public float DuckJumpOffset { get; set; }
 
     /// <summary>TF2's per-bone head scale — <c>m_flHeadScale</c>, 1 for everything ordinary.</summary>
     /// <remarks>

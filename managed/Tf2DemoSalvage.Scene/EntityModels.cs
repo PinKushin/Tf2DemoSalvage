@@ -460,6 +460,18 @@ public sealed class EntityModelSet
     /// </remarks>
     private readonly Dictionary<int, List<FadingSequence>> _transitions = [];
 
+    /// <summary>Each entity's duck-jump interpolation, which is state across frames (B314).</summary>
+    private readonly Dictionary<int, DuckJump> _duckJumps = [];
+
+    /// <summary>How much shorter TF2's crouch hull is than its standing one, in units.</summary>
+    /// <remarks>
+    /// **`hullSizeNormal - hullSizeCrouch` on the Z axis.** TF2's hulls are `(24, 24, 82)` standing
+    /// and `(24, 24, 62)` ducking (`tf_gamerules.cpp:1313`), and the X and Y extents are identical,
+    /// so the difference is twenty units of height and nothing sideways. The engine computes the
+    /// whole vector and subtracts it; only this component is ever non-zero.
+    /// </remarks>
+    private const float DuckHullDifference = 20f;
+
     /// <summary>One sequence an entity has left, still contributing while it fades.</summary>
     /// <param name="Sequence">The sequence being left.</param>
     /// <param name="Cycle">Where its cycle stood when it stopped being current.</param>
@@ -740,6 +752,28 @@ public sealed class EntityModelSet
             // these are NOT dropped for a scaled model: `m_flModelScale` and `m_flHeadScale` are
             // different mechanisms that TF2 applies together — a mini-sentry at 0.75 with a
             // Halloween head is both.
+            // **The duck-jump correction** (B314). Ducking in mid-air shrinks the player's hull
+            // from 82 units to 62, which moves their ORIGIN — so the engine draws the skeleton the
+            // difference lower at that instant and eases it to zero over 0.15 seconds. Without it
+            // the model pops twenty units up on every crouch jump, and roughly a fifth of the
+            // player states in a real demo are airborne and ducking.
+            //
+            // **State per entity, because the answer depends on when the duck began** and when it
+            // last held rather than on this frame — none of which the demo carries, since the
+            // client derives all three from the flags over time.
+            if (!_duckJumps.TryGetValue(prop.EntityIndex, out DuckJump? duck))
+            {
+                duck = new DuckJump();
+                _duckJumps[prop.EntityIndex] = duck;
+            }
+
+            // `VEC_HULL_MAX_SCALED( this )` — the hulls scale with the model, so a mini-sentry's
+            // rider or a resized player gets a proportional correction rather than a fixed one.
+            posed.DuckJumpOffset = duck.Update(
+                prop.Pose.Flags is { } flags && (flags & PlayerActivityState.Ducking) != 0,
+                prop.Pose.Flags is { } state && (state & PlayerActivityState.OnGround) == 0,
+                seconds) * DuckHullDifference * prop.Pose.Scale;
+
             posed.HeadScale = prop.Pose.HeadScale;
             posed.TorsoScale = prop.Pose.TorsoScale;
             posed.HandScale = prop.Pose.HandScale;
@@ -2157,6 +2191,18 @@ public sealed class EntityModelSet
     /// second time answers what COULD have been layered rather than what was. This is the list the
     /// pose actually accumulated.
     /// </remarks>
+    /// <summary>One entity's duck-jump offset, in units, or null when it has no skeleton.</summary>
+    /// <remarks>
+    /// **Per entity rather than summed, because the question is which player is corrected** — an
+    /// aggregate would report a number while saying nothing about whether the airborne crouching
+    /// one got it and the standing one did not (B314).
+    /// </remarks>
+    public float? DuckJumpOffsetOf(int entityIndex) =>
+        _entities.TryGetValue(entityIndex, out AnimatingEntity? entity) &&
+        entity.Pose is SkeletonPose skeleton
+            ? skeleton.DuckJumpOffset
+            : null;
+
     public IReadOnlyList<PoseLayer>? LayersOf(int entityIndex) =>
         _entities.TryGetValue(entityIndex, out AnimatingEntity? animating) &&
         animating.Pose is SkeletonPose posed

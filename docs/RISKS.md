@@ -21042,3 +21042,92 @@ solve wrote into. A second derivation of either is free to be wrong and would lo
 **A threshold of 0.01 units separates a correction from float noise**, and the count and the maximum
 are both reported because neither alone is enough — a hundred locks each moving a thousandth of a
 unit is arithmetic running, not a foot being held.
+
+### B314 OPEN 2026-09-04: the duck-jump interpolation, absent — a 20-unit pop on every crouch jump
+
+**`C_TFPlayer::BuildTransformations` opens with it** (`c_tf_player.cpp:8764`), before the per-bone
+scales and before the meathook, and this project has none of it:
+
+```cpp
+if ( GetGroundEntity() == NULL )
+{
+    Vector duckOffset = ( hullSizeNormal - hullSizeCrouch );
+    if ( GetFlags() & FL_DUCKING )
+    {
+        if ( !m_bDuckJumpInterp ) m_flFirstDuckJumpInterp = gpGlobals->curtime;
+        m_bDuckJumpInterp = true;
+        m_flLastDuckJumpInterp = gpGlobals->curtime;
+        float flRatio = MIN( 0.15f, gpGlobals->curtime - m_flFirstDuckJumpInterp ) / 0.15f;
+        m_flDuckJumpInterp = 1.f - flRatio;
+    }
+    else if ( m_bDuckJumpInterp ) { … m_flDuckJumpInterp = -(1.f - flRatio); … }
+
+    if ( m_bDuckJumpInterp && m_flDuckJumpInterp != 0.f )
+    {
+        duckOffset *= m_flDuckJumpInterp;
+        for (int i = 0; i < hdr->numbones(); i++) { … MatrixSetTranslation( bone_pos - duckOffset, transform ); }
+    }
+}
+```
+
+**The offset is twenty units.** TF2's hulls are `(24,24,82)` standing and `(24,24,62)` ducking
+(`tf_gamerules.cpp:1313`), so `hullSizeNormal - hullSizeCrouch` is `(0, 0, 20)` — a quarter of a
+player's height, applied to EVERY bone.
+
+**What it exists to hide, and therefore what its absence shows.** Ducking in mid-air moves the
+player's ORIGIN, because the hull shrinks; the model would teleport upward with it. The engine draws
+the skeleton twenty units low at that instant and eases the correction to zero over 0.15 seconds.
+Without it the model **pops twenty units up the moment a player crouches in the air**, and pops back
+on release.
+
+**Measured, and it is not a corner case.** Counting `m_fFlags` in a dump of `z1800`, where 256 is
+`FL_CLIENT`, 1 is `FL_ONGROUND` and 2 is `FL_DUCKING`:
+
+```
+4301  256   airborne, standing
+3815  257   on the ground
+1670  258   airborne AND ducking          <- the condition
+ 780  0
+ 427  2     ducking, no ground flag
+ 331  259   crouched on the ground
+ 253  6     ducking, no ground flag
+```
+
+**Roughly a fifth of sampled player states are airborne and ducking**, which is what a game full of
+rocket jumps and crouch-jumps should look like. Every one of them is drawn twenty units wrong for up
+to 0.15 seconds.
+
+**Why no test could have found it.** Nothing here decodes a duck-jump state because the engine
+derives it CLIENT-side from the flags over time — there is no field to notice missing, and every
+assertion about a player's position reads the origin the demo sent, which is correct. The defect is
+in what the renderer does with a correct origin.
+
+**What implementing it needs:** per-entity state across frames (whether interpolating, when the duck
+began, when it last held), which is the shape `_transitions` already has in `EntityModels`; the
+0.15-second ramp in both directions; and a whole-skeleton translation applied where the engine
+applies it — after the base transformations and BEFORE the per-bone scales.
+
+#### B314 FIXED, same day
+
+`DuckJump` is the state machine and `SkeletonPose.DuckJumpOffset` the correction it produces,
+applied to every bone **before** the per-bone scales — the order
+`C_TFPlayer::BuildTransformations` uses.
+
+**Two things a reimplementation gets wrong, both pinned by tests:**
+
+- **The release ramp measures from when the duck LAST held, not from when it began.** The engine
+  stamps `m_flLastDuckJumpInterp` on every ducking frame, so a player who crouched for a second
+  still gets a full 0.15 to come out of it. Measuring from the start would make a long crouch
+  release instantly.
+- **Landing clears the state outright rather than easing out** — `else if ( m_bDuckJumpInterp )
+  m_bDuckJumpInterp = false;`. The origin being corrected against has stopped moving, so there is
+  nothing left to correct.
+
+**And the sign is not decoration.** Coming out of a duck runs the ramp NEGATIVE,
+`-(1 - flRatio)`, because the origin moves back the other way. A reader taking the magnitude would
+be right for the duck and draw the release twice as wrong.
+
+**Both controls are in the wiring test, and they matter more than the positive case.** A correction
+applied without checking the GROUND flag sinks every crouching player twenty units into the floor;
+one applied without checking DUCKING drags every rocket jump down. Either is a worse defect than the
+one being fixed, and the airborne-crouching test alone would pass against both.
