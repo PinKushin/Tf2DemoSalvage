@@ -187,3 +187,4 @@
 - [A key format is two facts](a-key-format-is-two-facts.md) — a built key encodes several; one wrong kills it and a `??` hides it.
 - [A sabotage can change behaviour without testing the claim](a-sabotage-can-change-behaviour-without-testing-the-claim.md) — for an absence claim, the WRONG answer must be reachable.
 - [A default-valued field is untestable on the corpus](a-default-valued-field-is-untestable-on-the-corpus.md) — inert at its default means impossible to observe, not merely unfound; author the specimen.
+- [It ran and it mattered are two claims](it-ran-and-it-mattered-are-two-claims.md) — instrument the effect, not the execution; a magnitude answers what a screenshot cannot.
