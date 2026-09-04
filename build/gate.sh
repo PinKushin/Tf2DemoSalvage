@@ -570,7 +570,15 @@ run Tf2DemoSalvage.Animation.Tests animation 103
 # whole square, each using its whole texture, the four sides meeting edge to edge - and the WINDING,
 # which was genuinely red first. A box seen from inside wants the opposite winding to a solid one,
 # and getting it wrong draws a sky that is present, textured and entirely invisible.
-run Tf2DemoSalvage.Scene.Tests    scene     404
+# 404 -> 422: the corpses, which were decoded and never drawn (B315). RagdollAppearance (4) — the
+# model from m_iClass and the skin from m_iTeam, since DT_TFRagdoll is NOBASE and sends neither; the
+# no-team case was genuinely red first, because reusing PlayerSkin.ForTeam imports C_TFPlayer's
+# `default: 0` where the ragdoll's bare `else` gives 1. RagdollFade (8) — ClientThink's expiry, which
+# is not "15 seconds": the timer is re-armed at a THIRD of the convar on every think the corpse is
+# visible and the branch returns, so a watched corpse never expires. Without it the map fills up, 57
+# bodies at once against a twelve-player roster. RagdollProps (6) — the wiring, with the append (not
+# clear) control and both visible/unseen fade cases.
+run Tf2DemoSalvage.Scene.Tests    scene     422
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

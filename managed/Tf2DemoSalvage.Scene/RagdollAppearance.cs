@@ -1,0 +1,92 @@
+using System;
+
+using Tf2DemoSalvage.Core.Scene;
+
+namespace Tf2DemoSalvage.Scene;
+
+/// <summary>
+/// What a corpse looks like, derived from the two integers <c>DT_TFRagdoll</c> sends.
+/// </summary>
+/// <param name="Model">Its model path, or null when the class names no model.</param>
+/// <param name="Skin">
+/// Its skin family, or null when there is no model. **Null together with the model, deliberately**
+/// — the engine sets both inside one <c>if ( nModelIndex != -1 )</c> block, so a corpse with no
+/// model never reaches the skin lines at all.
+/// </param>
+public readonly record struct RagdollAppearance(string? Model, int? Skin)
+{
+    /// <summary>Derives a corpse's appearance.</summary>
+    /// <param name="corpse">The corpse, as <c>DT_TFRagdoll</c> described it.</param>
+    /// <param name="modelForClass">
+    /// The class table — an index in, a model name out, which is the shape of
+    /// <c>GetPlayerClassData( m_iClass )->GetModelName()</c>. Production passes
+    /// <c>PlayerClassModels.Model</c>.
+    /// </param>
+    /// <returns>The model and skin to draw it with.</returns>
+    /// <remarks>
+    /// **This is the whole reason corpses were invisible, and it is not a decode fault.**
+    /// <c>DT_TFRagdoll</c> is `IMPLEMENT_CLIENTCLASS_DT_NOBASE` (`c_tf_player.cpp:518`), so it
+    /// inherits nothing from `DT_BaseAnimating` and carries no `m_nModelIndex`, no `m_nSkin` and no
+    /// `m_nBody`. Every corpse in a match decoded correctly and none could be built into a prop,
+    /// because the fields a prop is made from were never on the wire. The client has the same
+    /// problem and solves it by DERIVING, not by reading:
+    ///
+    /// <code>
+    /// TFPlayerClassData_t *pData = GetPlayerClassData( m_iClass );
+    /// if ( pData ) nModelIndex = modelinfo->GetModelIndex( pData->GetModelName() );
+    ///
+    /// if ( nModelIndex != -1 )
+    /// {
+    ///     SetModelIndex( nModelIndex );
+    ///     if ( m_iTeam == TF_TEAM_RED ) m_nSkin = 0; else m_nSkin = 1;
+    /// }
+    /// </code>
+    ///
+    /// `C_TFRagdoll::CreateTFRagdoll`, `c_tf_player.cpp:681-720`. Read-from-source.
+    ///
+    /// **What is NOT done here, and why each is separate:**
+    ///
+    /// - **The live-player branch.** The engine prefers `pPlayer->GetPlayerClass()->GetModelName()`
+    ///   over `m_iClass` when the player is still around and is not a spy being drawn disguised.
+    ///   Both routes end at the same class table, and they differ only for a custom player model
+    ///   (`m_iszCustomModel`, `tf_playerclass_shared.cpp:139`) — which nothing in TF2 sets outside
+    ///   Mann-vs-Machine bots. Filed rather than guessed at.
+    /// - **`m_nBody`**, which the engine copies WHOLE from the player: `m_nBody = pPlayer->GetBody()`
+    ///   under `if ( !m_bFeignDeath || m_bWasDisguised )` (`c_tf_player.cpp:790-793`). It needs the
+    ///   player's bodygroup state at the moment of death, which is a different question from this
+    ///   one and has its own guard.
+    /// - **The overrides** — gold, ice, zombie skins, and the material overrides that go with them.
+    ///   Each is its own networked flag and its own branch.
+    ///
+    /// **The skin is written out here rather than calling <c>PlayerSkin.ForTeam</c>, and that is not
+    /// a DRY failure — the two rules genuinely differ.** They come from two different engine
+    /// functions, which agree on RED and BLU and disagree on everything else:
+    ///
+    /// <code>
+    /// // C_TFPlayer::GetSkin, c_tf_player.cpp:7807-7817 — what PlayerSkin.ForTeam implements
+    /// case TF_TEAM_RED:  nSkin = 0; break;
+    /// case TF_TEAM_BLUE: nSkin = 1; break;
+    /// default:           nSkin = 0; break;
+    ///
+    /// // C_TFRagdoll::CreateTFRagdoll, c_tf_player.cpp:712-719 — what this implements
+    /// if ( m_iTeam == TF_TEAM_RED ) m_nSkin = 0; else m_nSkin = 1;
+    /// </code>
+    ///
+    /// A player with no team falls to RED; a corpse with no team falls to BLU. Sharing the helper
+    /// would import the player's `default` into the corpse and silently repaint one of them. Found
+    /// by `Skin_ForNoTeamAtAll_IsBlu`, which failed against exactly that reuse.
+    /// </remarks>
+    public static RagdollAppearance Of(SceneRagdoll corpse, Func<int, string?> modelForClass)
+    {
+        ArgumentNullException.ThrowIfNull(modelForClass);
+
+        // `GetPlayerClassData( m_iClass )` — and a corpse whose class never arrived has none.
+        if (corpse.PlayerClass is not { } playerClass ||
+            modelForClass(playerClass) is not { } model)
+        {
+            return new RagdollAppearance(null, null);
+        }
+
+        return new RagdollAppearance(model, Skin: corpse.Team == SceneTeams.Red ? 0 : 1);
+    }
+}

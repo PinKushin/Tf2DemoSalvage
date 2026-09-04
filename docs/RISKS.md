@@ -21212,3 +21212,100 @@ which is the same dependence.
 following "what alpha does this entity get" stops at `m_nRenderFXBlend = blend;` — the answer is
 there, and the re-sort two lines further on is a different subject wearing the same function name.
 That is the shape of B309's fourth site as well.
+
+### B315 FIXED 2026-09-04: every corpse in every match was decoded and never drawn
+
+**159 `CTFRagdoll` entities in `serveme-627619-stv-2026-08-07`, all decoded, none on screen.** The
+largest single visible gap `docs/PARITY-AUDIT.md` had measured, and the owner's own scoping puts it
+high: B59 records ragdolls as wanted *"for frag vid makers"*, and deaths are much of what a frag
+video shows.
+
+**Not a decode fault, which is why nothing ever looked broken.** `DT_TFRagdoll` is declared
+`IMPLEMENT_CLIENTCLASS_DT_NOBASE` (`c_tf_player.cpp:518`), so it inherits nothing: no
+`m_nModelIndex`, no `m_nSkin`, no `m_nBody`. Every field it does send arrived correctly and every
+test passed. A prop path asks a corpse for a model index, is told nothing, and correctly draws
+nothing. **The corpses were never described.**
+
+The client has the identical problem and solves it by DERIVING:
+
+```cpp
+TFPlayerClassData_t *pData = GetPlayerClassData( m_iClass );
+if ( pData ) nModelIndex = modelinfo->GetModelIndex( pData->GetModelName() );
+
+if ( nModelIndex != -1 )
+{
+    SetModelIndex( nModelIndex );
+    if ( m_iTeam == TF_TEAM_RED ) m_nSkin = 0; else m_nSkin = 1;
+}
+```
+
+`C_TFRagdoll::CreateTFRagdoll`, `c_tf_player.cpp:681-720`. Read-from-source.
+
+**Three findings came out of implementing it, and two would have shipped as defects.**
+
+- **The skin rule is NOT `PlayerSkin.ForTeam`.** Reusing this project's existing team-to-skin helper
+  is the obvious move and it is wrong: `C_TFPlayer::GetSkin` ends `default: nSkin = 0` while the
+  ragdoll's `else` gives 1. A player with no team falls to RED, a corpse with no team falls to BLU.
+  Two engine functions, agreeing on the two real teams and disagreeing outside them — the exact
+  shape of a "DRY" refactor that quietly repaints something. `Skin_ForNoTeamAtAll_IsBlu` failed
+  against the reuse.
+- **A corpse does not last `cl_ragdoll_fade_time`.** The convar defaults to 15 and reading only
+  `StartFadeOut( cl_ragdoll_fade_time.GetFloat() )` at `:869` gives "15 seconds", which is wrong
+  twice. `C_TFRagdoll::ClientThink` restarts the timer at **a third** of it on every think the
+  corpse `IsRagdollVisible()`, and returns (`:1532-1545`) — so **a corpse being looked at never
+  fades**, and one that has left view expires 4.95 seconds later. Implementing a 15-second lifetime
+  from the convar's name would have been a plausible, cited, wrong answer.
+- **And the fade is not optional polish — without it the feature is a defect.** Three windows were
+  tried and measured before the right one. Creation to last update drew every corpse for a single
+  tick, because 158 of 159 corpses get exactly one update: everything `DT_TFRagdoll` carries is a
+  fact about the moment of death and the corpse is client-simulated afterwards. Creation to entity
+  delete gave **57 corpses at once against a twelve-player roster**, because the server keeps one
+  ragdoll per player until that player next dies. Adding the PVS `Leave` barely moved it (61),
+  because SourceTV keeps corpses in its own PVS. `RagdollFade` — `ClientThink`'s actual rule, fed
+  the previous frame's visible set — brings the same samples to 4, 2 and 4 drawn.
+- **Entity slots are reused, and the first count was wrong because of it.** Keying corpses by entity
+  index alone reported **87**; keying by index AND serial reports **159**. B92 already recorded that
+  an entity may change while remaining at its index, and this hit it again — a probe that halves its
+  own subject while looking authoritative.
+
+**The 299 previously recorded in the audit could not be reproduced and has been replaced**, with the
+command beside the new number. Nothing survived to say how 299 was counted
+(`docs/memory/a-measurement-recorded-as-a-conclusion-expires.md`).
+
+**What was built:** `RagdollAppearance.Of` (the derivation), `RagdollFade` (`ClientThink`'s expiry
+rule, keyed per corpse by slot AND serial), `RagdollProps.Fill` (corpses into the prop buffer,
+appended after `PropsAt` rather than instead of it — it clears), and `TimelineMoments.ClassModels`
+(the class table, read per call because the archives and the demo open on independent schedules; a
+captured table would leave a demo opened first showing no corpses for its whole life).
+
+**The fade's visibility comes from `PropsAt`'s existing `interpolate` argument rather than a new
+one.** That parameter already IS the previous frame's posed set, and both uses trace to the same
+engine fact — `g_InterpolationList` membership and `IsRagdollVisible` are each gated on what the last
+render could see. A second parallel property would have been one more thing the presenter must
+remember to set, which is exactly how three no-ops shipped green here.
+
+**One deliberate departure, and D131 is the reason:** an expired corpse never returns, because
+`EndFadeOut` destroys the entity — but `RagdollFade.Rewound` forgets everything when the clock runs
+backwards. The engine cannot seek and this must; without it, scrubbing back past a death shows a map
+missing every body it showed the first time through.
+
+**The angles are the same shape as the model and were nearly missed for the same reason.** Nothing on
+`DT_TFRagdoll` carries an orientation, so a corpse would face north — every body in a match pointing
+the same way, which reads as broken models rather than as a missing field. The client reaches back
+through the networked `m_hPlayer` for `SetAbsAngles( pPlayer->GetRenderAngles() )`
+(`c_tf_player.cpp:766`). **Yaw only:** a player's pitch lives in the head's pose parameters and not in
+the body transform, so carrying it would tip the corpse over backwards for anyone who died looking up.
+The handle is resolved through `EntityStateTable.Resolve` rather than masked, because the low 11 bits
+of an invalid handle name slot 2047, which is a real one (B231).
+
+**And three fields turn out to be conditionally vestigial**, which is worth recording because it is
+neither of the usual two answers. `m_flHeadScale`, `m_flTorsoScale` and `m_flHandScale` ARE networked
+on the corpse, and `CreateTFRagdoll` overwrites all three from the player at `:702-707` — but only
+`if ( pPlayer )`. So the wire values are authoritative exactly when the player entity is missing,
+which is the case hardest to notice and the one a reader trusting them would get right by accident
+everywhere else.
+
+**Still open, each for its own reason:** the physics solver (B58); `m_nBody`, which is copied off
+the player under its own guard; the `RagdollSpawn` sequence, which needs the model opened and so sits
+further down the render path; the cosmetics, whose `m_hRagWearables` IS networked as eight ehandles;
+and the gold, ice and zombie overrides.

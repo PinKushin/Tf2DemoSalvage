@@ -108,7 +108,11 @@ public sealed class DemoSystems
 
         _spectator.Eyes = timeline is { } eyes ? new TimelineEyes(eyes) : null;
         _moment.Viewmodels = timeline is { } weapons ? new TimelineViewmodels(weapons) : null;
-        _moments.Source = timeline is { } moments ? new TimelineMoments(moments) : null;
+        // **The corpses need the install half too**, which `_appearances` already carries on its own
+        // lifecycle — so the source reads it per call rather than being given a table now (B315).
+        _moments.Source = timeline is { } moments
+            ? new TimelineMoments(moments) { ClassModels = CorpseModels }
+            : null;
         _sound.Schedule = timeline is { } withSound ? new SoundSchedule(withSound.Sounds) : null;
 
         // **Forgotten rather than rebuilt.** The archives open later than this, so building the
@@ -207,4 +211,16 @@ public sealed class DemoSystems
         // shape B206 and B207 were both about. Ask `PlaybackPresenter` instead: it owns the clock,
         // and `HasDemo` and `Position` are the questions a caller actually has.
     }
+
+    /// <summary>The class table a corpse's model comes from, null while the install is unread.</summary>
+    /// <returns>An index in, a model path out — <c>PlayerClassModels.Model</c>.</returns>
+    /// <remarks>
+    /// **A method rather than a lambda, and not only because a lambda cannot be a nullable
+    /// delegate** (CS8978). Reading it per call is the point: the archives open on their own
+    /// schedule, so a demo loaded before them has to start showing corpses when they arrive rather
+    /// than never — the same two-lifetime problem `PlayerAppearances` was built for, which is why
+    /// it is asked rather than a table being captured at `Open`.
+    /// </remarks>
+    private Func<int, string?>? CorpseModels() =>
+        _appearances.Game?.Classes is { } classes ? classes.Model : null;
 }

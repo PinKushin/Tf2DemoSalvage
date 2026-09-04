@@ -369,6 +369,80 @@ public readonly record struct TimelineFrame(
     int? RecorderTeam = null,
     int? RoundState = null);
 
+/// <summary>One corpse, as <c>DT_TFRagdoll</c> describes it.</summary>
+/// <param name="EntityIndex">Its entity slot.</param>
+/// <param name="Serial">
+/// The slot's serial, which is what distinguishes one corpse from the next occupant of the same
+/// slot. Without it a match's dead are undercounted by more than half, because slots are reused
+/// briskly and every reuse collapses into its predecessor (B92's lesson, met again).
+/// </param>
+/// <param name="PlayerClass">
+/// <c>m_iClass</c>, which is what the model is derived from. The class NUMBER rather than a path,
+/// because turning it into <c>models/player/spy.mdl</c> needs the game install and that is the
+/// Scene layer's job — the same split a player already uses.
+/// </param>
+/// <param name="Team">
+/// <c>m_iTeam</c>. The skin follows from it directly: <c>m_nSkin = (m_iTeam == TF_TEAM_RED) ? 0 : 1</c>
+/// (`c_tf_player.cpp:712`).
+/// </param>
+/// <param name="X">Where it came to rest — <c>m_vecRagdollOrigin</c>.</param>
+/// <param name="Y">As above.</param>
+/// <param name="Z">As above.</param>
+/// <param name="Gib">
+/// <c>m_bGib</c>, and it is NETWORKED — `RecvPropBool( RECVINFO( m_bGib ) )`
+/// (`c_tf_player.cpp:524`). Whether a death gibbed is recorded rather than guessed, which is worth
+/// stating because the animation-versus-physics choice beside it is not (D136).
+/// </param>
+/// <param name="Burning">
+/// <c>m_bBurning</c>, which the client uses to pick a burning corpse material.
+/// </param>
+/// <param name="FeignDeath">
+/// <c>m_bFeignDeath</c>. A dead ringer spy's corpse copies its body group from the player unless
+/// this is set without <c>m_bWasDisguised</c>.
+/// </param>
+/// <param name="WasDisguised">
+/// <c>m_bWasDisguised</c>, the other half of that condition.
+/// </param>
+/// <param name="FirstTick">
+/// When the corpse entered. A corpse must not be drawn before the death that made it, and the
+/// entity's own arrival is the only record of when that was — nothing on <c>DT_TFRagdoll</c> carries
+/// a time.
+/// </param>
+/// <param name="LastTick">
+/// The last tick the corpse was spoken about. **Not when it stops being drawn**, which the engine
+/// decides with <c>StartFadeOut( cl_ragdoll_fade_time.GetFloat() )</c> on a client-side timer
+/// (`c_tf_player.cpp:869`) rather than by the server removing it.
+/// </param>
+/// <param name="Yaw">
+/// Which way it faces, taken from the player it was — <c>SetAbsAngles( pPlayer-&gt;GetRenderAngles() )</c>
+/// (`c_tf_player.cpp:766`). **Not on the corpse's own table**, which being `NOBASE` has no
+/// `m_angRotation`; zero when the player could not be resolved, which is what leaves every body in a
+/// match facing the same way.
+/// </param>
+/// <remarks>
+/// **The reason corpses are invisible is that they were never DESCRIBED, not that they were lost.**
+/// `DT_TFRagdoll` is `NOBASE`, so it inherits no model index, no skin, no body and no angles; a prop
+/// path asks for a model and correctly draws nothing. 299 in one match
+/// (`docs/PARITY-AUDIT.md` #4). Everything the client needs to build those fields IS on the table,
+/// which is what this carries.
+/// </remarks>
+public readonly record struct SceneRagdoll(
+    int EntityIndex,
+    int Serial,
+    int? PlayerClass,
+    int? Team,
+    float X,
+    float Y,
+    float Z,
+    bool Gib,
+    bool Burning,
+    bool FeignDeath,
+    bool WasDisguised,
+    int FirstTick,
+    int LastTick,
+    float Yaw = 0f);
+
+
 /// <summary>
 /// A demo turned into player positions over time.
 /// </summary>
@@ -403,6 +477,14 @@ public sealed class DemoTimeline
 
     /// <summary>The class every player entity has, spectators and the SourceTV camera included.</summary>
     private const string PlayerClass = "CTFPlayer";
+
+    /// <summary>The corpse entity, which is a separate entity from the player who died.</summary>
+    /// <remarks>
+    /// **A death is not an animation on the player** — the player goes `EF_NODRAW` and a
+    /// `CTFRagdoll` appears (`docs/memory/death-is-ef-nodraw-not-an-animation.md`). So the corpse
+    /// has its own slot, its own lifetime, and its own table.
+    /// </remarks>
+    private const string RagdollClass = "CTFRagdoll";
 
     /// <summary>The entity that carries the atmosphere.</summary>
     private const string FogControllerClass = "CFogController";
@@ -871,6 +953,19 @@ public sealed class DemoTimeline
     /// </remarks>
     public int? RecorderEntityIndex { get; private init; }
 
+    /// <summary>Every corpse the demo created, with what its own table said about it.</summary>
+    /// <remarks>
+    /// **Kept apart from the prop tracks, because a corpse cannot become one.** `DT_TFRagdoll` is
+    /// `NOBASE` and carries no model index, so the track machinery — which keys everything on a
+    /// model path — has nothing to build from and would file every corpse in the model-less bucket
+    /// that nothing drawing ever reads (`PARITY-AUDIT.md` #4).
+    ///
+    /// **Every corpse in the demo rather than the ones alive at a tick**, which is the shape the
+    /// measurement wanted first: "299 in one match, all decoded, none drawn" is a claim about the
+    /// recording. Per-tick presence is the next step and needs a lifetime, not just a list.
+    /// </remarks>
+    public IReadOnlyList<SceneRagdoll> Corpses { get; private init; } = [];
+
     /// <summary>The weapon a player is holding, as they would see it.</summary>
     /// <param name="tick">The tick being drawn.</param>
     /// <param name="playerEntityIndex">The player whose view is being shown.</param>
@@ -1145,6 +1240,14 @@ public sealed class DemoTimeline
         int[] animationLag = new int[LagBuckets + 1];
         int[] clockGap = new int[LagBuckets + 1];
         Dictionary<string, int[]> lagByClass = [];
+
+        // Keyed by entity so a corpse updated across several packets is one corpse, and so the
+        // last update — the one carrying its resting place — is the one kept.
+        Dictionary<int, SceneRagdoll> corpses = [];
+
+        // Corpses whose SLOT has since been taken by another. They are complete and cannot be
+        // updated again, so they leave the live map rather than being overwritten by their successor.
+        List<SceneRagdoll> replaced = [];
         long entityTicks = 0;
         long samplingTicks = 0;
         long viewmodelTicks = 0;
@@ -1551,7 +1654,7 @@ public sealed class DemoTimeline
                     RecordProp(
                         entity, entities, precache, tracks, props, playerTracks,
                         mergesItself, combatWeapons, protocol, command.Tick, interval,
-                        simulationLag, animationLag, clockGap, lagByClass);
+                        simulationLag, animationLag, clockGap, lagByClass, corpses, replaced);
                 }
 
                 entityTicks += Stopwatch.GetTimestamp() - entityFrom;
@@ -1996,6 +2099,7 @@ public sealed class DemoTimeline
             FogControllerProperties = fogProperties,
             IntervalPerTick = interval,
             RecorderEntityIndex = recorderSlot is { } recorded ? recorded + 1 : null,
+            Corpses = [.. replaced, .. corpses.Values],
             ServerConVars = serverConVars,
             MapCrc = mapCrc,
             MapHash = mapHash,
@@ -2418,6 +2522,25 @@ public sealed class DemoTimeline
         return slots;
     }
 
+    /// <summary>Closes a corpse's window at the tick it stopped being drawable.</summary>
+    /// <param name="corpses">The corpses recorded so far, by entity slot.</param>
+    /// <param name="entityIndex">The slot that left or was destroyed.</param>
+    /// <param name="tick">When.</param>
+    /// <remarks>
+    /// **Both callers reach here for the same reason and neither is the last UPDATE.** A corpse is
+    /// spoken about once and then simulated on the client, so the last thing said about it is
+    /// almost always its creation — 158 of 159 in `serveme-627619-stv-2026-08-07`. What ends it is
+    /// leaving the visible set or being destroyed.
+    /// </remarks>
+    private static void EndCorpse(
+        Dictionary<int, SceneRagdoll> corpses, int entityIndex, int tick)
+    {
+        if (corpses.TryGetValue(entityIndex, out SceneRagdoll dying))
+        {
+            corpses[entityIndex] = dying with { LastTick = tick };
+        }
+    }
+
     private static void RecordProp(
         DecodedEntity entity,
         EntityStateTable entities,
@@ -2433,8 +2556,71 @@ public sealed class DemoTimeline
         int[] simulationLag,
         int[] animationLag,
         int[] clockGap,
-        Dictionary<string, int[]> lagByClass)
+        Dictionary<string, int[]> lagByClass,
+        Dictionary<int, SceneRagdoll> corpses,
+        List<SceneRagdoll> replaced)
     {
+        // **A corpse is captured here and never becomes a prop track**, because it has no model
+        // index to make one from — `DT_TFRagdoll` is `NOBASE` (`PARITY-AUDIT.md` #4). Recorded on
+        // every update rather than on the first, since a ragdoll enters before its origin arrives
+        // and the last word is the one that placed it.
+        if (entities.TryGet(entity.EntityIndex, out EntityState? corpse) &&
+            RagdollClass.Equals(corpse.ClassName, StringComparison.Ordinal))
+        {
+            // **A slot is REUSED, so an Enter on an occupied one is a different corpse** (B92, in
+            // its own words: an entity may change while remaining at its index). Keying only by
+            // index collapsed the two into one and undercounted a match's dead by more than half —
+            // 87 reported against the 299 `PARITY-AUDIT.md` #4 measured. The serial is what tells
+            // them apart, which is the same field `ScenePropTrack.Continues` exists for.
+            if (corpses.TryGetValue(entity.EntityIndex, out SceneRagdoll standing) &&
+                standing.Serial != corpse.SerialNumber)
+            {
+                // **Ended where the slot was taken, not where it was last updated.** Both corpses
+                // carry the same entity index, so a window that includes the moment of handover puts
+                // two props at one index in one frame — and everything downstream keys per-entity
+                // caches by that index. The successor's arrival IS the predecessor's end; taking the
+                // earlier tick would be inventing a gap, and taking a later one a collision.
+                replaced.Add(standing with { LastTick = Math.Min(standing.LastTick, tick - 1) });
+            }
+
+            (int? playerClass, int? team, bool gib, bool burning, bool feign, bool disguised) =
+                corpse.Ragdoll();
+
+            (float x, float y, float z) = corpse.RagdollOrigin() ?? (0f, 0f, 0f);
+
+            // **The first tick is kept from the earlier record, not re-read.** A corpse is recorded
+            // on every update rather than only its first, so taking `tick` unconditionally would
+            // walk its arrival forward to the last thing said about it and no corpse would ever be
+            // drawn before it stopped being spoken about.
+            int born = corpses.TryGetValue(entity.EntityIndex, out SceneRagdoll earlier) &&
+                earlier.Serial == corpse.SerialNumber
+                ? earlier.FirstTick
+                : tick;
+
+            // **The corpse faces the way the PLAYER faced**, and only the player entity knows —
+            // `SetAbsAngles( pPlayer->GetRenderAngles() )` (`c_tf_player.cpp:766`). Resolved rather
+            // than masked, because the low 11 bits of an invalid handle name a real slot (B231);
+            // and the yaw is kept from the earlier record when the player has since gone, since a
+            // corpse does not turn to face north the moment its owner disconnects.
+            // Kept from the earlier record when the player can no longer be found, since a corpse
+            // does not turn to face north the moment its owner disconnects.
+            float facing = corpses.TryGetValue(entity.EntityIndex, out SceneRagdoll facedBefore) &&
+                facedBefore.Serial == corpse.SerialNumber
+                ? facedBefore.Yaw
+                : 0f;
+
+            if (entities.Resolve(corpse.RagdollPlayerHandle()) is { } deadIndex &&
+                entities.TryGet(deadIndex, out EntityState? dead) &&
+                dead.EyeAngles() is { } looking)
+            {
+                facing = looking.Yaw;
+            }
+
+            corpses[entity.EntityIndex] = new SceneRagdoll(
+                entity.EntityIndex, corpse.SerialNumber, playerClass, team, x, y, z,
+                gib, burning, feign, disguised, born, tick, facing);
+        }
+
         if (entity.UpdateType == EntityUpdateType.Delete)
         {
             if (tracks.Remove(entity.EntityIndex, out ScenePropTrack? finished))
@@ -2442,7 +2628,38 @@ public sealed class DemoTimeline
                 finished.End(tick);
             }
 
+            // **A corpse ends when it is DELETED, not when it was last spoken about**, and the
+            // difference is the whole feature. Measured on `serveme-627619-stv-2026-08-07`: 158 of
+            // 159 corpses receive exactly ONE update. That is not a decode gap — everything
+            // `DT_TFRagdoll` carries is a fact about the moment of death, and the corpse is a
+            // client-side simulation afterwards, so the server has nothing more to say. Ending the
+            // window at the last update therefore drew each corpse for a single frame, which is
+            // indistinguishable from not drawing it at all.
+            //
+            // The delete is reached here rather than in the block above because `entities.Apply`
+            // has already removed the entity by now, so the class can no longer be asked for — the
+            // index is all that is left, and it is enough.
+            EndCorpse(corpses, entity.EntityIndex, tick);
+
             return;
+        }
+
+        // **A corpse that LEAVES the visible set stops being drawn, and that is the engine's own
+        // behaviour rather than a shortcut.** An entity outside the PVS is dormant on the client
+        // and nothing dormant is rendered. It matters here because a SourceTV recording almost
+        // never DELETES a ragdoll — the server keeps one per player until that player next dies
+        // (`UTIL_Remove`, `tf_player.cpp:15602`) — so ending only at deletes let corpses pile up
+        // across the match: 36 alive at a quarter through, 42 at half, 56 at three quarters,
+        // against a twelve-player roster. Measured, `corpses` probe.
+        //
+        // **A corpse that re-enters extends its window across the gap**, which is a known and
+        // deliberate imprecision: it was not visible to the recorder in between, so the demo says
+        // nothing about it, and this viewer's free camera can look where SourceTV's could not
+        // (`docs/memory/pov-demos-are-pvs-limited.md`). Two intervals per corpse would say it
+        // exactly; one interval says it generously and never invents a corpse that was not there.
+        if (entity.UpdateType == EntityUpdateType.Leave)
+        {
+            EndCorpse(corpses, entity.EntityIndex, tick);
         }
 
         // **Entity zero is the world and the client never draws it as an entity.**

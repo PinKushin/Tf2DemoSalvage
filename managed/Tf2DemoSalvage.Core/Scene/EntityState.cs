@@ -1898,6 +1898,79 @@ public sealed class EntityState
     /// **On `DT_TFPlayer` rather than a local/non-local exclusive**, so they arrive for every
     /// player rather than only for the recorder — unlike the origin, which splits.
     /// </remarks>
+    /// <summary>Everything a corpse says about itself — <c>DT_TFRagdoll</c>.</summary>
+    /// <returns>The fields, each null when this entity is not a ragdoll or did not send one.</returns>
+    /// <remarks>
+    /// **`DT_TFRagdoll` is `NOBASE`** — `IMPLEMENT_CLIENTCLASS_DT_NOBASE( C_TFRagdoll, DT_TFRagdoll,
+    /// CTFRagdoll )` — so it inherits nothing and carries no `m_nModelIndex`, no `m_nSkin`, no
+    /// `m_nBody` and no `m_angRotation`. **That is why every corpse in every demo is invisible
+    /// here**: a prop path asks for a model index, gets none, and correctly draws nothing. 299
+    /// `CTFRagdoll` entities in one match, all decoded, none described
+    /// (`docs/PARITY-AUDIT.md` #4).
+    ///
+    /// **The client BUILDS the missing fields in `CreateTFRagdoll`** (`c_tf_player.cpp:691`), which
+    /// is why that function is forty branches long — the model from the class, the skin from the
+    /// team, the body off the player. Everything it needs is on this table, which is what makes the
+    /// gap reproducible rather than lost.
+    ///
+    /// **Read here rather than resolved here.** Turning a class number into `models/player/spy.mdl`
+    /// needs the game install, which is the Scene layer's job and not Core's — the same split a
+    /// player already uses.
+    /// </remarks>
+    public (int? Class, int? Team, bool Gib, bool Burning, bool FeignDeath, bool WasDisguised)
+        Ragdoll() =>
+        (Integer($"{RagdollTable}.m_iClass"),
+         Integer($"{RagdollTable}.m_iTeam"),
+         Integer($"{RagdollTable}.m_bGib") is int and not 0,
+         Integer($"{RagdollTable}.m_bBurning") is int and not 0,
+         Integer($"{RagdollTable}.m_bFeignDeath") is int and not 0,
+         Integer($"{RagdollTable}.m_bWasDisguised") is int and not 0);
+
+    /// <summary>Where a corpse came to rest — <c>m_vecRagdollOrigin</c>.</summary>
+    /// <returns>The position, or null when this entity sent none.</returns>
+    /// <remarks>
+    /// **Its own property, because the table has no <c>m_vecOrigin</c> to inherit.** A reader
+    /// falling back to <see cref="Origin"/> for a ragdoll finds nothing and places the corpse at
+    /// the world origin, which is the plausible-wrong answer this format specialises in.
+    /// </remarks>
+    public (float X, float Y, float Z)? RagdollOrigin()
+    {
+        if (!_properties.TryGetValue($"{RagdollTable}.m_vecRagdollOrigin", out PropertyValue at))
+        {
+            return null;
+        }
+
+        // **A whole three-component vector, unlike a player's**, whose horizontal pair and height
+        // travel separately in the modern shape. `SendPropVector( SENDINFO( m_vecRagdollOrigin ) )`
+        // has no `[2]` companion, so the split that catches a player reader does not apply — and a
+        // reader that assumed it did would read a height that was never sent.
+        return at.Kind switch
+        {
+            PropertyValueKind.Vector => at.AsVector,
+            PropertyValueKind.VectorXY =>
+                (at.AsVectorXY.X, at.AsVectorXY.Y, Number($"{RagdollTable}.m_vecRagdollOrigin[2]") ?? 0f),
+            _ => null,
+        };
+    }
+
+    /// <summary>Which player this corpse was — <c>m_hPlayer</c>.</summary>
+    /// <returns>The raw handle, or null when this entity sent none.</returns>
+    /// <remarks>
+    /// **The corpse's ANGLES come from here and from nowhere else.** `DT_TFRagdoll` is `NOBASE`, so
+    /// there is no `m_angRotation` on it; the client turns the corpse to face the way the player was
+    /// facing — <c>SetAbsAngles( pPlayer-&gt;GetRenderAngles() )</c> (`c_tf_player.cpp:766`, and again
+    /// at `:775` for the local-player branch). Without it every body in a match faces the same way.
+    ///
+    /// **Raw, because a handle is not an index** (B231). The low 11 bits of
+    /// `INVALID_EHANDLE_INDEX` mask to 2047, which is a legitimate slot — so the caller resolves it
+    /// through <c>EntityStateTable.Resolve</c> rather than masking, and gets null for a player who
+    /// has since left rather than whoever now occupies 2047.
+    /// </remarks>
+    public int? RagdollPlayerHandle() => Integer($"{RagdollTable}.m_hPlayer");
+
+    /// <summary>The table a corpse's own fields live on.</summary>
+    private const string RagdollTable = "DT_TFRagdoll";
+
     public (float? Head, float? Torso, float? Hand) BoneScales() =>
         (Number($"{TfPlayerTable}.m_flHeadScale"),
          Number($"{TfPlayerTable}.m_flTorsoScale"),
