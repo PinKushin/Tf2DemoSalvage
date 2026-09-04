@@ -3410,7 +3410,7 @@ public sealed class DemoTimeline
     /// in `z1800` and `m_hCoach` sits at the 2097151 invalid-handle sentinel throughout. There is no
     /// coaching demo here, so this is written from the engine and exercised only by its tests.
     /// </remarks>
-    private static int? Coached(
+    internal static int? Coached(
         EntityStateTable entities, EntityState recorder, EntityState? resource)
     {
         if (recorder.Integer($"{CoachTable}.m_bIsCoaching") is not (int and not 0) ||

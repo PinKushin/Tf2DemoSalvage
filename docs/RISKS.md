@@ -20898,12 +20898,34 @@ attached — so without this every player in a coached recording reads as friend
 **Both fields are `DT_TFLocalPlayerExclusive`**, sent only to the local player, who in a POV demo is
 the recorder. So a coached recording carries exactly what this needs.
 
-**What is NOT established, stated plainly: no test executes this branch.** The corpus has no
-coaching demo — `m_bIsCoaching` is 0 on all 33 of its appearances in `z1800` — and a synthetic
-fixture needs a schema-bound decoder carrying both properties plus a second player, which is a
-larger piece than the four lines it would cover. What IS verified: the two property names, read off
-a real demo's send tables with the `schema` probe, and the handle dereference, which is delegated to
-`EntityStateTable.Resolve` rather than reimplemented.
+**It IS exercised, by a synthetic fixture built through the real decode types.** This entry first
+said no test could reach it — the corpus has no coaching demo, `m_bIsCoaching` being 0 on all 33 of
+its appearances in `z1800` — and that was a statement about the corpus mistaken for one about
+testability. A hand-built schema with the two properties nested in `DT_TFLocalPlayerExclusive`, a
+recorder and a student, applied through `EntityStateTable.Apply`, reaches all three branches.
+
+**Through the real decoder rather than a property bag, because the RISK is the two names.** Four
+lines transcribed from a cited engine branch are unlikely to be wrong in structure; a key spelled
+`m_bIsCoach`, or read from `DT_TFPlayer`, is exactly the kind of mistake that produces a silent
+null. Sabotages confirm: misspelling the property and moving the table each redden the coaching
+test, and dropping the flag check reddens the control.
+
+#### And the invalid-handle test could not fail until the fixture gained a bystander
+
+**Slot 2047 has to be OCCUPIED for that test to mean anything**, and a sabotage is what showed it.
+With the slot empty, masking the invalid handle gives 2047, the lookup finds nobody, and the answer
+is null — **the same null the correct code returns, for an entirely different reason.** Correct and
+broken agreed on every observation, which is the wrong-CONDITION fault.
+
+Putting a player at 2047 **on the other team** separates them: masking now answers RED where
+resolving answers nothing. Re-run with a genuine masking sabotage — `handle & 2047` in place of
+`Resolve` — and that test reddens alone.
+
+**The first attempt at that sabotage was mine and it proved nothing**, which is worth recording:
+`(handle & 2047) is var student` is an irrefutable pattern, so it made the guard always true and
+`Coached` always null — the same shape as every other broken-key mutation, and it reddened the happy
+path instead. A sabotage that changes behaviour is not automatically a sabotage that tests the
+claim.
 
 **And it nearly reimplemented B231.** The first version masked the handle's low eleven bits.
 `Resolve` exists because masking alone dereferences a DANGLING handle to a real, existing, different

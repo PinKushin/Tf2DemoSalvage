@@ -262,7 +262,7 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # UPDATE whose id resolved to another table's name - a resolver that took every table would pass
 # every other case and would name an effect after a sound. Verified by sabotage: relaxing the update
 # guard to `tableName is not null` reddens exactly the second of those.
-run Tf2DemoSalvage.Core.Tests     core     1684
+run Tf2DemoSalvage.Core.Tests     core     1687
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
