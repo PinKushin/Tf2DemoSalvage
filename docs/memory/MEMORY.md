@@ -179,3 +179,5 @@
 - [A defect that survives its cause is in the instrument](a-defect-that-survives-its-cause-is-in-the-instrument.md) — a denominator of ALL is a warning, not a finding.
 - [A measurement recorded as a conclusion expires](a-measurement-recorded-as-a-conclusion-expires.md) — put the command beside the number; three OPEN entries were stale.
 - [Look for the instrument before building one](look-for-the-instrument-before-building-one.md) — three measurements in one session already existed and were unread.
+- [A stale "not implemented" is a to-do list](a-stale-not-implemented-is-a-todo-list.md) — four were false in one grep; the document ages, not the code.
+- [The half you have may be the wrong half](the-half-you-have-may-be-the-wrong-half.md) — a NoAlign/Fast/Raw variant means its precondition ran elsewhere.
