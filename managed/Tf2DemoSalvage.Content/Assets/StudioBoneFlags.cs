@@ -98,7 +98,8 @@ public static class StudioBoneFlags
 /// Which rule computes a procedural bone, from <c>proctype</c>.
 /// </summary>
 /// <remarks>
-/// **Five kinds, and this project implements none of them yet** — see B182. They are not exotic:
+/// **Five kinds. `JIGGLE` is implemented (B58's jiggle half) and `QUATINTERP` is (B317); the other
+/// three are not, and no model measured here declares one** — see B182. They are not exotic:
 /// TF2's cosmetics lean on jiggle bones heavily, and the seven unmatched bones on a
 /// <c>ghostly_gibus</c> that this repository already documents as *"stayed at the model origin"* are
 /// exactly this family. The engine does not merge them onto a wearer either; it SIMULATES them

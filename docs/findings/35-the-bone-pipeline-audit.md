@@ -377,3 +377,57 @@ properties make it safe, and a port that drops any of them is not the same thing
 heavy roots leaves the critical path, and it only pays when the same entities are expensive frame to
 frame. A demo viewer is the good case — players persist. Measured against B99's ~420 ms of posing per
 second, that is where the headroom is.
+
+## 9. Procedural bones: five rules, two of which TF2 actually uses
+
+`mstudiobone_t` carries `proctype` and `procindex`, and `CalcProceduralBone` dispatches on the first
+of them with a `switch` (`bone_setup.cpp:4932-4965`). Five rules exist. Measured across every model
+drawn in one tick of `serveme-627619-stv-2026-08-07` — 540 bones over 44 models — TF2 uses exactly
+two:
+
+| rule | bones | what carries it |
+|---|---|---|
+| `STUDIO_PROC_JIGGLE` (5) | 18 | cosmetics — a ghost gibus, a djinn lamp, a medic's rabbit ears |
+| `STUDIO_PROC_QUATINTERP` (2) | 4 | `hlp_forearm_L` / `hlp_forearm_R`, on every class model |
+| `AXISINTERP`, `AIMATBONE`, `AIMATATTACH` | 0 | nothing measured |
+
+```bash
+dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -- bone-flags <demo>
+```
+
+**Four bones out of 540 sounds like nothing, and the count is the wrong number to look at.** What
+decides whether an unimplemented rule is visible is whether any vertex is weighted to the bone it
+drives — a procedural bone nothing is skinned to computes a transform that reaches no mesh. All four
+report `SKINNED`. The probe was taught to say so for this question, and the answer flipped the
+priority: this is a forearm that does not twist with the wrist, on every player in every demo.
+
+**The control bone is the HAND.** `demo.mdl:hlp_forearm_L` is driven by `bip_hand_L`, three authored
+triggers each. That is the mechanism the rule exists for — spreading a wrist's roll along the
+forearm so the mesh does not pinch — and reading it out of the file confirms the decode is right in
+a way a struct dump cannot.
+
+**How much it moves the bone: 0.72 units at unit distance, which is a 42-degree twist.** Worth
+recording as a magnitude rather than a yes, because the first attempt at that number was **zero** —
+it measured the bone's translation, and a twist rotates about a fixed origin, so its translation is
+identical by construction. An instrument written that same hour to separate "it ran" from "it
+mattered" was itself measuring the one quantity that could not change. The fix is to take the
+furthest of the origin AND the three unit axes, which covers rotation and translation together.
+
+**A dispatch detail that matters and looks like tidiness.** `CalcProceduralBone` switches on
+`proctype` — an exact match — while the JIGGLE path is reached by a separate `&` test further down
+`BuildTransformations` (`c_baseanimating.cpp:1546`). `STUDIO_PROC_JIGGLE` is 5, whose low bits
+include 2, so a reader that used a bitwise test for QUATINTERP would hand a spring's stiffnesses to
+the interpolation rule and read them as quaternions. The two readers here reproduce each test as
+written rather than agreeing with each other.
+
+**And the rule REPLACES the animated transform rather than adjusting it.** `CalcProceduralBone`
+returns true and the engine's loop `continue`s, so a procedural bone's keyframed rotation never
+reaches the skeleton. Applying the rule on top of the animation blends two answers where the engine
+takes one — an easy mistake, because every other pass in this pipeline is additive.
+
+**One Valve bug, recorded because it cannot be reproduced.** `DoQuatInterpBone` declares
+`matrix3x4_t bonematrix;` uninitialised, fills it only inside
+`if (pProc && pbones[pProc->control].parent != -1)`, and concatenates it into the skeleton *outside*
+that guard — so a rule whose control is the root bone writes stack garbage. Measured unreachable on
+every model that carries the rule: each control has a parent. This project leaves such a bone at its
+animated transform.

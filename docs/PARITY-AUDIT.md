@@ -114,7 +114,25 @@ there is no spectated entity to follow. So a headless first-person capture reach
 still logs `viewmodel pass skipped … camera False`. That is B256's territory rather than a missing
 launch option: on a POV demo the followed entity is the recorder, and nothing tells the viewer so.
 
-### 2. Where to read next, by concentration of branches
+### 2. Where to read next, by concentration of branches — SUPERSEDED, and the table below is why
+
+**Every function in this table has now been read, and the ranking was the wrong axis the whole
+time.** The skill this audit runs under says so in its own words: a function implemented well and one
+implemented badly have the same branch count, so this ranks by how much work a full implementation
+would be rather than by what is wrong on screen. Its top entry was 299 undrawn ragdolls — a feature
+the owner plays with switched off, and a number that turned out to be 159.
+
+**What replaced it, and it has produced better findings.** Pick a subject that is drawn or on the
+wire right now, then ask what quantity decides whether anybody can see the gap:
+
+- **B317** came from a probe line reading `proctype QUATINTERP 4 of 540`. Four bones out of 540 is
+  invisible by branch count and by proportion. The quantity that mattered was whether any vertex is
+  weighted to them — all four are — and it is a forearm that does not twist on every player in every
+  demo.
+- **B316** came the other way: `GetSequenceForDeath` looks worth implementing until you count how
+  many corpses can reach it, which is about one in a hundred.
+
+The table is kept because the reading it directed was worth doing, not because the ordering was.
 
 From the ranked output, ignoring the shader helpers (a separate job):
 
@@ -483,6 +501,47 @@ An empty model path drawn as a Studio model. It may be the dynamic-model case
 table rather than `modelprecache`) surfacing as an unresolved path, and it may be the probe
 reporting rather than the renderer doing. **Both readings are guesses.** Filed with its evidence so
 the next person starts from the observation instead of rediscovering it.
+
+### 6. A procedural bone rule on every player model, decoded and named and run by nothing — FIXED (B317)
+
+**The first finding produced by ranking on what is DRAWN rather than on branch count**, and it would
+never have surfaced the old way: `DoQuatInterpBone` is a small function on a small number of bones.
+
+```
+proctype QUATINTERP  4 of 540   demo.mdl:hlp_forearm_L SKINNED, demo.mdl:hlp_forearm_R SKINNED,
+                                scout.mdl:hlp_forearm_L SKINNED, scout.mdl:hlp_forearm_R SKINNED
+```
+
+**Four bones in 540, and the proportion is not the number to look at.** What decides whether an
+unimplemented rule is visible is whether any vertex is weighted to the bone it drives — a procedural
+bone nothing is skinned to computes a transform that reaches no mesh. All four report `SKINNED`; the
+probe was taught to say so for exactly this question. TF2 puts the pair on every class model, so this
+was a forearm that did not twist with the wrist, on every player in every demo.
+
+**It was the `decoding-a-field-is-not-honouring-it` shape.** `StudioProcedureType` declared all five
+rules with citations, `StudioBone.ProcedureType` read the field, and a repository-wide grep for a
+consumer of `QuaternionInterpolate` outside its own declaration returned nothing. The type's remarks
+said *"this project implements none of them yet"*, which had gone stale in both directions — jiggle
+bones had been implemented since, and nobody revisited the sentence.
+
+**Two engine details that a plausible implementation gets wrong**, both now pinned by tests:
+
+- The control is read **relative to its parent**, not in world space. Reading the world matrix is
+  right whenever the parent happens to be unrotated — every simple fixture and no real skeleton.
+- The rule **replaces** the animated transform. `CalcProceduralBone` returns true and the engine's
+  loop `continue`s, so a procedural bone's keyframed rotation never reaches the skeleton. Every other
+  pass in this pipeline is additive, which is what makes the mistake easy.
+
+**Measured wired, not merely built:** `DRIVEN 10 bones posed by a quaternion-interpolation rule,
+furthest move 0.72 units` on a real demo, carried from where the work happened rather than counted
+from what the models declare. On a point one unit out that is 2·sin(θ/2) — **a 42-degree twist**,
+which is the magnitude a wrist roll should spread down a forearm.
+
+**That magnitude read ZERO on its first run, and the instrument was at fault rather than the rule.**
+It measured translation alone, and a twist rotates about a fixed origin — so it was measuring the one
+quantity that cannot change, and reporting "the rule does nothing" about correct code. The instrument
+had been written that same hour precisely to separate "it ran" from "it mattered", which is how
+easily the unfaithful-proxy fault survives being looked for.
 
 ## The rule this audit exists to enforce
 

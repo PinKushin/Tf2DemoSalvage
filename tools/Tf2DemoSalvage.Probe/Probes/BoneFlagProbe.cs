@@ -136,6 +136,7 @@ public sealed class BoneFlagProbe : IProbe
         int bones = 0;
         int models = 0;
         int springs = 0;
+        int helpers = 0;
         int chained = 0;
         int links = 0;
         List<string> ikExamples = [];
@@ -187,7 +188,16 @@ public sealed class BoneFlagProbe : IProbe
 
                     if (shown.Count < 4)
                     {
-                        shown.Add($"{Path.GetFileName(model)}:{bone.Name}");
+                        // **Whether the bone carries VERTICES, which decides whether implementing
+                        // its rule changes anything a viewer can see.** A procedural bone nothing
+                        // is skinned to computes a transform that reaches no mesh — the count alone
+                        // would say "four bones unimplemented" either way, and only this separates
+                        // a real gap from a bookkeeping one.
+                        bool skinnedTo =
+                            (bone.Flags & StudioBoneFlags.UsedByVertexLod0) != 0;
+
+                        shown.Add(
+                            $"{Path.GetFileName(model)}:{bone.Name}{(skinnedTo ? " SKINNED" : " no-verts")}");
                     }
 
                     // **The parameters themselves, for the first few, because a stride or a field
@@ -209,6 +219,36 @@ public sealed class BoneFlagProbe : IProbe
                                 $"yaw {jiggle.YawStiffness:0.#}/{jiggle.YawDamping:0.#} " +
                                 $"pitch {jiggle.PitchStiffness:0.#}/{jiggle.PitchDamping:0.#} " +
                                 $"angleLimit {jiggle.AngleLimit:0.###}"));
+                    }
+
+                    // **The control bone and whether it has a PARENT, which is B317's open
+                    // question.** `DoQuatInterpBone` fills its `bonematrix` only inside
+                    // `if (pProc && pbones[pProc->control].parent != -1)` and concatenates it into
+                    // the skeleton OUTSIDE that guard — so a rule whose control is the root writes
+                    // uninitialised stack memory. There is no behaviour to copy, so what matters is
+                    // whether any shipped model can reach it.
+                    if (helpers < 6 &&
+                        assets.Geometry(model)?.Skinned is { Models.Count: > 0 } quatBytes &&
+                        StudioQuatInterp.Read(quatBytes.Models[0], index) is { } quat)
+                    {
+                        helpers++;
+
+                        int control = quat.Control;
+
+                        string named = control >= 0 && control < skinned.Bones.Count
+                            ? skinned.Bones[control].Name
+                            : $"#{control}";
+
+                        int above = control >= 0 && control < skinned.Bones.Count
+                            ? skinned.Bones[control].Parent
+                            : -1;
+
+                        output.WriteLine(
+                            string.Create(
+                                CultureInfo.InvariantCulture,
+                                $"  quatinterp {Path.GetFileName(model)}:{bone.Name} " +
+                                $"control {named} triggers {quat.Triggers.Count} " +
+                                $"{(above < 0 ? "CONTROL IS ROOT — Valve reads uninitialised memory here" : "control has a parent")}"));
                     }
                 }
 
@@ -292,6 +332,15 @@ public sealed class BoneFlagProbe : IProbe
             string.Create(
                 CultureInfo.InvariantCulture,
                 $"SIMULATED {posed.JigglingBones} jiggle bones across {instances.Count} instances"));
+
+        // **The number that says QUATINTERP is wired, carried from where the work happened** (B317).
+        // The declaration count above says how many bones ASK for the rule; this says how many got
+        // it. The two disagreeing is the whole point of printing both.
+        output.WriteLine(
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"DRIVEN {posed.QuatInterpBones} bones posed by a quaternion-interpolation rule, " +
+                $"furthest move {posed.QuatInterpFurthestMove:0.##} units"));
 
         // **Which IK rule TYPES the content actually carries, over every animation of every model
         // the demo draws.** The whole `CIKTarget` half of `CIKContext` — `UpdateTargets`,

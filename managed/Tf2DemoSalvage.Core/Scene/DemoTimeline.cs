@@ -2615,8 +2615,16 @@ public sealed class DemoTimeline
                 ? facedBefore.Yaw
                 : 0f;
 
-            if (entities.Resolve(corpse.RagdollPlayerHandle()) is { } deadIndex &&
-                entities.TryGet(deadIndex, out EntityState? dead) &&
+            // **Two names for the player, and two encodings** (B319). Newer builds send
+            // `m_hPlayer`, a packed ehandle that must be resolved; older ones send
+            // `m_iPlayerIndex`, the entity index itself. Measured: the STV demo carries handles in
+            // the hundreds of thousands, `z1800` carries 2, 3, 4. Reading either as the other gives
+            // a plausible number and the wrong player, so each is decoded as what it is.
+            int? deadIndex =
+                entities.Resolve(corpse.RagdollPlayerHandle()) ?? corpse.RagdollPlayerIndex();
+
+            if (deadIndex is { } player &&
+                entities.TryGet(player, out EntityState? dead) &&
                 dead.EyeAngles() is { } looking)
             {
                 facing = looking.Yaw;

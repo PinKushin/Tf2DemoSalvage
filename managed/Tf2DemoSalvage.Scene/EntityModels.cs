@@ -2238,6 +2238,60 @@ public sealed class EntityModelSet
         }
     }
 
+    /// <summary>
+    /// How many bones the last pose pass posed by a quaternion-interpolation rule, across every
+    /// entity.
+    /// </summary>
+    /// <remarks>
+    /// **The only thing that can say `STUDIO_PROC_QUATINTERP` is WIRED** (B317), and it is here for
+    /// the reason its jiggle neighbour is: the reader, the arithmetic and the dispatch each have
+    /// their own tests, and every one of them passing says nothing about whether a real model on a
+    /// real demo reaches the rule. Summed from the poses rather than counted from what the models
+    /// DECLARE, since a number derived by a second route stays right while the code does nothing.
+    /// </remarks>
+    public int QuatInterpBones
+    {
+        get
+        {
+            int driven = 0;
+
+            foreach (AnimatingEntity animating in _entities.Values)
+            {
+                if (animating.Pose is SkeletonPose posed)
+                {
+                    driven += posed.QuatInterpBonesBuilt;
+                }
+            }
+
+            return driven;
+        }
+    }
+
+    /// <summary>The furthest any quaternion-interpolation rule moved a bone, across every entity.</summary>
+    /// <remarks>
+    /// **The other half of the pair above**, and the one that says the rule changed the picture
+    /// rather than merely running — a magnitude, like `IkLocks`' furthest move. Zero with a non-zero
+    /// count would mean the triggers reproduce the animated pose, which is a real possible outcome
+    /// and not one a count can report.
+    /// </remarks>
+    public float QuatInterpFurthestMove
+    {
+        get
+        {
+            float furthest = 0f;
+
+            foreach (AnimatingEntity animating in _entities.Values)
+            {
+                if (animating.Pose is SkeletonPose posed)
+                {
+                    furthest = Math.Max(furthest, posed.QuatInterpFurthestMove);
+                }
+            }
+
+            return furthest;
+        }
+    }
+
     /// <summary>How many IK chains the last pose pass actually solved, across every entity.</summary>
     /// <remarks>
     /// **The only thing that can say IK is WIRED** (B296). The solver, the rule reader, the error

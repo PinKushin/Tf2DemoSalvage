@@ -41,6 +41,18 @@ absence ([[an-empty-search-needs-a-control]]). The spread settles it: the comp m
 with no sniper or spy to produce an eligible death. The pub demos, which field both, are where the
 eligible ordinals appear at all.
 
+**The same question with the answer the other way, an hour later.** `STUDIO_PROC_QUATINTERP` is
+declared, named and computed by nothing — four bones on the player models in one demo. Four out of
+540 sounds like nothing. The question that settles it is not the count but **whether any vertex is
+weighted to those bones**, because a procedural bone nothing is skinned to computes a transform that
+reaches no mesh. The `bone-flags` probe was taught to say `SKINNED` or `no-verts` for exactly this,
+and all four came back SKINNED — a forearm that does not twist with the wrist, on every class model
+in every demo. Worth building.
+
+So the rule is not "small counts are not worth it". It is **find the quantity that decides whether
+anybody can see it, and measure that one** — eligible inputs for a branch, weighted vertices for a
+bone, drawn instances for a prop. The raw count answers neither way.
+
 Related: [[the-cited-line-may-be-the-wrong-branch]] (the branch you found is the one you do not
 take), [[measure-the-route-before-building-on-it]], [[audit-means-verify-what-exists]],
-[[decoding-a-field-is-not-honouring-it]].
+[[decoding-a-field-is-not-honouring-it]], [[the-denominator-decides-what-can-be-lost]].
