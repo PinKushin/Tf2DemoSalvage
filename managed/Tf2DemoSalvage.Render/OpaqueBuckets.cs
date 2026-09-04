@@ -40,6 +40,7 @@ public static class OpaqueBuckets
     /// </remarks>
     public static ReadOnlySpan<float> Thresholds => [200f, 80f, 30f];
 
+
     /// <summary>How many buckets there are: one per threshold, plus everything below.</summary>
     public const int Count = 4;
 
@@ -119,6 +120,10 @@ public static class OpaqueBuckets
             if (WorldSpaceBounds.IsPlaced(box) &&
                 frustum.Cull(box.MinX, box.MinY, box.MinZ, box.MaxX, box.MaxY, box.MaxZ))
             {
+                // **Measured 2026-09-03: this rejects NOTHING.** `opaque draw order: 152 of 152
+                // models kept` on `tf2-2026-pub-pov-clean` at tick 14000, first person — every
+                // instance reaching here already survived `EntityModels.Culls` against the SAME
+                // frustum, so the second test is repetition rather than a second opinion (B262).
                 continue;
             }
 

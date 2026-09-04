@@ -20169,3 +20169,31 @@ turning up (`m_bClientSideAnimation`, `m_nResetEventsParity`, `m_flPlaybackRate`
 
 Step 4 is the cheap one and it comes first: with the reader alone, one run turns `3, 5, 4, 1, 2, 6,
 0` into seven strings and tells us exactly which effects a TF2 demo asks for.
+
+### B262 measured 2026-09-03: the second cull rejects NOTHING, and that is the stronger argument
+
+B262 asks for a measurement before the restructure — *"count second-cull rejections, Classify calls
+per pass, allocations per warmed frame"*. The first of those was already being reported and nobody
+had read the line. `tf2-2026-pub-pov-clean`, tick 14000, first person:
+
+```
+opaque draw order: 152 of 152 models kept, frustum built, buckets 27/95/5/25
+```
+
+**152 of 152.** Every instance reaching `OpaqueBuckets.InDrawOrder` already survived
+`EntityModels.Culls` against the SAME frustum, so the second test is not a second opinion — it is
+repetition that has never rejected anything.
+
+**This makes the entry's case better, not worse.** "The draw side re-culls what collation could have
+handed it" reads as a performance complaint; "the draw side runs a test whose answer is always yes"
+is a statement about correctness of structure. The work it does is not merely duplicated, it is
+provably inert on this population.
+
+**It does not change the conclusion about HOW to fix it.** The entry is right that this falls out of
+per-leaf grouping rather than being worth a cache, and the other two numbers are still untaken.
+
+**A counter was nearly added for this, and removing it is the point.** The first attempt added
+`SecondCullRejected`/`Considered` to `OpaqueBuckets` and a second log line — two routes to one
+number, free to disagree, which is exactly what B243 is about. The existing line already said it.
+**Look for the instrument before building one**; this file is now three for three on measurements
+that already existed (B254's counters, B258's `--measure`, and this).

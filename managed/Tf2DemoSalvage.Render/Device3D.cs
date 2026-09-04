@@ -2033,6 +2033,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             _world.SkyBatches.Count,
             _draw3dSky,
             _skyVisible);
+
+        // **B262's first number is already reported, by `opaque draw order` below** — "152 of 152
+        // models kept". A second line saying the same thing from its own counters is the fault
+        // B243 names: two routes to one number, free to disagree. Looked for before adding.
     }
 
     /// <summary>Whether the viewmodel pass has said where it thinks the eye is (B170).</summary>
