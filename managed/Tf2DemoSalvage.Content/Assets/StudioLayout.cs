@@ -120,12 +120,15 @@ internal static class StudioLayout
 
     /// <summary>Byte offset of <c>numlocalattachments</c>.</summary>
     /// <remarks>
-    /// **These five are declared ahead of the reader that will use them, deliberately.** B82 is
-    /// open: items parented to an attachment are not implemented, so a halo or a canteen sits at the
-    /// wearer's feet. The standing order of work here is the conformance test first, then the
-    /// ordinary tests, then the implementation — so the layout is pinned against
-    /// <c>public/studio.h</c> now, and whatever reads it later starts from numbers that were checked
-    /// before anything depended on them.
+    /// **These five are declared ahead of the reader that would use them, deliberately — and B82 is
+    /// now closed.** Items parented to an attachment are implemented: `EntityState.ParentAttachment()`
+    /// reads <c>m_iParentAttachment</c> (<c>managed/Tf2DemoSalvage.Core/Scene/EntityState.cs:1607</c>),
+    /// <c>DemoTimeline.cs:2771</c> carries it onto the track, `StudioAttachment.Read` parses this
+    /// table, and <c>EntityModels.cs:862</c> applies it, so a halo or a canteen sits where the model
+    /// says rather than at the wearer's feet. These five constants are what that reader uses. The
+    /// standing order of work here was the conformance test first, then the ordinary tests, then the
+    /// implementation — so the layout was pinned against <c>public/studio.h</c> ahead of time, and the
+    /// reader that came later started from numbers that were checked before anything depended on them.
     ///
     /// That is the opposite of how the BSP lump constants began, which sat unread long enough that
     /// their test guarded a file nothing used. The difference is that this is one step of a sequence
@@ -202,6 +205,20 @@ internal static class StudioLayout
 
     /// <summary>How many controller slots a bone carries.</summary>
     public const int BoneControllerSlots = 6;
+
+    /// <summary>Byte offset of <c>qAlignment</c>: the orientation a fixed-alignment bone aligns to.</summary>
+    /// <remarks>
+    /// **Read only for a bone carrying <c>BONE_FIXED_ALIGNMENT</c>** — *"bone can't spin 360
+    /// degrees, all interpolation is normalized around a fixed orientation"* (<c>studio.h:434</c>).
+    /// <c>CalcBoneQuaternion</c> ends with <c>QuaternionAlign( baseAlignment, q, q )</c> for such a
+    /// bone (<c>bone_setup.cpp:470</c>), and the two blends then use their <c>NoAlign</c> variants
+    /// because the alignment has already been settled here.
+    ///
+    /// **It sits in the gap between <c>poseToBone</c> and <c>flags</c>**, 96 + 48 = 144, and a gap
+    /// is exactly what nothing announces: a reader that skipped it still read every field on either
+    /// side correctly, which is why this was missed until B308.
+    /// </remarks>
+    public const int BoneAlignmentOffset = 144;
 
     /// <summary>Byte offset of <c>flags</c>: the <c>BONE_USED_BY_*</c> mask (B182).</summary>
     /// <remarks>

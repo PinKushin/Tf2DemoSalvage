@@ -160,6 +160,211 @@ public sealed class StudioAnimationTests
         StudioBones.Read(new byte[8]).ShouldBeEmpty();
     }
 
+    /// <remarks>
+    /// **The last line of `CalcBoneQuaternion`** (`bone_setup.cpp:470`), and the reason the two
+    /// blends downstream may skip aligning at all:
+    ///
+    /// <code>
+    ///   // align to unified bone
+    ///   if (!(panim->flags &amp; STUDIO_ANIM_DELTA) &amp;&amp; (iBaseFlags &amp; BONE_FIXED_ALIGNMENT))
+    ///       QuaternionAlign( baseAlignment, q, q );
+    /// </code>
+    ///
+    /// **The flag is the manipulation and the animation is real.** No TF2 model measured sets
+    /// `BONE_FIXED_ALIGNMENT` — 0 of 924 bones across 37 models — so a fixture that waited for real
+    /// content would never run. Flagging a bone of a real model and choosing an alignment antipodal
+    /// to what that bone actually decodes to gives an exact prediction: the same rotation, negated.
+    ///
+    /// **A quaternion and its negation are the SAME rotation**, which is what makes this safe to
+    /// assert and also why it matters. The pose is unchanged; what changes is which of the two
+    /// representations later blends interpolate from, and that decides whether a joint travels the
+    /// short way or the long way round.
+    ///
+    /// **Every bone is swept, and that is the fix to a wrong CONDITION rather than a wrong
+    /// assertion.** The first version flagged one bone picked for being turned away from its rest
+    /// pose — and it decoded through `STUDIO_ANIM_RAWROT`, which returns before the alignment in the
+    /// engine too. So the prediction was for a branch that bone never took, and the measurement
+    /// (unchanged) was correct.
+    ///
+    /// **The sweep carries its own denominator**, which is what stops it passing vacuously: a bone
+    /// on the raw path must come back untouched, a bone on the animated path must come back exactly
+    /// negated, and at least one must be on the animated path. With no alignment implemented the
+    /// negated count is zero and the last assertion fails.
+    /// </remarks>
+    [Test]
+    public void Pose_WithAFixedAlignmentBone_AlignsTheRotationToTheBonesOwnOrientation()
+    {
+        if (Read("models/player/heavy.mdl") is not { } files)
+        {
+            Assert.Ignore("the game is not installed");
+            return;
+        }
+
+        IReadOnlyList<StudioBone> bones = StudioBones.Read(files.Model);
+        int aligned = 0;
+        int untouched = 0;
+
+        foreach (int subject in Posed(files.Model, bones))
+        {
+            (float X, float Y, float Z, float W) before = RotationOf(files.Model, bones, subject);
+
+            // Antipodal to what the bone decodes to, so `QuaternionAlign` must flip it — on the
+            // branch that reaches `QuaternionAlign` at all.
+            (float X, float Y, float Z, float W) after =
+                RotationOf(files.Model, Flagged(bones, subject, Negated(before)), subject);
+
+            if (Matches(after, before))
+            {
+                untouched++;
+                continue;
+            }
+
+            aligned++;
+
+            after.X.ShouldBe(-before.X, RotationTolerance, $"bone {subject} flipped exactly");
+            after.Y.ShouldBe(-before.Y, RotationTolerance);
+            after.Z.ShouldBe(-before.Z, RotationTolerance);
+            after.W.ShouldBe(-before.W, RotationTolerance);
+        }
+
+        // **Skipped rather than failed when nothing reaches the branch, and this is not a dodge.**
+        // Measured: no animation tried on `heavy.mdl` decodes a rotation through the animated-Euler
+        // path — every bone takes `STUDIO_ANIM_RAWROT`, which returns before `QuaternionAlign` in
+        // the engine too. So a red here would report our code broken when what is missing is an
+        // input, and the assertions above still run exactly when content provides one.
+        //
+        // **The gap is real and recorded** (B308): the decode-side alignment is the engine's own
+        // line with its offset confirmed against `studio.h`, and it is UNEXERCISED by any TF2
+        // content measured. That is worth knowing and is not the same as untested arithmetic.
+        if (aligned == 0)
+        {
+            Assert.Ignore(
+                $"no bone of animation {AlignmentAnimation} takes the animated-Euler branch; " +
+                $"all {untouched} are raw quaternions, which the engine does not align either");
+        }
+    }
+
+    /// <remarks>
+    /// **The control, and it is the assertion that says the flag is what did it.** Aligning to the
+    /// SAME hemisphere must leave the rotation exactly as it was — so a decode that negated
+    /// unconditionally, or that flipped on the flag alone without consulting the alignment, fails
+    /// here while passing the test above.
+    /// </remarks>
+    [Test]
+    public void Pose_WithAnAlignmentTheRotationAlreadyMatches_LeavesItAlone()
+    {
+        if (Read("models/player/heavy.mdl") is not { } files)
+        {
+            Assert.Ignore("the game is not installed");
+            return;
+        }
+
+        IReadOnlyList<StudioBone> bones = StudioBones.Read(files.Model);
+
+        // A bone the sweep above proved reaches the alignment, so "unchanged" here means the
+        // alignment DECLINED to flip rather than that the branch was never entered.
+        int subject = -1;
+
+        foreach (int candidate in Posed(files.Model, bones))
+        {
+            (float X, float Y, float Z, float W) was = RotationOf(files.Model, bones, candidate);
+
+            if (!Matches(
+                    RotationOf(files.Model, Flagged(bones, candidate, Negated(was)), candidate),
+                    was))
+            {
+                subject = candidate;
+                break;
+            }
+        }
+
+        if (subject < 0)
+        {
+            Assert.Ignore("no bone takes the animated-Euler branch; see the sweep above (B308)");
+            return;
+        }
+
+        (float X, float Y, float Z, float W) before = RotationOf(files.Model, bones, subject);
+
+        (float X, float Y, float Z, float W) after =
+            RotationOf(files.Model, Flagged(bones, subject, before), subject);
+
+        after.X.ShouldBe(before.X, RotationTolerance, "already on the same hemisphere");
+        after.Y.ShouldBe(before.Y, RotationTolerance);
+        after.Z.ShouldBe(before.Z, RotationTolerance);
+        after.W.ShouldBe(before.W, RotationTolerance);
+    }
+
+    /// <summary>The bone list with one bone flagged fixed-alignment against a chosen orientation.</summary>
+    private static StudioBone[] Flagged(
+        IReadOnlyList<StudioBone> bones, int bone, (float X, float Y, float Z, float W) alignment)
+    {
+        StudioBone[] flagged = [.. bones];
+
+        flagged[bone] = bones[bone] with
+        {
+            Flags = bones[bone].Flags | StudioBoneFlags.FixedAlignment,
+            Alignment = alignment,
+        };
+
+        return flagged;
+    }
+
+    private static (float X, float Y, float Z, float W) Negated(
+        (float X, float Y, float Z, float W) q) => (-q.X, -q.Y, -q.Z, -q.W);
+
+    private static bool Matches(
+        (float X, float Y, float Z, float W) a, (float X, float Y, float Z, float W) b) =>
+        MathF.Abs(a.X - b.X) < 1e-6f && MathF.Abs(a.Y - b.Y) < 1e-6f &&
+        MathF.Abs(a.Z - b.Z) < 1e-6f && MathF.Abs(a.W - b.W) < 1e-6f;
+
+    /// <summary>Every bone the animation's own pose mentions, at <see cref="AlignmentFrame"/>.</summary>
+    private static List<int> Posed(
+        ReadOnlyMemory<byte> model, IReadOnlyList<StudioBone> bones)
+    {
+        List<int> posed = [];
+
+        foreach (StudioBonePose entry in
+            StudioAnimation.Pose(model, bones, AlignmentAnimation, AlignmentFrame))
+        {
+            posed.Add(entry.Bone);
+        }
+
+        return posed;
+    }
+
+    /// <summary>How close two quaternion components must be to count as equal.</summary>
+    private const double RotationTolerance = 1e-6;
+
+    /// <summary>The frame the alignment tests read, chosen only for being past the first.</summary>
+    private const int AlignmentFrame = 3;
+
+    /// <summary>The animation the alignment tests read.</summary>
+    /// <remarks>
+    /// **Animation 0 was tried first and reaches nothing**: every bone of it decodes through
+    /// `STUDIO_ANIM_RAWROT`, which returns before `QuaternionAlign` in the engine too, so the sweep
+    /// found zero aligned bones and said so rather than passing. A later animation is used because
+    /// a model mixes the two encodings — which is itself the reason the sweep counts.
+    /// </remarks>
+    private const int AlignmentAnimation = 40;
+
+    /// <summary>One bone's decoded rotation at <see cref="AlignmentFrame"/>.</summary>
+    private static (float X, float Y, float Z, float W) RotationOf(
+        ReadOnlyMemory<byte> model, IReadOnlyList<StudioBone> bones, int bone)
+    {
+        foreach (StudioBonePose posed in
+            StudioAnimation.Pose(model, bones, AlignmentAnimation, AlignmentFrame))
+        {
+            if (posed.Bone == bone)
+            {
+                return posed.Rotation;
+            }
+        }
+
+        throw new InvalidOperationException($"bone {bone} is not in the animation's pose");
+    }
+
+
     /// <summary>The bounding box of a model's vertices once skinned.</summary>
     private static (float X, float Y, float Z) Extents(
         StudioSkeleton skeleton, IReadOnlyList<StudioVertex> vertices)

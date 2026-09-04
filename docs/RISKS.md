@@ -20402,3 +20402,69 @@ to 0.7, which makes the remapped cycle land on a frame BOUNDARY — `0.05f / 0.5
 0.1, so thirty frames of it is 2.9999998 and floors to 2. The measurement was right and the
 prediction was exact-decimal arithmetic applied to a float path. Off a boundary the rounding cannot
 reach the neighbouring frame.
+
+### B308 FIXED 2026-09-03: BONE_FIXED_ALIGNMENT was half a mechanism, and we had the wrong half
+
+**Three engine sites read this flag and they are one mechanism**: align a decoded rotation ONCE,
+against the bone's own `qAlignment`, and then never align again.
+
+| site | engine | ours before |
+|---|---|---|
+| `CalcBoneQuaternion` — `QuaternionAlign( baseAlignment, q, q )` | `bone_setup.cpp:470` | **missing** |
+| `SlerpBones` — `QuaternionSlerpNoAlign` | `bone_setup.cpp:1492` | present |
+| `BlendBones` — `QuaternionBlendNoAlign` | `bone_setup.cpp:1608` | **missing** |
+
+**We had the slerp without the decode, which is the worse half to hold alone.** A quaternion and its
+negation are the same rotation, so a blend must choose one; the engine settles that at decode so the
+blends can safely skip it. Skipping it at the blend WITHOUT having settled it at decode means neither
+end aligns — and an antipodal pair then interpolates the long way round, which is the limb-swings-
+through-the-body symptom our own `Slerp` doc warns about.
+
+**`qAlignment` was never read**, because it sits in the gap between `poseToBone` and `flags` —
+96 + 48 = 144 — and a gap announces nothing: every field on either side was read correctly.
+`StudioLayout.BoneAlignmentOffset` now carries it and `BonePipelineStructTests` derives the offset
+from `studio.h` rather than trusting the arithmetic.
+
+**The decode-side align belongs to ONE branch and that is easy to get wrong.**
+`STUDIO_ANIM_RAWROT`, `STUDIO_ANIM_RAWROT2` and the no-`ANIMROT` case each `return` before reaching
+it, so only the animated-Euler path aligns. Applying it to the raw paths would be a divergence in
+the opposite direction.
+
+**Measured: no TF2 content exercises any of this.** `bone-flags` on `tf2-2026-pub-pov-clean` at tick
+14051 reports `BONE_FIXED_ALIGNMENT 0 of 924` across 37 skinned models, while six other flags on the
+same 924 bones come back nonzero — so the instrument works and the zero is real. *Measured, one demo,
+one tick.*
+
+**And the tests SKIP rather than pass, which is the honest state.** The wiring tests flag a bone of a
+real model and predict an exact negation; no animation tried on `heavy.mdl` decodes a rotation
+through the animated-Euler path at all — every bone is a raw quaternion, which the engine does not
+align either. So the assertions are written and armed and currently have no input. That is a real
+gap, distinct from untested arithmetic: **the code is the engine's own line with its offset confirmed
+against the SDK, and it has never run on content.**
+
+**The first version of that test failed for a wrong CONDITION and the sweep is the fix.** It picked
+one bone for being turned away from its rest pose — which does not imply the animated-Euler branch,
+and that bone was a raw quaternion. Sweeping every posed bone and counting how many respond is what
+turned "this is broken" into "this branch is unreachable here".
+
+#### Three stale claims corrected in the same pass
+
+Each said something was not implemented that is:
+
+- `StudioSequences.cs` — *"`AddSequenceLayers` is not implemented"*. It is, in `EntityModels`, both
+  passes, and B307 above fixed a branch of it.
+- `StudioLayout.cs` — *"B82 is open: items parented to an attachment are not implemented, so a halo
+  or a canteen sits at the wearer's feet."* `m_iParentAttachment` is read, carried and applied.
+- `SkeletonPose.cs` — *"Not reproduced: `BONE_FIXED_ALIGNMENT` … the flag is not read by this
+  project's `.mdl` parser yet."* The flag is read and that same file branches on it.
+
+**A comment that says a thing is missing is read as a to-do list**, so a stale one costs twice: the
+work looks undone, and the next reader who checks discovers the document rather than the code is
+wrong. `docs/memory/an-impossibility-claim-expires.md` is the same failure in the other direction.
+
+#### Noted, not fixed: `EntityTracker` has no production caller
+
+Referenced only by `EntityTrackerTests`. Its own remarks call instance baselines a known gap, while
+`BaselineBuilder` implements them for the path production actually uses. This is the shape B206 and
+B207 removed — a superseded type keeping its tests green — and it is recorded rather than deleted
+because deleting it is a separate decision with a floor to lower and a reason to write beside it.

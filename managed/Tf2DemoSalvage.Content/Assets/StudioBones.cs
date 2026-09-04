@@ -23,6 +23,11 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// <param name="Controllers">
 /// Six slots, one per degree of freedom, each a bone controller index or −1.
 /// </param>
+/// <param name="Alignment">
+/// <c>qAlignment</c>: the orientation an animated rotation is aligned to when this bone carries
+/// <see cref="StudioBoneFlags.FixedAlignment"/>. Meaningless, and left at zero, for every other
+/// bone — the engine reads it only under that flag.
+/// </param>
 /// <remarks>
 /// **The rotation is stored twice, and both are needed.** <c>quat</c> is the rest pose the renderer
 /// uses directly; <c>rot</c> is the same rotation as Euler radians, and an animation's compressed
@@ -46,7 +51,8 @@ public readonly record struct StudioBone(
     int Flags = 0,
     int ProcedureType = 0,
     int ProcedureIndex = 0,
-    ReadOnlyMemory<int> Controllers = default)
+    ReadOnlyMemory<int> Controllers = default,
+    (float X, float Y, float Z, float W) Alignment = default)
 {
     /// <summary>Whether this bone is one the engine computes with a rule rather than an animation.</summary>
     /// <remarks>
@@ -305,7 +311,16 @@ public static class StudioBones
                 // file" — pProcedure() returns null for zero. Kept as the raw value so the
                 // distinction survives to whoever resolves it.
                 BinaryPrimitives.ReadInt32LittleEndian(bone[BoneProcedureIndexOffset..]),
-                controllers));
+                controllers,
+
+                // **`qAlignment`, in the gap between `poseToBone` and `flags`** (B308). Read
+                // unconditionally because the flag that decides whether it MEANS anything lives
+                // beside it; the decode consults both.
+                (
+                    BinaryPrimitives.ReadSingleLittleEndian(bone[BoneAlignmentOffset..]),
+                    BinaryPrimitives.ReadSingleLittleEndian(bone[(BoneAlignmentOffset + 4)..]),
+                    BinaryPrimitives.ReadSingleLittleEndian(bone[(BoneAlignmentOffset + 8)..]),
+                    BinaryPrimitives.ReadSingleLittleEndian(bone[(BoneAlignmentOffset + 12)..]))));
         }
 
         return bones;

@@ -51,6 +51,12 @@ public sealed class BonePipelineStructTests
 
         bone.Offset("bonecontroller").ShouldBe(StudioLayout.BoneControllerListOffset);
 
+        // **`qAlignment`, which `CalcBoneQuaternion` aligns an animated rotation to** for a bone
+        // carrying `BONE_FIXED_ALIGNMENT` (`bone_setup.cpp:470`). It sits in the gap between
+        // `poseToBone` and `flags` and was unread until B308 — a gap nothing announces, since a
+        // reader that skipped it still got every field on either side right.
+        bone.Offset("qAlignment").ShouldBe(StudioLayout.BoneAlignmentOffset);
+
         // **The count matters as much as the offset**, because the six slots are read as a run: one
         // too few silently drops the ZR axis, one too many reads `pos.x` as a controller index and
         // then indexes the controller table with a float's bit pattern.

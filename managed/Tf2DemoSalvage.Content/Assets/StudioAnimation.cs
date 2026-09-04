@@ -399,6 +399,26 @@ public static class StudioAnimation
             }
 
             rotation = FromEulerRadians(x, y, z);
+
+            // **`CalcBoneQuaternion`'s last line** (`bone_setup.cpp:470`), and it belongs to this
+            // branch alone — `STUDIO_ANIM_RAWROT`, `RAWROT2` and the no-`ANIMROT` case all `return`
+            // before reaching it:
+            //
+            //   // align to unified bone
+            //   if (!(panim->flags & STUDIO_ANIM_DELTA) && (iBaseFlags & BONE_FIXED_ALIGNMENT))
+            //       QuaternionAlign( baseAlignment, q, q );
+            //
+            // **This is the half that makes the other two halves safe** (B308). A quaternion and
+            // its negation are the same rotation, so a blend has to pick one; settling that HERE,
+            // once, against the bone's own `qAlignment`, is what lets `SlerpBones` and `BlendBones`
+            // then use their `NoAlign` variants. We had the `NoAlign` slerp without this, which is
+            // the worse half of the mechanism to have alone: neither end aligning means an
+            // antipodal pair blends the long way round.
+            if ((flags & Delta) == 0 &&
+                (rest.Flags & StudioBoneFlags.FixedAlignment) != 0)
+            {
+                rotation = StudioBones.Align(rest.Alignment, rotation);
+            }
         }
 
         (float X, float Y, float Z) position = additive ? (0f, 0f, 0f) : rest.Position;

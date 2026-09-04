@@ -25,9 +25,14 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// <see cref="FiredEvents"/> instead, which answers empty rather than null.
 /// </param>
 /// <param name="AutoLayers">
-/// How many other sequences this one layers over itself — <c>numautolayers</c>. The COUNT only:
-/// `AddSequenceLayers` (<c>bone_setup.cpp:2125</c>) is not implemented, and this exists so the
-/// question "does any TF2 content use them" can be measured before that decision is made.
+/// How many other sequences this one layers over itself — <c>numautolayers</c>. **The count is read
+/// here; the accumulation lives in `EntityModels.AutoLayersFor`**
+/// (<c>managed/Tf2DemoSalvage.Scene/EntityModels.cs:1615</c>), whose loop over
+/// `skinned.AutoLayersOf(sequence)` covers both `AddSequenceLayers` (<c>bone_setup.cpp:2125</c>) and
+/// `AddLocalLayers` (<c>bone_setup.cpp:2218</c>). This field was declared first so the question "does
+/// any TF2 content use them" could be measured before committing to the implementation; the answer
+/// came back yes (B294 — `sentry3`, `c_rocketpack`, `c_engineer_arms`), and the implementation above
+/// followed.
 /// </param>
 public readonly record struct StudioSequence(
     int Animation,

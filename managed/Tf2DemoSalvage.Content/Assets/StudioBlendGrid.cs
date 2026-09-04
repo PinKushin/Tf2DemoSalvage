@@ -436,7 +436,18 @@ public static class StudioPoseBlend
         for (int bone = 0; bone < left.Length; bone++)
         {
             (float X, float Y, float Z, float W) p = left[bone].Rotation;
-            (float X, float Y, float Z, float W) q = Align(p, right[bone].Rotation);
+
+            // **`BlendBones` picks its blend on the bone's flag** (`bone_setup.cpp:1608`):
+            // `QuaternionBlendNoAlign` for a bone carrying `BONE_FIXED_ALIGNMENT`,
+            // `QuaternionBlend` otherwise — and the only difference between them is this align.
+            //
+            // **The alignment was already settled at DECODE for such a bone** (B308), against its
+            // own `qAlignment`, so aligning again here would undo the authored choice and let the
+            // joint take whichever route the neighbouring corner happened to imply.
+            (float X, float Y, float Z, float W) q =
+                (bones[bone].Flags & StudioBoneFlags.FixedAlignment) != 0
+                    ? right[bone].Rotation
+                    : Align(p, right[bone].Rotation);
 
             (float X, float Y, float Z) a = left[bone].Position;
             (float X, float Y, float Z) b = right[bone].Position;

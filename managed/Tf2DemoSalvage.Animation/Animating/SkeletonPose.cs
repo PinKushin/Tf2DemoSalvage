@@ -576,10 +576,13 @@ public sealed class SkeletonPose : IBonePose
     /// bone the base left out has to blend against something, and the engine's <c>q1</c> holds the
     /// bind pose there because <c>InitPose</c> seeded it.
     ///
-    /// **Not reproduced:** <c>BONE_FIXED_ALIGNMENT</c>, which chooses
-    /// <c>QuaternionSlerpNoAlign</c> over <c>QuaternionSlerp</c>. It matters only for bones whose
-    /// animations are authored without alignment, and the flag is not read by this project's
-    /// <c>.mdl</c> parser yet — named here rather than left silent.
+    /// **Reproduced:** <c>BONE_FIXED_ALIGNMENT</c>, which chooses <c>QuaternionSlerpNoAlign</c> over
+    /// <c>QuaternionSlerp</c> in Valve's own <c>SlerpBones</c> (<c>bone_setup.cpp:1492</c>) — see the
+    /// branch below, keyed on <see cref="StudioBoneFlags.FixedAlignment"/>. This was believed unread
+    /// by this project's <c>.mdl</c> parser; it is read (<c>StudioBones</c> decodes bone flags at
+    /// offset 160) and this method has used it since. **Measured on <c>tf2-2026-pub-pov-clean</c> at
+    /// tick 14051: no model sets the flag** — 0 of 924 bones across 37 skinned models — so the branch
+    /// is correct and currently unexercised by real content.
     /// </remarks>
     private IReadOnlyList<StudioBonePose> Accumulate(IReadOnlyList<StudioBonePose> basePose)
     {
