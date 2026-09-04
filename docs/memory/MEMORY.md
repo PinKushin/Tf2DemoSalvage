@@ -183,3 +183,4 @@
 - [The half you have may be the wrong half](the-half-you-have-may-be-the-wrong-half.md) — a NoAlign/Fast/Raw variant means its precondition ran elsewhere.
 - [Follow the call, not the value](follow-the-call-not-the-value.md) — an override one call deeper is invisible from the arithmetic.
 - [Predictions must not sit on a boundary](predictions-must-not-sit-on-a-boundary.md) — exact decimal vs float floors to the frame below.
+- [A fixture can be outside the algorithm's domain](a-fixture-can-be-outside-the-algorithms-domain.md) — a small miss in a solver may be a refused input, not a bug.
