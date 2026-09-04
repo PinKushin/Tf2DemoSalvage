@@ -21,7 +21,7 @@ draws without the game — models and stock textures are what go missing, not th
 requirement was to *mention* the missing install, and mentioning it is all it should do.
 
 **Why this is worth an entry rather than just a fix:** the direction is counter-intuitive. The usual
-rule is [[push-when-the-gate-is-green]]'s — *"a test that passes locally and fails in CI is usually a
+rule is [[read-the-trx-total-not-the-console]]'s — *"a test that passes locally and fails in CI is usually a
 test asserting on the developer's machine"*, and the answer there is to gate the test
 (`ViewerSession.RequireTheGame()`). Here it is the **production code** that assumed the developer's
 machine, and the answer is the opposite: the CI failure is the correct signal and must not be gated
@@ -36,5 +36,5 @@ away.
 - Never add a `RequireTheGame()` gate to make a no-install failure go away. That is deleting the only
   instrument for the case the program exists to serve.
 
-Related: [[the-game-folder-is-the-users-to-provide]], [[three-test-levels-and-the-third-is-missing]],
-[[push-when-the-gate-is-green]].
+Related: [[the-game-folder-is-the-users-to-provide]], [[output-level-assertion-or-it-is-not-done]],
+[[read-the-trx-total-not-the-console]].

@@ -36,7 +36,7 @@ ground trace plus `surfaceproperties`), not because it would be invention.
 read yet.** The first half of this entry — that the demo carries no footstep sounds — was measured
 and is right. The second half was an inference about how the client makes them, written in the same
 confident register, and it parked the feature for the wrong reason. See
-[[an-impossibility-claim-expires]] and [[a-filed-design-choice-may-not-be-one]].
+[[filing-a-divergence-is-not-fixing-it]] and [[a-filed-design-choice-may-not-be-one]].
 
 Related: [[ask-whether-the-data-arrived]], [[an-empty-search-needs-a-control]],
 [[measure-the-output-not-the-capability]].

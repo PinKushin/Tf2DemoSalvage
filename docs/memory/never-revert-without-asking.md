@@ -45,4 +45,4 @@ reverted on 2026-08-14 and again on 2026-08-21 — and on both occasions the dep
 wrong, so neither attempt ever tested it.
 
 Related: [[a-filed-design-choice-may-not-be-one]], [[name-the-reading-you-picked]],
-[[close-what-you-launched]].
+[[logs-are-the-debugger]].

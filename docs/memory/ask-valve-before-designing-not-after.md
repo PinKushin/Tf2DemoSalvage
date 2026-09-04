@@ -44,4 +44,4 @@ headers still establish is what it *cannot* be — flag that as inference, not r
 Full write-up with the quoted source: `docs/findings/39-the-engines-frame-clocks.md`.
 
 Related: [[valve-parity-is-the-first-principle]], [[conformance-test-before-implementation]],
-[[read-the-spec-before-measuring-our-data]], [[a-divergence-is-asked-not-documented]].
+[[nothing-is-closed]], [[parity-is-the-search-not-the-defence]].

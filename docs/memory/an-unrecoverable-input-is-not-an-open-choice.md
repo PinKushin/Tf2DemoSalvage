@@ -21,7 +21,7 @@ animation, 75% physics. That is not an approximation of the engine, it IS the en
 reproduces the distribution a viewer saw. The only forced adaptation is seeding the draw per corpse,
 because this project can seek and the client could not.
 
-**Distinguish this from a real divergence.** [[a-divergence-is-asked-not-documented]] is about
+**Distinguish this from a real divergence.** [[parity-is-the-search-not-the-defence]] is about
 deliberately doing something ELSE, which does need asking. An unrecoverable input is not that: the
 logic is decided, only the input is missing.
 

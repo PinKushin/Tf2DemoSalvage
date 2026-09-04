@@ -29,5 +29,5 @@ Two more facts from the same session:
   clean cheap-to-expensive spectrum: the bottom end is fatal and the expensive path is the one that
   works.
 - **`Pin-Config` has two profiles and only `ultra` is a reference.** A capture taken under `low` is
-  not ground truth for this project. See [[read-the-spec-before-measuring-our-data]] for why a
+  not ground truth for this project. See [[nothing-is-closed]] for why a
   capture with an unstated configuration is not evidence at all.

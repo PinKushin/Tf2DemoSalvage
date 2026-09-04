@@ -612,6 +612,29 @@ public sealed class VmtMaterial
     /// </remarks>
     public string? LightWarpTexture => Value("$lightwarptexture");
 
+    /// <summary>A texture replacing the base map's alpha as the self-illumination mask.</summary>
+    /// <remarks>
+    /// <c>$selfillummask</c>, and Valve's own description of it is the whole definition:
+    /// <c>"If we bind a texture here, it overrides base alpha (if any) for self illum"</c>
+    /// (<c>vertexlitgeneric_dx9.cpp:62</c>). The shader states it as one line —
+    ///
+    /// <code>
+    /// float3 vSelfIllumMask = tex2D( SelfIllumMaskSampler, i.baseTexCoord.xy );
+    /// vSelfIllumMask = lerp( baseColor.aaa, vSelfIllumMask, g_SelfIllumMaskControl );
+    /// diffuseComponent = lerp( diffuseComponent, g_SelfIllumTint * albedo, vSelfIllumMask );
+    /// </code>
+    ///
+    /// (<c>vertexlit_and_unlit_generic_ps2x.fxc:441-443</c>) — so the mask is not a new mechanism,
+    /// it is the base alpha's replacement in one that already exists. Sampled on the BASE texture's
+    /// coordinates, not its own set.
+    ///
+    /// **It has no effect without <c>$selfillum</c>**, which the helper gates on explicitly
+    /// (<c>vertexlitgeneric_dx9_helper.cpp:289</c>). 53 of the 30,684 materials TF2 ships declare
+    /// one, and every one of those declares it inside a <c>&gt;=DX90</c> block — which is why it
+    /// became visible only once those blocks were read (B326, B327).
+    /// </remarks>
+    public string? SelfIllumMask => Value("$selfillummask");
+
     /// <summary>How tightly the rim hugs the silhouette; higher is a thinner edge.</summary>
     /// <remarks>
     /// <c>SHADER_PARAM( RIMLIGHTEXPONENT, SHADER_PARAM_TYPE_FLOAT, "4.0", … )</c> — a different
@@ -949,7 +972,97 @@ public sealed class VmtMaterial
         blocks.Count == 1 ||
         (blocks.Count == 2 &&
             (blocks[1].Equals("replace", StringComparison.OrdinalIgnoreCase) ||
-                blocks[1].Equals("insert", StringComparison.OrdinalIgnoreCase)));
+                blocks[1].Equals("insert", StringComparison.OrdinalIgnoreCase) ||
+                SatisfiesTheDirectXCondition(blocks[1])));
+
+    /// <summary>Whether a block name is a DirectX-level condition this renderer meets.</summary>
+    /// <param name="block">The block's name, as the file spells it.</param>
+    /// <returns>True to merge its keys; false for anything else, condition or not.</returns>
+    /// <remarks>
+    /// **A block named for a DirectX support level gates its keys on that level** (B326):
+    ///
+    /// <code>
+    /// "VertexlitGeneric"
+    /// {
+    ///     "$envmaptint" "[1.5 1.2 .2]"
+    ///
+    ///     "&gt;=DX90" { "$envmap" "cubemaps/cubemap_gold001" }
+    /// }
+    /// </code>
+    ///
+    /// This project draws through Direct3D 11, so every `&gt;=` condition TF2 ships is met and every
+    /// `&lt;` one is not. Dropping the lot was not neutral: **5,415 of the 30,684 materials TF2
+    /// ships declare `$selfillum` inside a `&gt;=DX90` block**, a parameter this reader implements
+    /// and was reading in none of them, and 59 gate their `$envmap` the same way — which is how the
+    /// gap was found, on a corpse carrying the tint of a reflection it had no cubemap for.
+    ///
+    /// <code>
+    /// dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -- vmt-blocks "&gt;=DX90"
+    /// </code>
+    ///
+    /// **Evidence class: shipped data plus convention, NOT read-from-source, and that matters.**
+    /// `source-sdk-2013` publishes `shaderapidx9` and `stdshaders` but not the material system's
+    /// VMT loader, so the merge cannot be quoted from Valve. What IS measured is which spellings
+    /// exist and what they contain; that `&gt;=` means "at least this level" is the convention the
+    /// files are written against. Flagged every time, because an interpolation that reads like a
+    /// measurement is how a wrong conclusion gets repeated.
+    ///
+    /// **The suffixed forms are shader models at the same level.** `dx90_20b` is shader model 2.0b
+    /// on dxlevel 90, and TF2 ships ten materials gating on it; the number is what orders them and
+    /// the suffix rides along. Parsed as digits-then-anything rather than matched literally, so a
+    /// spelling this corpus does not happen to contain still lands on the right side.
+    ///
+    /// **A name that is not a condition at all answers false**, which is what keeps `Proxies`, a
+    /// proxy's own name, and every `&lt;Shader&gt;_DX&lt;n&gt;` fallback block out — the last of
+    /// those is a different mechanism (a whole substitute shader for a level) and stays unhandled
+    /// deliberately, since all 800-odd that TF2 ships are low-end.
+    /// </remarks>
+    private static bool SatisfiesTheDirectXCondition(string block)
+    {
+        bool atLeast = block.StartsWith(">=", StringComparison.Ordinal);
+
+        if (!atLeast && !block.StartsWith('<'))
+        {
+            return false;
+        }
+
+        ReadOnlySpan<char> rest = block.AsSpan(atLeast ? 2 : 1);
+
+        if (!rest.StartsWith("dx", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        rest = rest[2..];
+
+        int digits = 0;
+
+        while (digits < rest.Length && char.IsAsciiDigit(rest[digits]))
+        {
+            digits++;
+        }
+
+        // No digits is not a condition — it is some other block whose name happens to begin "<dx".
+        if (digits == 0 ||
+            !int.TryParse(rest[..digits], NumberStyles.None, CultureInfo.InvariantCulture,
+                out int level))
+        {
+            return false;
+        }
+
+        return atLeast ? DirectXLevel >= level : DirectXLevel < level;
+    }
+
+    /// <summary>The DirectX support level this renderer reports to a material's conditions.</summary>
+    /// <remarks>
+    /// **95, which is Direct3D 11 in Source's own numbering** — the same scale `mat_dxlevel` prints,
+    /// where 90 is DX9 shader model 2.0, 92 is 2.0b, 95 is 3.0 and 98 is DX10-class. A constant
+    /// rather than a query, because this renderer has one backend and every capability the shipped
+    /// conditions gate on is unconditionally available in D3D11; a machine-dependent value would
+    /// make a material's parameters vary by GPU, which is a source of "it looks different on my
+    /// computer" that nothing here needs.
+    /// </remarks>
+    private const int DirectXLevel = 95;
 
     /// <summary>Merges a patch over the material it includes.</summary>
     /// <param name="patch">The patch material.</param>

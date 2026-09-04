@@ -21984,7 +21984,7 @@ sense `docs/memory/instrument-bugs-outnumber-decoder-bugs.md` sets out — an in
 and broken predict the same observation. Ice cannot be warm, so the two overrides now sit on either
 side of the ordering and the manipulation is the only thing that decides it.
 
-### B326 OPEN: VMT DirectX-level sub-blocks are not applied, so `$envmap` inside one is lost
+### B326 FIXED 2026-09-04: VMT DirectX-level sub-blocks were not applied, and 5,415 materials lost `$selfillum`
 
 **Found while asserting B325's gold material, and it is not confined to gold.** A VMT may put
 parameters inside a block named for a DirectX support level:
@@ -22005,16 +22005,214 @@ with **`$envmaptint [1.5 1.2 .2]` and no `$envmap`** — the tint of a reflectio
 for. Measured: `assets.Cubemaps[gold]` is null on a full load from the shipped VPK, while
 `assets.Phong[gold]` and every other top-level key resolve.
 
-**What is NOT established.** How many shipped VMTs use these blocks, and which other parameters get
-lost with them. Nor which of the several block spellings TF2's materials actually use — `>=DX90`,
-`<DX90`, `>=DX80`, `>=DX70` and the `if($...)` forms all exist in Valve's data.
+#### The denominator, measured rather than guessed
 
-**What the rule should be, and it is simple for this renderer.** The blocks merge conditionally on
-the material system's DX support level. This project draws through D3D11, so every `>=DX*` block is
-satisfied and every `<DX*` block is not. The material system that implements this is closed — the
-SDK ships `shaderapidx9` and `stdshaders` but not the VMT loader — so the semantics come from the
-shipped data and the convention rather than from a quoted function, and that should be recorded as
-an interpolation when it is implemented.
+The entry above was filed with "how many shipped VMTs use these blocks" as its open question, and a
+guess at the spellings. Both were answered by walking every material TF2 ships, with a new probe:
 
-**Visible when wrong:** a golden corpse that is brown rather than metallic, and any other material
-whose reflection is declared behind a DX gate.
+```bash
+dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -- vmt-blocks
+dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -- vmt-blocks ">=DX90"
+```
+
+**30,684 materials read, 6,141 opening a sub-block inside the shader.** The conditions, by material:
+
+| block | count |
+|---|---|
+| `>=DX90` | 5,688 |
+| `<dx90` | 281 |
+| `>=dx90_20b` | 10 |
+| `<dx90_20b` | 5 |
+
+Only those four spellings. `>=DX80`, `>=DX70` and the `if($...)` forms guessed at above appear
+**nowhere** in TF2's shipped materials.
+
+**And what was behind the gate is far bigger than the cubemap that found it.** Inside `>=DX90`, by
+key:
+
+| key | materials |
+|---|---|
+| `$selfillum` | **5,415** |
+| `$envmap` | 59 |
+| `$envmaptint` | 58 |
+| `$selfillummask` | 53 |
+| `$baseTexture` | 50 |
+
+`$selfillum` is a parameter this project implements — `VmtMaterial.IsSelfIlluminated` — and was
+reading in **none** of those 5,415 materials. That is the visible defect: every self-illuminated
+surface in the game whose flag is gated this way drew unlit, on every map, since the reader was
+written. The golden corpse was the symptom that got noticed.
+
+**`<dx90` must stay refused, and that is not symmetry for its own sake.** Its most common keys are
+`$bumpmap` (60), `$baseTexture` (56), `$outlinecolor` (54) and `$fallbackmaterial` (51) — the
+low-end path. A parser that simply flattened every sub-block would swap this bug for a rarer and
+stranger one.
+
+#### The rule, and its evidence class
+
+A block named for a DirectX support level merges its keys only when that level is met. This project
+draws through D3D11 and reports **95** — Source's own numbering, where 90 is shader model 2.0, 92 is
+2.0b, 95 is 3.0 and 98 is DX10-class — so every `>=` condition TF2 ships is satisfied and every `<`
+one is not. A constant rather than a query: this renderer has one backend, and a machine-dependent
+value would make a material's parameters vary by GPU.
+
+**Evidence class: shipped data plus convention, NOT read-from-source.** `source-sdk-2013` publishes
+`shaderapidx9` and `stdshaders` but not the material system's VMT loader, so the merge itself cannot
+be quoted from Valve. What is measured is which spellings exist and what they contain. Flagged
+because an interpolation that reads like a measurement is how a wrong conclusion gets repeated.
+
+**The `<Shader>_DX<n>` blocks are a different mechanism, still unhandled — and the first version of
+this paragraph was WRONG about them.** It said they were "all low-end fallbacks" and that ignoring
+them was therefore right. Measured, they are not:
+
+| block | materials | what is inside |
+|---|---|---|
+| `LightmappedGeneric_DX9` | 403 | `$bumpmap` (89), `$envmaptint` (84), `$envmap` (49), `$parallaxmap` (8) |
+| `LightmappedGeneric_DX8` | 201 | the low-end path |
+| `LightmappedGeneric_HDR_DX9` | 63 | the HDR variant of the same |
+| `VertexLitGeneric_DX9` | 28 | — |
+| `Water_DX60`, `Eyes_dx8`, … | ~100 | low-end |
+
+**Roughly 520 of the ~800 name DX9 or HDR_DX9 and carry modern features** — bump maps, cubemap
+reflections, parallax — which a Direct3D 11 renderer plainly satisfies. So ignoring them is a real
+divergence, filed as **B328**, not the harmless omission this entry first claimed.
+
+The claim was made by reading the block NAMES and inferring "fallback means low-end", without
+looking inside any of them. One probe run settled it, and the correction is left here rather than
+edited away: an inference that reads like a measurement is exactly what
+`docs/memory/an-empty-search-needs-a-control.md` is about.
+
+#### A sabotage found a fixture that could not discriminate
+
+The first version of the conformance test used `gold_player.vmt` byte for byte, which was the right
+instinct — a synthetic fixture written from the same belief as the parser cannot falsify it — and
+the wrong fixture. It declares the SAME `$envmap` in both its `>=DX90` and its `<DX90` block, so
+claiming DirectX 8 still produced the expected answer. It falsifies "the reader ignores sub-blocks",
+which is what it was written for and what it was red against, and it cannot say WHICH block was
+read. A second fixture now puts the value only in the high block and a different key only in the
+low one; at level 80 three of the six tests redden instead of two.
+
+**Visible when wrong:** every `$selfillum` surface in the game drawn unlit, and a golden corpse
+brown rather than metallic.
+
+### B327 FIXED 2026-09-04: `$selfillummask`, found by the census the moment B326 landed
+
+**This is what a tripwire is for, and it fired in the same gate run as the change that exposed it.**
+`Census_UnimplementedParameters_AreAllAlreadyKnown` asserts that every parameter a real map asks for
+is either implemented or accounted for in this file. Reading the DirectX-level VMT blocks (B326) made
+`$selfillummask` reachable for the first time, and the census went red on it immediately — a
+parameter that had been in the game's materials all along and in nothing this project could see.
+
+**Valve's own description is the whole definition:**
+
+```cpp
+SHADER_PARAM( SELFILLUMMASK, SHADER_PARAM_TYPE_TEXTURE, "shadertest/BaseTexture",
+    "If we bind a texture here, it overrides base alpha (if any) for self illum" )
+```
+
+`vertexlitgeneric_dx9.cpp:62`. The shader states it as one expression rather than a branch:
+
+```hlsl
+float3 vSelfIllumMask = tex2D( SelfIllumMaskSampler, i.baseTexCoord.xy );
+vSelfIllumMask = lerp( baseColor.aaa, vSelfIllumMask, g_SelfIllumMaskControl );
+diffuseComponent = lerp( diffuseComponent, g_SelfIllumTint * albedo, vSelfIllumMask );
+```
+
+`vertexlit_and_unlit_generic_ps2x.fxc:441-443`, with the control set to 1 exactly when a mask is
+bound (`vertexlitgeneric_dx9_helper.cpp:1092`). Read-from-source.
+
+**So this is not a new effect — it is a new INPUT to one that already worked.** This project's line
+was `lerp(lit, selfIllumTint.rgb * albedo.rgb, albedo.a)`, which is precisely Valve's mask-less case;
+the fix generalises the third argument and leaves everything else alone.
+
+Four details are Valve's and each is a divergence if missed:
+
+- **It is gated on `$selfillum`.** `bool bHasSelfIllumMask = IS_FLAG_SET( MATERIAL_VAR_SELFILLUM ) &&
+  (info.m_nSelfIllumMask != -1) && params[...]->IsDefined();` (`:289`). A mask without the flag is
+  inert, so resolving one would upload a texture no draw samples.
+- **It is sampled on the BASE texture's coordinates**, not a set of its own.
+- **It is full RGB**, not one channel — a mask can decide per channel which parts glow, so
+  collapsing it to a scalar is a different effect.
+- **Absent does not mean "nothing glows"**; it means the base map's ALPHA decides. A resolver that
+  substituted the base texture here would mask with the albedo's colour and glow in the wrong
+  places.
+
+**Measured: 53 of the 30,684 materials TF2 ships declare one, and every single one of them declares
+it inside a `>=DX90` block** — which is why the parameter was invisible rather than merely
+unimplemented. On the map the tests load, **15 of 412 materials** carry a mask.
+
+#### A sabotage that reddened nothing, and what it named
+
+Removing the `IsSelfIlluminated` gate from the resolver changes no test result on this map, so no
+material in the fixture declares a mask without also declaring `$selfillum`. That is a missing INPUT
+rather than a weak assertion (`docs/memory/a-sabotage-that-reddens-nothing-names-the-missing-input.md`),
+and it is recorded as a stated coverage limit on the test rather than papered over. The parse side of
+the same pair IS covered, with a fixture written to have the odd shape — which is the general answer
+when a shipped file cannot supply the case.
+
+**Visible when wrong:** a surface whose glowing parts are chosen by its albedo's transparency instead
+of by the mask its artist drew — lit panels, screens and signage glowing in the wrong shape.
+
+### B328 OPEN: shader-fallback VMT blocks are ignored, and ~520 of them are the DX9 path, not a cheap one
+
+**Found by correcting a wrong claim in B326's own entry.** That entry said the `<Shader>_DX<n>`
+blocks were "all low-end fallbacks" and therefore safe to ignore. The claim was an inference from
+the block NAMES with nothing looked at inside one. Measured over the 30,684 materials TF2 ships:
+
+| block | materials |
+|---|---|
+| `LightmappedGeneric_DX9` | 403 |
+| `LightmappedGeneric_DX8` | 201 |
+| `LightmappedGeneric_HDR_DX9` | 63 |
+| `Water_DX60` | 46 |
+| `Eyes_dx8` | 38 |
+| `VertexLitGeneric_DX9` | 28 |
+| `LightmappedGeneric_NoBump_DX8` | 28 |
+| `VertexLitGeneric_HDR_DX9` | 24 |
+| `Water_DX80` / `Water_DX81` / `Refract_DX60` | 22 / 20 / 16 |
+| the rest | ~40 |
+
+```bash
+dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -- vmt-blocks "LightmappedGeneric_DX9"
+```
+
+**And what is inside the DX9 ones is not a substitute for anything** — `$bumpmap` (89),
+`$envmaptint` (84), `$normalmapalphaenvmapmask` (64), `$envmap`, `$envmapcontrast` and
+`$envmapsaturation` (49 each), `$parallaxmap` (8). Bump maps, cubemap reflections and parallax: the
+features a Direct3D 11 renderer plainly has. Roughly **520 blocks name DX9 or HDR_DX9**, and this
+project reads none of them.
+
+**The mechanism is a shader fallback**, and the SDK states that half plainly:
+
+```cpp
+SHADER_FALLBACK
+{
+    if( g_pHardwareConfig->GetDXSupportLevel() < 90 )
+        return "LightmappedGeneric_DX8";
+    return 0;
+}
+```
+
+`lightmappedgeneric_dx9.cpp:139-145`, with `DEFINE_FALLBACK_SHADER( LightmappedGeneric,
+LightmappedGeneric_DX8 )` at `lightmappedgeneric_dx8.cpp:21`. A VMT block named for a shader carries
+that material's parameters for when THAT shader is the one in use.
+
+**What is NOT established, and it blocks the implementation.** No shader is registered as
+`LightmappedGeneric_DX9` anywhere in `source-sdk-2013` — the name appears only on helper types and
+functions (`LightmappedGeneric_DX9_Vars_t`, `DrawLightmappedGeneric_DX9`) — yet 403 materials name a
+block for it. Two readings, and they differ in what should be applied:
+
+1. TF2's engine registers that shader name and the SDK snapshot simply predates or omits it, in
+   which case the block applies on the DX9 path and we should take it.
+2. The material system matches these blocks by a rule other than the exact registered name, in
+   which case the rule has to be read before any of them is applied.
+
+**Settle it before implementing**, because the failure mode runs both ways: ignoring 520 blocks
+loses bump maps and reflections on hundreds of materials, and applying the wrong ones — the
+`_HDR_DX9` variants on an LDR renderer, or a `_DX8` block — paints a different wrong picture. The
+material system is closed, so this is a shipped-data and decompiler question rather than an SDK one
+(`docs/memory/nothing-is-closed.md` for the order).
+
+**Visible when wrong:** brushwork that should be bumped and reflective drawing flat and matte —
+which is indistinguishable from a map that simply does not use those features, and is why nothing
+has reported it.

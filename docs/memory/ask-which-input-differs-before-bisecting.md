@@ -46,5 +46,5 @@ decodes it, keeps it on `ServerInfoMessage.MapCrc`, writes it back and prints it
 compares it to nothing. The engine refuses a mismatched map; we draw one silently. Filed as B200.
 
 Related: [[logs-are-the-debugger]], [[instrument-bugs-outnumber-decoder-bugs]],
-[[read-the-spec-before-measuring-our-data]], [[pov-demos-are-pvs-limited]],
+[[nothing-is-closed]], [[author-the-specimen-the-corpus-lacks]],
 [[fallbacks-do-not-make-guesses-safe]].

@@ -62,7 +62,7 @@ and *"the decomp paths were supposed to be added to memory"*.
 
 **The renderer IS imported now, and this entry used to say it was not.** `D:\ghidra-proj\bin` holds `shaderapi-live-x86.dll` and `materialsystem-live-x86.dll`, with their own project at `D:\ghidra-proj\tf2shaderapi.gpr` — so a rendering-state question can be asked without a fresh import. The old text said "note what is NOT imported: `shaderapidx9.dll`, so a rendering-state question needs a fresh import first", which was true when written and was still being read as current on 2026-08-27, when it nearly stopped a question about redundant state binds from being asked at all.
 
-**Same shape as the decompilation-does-not-exist claim above**, one level down: a fact about what had been done was carried as a fact about what could be done. `ls D:\ghidra-proj\bin` is the check, and it takes a second — see [[an-impossibility-claim-expires]].
+**Same shape as the decompilation-does-not-exist claim above**, one level down: a fact about what had been done was carried as a fact about what could be done. `ls D:\ghidra-proj\bin` is the check, and it takes a second — see [[filing-a-divergence-is-not-fixing-it]].
 
 **Decompile the LIVE client by default; reach for a period build only when the question is about
 that era.** Owner's direction, 2026-08-21: *"you shoiuld probably use the modern client for most
@@ -99,7 +99,7 @@ nothing about whether it exists.**
 **No test hardcodes any of this any more, and none may.** `SdkReference.GameInstall` is the one
 place that knows where the game is and `SourceSdk` the one place that knows where the SDK is; both
 honour `TF2_FOLDER` / `SOURCE_SDK` first. All ninety-four private copies were removed on 2026-08-27
-(D109) — see [[extraction-without-adoption-is-not-dry]], which is also where the reason lives: forty
+(D109) — see [[output-level-assertion-or-it-is-not-done]], which is also where the reason lives: forty
 of them were a bare `F:` path with no override, so they measured nothing on any other machine and
 reported it as a skip.
 

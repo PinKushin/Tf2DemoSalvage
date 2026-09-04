@@ -26,4 +26,4 @@ X, use Y instead" in an audio path, find what the engine does in that case — t
 `return`. A guess that makes noise cannot be caught by anything except a person listening, which is
 the most expensive instrument this project has. Related:
 [[fallbacks-do-not-make-guesses-safe]], [[measure-the-output-not-the-capability]],
-[[read-the-sdk-for-the-whole-mechanism]].
+[[parity-is-the-search-not-the-defence]].

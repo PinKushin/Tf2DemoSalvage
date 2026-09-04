@@ -43,6 +43,6 @@ thats what we should do actually, just an idea"*. Do not treat that as adopted. 
 would settle it — what the mode transitions actually cost against an 11-second suite — has not been
 taken.
 
-Related: [[ui-tests-run-every-time]], [[three-test-levels-and-the-third-is-missing]],
-[[slow-ui-tests-measure-the-app]], [[a-negative-retry-is-a-sleep]],
+Related: [[ui-tests-run-every-time]], [[output-level-assertion-or-it-is-not-done]],
+[[read-the-trx-total-not-the-console]], [[a-negative-retry-is-a-sleep]],
 [[nunit-shared-fixture-is-the-standard]].

@@ -37,5 +37,5 @@ untestable without a window, which is B188.
 - Record what the comparison found even when ours turns out to match — the check having been done is
   part of what a later reader needs.
 
-Related: [[valve-parity-is-the-first-principle]], [[read-the-sdk-for-the-whole-mechanism]],
-[[conformance-test-before-implementation]], [[read-the-spec-before-measuring-our-data]].
+Related: [[valve-parity-is-the-first-principle]], [[parity-is-the-search-not-the-defence]],
+[[conformance-test-before-implementation]], [[nothing-is-closed]].

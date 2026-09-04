@@ -25,7 +25,7 @@ tested.
 **Why:** this is the conservative rule the rest of the project already applies — never cull what
 cannot be proved invisible — and the one place it was not applied is the one place it was needed.
 The failure is silent and intermittent, which is the worst combination: it looks like a rendering
-glitch or a z-fight rather than a missing input. See [[a-null-object-default-hides-a-missed-wiring]].
+glitch or a z-fight rather than a missing input. See [[logs-are-the-debugger]].
 
 **How to apply:** when adding a spatial optimisation, enumerate every source of the bound it reads
 and check each one actually supplies it — a `default` struct is a legal value that no test will

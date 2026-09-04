@@ -103,7 +103,7 @@ and confirming it named BOTH fields — sensitivity to a case someone invented i
 than sensitivity to the case that actually shipped.
 
 Related: [[an-uncoverable-gap-is-usually-your-reader]], [[nothing-is-closed]],
-[[a-moves-regressions-are-wiring]],
+[[output-level-assertion-or-it-is-not-done]],
 [[instrument-bugs-outnumber-decoder-bugs]].
 
 ## A truncated search is an empty search with a plausible tail

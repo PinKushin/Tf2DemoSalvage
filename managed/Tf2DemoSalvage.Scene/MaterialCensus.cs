@@ -117,6 +117,12 @@ internal static class MaterialCensus
         "$additive",
         "$selfillum",
         "$selfillumtint",
+
+        // **The mask that replaces the base map's alpha for self-illumination** (B327). It became
+        // visible to this census only when the `>=DX90` blocks started being read (B326) — all 53
+        // of the shipped materials that declare one declare it in there — and the census firing on
+        // it in that same run is what the tripwire is for.
+        "$selfillummask",
         "$decal",
         "%compilenodraw",
         "include",

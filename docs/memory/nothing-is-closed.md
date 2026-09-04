@@ -1,6 +1,6 @@
 ---
 name: nothing-is-closed
-description: Never write that something is closed or unknowable — the SDK, its public headers, the game's shipped data and the shipped binaries have answered every such claim made here.
+description: Never write that something is closed or unknowable — the SDK, its public headers, the game's shipped data and the shipped binaries have answered every such claim made here; covers reading Valve's shader or header for a rendering defect BEFORE measuring our own data, the generated coverage report that already holds the denominator, measuring every hop in a chain rather than re-reasoning about the ones already checked, and suspecting the input and its identity before suspecting a correct algorithm.
 metadata:
   type: feedback
 ---
@@ -15,7 +15,11 @@ looking, and they do.
 **Four memories were merged into this one on 2026-08-27** — `closed-source-check-the-public-api`,
 `tf2-game-code-is-in-the-sdk`, `shipped-data-is-a-source` and `binaries-answer-what-the-sdk-cannot`.
 Each was a different *place to look*, and having them as separate entries meant the search order was
-never in one piece. Their headings are kept below.
+never in one piece. Their headings are kept below. **Four more were folded in on 2026-09-04** —
+about the same failure one step earlier, before any search has even started: measuring our own data
+before reading Valve's, re-deriving a denominator the project had already generated, blaming an
+algorithm for a hop nobody measured, and suspecting a correct implementation because the wrong side
+of the comparison was never checked.
 
 ## The order to check, and say which one you checked
 
@@ -221,5 +225,111 @@ returning zero has been a fact about the grep three times in this project — "i
 absence claim about a search nobody ran. See [[an-empty-search-needs-a-control]] and
 [[an-uncoverable-gap-is-usually-your-reader]].
 
-Related: [[read-the-spec-before-measuring-our-data]], [[the-denominator-is-already-written-down]],
-[[differential-beats-fixtures]], [[a-default-is-not-a-constant]].
+Related: [[differential-beats-fixtures]], [[a-default-is-not-a-constant]].
+
+---
+
+## `read-the-spec-before-measuring-our-data`
+
+**A visual defect means read the SDK for that feature FIRST. Not after the theories run out.**
+
+**Why:** measuring this project's own data can only find data that is wrong. It cannot find a
+feature that was never implemented, because every number will be correct — and it will look like
+progress the whole time. One session, one capture point:
+
+- Six measurements of the model — bodygroup tags, vertex spans, `.vvd` fixups, `.vtx`/`.mdl`
+  pairing, material indices, instance census. Every one correct. The model was never wrong.
+- Four renderer theories about the wall stripes before anyone asked the BSP what they were.
+- The answers, each found in minutes once the right file was opened:
+  `stdshaders/unlittwotexture_ps2x.fxc` (two textures MULTIPLIED, alpha forced to 1),
+  `imaterialsystem.h:180` (MATERIAL_CULLMODE_CCW, so front faces are clockwise),
+  `imaterial.h:369` (`$nocull` is MATERIAL_VAR_NOCULL, a per-material flag).
+
+The owner had already made this a standing rule, in CLAUDE.md and in
+[[parity-is-the-search-not-the-defence]], and had to repeat it. That is the actual failure: the rule
+was known and applied late.
+
+**How to apply.** On any "it looks wrong" report, before writing a probe or a log:
+
+1. Name the shader or subsystem responsible — the VMT's shader name, the material flag, the engine
+   routine.
+2. Open Valve's file for it. `F:/src/source-sdk-2013`, `stdshaders/` for shaders, `public/` for the
+   flags and enums. Reading published source is not decompilation.
+3. Only then measure, and measure the gap between what that file says and what this project does.
+
+**The tell that this is being skipped:** a series of measurements that all come back correct. Three
+in a row means the question is wrong, not the data. Stop and go read.
+
+Related: the entry below on measuring every hop is the same discipline for OUR chain; this one is
+for the part of the chain that is Valve's and was never built.
+
+---
+
+## `measure-every-hop-before-blaming-one`
+
+**When a change does not take effect, enumerate the hops it travels and measure each one. The bug is
+always in the hop nobody measured.**
+
+**Why:** bodygroups on the capture point hologram. Three hops were measured and all correct — the
+model offers 4 alternatives, the demo carries bodies 0/2/3, the packer produced "9 batches spanning
+4 alternatives" — and the picture still showed one sign on every point. Three correct measurements
+proved only that the fault was in the fourth hop, which was the one never looked at: the value
+arriving at `DrawModel`.
+
+The same shape recurred all session:
+
+- The overlay stripes: four renderer theories, all killed by measurement, and the answer was in the
+  BSP's face list the whole time.
+- The player pose: decode, matrix maths and Euler conversion all verified against the SDK, and the
+  fault was a substring lookup one layer above them.
+- Doors: a submodel geometry reader was nearly built before counting showed the faces were already
+  in the world buffer.
+
+**One symptom can have several INDEPENDENT causes, and fixing one proves nothing about the
+diagnosis.** "The viewmodel does not appear" had five: not loaded, not uploaded, wrong sequence,
+wrong owner, wrong posing mechanism. Each was real, each was fixed correctly, and after each fix the
+screen looked exactly the same as before — so every fix read as a failed hypothesis when it was not.
+A pipeline with N stages can be broken at N of them at once, and it usually is when the whole
+pipeline is new. **Verify a fix at its own stage** (was the model in the packed set? did the upload
+happen?) rather than at the far end, or a run of correct work looks like a run of wrong guesses.
+
+**How to apply:** write the chain down — file, decode, pack, instance, draw — and put a number on
+each link before touching code. A hop that "obviously works" is exactly the one to instrument,
+because the hops that obviously work are the ones nobody instrumented. And prefer measuring the
+LAST hop first: it is closest to the symptom and cheapest to read.
+
+Related: [[instrument-bugs-outnumber-decoder-bugs]], [[read-the-map-before-the-renderer]].
+
+---
+
+## `suspect-the-input-not-the-algorithm`
+
+> **"When a perfect algorithm keeps giving a wrong answer, suspect the input and the identity of the
+> thing you're measuring — not the algorithm."**
+
+Supplied by the owner (written by another AI) after a day spent proving it the hard way.
+
+Measured 2026-08-28. A map checksum was implemented from Valve's published description on the first
+attempt and was **correct from the first attempt**. It did not match. What followed: a whole-file
+variant, a file-order variant, five lump-count ceilings, an exhaustive sweep of every single extra
+lump exclusion, a padding-inclusive variant, every lump alone, and finally a decompilation of the
+2007 `engine.dll` — which confirmed the original implementation exactly. Two write-ups were committed
+blaming the wrong thing: first the map files, then the byte selection.
+
+The actual faults were both on the other side of the comparison. **The field was the wrong one** —
+`svc_ServerInfo` carries two checksum-shaped values and the code had chased the wrong one, with its
+own comment saying that branch was *"flagged rather than trusted"*. And **the engine omits
+`CRC32_Final`**, so its number is the complement of a standard CRC32.
+
+**Why single-variable search cannot find this.** With two faults present, every test that changes one
+thing and holds the rest fails — and each failure reads as evidence against the variable being
+tested. That is how a correct implementation gets rewritten and a correct conclusion gets abandoned.
+Widening the TARGET instead — "what if the answer I want is a different number?" — cost one line and
+was available from the first hour.
+
+**How to apply:** before optimising or rewriting a computation that will not match, spend one cheap
+check on each of: is this the right input file, is this the right FIELD, and is the expected value
+transformed on its way to me (endianness, complement, offset, sign). Then, if it still fails, ask
+whether TWO things could be wrong — because the one-at-a-time discipline that is right for a single
+fault is exactly what conceals a pair. See [[instrument-bugs-outnumber-decoder-bugs]] and
+[[the-denominator-decides-what-can-be-lost]].

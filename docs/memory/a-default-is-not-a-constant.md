@@ -152,6 +152,6 @@ declared as". Paths in [[where-the-game-and-clients-live]].
 ---
 
 Related: [[a-running-client-caches-its-config]] is the same subject from the testing side,
-[[read-the-sdk-for-the-whole-mechanism]] is the general form — finding the declaration is the easy
+[[parity-is-the-search-not-the-defence]] is the general form — finding the declaration is the easy
 half — and [[a-constant-carries-no-scope]] is the next question after "is it a constant": what is it
 applied TO.

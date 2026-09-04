@@ -38,4 +38,4 @@ valves cam, just said i wanted a top down map view."*
   correction is the accurate one and the entry was rebuilt on it — see [[a-filed-design-choice-may-not-be-one]]
   for the sibling case where a *risk* entry's framing was the thing that was wrong.
 
-Related: [[build-time-shortcuts-assume-the-camera]], [[read-the-spec-before-measuring-our-data]].
+Related: [[build-time-shortcuts-assume-the-camera]], [[nothing-is-closed]].

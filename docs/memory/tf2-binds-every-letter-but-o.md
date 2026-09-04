@@ -32,4 +32,4 @@ you would guess: `screenshot`, `demo_togglepause` ("Toggles demo playback"), `cl
 **How to apply:** `DefaultBindingConformanceTests` enforces all of this by reading Valve's file, so
 adding a colliding default goes red rather than shipping. Related:
 [[nothing-is-closed]], [[no-hardcoded-controls-ever]],
-[[ask-which-engine-mechanism-you-are-copying]].
+[[parity-is-the-search-not-the-defence]].

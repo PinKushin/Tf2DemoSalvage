@@ -58,7 +58,7 @@ test look like a healthy one.
 Two fixes, and the second is the durable one: the path was repaired, and the copies of it were given
 a single home in `GameInstall` ([[one-place-or-it-drifts]]). A hardcoded path is a claim about a
 machine, and a claim repeated 73 times is one nobody can check. **All 94 were finally routed through
-that helper on 2026-08-27** — see [[extraction-without-adoption-is-not-dry]] for why extracting it
+that helper on 2026-08-27** — see [[output-level-assertion-or-it-is-not-done]] for why extracting it
 had not been enough.
 
 ---

@@ -37,9 +37,9 @@ defect:
 
 Then, at each measurement, say what a clean result would MEAN — because "instrument silent" and
 "nothing wrong" are the same output for a badly aimed instrument, which is
-[[log-the-event-not-a-sample-of-it]].
+[[instrument-bugs-outnumber-decoder-bugs]].
 
 This is the same rule as *"anything about a UI that cannot be verified by looking is a QUESTION for
 the user"*, moved one step earlier: it applies to the framing of the hunt, not only to its
 conclusion. Related: [[run-the-control-before-arguing]],
-[[ask-which-input-differs-before-bisecting]], [[measure-every-hop-before-blaming-one]].
+[[ask-which-input-differs-before-bisecting]], [[nothing-is-closed]].

@@ -106,5 +106,5 @@ because the constraint it answers is not written down beside it. So when somethi
 looks arbitrary and precise at the same time — a magic constant, an odd ordering, a value that only
 makes sense at one moment — the hypothesis is a trick, not a mistake.
 
-Related: [[nothing-is-closed]], [[read-the-spec-before-measuring-our-data]],
+Related: [[nothing-is-closed]],
 [[a-filed-design-choice-may-not-be-one]].

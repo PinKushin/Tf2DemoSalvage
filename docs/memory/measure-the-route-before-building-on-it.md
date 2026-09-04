@@ -38,8 +38,7 @@ stacks terrain above terrain; and the space just above a displacement vertex is 
 brush the terrain was carved from, so a brush trace correctly reports startsolid. Both times the
 code was right and the prediction was a guess about geometry nobody had looked at. **When a
 prediction about real data fails, ask whether the data is what you assumed before touching the
-code.** [[suspect-the-input-not-the-algorithm]] is the same rule for inputs.
+code.** [[nothing-is-closed]] is the same rule for inputs.
 
-Related: [[read-the-spec-before-measuring-our-data]], [[the-denominator-is-already-written-down]],
-[[nothing-is-closed]], [[a-filed-design-choice-may-not-be-one]],
+Related: [[nothing-is-closed]], [[a-filed-design-choice-may-not-be-one]],
 [[instrument-bugs-outnumber-decoder-bugs]].

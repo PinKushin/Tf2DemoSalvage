@@ -25,8 +25,7 @@ Get the list first, then implement all of it, then check the rendered artefact.
 condition* in different functions. `ValidateModelIndex`'s mask branch and `GetSkin`'s mask branch
 are `!IsEnemyPlayer() || disguiseClass == TF_CLASS_SPY` — character for character the same pair.
 A condition duplicated across functions means one mechanism split across them, and finding one arm
-means going to look for the others. See [[decoding-a-field-is-not-honouring-it]] and
-[[half-a-mechanism-is-not-parity]].
+means going to look for the others. See [[parity-is-the-search-not-the-defence]].
 
 **The instrument that settled it** is worth keeping: dump the model. Parts with their NAMES and
 alternative counts, meshes with their part and alternative, and what each skin family paints each

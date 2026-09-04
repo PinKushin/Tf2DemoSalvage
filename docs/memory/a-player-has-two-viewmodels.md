@@ -100,6 +100,6 @@ theorising about visibility.** A viewmodel is separate again: `DT_BaseViewModel`
 
 ---
 
-Related: [[ask-whether-the-data-arrived]], [[measure-every-hop-before-blaming-one]],
-[[the-client-builds-what-the-demo-omits]], [[check-backwards-compat-on-old-demos]],
+Related: [[ask-whether-the-data-arrived]], [[nothing-is-closed]],
+[[the-client-builds-what-the-demo-omits]], [[author-the-specimen-the-corpus-lacks]],
 [[bone-merge-sends-no-position]], [[negative-model-indices-are-dynamic]].

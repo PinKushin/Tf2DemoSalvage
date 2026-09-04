@@ -40,4 +40,4 @@ answer came from measuring each hop: a POV demo carries the recorder's own `CUse
 `forwardmove 450` with `IN_FORWARD` held is ground truth for "running forward" that owes nothing to
 the code under test. It gave `move_x = 1.000` at seven of nine samples — the parameter was never
 wrong — which moved the search downstream to the list. See
-[[measure-every-hop-before-blaming-one]] and [[read-the-sdk-for-the-whole-mechanism]].
+[[nothing-is-closed]] and [[parity-is-the-search-not-the-defence]].

@@ -1,6 +1,6 @@
 ---
 name: logs-are-the-debugger
-description: No debugger here, so logs must report state and decisions — what a log must say, what a wrong log costs, and why only the running app can prove one still exists.
+description: No debugger here, so logs must report state and decisions — what a log must say, what a wrong log costs, and why only the running app can prove one still exists; plus an optional dependency's null-object default silencing a forgotten wiring, a background launch's "completed" notification describing the wrapper rather than the app, and when to close a viewer you booted yourself.
 metadata:
   type: feedback
 ---
@@ -147,7 +147,121 @@ and reaching for it as reassurance is how the subtler one survives.
 
 ---
 
+## `a-null-object-default-hides-a-missed-wiring`
+
+Optional dependencies with null-object defaults — `ILogger? log = null` falling back to
+`NullLogger.Instance` — are the idiomatic way to keep tests convenient. They are also a way to make
+a forgotten argument produce **nothing at all**, with a green suite.
+
+**Measured, 2026-08-24 (D83).** After converting 193 log call sites to injected `ILogger`, the
+viewer logged **13 `assets` lines and zero warnings**, against **215 and 16** before. Every test
+passed. The whole gate — 3,231 across eight projects — was green.
+
+`MainForm` was calling `MapAssets.Load`, `MapWorldBuilder.Build` and `new EntityModelSet(...)`
+without passing its `ILoggerFactory`. Each parameter was optional, so each silently took the null
+logger and threw its output away. Nothing was broken; nothing was reported.
+
+**Why no test could catch it.** The tests construct those types directly and pass no factory ON
+PURPOSE — they want geometry, not commentary. So the exact call shape that was wrong in production
+is the shape every test deliberately uses. A unit test proves the component logs when handed a
+logger; it says nothing about whether production hands it one.
+
+**How it was found:** launching the viewer and comparing category counts against a log from before
+the change. `assets` 215, `map` 58, `config` 16, `demo` 8 — all matched once the wiring was fixed.
+
+**How to apply:** when a dependency is optional for tests and required in production, the production
+call site is the thing to verify, and only the real artefact can verify it — see
+[[output-level-assertion-or-it-is-not-done]] and [[measure-the-output-not-the-capability]]. Prefer a
+required parameter where every production caller genuinely has the dependency; where optional is
+right, comment the production call site saying that omitting it is silent, and check the output
+once. Related: [[one-place-or-it-drifts]].
+
+**It happened again on 2026-08-29, and the second instance sharpens the rule.**
+`PropModels.Load` took `ILogger? props = null` with a comment saying *"most callers of this are
+tests that want geometry, not commentary"*. **There was exactly ONE caller in the whole repository**
+— `MapAssets` — and it passed nothing. So the static-prop path had been mute since it was written:
+four categories of summary, every refused lighting file by name, and both warnings that name a model
+whose mesh will draw in the missing-material chequer.
+
+**Count the callers before writing the comment.** "Most callers are tests" was a guess about a
+population of one, and it read as a considered trade for a year. An optional parameter with a single
+caller is not a convenience — it is an unwired sink with a rationale attached.
+
+**And the log looked populated, which is why a grep did not find it.** The same `props` area carried
+125 `pairing` lines — exactly the count of ENTITY models, a different path handed a real logger
+twenty lines away in the same method. "Did that subsystem say anything" answers yes while half of it
+is silent, so the question has to be "did THIS call site's lines arrive", which means asserting on a
+line only it can produce.
+
+**Cost:** four hypotheses on B229, one of them — *"both of `Register`'s warnings fired zero times"* —
+read as evidence about the geometry when it was evidence about the sink. See
+[[instrument-bugs-outnumber-decoder-bugs]].
+
+---
+
+## `a-launch-notification-is-not-an-exit`
+
+**Launching the viewer through `run-exclusive.ps1` as a background task reports "completed" while the
+application is still running.** The notification describes the wrapper, not the app. Measured twice on
+2026-08-20: the task reported completion, and `Get-Process -Name tf2demoview` showed the process alive
+minutes later, once for eighteen minutes with the owner using it.
+
+**The compounding half is worse.** Reading the viewer's log after that notification shows a file that
+stops mid-load — because the app is still writing it. One such log was 860 lines when read and **79 MB**
+by the time the session ended. I concluded "it exited during load, you saw nothing", and the owner had
+in fact been looking at it and taking screenshots the whole time. The owner corrected it: "i dont think
+the earlier run exited", "there was a app up on my pc".
+
+**Why:** a truncated log and a crashed process produce identical evidence at one instant. The
+difference is only visible over time, or by asking the operating system.
+
+**How to apply:** to know whether a launched application is still running, ask for the process —
+`Get-Process -Name tf2demoview` — never the task notification and never the log's last line. If the
+log must be the instrument, read it twice and compare, because growth is the signal. The same shape as
+[[instrument-bugs-outnumber-decoder-bugs]]: a single reading of a moving quantity is not a measurement of it.
+
+And when reporting to a person who is sitting in front of the machine, remember they can see the screen
+and you cannot — [[instrument-bugs-outnumber-decoder-bugs]]. Saying "it exited, you saw nothing" to
+somebody looking at the running window spends credibility that the actual findings then need.
+
+---
+
+## `close-what-you-launched`
+
+**Close a viewer you launched on your own initiative, once it has answered whatever you launched it
+for.** Owner, 2026-08-21: *"if you boot if yourself shut it down when your done"*. Nothing breaks if
+you leave it — it does hold the exclusive lock and lock the build DLLs, so the next build fails with
+`MSB3027 … The file is locked by: "tf2demoview"`, which names a copy step rather than the cause.
+
+**When the owner asked for the launch, leave it running**, and if it then disappears they closed it.
+That is ordinary and needs no comment. The owner's framing: the distinction *"only matters because
+you would get confused at me shutting it down myself"*.
+
+**An exit neither of you asked for is worth looking at.** *"it is a signal if it closes on you, as a
+crash, when you or I didnt tell it to. Some crashes dont actually full crash and they just exit a
+program, those can be a pita to debug."* The tail of `viewer-*.log` in
+`%LOCALAPPDATA%\Tf2DemoSalvage\` is the cheapest first look — a tidy ending versus one that stops
+mid-sentence. Not common, on the owner's read, given the analyzers this project runs.
+
+**On how much of this to write down, which the owner raised directly:**
+
+> *"getting all the nuance of situations can be a pita to try to write down, you can basically never
+> write down every single scenario a 'rule' will ever be put into, so the best thing to do IMO, is to
+> basically always hedge, id rather understate things than overstate them most of the time"*
+
+So this entry is deliberately loose, and that is the standing preference rather than a property of
+this one note. **Prefer the understated version.** A rule written as an absolute gets applied
+confidently to the case it was never meant for, and the confidence is the damage — the reader cannot
+tell an inferred edge from a stated one. This entry has already been rewritten three times in an
+hour, each time because it claimed more than the owner meant.
+
+Related, and the opposite error: the entry above on a launch notification not being an exit — a
+background task reporting "completed" describes the wrapper, not the app. `Get-Process` before
+concluding either way.
+
+---
+
 Related: [[measure-the-output-not-the-capability]] is the same failure seen from the reporting side,
 [[instrument-bugs-outnumber-decoder-bugs]] is why the log itself needs checking before it is
-believed, [[three-test-levels-and-the-third-is-missing]] and
-[[output-level-assertion-or-it-is-not-done]] are where a log line gets proved to still exist.
+believed, and [[output-level-assertion-or-it-is-not-done]] is where a log line gets proved to still
+exist.

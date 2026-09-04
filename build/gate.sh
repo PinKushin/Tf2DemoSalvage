@@ -960,7 +960,12 @@ run Tf2DemoSalvage.Presentation.Tests presentation 440
 # plausible numbers rather than an error — the position and the rotation are adjacent runs of floats.
 # Includes the control that a JIGGLE bone does NOT answer here: proctype is dispatched by `switch`,
 # an exact match, and 5's low bits include 2, which is what makes a bitwise test wrong.
-run Tf2DemoSalvage.Content.Tests  content   939
+# 939 -> 971 on 2026-09-04. Six of the thirty-two are B326's — the DirectX-level VMT sub-blocks,
+# which gate `$selfillum` in 5,415 of the 30,684 materials TF2 ships and were being dropped whole.
+# The other twenty-six are drift: the floor sat 26 below the measured total for some time, which is
+# safe (a floor only catches a DROP) and weak (it cannot catch a drop of 26). Raised to what the
+# trx reports, which is the only number that should ever be written here — see D138.
+run Tf2DemoSalvage.Content.Tests  content   971
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2

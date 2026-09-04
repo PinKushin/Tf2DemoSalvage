@@ -96,4 +96,4 @@ demo was simply one the owner had never examined — and one the live TF2 client
   launch would have ended that evening at the start.
 
 Related: [[ask-which-input-differs-before-bisecting]], [[a-picture-is-assertable]],
-[[record-both-points-of-view]], [[pov-demos-are-pvs-limited]].
+[[record-both-points-of-view]], [[author-the-specimen-the-corpus-lacks]].
