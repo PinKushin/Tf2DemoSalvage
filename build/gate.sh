@@ -592,7 +592,12 @@ run Tf2DemoSalvage.Animation.Tests animation 111
 # visible and the branch returns, so a watched corpse never expires. Without it the map fills up, 57
 # bodies at once against a twelve-player roster. RagdollProps (6) — the wiring, with the append (not
 # clear) control and both visible/unseen fade cases.
-run Tf2DemoSalvage.Scene.Tests    scene     422
+# 422 -> 423: no corpse may draw under an index the demo can also use (B318). Sharing one crashed
+# the viewer on the first frame a corpse came into view, through two green gate runs and 31 UI
+# tests — nothing in the suites renders a scene where one index carries two models. The test also
+# rejects the plausible wrong fix: offsetting the SLOT rather than giving each corpse its own index
+# still hands the second occupant of a reused slot the first one's caches.
+run Tf2DemoSalvage.Scene.Tests    scene     423
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

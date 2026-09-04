@@ -7,9 +7,14 @@ metadata:
 
 **When you add something drawn that is not exactly the demo's entity, give it an index of its own.**
 `EntityModelSet` keys the pose, the skinning buffers and the visible set by entity index, and a demo
-reuses indices briskly — slot 752 is a prop, then a corpse, then something else. Borrowing the slot
-inherits whatever was cached under it, and the first frame where the two models have different bone
-counts is an `ArgumentOutOfRangeException` inside `Skinning`.
+reuses indices briskly — slot 752 is a prop, then a corpse, then something else. Sharing that index
+crashes: `ArgumentOutOfRangeException` inside `Skinning`, on the first frame with a corpse in view.
+
+**Do not over-explain the mechanism, which I did.** The obvious story — a stale pose surviving a
+model change — is wrong on its own, because `EntityModelSet` rebuilds the pose whenever the prop's
+model path differs from the one it recorded for that index. The real interleaving is narrower and was
+not chased down, because the fix does not depend on it. What is measured is that the crash appears
+with the shared index and disappears with a private one.
 
 **This project already had the pattern and the new code did not follow it.** `ViewmodelScene` puts
 the arms and weapon at 4096..4098 with a comment saying why; corpses (B318) now take 2048..4095. The

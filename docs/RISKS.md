@@ -21506,10 +21506,19 @@ Unhandled exception. System.ArgumentOutOfRangeException: Index was out of range.
 ```
 
 `Skinning` walks `for (bone = 0; bone < accessor.Count; bone++)` and indexes `bones[bone]` — the
-model's bone list. It overruns when the entity's cached pose is sized for a DIFFERENT model with more
-bones. `EntityModelSet` keys its per-entity state by entity index, and an index is reused: slot 752
-is a prop, then a corpse wearing a player model with ~130 bones, then something else. The corpse
-inherited whatever was cached under its borrowed slot.
+model's bone list. It overruns when the accessor is sized for a DIFFERENT model with more bones than
+the list beside it. `EntityModelSet` keys its per-entity state by entity index, and a corpse was
+drawing under an index the demo also uses for something else.
+
+**What is established and what is not, because the difference matters to whoever reads this next.**
+Established: the crash happens with corpses at their own slot and does not with corpses at 2048+,
+measured both ways on `serveme-627619-stv-2026-08-07` at tick 18303. NOT established: the exact
+interleaving inside `EntityModelSet`. The obvious explanation — a stale pose surviving a model change
+— is wrong on its own, because `AnimatingEntity` is rebuilt whenever `_entityModels[index]` differs
+from the prop's path (`EntityModels.cs:1085`). Something narrower is going on, most likely two props
+carrying the SAME index within one `Instances` call, where the second rebuild invalidates what the
+first is still being skinned against. That was not chased down, because the fix does not depend on
+it: an entity that is not the demo's entity should not be using the demo's index at all.
 
 **Caught by `--measure`, not by any test**, which is the useful part. No unit test builds a scene
 where one entity index carries two models over time, and the corpus suites do not render. The

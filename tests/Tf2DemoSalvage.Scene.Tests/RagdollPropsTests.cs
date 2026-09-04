@@ -149,6 +149,43 @@ public sealed class RagdollPropsTests
         }
     }
 
+    /// <remarks>
+    /// **No corpse may draw under an index the demo can also use** (B318). `EntityModelSet` keys
+    /// its pose, its skinning buffers and its visible set by entity index, and sharing one with a
+    /// networked entity crashed the viewer on the first frame a corpse came into view — through two
+    /// green gate runs and 31 UI tests, because nothing in the suites renders a scene where one
+    /// index carries two models.
+    ///
+    /// **Every corpse also needs its OWN index, not merely a shifted slot.** Offsetting the
+    /// entity index by the base would still give the second occupant of a reused slot the first
+    /// one's caches, and two class models do not have the same bone count — the same crash, rarer,
+    /// which is the kind of fix that survives the measurement that found the bug.
+    /// </remarks>
+    [Test]
+    public void Fill_ForCorpsesSharingAnEntitySlot_DrawsThemUnderDistinctReservedIndices()
+    {
+        List<SceneProp> scene = [];
+
+        // Two corpses that reused one slot — the same entity index, different serials.
+        SceneRagdoll first = Corpse(team: SceneTeams.Red);
+        SceneRagdoll second = Corpse(team: SceneTeams.Blu) with { Serial = 2 };
+
+        RagdollProps.Fill([first, second], tick: 150d, Classes, scene).ShouldBe(2);
+
+        scene[0].EntityIndex.ShouldNotBe(scene[1].EntityIndex, "one index per corpse, not per slot");
+
+        foreach (SceneProp corpse in scene)
+        {
+            corpse.EntityIndex.ShouldBeGreaterThanOrEqualTo(
+                RagdollProps.FirstCorpseEntityIndex,
+                "above every index a demo can send");
+
+            corpse.EntityIndex.ShouldBeLessThan(
+                ViewmodelScene.ArmsEntityIndex,
+                "and below the range the viewmodel already reserved");
+        }
+    }
+
     /// <summary>A corpse of a medic, spoken about between ticks 100 and 200.</summary>
     private static SceneRagdoll Corpse(int team) =>
         new(EntityIndex: 40,
