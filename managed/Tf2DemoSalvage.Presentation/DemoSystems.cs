@@ -3,6 +3,7 @@ using System;
 using Microsoft.Extensions.Logging;
 
 using Tf2DemoSalvage.Audio;
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Scene;
 
@@ -111,7 +112,7 @@ public sealed class DemoSystems
         // **The corpses need the install half too**, which `_appearances` already carries on its own
         // lifecycle — so the source reads it per call rather than being given a table now (B315).
         _moments.Source = timeline is { } moments
-            ? new TimelineMoments(moments) { ClassModels = CorpseModels }
+            ? new TimelineMoments(moments) { ClassModels = CorpseModels, Items = CorpseItems }
             : null;
         _sound.Schedule = timeline is { } withSound ? new SoundSchedule(withSound.Sounds) : null;
 
@@ -223,4 +224,13 @@ public sealed class DemoSystems
     /// </remarks>
     private Func<int, string?>? CorpseModels() =>
         _appearances.Game?.Classes is { } classes ? classes.Model : null;
+
+    /// <summary>The econ schema a corpse's cosmetics are filtered by, or null before the install.</summary>
+    /// <returns><c>items_game.txt</c>, parsed once and shared with the weapon path.</returns>
+    /// <remarks>
+    /// **Asked per call rather than captured**, for the reason <see cref="CorpseModels"/> gives: the
+    /// archives open on their own schedule, and a demo opened first would keep a null schema for its
+    /// whole life — quietly drawing the cosmetics the engine drops.
+    /// </remarks>
+    private ItemSchema? CorpseItems() => _appearances.Game?.Weapons.Items;
 }

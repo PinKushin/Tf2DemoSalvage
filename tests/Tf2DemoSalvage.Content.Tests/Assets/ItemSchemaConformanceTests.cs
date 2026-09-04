@@ -165,6 +165,105 @@ public sealed class ItemSchemaConformanceTests
             .ShouldBe("models/player/items/soldier/soldier_bill.mdl");
     }
 
+    [Test]
+    public void DropType_ALaunchEraHatInTheShippedSchema_IsDrop()
+    {
+        // Item 49, the Football Helmet — shipped 2010/09/29 and read directly off the file:
+        //
+        //     "49" { "name" "Football Helmet" … "item_slot" "head" … "drop_type" "drop" … }
+        //
+        // A hat that visibly falls off a dead Heavy is exactly the case drop_type exists for.
+        if (!File.Exists(SchemaPath))
+        {
+            Assert.Ignore("the game is not installed");
+            return;
+        }
+
+        ItemSchema schema = ItemSchema.Read(File.ReadAllBytes(SchemaPath));
+
+        schema.DropType(49).ShouldBe(ItemSchema.DropTypeDrop, "the Football Helmet drops on death");
+    }
+
+    [Test]
+    public void DropType_TheStockScattergun_DefaultsToNoneThroughItsPrefab()
+    {
+        // Neither item 13 nor its "weapon_scattergun" prefab declares drop_type at all — weapons
+        // are not meant to drop — so this exercises the missing-key default on real data, and the
+        // fact that the search walks the prefab chain rather than stopping at the item's own
+        // (empty) block.
+        if (!File.Exists(SchemaPath))
+        {
+            Assert.Ignore("the game is not installed");
+            return;
+        }
+
+        ItemSchema schema = ItemSchema.Read(File.ReadAllBytes(SchemaPath));
+
+        // 13 is StockScattergun's numeric value; DropType takes m_iItemDefinitionIndex as an int
+        // where Block's name-based lookup below takes it as the schema's own key text.
+        schema.DropType(13).ShouldBe(ItemSchema.DropTypeNone);
+    }
+
+    [Test]
+    public void DefaultLoadoutSlot_TheFootballHelmet_ResolvesToMiscNotHeadOnRealData()
+    {
+        // **The quirk that makes this whole feature worth having, confirmed on Valve's own file
+        // rather than only on a hand-built fixture.** Item 49 declares `"item_slot" "head"`
+        // directly, and `tf_item_schema.cpp:941-944` rewrites the exact string "head" to "misc"
+        // before the table lookup ever runs. Measured across the whole shipped schema (11,497
+        // item definitions): zero resolve to LOADOUT_POSITION_HEAD and 9,536 resolve to
+        // LOADOUT_POSITION_MISC — see ItemSchemaDropTypeAndLoadoutSlotDiagnostic for the count.
+        if (!File.Exists(SchemaPath))
+        {
+            Assert.Ignore("the game is not installed");
+            return;
+        }
+
+        ItemSchema schema = ItemSchema.Read(File.ReadAllBytes(SchemaPath));
+
+        schema.DefaultLoadoutSlot(49).ShouldBe(
+            ItemSchema.LoadoutSlotMisc, "a lower-case \"head\" declaration always becomes MISC");
+    }
+
+    [Test]
+    public void DefaultLoadoutSlot_TheStockScattergun_IsPrimaryThroughItsPrefab()
+    {
+        // Item 13 carries no item_slot of its own; "weapon_scattergun" declares
+        // `"item_slot" "primary"`, so this is the loadout-slot half of the same prefab-inheritance
+        // fact WeaponPrefab_CarriesTheModelAndTheAttachFlag already checks for the model.
+        if (!File.Exists(SchemaPath))
+        {
+            Assert.Ignore("the game is not installed");
+            return;
+        }
+
+        ItemSchema schema = ItemSchema.Read(File.ReadAllBytes(SchemaPath));
+
+        schema.DefaultLoadoutSlot(13).ShouldBe(ItemSchema.LoadoutSlotPrimary);
+    }
+
+    [Test]
+    public void DefaultLoadoutSlot_AnItemDeclaringMiscDirectly_IsMisc()
+    {
+        // **The control for the Football Helmet test above.** Item 143, "OSX Item" (the launch-era
+        // earbuds), declares `"item_slot" "misc"` directly rather than through the "head" rewrite:
+        //
+        //     "143" { "name" "OSX Item" … "item_slot" "misc" … "drop_type" "none" … }
+        //
+        // Without this control, an implementation that always answered MISC regardless of input
+        // would still pass the Football Helmet test above.
+        if (!File.Exists(SchemaPath))
+        {
+            Assert.Ignore("the game is not installed");
+            return;
+        }
+
+        ItemSchema schema = ItemSchema.Read(File.ReadAllBytes(SchemaPath));
+
+        schema.DefaultLoadoutSlot(143).ShouldBe(ItemSchema.LoadoutSlotMisc);
+        schema.DropType(143).ShouldBe(ItemSchema.DropTypeNone, "OSX Item declares drop_type \"none\" explicitly");
+    }
+
     /// <summary>Every key directly inside a named block, at a stated depth.</summary>
     /// <remarks>
     /// Depth is checked as well as the name because <c>items_game.txt</c> reuses names freely —

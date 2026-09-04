@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Scene;
@@ -113,6 +114,16 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
     /// </remarks>
     public Func<Func<int, string?>?>? ClassModels { get; set; }
 
+    /// <summary>
+    /// Where the econ item schema comes from, for the two wearable skips that need it.
+    /// </summary>
+    /// <remarks>
+    /// **A supplier, and read per call, for the same reason <see cref="ClassModels"/> is** — the
+    /// archives open on their own schedule and a demo opened first would otherwise keep a null
+    /// schema for its whole life, quietly drawing cosmetics the engine drops.
+    /// </remarks>
+    public Func<ItemSchema?>? Items { get; set; }
+
 
     /// <inheritdoc />
     public float IntervalPerTick => timeline.IntervalPerTick;
@@ -149,7 +160,8 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
             // remember to set, which is precisely the wiring this project has shipped unset three
             // times. Null is the first frame, where treating every corpse as unseen is right: their
             // timers have only just started.
-            RagdollProps.Fill(timeline.Corpses, tick, classes, into, _fade, interpolate);
+            RagdollProps.Fill(
+                timeline.Corpses, tick, classes, into, _fade, interpolate, Items?.Invoke());
         }
     }
 

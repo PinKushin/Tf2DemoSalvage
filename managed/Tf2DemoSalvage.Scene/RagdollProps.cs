@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Scene;
@@ -43,6 +44,11 @@ public static class RagdollProps
     /// safe direction: it expires them on the long timer rather than keeping them for ever.
     /// </param>
     /// <param name="into">The buffer to append to; NOT cleared.</param>
+    /// <param name="items">
+    /// The econ schema, or null when the install is unread. Two of the engine's five wearable skips
+    /// need it — see <see cref="Skipped"/> — and both of its defaults are to KEEP, so a null schema
+    /// draws too much rather than too little.
+    /// </param>
     /// <returns>How many were appended.</returns>
     /// <remarks>
     /// **Appended rather than cleared, because this runs after the props.** The scene's buffer is
@@ -61,7 +67,8 @@ public static class RagdollProps
         Func<int, string?> modelForClass,
         ICollection<SceneProp> into,
         RagdollFade? fade = null,
-        IReadOnlySet<int>? visible = null)
+        IReadOnlySet<int>? visible = null,
+        ItemSchema? items = null)
     {
         ArgumentNullException.ThrowIfNull(corpses);
         ArgumentNullException.ThrowIfNull(modelForClass);
@@ -150,11 +157,24 @@ public static class RagdollProps
                     Yaw = corpse.Yaw,
                     Skin = skin,
                 },
-                ClassName: RagdollClassName));
+                ClassName: RagdollClassName,
+
+                // **The death animation, decided here and resolved where models are open** (B323).
+                // Null for the great majority: only a headshot, a decapitation or a backstab is
+                // eligible at all, and three quarters of those discard it on the draw.
+                DeathSequence: RagdollDeath.SequenceFor(corpse),
+
+                // **The gold or ice VMT, replacing every material the model has** (B325).
+                //
+                //     m_MaterialOverride.Init( materialOverrideFilename, TEXTURE_GROUP_CLIENT_EFFECTS );
+                //
+                // `c_tf_player.cpp:980`. Null for every corpse in this corpus — 0 of 566 measured —
+                // which is why the decode was authored a specimen rather than tested on a demo.
+                MaterialOverride: look.Material));
 
             drawn++;
 
-            drawn += Worn(corpse, drawnAs, at, into);
+            drawn += Worn(corpse, drawnAs, at, into, items, look.Material);
         }
 
         return drawn;
@@ -165,6 +185,11 @@ public static class RagdollProps
     /// <param name="drawnAs">The index the corpse itself is drawn under.</param>
     /// <param name="at">Its position in the list, which its wearables' indices are derived from.</param>
     /// <param name="into">The buffer to append to.</param>
+    /// <param name="items">The econ schema, for the two skips that need it; null keeps everything.</param>
+    /// <param name="material">
+    /// The gold or ice VMT the corpse itself took, or null. **Passed in rather than re-derived**, so
+    /// an item cannot disagree with the body it hangs on (B243).
+    /// </param>
     /// <returns>How many were added.</returns>
     /// <remarks>
     /// **Bone-merged onto the corpse, which is how they were worn in life.** The engine builds a
@@ -177,22 +202,66 @@ public static class RagdollProps
     /// wearable entity they came from — the same reasoning as B318. A hat borrowed its owner's
     /// index while its owner is alive and wearing another one, and `EntityModelSet` would be keying
     /// both to the same cache.
+    ///
+    /// **A gold or iced corpse repaints its cosmetics too, and the engine does it as a SECOND pass
+    /// rather than by inheritance** (B325):
+    ///
+    /// <code>
+    /// // override all of our wearables, too
+    /// for ( C_BaseEntity *pEntity = ClientEntityList().FirstBaseEntity(); … )
+    ///     if ( pEntity->GetFollowedEntity() == this )
+    ///         if ( CEconEntity *pItem = dynamic_cast&lt; CEconEntity * &gt;( pEntity ) )
+    ///             pItem->SetMaterialOverride( m_iTeam, materialOverrideFilename );
+    /// </code>
+    ///
+    /// `c_tf_player.cpp:982-993`. Read-from-source. **The override is per renderable, not per
+    /// entity** — that loop exists precisely because a hat is drawn by its own model call and would
+    /// otherwise stay its own colour on a golden body. Its predicate is `GetFollowedEntity() == this`,
+    /// which is the follow relation this method's props already stand in.
     /// </remarks>
-    private static int Worn(SceneRagdoll corpse, int drawnAs, int at, ICollection<SceneProp> into)
+    private static int Worn(
+        SceneRagdoll corpse,
+        int drawnAs,
+        int at,
+        ICollection<SceneProp> into,
+        ItemSchema? items,
+        string? material)
     {
         if (corpse.Worn is not { Count: > 0 } worn)
         {
             return 0;
         }
 
+        // **Decapitation drops the head and misc slots**, which is the engine's third skip:
+        //
+        //   if ( IsDecapitationCustomDamageType( pRagdoll->GetDamageCustom() ) )
+        //   {
+        //       int iLoadoutSlot = pEconItemView ? …GetDefaultLoadoutSlot() : LOADOUT_POSITION_INVALID;
+        //       if ( iLoadoutSlot == LOADOUT_POSITION_HEAD || iLoadoutSlot == LOADOUT_POSITION_MISC )
+        //           continue;
+        //   }
+        //
+        // `c_tf_player.cpp:10208-10217`. A head that came off should not still be wearing the hat.
+        // **Exactly the four `IsDecapitationCustomDamageType` names, read rather than inferred**
+        // (`c_tf_player.cpp:10161-10167`). `TF_DMG_CUSTOM_HEADSHOT_DECAPITATION` is NOT among them
+        // despite its name, and was in the first version of this line because the name reads like
+        // it should be. A sniper's decapitating headshot keeps the hat.
+        bool beheaded = corpse.DamageCustom is Decapitation
+            or BarbarianSwing or DecapitationBoss or MerasmusDecapitation;
+
         int added = 0;
 
         for (int item = 0; item < worn.Count && item < MostWornPerCorpse; item++)
         {
+            if (Skipped(worn[item], items, beheaded))
+            {
+                continue;
+            }
+
             into.Add(new SceneProp(
                 FirstWornEntityIndex + (at * MostWornPerCorpse) + item,
-                worn[item],
-                ScenePropTrack.Classify(worn[item]),
+                worn[item].Model,
+                ScenePropTrack.Classify(worn[item].Model),
 
                 // **No transform of its own, and that is not an omission.** `FollowEntity` sets
                 // `EF_BONEMERGE` and then zeroes the local origin and angles
@@ -202,13 +271,73 @@ public static class RagdollProps
                 AttachedTo: drawnAs,
                 BoneMerged: true,
                 OwnedBy: drawnAs,
-                ClassName: WearableClassName));
+                ClassName: WearableClassName,
+
+                // The corpse's own gold or ice, applied again here — `SetMaterialOverride` on each
+                // followed econ entity, quoted above. Null for every ordinary corpse.
+                MaterialOverride: material));
 
             added++;
         }
 
         return added;
     }
+
+    /// <summary>Whether the engine would leave this item off the corpse.</summary>
+    /// <param name="item">The worn item.</param>
+    /// <param name="items">The econ schema, or null when the install is unread.</param>
+    /// <param name="beheaded">Whether the death took the head off.</param>
+    /// <returns>True to skip it.</returns>
+    /// <remarks>
+    /// **Two of `CreateBoneAttachmentsFromWearables`'s five skips, and both need `items_game.txt`**
+    /// (B324) — which is why they were left out when the cosmetics first landed and why they are
+    /// here rather than in the decode.
+    ///
+    /// **The drop-type skip** is `if ( pItem->GetDropType() >= ITEM_DROP_TYPE_DROP ) continue;`
+    /// (`c_tf_player.cpp:10206`). Such an item becomes a falling gib through `DropWearable` instead
+    /// of riding the corpse, so leaving it on is one item drawn twice. Measured: 463 of 11,497 item
+    /// definitions declare it, 4%.
+    ///
+    /// **The decapitation skip** drops the HEAD and MISC slots — and HEAD is unreachable, which is
+    /// Valve's own quirk rather than ours: `tf_item_schema.cpp:941-944` rewrites the exact
+    /// lower-case string `"head"` to `"misc"` before the table lookup, with a case-SENSITIVE
+    /// compare, so no item whose `item_slot` is spelled `head` can resolve to `LOADOUT_POSITION_HEAD`.
+    /// Measured on the shipped schema: **0 of 11,497 items are HEAD and 9,536 are MISC.** So in
+    /// practice a decapitation drops five sixths of a player's cosmetics, and the HEAD half of the
+    /// engine's condition never fires.
+    ///
+    /// **An item the schema does not know is KEPT.** `pEconItemView` being null gives
+    /// `LOADOUT_POSITION_INVALID`, which matches neither case, and a missing `drop_type` defaults to
+    /// "stay attached". Both of the engine's defaults are to keep, so an unreadable install draws
+    /// too much rather than too little.
+    /// </remarks>
+    private static bool Skipped(SceneWornItem item, ItemSchema? items, bool beheaded)
+    {
+        if (items is null || item.ItemDefinitionIndex is not { } definition)
+        {
+            return false;
+        }
+
+        if (items.DropType(definition) >= ItemSchema.DropTypeDrop)
+        {
+            return true;
+        }
+
+        return beheaded && items.DefaultLoadoutSlot(definition) is
+            ItemSchema.LoadoutSlotHead or ItemSchema.LoadoutSlotMisc;
+    }
+
+    /// <summary><c>TF_DMG_CUSTOM_DECAPITATION</c>.</summary>
+    private const int Decapitation = 20;
+
+    /// <summary><c>TF_DMG_CUSTOM_TAUNTATK_BARBARIAN_SWING</c>, which also takes a head off.</summary>
+    private const int BarbarianSwing = 24;
+
+    /// <summary><c>TF_DMG_CUSTOM_DECAPITATION_BOSS</c>.</summary>
+    private const int DecapitationBoss = 41;
+
+    /// <summary><c>TF_DMG_CUSTOM_MERASMUS_DECAPITATION</c>.</summary>
+    private const int MerasmusDecapitation = 60;
 
     /// <summary>Most cosmetics one corpse's block of indices has room for.</summary>
     /// <remarks>

@@ -92,6 +92,56 @@ public sealed class RagdollAppearanceConformanceTests
         corpse.Skin.ShouldBeNull();
     }
 
+    /// <remarks>
+    /// **An ordinary corpse keeps its own materials**, which is the control the two below need: a
+    /// `MaterialFor` returning a constant would satisfy either of them alone.
+    /// </remarks>
+    [Test]
+    public void MaterialFor_ForAnOrdinaryCorpse_IsNone()
+    {
+        RagdollAppearance.MaterialFor(Corpse(playerClass: 5, team: SceneTeams.Red)).ShouldBeNull();
+    }
+
+    [Test]
+    public void MaterialFor_ForAGoldAndAnIceCorpse_AreTheTwoOverrides()
+    {
+        RagdollAppearance.MaterialFor(Corpse(playerClass: 5, team: SceneTeams.Red) with { Gold = true })
+            .ShouldBe(RagdollAppearance.GoldMaterial);
+
+        RagdollAppearance.MaterialFor(Corpse(playerClass: 5, team: SceneTeams.Red) with { Ice = true })
+            .ShouldBe(RagdollAppearance.IceMaterial);
+    }
+
+    /// <remarks>
+    /// **Ice wins, because the engine assigns it SECOND and unconditionally.** Gold is set inside
+    /// `if ( m_bFixedConstraints )` and ice is set after that block with no guard
+    /// (`c_tf_player.cpp:952-971`), so a corpse that is somehow both comes out frozen. Order in a
+    /// pair of assignments is exactly the kind of thing a reimplementation reverses without
+    /// noticing, since both branches look independent.
+    /// </remarks>
+    [Test]
+    public void MaterialFor_ForACorpseThatIsBothGoldAndIce_IsIce()
+    {
+        RagdollAppearance.MaterialFor(
+            Corpse(playerClass: 5, team: SceneTeams.Red) with { Gold = true, Ice = true })
+            .ShouldBe(RagdollAppearance.IceMaterial);
+    }
+
+    /// <remarks>
+    /// **The material travels with the rest of the appearance**, or the derivation would compute it
+    /// and drop it — which is the shape three no-ops have shipped in here.
+    /// </remarks>
+    [Test]
+    public void Of_ForAnIceCorpse_CarriesTheMaterialAlongsideTheModel()
+    {
+        RagdollAppearance look = RagdollAppearance.Of(
+            Corpse(playerClass: 5, team: SceneTeams.Blu) with { Ice = true }, Classes());
+
+        look.Model.ShouldBe("models/player/medic.mdl");
+        look.Skin.ShouldBe(1);
+        look.Material.ShouldBe(RagdollAppearance.IceMaterial);
+    }
+
     /// <summary>A corpse carrying only the two integers the appearance is derived from.</summary>
     private static SceneRagdoll Corpse(int playerClass, int? team) =>
         new(EntityIndex: 40,

@@ -420,3 +420,70 @@ preferred over `m_iClass` when the player entity is still around) can ever resol
 model than the class table gives. Both routes end at the same data and differ only through
 `m_iszCustomModel`, which nothing in stock TF2 appears to set outside Mann-vs-Machine — interpolated,
 not measured.
+
+## The two flags that are neither model nor skin: `m_bGoldRagdoll` and `m_bIceRagdoll`
+
+**A corpse can be repainted whole, and it is not a skin.** A skin picks another entry from the
+model's own material table; the engine's override ignores that table and binds ONE material for
+every mesh the model has. `C_TFRagdoll::CreateTFRagdoll` ends with it (`c_tf_player.cpp:961-994`),
+and `C_TFRagdoll::InternalDrawModel` forces it around the base call (`:1281-1290`).
+
+Four things in that block are easy to read wrong, and each one is a divergence if you do:
+
+| Reading | What the code says |
+|---|---|
+| gold and ice are alternatives | **Ice wins.** Its assignment is second and unconditional |
+| the Golden Wrench turns a corpse gold | **It does not paint.** `m_iDamageCustom == TF_DMG_CUSTOM_GOLD_WRENCH` sets `m_bFixedConstraints` and plays a sound; the material block tests `m_bGoldRagdoll` again |
+| `if ( m_bFixedConstraints )` is a second condition on gold | **It is implied by gold.** The flag is set two lines under the gold test at `:733`, the function runs 700→971 with no `return`, and nothing clears it |
+| the wearables inherit it | **They are repainted by a second pass** over the client entity list, because an override is per renderable |
+
+**And the fifth, which is not in that function at all: an item's own attached models are exempt.**
+An econ entity that applies an override raises a flag with it —
+
+```cpp
+modelrender->ForcedMaterialOverride( pOverrideMaterial );
+flags |= STUDIO_NO_OVERRIDE_FOR_ATTACH; // Don't apply override materials to attachments.
+```
+
+`c_baseanimating.cpp:3438-3439` — and `DrawEconEntityAttachedModels` reads it back, clearing the
+override for the loop and restoring it afterwards (`econ_entity.cpp:110-117, 146-147`). A hat on a
+golden corpse turns gold; the extra mesh bolted to that hat keeps its own materials.
+
+### An override must be a MATERIAL, not a texture
+
+This is the part worth carrying to any other engine feature that "replaces a material". The first
+implementation here swapped the base texture at the bind, which draws something plausible and is
+wrong: the two VMTs are almost entirely NOT their base maps.
+
+| VMT | base map | what actually makes the look |
+|---|---|---|
+| `gold_player` | 32×32, mean RGBA (57, 42, 21, 158) | `$envmap cubemaps/cubemap_gold001`, `$envmaptint [1.5 1.2 .2]`, `$phongboost`, rim |
+| `ice_player` | 32×32, mean RGBA (158, 158, 158, 253) | `$bumpmap`, `$phongwarptexture`, `$lightwarptexture`, `$phongexponent 200` |
+
+Both base maps are flat swatches a mip high. Everything that distinguishes gold from brown lives in
+the other parameters, so a texture-level override keeps the *player's* cubemap, phong, detail, blend
+and depth under a new colour — a divergence that looks implemented.
+
+### `$envmap` inside a `">=DX90"` block is currently lost (B326)
+
+Measured while asserting the above: `gold_player.vmt` declares `$envmaptint` at the top level and
+`$envmap` inside a DirectX-level sub-block, and this project's VMT reader does not descend into
+those. So the material arrives with the tint of a reflection it has no cubemap for. It is not a
+corpse problem — any material declaring a parameter behind a DX gate loses it.
+
+## Evidence
+
+Read-from-source for every engine claim, at the lines cited. The base-map sizes and means are
+measured from the shipped VPK:
+
+```bash
+dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -- vmt models/player/shared/gold_player
+```
+
+**Neither flag appears anywhere in this corpus — 0 of 566 corpses across the two demos with the most
+of them** — so the decode is exercised by an authored demo (`GoldRagdollSpecimenTests`) rather than
+by a recording. That is the case `docs/memory/author-the-specimen-the-corpus-lacks.md` describes.
+
+**Not established:** whether TF2 ever sets `m_bGoldRagdoll` without `m_bFixedConstraints` through
+some path outside `CreateTFRagdoll`. The reduction above holds for that function, which is the only
+place either flag is read on the client.

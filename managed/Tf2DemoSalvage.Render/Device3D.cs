@@ -738,7 +738,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 // **The lamps near the weapon**, which is the whole point for a viewmodel: it sits
                 // at the player's eye, the position in the scene most reliably under whatever light
                 // the player is walking beneath (B170).
-                locals: instance.Locals);
+                locals: instance.Locals,
+
+                // Always null on a viewmodel — only a corpse sets one — but passed rather than
+                // omitted so the four draw sites stay one shape (B325).
+                overrideMaterial: instance.MaterialOverride);
         }
 
         // **Both of the pass's changes are put back, and forgetting the camera was a real defect.**
@@ -1102,7 +1106,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                         tint: instance.Tint,
 
                         // The lamps near this model, which its ambient cube no longer carries.
-                        locals: instance.Locals);
+                        locals: instance.Locals,
+
+                        // Gold or ice on a corpse and the items it wears; null everywhere else
+                        // (B325).
+                        overrideMaterial: instance.MaterialOverride);
                 }
 
                 // **The see-through parts of models, after every solid one.** A hologram, a glass
@@ -1183,7 +1191,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                         tint: instance.Tint,
 
                         // The lamps near this model, which its ambient cube no longer carries.
-                        locals: instance.Locals);
+                        locals: instance.Locals,
+
+                        // **The translucent half takes it too**, since the override replaces every
+                        // material rather than a subset — an iced corpse whose model has a blended
+                        // part must not draw that part unfrozen (B325).
+                        overrideMaterial: instance.MaterialOverride);
                 }
 
                 WorldRenderer.ResetBlend(_context);

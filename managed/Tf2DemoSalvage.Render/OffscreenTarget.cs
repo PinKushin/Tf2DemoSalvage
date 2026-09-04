@@ -237,6 +237,11 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// origin — the condition every earlier offscreen test made impossible by construction, since
     /// each translated its model through the matrix (B170).
     /// </param>
+    /// <param name="overrideMaterial">
+    /// One VMT path replacing every one of the model's own, or null. Present for the same reason as
+    /// <paramref name="phong"/>: a corpse's gold is applied at the bind, so the only instrument that
+    /// can see it working is one that renders with and without it and compares pixels (B325).
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The model path is not the world path and the difference has hidden a defect.** Every
@@ -258,7 +263,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         DebugModes debug = default,
         bool phong = true,
         bool specular = true,
-        (float X, float Y, float Z)? origin = null)
+        (float X, float Y, float Z)? origin = null,
+        string? overrideMaterial = null)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -308,7 +314,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
 
         _world.DrawModel(
             _context, Posed, model, _world.ModelBatches(Posed), light, sun, bothSides: bothSides,
-            origin: origin);
+            origin: origin, overrideMaterial: overrideMaterial);
     }
 
     /// <summary>

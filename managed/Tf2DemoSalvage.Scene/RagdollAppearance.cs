@@ -13,8 +13,71 @@ namespace Tf2DemoSalvage.Scene;
 /// — the engine sets both inside one <c>if ( nModelIndex != -1 )</c> block, so a corpse with no
 /// model never reaches the skin lines at all.
 /// </param>
-public readonly record struct RagdollAppearance(string? Model, int? Skin)
+/// <param name="Material">
+/// One VMT replacing every material the model has — gold or ice — or null for the ordinary case.
+/// See <see cref="MaterialFor"/> for which wins and why the legacy wrench path does not paint.
+/// </param>
+public readonly record struct RagdollAppearance(string? Model, int? Skin, string? Material = null)
 {
+    /// <summary>What a Saxxy or Golden Wrench kill paints a corpse with.</summary>
+    /// <remarks>`c_tf_player.cpp:958`.</remarks>
+    public const string GoldMaterial = "models/player/shared/gold_player.vmt";
+
+    /// <summary>What a Spy-cicle backstab paints a corpse with.</summary>
+    /// <remarks>`c_tf_player.cpp:966`.</remarks>
+    public const string IceMaterial = "models/player/shared/ice_player.vmt";
+
+    /// <summary>The single material that replaces every one of a corpse's own, if any.</summary>
+    /// <param name="corpse">The corpse.</param>
+    /// <returns>A VMT path, or null when the corpse keeps its own materials.</returns>
+    /// <remarks>
+    /// **Two subtleties, both easy to lose by reading the tail of `CreateTFRagdoll` alone.**
+    ///
+    /// <code>
+    /// const char *materialOverrideFilename = NULL;
+    ///
+    /// if ( m_bFixedConstraints )
+    /// {
+    ///     if ( m_bGoldRagdoll )
+    ///         materialOverrideFilename = "models/player/shared/gold_player.vmt";
+    /// }
+    ///
+    /// if ( m_bIceRagdoll )
+    ///     materialOverrideFilename = "models/player/shared/ice_player.vmt";
+    /// </code>
+    ///
+    /// `c_tf_player.cpp:952-971`. Read-from-source.
+    ///
+    /// **Ice beats gold**, because its assignment is second and unconditional — a corpse that is
+    /// somehow both comes out frozen, not golden.
+    ///
+    /// **And the legacy wrench path does NOT paint.** Earlier in the function,
+    /// `if ( m_bGoldRagdoll || m_iDamageCustom == TF_DMG_CUSTOM_GOLD_WRENCH )` plays the sound and
+    /// sets `m_bFixedConstraints`, which reads as "either makes it gold". It does not: the material
+    /// block tests `m_bGoldRagdoll` again inside the constraints guard, so a Golden Wrench kill with
+    /// the flag clear gets stiff constraints and a noise and keeps its own skin. Reproduced as
+    /// written.
+    ///
+    /// **`m_bFixedConstraints` is not tested here, and it is not a dropped guard.** It is client-side
+    /// state rather than a networked field, and the only assignment that can precede the material
+    /// block is the one two lines under the gold test itself (`c_tf_player.cpp:733`) — so
+    /// `m_bGoldRagdoll` implies it. Checked rather than assumed: `CreateTFRagdoll` runs straight
+    /// through from 700 to 971 with no `return` between the two, and nothing anywhere clears the
+    /// flag. The other assignment (`:859`, ice caught in midair) can only add a corpse that is
+    /// already taking the ice path. The conjunction therefore reduces to `m_bGoldRagdoll` exactly.
+    /// Arithmetic on read-from-source.
+    /// </remarks>
+    public static string? MaterialFor(SceneRagdoll corpse)
+    {
+        // Ice first, because it is assigned second in the engine and so overwrites gold.
+        if (corpse.Ice)
+        {
+            return IceMaterial;
+        }
+
+        return corpse.Gold ? GoldMaterial : null;
+    }
+
     /// <summary>Derives a corpse's appearance.</summary>
     /// <param name="corpse">The corpse, as <c>DT_TFRagdoll</c> described it.</param>
     /// <param name="modelForClass">
@@ -55,8 +118,12 @@ public readonly record struct RagdollAppearance(string? Model, int? Skin)
     ///   under `if ( !m_bFeignDeath || m_bWasDisguised )` (`c_tf_player.cpp:790-793`). It needs the
     ///   player's bodygroup state at the moment of death, which is a different question from this
     ///   one and has its own guard.
-    /// - **The overrides** — gold, ice, zombie skins, and the material overrides that go with them.
-    ///   Each is its own networked flag and its own branch.
+    /// - **The zombie skin swap.** `if ( pPlayer &amp;&amp; pPlayer-&gt;BRenderAsZombie() )` runs
+    ///   `AdjustSkinIndexForZombie` over the skin this method chose (`c_tf_player.cpp:722-726`) —
+    ///   a Halloween mode, its own flag, and it needs the living player rather than the corpse.
+    ///
+    /// **Gold and ice ARE done**, in <see cref="MaterialFor"/>, and are carried as a material rather
+    /// than a skin because that is what the engine does with them (B325).
     ///
     /// **The skin is written out here rather than calling <c>PlayerSkin.ForTeam</c>, and that is not
     /// a DRY failure — the two rules genuinely differ.** They come from two different engine
@@ -87,6 +154,9 @@ public readonly record struct RagdollAppearance(string? Model, int? Skin)
             return new RagdollAppearance(null, null);
         }
 
-        return new RagdollAppearance(model, Skin: corpse.Team == SceneTeams.Red ? 0 : 1);
+        return new RagdollAppearance(
+            model,
+            Skin: corpse.Team == SceneTeams.Red ? 0 : 1,
+            Material: MaterialFor(corpse));
     }
 }

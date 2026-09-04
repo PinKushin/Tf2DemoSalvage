@@ -21751,3 +21751,270 @@ counted. All corrected.
 sentence describing its scope was extrapolated from the same observation. "Every X" asserted from one
 sample is a guess wearing a quantifier, and it is the part of a finding least likely to be
 re-checked, because the finding itself was right.
+
+#### B58: the ragdoll route, measured before any solver exists
+
+**Every rigid-body property a ragdoll needs is plain text in the model's `.phy`.** Measured with the
+`ragdoll-constraints` probe rather than assumed, because "we would need a physics engine" is the
+conclusion this entry has already been corrected for once.
+
+A `.phy` is `phyheader_t` — sixteen bytes of `size`, `id`, `solidCount`, `checkSum`
+(`phyfile.h:14-21`) — then `solidCount` collision solids in Havok's closed `IVPS` format, and then a
+KeyValues block in ASCII. That block holds everything but the hulls:
+
+```
+solid {
+  "index" "0"
+  "name" "bip_pelvis"
+  "mass" "7.470685"
+  "surfaceprop" "flesh"
+  "damping" "0.000000"
+  "rotdamping" "0.000000"
+  "inertia" "10.000000"
+  "volume" "2694.044678"
+}
+
+ragdollconstraint {
+  "parent" "0"   "child" "1"
+  "xmin" "-35.000000"  "xmax" "12.000000"  "xfriction" "0.000000"
+  "ymin" "-30.000000"  "ymax" "25.000000"  "yfriction" "0.000000"
+  "zmin" "-79.000000"  "zmax" "35.000000"  "zfriction" "0.000000"
+}
+```
+
+**`"name"` is the load-bearing field.** It maps each solid onto a bone of the skeleton, without which
+the constraints' `parent`/`child` indices are numbers about an unknown ordering.
+
+Every class carries a complete definition, and always a tree — one fewer constraint than solids:
+
+| model | solids | constraints |
+|---|---|---|
+| `demo`, `pyro` | 15 | 14 |
+| `heavy` | 16 | 15 |
+| `scout`, `sniper` | 17 | 16 |
+| `engineer` | 18 | 17 |
+| `medic` | 24 | 23 |
+
+**So the split is clean, and it is not the one this entry assumed.** Masses, inertias, damping,
+rotational damping, per-axis joint limits, joint friction, surface properties and the bone mapping
+are all readable today. What is NOT readable is the collision HULL geometry — the `IVPS` solids —
+which is what a fall needs to contact the world with. `"volume"` is given per solid, which is not a
+shape but is not nothing.
+
+**And the resting place is already known**: `m_vecRagdollOrigin` is networked, so a simulation would
+not be establishing WHERE a body ends up, only what shape it is in when it gets there. That is a
+materially smaller problem than "reproduce Source's fall", and it is the one worth scoping next.
+
+**Not established:** whether a constrained solve without world collision settles anywhere useful, and
+whether TF2's 1,108 player `.phy` files include per-class differences beyond solid count. The gibs
+carry one solid and zero constraints each, as expected.
+
+### B323 FIXED 2026-09-04: the death animation, which was filed as OPEN instead of built
+
+**The owner's correction: filing a divergence is not fixing it.** B316 measured this branch at about
+one corpse in a hundred and left it open. Measurement decides PRIORITY, not whether parity is owed —
+and a frag video is made of exactly these deaths.
+
+Three gates in series, and only the middle one is famous:
+
+```cpp
+iDeathSeq = pPlayer->m_Shared.GetSequenceForDeath( this, m_bBurning, m_iDamageCustom );
+
+if ( iDeathSeq > -1 && (m_iDamageCustom != TF_DMG_CUSTOM_TAUNTATK_BARBARIAN_SWING) &&
+    (m_iDamageCustom != TF_DMG_CUSTOM_TAUNTATK_ENGINEER_GUITAR_SMASH) &&
+    (m_iDamageCustom != TF_DMG_CUSTOM_TAUNTATK_ALLCLASS_GUITAR_RIFF) )
+{
+    if ( !m_bIceRagdoll && !tf_always_deathanim.GetBool() && (RandomFloat( 0, 1 ) > 0.25f) )
+        iDeathSeq = -1;
+}
+
+bool bPlayDeathAnim = cl_ragdoll_physics_enable.GetBool() && (iDeathSeq > -1) && pPlayer;
+
+if ( !m_bOnGround && bPlayDeathAnim && !bPlayDeathInAir )
+    bPlayDeathAnim = false;
+```
+
+`c_tf_player.cpp:815-846`. Read-from-source.
+
+**The draw is reproduced, not asked about** (D136). Seeded per corpse on slot AND serial, because
+this project can seek and the client could not: scrubbing back over a death must show the same body
+twice.
+
+**Two of the three taunt exclusions are UNREACHABLE, and writing the test wrong is how that surfaced.**
+The condition reads as three kills that always animate. But `GetSequenceForDeath` has no case for
+either guitar (`tf_player_shared.cpp:13441-13454`), so both fail the `iDeathSeq > -1` test in the same
+condition and never reach the flip they are excused from. Only the barbarian swing is in both lists —
+it is eligible AND excluded, so it animates every time. An engineer's guitar smash plays no death
+animation at all.
+
+**And `m_bOnGround` looked like a decode bug and is not.** One demo reports 0 of 147 corpses on the
+ground against 344 of 407 and 101 of 159 elsewhere, which smelled like B319's era rename. The field
+is present in that demo's schema and carries **236 values, every one zero** — the same decode reads
+both values on the other two demos, which is the control. The real client read the same false and
+vetoed identically, so this is faithful rather than broken.
+
+**Verified end to end rather than by the tests alone:** the labels exist on real models —
+`scout.mdl` carries the headshot death at sequence 260 and the backstab at 261, `spy.mdl` at 232 and
+233 — so `SequenceByLabel` resolves and the branch is not a no-op. A label that did not exist would
+resolve to -1 and change nothing while every test passed.
+
+### B324 FIXED 2026-09-04: the two wearable skips that needed the item schema
+
+**Also filed rather than fixed when the cosmetics landed**, on the grounds that they "need the item
+schema or per-tick effect flags at a point that has neither". The schema was one accessor away.
+
+`CreateBoneAttachmentsFromWearables` has five skips (`c_tf_player.cpp:10169-10251`). Three were
+applied; these are the other two:
+
+- **`if ( pItem->GetDropType() >= ITEM_DROP_TYPE_DROP ) continue;`** — such an item becomes a falling
+  gib through `DropWearable` rather than riding the corpse, so keeping it draws one item twice.
+- **The decapitation skip**, which drops the HEAD and MISC slots for the four damage types
+  `IsDecapitationCustomDamageType` names (`c_tf_player.cpp:10161-10167`) — read rather than inferred,
+  because `TF_DMG_CUSTOM_HEADSHOT_DECAPITATION` is NOT among them despite its name, and was in the
+  first version of the line for exactly that reason.
+
+**Valve's own quirk, found by the schema work and worth keeping:** `tf_item_schema.cpp:941-944`
+rewrites the exact lower-case string `"head"` to `"misc"` before the slot table lookup, with a
+case-SENSITIVE compare. Measured on the shipped schema: **0 of 11,497 item definitions resolve to
+`LOADOUT_POSITION_HEAD` and 9,536 resolve to MISC.** So the HEAD half of the engine's condition can
+never fire, and a decapitation drops five sixths of a player's cosmetics through the MISC case alone.
+
+**Measured effect**, `serveme-627619-stv-2026-08-07` at tick 18303: 14 drawn props before, **11
+after**. The three removed are `summer_hat_Soldier`, `dec22_trappers_flap_style1_Scout` and
+`Scout_ttg_max` — all `drop_type "drop"`, all of which TF2 drops as gibs. 463 of 11,497 definitions
+declare it, 4%.
+
+**A null schema keeps everything**, which is the safe direction and matches both of the engine's own
+defaults: a missing `drop_type` means "stay attached", and an unknown item gives
+`LOADOUT_POSITION_INVALID`, which matches neither case.
+
+### B325 FIXED 2026-09-04: gold and ice, decoded and then applied as a whole material
+
+**The third of the three filed-not-fixed items from the corpse work**, and the one whose "we cannot
+test it" was true and still did not excuse leaving it out.
+
+`C_TFRagdoll::CreateTFRagdoll` ends with a material override (`c_tf_player.cpp:961-994`):
+
+```cpp
+const char *materialOverrideFilename = NULL;
+
+if ( m_bFixedConstraints )
+{
+    if ( m_bGoldRagdoll )
+        materialOverrideFilename = "models/player/shared/gold_player.vmt";
+}
+
+if ( m_bIceRagdoll )
+    materialOverrideFilename = "models/player/shared/ice_player.vmt";
+
+if ( materialOverrideFilename )
+{
+    m_MaterialOverride.Init( materialOverrideFilename, TEXTURE_GROUP_CLIENT_EFFECTS );
+
+    // override all of our wearables, too
+    for ( C_BaseEntity *pEntity = ClientEntityList().FirstBaseEntity(); pEntity; … )
+        if ( pEntity->GetFollowedEntity() == this )
+            if ( CEconEntity *pItem = dynamic_cast< CEconEntity * >( pEntity ) )
+                pItem->SetMaterialOverride( m_iTeam, materialOverrideFilename );
+}
+```
+
+Read-from-source. Four things in it are easy to get wrong and all four were checked:
+
+- **Ice beats gold**, because its assignment is second and unconditional.
+- **The legacy Golden Wrench path does NOT paint.** `m_bGoldRagdoll || m_iDamageCustom ==
+  TF_DMG_CUSTOM_GOLD_WRENCH` earlier in the function plays a sound and sets `m_bFixedConstraints`,
+  which reads as "either makes it gold"; the material block tests `m_bGoldRagdoll` again.
+- **`m_bFixedConstraints` is not a second condition.** It is client-side state, and the only
+  assignment that can precede the block is two lines under the gold test itself (`:733`) — so gold
+  implies it. Checked rather than assumed: the function runs straight through 700→971 with no
+  `return` between them, and nothing anywhere clears the flag. The conjunction reduces to
+  `m_bGoldRagdoll` exactly.
+- **The wearables are repainted by a SECOND pass, not by inheritance**, because a material override
+  is per renderable. A body-only implementation leaves a golden corpse in a normal-coloured hat.
+
+**And the one that is not obvious from this function at all: an item's own ATTACHED models must not
+take it.** `C_BaseAnimating::InternalDrawModel` raises a flag with the override it applies —
+`flags |= STUDIO_NO_OVERRIDE_FOR_ATTACH; // Don't apply override materials to attachments.`
+(`c_baseanimating.cpp:3438-3439`) — and `DrawEconEntityAttachedModels` reads it back, clearing the
+override for the loop and restoring it afterwards (`econ_entity.cpp:110-117, 146-147`). So a hat on
+a golden corpse turns gold and the extra mesh bolted to that hat does not.
+
+#### The specimen, because no demo has either flag
+
+Measured across the two demos with the most corpses: **0 of 566 carry gold or ice.** A Saxxy or
+Golden Wrench kill and a Spy-cicle backstab are both rare enough that the corpus will probably never
+contain one, so `GoldRagdollSpecimenTests` authors the demo instead — the schema is written into a
+`dem_datatables`, the entity is encoded into a real `svc_PacketEntities`, and `DemoTimeline.Build`
+reads the file back. That is stronger than a recording would be, because the test put the flag on
+the wire and therefore knows the answer (D38).
+
+#### The correction: a material override is not a texture swap
+
+**The first implementation was wrong and every test written for it would have passed.** It kept a
+`MapTexture` per VMT path and swapped shader resource slot 0 at the bind, which draws *something* —
+and that something is a flat 32-pixel swatch wearing the PLAYER material's cubemap, phong, detail,
+blend state and depth state. A material is not its base map:
+
+- gold is mostly `$envmap cubemaps/cubemap_gold001` with `$envmaptint [1.5 1.2 .2]`, `$phongboost`
+  and a rim term;
+- ice adds `$bumpmap`, `$phongwarptexture` and `$lightwarptexture`.
+
+The fix is smaller than the thing it replaced: append both VMTs to the material table the map's own
+and every model's materials already share, and let `DrawModel` substitute the resolved material
+INDEX. Everything downstream then follows for free — every texture slot, the shader constants, the
+proxies, the blend and the depth state — and the renderer needs no second bind path.
+
+Measured on a real device, one quad, same light, same geometry, only the override changing:
+
+| drawn with | centre pixel |
+|---|---|
+| the quad's own material | (12, 11, 10) |
+| forced to gold | (5, 3, 1) |
+| forced to ice | (44, 63, 72) |
+
+Warm, and cold, from one material index substitution.
+
+#### A sabotage found a test that could not fail
+
+The gold ordering — red above green above blue — was first asserted against the quad's own material
+as the only comparison. With the override lookup disabled entirely, **it still passed**: the map
+material it picked draws (12, 11, 10), which is warm by the same ordering. Wrong condition, in the
+sense `docs/memory/instrument-bugs-outnumber-decoder-bugs.md` sets out — an input for which correct
+and broken predict the same observation. Ice cannot be warm, so the two overrides now sit on either
+side of the ordering and the manipulation is the only thing that decides it.
+
+### B326 OPEN: VMT DirectX-level sub-blocks are not applied, so `$envmap` inside one is lost
+
+**Found while asserting B325's gold material, and it is not confined to gold.** A VMT may put
+parameters inside a block named for a DirectX support level:
+
+```
+">=DX90"
+{
+    "$envmap" "cubemaps/cubemap_gold001"
+}
+"<DX90"
+{
+    "$envmap" "cubemaps/cubemap_gold001"
+}
+```
+
+`VmtMaterial` reads top-level keys and does not descend into these, so `gold_player.vmt` arrives
+with **`$envmaptint [1.5 1.2 .2]` and no `$envmap`** — the tint of a reflection it has no cubemap
+for. Measured: `assets.Cubemaps[gold]` is null on a full load from the shipped VPK, while
+`assets.Phong[gold]` and every other top-level key resolve.
+
+**What is NOT established.** How many shipped VMTs use these blocks, and which other parameters get
+lost with them. Nor which of the several block spellings TF2's materials actually use — `>=DX90`,
+`<DX90`, `>=DX80`, `>=DX70` and the `if($...)` forms all exist in Valve's data.
+
+**What the rule should be, and it is simple for this renderer.** The blocks merge conditionally on
+the material system's DX support level. This project draws through D3D11, so every `>=DX*` block is
+satisfied and every `<DX*` block is not. The material system that implements this is closed — the
+SDK ships `shaderapidx9` and `stdshaders` but not the VMT loader — so the semantics come from the
+shipped data and the convention rather than from a quoted function, and that should be recorded as
+an interpolation when it is implemented.
+
+**Visible when wrong:** a golden corpse that is brown rather than metallic, and any other material
+whose reflection is declared behind a DX gate.

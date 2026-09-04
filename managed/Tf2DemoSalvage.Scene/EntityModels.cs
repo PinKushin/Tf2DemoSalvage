@@ -40,6 +40,12 @@ public readonly record struct FiredAnimationEvent(
 /// <param name="SkinSwap">Which material replaces which for its team, or null.</param>
 /// <param name="BodyParts">The model's body parts, for reading its body number.</param>
 /// <param name="Body">Which alternative each body part shows, as m_nBody packs it.</param>
+/// <param name="MaterialOverride">
+/// One VMT path replacing EVERY material the model has, or null for the ordinary case (B325) —
+/// the engine's <c>ForcedMaterialOverride</c>, which is how a gold or iced corpse is drawn. Not a
+/// <paramref name="SkinSwap"/>: a skin picks another entry from the model's own table, and this
+/// ignores the table.
+/// </param>
 /// <param name="Mirrored">
 /// Whether this is a viewmodel, drawn mirrored — which reverses its winding, so the cull has to
 /// flip with it or the weapon draws inside out.
@@ -91,6 +97,11 @@ public readonly record struct ModelInstance(
     IReadOnlyDictionary<int, int>? SkinSwap = null,
     IReadOnlyList<(int Base, int Count)>? BodyParts = null,
     int Body = 0,
+
+    // **One material replacing every one the model has, by VMT path** (B325) — the engine's
+    // `ForcedMaterialOverride`, which a gold or iced corpse draws with. Null for everything else.
+    // Not a `SkinSwap`: that picks another entry from the model's OWN table, and this ignores it.
+    string? MaterialOverride = null,
     bool Mirrored = false,
 
     // **Where the model stands, which its Matrix does not always say** (B170). A baked model is put
@@ -3124,6 +3135,30 @@ public sealed class EntityModelSet
         {
             SceneProp prop = drawn[index];
 
+            // **A corpse's death animation, resolved here because this is where a prop's sequence is
+            // decided** (B323). It comes BEFORE the speed guard rather than after: a corpse carries
+            // no speed — it is not a player and never reaches the activity state machine — so a
+            // corpse placed below that `continue` would be skipped and the branch would be another
+            // no-op with a green suite.
+            //
+            // `ResetSequence( iDeathSeq )` is what the engine does with the answer
+            // (`c_tf_player.cpp:851`); the label comes from `LookupSequence`, so it is matched by
+            // label and never by activity.
+            if (prop.DeathSequence is { Length: > 0 } wanted)
+            {
+                int death = _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? bodies) &&
+                    bodies.Skinned is { } corpse
+                    ? corpse.SequenceByLabel(wanted)
+                    : -1;
+
+                if (death >= 0)
+                {
+                    drawn[index] = prop with { Pose = prop.Pose with { Sequence = death } };
+                }
+
+                continue;
+            }
+
             if (prop.Pose.Speed is not { } speed)
             {
                 continue;
@@ -4185,6 +4220,12 @@ public sealed class EntityModelSet
                 SkinSwap(prop.ModelPath, skin),
                 parts?.BodyParts,
                 prop.Pose.Body,
+
+                // **`ForcedMaterialOverride` — gold or ice, and nothing else sets it** (B325).
+                // `C_TFRagdoll::InternalDrawModel` forces it around the base call
+                // (`c_tf_player.cpp:1281-1290`), and each wearable applies its own copy through
+                // `GetEconWeaponMaterialOverride` (`econ_entity.cpp:1793`).
+                MaterialOverride: prop.MaterialOverride,
                 Mirrored: false,
                 Origin: origin,
 
@@ -4224,6 +4265,19 @@ public sealed class EntityModelSet
             // Everything else is copied for the same reason the engine copies it: same light, same
             // blend, same render mode, same skin. A pilot light on a cloaked spy's flamethrower
             // fades with the flamethrower.
+            //
+            // **The one thing NOT copied is the material override, and that is the engine's rule
+            // rather than an omission** (B325). An econ entity that applies its own override sets a
+            // flag with it —
+            //
+            //     modelrender->ForcedMaterialOverride( pOverrideMaterial );
+            //     flags |= STUDIO_NO_OVERRIDE_FOR_ATTACH; // Don't apply override materials to attachments.
+            //
+            // `c_baseanimating.cpp:3438-3439` — and `DrawEconEntityAttachedModels` reads it back,
+            // clearing the override for the duration of the loop and restoring it afterwards
+            // (`econ_entity.cpp:110-117`, `146-147`). So a hat on a golden corpse turns gold and the
+            // extra mesh bolted to that hat does not. Read-from-source. Both sites that raise the
+            // flag are econ overrides, which is exactly what a corpse's wearables carry.
             if (Attachments is not { } attachmentsFor)
             {
                 continue;

@@ -7352,3 +7352,85 @@ does, and the hedge invited the check. **`m_bGib` is networked**: `RecvPropBool(
 The `RandomFloat` sets `iDeathSeq = -1` (`:831`), which clears `bPlayDeathAnim` (`:836`) — so the
 split is **death animation against plain ragdoll physics**, with gibs a separate networked boolean we
 can simply read.
+
+## D137 — a measurement decides what to do first, never whether parity is owed
+
+**The owner, 2026-09-04, on finding five divergences filed as OPEN in one session:** *"OMG did you
+take more shortcuts instead of just getting 100% valve parity? seems like it"*, and — after the reply
+explained rather than fixed — *"seriously if you are not going to do it all, at least give it to a
+subagent to do jesus fucking christ I have told you 100% valve partiy every time"*.
+
+**What I did wrong.** Having measured the corpse death animation at about one in a hundred, `m_nBody`
+at 0 of 1,023, and two wearable skips as "needing the item schema", I wrote each one up as an OPEN
+risk entry with a citation and a number, and moved on. That reads as diligence and is the work not
+being done. One of the three — the item schema — turned out to be a single accessor away on a class
+the same layer already held.
+
+**The rule this sets, in the owner's terms:** a rarity measurement decides PRIORITY. It does not
+decide whether the divergence gets fixed. The standing decision already said so — *"A divergence is a
+defect, whatever it costs to fix"* — and a well-written deferral is the most persuasive way to
+violate it, precisely because it looks like the careful option.
+
+**And the second half is a working instruction, not a rebuke:** when the work is too large to do
+inline, DELEGATE it. Split by file ownership so concurrent edits cannot collide, name the off-limits
+files in the prompt, and keep working on something else meanwhile.
+
+**Kept because the measurements were still right to take.** They are what found that two of the three
+taunt-kill exclusions in `CreateTFRagdoll` are unreachable, and that no item in TF2 can resolve to
+`LOADOUT_POSITION_HEAD` because the schema rewrites the string first. Neither would have surfaced
+from reading alone. The error was using them as an exit rather than an ordering.
+
+## D138 — a material override is a MATERIAL, and a floor is a measurement
+
+Two corrections from the same piece of work (B325), kept together because they are the same mistake
+in different places: a number or an object treated as a stand-in for the thing it summarises.
+
+### An override replaces the material, not the texture
+
+The first implementation of the corpse's gold and ice kept one decoded texture per VMT path and
+swapped shader resource slot 0 at the bind. It drew something. It was wrong, and — this is the part
+worth keeping — **every test written against it would have passed**: the path travelled, the pixel
+changed, the two swatches differed.
+
+What it actually produced was a flat 32×32 swatch wearing the *player* material's cubemap, phong,
+detail, blend state and depth state. Neither VMT is meaningfully its base map: gold is
+`$envmap cubemaps/cubemap_gold001` with `$envmaptint [1.5 1.2 .2]` and a rim term; ice is a bump, a
+phong warp and a light warp at `$phongexponent 200`. The base maps are flat colour.
+
+**The fix was smaller than the thing it replaced**, which is the usual sign: append both VMTs to the
+material table the map's own and every model's materials already share, and substitute the resolved
+material INDEX at the draw. Everything downstream follows for free, and the renderer needs no second
+bind path at all.
+
+**The generalisation:** when the engine says it replaces X, find out what X is made of before
+deciding which part to copy. `ForcedMaterialOverride` takes an `IMaterial*`, not an `ITexture*`, and
+that is the whole answer.
+
+### A gate floor is read from the `.trx`, and the console's total is a different number
+
+**This entry was first written as a finding and the finding was wrong**, which is why it is kept:
+the wrong version is more instructive than the right one.
+
+What it said: `build/gate.sh`'s rendering floor claimed **726** and the assembly had never held more
+than **718** — measured at HEAD, and measured again in a clean worktree at `635dea33`, the very
+commit that raised the floor to 726. Two independent measurements, agreeing, on a clean checkout.
+The conclusion drawn was that the last two raises had been arithmetic rather than readings, and the
+rendering leg had been unpassable ever since.
+
+What was actually true: **`dotnet test`'s console summary and the `.trx` counters count different
+things.** For this project the console says `Total: 725` (672 passed + 53 skipped) and the trx says
+`total="733"` (672 executed + 61 not-executed). The eight `[Explicit]` tests are in one total and
+not the other. `assert-test-count.sh` greps `total="…"` out of the trx — deliberately, and its own
+comment says why — so 726 was correct all along and every measurement taken to disprove it was
+taken with the wrong instrument.
+
+**Two rules, and the second is the one that was missing:**
+
+- **Read the floor off the `.trx`, the way the gate does.** Never `previous + however many tests I
+  just wrote`; that cannot detect a loss, which is the floor's entire purpose.
+- **A number that disagrees with a written-down one is a dispute between two INSTRUMENTS before it
+  is a fact about the subject.** Two agreeing measurements are not a control when both come from
+  the same instrument — running the same wrong command in a clean worktree reproduces the reading
+  and proves nothing about it. The control here was one line: ask the trx, which is what the
+  disputed number came from. `docs/memory/an-empty-search-needs-a-control.md` says this about
+  absence; it is just as true of a disagreement.

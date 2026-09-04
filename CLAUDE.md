@@ -268,7 +268,7 @@ dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -- <name> [args]
 dotnet run --project tools/Tf2DemoSalvage.Probe -c Release --                # lists them
 ```
 
-Twenty-nine of them. The ones worth knowing before writing a thirtieth:
+Thirty of them. The ones worth knowing before writing a thirty-first:
 
 | probe | answers |
 |---|---|
@@ -281,6 +281,7 @@ Twenty-nine of them. The ones worth knowing before writing a thirtieth:
 | `parity [filter]` | engine functions we cite, ranked by Valve's branch count |
 | `bone-flags <demo>` | which per-bone flags and procedural rules real models set, with denominators |
 | `procedural-bones` | the same question over every `.mdl` the GAME ships, not one demo's models |
+| `ragdoll-constraints` | what a `.phy` holds — masses, joint limits and bone names are TEXT; only the hulls are Havok |
 | `corpses <demo>` | what each `CTFRagdoll` says about itself, and how many are drawn at a tick |
 | `autoplay <demo>` | which models animate themselves off the clock — `STUDIO_AUTOPLAY` |
 
