@@ -37,6 +37,9 @@ public sealed class StudioBlendGrid
 {
     private readonly int[] _animations;
 
+    /// <summary>The sequence's explicit blend keys, or empty for an evenly spaced grid.</summary>
+    private readonly float[] _poseKeys;
+
     /// <summary>Builds a grid from a sequence description.</summary>
     /// <param name="groupX">
     /// <c>groupsize[0]</c>.
@@ -63,6 +66,11 @@ public sealed class StudioBlendGrid
     /// <param name="endY">
     /// <c>paramend[1]</c>.
     /// </param>
+    /// <param name="poseKeys">
+    /// <c>posekeyindex</c>'s float array when the sequence declares one, laid out as
+    /// <c>iParam * groupsize[0] + iAnim</c> exactly as <c>mstudioseqdesc_t::pPoseKey</c> indexes it;
+    /// null or empty for the ordinary evenly spaced grid.
+    /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="animations"/> is null.</exception>
     public StudioBlendGrid(
         int groupX,
@@ -73,9 +81,12 @@ public sealed class StudioBlendGrid
         float startX,
         float endX,
         float startY,
-        float endY)
+        float endY,
+        IReadOnlyList<float>? poseKeys = null)
     {
         ArgumentNullException.ThrowIfNull(animations);
+
+        _poseKeys = poseKeys is { Count: > 0 } keys ? [.. keys] : [];
 
         GroupX = Math.Max(1, groupX);
         GroupY = Math.Max(1, groupY);
@@ -88,6 +99,15 @@ public sealed class StudioBlendGrid
 
         _animations = [.. animations];
     }
+
+    /// <summary>Whether this grid is spaced by explicit keys rather than evenly.</summary>
+    /// <remarks>
+    /// **For measuring that the READER delivered them**, which a unit test of <c>Locate</c> cannot
+    /// see: it constructs its own grid, so it proves the arithmetic and says nothing about whether
+    /// `StudioSequences.Read` ever fills this in. B310's branch is exactly the shape that ships
+    /// unfed.
+    /// </remarks>
+    public bool HasPoseKeys => _poseKeys.Length > 0;
 
     /// <summary>How many animations wide the grid is.</summary>
     public int GroupX { get; }
@@ -251,6 +271,18 @@ public sealed class StudioBlendGrid
 
         float span = pose.End - pose.Start;
 
+        // **The key-search half of `Studio_LocalPoseParameter`** (B310), which this took the even
+        // branch for on the strength of an assumption that TF2 does not use it. Measured: **886 of
+        // 26,387 sequences** declare `posekeyindex`, on models a match draws.
+        //
+        // **The keys are in the PARAMETER's own units, so the value is denormalised first.** The
+        // even branch above works entirely in zero-to-one; comparing a normalised value against
+        // keys authored in real units would put every lookup in the first cell.
+        if (_poseKeys.Length > 0)
+        {
+            return Search(axis, group, (value * span) + pose.Start);
+        }
+
         // **Guarded where Valve divides outright.** A parameter whose range is empty, or a
         // sequence covering none of it, is degenerate rather than impossible - and the quotient is
         // an infinity that reaches the grid index as a huge number and then clamps to a real cell,
@@ -284,6 +316,71 @@ public sealed class StudioBlendGrid
         }
 
         return (index, setting);
+    }
+
+    /// <summary>Walks the explicit pose keys for the gap a value falls in.</summary>
+    /// <param name="axis">Which axis, 0 or 1.</param>
+    /// <param name="group">That axis's <c>groupsize</c>.</param>
+    /// <param name="value">The value in the parameter's own units, already denormalised.</param>
+    /// <returns>The lower cell and how far through its gap the value sits.</returns>
+    /// <remarks>
+    /// **Valve left two notes-to-self on this loop and both are still true of the shipped engine**:
+    /// *"this needs to be 2D"* and *"this shouldn't be a linear search"*. They describe the
+    /// behaviour rather than an intention — the second axis indexes with <c>groupsize[0]</c> rather
+    /// than with its own, which is the first of those made concrete.
+    ///
+    /// <code>
+    ///   float *pPoseKey( int iParam, int iAnim ) const
+    ///   { return (float *)(((byte *)this) + posekeyindex) + iParam * groupsize[0] + iAnim; }
+    /// </code>
+    ///
+    /// **The stop is <c>index &lt; groupsize - 2</c>**, so the walk halts on the last gap rather
+    /// than indexing a key past the end — the same guarantee the even branch's step-back gives, by
+    /// a different route, and the reason the caller can always read <c>index + 1</c>.
+    ///
+    /// **Guarded where Valve divides outright.** Two keys with the same value make the quotient an
+    /// infinity, which clamps to a real cell and poses from the wrong animation rather than
+    /// failing; a run of equal keys is degenerate authoring rather than impossible.
+    /// </remarks>
+    private (int Index, float Setting) Search(int axis, int group, float value)
+    {
+        int index = 0;
+        float setting = 0f;
+
+        while (true)
+        {
+            float low = PoseKey(axis, index);
+            float high = PoseKey(axis, index + 1);
+            float gap = high - low;
+
+            setting = MathF.Abs(gap) < float.Epsilon ? 0f : (value - low) / gap;
+
+            if (index < group - 2 && setting > 1f)
+            {
+                index++;
+                continue;
+            }
+
+            break;
+        }
+
+        return (index, Math.Clamp(setting, 0f, 1f));
+    }
+
+    /// <summary>One pose key, indexed as <c>pPoseKey</c> indexes it.</summary>
+    /// <param name="axis">Which axis.</param>
+    /// <param name="at">Which key along it.</param>
+    /// <returns>The key, or zero when the array is shorter than the grid claims.</returns>
+    /// <remarks>
+    /// **<c>iParam * groupsize[0] + iAnim</c>, with <c>groupsize[0]</c> for BOTH axes** — that is
+    /// what the engine writes, note-to-self and all. Using <c>GroupY</c> for the second axis would
+    /// read a different key and look more correct.
+    /// </remarks>
+    private float PoseKey(int axis, int at)
+    {
+        int index = (axis * GroupX) + at;
+
+        return index >= 0 && index < _poseKeys.Length ? _poseKeys[index] : 0f;
     }
 
     /// <summary>The three animations a point in the grid blends, and their weights.</summary>

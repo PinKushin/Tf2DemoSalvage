@@ -188,6 +188,15 @@ public sealed class StudioStructTests
         sequence.Offset("paramstart").ShouldBe(StudioLayout.SequenceParameterStartOffset);
         sequence.Offset("paramend").ShouldBe(StudioLayout.SequenceParameterEndOffset);
 
+        // **Three fields read to MEASURE rather than to implement** (B310). `posekeyindex` decides
+        // which half of `Studio_LocalPoseParameter` runs, and `numiklocks`/`iklockindex` are what
+        // `AccumulatePose` brackets its body with. All three sit past `weightlistindex`, in the
+        // stretch of the structure nothing here had ever read, so their offsets came from the
+        // struct probe rather than from counting.
+        sequence.Offset("posekeyindex").ShouldBe(StudioLayout.SequencePoseKeyIndexOffset);
+        sequence.Offset("numiklocks").ShouldBe(StudioLayout.SequenceIkLockCountOffset);
+        sequence.Offset("iklockindex").ShouldBe(StudioLayout.SequenceIkLockIndexOffset);
+
         // **Added late, and it was the only offset in this structure that nothing checked.**
         // B112's gesture work needed the per-bone weight list, and its offset was derived by
         // counting forward from the verified members either side of it rather than read off a

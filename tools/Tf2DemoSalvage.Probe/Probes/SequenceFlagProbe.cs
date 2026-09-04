@@ -100,7 +100,15 @@ public sealed class SequenceFlagProbe : IProbe
         int zeroCorners = 0;
         int ordinaryZeroCorners = 0;
         int localZeroSequences = 0;
+        int poseKeyed = 0;
+        int poseKeyedGrids = 0;
+        int locked = 0;
+        int lockedChains = 0;
+        int playerLocked = 0;
+        List<string> playerLockExamples = [];
         List<string> ordinaryExamples = [];
+        List<string> poseKeyExamples = [];
+        List<string> lockExamples = [];
 
         foreach (string path in archive.Paths
             .Where(entry => entry.EndsWith(".mdl", StringComparison.OrdinalIgnoreCase))
@@ -116,9 +124,68 @@ public sealed class SequenceFlagProbe : IProbe
 
             ReadOnlyMemory<byte> model = bytes;
 
+            int local = -1;
+
             foreach (StudioSequence sequence in StudioSequences.Read(model))
             {
                 sequences++;
+                local++;
+
+                // **Two behaviours recorded as unimplemented on an ASSUMPTION about content**
+                // (B310): that TF2's blend grids are evenly spaced, so `Studio_LocalPoseParameter`
+                // never takes its key-search branch, and that its sequences never lock IK chains,
+                // so `AccumulatePose`'s `AddSequenceLocks`/`SolveSequenceLocks` bracket is inert.
+                // Neither had been measured.
+                (int poseKeys, int ikLocks) = StudioSequences.Unimplemented(model, local);
+
+                if (poseKeys != 0)
+                {
+                    poseKeyed++;
+
+                    // **The output-level check, not a second reading of the field** (B310). The
+                    // count above says the sequence DECLARES keys; this says the grid the reader
+                    // built actually carries them, which is the wiring a unit test of `Locate`
+                    // cannot see. A branch written and never fed is the fault this audit keeps
+                    // finding, twice in its own work today.
+                    if (sequence.Blend is { } grid && grid.HasPoseKeys)
+                    {
+                        poseKeyedGrids++;
+                    }
+
+                    if (poseKeyExamples.Count < 3)
+                    {
+                        poseKeyExamples.Add($"{Path.GetFileName(path)}:{sequence.Label}");
+                    }
+                }
+
+                if (ikLocks > 0)
+                {
+                    locked++;
+                    lockedChains += ikLocks;
+
+                    // **Whether a normal match ever draws one.** The census walks the ARCHIVE, so
+                    // it counts what ships rather than what a demo loads — and the first examples
+                    // were Halloween boss models, which no ordinary game contains. A count that
+                    // cannot separate those from a player model would rank this by shipped volume
+                    // instead of by what is on screen, which is the axis `docs/PARITY-AUDIT.md`
+                    // was once wrongly ranked by.
+                    if (path.Contains("/player/", StringComparison.OrdinalIgnoreCase))
+                    {
+                        playerLocked++;
+
+                        if (playerLockExamples.Count < 4)
+                        {
+                            playerLockExamples.Add(
+                                $"{Path.GetFileName(path)}:{sequence.Label} x{ikLocks}");
+                        }
+                    }
+
+                    if (lockExamples.Count < 3)
+                    {
+                        lockExamples.Add(
+                            $"{Path.GetFileName(path)}:{sequence.Label} x{ikLocks}");
+                    }
+                }
 
                 Count(sequenceFlags, sequenceCounts, sequence.Flags, examples, path, sequence.Label);
 
@@ -222,6 +289,22 @@ public sealed class SequenceFlagProbe : IProbe
         output.WriteLine(
             $"STUDIO_LOCAL sequences with an all-zeros corner: {localZeroSequences} " +
             "(the only case where CalcPoseSingle returning false loses real work)");
+
+        output.WriteLine(
+            $"posekeyindex != 0 (uneven blend grid): {poseKeyed} of {sequences}, " +
+            $"of which {poseKeyedGrids} reached Locate with their keys" +
+            (poseKeyExamples.Count > 0 ? $"  {string.Join(", ", poseKeyExamples)}" : string.Empty));
+
+        output.WriteLine(
+            $"numiklocks > 0 (AddSequenceLocks/SolveSequenceLocks, not implemented): " +
+            $"{locked} of {sequences} sequences, {lockedChains} chains" +
+            (lockExamples.Count > 0 ? $"  {string.Join(", ", lockExamples)}" : string.Empty));
+
+        output.WriteLine(
+            $"  of those, {playerLocked} are under models/player/ — what an ordinary match draws" +
+            (playerLockExamples.Count > 0
+                ? $": {string.Join(", ", playerLockExamples)}"
+                : ", so none"));
     }
 
     /// <summary>`STUDIO_ALLZEROS` (<c>studio.h:3083</c>) — the animation carries no real data.</summary>

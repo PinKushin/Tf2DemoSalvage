@@ -41,6 +41,79 @@ public sealed class StudioBlendGridTests
         StudioBlendGrid.Normalize(Parameters()[1], moveY),
     ];
 
+    /// <remarks>
+    /// **`Studio_LocalPoseParameter`'s OTHER half**, and it was recorded here as unimplemented on
+    /// the strength of an assumption — *"TF2's movement blends do not use it"* — that had never
+    /// been measured. It is used by **886 of 26,387 sequences** across all 14,109 models in
+    /// `tf2_misc_dir.vpk` (B310), on models a match draws: `c_uberneedle`, `c_flameball`.
+    ///
+    /// <code>
+    ///   flValue = flValue * (Pose.end - Pose.start) + Pose.start;
+    ///   index = 0;
+    ///   while (1)
+    ///   {
+    ///       flSetting = (flValue - seqdesc.poseKey( iLocalIndex, index )) /
+    ///                   (seqdesc.poseKey( iLocalIndex, index + 1 ) - seqdesc.poseKey( iLocalIndex, index ));
+    ///       if (index &lt; seqdesc.groupsize[iLocalIndex] - 2 &amp;&amp; flSetting &gt; 1.0) { index++; continue; }
+    ///       break;
+    ///   }
+    /// </code>
+    ///
+    /// **The keys are in the PARAMETER's own units, so the value is denormalised first** — the even
+    /// branch works entirely in zero-to-one and this one does not. Using the normalised value
+    /// against keys authored in degrees would put every lookup in the first cell.
+    ///
+    /// **The distinguishing input is a grid whose keys are uneven.** Keys at −1, 0.5, 1 over a
+    /// −1..1 parameter: at move_x = 0.75 the even branch gives index 1 and setting 0.75, the key
+    /// search gives index 1 and setting 0.5, because 0.75 is halfway from 0.5 to 1 rather than
+    /// three quarters of the way from 0 to 1.
+    /// </remarks>
+    [Test]
+    public void Locate_WithExplicitPoseKeys_SearchesThemInsteadOfDividing()
+    {
+        StudioBlendGrid grid = Keyed([-1f, 0.5f, 1f]);
+
+        (int index, float setting) = grid.Locate(0, Parameters(), Stored(0.75f, 0f), Identity);
+
+        index.ShouldBe(1, "0.75 sits in the gap between the second key and the third");
+        setting.ShouldBe(0.5f, 1e-5f, "(0.75 - 0.5) / (1 - 0.5), not the even branch's 0.75");
+    }
+
+    /// <remarks>
+    /// **The control: the same grid WITHOUT keys must still divide.** A `Locate` that searched
+    /// unconditionally, or that denormalised in both branches, fails here while passing the test
+    /// above — and every other test in this file uses the even branch, so this is what keeps the
+    /// key search from silently becoming the only path.
+    /// </remarks>
+    [Test]
+    public void Locate_WithNoPoseKeys_StillDividesEvenly()
+    {
+        (int index, float setting) = Movement().Locate(0, Parameters(), Stored(0.75f, 0f), Identity);
+
+        index.ShouldBe(1);
+        setting.ShouldBe(0.75f, 1e-5f, "an even 3-wide grid puts 0.75 three quarters along the top gap");
+    }
+
+    /// <remarks>
+    /// **The walk stops at <c>groupsize - 2</c> rather than running off the end**, which is what
+    /// lets the caller always read <c>index + 1</c>. Above the last key the setting clamps to one
+    /// on the final gap instead of indexing a fourth key that does not exist.
+    /// </remarks>
+    [Test]
+    public void Locate_WithAValueAboveEveryPoseKey_StopsOnTheLastGap()
+    {
+        StudioBlendGrid grid = Keyed([-1f, -0.5f, 0f]);
+
+        (int index, float setting) = grid.Locate(0, Parameters(), Stored(1f, 0f), Identity);
+
+        index.ShouldBe(1, "groupsize - 2, so index + 1 is still a real key");
+        setting.ShouldBe(1f, 1e-5f, "clamped, rather than extrapolated past the last key");
+    }
+
+    /// <summary>A three-wide grid whose first axis has explicit, unevenly spaced keys.</summary>
+    private static StudioBlendGrid Keyed(float[] keys) =>
+        new(3, 3, [0, 1, 2, 3, 4, 5, 6, 7, 8], 0, 1, -1f, 1f, -1f, 1f, keys);
+
     [Test]
     public void RunningStraightForward_LandsAtTheTopOfTheFirstAxis()
     {

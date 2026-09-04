@@ -20586,3 +20586,66 @@ B284's trap, walked into while writing a comment citing B284.
   same function for every `x >= 0`, and every value this branch sees is demo seconds times a positive
   rate. Written the engine's way regardless; the equivalence is recorded rather than chased, since a
   test forcing a negative product would assert against an input the program cannot produce.
+
+### B310 measured 2026-09-04: two behaviours filed as unused, and BOTH are used
+
+Two engine branches were recorded here as unimplemented on the strength of an assumption about
+Valve's content, neither of which had been measured. `StudioBlendGrid`'s own comment stated one
+outright: *"TF2's movement blends do not use it, so this takes the even branch."*
+
+```
+posekeyindex != 0    886 of 26,387 sequences     c_uberneedle, c_flameball
+numiklocks   > 0   1,333 of 26,387, 2,666 chains  skeleton_sniper_boss_animations
+```
+
+Over all 14,109 models in `tf2_misc_dir.vpk`. **Both assumptions were false.**
+
+#### `posekeyindex` — FIXED
+
+`Studio_LocalPoseParameter` has two halves. The even one divides the parameter's range by the grid
+size; the other searches an explicit key list, because the animator spaced the columns by hand:
+
+```cpp
+flValue = flValue * (Pose.end - Pose.start) + Pose.start;
+index = 0;
+while (1)
+{
+    flSetting = (flValue - seqdesc.poseKey( iLocalIndex, index )) /
+                (seqdesc.poseKey( iLocalIndex, index + 1 ) - seqdesc.poseKey( iLocalIndex, index ));
+    if (index < seqdesc.groupsize[iLocalIndex] - 2 && flSetting > 1.0) { index++; continue; }
+    break;
+}
+```
+
+**The keys are in the parameter's OWN units and the value is denormalised first.** The even branch
+works entirely in zero-to-one; comparing a normalised value against keys authored in real units puts
+every lookup in the first cell. That is the part most likely to be got wrong, because the two halves
+of one function disagree about what space their input is in.
+
+**`pPoseKey` indexes `iParam * groupsize[0] + iAnim` — `groupsize[0]` for BOTH axes.** Valve left a
+note-to-self saying this needs to be 2D and it still is not, so that is the behaviour rather than an
+intention. Using `groupsize[1]` for the second axis would read a different key and look more correct.
+
+**Symptom when wrong: a blend at the wrong proportions**, not a break. The grid still resolves to
+real animations; they are just mixed as though the columns were evenly spaced when they are not.
+
+**Verified at the OUTPUT, not just in the unit test.** A `Locate` test builds its own grid, so it
+proves the arithmetic and says nothing about whether the reader ever fills the keys in — the exact
+shape that ships unfed, twice in this session's own work. The probe now reports **886 of 886 grids
+reached `Locate` carrying their keys.**
+
+#### `numiklocks` — measured, NOT implemented
+
+`AccumulatePose` brackets its whole body with these (`bone_setup.cpp:2425`, `:2451`):
+`AddSequenceLocks` captures each locked chain's end effector in world space before the sequence is
+applied, and `SolveSequenceLocks` puts it back afterwards — so a hand stays where it was while the
+body moves under it.
+
+**1,333 sequences and 2,666 chains, two per sequence.** Not implemented in this pass, and that is
+recorded as an open gap rather than dressed up: it needs `mstudioiklock_t`, `BuildBoneChain` and
+`SolveLock`, which is a mechanism rather than a branch. The examples are boss animation models, so
+the visible cost is bounded — but `MELEE_aimmatrix_run` is an ordinary melee sequence name and the
+census does not say the flag is confined to bosses.
+
+**What is NOT established:** how many of those 1,333 are on models a normal match loads. The census
+walks the archive, not a demo, so it counts what SHIPS rather than what is drawn.

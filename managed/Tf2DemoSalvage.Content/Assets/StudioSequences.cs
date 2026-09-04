@@ -240,7 +240,7 @@ public static class StudioSequences
                 flags,
                 StudioStrings.At(
                     bytes, start + BinaryPrimitives.ReadInt32LittleEndian(sequence[SequenceLabelOffset..])),
-                GridOf(bytes, sequence, table, groupX, groupY),
+                GridOf(bytes, sequence, start, table, groupX, groupY),
 
                 // **The activity's NAME, because the number beside it is not in the file.**
                 // studio.h annotates mstudioseqdesc_t.activity "initialized at loadtime to game DLL
@@ -281,6 +281,7 @@ public static class StudioSequences
     private static StudioBlendGrid? GridOf(
         ReadOnlySpan<byte> bytes,
         ReadOnlySpan<byte> sequence,
+        int start,
         int table,
         int groupX,
         int groupY)
@@ -313,7 +314,53 @@ public static class StudioSequences
             BinaryPrimitives.ReadSingleLittleEndian(sequence[SequenceParameterStartOffset..]),
             BinaryPrimitives.ReadSingleLittleEndian(sequence[SequenceParameterEndOffset..]),
             BinaryPrimitives.ReadSingleLittleEndian(sequence[(SequenceParameterStartOffset + 4)..]),
-            BinaryPrimitives.ReadSingleLittleEndian(sequence[(SequenceParameterEndOffset + 4)..]));
+            BinaryPrimitives.ReadSingleLittleEndian(sequence[(SequenceParameterEndOffset + 4)..]),
+            PoseKeysOf(bytes, sequence, start, groupX, groupY));
+    }
+
+    /// <summary>A sequence's explicit blend keys, when it declares any.</summary>
+    /// <param name="bytes">The whole file.</param>
+    /// <param name="sequence">The sequence description.</param>
+    /// <param name="start">Where that description begins in the file.</param>
+    /// <param name="groupX">Its <c>groupsize[0]</c>.</param>
+    /// <param name="groupY">Its <c>groupsize[1]</c>.</param>
+    /// <returns>The keys, or empty when <c>posekeyindex</c> is zero or the array is out of range.</returns>
+    /// <remarks>
+    /// **Zero means "evenly spaced", not "at the start of the file"** — the same convention
+    /// <c>procindex</c> uses on a bone, and the reason this returns empty rather than reading
+    /// offset zero. `Studio_LocalPoseParameter` tests `seqdesc.posekeyindex == 0` for exactly this.
+    ///
+    /// **<c>groupX + groupY</c> floats, because that is what <c>pPoseKey</c> can reach**: it
+    /// indexes <c>iParam * groupsize[0] + iAnim</c>, so the second axis begins at <c>groupsize[0]</c>
+    /// and runs for its own group size. Reading <c>groupX * 2</c> instead would come up short
+    /// whenever the grid is taller than it is wide.
+    /// </remarks>
+    private static float[] PoseKeysOf(
+        ReadOnlySpan<byte> bytes, ReadOnlySpan<byte> sequence, int start, int groupX, int groupY)
+    {
+        int index = BinaryPrimitives.ReadInt32LittleEndian(sequence[SequencePoseKeyIndexOffset..]);
+
+        if (index == 0)
+        {
+            return [];
+        }
+
+        int at = start + index;
+        int count = groupX + groupY;
+
+        if (at < 0 || (long)at + ((long)count * 4) > bytes.Length)
+        {
+            return [];
+        }
+
+        float[] keys = new float[count];
+
+        for (int key = 0; key < count; key++)
+        {
+            keys[key] = BinaryPrimitives.ReadSingleLittleEndian(bytes[(at + (key * 4))..]);
+        }
+
+        return keys;
     }
 
     /// <summary>Every pose parameter a model declares, in the order its sequences index them.</summary>
@@ -535,6 +582,50 @@ public static class StudioSequences
         float wrapped = cycle - (int)cycle;
 
         return wrapped < 0f ? wrapped + 1f : wrapped;
+    }
+
+    /// <summary>Two fields of a sequence that nothing here implements yet, for measuring.</summary>
+    /// <param name="file">The <c>.mdl</c>'s bytes.</param>
+    /// <param name="sequence">Which local sequence.</param>
+    /// <returns>
+    /// <c>posekeyindex</c>, which is 0 for an evenly spaced blend grid, and <c>numiklocks</c>.
+    /// Both zero when the index names nothing.
+    /// </returns>
+    /// <remarks>
+    /// **An instrument, not a feature, and it says so** (B310). Two engine behaviours were recorded
+    /// here as unimplemented on the strength of an assumption about TF2's CONTENT — that its blend
+    /// grids are evenly spaced, so `Studio_LocalPoseParameter` never takes its key-search branch,
+    /// and that its sequences never lock IK chains, so `AccumulatePose`'s
+    /// `AddSequenceLocks`/`SolveSequenceLocks` bracket is inert. Neither had been measured.
+    ///
+    /// **Shaped like <see cref="StudioAnimation.Flags"/>** — a raw field reader beside the record
+    /// reader, for the same reason: the record carries what is USED, and this carries what is being
+    /// asked about before anything uses it.
+    /// </remarks>
+    public static (int PoseKeyIndex, int IkLockCount) Unimplemented(
+        ReadOnlyMemory<byte> file, int sequence)
+    {
+        ReadOnlySpan<byte> bytes = file.Span;
+
+        if (bytes.Length < HeaderSequenceIndexOffset + 4 || sequence < 0)
+        {
+            return (0, 0);
+        }
+
+        int count = BinaryPrimitives.ReadInt32LittleEndian(bytes[HeaderSequenceCountOffset..]);
+        int at = BinaryPrimitives.ReadInt32LittleEndian(bytes[HeaderSequenceIndexOffset..]);
+
+        if (sequence >= count || at < 0 ||
+            (long)at + ((long)(sequence + 1) * SequenceStride) > bytes.Length)
+        {
+            return (0, 0);
+        }
+
+        ReadOnlySpan<byte> entry = bytes.Slice(at + (sequence * SequenceStride), SequenceStride);
+
+        return (
+            BinaryPrimitives.ReadInt32LittleEndian(entry[SequencePoseKeyIndexOffset..]),
+            BinaryPrimitives.ReadInt32LittleEndian(entry[SequenceIkLockCountOffset..]));
     }
 
     /// <summary>Valve's ceiling for a one-shot sequence that has finished.</summary>

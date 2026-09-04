@@ -46,6 +46,11 @@ public sealed class BonePipelineStructProbe
             "mstudioiklink_t",
             "mstudiojigglebone_t",
             "mstudiolocalhierarchy_t",
+
+            // The sequence itself, for the fields `Studio_LocalPoseParameter` and
+            // `CIKContext::AddSequenceLocks` read that this project does not: `posekeyindex`,
+            // `numiklocks` and `iklockindex`.
+            "mstudioseqdesc_t",
         ];
 
         foreach (string name in wanted)

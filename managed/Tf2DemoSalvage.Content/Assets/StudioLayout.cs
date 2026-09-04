@@ -450,6 +450,28 @@ internal static class StudioLayout
     /// <summary>Byte offset of <c>groupsize</c>: the grid's width and height.</summary>
     public const int SequenceGroupSizeOffset = 68;
 
+    /// <summary>Byte offset of <c>posekeyindex</c>: explicit, unevenly spaced blend grid keys.</summary>
+    /// <remarks>
+    /// **Zero means the grid is evenly spaced**, and `Studio_LocalPoseParameter` divides
+    /// (<c>bone_setup.cpp</c>); non-zero means it searches a key list instead, because the animator
+    /// spaced the columns by hand. Read here only to MEASURE whether TF2 ever does that — the
+    /// branch itself was recorded as unimplemented on the assumption that it does not, and an
+    /// assumption about content is exactly the kind this project measures (B310).
+    /// </remarks>
+    public const int SequencePoseKeyIndexOffset = 160;
+
+    /// <summary>Byte offset of <c>numiklocks</c>: how many IK chains this sequence pins.</summary>
+    /// <remarks>
+    /// **`AccumulatePose` brackets its whole body with these** (`bone_setup.cpp:2425` and `:2451`):
+    /// `AddSequenceLocks` captures each locked chain's end effector before the sequence is applied
+    /// and `SolveSequenceLocks` puts it back afterwards, so a hand stays where it was while the
+    /// body moves under it. Neither is implemented; this is read to find out whether TF2 asks.
+    /// </remarks>
+    public const int SequenceIkLockCountOffset = 164;
+
+    /// <summary>Byte offset of <c>iklockindex</c>.</summary>
+    public const int SequenceIkLockIndexOffset = 168;
+
     /// <summary>Byte offset of <c>paramindex</c>: which pose parameters drive the grid.</summary>
     public const int SequenceParameterIndexOffset = 76;
 
