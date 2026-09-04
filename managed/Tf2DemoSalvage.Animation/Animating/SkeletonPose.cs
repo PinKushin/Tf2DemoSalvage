@@ -926,11 +926,25 @@ public sealed class SkeletonPose : IBonePose
     /// **Returns before doing anything when the model carries no jiggle bone at all**, which is
     /// almost every model: 22 of 379 bones on a real map, and most of those on two cosmetics.
     ///
-    /// **Not reproduced: the parent's unscale.** Valve divides a parent matrix out by its own scale
-    /// before building the goal, so a big-head effect does not inflate the chain hanging off it
-    /// (<c>:1567</c>). Nothing here scales a parent bone matrix, so there is nothing to divide out;
-    /// this becomes a real gap the moment a model-scale effect is applied per bone rather than per
-    /// entity.
+    /// **Not reproduced: the parent's unscale**, and it is provably inert here rather than merely
+    /// believed to be. Valve divides a parent matrix out by its own scale before building the goal
+    /// so a big-head effect does not inflate the chain hanging off it (<c>:1567</c>), under a guard
+    /// that only fires when that matrix is actually scaled:
+    ///
+    /// <code>
+    ///   float fScale = Square( parentMX[0][0] ) + Square( parentMX[1][0] ) + Square( parentMX[2][0] );
+    ///   if ( fScale > Square( 1.0001f ) ) { … MatrixScaleBy( 1/sqrt(fScale), parentMX ); }
+    /// </code>
+    ///
+    /// **Checked: nothing in this project scales a bone matrix.** `m_flModelScale` is applied at the
+    /// ENTITY transform, alongside position and angles, so every bone matrix reaching here is
+    /// unscaled and `fScale` is one. The branch would run and do nothing.
+    ///
+    /// **What would make it reachable is `BuildBigHeadTransformations`** (`c_tf_player.cpp:8482`),
+    /// a per-BONE scale that TF2 runs on every player build from `m_flHeadScale` — a networked
+    /// field present in the send tables of every demo checked, decoded by nothing here and applied
+    /// by nothing here (B312). At its default of 1 it too is inert, which is why no measurement has
+    /// ever shown its absence.
     /// </remarks>
     private void Jiggle(int bone, double currentTime, float[] destination)
     {

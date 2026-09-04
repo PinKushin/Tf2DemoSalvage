@@ -79,9 +79,14 @@ public static class StudioMotion
     /// gets wrong: <c>position</c> is already cumulative from the start of the animation, so adding
     /// it would count every earlier block twice over.
     ///
-    /// The integral is Valve's: distance under a linear ramp from <c>v0</c> to <c>v1</c>. The
-    /// looping branch for a cycle outside zero-to-one is not implemented, because every caller here
-    /// asks for one whole cycle.
+    /// The integral is Valve's: distance under a linear ramp from <c>v0</c> to <c>v1</c>.
+    ///
+    /// **The looping branch for a cycle outside zero-to-one is not implemented, and that is
+    /// CHECKED rather than assumed.** The claim used to read "every caller here asks for one whole
+    /// cycle", which is a statement about this repository that nobody had verified — the same shape
+    /// as the assumption about TF2's blend grids that turned out false in 886 sequences (B310).
+    /// Grepped: <see cref="Position"/>'s only production caller is <see cref="GroundSpeed"/>, which
+    /// passes <c>1f</c>, and nothing else in the solution names it. The branch is unreachable.
     /// </remarks>
     public static (float X, float Y, float Z, float Yaw)? Position(
         ReadOnlyMemory<byte> file, int animation, float cycle)

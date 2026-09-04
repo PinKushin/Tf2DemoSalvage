@@ -3333,6 +3333,16 @@ public sealed class DemoTimeline
     /// **The coaching branch is not implemented**: the engine substitutes the student's team when
     /// `m_hStudent` is set and `m_bIsCoaching`. Neither field is read here, so a coached recording
     /// reports the coach's own team.
+    ///
+    /// **The fields ARE on the wire, which the note did not used to say.** `m_bIsCoaching` and
+    /// `m_hCoach` sit in `DT_TFLocalPlayerExclusive` — sent only to the local player, who in a POV
+    /// demo is the recorder, so a coached recording carries exactly what this would need.
+    ///
+    /// **Measured inert on the corpus rather than assumed so:** `m_bIsCoaching` is 0 on all 33 of
+    /// its appearances in `z1800`, with `m_hCoach` at the 2097151 invalid-handle sentinel
+    /// throughout. A coaching demo is what would exercise this, and the corpus has none — so the
+    /// gap is real and unranked rather than fixed, and the number is written with the dump that
+    /// produced it so it can be re-measured when the corpus grows.
     /// </remarks>
     private static bool IsEnemyOfRecorder(int? recorderTeam, int? team) =>
         (recorderTeam, team) switch

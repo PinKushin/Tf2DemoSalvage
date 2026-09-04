@@ -20768,3 +20768,62 @@ test does not know the right answer and must compare two readings, while a synth
 ground truth because the test put the values there. **Two locks with different values makes the
 stride visible; two distinct weights makes the swap visible; a one-lock table makes the boundary
 visible.** None of that is possible with a range check over real bytes.
+
+### B312 OPEN 2026-09-04: `m_flHeadScale` and `m_flTorsoScale` are on the wire and read by nothing
+
+**TF2 networks a per-BONE scale for every player and this project ignores it.** Both are
+`RecvPropFloat` on `DT_TFPlayer` (`c_tf_player.cpp:539`), and the schema probe finds them in the
+send tables of every demo checked:
+
+```
+dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -- schema <demo> HeadScale
+  PROP   DT_TFPlayer.m_flHeadScale
+  PROP   DT_TFRagdoll.m_flHeadScale
+  PROP   DT_Zombie.m_flHeadScale
+```
+
+**`BuildBigHeadTransformations` runs on EVERY player build, not only in an event**
+(`c_tf_player.cpp:8815`):
+
+```cpp
+float flHeadScale = m_Shared.InCond( TF_COND_HALLOWEEN_GHOST_MODE ) ? 1.5 : m_flHeadScale;
+BuildBigHeadTransformations( this, hdr, pos, q, cameraTransform, boneMask, boneComputed, flHeadScale );
+```
+
+So the call is unconditional and the VALUE is what makes it a no-op — 1 in an ordinary match, and
+something else under a Halloween condition, in MvM, or when a plugin sets it. Nothing in this
+repository mentions either field: *grep, zero hits outside this entry.*
+
+**Why no measurement has ever caught it.** A field defaulting to 1 that multiplies a scale produces
+an identical picture when ignored, so every rendering comparison agrees and every count matches.
+This is the same shape as `m_flPlaybackRate` — decoded, retained, unit-tested, and read by no
+production code, so every animation played at rate 1 and looked fine until somebody asked.
+
+**It is also what would make the jiggle bone unscale reachable.** `C_BaseAnimating` divides a
+parent's scale out before building a jiggle goal (`c_baseanimating.cpp:1567`) under a guard that
+only fires on a scaled parent matrix. This project applies `m_flModelScale` at the ENTITY transform,
+so no bone matrix is ever scaled and that guard is provably inert — **until a per-bone scale exists**,
+at which point two omissions become one visible defect: a big head with a normal-sized hat hanging
+off it at the wrong offset.
+
+#### Measured: every value on the wire is 1, so it is inert on this corpus
+
+The field is decoded generically into entity state like every other, so the number was already there
+and nothing read it. The text dump prints it, which needs no new code:
+
+```
+dotnet run --project managed/Tf2DemoSalvage.Cli -c Release -- tools/corpus/demos/z1800.dem -t -e -o out.txt -q
+grep -o "m_flHeadScale[^,)]*" out.txt | sort | uniq -c
+    440 m_flHeadScale 1;
+    440 m_flTorsoScale 1;
+```
+
+**440 of 440, both fields, exactly 1.** So on a real modern match this is a no-op, implementing
+`BuildBigHeadTransformations` would be building for content the corpus does not contain, and the
+jiggle unscale stays provably inert. **Left OPEN rather than closed**, because the gap is real and
+the measurement is about one demo of ordinary play: a Halloween recording or an MvM one is exactly
+where the number would differ, and the corpus has neither.
+
+**The command is recorded beside the number on purpose.** A measurement written down as a conclusion
+expires silently when the corpus grows; written down as a command it can be re-run by whoever
+doubts it.

@@ -223,10 +223,14 @@ public sealed class StudioBlendGrid
     ///
     /// The step back at the top end is what lets the caller always read <c>index + 1</c>.
     ///
-    /// **The <c>posekeyindex</c> branch is not implemented**, and that is stated rather than
-    /// hidden: a sequence with explicit pose keys spaces its grid unevenly, and Valve searches the
-    /// key list instead of dividing. TF2's movement blends do not use it, so this takes the even
-    /// branch — a model that did would blend at slightly wrong proportions rather than break.
+    /// **The <c>posekeyindex</c> branch is implemented too** — see <see cref="Search"/> — and this
+    /// note said otherwise for months on the strength of an assumption: *"TF2's movement blends do
+    /// not use it."* Measured, **886 of 26,387 sequences do** (B310), on models a match draws.
+    ///
+    /// **The claim was never checked, and the shape of it is the lesson.** A sentence about what
+    /// Valve's CONTENT contains reads like a fact about the format and is a measurement nobody
+    /// took; it then justifies leaving a branch out, and the branch's absence is invisible because
+    /// the even path still returns a plausible answer.
     /// </remarks>
     public (int Index, float Setting) Locate(
         int axis,
