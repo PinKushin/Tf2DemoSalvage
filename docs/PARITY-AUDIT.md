@@ -515,8 +515,15 @@ proctype QUATINTERP  4 of 540   demo.mdl:hlp_forearm_L SKINNED, demo.mdl:hlp_for
 **Four bones in 540, and the proportion is not the number to look at.** What decides whether an
 unimplemented rule is visible is whether any vertex is weighted to the bone it drives — a procedural
 bone nothing is skinned to computes a transform that reaches no mesh. All four report `SKINNED`; the
-probe was taught to say so for exactly this question. TF2 puts the pair on every class model, so this
-was a forearm that did not twist with the wrist, on every player in every demo.
+probe was taught to say so for exactly this question, so this was a forearm that did not twist with
+the wrist.
+
+**"On every class model" is what this entry first said, and counting the game disproved it.** Over
+all 14,109 shipped models the rule appears on **three classes — scout, heavy and demoman** (each as
+two files, the ordinary and the HWM one) plus `hlp_patella_L`/`_R`, knee helpers, on the
+Mann-vs-Machine bot engineer. Seven models, fourteen bones. The original claim came from a single
+tick that happened to contain a demoman and a scout, which is the smallest sample that could produce
+it — a reminder that "every X" from one observation is a guess wearing a quantifier.
 
 **It was the `decoding-a-field-is-not-honouring-it` shape.** `StudioProcedureType` declared all five
 rules with citations, `StudioBone.ProcedureType` read the field, and a repository-wide grep for a

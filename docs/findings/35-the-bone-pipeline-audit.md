@@ -408,9 +408,15 @@ TF2's sentry does its aiming with pose parameters instead. Implementing them wou
 for content that does not exist, which is the same trap as the `$modblend` shader parameter
 (`12-shader-parity.md`).
 
-**QUATINTERP is on seven models, not nine.** TF2 has nine classes, so two class models do not carry
-the forearm helper. Which two, and whether their forearms pinch in the game as a result, is not
-established here.
+**QUATINTERP is on three classes, not nine — and this document said "every class model" first.**
+Named in full, the seven are `scout.mdl`, `heavy.mdl` and `demo.mdl`, each twice (the ordinary model
+and its HWM high-resolution-morph twin), plus `bot_engineer.mdl` — whose two are not forearms at all
+but `hlp_patella_L` and `hlp_patella_R`, knee helpers on the Mann-vs-Machine robot.
+
+**The wrong version came from a single tick containing a demoman and a scout**, which is the smallest
+sample that could produce "every class model" and is why the claim survived being written down twice.
+Soldier, pyro, engineer, medic, sniper and spy have no procedural helper bone at all; whatever their
+forearms do under a wrist roll, they do with ordinary skinning.
 
 The one-tick figures this section first carried — 18 jiggle bones and 4 quatinterp across 44 models —
 came from `bone-flags <demo>`, which measures what a demo draws rather than what the game contains.
@@ -420,7 +426,7 @@ Both are useful and they answer different questions.
 decides whether an unimplemented rule is visible is whether any vertex is weighted to the bone it
 drives — a procedural bone nothing is skinned to computes a transform that reaches no mesh. All four
 report `SKINNED`. The probe was taught to say so for this question, and the answer flipped the
-priority: this is a forearm that does not twist with the wrist, on every player in every demo.
+priority: this is a forearm that does not twist with the wrist.
 
 **The control bone is the HAND.** `demo.mdl:hlp_forearm_L` is driven by `bip_hand_L`, three authored
 triggers each. That is the mechanism the rule exists for — spreading a wrist's roll along the

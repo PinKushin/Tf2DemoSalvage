@@ -3349,9 +3349,10 @@ emulate the choice.
 collision and no broadphase, and it dropped into the bone pipeline.
 
 **Its sibling procedural rule did NOT, and finding that is what re-opened this entry.** The same
-probe reports `proctype QUATINTERP` on `hlp_forearm_L` and `hlp_forearm_R` of every class model,
-each **SKINNED to vertices** — a helper bone whose whole job is to keep a forearm from pinching as
-the wrist turns, computed by nothing here. B317.
+probe reports `proctype QUATINTERP` on `hlp_forearm_L` and `hlp_forearm_R`, each **SKINNED to
+vertices** — a helper bone whose whole job is to keep a forearm from pinching as the wrist turns,
+computed by nothing here. B317. (Counted over the game rather than one tick, it is on three classes
+— scout, heavy, demoman — not on all nine; see B322.)
 
 **And the corpse count below is stale: it is 159, not 299** — see B315, which also replaces it in
 `docs/PARITY-AUDIT.md` with the command that measures it.
@@ -21725,3 +21726,28 @@ reverse.
 
 **Not established:** QUATINTERP is on seven models where TF2 has nine classes, so two class models
 carry no forearm helper. Which two, and whether it shows, is unmeasured.
+
+#### B322 addendum: "every class model" was wrong, and it had been written into four documents
+
+Raising the probe's example cap from five to twenty answered the item this entry left open, and the
+answer corrected a claim rather than filling a gap. The seven models carrying `QUATINTERP` are:
+
+```
+SCOUT.MDL:hlp_forearm_L/R   HEAVY.MDL:hlp_forearm_L/R   DEMO.MDL:hlp_forearm_L/R   (each twice — the
+                                                        ordinary model and its HWM twin)
+BOT_ENGINEER.MDL:hlp_patella_L/R                        (knee helpers, Mann-vs-Machine)
+```
+
+**Three classes of nine, not all of them**, and two of the fourteen bones are not forearms at all.
+Soldier, pyro, engineer, medic, sniper and spy carry no procedural helper bone; whatever their
+forearms do under a wrist roll, they do with ordinary skinning.
+
+**The wrong version came from a single tick that contained a demoman and a scout** — the smallest
+sample that could produce "every class model" — and it reached `docs/PARITY-AUDIT.md`,
+`docs/RISKS.md`, two findings documents, a memory entry and two source comments before anything
+counted. All corrected.
+
+**The lesson is narrower than "measure more".** The measurement that FOUND the defect was sound; the
+sentence describing its scope was extrapolated from the same observation. "Every X" asserted from one
+sample is a guess wearing a quantifier, and it is the part of a finding least likely to be
+re-checked, because the finding itself was right.

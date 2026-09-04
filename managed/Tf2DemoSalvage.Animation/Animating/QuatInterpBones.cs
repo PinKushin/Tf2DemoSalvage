@@ -19,7 +19,7 @@ namespace Tf2DemoSalvage.Animation.Animating;
 /// keyframed rotation for a procedural bone never reaches the skeleton at all. A reader who applied
 /// this on top of the animation would be blending two answers where the engine takes one.
 ///
-/// **Where it is on screen:** TF2 gives every class model `hlp_forearm_L` and `hlp_forearm_R` under
+/// **Where it is on screen:** TF2 gives scout, heavy and demoman `hlp_forearm_L` and `hlp_forearm_R` under
 /// this rule, and the `bone-flags` probe reports each of them SKINNED — the forearm mesh is weighted
 /// to them, so this is the twist that keeps a forearm from pinching as the wrist turns.
 /// </remarks>

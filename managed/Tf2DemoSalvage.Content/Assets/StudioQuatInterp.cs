@@ -48,10 +48,12 @@ public readonly record struct StudioQuatInterpTrigger(
 /// <param name="Control">The bone whose local rotation is read.</param>
 /// <param name="Triggers">The authored poses, blended by how close the control is to each.</param>
 /// <remarks>
-/// **This is the helper-bone rule, and TF2 puts it on every player model.** Measured with the
-/// `bone-flags` probe on `serveme-627619-stv-2026-08-07`: `hlp_forearm_L` and `hlp_forearm_R` on
-/// each class model, and every one of them **skinned to vertices** — so leaving it unimplemented is
-/// not bookkeeping, it is a forearm that does not twist with the wrist.
+/// **This is the helper-bone rule, and TF2 puts it on scout, heavy and demoman.** Measured with the
+/// `procedural-bones` probe over all 14,109 models the game ships: `hlp_forearm_L` and
+/// `hlp_forearm_R` on those three classes — each as two files, the ordinary model and its HWM twin —
+/// plus `hlp_patella_L`/`_R`, knee helpers, on the Mann-vs-Machine bot engineer. Fourteen bones over
+/// seven models, and every one **skinned to vertices**, so leaving it unimplemented is not
+/// bookkeeping: it is a forearm that does not twist with the wrist.
 ///
 /// <code>
 /// struct mstudioquatinterpbone_t

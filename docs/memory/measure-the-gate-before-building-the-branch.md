@@ -46,8 +46,13 @@ declared, named and computed by nothing — four bones on the player models in o
 540 sounds like nothing. The question that settles it is not the count but **whether any vertex is
 weighted to those bones**, because a procedural bone nothing is skinned to computes a transform that
 reaches no mesh. The `bone-flags` probe was taught to say `SKINNED` or `no-verts` for exactly this,
-and all four came back SKINNED — a forearm that does not twist with the wrist, on every class model
-in every demo. Worth building.
+and all four came back SKINNED — a forearm that does not twist with the wrist. Worth building.
+
+**And the follow-up caught an overclaim in that same sentence.** It first read "on every class
+model", which came from a single tick containing a demoman and a scout — the smallest sample that
+could produce it. Counted over all 14,109 models the game ships, the rule is on **three** classes,
+scout, heavy and demoman. "Every X" from one observation is a guess wearing a quantifier, and it
+survived being written into three documents before anyone counted.
 
 So the rule is not "small counts are not worth it". It is **find the quantity that decides whether
 anybody can see it, and measure that one** — eligible inputs for a branch, weighted vertices for a

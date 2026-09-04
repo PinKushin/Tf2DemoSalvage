@@ -141,7 +141,11 @@ public sealed class ProceduralBoneProbe : IProbe
                         examples[rule] = shown = [];
                     }
 
-                    if (shown.Count < 5)
+                    // **Twenty rather than a handful, because a rule used by only a few models
+                    // wants them ALL named.** QUATINTERP is on seven, and "which seven" was left
+                    // unanswered by a cap of five — the question being whether every class model
+                    // carries the forearm helper, which needs the list rather than a sample.
+                    if (shown.Count < 20)
                     {
                         shown.Add(
                             $"{Path.GetFileName(path)}:{table[bone].Name}" +

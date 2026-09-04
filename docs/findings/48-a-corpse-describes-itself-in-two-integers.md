@@ -403,8 +403,8 @@ ordinary play.
 **This is the argument against ranking parity work by branch count, stated with numbers.** A function
 implemented well and one implemented badly have the same branch count, and a long function is not the
 same as an important one. The instructive comparison is `STUDIO_PROC_QUATINTERP`: a rule small enough
-to be invisible on that ranking, on four bones out of 540, and it is a forearm that does not twist on
-every player in every demo.
+to be invisible on that ranking, on four bones out of 540, and it is a forearm that does not twist —
+on scout, heavy and demoman, three of the nine classes and among the most played.
 
 ## Evidence
 
