@@ -256,6 +256,17 @@ public readonly record struct ScenePose
     /// </remarks>
     public int? MinigunState { get; init; }
 
+    /// <summary>The grenade launcher's chamber: where it is, where it is going, and when it set off.</summary>
+    /// <remarks>
+    /// **All three, because the rotation is an animation rather than a value** (B348). The tubes are
+    /// networked and say whether it is turning at all — `if ( m_iGoalTube != m_iCurrentTube )`
+    /// (<c>tf_weapon_grenadelauncher.cpp:641</c>) — while the start time is stamped client-side the
+    /// frame the two first differ (<c>:626</c>) and indexes Valve's keyframed spline.
+    ///
+    /// Null for every entity that is not a grenade launcher, which is nearly all of them.
+    /// </remarks>
+    public (int Current, int Goal, double StartedSeconds)? Chamber { get; init; }
+
     /// <summary>How fast the entity is moving horizontally, when that was worked out.</summary>
     /// <remarks>
     /// **Only players carry this, and only because nothing else can supply it.** A demo networks
@@ -962,6 +973,19 @@ public sealed class ScenePropTrack
     /// <summary>When the parity above last moved.</summary>
     internal double DiscontinuitySeconds { get; set; }
 
+    /// <summary>The chamber's goal tube last seen, so a NEW rotation can be told from a continuing one.</summary>
+    /// <remarks>
+    /// **`OnDataChanged` stamps the time only on the frame the two first differ**
+    /// (<c>tf_weapon_grenadelauncher.cpp:626</c>): `if ( m_bCurrentAndGoalTubeEqual &amp;&amp;
+    /// m_iCurrentTube != m_iGoalTube ) m_flBarrelRotateBeginTime = gpGlobals->curtime;`. Restamping
+    /// on every update while they still differ would restart the animation each packet and freeze
+    /// the chamber near its first frame.
+    /// </remarks>
+    internal bool ChamberWasSettled { get; set; } = true;
+
+    /// <summary>When the chamber's current rotation began.</summary>
+    internal double ChamberStartedSeconds { get; set; }
+
     /// <summary>The engine's serial for this occupant of the slot.</summary>
     /// <remarks>
     /// **An entity is its index AND its serial.** The index is a slot the engine reissues; the
@@ -1606,6 +1630,10 @@ public sealed class ScenePropTrack
             // Discrete, so it takes the earlier keyframe's value rather than being blended — half
             // of "spinning" is not a state (B347).
             MinigunState = from.MinigunState,
+
+            // Held rather than blended, for the reason the minigun's state is: half a tube number
+            // is not a chamber position (B348).
+            Chamber = from.Chamber,
 
             // Discrete, so it takes the earlier keyframe's value rather than being blended.
             // Half-hidden is not a state the engine has.

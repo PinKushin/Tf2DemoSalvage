@@ -212,6 +212,11 @@ public sealed class PoseCompletenessTests
         // `AC_STATE_SPINNING`, chosen because zero is `AC_STATE_IDLE` and would be
         // indistinguishable from the field never being carried (B347).
         MinigunState = 3,
+
+        // Three distinct values (B348): a chamber mid-rotation from tube 2 toward tube 4, started
+        // at a time that is neither. One repeated number could not tell a carried field from one
+        // carried into its neighbour.
+        Chamber = (2, 4, 7.5d),
         Speed = 320f,
         MoveX = 0.5f,
         MoveY = -0.5f,

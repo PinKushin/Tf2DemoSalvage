@@ -3241,6 +3241,26 @@ public sealed class DemoTimeline
             track.LastNoInterpolationParity = noInterp;
         }
 
+        // **The chamber's clock, stamped the frame the two tubes first differ** (B348), which is
+        // exactly what `OnDataChanged` does (`tf_weapon_grenadelauncher.cpp:626`):
+        //
+        //     if ( m_bCurrentAndGoalTubeEqual && m_iCurrentTube != m_iGoalTube )
+        //         m_flBarrelRotateBeginTime = gpGlobals->curtime;
+        //     m_bCurrentAndGoalTubeEqual = ( m_iCurrentTube == m_iGoalTube );
+        //
+        // **The `m_bCurrentAndGoalTubeEqual` half is the whole guard.** Stamping whenever they
+        // differ would restart the animation on every packet that still shows them apart, freezing
+        // the chamber a few degrees from where it set off.
+        if (state.ChamberTubes() is { } chamber)
+        {
+            if (track.ChamberWasSettled && chamber.Current != chamber.Goal)
+            {
+                track.ChamberStartedSeconds = tick * interval;
+            }
+
+            track.ChamberWasSettled = chamber.Current == chamber.Goal;
+        }
+
         // **The model, kept current for the same reason and on the engine's own adjacent line.**
         // `C_BaseEntity::PostDataUpdate` (`c_baseentity.cpp:2603`) calls `HierarchySetParent` and
         // then `ValidateModelIndex`, both ABOVE the `DATA_UPDATE_CREATED` test, so both run on
@@ -3378,6 +3398,12 @@ public sealed class DemoTimeline
 
                 // **A minigun's wind-up state, which is what spins its barrel** (B347).
                 MinigunState = state.MinigunWeaponState(),
+
+                // **The chamber's two tubes and its clock** (B348), carried together because
+                // neither answers anything alone.
+                Chamber = state.ChamberTubes() is { } tubes
+                    ? (tubes.Current, tubes.Goal, track.ChamberStartedSeconds)
+                    : null,
                 X = origin.X,
                 Y = origin.Y,
                 Z = origin.Z,

@@ -447,3 +447,35 @@ spin the barrel about the wrong axis and have Valve's own text to point at.
 `AngleQuaternion`'s body says which of those is yaw. Its X360 branch carries the warning outright —
 *"the ordering here is different … because p, y, r are not in the same locations in QAngle +
 RadianEuler"*.
+
+### Correction, same day: the ROLL is the v_model era, and both live paths use yaw
+
+The section above called Valve's commented-out `a.x` "a sketch of the general shape". That is
+incomplete, and reading the fourth override settles it: **`a.x` is what the OLD v_model path uses**,
+and it is still in the tree at `tf_viewmodel.cpp:333`.
+
+Five paths write a weapon barrel, and only four are live:
+
+| path | bone | axis | write style | bone mask |
+|---|---|---|---|---|
+| minigun, world (`tf_weapon_minigun.cpp:1068`) | `barrel` | **z** | flat assign | no |
+| minigun, viewmodel attachment (`:1343`) | `barrel` | **z** | read-modify-write | **yes** |
+| minigun, viewmodel arms (`tf_viewmodel.cpp:313`) | `v_minigun_barrel` | **x** | read-modify-write | yes |
+| grenade launcher, world (`tf_weapon_grenadelauncher.cpp:610`) | `procedural_chamber` | **z** | flat assign | no |
+| grenade launcher, viewmodel attachment (`:683`) | `procedural_chamber` | **z** | read-modify-write | yes |
+
+**The third row is dead on a modern install**, and measuring said so rather than reasoning:
+`CTFViewModel::StandardBlendingRules` poses the VIEWMODEL entity, which every demo checked resolves
+to `c_*_arms.mdl` — `c_soldier_arms`, `c_sniper_arms`. Those carry no bone called
+`v_minigun_barrel`; the one that does is `v_minigun_heavy.mdl`, still shipped, with the bone at
+index 2 of 18. The weapon itself is a separate `C_ViewmodelAttachmentModel` posed through
+`ViewModelAttachmentBlending`, which is row two.
+
+**So the axis is `z` on every live path**, and the commented-out block in the world file is a paste
+from the era when it was `x`. A reader who took it as the more general form — which is exactly what
+its guarding comment invites — would inherit a dead convention.
+
+**Two write styles, split by which model is being posed.** The world paths assign the whole
+quaternion and check no mask; the viewmodel-attachment paths read the existing angles, replace one
+component, and are wrapped in `if ( hdr->boneFlags( iBarrelBone ) & boneMask )`. The two agree only
+while the animation leaves the other two components at zero on that bone.

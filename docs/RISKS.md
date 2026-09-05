@@ -23732,3 +23732,98 @@ state tests and neither Scene test (that suite builds poses directly and never c
 `DemoTimeline.Build`); accepting a missing state reddens the not-a-minigun control alone; matching
 `weapon_bone` instead of `barrel` reddens the no-barrel control alone; and `>=` instead of `>` in
 `TargetVelocity` reddens the idle control alone, at 0.35 rad where zero is required.
+
+### B348 FIXED 2026-09-05: the grenade launcher's chamber never turned
+
+**The second weapon in the override family B347 opened**, and a different mechanism.
+`CTFGrenadeLauncher::UpdateBarrelMovement` (`tf_weapon_grenadelauncher.cpp:639`) does not integrate
+a velocity: it runs a fixed-length keyframed animation whenever the goal tube differs from the
+current one, over control points Valve says "match maya" (`:35`):
+
+```cpp
+Vector( 0,       0,       0 ),
+Vector( 0.7519f, 63.546f, 0 ),
+Vector( 1.0f,    60,      0 )
+```
+
+**X is time as a fraction of `cProceduralBarrelRotationTime` (0.2666s), Y is degrees, Z is the slope
+at Y** — the file's own comment. **The middle point is an OVERSHOOT and it is the whole character of
+the motion**: the chamber swings past 60° to 63.546° at three-quarters of the way through and
+settles back. A lerp from 0 to 60 is smooth, plausible and visibly wrong.
+
+**Both tube numbers are on the wire** — `m_iCurrentTube` and `m_iGoalTube` (`:55`), and both are in
+a real protocol-24 demo's schema — so the only client-side state is WHEN the rotation began.
+`c_grenadelauncher.mdl` carries the bone: `bones 7: weapon_bone, weapon_bone_1, weapon_bone_2,
+procedural_chamber, weapon_bone_3, c_weapon_stattrack, weapon_bone_4`.
+
+#### The clock is stamped on the TRANSITION, and dropping that is the plausible mistake
+
+`OnDataChanged` (`:626`) carries a remembered flag:
+
+```cpp
+if ( m_bCurrentAndGoalTubeEqual && m_iCurrentTube != m_iGoalTube )
+    m_flBarrelRotateBeginTime = gpGlobals->curtime;
+
+m_bCurrentAndGoalTubeEqual = ( m_iCurrentTube == m_iGoalTube );
+```
+
+**Stamping whenever the tubes differ restarts the animation on every packet that still shows them
+apart**, so the chamber never gets past the first few degrees of a 0.2666-second swing and reads as
+almost stationary — with nothing about the pose or the bone looking wrong. `ChamberClockTests`
+carries a control of three snapshots all with the tubes already apart, which is the case that
+separates the two readings.
+
+#### Three engine details that are not the minigun's
+
+- **Driven by absolute time, not a per-frame integration.** `tVal = (curtime - beginTime) /
+  cProceduralBarrelRotationTime` — so the same tick always gives the same angle however the viewer
+  arrived at it, where the minigun's velocity genuinely depends on framerate.
+- **Zero past the end is not a clamp to 60.** The engine leaves `flPartialRotationDeg` at its
+  initialised zero and advances `m_iCurrentTube` instead (`:687`); the sixty degrees arrive through
+  the new tube's base angle. Returning 60 would double-count them for a frame.
+- **The boundary is `tVal < 1.0f`, strictly** (`:647`). The first version of the conformance suite
+  asserted 60 degrees AT one and reddened against correct code — the boundary was mine to get
+  wrong, not Valve's, and the test now pins it either side.
+
+**Evidence class: read-from-source** for every constant and branch, **measured** for the wire
+presence and the bone list.
+
+**What is NOT established:** how it looks, and whether the corpus draws one. The demo checked draws
+no held grenade launcher any more than it draws a held minigun; the end-to-end assertions are
+synthetic (D38) for the same reason B347's are.
+
+#### Verification: three of nine could not fail, and the worst was the headline claim
+
+**The overshoot — the entire reason this entry exists — was not pinned by anything.** Replacing
+Valve's Hermite with a plain lerp left all nine wiring tests AND all eight conformance tests green.
+Two distinct failure modes, both named in `CLAUDE.md`, in one suite:
+
+- **Wrong condition.** `Degrees_AtTheMiddleControlPoint_OvershootsPastSixty` sampled `0.7519` — which
+  is exactly the middle control point's own X. At a knot `within` is 1.0 and *every* interpolation
+  scheme is forced to return the stored Y, so the assertion read back the table and never touched
+  the curve's shape. Renamed to say what it does test, and a new test samples strictly INSIDE the
+  first segment: at 0.4 the spline gives 34.818° where a lerp gives 33.806°, a full degree apart.
+- **Effect size below resolution.** The boundary test at `0.9999` IS strictly inside a segment, but
+  there the two differ by about 0.0014° against a tolerance of 1e-2 — an order of magnitude too
+  loose to see it.
+
+Six of the eight conformance tests never called `Degrees` at all, which is why the blind spot
+survived a suite written specifically to pin this mechanism.
+
+**Two more that could not fail, both fixed by changing the INPUT rather than the assertion:**
+
+- `Build_WhileTheTubesStayApart_KeepsTheFirstStamp` asserted `Started(1320) == Started(660)`. With
+  the stamp never written both are zero and the equality holds vacuously — it caught a REWRITE and
+  not an absence. It now asserts non-zero first.
+- `Instances_ForASettledChamber_StillWritesItsTubesBaseAngle` sampled at one second, past the
+  0.2666s window, where `Degrees` short-circuits on `fraction >= 1` and returns zero whatever
+  `turning` says. Forcing the guard true changed nothing observable. It now samples at 0.1s, where
+  a settled chamber and a turning one predict different angles.
+
+**The other four were sensitive to their own claims**, each reddening alone: dropping the
+remembered-flag half of the stamp guard, nulling the pose's chamber (all four clock tests, which is
+the correct blast radius for one shared mechanism), looking up `weapon_bone` instead of
+`procedural_chamber`, and never advancing the tube locally.
+
+**Each of the three fixes was re-verified by re-running its sabotage**: the lerp now reddens the
+shape test alone, and forcing `turning` now reddens the settled-chamber test.
