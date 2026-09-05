@@ -23928,3 +23928,59 @@ sabotages:
   and every fixture here deliberately placed the activity at index one to avoid the ambiguity. The
   boundary had been designed around instead of tested. A fifth case now pins it, and reddens alone
   under that sabotage.
+
+### B351 OPEN 2026-09-05: a taunting player plays no taunt
+
+**Found by the uncited sweep** (see `docs/PARITY-AUDIT.md`), which after two hand passes now runs as
+`parity <filter> <class>`. `CMultiPlayerAnimState::AddVCDSequenceToGestureSlot` had no citation
+anywhere in this project, and it is the whole of how a taunt is drawn.
+
+**The engine's path, traced** (`c_tf_player.cpp:4342`):
+
+```cpp
+if ( IsTaunting() )
+{
+    float flCycle = 0.f;
+    if ( m_flTauntDuration > 0.f )
+    {
+        float dt = gpGlobals->curtime - m_flTauntStartTime;
+        while ( dt >= m_flTauntDuration ) { dt -= m_flTauntDuration; }
+        flCycle = clamp( dt / m_flTauntDuration, 0.f, 1.0f );
+    }
+
+    m_PlayerAnimState->ResetGestureSlot( GESTURE_SLOT_VCD );
+    m_PlayerAnimState->AddVCDSequenceToGestureSlot( GESTURE_SLOT_VCD, m_nTauntSequence, flCycle, true );
+}
+```
+
+**`AddVCDSequenceToGestureSlot` takes a SEQUENCE, not an activity** (`multiplayer_animstate.cpp:693`),
+which is why nothing in this project's activity-driven gesture path could ever have produced it. It
+sets the slot's activity to `ACT_MP_VCD` for bookkeeping and writes the sequence straight onto the
+layer at the cycle above.
+
+#### The hard part is that the sequence is not on the wire
+
+`m_nTauntSequence` is a CLIENT member (`c_tf_player.h:703`), set from a scene's `info->m_nSequence`
+(`:9480`). What the demo carries is the CONCEPT:
+
+| property | sends in `tf2-2026-pub-pov-cheater` |
+|---|---|
+| `DT_TFPlayerShared.m_iTauntConcept` | 86, all value 94 |
+| `DT_TFPlayerShared.m_iTauntIndex` | 98 |
+| `DT_TFPlayer.m_nActiveTauntSlot` | 510 |
+| `DT_TFPlayer.m_iTauntItemDefIndex` | present |
+
+So reproducing a taunt means resolving a concept and index through a **VCD choreographed scene** to a
+sequence name — `scenes.image`, a compiled format this project does not read at all. That is a new
+asset reader, which is why this is filed rather than fixed in the pass that found it.
+
+**What a taunting player currently draws:** whatever `PlayerActivityState` computes from velocity and
+flags, which for a stationary taunter is the idle. They stand still.
+
+**Evidence class: read-from-source** for the path, **measured** for the wire census and for the
+absence on our side — no file in `managed/` reads any taunt property.
+
+**What is NOT established:** how many of the 86 concept sends are distinct taunts rather than
+start/stop pairs, and whether the taunt sequence can be reached without the scene system (some taunts
+are plain sequences on the class model). The second question is worth asking first — if the common
+case resolves by name, most of the value lands without a scenes reader.

@@ -148,7 +148,179 @@ public sealed class ParityAuditProbe : IProbe
                 $"NOT FOUND in the SDK ({missing.Count.ToString(CultureInfo.InvariantCulture)}): "
                 + string.Join(", ", missing.Distinct().Order(StringComparer.Ordinal).Take(12)));
         }
+
+        Uncited(output, arguments, managed, cited);
     }
+
+    /// <summary>Methods of a class this project has NEVER cited.</summary>
+    /// <param name="output">Where to report.</param>
+    /// <param name="arguments">The probe's arguments; the second names a class.</param>
+    /// <param name="managed">The managed source tree, searched for each method's NAME.</param>
+    /// <param name="cited">Every engine line this project points at, by file and line.</param>
+    /// <remarks>
+    /// **The complement of the ranking above, and it is where the defects were** (B350). The list
+    /// this probe prints is what somebody has already compared against the engine; a function with
+    /// NO citation is one nobody has looked at, which is a sharper filter than branch count and far
+    /// cheaper than reading a subsystem.
+    ///
+    /// **Two sweeps by hand produced one real defect and eleven dead ends.**
+    /// `CMultiPlayerAnimState` had five uncited methods: four dead or unreachable, and
+    /// `PlayFlinchGesture`, which turned out to drop more than half of every flinch in a demo.
+    /// `CTFPlayerAnimState` had eight and no defects. Both are recorded in `docs/PARITY-AUDIT.md`.
+    ///
+    /// **A citation is matched by LINE, so this asks whether any cited line falls inside the
+    /// method** — a class member cited anywhere counts as looked at, which is the question worth
+    /// asking. It is deliberately generous: a false "cited" costs a subject nobody re-reads, while
+    /// a false "uncited" costs an hour finding out it was fine.
+    /// </remarks>
+    private static void Uncited(
+        TextWriter output,
+        IReadOnlyList<string> arguments,
+        string managed,
+        Dictionary<(string File, int Line), int> cited)
+    {
+        if (arguments.Count < 2)
+        {
+            output.WriteLine(
+                "  (pass a class name second — `parity animstate CMultiPlayerAnimState` — to list "
+                + "its methods this project has never cited)");
+            return;
+        }
+
+        string wanted = arguments[1];
+
+        Regex member = new(
+            @"^[A-Za-z_][A-Za-z0-9_:<>\* \t]*?\b" + Regex.Escape(wanted) + @"::([A-Za-z_][A-Za-z0-9_]*)\s*\(",
+            RegexOptions.Multiline,
+            TimeSpan.FromSeconds(10));
+
+        SortedDictionary<string, List<(string File, int Line)>> methods =
+            new(StringComparer.Ordinal);
+
+        foreach (string path in Directory.EnumerateFiles(SdkRoot, "*.cpp", SearchOption.AllDirectories))
+        {
+            string text;
+
+            try
+            {
+                text = File.ReadAllText(path);
+            }
+            catch (IOException)
+            {
+                continue;
+            }
+
+            if (!text.Contains(wanted + "::", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            string name = Path.GetFileName(path);
+            string[] lines = text.Split('\n');
+
+            foreach (Match match in member.Matches(text))
+            {
+                int line = text.Take(match.Index).Count(character => character == '\n') + 1;
+
+                if (!methods.TryGetValue(match.Groups[1].Value, out List<(string, int)>? at))
+                {
+                    at = [];
+                    methods[match.Groups[1].Value] = at;
+                }
+
+                at.Add((name, line));
+            }
+
+            _ = lines;
+        }
+
+        if (methods.Count == 0)
+        {
+            output.WriteLine($"  no methods found for '{wanted}' — check the class name.");
+            return;
+        }
+
+        // **Asked by NAME, not by line, and the difference matters** (B350). Matching a citation's
+        // line against the method's range answers "did anybody cite THIS definition" — which
+        // reports `HandleJumping` as unstudied because the citation points at TF2's override in
+        // `tf_playeranimstate.cpp` instead. That is a fact about which file was quoted, not about
+        // whether the mechanism was compared. The question worth asking is whether the NAME appears
+        // anywhere in the managed tree, which is what the two hand sweeps asked and what found the
+        // flinch: 22 methods by the strict reading against 5 by this one.
+        HashSet<string> named = new(StringComparer.Ordinal);
+
+        // **The TEST tree counts too, and leaving it out was the other half of the discrepancy.**
+        // A conformance suite is where a mechanism's citation most often lives — the whole point of
+        // `docs/CONFORMANCE.md` — so a function named only there has still been compared against
+        // the engine.
+        string root = Directory.GetParent(managed)?.FullName ?? managed;
+        string tests = Path.Combine(root, "tests");
+
+        // **And `docs/`, because an audit's CONCLUSION is where a dead end gets recorded.** Four of
+        // the five functions the first hand sweep ran down turned out dead or unreachable; their
+        // answer lives in `docs/PARITY-AUDIT.md` and nowhere in the code, since there was no code to
+        // write. Leaving docs out would offer them again every time this is run, which is exactly
+        // the re-reading the probe exists to prevent.
+        string docs = Path.Combine(root, "docs");
+
+        IEnumerable<string> sources = Directory
+            .EnumerateFiles(managed, "*.cs", SearchOption.AllDirectories)
+            .Concat(Directory.Exists(tests)
+                ? Directory.EnumerateFiles(tests, "*.cs", SearchOption.AllDirectories)
+                : [])
+            .Concat(Directory.Exists(docs)
+                ? Directory.EnumerateFiles(docs, "*.md", SearchOption.AllDirectories)
+                : []);
+
+        foreach (string source in sources)
+        {
+            if (source.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}",
+                    StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            string text = File.ReadAllText(source);
+
+            foreach (string name in methods.Keys.Where(
+                candidate => text.Contains(candidate, StringComparison.Ordinal)))
+            {
+                named.Add(name);
+            }
+        }
+
+        // **The UNION of two questions, because neither alone means "looked at"** (B350). A comment
+        // may cite `multiplayer_animstate.cpp:1443` without writing `SetupPoseParameters`, and it
+        // may name a function without pinning a line. Counting only one reports studied mechanisms
+        // as unstudied — the strict line reading gave 28 here against 5 by hand, and every extra
+        // was a function this project had genuinely compared.
+        List<string> never = methods.Keys
+            .Where(name => !named.Contains(name))
+            .Where(name => !methods[name].Any(where => cited.Keys.Any(
+                key => string.Equals(key.File, where.File, StringComparison.OrdinalIgnoreCase)
+                    && key.Line >= where.Line
+                    && key.Line < where.Line + MethodWindow)))
+            .ToList();
+
+        output.WriteLine(
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"{wanted}: {methods.Count} methods, {never.Count} NEVER cited by this project"));
+
+        if (never.Count > 0)
+        {
+            output.WriteLine("  " + string.Join(", ", never));
+        }
+    }
+
+    /// <summary>How far past a definition a citation still counts as pointing at it.</summary>
+    /// <remarks>
+    /// **Generous on purpose.** A citation lands on the line that matters, not on the signature, so
+    /// a window is needed: too small reports a studied function as unstudied and costs an hour of
+    /// re-reading, too large hides one and costs a subject nobody looks at again. Two hundred lines
+    /// covers every method in both animstates, the longest being `DoAnimationEvent` at about 120.
+    /// </remarks>
+    private const int MethodWindow = 200;
 
     /// <summary>The function a line sits in, and how many branch points it has.</summary>
     /// <remarks>

@@ -741,3 +741,29 @@ the SDK itself.
 **So the flinch was the only defect in either animstate**, and it was in the RESOLUTION step rather
 than the mapping — which is why a sweep of the event table would not have found it. Two sweeps, one
 defect, and eleven dead ends now written down instead of waiting to be rediscovered.
+
+### The uncited sweep is now a probe: `parity <filter> <class>`
+
+Two hand sweeps found one defect (B350) and eleven dead ends; a third found B351. That is a good
+enough ratio to stop doing it by hand. The probe lists every method of a named class that this
+project has **never** cited.
+
+**Getting the question right took three tries, and the wrong versions were not obviously wrong:**
+
+- **By cited LINE alone** — 28 uncited for `CMultiPlayerAnimState` against 5 by hand. It reports
+  `HandleJumping` as unstudied because the citation points at TF2's override in
+  `tf_playeranimstate.cpp`; that is a fact about which file was quoted, not about whether the
+  mechanism was compared.
+- **By NAME alone** — misses a comment that cites `multiplayer_animstate.cpp:1443` without writing
+  `SetupPoseParameters`.
+- **The union of both**, over `managed/`, `tests/` AND `docs/`. The test tree matters because a
+  conformance suite is where a mechanism's citation most often lives; the docs tree matters because
+  four of the five functions the first sweep ran down were DEAD, so their answer exists only as
+  prose. Leaving docs out would have offered them again on every run — the re-reading the probe
+  exists to prevent.
+
+It reproduces both hand sweeps: `CTFPlayerAnimState` now reports **0 uncited**, and
+`CMultiPlayerAnimState` reports 8, of which 5 are `Debug*`/`ShowDebugInfo`.
+
+**The three real leads it left** are `AddVCDSequenceToGestureSlot` — chased immediately, and it is
+B351, taunts — plus `GetGestureSlotLayer` and `InitGestureSlots`, which are slot plumbing.
