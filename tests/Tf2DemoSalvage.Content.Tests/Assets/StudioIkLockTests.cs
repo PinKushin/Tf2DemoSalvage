@@ -238,10 +238,37 @@ public sealed class StudioIkLockTests
     /// **Through <see cref="GameInstall"/> rather than a path spelled here**, which three other
     /// files in this assembly do spell out. One more copy is one more place that goes wrong when
     /// the install moves, and this needs only the archive.
+    ///
+    /// **Written as a statement body because the expression form was silently broken**, and only
+    /// CI could see it (2026-09-04). It read:
+    ///
+    /// <code>
+    /// … is { } archive &amp;&amp; … is { } bytes ? bytes : null;
+    /// </code>
+    ///
+    /// The conditional's two arms are <c>byte[]</c> and the null literal, so its best common type
+    /// is <c>byte[]</c> — the lift to <c>ReadOnlyMemory&lt;byte&gt;?</c> happens on the way OUT, to
+    /// whichever arm was taken. A NULL ARRAY converted to <c>ReadOnlyMemory&lt;byte&gt;</c> is not
+    /// null; it is <c>Empty</c>. So the absent-game path returned a present, empty memory, every
+    /// caller's <c>is not { } model</c> guard was dead, and the tests read a zero-byte model and
+    /// asserted against it.
+    ///
+    /// **The symptom is exactly a wrong answer rather than a crash**: on a machine without Team
+    /// Fortress 2 these two failed with "sequences should be greater than 0 but was 0" — a message
+    /// that reads as a broken READER. Reproduced here by naming an archive that cannot exist, which
+    /// gave the same two failures and no skips.
+    ///
+    /// A bare <c>return null;</c> has no such arm to unify with, so it is target-typed straight to
+    /// the nullable and <c>HasValue</c> is false.
     /// </remarks>
-    private static ReadOnlyMemory<byte>? Read(string path) =>
-        GameInstall.Vpk("tf2_misc") is { } archive &&
-        VpkArchive.Open(archive).ReadFile(path) is { } bytes
-            ? bytes
-            : null;
+    private static ReadOnlyMemory<byte>? Read(string path)
+    {
+        if (GameInstall.Vpk("tf2_misc") is not { } archive ||
+            VpkArchive.Open(archive).ReadFile(path) is not { } bytes)
+        {
+            return null;
+        }
+
+        return bytes;
+    }
 }

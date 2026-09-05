@@ -743,7 +743,14 @@ public sealed class EntityModelSet
             // are `Models[0]`'s — reading it against an included animation model's bytes would land
             // on arbitrary floats and produce springs with nonsense constants rather than an error.
             // The same index-space rule the bone controllers follow.
-            posed.JiggleSource = skinned.Models.Count > 0 ? skinned.Models[0] : null;
+            // **The null arm is spelled out, and it has to be** (B333). `Models[0]` is a `byte[]`,
+            // so a conditional against a bare `null` takes `byte[]` as its own type and lifts the
+            // RESULT into the property — turning the absent case into `ReadOnlyMemory.Empty`, which
+            // is PRESENT. Both of `SkeletonPose`'s `JiggleSource is not { }` guards were dead for
+            // that reason.
+            posed.JiggleSource = skinned.Models.Count > 0
+                ? skinned.Models[0]
+                : (ReadOnlyMemory<byte>?)null;
 
             // **The IK rules, resolved here because the BLEND WEIGHTS live here** (B296). A rule's
             // influence is accumulated across the same up-to-three animations the sequence blends,
