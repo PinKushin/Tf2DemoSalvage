@@ -479,3 +479,34 @@ its guarding comment invites — would inherit a dead convention.
 quaternion and check no mask; the viewmodel-attachment paths read the existing angles, replace one
 component, and are wrapped in `if ( hdr->boneFlags( iBarrelBone ) & boneMask )`. The two agree only
 while the animation leaves the other two components at zero on that bone.
+
+## A player's animation plays at rate 1, and the function that would scale it is dead
+
+`CMultiPlayerAnimState::CalcMovementPlaybackRate` (`multiplayer_animstate.cpp:1070`) computes
+`clamp( speed / maxGroundSpeed, 0.01, 10 )` — the obvious way to keep a run cycle in step with how
+fast a player is actually moving. **Nothing in TF2's hierarchy calls it.**
+
+- **`CMultiPlayerAnimState` is `DECLARE_CLASS_NOBASE`** (`multiplayer_animstate.h:172`). It does not
+  derive from `CBasePlayerAnimState`, so the four call sites in `base_playeranimstate.cpp` (`:452`,
+  `:550`, `:652`, `:683`) belong to a separate hierarchy that TF2 never instantiates.
+  `CTFPlayerAnimState : public CMultiPlayerAnimState` (`tf_playeranimstate.h:25`) inherits the dead
+  copy, not the live one.
+- **Zero call sites** across `game/shared/Multiplayer`, `game/shared/tf` and `game/client/tf`.
+- **Its own body carries a commented-out call** to `GetInterpolatedGroundSpeed()` (`:1077`), whose
+  only other appearance is inside `DebugShowAnimState` (`:2069`). The helper exists to print.
+
+**What TF2 does instead is set the rate to one, explicitly**, in both animstates and only for the
+local player: `GetBasePlayer()->SetPlaybackRate( 1.0f )` (`multiplayer_animstate.cpp:1366`,
+`tf_playeranimstate.cpp:506`). For a remote player nothing sets it at all. The speed matching is
+done by the movement blend's pose parameters, not by the clock.
+
+**Measured on the wire, which is what makes this actionable rather than interesting:** across 60,000
+expanded snapshots of `tf2-2026-pub-pov-cheater`, **no `CTFPlayer` entity sends `m_flPlaybackRate`
+at all**. The classes that do are `CDynamicProp` (4,508 sends, mostly 0 — a stopped prop),
+`CBaseAnimating` (1,171 at 1), and `CTFViewModel` — which sends **1.313**, a genuinely non-unit
+rate. That is the minigun's spin-up scaling: `SetPlaybackRate( TF_MINIGUN_SPINUP_TIME /
+flSpinTimeMultiplier )` (`tf_weapon_minigun.cpp:266`), and it is read through
+`ViewmodelPlaybackRate` already.
+
+So a player defaulting to rate 1 is not a gap: it is what the engine leaves it at, confirmed from
+both directions.
