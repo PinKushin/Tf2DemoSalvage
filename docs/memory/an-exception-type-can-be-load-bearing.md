@@ -38,5 +38,30 @@ hand well-formed text; the refusals exist for hand-edited input. The class alrea
 demo once — `MessageAssembly.cs:332` records `tokens[4]` throwing on the first demo whose players
 spoke — and was patched at that one site rather than as the contract.
 
+**B345 closed the other four layers, and the worst find was not a message.** Twenty-eight bare reads
+across `MessageAssembly`, `EventAssembly`, `StringTableAssembly`, `DemoAssembly` and `PropertyText`,
+all routed through one shared `AssemblyText` with the subject noun passed by the caller — so each
+file keeps the voice it already had while the logic lives once.
+
+**`PropertyText` trusted a declared length.** An array property's element count went straight to
+`new List<PropertyValue>(count)` *before* any element was read, so `a 2000000000` raised
+`OutOfMemoryException` — measured, not predicted. `docs/FUZZING.md` had already named the class
+("length-prefix decoders are where unbounded allocations come from") and the symptom ("an
+`OutOfMemoryException` ... a caller cannot reasonably defend against") without connecting either to
+this layer.
+
+**How to apply, added:** when you route a parse through a refusal helper, ask separately whether any
+value is used as a SIZE. A length prefix from text needs a ceiling, and the honest ceiling is
+usually already present in the input — here, the number of tokens the line has left, which no valid
+array can exceed and which needs no constant chosen.
+
+**And two behaviours were tightened, not merely re-typed** — both worth checking for whenever a bare
+parse is replaced:
+
+- Replacing `uint.Parse` with a wider parse *loosens* it. `long` would accept a negative below
+  `int.MinValue` and wrap it silently where `uint` refused. Keep the original range.
+- `short.Parse`/`byte.Parse` were doing range checking as a side effect. Swapping in `int.Parse`
+  drops it, so the range has to be restored explicitly — `modevents.res` documents the widths.
+
 Related: [[output-level-assertion-or-it-is-not-done]], [[most-of-a-decoder-is-untested]],
-[[logs-are-the-debugger]], [[one-place-or-it-drifts]].
+[[logs-are-the-debugger]], [[one-place-or-it-drifts]], [[real-data-hides-bugs-small-inputs-expose]].

@@ -104,6 +104,59 @@ public sealed class MessageAssemblyRefusalTests
             .Message.ShouldContain("'}'");
     }
 
+    /// <remarks>
+    /// **A `raw` line's payload is hexadecimal, and its bit count is a number** — both read bare, so
+    /// both raised `FormatException` past the handler that attaches the line (B345). `raw` is the
+    /// fallback every message that will not decode falls to, which makes it the line a person
+    /// hand-editing a trace is most likely to be looking at.
+    /// </remarks>
+    [Test]
+    public void Assemble_ARawPayloadThatIsNotHexadecimal_IsRefused()
+    {
+        Should.Throw<InvalidDataException>(() => Assemble("raw 16 zz"))
+            .Message.ShouldContain("zz", Case.Sensitive);
+    }
+
+    [Test]
+    public void Assemble_ARawBitCountThatIsNotANumber_IsRefused()
+    {
+        Should.Throw<InvalidDataException>(() => Assemble("raw wide 00FF"))
+            .Message.ShouldContain("wide", Case.Sensitive);
+    }
+
+    /// <remarks>
+    /// **A line that stops before the tokens it needs**, which `Integer` read with a bare
+    /// `tokens[index]`. This exact shape already reached a real demo once: the comment at
+    /// `MessageAssembly.cs:332` records `tokens[4]` throwing `ArgumentOutOfRangeException` *"on the
+    /// first demo whose players spoke"*, and it was patched at that one line rather than as the
+    /// contract.
+    /// </remarks>
+    [Test]
+    public void Assemble_AMessageLineThatStopsShort_IsRefusedRatherThanIndexingPastIt()
+    {
+        Should.Throw<InvalidDataException>(() => Assemble("svc_entitymessage 1"))
+            .Message.ShouldNotBeEmpty();
+    }
+
+    /// <remarks>
+    /// A sound's fields, which take the file's other two helpers — one whole, one fractional.
+    /// </remarks>
+    [Test]
+    public void Assemble_ASoundFieldThatIsNotANumber_NamesIt()
+    {
+        Should.Throw<InvalidDataException>(
+            () => Assemble("svc_sounds reliable 0 count 1 {", Lines("sound many", "}")))
+            .Message.ShouldNotBeEmpty();
+    }
+
+    /// <summary>A reader over the given lines, answering null past the end.</summary>
+    private static Func<string?> Lines(params string[] lines)
+    {
+        int next = 0;
+
+        return () => next < lines.Length ? lines[next++] : null;
+    }
+
     /// <summary>Assembles one line, with no lines after it unless given.</summary>
     private static void Assemble(string line, Func<string?>? nextLine = null) =>
         MessageAssembly.Assemble(

@@ -23403,7 +23403,7 @@ under the same reasoning as D38.
 and `DemoAssembly` were not audited for bare parses in this pass — only `EntityAssembly` was, because
 that is where the failing test landed.
 
-### B345 OPEN 2026-09-05: the same split in the other four assembly layers
+### B345 FIXED 2026-09-05: the same split in the other four assembly layers, and a trusted length
 
 **B344 fixed `EntityAssembly` and its own entry named the gap: the siblings were not audited.** They
 were now, and all four have it. Twenty-eight bare parses across five files, against seven places
@@ -23437,3 +23437,63 @@ to catch.
 **The fix is B344's, applied once rather than five times**: one shared helper family in
 `Text/`, each file passing its own subject noun, every site routed through it. Doing it per file
 would triple the duplication B344 already created.
+
+**The worst of it was not a message, and it was found by writing the test rather than by reading.**
+`PropertyText` reads an array property's element count from the line and passed it straight to
+`new List<PropertyValue>(count)` — before reading a single element, so the loop running out of
+tokens does not save it. A trace saying `a 2000000000` raises **`OutOfMemoryException`**, measured,
+and a negative count raises `ArgumentOutOfRangeException` about a capacity. `docs/FUZZING.md`
+predicted this class and names the symptom a defect in the same breath:
+
+> length-prefix decoders are where unbounded allocations come from
+
+> An `IndexOutOfRangeException`, a `NullReferenceException`, an `OutOfMemoryException` or a
+> non-terminating loop are all defects, because a caller cannot reasonably defend against them when
+> the input came from a file someone downloaded.
+
+**The ceiling is exact rather than tuned.** A line cannot hold more elements than it has tokens
+left, so no valid input can reach it and no constant needed choosing — `AssemblyText.Count` takes
+the remaining token count and refuses anything past it. The control is a length that exactly matches
+what the line carries, which a bound written `<` instead of `<=` would fail.
+
+**One shared `AssemblyText`, six helpers, subject passed by the caller.** `Text`, `Token`, `Number`,
+`Wide`, `Real`, `Enumeration`, `Hex` and `Count`, with each file supplying its own noun — "An entity
+line", "A sound", "A string table line", "The header", "A property value", "A game event line" — so
+the messages keep the voice each file already had while the logic lives once. `EntityAssembly`'s six
+private helpers from B344 became delegations rather than a second copy.
+
+**Two behaviours were tightened rather than merely re-typed, and both are refusals the old code
+could not make:**
+
+- **`Integer`'s unsigned fallback stayed `uint`, deliberately.** Widening it to `long` would accept
+  a negative below `int.MinValue` and wrap it silently, where `uint.Parse` refused it. The fallback
+  exists for one reason — a field WRITTEN as unsigned coming back — and that is the range it keeps.
+- **Game event `short` and `byte` are checked against their own range.** `modevents.res` documents
+  the widths in its header comment (`short` 16-bit signed, `byte` 8-bit unsigned), and a value
+  outside them does not fit the bits the writer will give it — so accepting one produced a demo that
+  did not say what the text said. `short.Parse` refused those already but as an `OverflowException`,
+  which is the same context-losing shape; the range check names both bounds and the value.
+
+**Tests: 36 across six files**, and a corpus can reach none of them. `PropertyTextRefusalTests` (7),
+`EntityAssemblyMalformedValueTests` (9), `MessageAssemblyRefusalTests` (10),
+`EventAssemblyRefusalTests` (4), `StringTableAssemblyRefusalTests` (4) and two added to
+`DemoAssemblyRefusalTests`. Every suite carries a control that must still parse, because a refusal
+that rejected everything would satisfy all the others.
+
+**What is NOT established:** whether the readable form is total under arbitrary input. These tests
+are hand-picked malformations, not a search — and the text layer has no fuzz target at all, though
+`BitReader`, the varint reader, the container and net messages do. That is the natural next step and
+it now has a property worth asserting: **every malformed input produces `InvalidDataException`, never
+anything else, and never a hang.** Filed rather than done.
+
+**Verification: ten tests sabotaged, ten sensitive**, each reddening only its own claim — including
+the inclusive-bound control, which reddens under `<` where the two range tests stay green.
+
+**One misfire during that verification is worth keeping, because it measured the shared helper's
+blast radius.** A sabotage aimed at `EventAssembly`'s float call site was applied to
+`AssemblyText.Real`'s body instead, and reddened THREE tests across three files at once — the
+intended one, `PropertyTextRefusalTests` and `DemoAssemblyRefusalTests`. That is the trade this
+design makes, and it is the right way round: a change to what a shared helper MEANS is caught by the
+whole suite rather than by one file, which is the case `CLAUDE.md` records as the one no targeted
+check can see. It also confirms the three layers genuinely route through the same helper rather than
+each having grown a copy.

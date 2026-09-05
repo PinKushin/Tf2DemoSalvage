@@ -465,7 +465,8 @@ public static class DemoAssembly
 
         for (int i = 2; i + 1 < parts.Length; i += 2)
         {
-            byte[] bytes = Convert.FromHexString(parts[i + 1]);
+            byte[] bytes = AssemblyText.Hex(
+                parts[i + 1], $"'{parts[i]}' section", $"Command line '{line}'");
             switch (parts[i])
             {
                 case ViewKeyword:
@@ -548,15 +549,18 @@ public static class DemoAssembly
         ClientName = Text(fields, "client"),
         MapName = Text(fields, "map"),
         GameDirectory = Text(fields, "gamedir"),
-        PlaybackTimeSeconds = float.Parse(
-            Text(fields, "playbacktime"), CultureInfo.InvariantCulture),
+        PlaybackTimeSeconds = AssemblyText.Real(
+            Text(fields, "playbacktime"), "'playbacktime' field", HeaderSubject),
         PlaybackTicks = Integer(fields, "playbackticks"),
         PlaybackFrames = Integer(fields, "playbackframes"),
         SignonLengthBytes = Integer(fields, "signonlength"),
     };
 
+    /// <summary>What a refusal about the header calls the thing it was reading.</summary>
+    private const string HeaderSubject = "The header";
+
     private static int Integer(Dictionary<string, string> fields, string name) =>
-        int.Parse(Text(fields, name), CultureInfo.InvariantCulture);
+        AssemblyText.Number(Text(fields, name), $"'{name}' field", HeaderSubject);
 
     private static string Text(Dictionary<string, string> fields, string name) =>
         fields.TryGetValue(name, out string? value)
