@@ -331,6 +331,59 @@ public static class MaterialProxies
         return middle + (half * MathF.Sin((float)(seconds * 2d * Math.PI / period)));
     }
 
+    /// <summary>The engine's default animation rate when a material states none.</summary>
+    /// <remarks>
+    /// <c>m_FrameRate = pKeyValues-&gt;GetFloat( "animatedTextureFrameRate", 15 )</c>
+    /// (<c>baseanimatedtextureproxy.cpp:59</c>). TF2's own materials almost all state 30, so this
+    /// is reached only by the handful that do not — and at one second in, 15 and 30 are different
+    /// pictures.
+    /// </remarks>
+    public const float DefaultAnimationRate = 15f;
+
+    /// <summary>Which frame an animated texture is showing, <c>CBaseAnimatedTextureProxy</c> (B338).</summary>
+    /// <param name="seconds">Playback time since the animation's start.</param>
+    /// <param name="rate"><c>animatedTextureFrameRate</c>.</param>
+    /// <param name="frames">The texture's own <c>numFrames</c>.</param>
+    /// <returns>The frame index, always inside the texture.</returns>
+    /// <remarks>
+    /// **The largest unimplemented proxy in the game — 7,027 shipped materials**, and it is TIME
+    /// driven rather than entity driven: `CAnimatedTextureProxy::GetAnimationStartTime` returns 0
+    /// (<c>animatedtextureproxy.cpp:25-28</c>), so every material sharing a texture shows the same
+    /// frame at the same moment.
+    ///
+    /// <code>
+    /// float deltaTime = gpGlobals->curtime - startTime;
+    /// if (deltaTime &lt; 0.0f) deltaTime = 0.0f;
+    /// float frame    = m_FrameRate * deltaTime;
+    /// int   intFrame = ((int)frame) % numFrames;
+    /// </code>
+    ///
+    /// **Three things a plausible implementation drops.** The truncation is `(int)`, not a round.
+    /// The clamp on negative time is load-bearing HERE in a way it is not in the engine — a client
+    /// clock never goes backwards and this project seeks, and C#'s modulo of a negative is negative,
+    /// so without it the index reads off the FRONT of the file. And a texture declaring no frames
+    /// is refused rather than divided by, which the engine does with an assert.
+    ///
+    /// **What is NOT reproduced: the wrap callback.** `AnimationWrapped` fires when the frame goes
+    /// round, and under `animationNoWrap` the frame is pinned to the last one instead. Nothing here
+    /// subscribes to that callback — it drives `MaterialModify` entities and particle systems — and
+    /// `animationNoWrap` is stated by no shipped material this census has seen.
+    /// </remarks>
+    public static int AnimationFrame(double seconds, float rate, int frames)
+    {
+        if (frames <= 0)
+        {
+            return 0;
+        }
+
+        if (seconds < 0d)
+        {
+            seconds = 0d;
+        }
+
+        return (int)(rate * seconds) % frames;
+    }
+
     /// <summary>One of Valve's arithmetic proxies, <c>mathproxy.cpp</c> (B337).</summary>
     /// <remarks>
     /// **Named rather than dispatched on a string at the call site**, so an unrecognised proxy is

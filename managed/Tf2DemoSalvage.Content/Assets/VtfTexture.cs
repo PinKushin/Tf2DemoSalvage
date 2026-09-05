@@ -79,7 +79,7 @@ public enum VtfFormat
 ///
 /// **There are two ways in, and the difference is who is going to look at the pixels.**
 /// <see cref="VtfTexture.Read"/> keeps DXT compressed and hands the blocks over;
-/// <see cref="VtfTexture.Decode(System.ReadOnlyMemory{byte},int,int)"/> expands them to RGBA for a
+/// <see cref="VtfTexture.Decode(System.ReadOnlyMemory{byte},int,int,int)"/> expands them to RGBA for a
 /// caller that needs texels.
 ///
 /// **This file used to say the compressed path was "a later optimisation" and that the decode "runs
@@ -133,6 +133,8 @@ public sealed class VtfTexture
         int level,
         uint flags,
         IReadOnlyList<ReadOnlyMemory<byte>> levels,
+        int frameCount = 1,
+        int frame = 0,
         VtfFormat lowResolutionFormat = VtfFormat.None,
         int lowResolutionWidth = 0,
         int lowResolutionHeight = 0,
@@ -146,6 +148,8 @@ public sealed class VtfTexture
         Level = level;
         Flags = flags;
         Levels = levels;
+        FrameCount = frameCount;
+        Frame = frame;
         LowResolutionFormat = lowResolutionFormat;
         LowResolutionWidth = lowResolutionWidth;
         LowResolutionHeight = lowResolutionHeight;
@@ -195,6 +199,22 @@ public sealed class VtfTexture
 
     /// <summary>Which mip was decoded; 0 is full size.</summary>
     public int Level { get; }
+
+    /// <summary>How many animation frames the file holds; 1 for a still texture (B338).</summary>
+    /// <remarks>
+    /// **The header's <c>numFrames</c>, which this reader has always read and never exposed.** It
+    /// was needed for the offset arithmetic — a mip stores every frame before the next mip — and
+    /// the value itself was dropped, so a caller could not tell an animated texture from a still
+    /// one.
+    ///
+    /// **`CBaseAnimatedTextureProxy` needs it and asks the texture for it**:
+    /// `int numFrames = pTexture->GetNumAnimationFrames();`, and it refuses to run when that is
+    /// zero or less (`baseanimatedtextureproxy.cpp:93`). The frame it computes is taken modulo this.
+    /// </remarks>
+    public int FrameCount { get; }
+
+    /// <summary>Which animation frame was decoded; 0 unless one was asked for.</summary>
+    public int Frame { get; }
 
     /// <summary>The header's flags word, as written.</summary>
     /// <remarks>
@@ -318,15 +338,22 @@ public sealed class VtfTexture
     /// asking for a 256-pixel version of a 2048-pixel texture is a smaller read and a smaller
     /// upload, not a downscale of something already paid for.
     ///
-    /// Use <see cref="Decode(System.ReadOnlyMemory{byte},int,int)"/> when the caller actually needs texels.
+    /// Use <see cref="Decode(System.ReadOnlyMemory{byte},int,int,int)"/> when the caller actually needs texels.
     /// </remarks>
-    public static VtfTexture Read(ReadOnlyMemory<byte> file, int maximumSize = 0, int face = 0)
+    /// <param name="frame">
+    /// Which animation frame, 0 for a still texture (B338). Clamped into the file's own frame count
+    /// the way <c>CBaseAnimatedTextureProxy</c> takes its frame modulo
+    /// <c>GetNumAnimationFrames()</c> — a caller asking past the end gets a real frame rather than
+    /// a read off the end of the file.
+    /// </param>
+    public static VtfTexture Read(
+        ReadOnlyMemory<byte> file, int maximumSize = 0, int face = 0, int frame = 0)
     {
         long startedAt = System.Diagnostics.Stopwatch.GetTimestamp();
 
         try
         {
-            return DecodeCore(file, maximumSize, face, expand: false);
+            return DecodeCore(file, maximumSize, face, expand: false, frame);
         }
         finally
         {
@@ -348,13 +375,15 @@ public sealed class VtfTexture
     /// against a map's stated reflectivity, or anything that inspects texels. Everything bound for
     /// the GPU should use <see cref="Read"/> instead and hand the blocks over untouched (B149).
     /// </remarks>
-    public static VtfTexture Decode(ReadOnlyMemory<byte> file, int maximumSize = 0, int face = 0)
+    /// <param name="frame">Which animation frame, 0 for a still texture (B338).</param>
+    public static VtfTexture Decode(
+        ReadOnlyMemory<byte> file, int maximumSize = 0, int face = 0, int frame = 0)
     {
         long startedAt = System.Diagnostics.Stopwatch.GetTimestamp();
 
         try
         {
-            return DecodeCore(file, maximumSize, face, expand: true);
+            return DecodeCore(file, maximumSize, face, expand: true, frame);
         }
         finally
         {
@@ -390,7 +419,7 @@ public sealed class VtfTexture
         (DecodeTicks / (double)System.Diagnostics.Stopwatch.Frequency, DecodeCount);
 
     private static VtfTexture DecodeCore(
-        ReadOnlyMemory<byte> file, int maximumSize, int face, bool expand)
+        ReadOnlyMemory<byte> file, int maximumSize, int face, bool expand, int frame = 0)
     {
         ReadOnlySpan<byte> span = file.Span;
 
@@ -404,6 +433,16 @@ public sealed class VtfTexture
         int height = BinaryPrimitives.ReadUInt16LittleEndian(span[18..]);
         uint flags = BinaryPrimitives.ReadUInt32LittleEndian(span[20..]);
         int frames = BinaryPrimitives.ReadUInt16LittleEndian(span[24..]);
+
+        // **Taken modulo the file's own count, as the proxy takes it** (B338):
+        // `int intFrame = ((int)frame) % numFrames;` (`baseanimatedtextureproxy.cpp:110`). A caller
+        // asking for frame 40 of a 16-frame texture gets frame 8 rather than a read past the end —
+        // and the guard matters because the frame comes from a clock, not from a bound.
+        //
+        // A file declaring zero frames is treated as one. The engine refuses the proxy outright
+        // there (`if ( numFrames <= 0 )`), but this reader is also the one every still texture goes
+        // through, and a still texture's own header says 1.
+        frame = frames > 0 ? frame % frames : 0;
         VtfFormat format = ToFormat(BinaryPrimitives.ReadInt32LittleEndian(span[52..]));
         int mipCount = span[56];
         VtfFormat lowResFormat = ToFormat(BinaryPrimitives.ReadInt32LittleEndian(span[57..]));
@@ -499,9 +538,10 @@ public sealed class VtfTexture
         int levelHeight = MipSize(height, level);
         int bytes = SizeOf(format, levelWidth, levelHeight);
 
-        // Within one mip: frame, then face. Frame zero is the only one this reads, so the frame
-        // term is zero and the face is the whole of it.
-        at += face * bytes;
+        // **Within one mip: frame, then face** — so a frame's stride is every face of it (B338).
+        // This carried the arithmetic with the frame term hardcoded to zero and said so; the
+        // 7,027 shipped materials running `AnimatedTexture` are why it is now a parameter.
+        at += ((frame * faces) + face) * bytes;
 
         if (at < 0 || (long)at + bytes > span.Length)
         {
@@ -528,6 +568,7 @@ public sealed class VtfTexture
 
             return new VtfTexture(
                 levelWidth, levelHeight, format, mipCount, [], level, flags, chain,
+                frames, frame,
                 lowResFormat, lowResWidth, lowResHeight, thumbnail);
         }
 
@@ -535,6 +576,7 @@ public sealed class VtfTexture
 
         return new VtfTexture(
             levelWidth, levelHeight, format, mipCount, pixels, level, flags, [],
+            frames, frame,
             lowResFormat, lowResWidth, lowResHeight, thumbnail);
     }
 

@@ -135,6 +135,13 @@ public sealed class MaterialProbe : IProbe
             $"{vtf}: {image.Width.ToString(CultureInfo.InvariantCulture)}"
             + $"x{image.Height.ToString(CultureInfo.InvariantCulture)}, "
             + $"mean RGBA ({red / counted:0} {green / counted:0} {blue / counted:0} "
-            + $"{alpha / counted:0})");
+            + $"{alpha / counted:0})"
+
+            // **The frame count, because an animated texture is invisible without it** (B338). A
+            // sixteen-frame fire sheet and a still texture print identically otherwise, and 7,027
+            // shipped materials run `AnimatedTexture` over one.
+            + (image.FrameCount > 1
+                ? $", {image.FrameCount.ToString(CultureInfo.InvariantCulture)} animation frames"
+                : string.Empty));
     }
 }

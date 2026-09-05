@@ -646,7 +646,12 @@ run Tf2DemoSalvage.Animation.Tests animation 111
 # asymmetry of Subtract, Multiply, Divide and its zero guard that yields the NUMERATOR, and Clamp
 # with the bound swap that runs before any clamping. Together these outrank everything this project
 # evaluated: Multiply on 4,654 shipped materials and Equals on 3,870, against Sine on 322.
-run Tf2DemoSalvage.Scene.Tests    scene     475
+# 475 -> 481: `CBaseAnimatedTextureProxy`'s frame arithmetic (B338), the largest unimplemented
+# proxy in the game at 7,027 materials. Six: the truncation (not a round), the modulo wrap, the
+# clamp on negative time — load-bearing HERE where it is not in the engine, because a client clock
+# never goes backwards and this project seeks, and C#'s modulo of a negative is negative — the
+# refusal of a texture declaring no frames, the still-texture case, and the two rates TF2 uses.
+run Tf2DemoSalvage.Scene.Tests    scene     481
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -1013,7 +1018,12 @@ run Tf2DemoSalvage.Presentation.Tests presentation 440
 # `$phongtint` makes, the rim mask's three-way conjunction failed each way, and the rim exponent's
 # clamp to one — plus two that read a material TF2 actually SHIPS, because a synthetic fixture is
 # text this project wrote and cannot notice that no real material spells the parameter that way.
-run Tf2DemoSalvage.Content.Tests  content   1010
+# 1010 -> 1014: reading a VTF's animation frames (B338). Four, against TF2's own fire overlay —
+# 64x64 DXT1, 121 frames — because the question is whether the offset lands where Valve's writer
+# put the frame, and a hand-built fixture would check this project's arithmetic against itself. The
+# one that can fail is `Decode_TwoDifferentFrames_ReturnDifferentPixels`: a reader still returning
+# frame zero satisfies every count assertion and fails only that.
+run Tf2DemoSalvage.Content.Tests  content   1014
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
