@@ -718,8 +718,20 @@ public sealed class VmtMaterial
     /// <remarks>
     /// <c>SHADER_PARAM( RIMLIGHTEXPONENT, SHADER_PARAM_TYPE_FLOAT, "4.0", … )</c> — a different
     /// default from <see cref="PhongExponent"/>'s 5, and applied to the same <c>L·R</c>.
+    ///
+    /// **Clamped to at least one, which we were not doing** (B334). The helper is explicit about
+    /// it and says why in as many words:
+    ///
+    /// <code>
+    /// vSpecularTint[3] = params[info.m_nRimLightPower]-&gt;GetFloatValue();
+    /// vSpecularTint[3] = max(vSpecularTint[3], 1.0f);	// Make sure this is at least 1
+    /// </code>
+    ///
+    /// (<c>skin_dx9_helper.cpp:843-844</c>.) Below one the exponent opens the rim out into a wash
+    /// across the whole lit side rather than a line along the silhouette, and at zero
+    /// <c>pow(x, 0)</c> is 1 — a uniform flood of rim colour over the entire model.
     /// </remarks>
-    public float RimLightExponent => Number("$rimlightexponent", 4f);
+    public float RimLightExponent => Math.Max(Number("$rimlightexponent", 4f), 1f);
 
     /// <summary>How much of the surroundings the rim picks up.</summary>
     /// <remarks>
@@ -732,10 +744,143 @@ public sealed class VmtMaterial
 
     /// <summary>How tight the highlight is; higher is smaller and sharper.</summary>
     /// <remarks>
-    /// <c>SHADER_PARAM( PHONGEXPONENT, SHADER_PARAM_TYPE_FLOAT, "5.0", … )</c> — broad rather than
-    /// tight, which is TF2's illustrative look rather than a polished one.
+    /// <c>SHADER_PARAM( PHONGEXPONENT, SHADER_PARAM_TYPE_FLOAT, "5.0", … )</c>, and **that declared
+    /// default is not the one the shader uses** (B334). This answered 5 for a material stating no
+    /// exponent, which is what the parameter declares and what nothing reads.
+    ///
+    /// The helper writes <c>-1</c> and replaces it only when the VMT states a value ABOVE zero
+    /// (<c>skin_dx9_helper.cpp:815-828</c>), and with no <c>$phongexponenttexture</c> it binds
+    /// <c>TEXTURE_WHITE</c> to that sampler (<c>:560-567</c>). The shader then takes its other
+    /// branch:
+    ///
+    /// <code>
+    /// fSpecExp = (g_EyePos_SpecExponent.w &gt;= 0.0) ? g_EyePos_SpecExponent.w
+    ///                                              : (1.0f + 149.0f * vSpecExpMap.r);
+    /// </code>
+    ///
+    /// With white in the sampler that is <c>1 + 149 × 1</c>, so the effective default is **150** —
+    /// a tight point where 5 is a broad wash, a factor of thirty apart. Seven of cp_process's 330
+    /// phong materials state no exponent and were all being drawn with the wrong one.
+    ///
+    /// **A declared default is what the material system would answer, not what the shader uses**,
+    /// and the neighbouring <c>$phongtint</c> proves the general point: its declared default is the
+    /// nonsensical <c>"5.0"</c> for a VEC3, so if declared defaults reached the shader every phong
+    /// material would carry a fivefold white tint.
+    ///
+    /// See <see cref="PhongExponentFromTexture"/> for the case where a texture supplies it instead.
     /// </remarks>
-    public float PhongExponent => Number("$phongexponent", 5f);
+    public float PhongExponent =>
+        StatesAPositivePhongExponent ? Number("$phongexponent", 0f) : ExponentFromWhite;
+
+    /// <summary>What the shader computes when the exponent sampler holds white.</summary>
+    /// <remarks>
+    /// <c>1.0f + 149.0f * 1.0f</c>. Named rather than written as 150 so the arithmetic that
+    /// produces it stays visible beside the branch that produces it.
+    /// </remarks>
+    private const float ExponentFromWhite = 1f + (149f * 1f);
+
+    /// <summary>Whether the VMT states an exponent the helper would honour.</summary>
+    /// <remarks>
+    /// Both halves matter. The helper tests <c>IsDefined()</c>, so an absent parameter is not the
+    /// declared default here; and it tests <c>fValue &gt; 0.f</c>, so a stated zero is NOT an
+    /// exponent of zero but a request for the map.
+    /// </remarks>
+    private bool StatesAPositivePhongExponent =>
+        Value("$phongexponent") is not null && Number("$phongexponent", 0f) > 0f;
+
+    /// <summary>The per-texel exponent map, or null for a material without one.</summary>
+    /// <remarks>
+    /// <c>SHADER_PARAM( PHONGEXPONENTTEXTURE, SHADER_PARAM_TYPE_TEXTURE, … )</c>. Three channels,
+    /// three unrelated jobs: red is the exponent, green selects how much of the albedo tints the
+    /// highlight, and alpha masks the rim. Sampled on the BASE texture's coordinates
+    /// (<c>skin_ps20b.fxc:253</c>), not a set of its own.
+    /// </remarks>
+    public string? PhongExponentTexture => Value("$phongexponenttexture");
+
+    /// <summary>The multiplier <c>$phongexponentfactor</c> applies to the map, or null.</summary>
+    /// <remarks>
+    /// <c>fSpecExp = ( 1.0f + g_EyePos_SpecExponent.w * vSpecExpMap.r )</c> under the
+    /// <c>PHONG_USE_EXPONENT_FACTOR</c> combo (<c>skin_ps20b.fxc:266</c>) — the material's own
+    /// multiplier in place of the fixed 149.
+    ///
+    /// **It is gated on being non-zero, not on being stated**:
+    /// <c>const bool bHasPhongExponentFactor = flPhongExponentFactor != 0.0f;</c>
+    /// (<c>skin_dx9_helper.cpp:274</c>), which matters because its declared default IS <c>"0.0"</c>.
+    ///
+    /// **And it overrides `$phongexponent` outright** rather than losing to it: the helper's
+    /// `if ( bHasPhongExponentFactor )` takes the whole branch, so a material stating both a factor
+    /// and an exponent uses the factor and the map (<c>:815-817</c>). 60 of the 30,684 materials
+    /// TF2 ships state one; the values run to 255 and 75.
+    /// </remarks>
+    public float? PhongExponentFactor =>
+        Number("$phongexponentfactor", 0f) is var factor && factor != 0f ? factor : null;
+
+    /// <summary>Whether the exponent comes from the map's red channel rather than a constant.</summary>
+    /// <remarks>
+    /// **The constant wins when it is positive**, which is the way round a naive implementation
+    /// gets backwards — *"Nonzero value in material overrides map channel"*
+    /// (<c>skin_dx9_helper.cpp:825</c>).
+    ///
+    /// **A stated <see cref="PhongExponentFactor"/> takes the map whatever the exponent says**,
+    /// because the helper branches on it first.
+    /// </remarks>
+    public bool PhongExponentFromTexture =>
+        PhongExponentTexture is not null &&
+        (PhongExponentFactor is not null || !StatesAPositivePhongExponent);
+
+    /// <summary>Whether the highlight is tinted by the albedo through the map's green channel.</summary>
+    /// <remarks>
+    /// <c>bHasPhongTintMap = bHasSpecularExponentTexture &amp;&amp; $phongalbedotint != 0</c>
+    /// (<c>skin_dx9_helper.cpp:252</c>), and then only when the stated tint is all zeros:
+    ///
+    /// <code>
+    /// if ( (vSpecularTint[0] == 0.0f) &amp;&amp; (vSpecularTint[1] == 0.0f) &amp;&amp; (vSpecularTint[2] == 0.0f) )
+    /// {
+    ///     if ( bHasPhongTintMap ) vSpecularTint[0] = -1;   // tell the shader to read the map
+    ///     else                    vSpecularTint[0..2] = 1; // otherwise just tint with white
+    /// }
+    /// </code>
+    ///
+    /// **An all-zero <c>$phongtint</c> is a REQUEST, not a colour.** Read literally it would
+    /// multiply every highlight by black.
+    /// </remarks>
+    public bool PhongTintFromAlbedo =>
+        PhongExponentTexture is not null &&
+        Flag("$phongalbedotint") &&
+        PhongTint is (0f, 0f, 0f);
+
+    /// <summary>Whether the rim term is masked by the exponent map's alpha.</summary>
+    /// <remarks>
+    /// <c>bHasRimMaskMap = bHasSpecularExponentTexture &amp;&amp; bHasRimLight &amp;&amp;
+    /// $rimmask != 0</c> (<c>skin_dx9_helper.cpp:263</c>). Any one missing leaves
+    /// <c>g_RimMaskControl</c> at zero, and <c>lerp(1, a, 0)</c> is 1 — which is why
+    /// <c>$rimmask</c> has counted as inert rather than unimplemented for as long as there was no
+    /// exponent texture to read.
+    /// </remarks>
+    public bool MasksRimByExponentAlpha =>
+        PhongExponentTexture is not null && HasRimLight && Flag("$rimmask");
+
+    /// <summary>How much of the rim the exponent map's alpha masks — <c>g_RimMaskControl</c>.</summary>
+    /// <remarks>
+    /// **A float, not a flag**, and the difference is Valve's: the gate is an INTEGER test and the
+    /// value written is a FLOAT.
+    ///
+    /// <code>
+    /// bHasRimMaskMap = … &amp;&amp; ( params[info.m_nRimMask]-&gt;GetIntValue() != 0 );
+    /// …
+    /// vRimMaskControl[0] = bHasRimMaskMap ? params[info.m_nRimMask]-&gt;GetFloatValue() : 0.0f;
+    /// </code>
+    ///
+    /// (<c>skin_dx9_helper.cpp:263, 856</c>), and the shader lerps with it —
+    /// <c>lerp( 1.0f, vSpecExpMap.a, g_RimMaskControl )</c>. So <c>$rimmask 2</c> is a legal
+    /// over-mask past the alpha, while <c>$rimmask 0.5</c> fails the integer gate outright and
+    /// masks nothing. Reading it as a boolean would collapse the first case and get the second
+    /// right by accident.
+    ///
+    /// 1,942 of the shipped materials state one; 1,643 of those say 1.
+    /// </remarks>
+    public float RimMaskControl =>
+        MasksRimByExponentAlpha ? Number("$rimmask", 0f) : 0f;
 
     /// <summary>How far the highlight is pushed past the light's own brightness.</summary>
     /// <remarks>

@@ -22774,3 +22774,81 @@ whole purpose is to prove the reader works.
 `Read_WithASequenceNumberTheModelDoesNotHave_IsEmpty` passed on CI throughout, because an empty
 model has no sequence 100,000 either. It now skips. A green test on a machine that cannot run it
 is not evidence of anything.
+
+### B334 FIXED 2026-09-04: `$phongexponenttexture` was unread, and with it the exponent default was wrong by a factor of thirty
+
+**The gap was filed as one parameter and was four**, plus a divergence nobody had looked for.
+`docs/CONFORMANCE.md` said *"what remains of it is `$phongexponenttexture` — the per-texel exponent
+— and with it `$phongalbedotint`, which reads its tint from that texture's green channel and so
+cannot do anything without one"*. Both true. What the entry did not say is that `$rimmask` was in
+the same position, that `$phongexponentfactor` exists at all, and that the exponent this project
+used when a material states none was never the engine's.
+
+**Measured first** (`vmt-param`, a probe written for the question): of the 30,684 materials TF2
+ships, **1,862 name an exponent texture**, 1,942 name `$rimmask`, 447 name `$phongalbedotint` and 60
+name `$phongexponentfactor`. Every exponent texture is on a `VertexLitGeneric`, and they are
+overwhelmingly cosmetics, weapons and bots — which is to say what a demo draws on every player. The
+control, `$basetexture`, came back at 30,216.
+
+**One image, three unrelated jobs** (`skin_ps20b.fxc:253-276`):
+
+```hlsl
+float4 vSpecExpMap = tex2D( SpecExponentSampler, i.baseTexCoordDetailTexCoord.xy );
+fRimMask      = lerp( 1.0f, vSpecExpMap.a, g_RimMaskControl );
+fSpecExp      = (g_EyePos_SpecExponent.w >= 0.0) ? g_EyePos_SpecExponent.w
+                                                 : (1.0f + 149.0f * vSpecExpMap.r);
+vSpecularTint = lerp( float3(1,1,1), baseColor.rgb, vSpecExpMap.g );
+vSpecularTint = (g_SpecularTint.r >= 0.0) ? g_SpecularTint.rgb : vSpecularTint;
+```
+
+**Three sentinels, and every one reads backwards from the obvious implementation.**
+
+- The exponent constant defaults to **-1** and a stated `$phongexponent` replaces it only when
+  **above zero** — *"Nonzero value in material overrides map channel"* (`skin_dx9_helper.cpp:825`).
+  So the constant WINS over the texture, which is the way round an implementation preferring the
+  texture would get wrong on most materials that have both.
+- An **all-zero `$phongtint` is a request, not a colour**: the helper tests
+  `(r == 0 && g == 0 && b == 0)` and only then writes `r = -1` to mean "read the map's green"
+  (`:863-874`). Reading it literally multiplies every highlight by black.
+- `$rimmask` is gated on `GetIntValue() != 0` and written as `GetFloatValue()` (`:263, 856`), so
+  `$rimmask 2` legitimately over-masks and `$rimmask 0.5` fails the gate and masks nothing.
+
+**And Valve's own comment above the exponent line is stale** — *"If the exponent passed in as a
+constant is zero, use the value from the map"* — where the code tests `>= 0.0`. It is NEGATIVE that
+selects the map; an explicit zero takes the constant path with an exponent of zero.
+
+**The divergence that was not in the filed gap: the default exponent is 150, not 5.** With no
+exponent texture the helper binds `TEXTURE_WHITE` to that sampler
+(`skin_dx9_helper.cpp:560-567`), so the shader's other branch computes `1 + 149 × 1`. This project
+answered `Number("$phongexponent", 5f)` — the parameter's own `SHADER_PARAM` default, which the
+engine never reads. **A factor of thirty**: 5 is a broad wash and 150 is a tight point.
+
+**Evidence: read-from-source, and the general claim is falsifiable from the same file.** If declared
+defaults reached the shader, `$phongtint`'s — the nonsensical `"5.0"` for a VEC3 — would give every
+phong material a fivefold white tint. Measured on cp_process_final: 25 of 412 materials have phong
+and exactly 1 states no exponent, so this is one material on that map and an unknown number on
+others.
+
+**Implemented keeping Valve's encoding rather than adding flags beside it**, which is parity and is
+also the one thing that could not cause the constant-buffer regression this project has shipped
+FOUR times: a negative `phongControl.x` carries "read the map" and its magnitude is the scale (149,
+or `$phongexponentfactor`), a negative `phongTint.r` carries "tint by albedo", and only
+`g_RimMaskControl` needed a slot — `rimControl.w`, which was already spare. **No float4 was
+appended.**
+
+**The exponent map binds flat white when a material has none**, because that is what the engine
+substitutes and because an unbound D3D11 view reads ZERO — which would give `1 + 149 × 0 = 1` and
+put a full-strength highlight on every unlit face of every material without one. `_flatWhite`, not
+`_white`, which despite its name is Valve's magenta chequer.
+
+**What is NOT established.** cp_process_final resolves **zero** exponent maps, so no map-level test
+exercises the texture itself; the assertion there is the parallel-list plumbing, verified by
+sabotage. `PhongExponentTextureReadingTests` reads a real shipped cosmetic instead, and what it
+reports is worth recording: `jump_fortress_third` states `$phongexponent 10` BESIDE its exponent
+texture, so the constant wins and the texture's actual job on that material is the rim mask. How
+often that is true across the 1,862 is not measured.
+
+**And the picture is not verified.** A third-person capture on the f12 demo at tick 30000 renders
+correctly with no regression visible, but it is an indoor shot of a soldier whose material states
+`$phongexponent 20` — unchanged by any of this. Whether the one material now at 150 looks right is
+not something that frame can answer.

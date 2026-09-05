@@ -43,6 +43,7 @@ public sealed class MaterialTable
     private readonly List<MapTexture?> _lightWarps = [];
 
     private readonly List<MapTexture?> _selfIllumMasks = [];
+    private readonly List<MapTexture?> _phongExponentMaps = [];
     private readonly List<IReadOnlyList<MaterialProxy>> _proxies = [];
 
     /// <summary>How many materials the table holds.</summary>
@@ -94,6 +95,17 @@ public sealed class MaterialTable
     /// </summary>
     public IReadOnlyList<MapTexture?> SelfIllumMasks => _selfIllumMasks;
 
+    /// <summary>
+    /// The phong exponent map for each material, null where the engine binds white instead.
+    /// </summary>
+    /// <remarks>
+    /// Three channels, three jobs — red the exponent, green the albedo tint, alpha the rim mask
+    /// (B334). Null and white are NOT the same to a reader here: white is what the engine
+    /// substitutes, and reproducing that substitution is the renderer's business rather than this
+    /// table's.
+    /// </remarks>
+    public IReadOnlyList<MapTexture?> PhongExponentMaps => _phongExponentMaps;
+
     /// <summary>The proxies each material runs, empty for the great majority.</summary>
     public IReadOnlyList<IReadOnlyList<MaterialProxy>> Proxies => _proxies;
 
@@ -119,6 +131,7 @@ public sealed class MaterialTable
         _phong.Add(resolved.Phong);
         _lightWarps.Add(resolved.LightWarp);
         _selfIllumMasks.Add(resolved.SelfIllumMask);
+        _phongExponentMaps.Add(resolved.PhongExponentMap);
         _proxies.Add(resolved.Proxies ?? []);
 
         // **The shader name, kept because "no base texture" is only a fault for SOME shaders**
