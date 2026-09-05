@@ -1002,7 +1002,7 @@ not the way the engine draws it".
 | `C_FuncForceField` | **B359** — stayed drawn after a team win, a rule its sibling already obeyed |
 | `C_BaseObject` | not a divergence: dispatch plus `HighlightBuildPoints`, which returns without a local player holding a builder |
 | `C_FuncOccluder` | `Assert(0); return 0;` — never drawn. **Measured absent** from five maps, control `areaportal` = 32 on cp_process |
-| `C_BreakableSurface` | its draw differs only once BROKEN. **TF2 has no breakable geometry** — the owner's point, and zero `func_breakable*` across six maps confirms it; broken windows are authored into the brushwork |
+| `C_BreakableSurface` | its draw differs only once BROKEN, and nothing here can ever reach that — see below |
 | `C_TFAmmoPack` | `DrawModel` is debug-only. Its `ValidateModelIndex` resolves through `TranslateEffectForVisionFilter`, so the only divergence is a Pyrovision model swap — the vision filter for the third time |
 | `CCaptureFlag` | one branch, and it is `TF_FLAGTYPE_PLAYER_DESTRUCTION`. No `pd_` map in the corpus |
 | `CSniperDot` | has a real branch — not drawn in third person — but is a sprite effect rather than a model, so nothing in our prop path draws it either way. A missing feature, not a wrong one |
@@ -1017,3 +1017,26 @@ the engine's own `DrawModel` says it should not look like that.
 **Where this sweep does NOT reach**, stated so the next pass starts somewhere new: a class that
 draws correctly through `DrawModel` and is wrong in `OnDataChanged`, in an interpolator, or in a
 proxy. `C_TFAmmoPack` is the near miss — its `DrawModel` is clean and its model resolution is not.
+
+### `C_BreakableSurface`: registered, unused, and unreachable — three different claims
+
+Worth separating, because the first draft of the table above collapsed them into *"TF2 has no
+breakable geometry"* and that is the one of the three that is not quite true.
+
+- **The class is registered.** `CBreakableSurface` is in TF2's own networked class list with a full
+  send table — `m_nNumWide`, `m_nNumHigh`, `m_bIsBroken`, `m_RawPanelBitVec`, the shatter grid —
+  measured from `z1800`'s `dem_datatables`, with `CFuncAreaPortalWindow` as the control. So it is
+  compiled into the game, inherited from Source along with the rest of the HL2 entity set.
+- **No map uses it.** Zero `func_breakable_surf` across the six maps checked directly.
+- **Nothing here could read one anyway.** The owner: *"i have no demos from surf maps"*, and
+  *"nor any installed"* — the 234 installed maps are stock. A custom map could place the entity,
+  since the code is present; none that this project will ever open does.
+
+**So the correct statement is the third, not the first.** The owner's point stands on the axis that
+matters — broken windows in TF2 are authored into the brushwork, and no demo this viewer reads can
+contain a shattering one — and the reason to write it precisely is that "the engine cannot do X" and
+"no content asks it to" fail differently later. If a surf demo ever arrives, the class is there and
+this entry says what it would need.
+
+**A sweep of all 234 installed maps was started and abandoned as pointless** once the maps were known
+to be stock: it would have measured the same six-map answer 234 times.
