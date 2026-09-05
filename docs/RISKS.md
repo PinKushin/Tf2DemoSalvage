@@ -23078,3 +23078,58 @@ explicit test in each handler. Recorded in
 `TF_COND_URINE` at all** (B336). `AnimatedTexture` at 7,027 materials is the largest remaining, and
 needs multi-frame VTF — the reader currently states *"Frame zero is the only one this reads"*.
 `PlayerProximity`, `PlayerTeamMatch` and `LessOrEqual` are still unevaluated.
+
+### B338 PART DONE 2026-09-05: the largest unimplemented proxy, and the reader that only ever read frame zero
+
+**`AnimatedTexture` runs on 7,027 shipped materials**, more than any other proxy this project does
+not evaluate, and 6,735 of those animate `$detail` through `$detailframe` at 30 frames a second.
+The file they animate is `effects/tiledfire/fireLayeredSlowTiled512.vtf` — TF2's fire overlay, and
+therefore the same effect as `BurnLevel` (B336): that proxy decides how much fire to show and this
+one decides which frame of it.
+
+**It is TIME-driven, not entity-driven**, which is why it belongs with `Sine` and `TextureScroll`
+rather than with the entity-state proxies filed as needing an entity:
+`CAnimatedTextureProxy::GetAnimationStartTime` returns **0** (`animatedtextureproxy.cpp:25-28`), so
+every material sharing a texture shows the same frame at the same moment.
+
+**The reader had always read frame zero and said so.** `VtfTexture` carried the offset arithmetic
+with a comment — *"Within one mip: frame, then face. Frame zero is the only one this reads, so the
+frame term is zero"* — and never exposed `numFrames` either, so a caller could not tell an animated
+texture from a still one. Both are now parameters, and the frame is taken modulo the file's own
+count exactly as the proxy takes it.
+
+**Measured, and the measurement is the test's control**: the fire sheet is 64x64 DXT1 with **121
+frames**, and every frame's mean colour differs. A reader whose offset were still zero would return
+121 identical images and satisfy every assertion about counts — which is why the test that matters
+asserts two frames differ, and why sabotaging the offset back to zero reddens that one and only
+that one.
+
+**Three details of the proxy a plausible implementation drops**, each pinned: the truncation is
+`(int)` and not a round; a texture declaring no frames is REFUSED rather than divided by; and time
+before the start is clamped — load-bearing here in a way it is not in the engine, because a client
+clock never runs backwards and this project seeks, and C#'s modulo of a negative is negative, so
+without the clamp the index reads off the FRONT of the file.
+
+**Not reproduced: the wrap callback.** `AnimationWrapped` fires when the frame goes round, and
+under `animationNoWrap` the frame pins to the last one instead. Nothing here subscribes — it drives
+`MaterialModify` entities and particle systems — and no shipped material this census has seen
+states `animationNoWrap`.
+
+## What remains, and the numbers that decide the design
+
+**The frames are not uploaded, so nothing animates on screen yet.** `_details` holds ONE shader
+resource view per material, and the draw would need to bind the frame the proxy chose.
+
+**The design question is what to key the upload on, and the measurement answers it.** A per-MATERIAL
+upload decodes 121 frames for every material that animates the same file — and 6,735 materials
+animate that one file. The engine does not: TF2 loads `fireLayeredSlowTiled512.vtf` once and every
+material points at the same `ITexture`. **So the frames belong in a cache keyed by texture PATH**,
+not in the per-material lists beside `_details`, and that is a different shape from every other
+texture this renderer uploads.
+
+Cost at that shape: 121 frames of 64x64 DXT1 with mips is roughly 330 KB, once, for the whole map.
+At the per-material shape it would be 330 KB times however many player materials a demo loads.
+
+**And the picture still could not be checked afterwards** — the fire overlay is blended by
+`$detailblendfactor`, which `BurnLevel` drives, and B336 records that no demo in the corpus both
+contains burning and uses a map that is installed.
