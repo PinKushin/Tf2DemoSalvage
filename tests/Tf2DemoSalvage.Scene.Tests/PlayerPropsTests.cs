@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -187,6 +188,10 @@ public sealed class PlayerPropsTests
 
         public string? Hands(int playerClass) =>
             playerClass == SoldierClass ? "models/weapons/c_models/c_soldier_arms.mdl" : null;
+
+        // Nothing, so these tests keep measuring what they were written to measure — the wardrobe
+        // half is `PlayerBodygroupWiringTests`, with a stub of its own.
+        public ItemBodygroups BodygroupsOf(int itemDefinitionIndex) => ItemBodygroups.None;
     }
 
     [Test]
@@ -204,7 +209,7 @@ public sealed class PlayerPropsTests
             [DisguisedSpy()],
             drawn,
             new Appearance(),
-            (model, group, value) =>
+            (model, group, value, _) =>
             {
                 asked.Add((model, group, value));
                 return 1;
@@ -230,7 +235,7 @@ public sealed class PlayerPropsTests
             [DisguisedSpy() with { Conditions = default }],
             drawn,
             new Appearance(),
-            (_, group, _) =>
+            (_, group, _, _) =>
             {
                 asked.Add(group);
                 return 1;
@@ -261,10 +266,11 @@ public sealed class PlayerPropsTests
 
     /// <summary>A model with no body parts at all, which is what most of these tests want.</summary>
     /// <remarks>
-    /// **Zero is the honest answer for a model that has not been loaded**, not a stand-in: a body
-    /// number cannot be computed without the .mdl, and the production resolver says the same thing
-    /// on the first frame a model is seen. Tests that care about the mask supply their own.
+    /// **The body unchanged is the honest answer for a model that has not been loaded**, not a
+    /// stand-in: a part's index cannot be resolved without the .mdl, and the production resolver
+    /// says the same thing on the first frame a model is seen. Tests that care about the mask
+    /// supply their own.
     /// </remarks>
-    private static int NoBodygroups(string model, string group, int value) => 0;
-
+    private static readonly Func<string, string, int, int, int> NoBodygroups =
+        (_, _, _, body) => body;
 }

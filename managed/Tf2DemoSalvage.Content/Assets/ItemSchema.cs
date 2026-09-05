@@ -107,6 +107,40 @@ public sealed class ItemSchema
         /// <summary>Its <c>attached_models</c> and <c>attached_models_festive</c>, in schema order.</summary>
         public List<AttachedModel> AttachedModels { get; } = [];
 
+        /// <summary>The wearer's body parts it changes — <c>player_bodygroups</c> (B352).</summary>
+        /// <remarks>
+        /// **How a hat removes the head it sits on.** `CEconEntity::UpdateBodygroups`
+        /// (<c>econ_entity.cpp:2024</c>) resolves each name on the WEARER and sets that group, so a
+        /// cosmetic hides the default part it replaces rather than sitting on top of it.
+        ///
+        /// **Keyed by name because the engine resolves by name** — `FindBodygroupByName` — and the
+        /// index differs per class model. A dictionary rather than a list because a bodygroup is one
+        /// state per name: unlike <see cref="AttachedModels"/>, there is nothing to accumulate.
+        /// </remarks>
+        public Dictionary<string, int> PlayerBodygroups { get; } =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Whether it only changes them while it is the active weapon (B352).</summary>
+        /// <remarks>
+        /// **`hide_bodygroups_deployed_only`, which is why the Fists of Steel only enlarge the
+        /// hands while they are out.** It selects which of the engine's two weapon passes handles
+        /// the item, and the second one skips it unless the player is holding it:
+        ///
+        /// <code>
+        ///   if ( bHideBodygroupsDeployedOnly != bHandleDeployedBodygroups ) continue;
+        ///   if ( bHideBodygroupsDeployedOnly &amp;&amp; pPlayer-&gt;GetActiveWeapon() != pWpn ) continue;
+        /// </code>
+        ///
+        /// (<c>tf_weaponbase.cpp:6222</c>.) Eight shipped items declare it and all eight are
+        /// weapons — six pairs of fists, plus the Short Circuit.
+        ///
+        /// **Null rather than false when the item does not say**, so a prefab's answer is
+        /// distinguishable from an item's own denial: the schema writes the key on the item and on
+        /// prefabs like <c>weapon_gru</c>, and a bool defaulting to false makes the first entry in
+        /// the chain look like a deliberate "no".
+        /// </remarks>
+        public bool? HideBodygroupsDeployedOnly { get; set; }
+
         /// <summary>Its definition attributes by NAME, from both shipped forms.</summary>
         /// <remarks>
         /// The named block (<c>"attributes" { "damage bonus" { … "value" "1.1" } }</c>) and the
@@ -182,6 +216,7 @@ public sealed class ItemSchema
         string visualsTeam = string.Empty;
         bool inVisuals = false;
         bool inAttached = false;
+        bool inBodygroups = false;
         bool attachedIsFestive = false;
         string attachedModel = string.Empty;
         int attachedFlags = AttachedModel.MaskAll;
@@ -294,6 +329,22 @@ public sealed class ItemSchema
                     attachedIsFestive =
                         key.EndsWith("_festive", StringComparison.OrdinalIgnoreCase);
 
+                    // **A sibling of `attached_models`, at the same depth** (B352). Tracked with its
+                    // own flag rather than by testing the key again below, because the level-5 case
+                    // has to know which block it is inside: an attachment's children are numbered
+                    // and a bodygroup's are named.
+                    inBodygroups =
+                        key.Equals("player_bodygroups", StringComparison.OrdinalIgnoreCase);
+
+                    break;
+
+                // **`"hat" "1"` — a body part's name and the state to put it in.** The engine reads
+                // the pair through `GetModifiedBodyGroup`, which hands back both, and applies it
+                // only when the value matches the pass it is running (`econ_entity.cpp:2046`).
+                case 5 when entry is not null && inBodygroups && value is not null
+                    && int.TryParse(
+                        value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int state):
+                    entry.PlayerBodygroups[key] = state;
                     break;
 
                 // Each numbered child of the block is one attachment. Its fields arrive next, so
@@ -797,6 +848,101 @@ public sealed class ItemSchema
     /// <summary><c>TF_TEAM_BLUE</c>, matching <c>SceneTeams.Blu</c>.</summary>
     private const int BluTeam = 3;
 
+    /// <summary>The wearer's body parts an item changes, prefabs included.</summary>
+    /// <param name="definitionIndex">The item, as <c>m_iItemDefinitionIndex</c> gives it.</param>
+    /// <returns>Each bodygroup NAME and the state to put it in; empty when the item changes none.</returns>
+    /// <remarks>
+    /// **747 shipped items declare one** — `hat` on 457, `headphones` on 306, then `grenades`,
+    /// `head`, `dogtags`, `shoes_socks` and `backpack`. Those are real body parts on a class model
+    /// whose alternative 1 carries NO MESH, so setting one removes the default part a cosmetic
+    /// replaces (B352).
+    ///
+    /// **The item's own entry wins over its prefab's for the same name**, which is `model_player`'s
+    /// rule rather than `attached_models`': a bodygroup is a single state per name, so there is
+    /// nothing to accumulate and an item saying `"hat" "0"` under a prefab saying `"hat" "1"` is
+    /// deliberately putting the part back.
+    /// </remarks>
+    public IReadOnlyDictionary<string, int> PlayerBodygroupsFor(int definitionIndex)
+    {
+        if (!_items.TryGetValue(definitionIndex, out Entry? item))
+        {
+            return new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        Dictionary<string, int> found = new(StringComparer.OrdinalIgnoreCase);
+
+        CollectBodygroups(item, found, LongestChain);
+
+        return found;
+    }
+
+    /// <summary>Gathers an entry's bodygroups, then its prefabs' where it is silent.</summary>
+    /// <remarks>
+    /// **Nearest definition wins, so the entry is added FIRST and a prefab may not overwrite it.**
+    /// The opposite order would let a class prefab's `hat` state override a cosmetic that
+    /// deliberately restores the part.
+    /// </remarks>
+    private void CollectBodygroups(Entry entry, Dictionary<string, int> into, int remaining)
+    {
+        foreach ((string name, int state) in entry.PlayerBodygroups)
+        {
+            _ = into.TryAdd(name, state);
+        }
+
+        if (remaining <= 0)
+        {
+            return;
+        }
+
+        foreach (string name in entry.Prefabs)
+        {
+            if (_prefabs.TryGetValue(name, out Entry? prefab))
+            {
+                CollectBodygroups(prefab, into, remaining - 1);
+            }
+        }
+    }
+
+    /// <summary>Whether an item changes those parts only while it is the active weapon.</summary>
+    /// <param name="definitionIndex">The item, as <c>m_iItemDefinitionIndex</c> gives it.</param>
+    /// <returns>True when the item or a prefab sets <c>hide_bodygroups_deployed_only</c>.</returns>
+    /// <remarks>
+    /// **The nearest definition wins and silence is not an answer**, which is why
+    /// <see cref="Entry.HideBodygroupsDeployedOnly"/> is nullable: the search stops at the first
+    /// entry in the chain that states the key, so an item can turn its prefab's flag off.
+    /// <see cref="Search"/> is the same walk for a string, and this is deliberately not folded into
+    /// it — the value is a tri-state and encoding it as `"1"`/`"0"`/absent through a string search
+    /// puts a parse in the middle of a lookup.
+    /// </remarks>
+    public bool HidesBodygroupsWhenDeployedOnly(int definitionIndex) =>
+        _items.TryGetValue(definitionIndex, out Entry? item)
+        && DeployedOnly(item, LongestChain) == true;
+
+    /// <summary>The first answer in an entry's prefab chain, or null when none states it.</summary>
+    private bool? DeployedOnly(Entry entry, int remaining)
+    {
+        if (entry.HideBodygroupsDeployedOnly is { } stated)
+        {
+            return stated;
+        }
+
+        if (remaining <= 0)
+        {
+            return null;
+        }
+
+        foreach (string name in entry.Prefabs)
+        {
+            if (_prefabs.TryGetValue(name, out Entry? prefab)
+                && DeployedOnly(prefab, remaining - 1) is { } inherited)
+            {
+                return inherited;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>Gathers attachments from an entry and its prefabs.</summary>
     /// <remarks>
     /// **Every level contributes, unlike <see cref="Search"/> which stops at the first answer.** A
@@ -1007,6 +1153,12 @@ public sealed class ItemSchema
         if (string.Equals(key, "item_slot", StringComparison.OrdinalIgnoreCase))
         {
             entry.LoadoutSlot = value;
+            return;
+        }
+
+        if (string.Equals(key, "hide_bodygroups_deployed_only", StringComparison.OrdinalIgnoreCase))
+        {
+            entry.HideBodygroupsDeployedOnly = value != "0";
             return;
         }
 

@@ -718,7 +718,14 @@ run Tf2DemoSalvage.Animation.Tests animation 111
 # sabotage: weakening the abandonment from `<= 0` to `< 0` reddened nothing, because every other
 # fixture put the activity at index one to avoid the ambiguity. Sequence ZERO is "no answer" to the
 # engine even though it is an ordinary index elsewhere, and that boundary needed its own case.
-run Tf2DemoSalvage.Scene.Tests    scene     523
+#
+# 523 -> 535 on 2026-09-05: twelve for B352, a player's equipment finally changing their body.
+# Every one is a prediction of an exact body NUMBER rather than "something was set", because the
+# parts share one integer as mixed-radix digits and the two failure modes look identical at a
+# boolean: two items hiding `hat` must land on 1, and summing their contributions lands on 2, which
+# carries into the next part's digit. Three are controls the fix must not disturb — a player wearing
+# nothing, a bystander beside a wearer, and a disguised spy whose mask still composes over the hat.
+run Tf2DemoSalvage.Scene.Tests    scene     535
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -1095,7 +1102,12 @@ run Tf2DemoSalvage.Presentation.Tests presentation 440
 # multiplies a vector — braces against brackets, which differ by 255 and would multiply a tint by a
 # hundred if confused, textures left OUT rather than included as zero, and every source of one real
 # cosmetic's chain being findable.
-run Tf2DemoSalvage.Content.Tests  content   1018
+#
+# 1018 -> 1023 on 2026-09-05: five for B352's schema half, `player_bodygroups`. The one that earns
+# its place asserts that an item's own entry beats its prefab's for the same name — a bodygroup is
+# one state per name, unlike `attached_models`, so the accumulating read is wrong here and gives the
+# same answer for every shipped item except the eight valued 0.
+run Tf2DemoSalvage.Content.Tests  content   1023
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2

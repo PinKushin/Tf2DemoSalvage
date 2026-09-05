@@ -69,7 +69,7 @@ public sealed class DisguiseDrawProbe
             }
 
             drawn.Clear();
-            PlayerProps.Add(players, drawn, appearance, (_, _, _) => 0);
+            PlayerProps.Add(players, drawn, appearance, (_, _, _, body) => body);
 
             foreach (ScenePlayer player in players
                 .Where(player => player.Conditions.Has(PlayerConditions.Disguised)))
@@ -251,5 +251,8 @@ public sealed class DisguiseDrawProbe
         public bool Lands(int playerClass) => true;
 
         public string? Hands(int playerClass) => null;
+
+        // This probe asks which players are drawn, so what they wear is deliberately not modelled.
+        public ItemBodygroups BodygroupsOf(int itemDefinitionIndex) => ItemBodygroups.None;
     }
 }

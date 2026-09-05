@@ -28,4 +28,12 @@ internal sealed class StubAppearance : IPlayerAppearance
 
     /// <inheritdoc/>
     public string? Hands(int playerClass) => null;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// **Nothing, so a test that does not set out to measure equipment measures none.** The tests
+    /// that DO are in <c>PlayerBodygroupWiringTests</c>, which supplies its own wardrobe — a shared
+    /// stub answering with a hat would change what every other pose test observes.
+    /// </remarks>
+    public ItemBodygroups BodygroupsOf(int itemDefinitionIndex) => ItemBodygroups.None;
 }

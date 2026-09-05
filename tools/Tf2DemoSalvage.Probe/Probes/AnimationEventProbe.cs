@@ -135,7 +135,7 @@ public sealed class AnimationEventProbe : IProbe
             // the only things carrying any.
             timeline.PlayersAt(tick, players);
             PlayerProps.Add(
-                players, props, new GameAppearance(game.Classes, null), (_, _, body) => body);
+                players, props, new GameAppearance(game.Classes, null), (_, _, _, body) => body);
 
             models.Add(props, assets.Geometry);
             models.Instances(props, instances, seconds: tick * timeline.IntervalPerTick);
