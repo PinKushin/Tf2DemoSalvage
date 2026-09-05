@@ -4034,6 +4034,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// How alight the entity is, 0 to 1, for TF2's <c>BurnLevel</c> proxy (B336). Per entity for
     /// the same reason the paint is.
     /// </param>
+    /// <param name="urine">
+    /// The jarate multiplier for this entity, for <c>YellowLevel</c> (B336). White where nobody is
+    /// hit, which is a multiply by one.
+    /// </param>
     /// <remarks>
     /// **In order, because last wins.** Two proxies writing the same variable is legal and the
     /// engine resolves it by running them in the order the file lists them.
@@ -4048,7 +4052,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         IReadOnlyList<MaterialProxy> proxies,
         int materialIndex,
         (float Red, float Green, float Blue)? paint,
-        float burn)
+        float burn,
+        (float Red, float Green, float Blue) urine)
     {
         // **A material variable table, because TF2's paint chain writes one proxy's output into
         // another's input** (B330). `ItemTintColor` produces `$colortint_tmp` and
@@ -4058,14 +4063,20 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // Seeded from the material rather than left empty: `$colortint_base` is what an UNPAINTED
         // item wears, and a `SelectFirstIfNonZero` reading a missing variable as zero would paint
         // every unpainted cosmetic black.
-        Dictionary<string, (float Red, float Green, float Blue)>? variables = null;
+        // **Created for EVERY material that runs a proxy, not only tintable ones** (B337). It used
+        // to exist only where `$colortint_base` did, because the paint chain was the only chain —
+        // and `YellowLevel` writes `$yellow` on 7,570 materials, most of which carry no paint at
+        // all. Gating the table on the paint would have left every one of those evaluating nothing
+        // while looking implemented.
+        Dictionary<string, (float Red, float Green, float Blue)> variables =
+            new(StringComparer.OrdinalIgnoreCase);
 
         if (Tintable(materialIndex) is { } tintBase)
         {
-            variables = new(StringComparer.OrdinalIgnoreCase)
-            {
-                ["$colortint_base"] = tintBase,
-            };
+            // Seeded rather than left empty: `$colortint_base` is what an UNPAINTED item wears, and
+            // a `SelectFirstIfNonZero` reading a missing variable as zero would paint every
+            // unpainted cosmetic black.
+            variables["$colortint_base"] = tintBase;
         }
 
         foreach (MaterialProxy proxy in proxies)
@@ -4078,13 +4089,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
             {
                 ApplyTextureScroll(contents, proxy);
             }
-            else if (variables is not null &&
-                proxy.Name.Equals("ItemTintColor", StringComparison.OrdinalIgnoreCase))
+            else if (proxy.Name.Equals("ItemTintColor", StringComparison.OrdinalIgnoreCase))
             {
                 ApplyItemTintColor(variables, proxy, paint);
             }
-            else if (variables is not null &&
-                proxy.Name.Equals("SelectFirstIfNonZero", StringComparison.OrdinalIgnoreCase))
+            else if (proxy.Name.Equals("SelectFirstIfNonZero", StringComparison.OrdinalIgnoreCase))
             {
                 ApplySelectFirstIfNonZero(contents, variables, proxy, materialIndex);
             }
@@ -4092,7 +4101,165 @@ internal sealed unsafe class WorldRenderer : IDisposable
             {
                 ApplyBurnLevel(contents, proxy, burn);
             }
+            else if (proxy.Name.Equals("YellowLevel", StringComparison.OrdinalIgnoreCase))
+            {
+                // **It writes a VARIABLE and nothing else.** `$yellow` reaches the picture only
+                // because two `Equals` proxies copy it into `$color2` and `$selfillumtint`, which
+                // is why implementing this without the arithmetic below would be half a mechanism.
+                if (proxy.Argument("resultVar") is { Length: > 0 } yellow)
+                {
+                    Publish(contents, variables, yellow, urine, materialIndex);
+                }
+            }
+            else if (Arithmetic(proxy.Name) is { } operation)
+            {
+                ApplyArithmetic(contents, variables, proxy, operation, materialIndex);
+            }
+            else if (proxy.Name.Equals("Clamp", StringComparison.OrdinalIgnoreCase))
+            {
+                ApplyClamp(contents, variables, proxy, materialIndex);
+            }
         }
+    }
+
+    /// <summary>Which arithmetic proxy a name is, or null for anything else.</summary>
+    private static MaterialProxies.MathProxy? Arithmetic(string name) => name.ToUpperInvariant() switch
+    {
+        "EQUALS" => MaterialProxies.MathProxy.Equals,
+        "ADD" => MaterialProxies.MathProxy.Add,
+        "SUBTRACT" => MaterialProxies.MathProxy.Subtract,
+        "MULTIPLY" => MaterialProxies.MathProxy.Multiply,
+        "DIVIDE" => MaterialProxies.MathProxy.Divide,
+        _ => null,
+    };
+
+    /// <summary>One of Valve's arithmetic proxies over the material's variables (B337).</summary>
+    /// <param name="contents">The material constants for this draw.</param>
+    /// <param name="variables">The table these proxies read and write.</param>
+    /// <param name="proxy">The proxy, naming its sources and its result.</param>
+    /// <param name="operation">Which arithmetic it is.</param>
+    /// <param name="materialIndex">Which material, for the colour factor.</param>
+    /// <remarks>
+    /// **A missing source reads as zero, which is what an undefined material variable is.** The
+    /// engine would refuse the proxy at `Init` for a variable the material does not declare —
+    /// `FindVar( …, &amp;foundVar, false )` — and a proxy that never initialised never runs. Reading
+    /// zero and running anyway differs only for a chain whose first link is absent, where the
+    /// engine leaves the result alone and this writes a zero into it. Recorded rather than fixed:
+    /// distinguishing them needs the material's declared variable list at bind, which this layer
+    /// does not carry.
+    /// </remarks>
+    private void ApplyArithmetic(
+        float[] contents,
+        Dictionary<string, (float Red, float Green, float Blue)> variables,
+        MaterialProxy proxy,
+        MaterialProxies.MathProxy operation,
+        int materialIndex)
+    {
+        if (proxy.Argument("srcVar1") is not { Length: > 0 } first ||
+            proxy.Argument("resultVar") is not { Length: > 0 } result)
+        {
+            return;
+        }
+
+        // **A source no earlier proxy wrote is a variable the material does not declare**, and the
+        // engine refuses such a proxy at `Init` rather than reading zero from it. See the longer
+        // note in `ApplySelectFirstIfNonZero`, where relaxing exactly this reddened five pixel
+        // tests.
+        if (!variables.ContainsKey(first))
+        {
+            return;
+        }
+
+        _ = variables.TryGetValue(first, out (float Red, float Green, float Blue) a);
+
+        (float Red, float Green, float Blue) b = default;
+
+        if (proxy.Argument("srcVar2") is { Length: > 0 } second)
+        {
+            _ = variables.TryGetValue(second, out b);
+        }
+        else if (operation is not MaterialProxies.MathProxy.Equals)
+        {
+            // **Every one but `Equals` requires two arguments**, and the engine refuses the proxy
+            // outright when the second is missing: `ok = ok && m_pSrc2` in each `Init`.
+            return;
+        }
+
+        Publish(contents, variables, result, MaterialProxies.Apply(operation, a, b), materialIndex);
+    }
+
+    /// <summary><c>CClampProxy</c>, with its bounds (B337).</summary>
+    /// <param name="contents">The material constants for this draw.</param>
+    /// <param name="variables">The table it reads and writes.</param>
+    /// <param name="proxy">The proxy, naming its source, its result and its bounds.</param>
+    /// <param name="materialIndex">Which material, for the colour factor.</param>
+    /// <remarks>
+    /// Valve's defaults, from `CClampProxy::Init`: `min` 0 and `max` 1. Both are read through
+    /// `CFloatInput`, so a material may state either as a number or omit it.
+    /// </remarks>
+    private void ApplyClamp(
+        float[] contents,
+        Dictionary<string, (float Red, float Green, float Blue)> variables,
+        MaterialProxy proxy,
+        int materialIndex)
+    {
+        if (proxy.Argument("srcVar1") is not { Length: > 0 } source ||
+            proxy.Argument("resultVar") is not { Length: > 0 } result ||
+            !variables.ContainsKey(source))
+        {
+            return;
+        }
+
+        _ = variables.TryGetValue(source, out (float Red, float Green, float Blue) value);
+
+        Publish(
+            contents,
+            variables,
+            result,
+            MaterialProxies.Clamp(
+                value,
+                MaterialProxies.Number(proxy.Argument("min"), 0f),
+                MaterialProxies.Number(proxy.Argument("max"), 1f)),
+            materialIndex);
+    }
+
+    /// <summary>Stores a proxy's result, and pushes it to the constants when it is drawn.</summary>
+    /// <param name="contents">The material constants for this draw.</param>
+    /// <param name="variables">The table.</param>
+    /// <param name="result">Which variable the proxy named.</param>
+    /// <param name="value">What it computed.</param>
+    /// <param name="materialIndex">Which material, for the colour factor.</param>
+    /// <remarks>
+    /// **Only <c>$color2</c> reaches a shader constant, and that is not a simplification** — it is
+    /// the one material variable in this chain the renderer already draws with. Everything else a
+    /// proxy writes is an intermediate that another proxy reads, which is exactly why the table
+    /// exists.
+    ///
+    /// **The material's own <c>$color</c> multiplies it**, because `Modulation` is the resting
+    /// product of the two and a proxy replaces only the second.
+    /// </remarks>
+    private void Publish(
+        float[] contents,
+        Dictionary<string, (float Red, float Green, float Blue)> variables,
+        string result,
+        (float Red, float Green, float Blue) value,
+        int materialIndex)
+    {
+        variables[result] = value;
+
+        if (!result.Equals("$color2", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        (float Red, float Green, float Blue) factor =
+            materialIndex >= 0 && materialIndex < _colourFactors.Count
+                ? _colourFactors[materialIndex]
+                : (1f, 1f, 1f);
+
+        contents[ModulationRed] = factor.Red * value.Red;
+        contents[ModulationRed + 1] = factor.Green * value.Green;
+        contents[ModulationRed + 2] = factor.Blue * value.Blue;
     }
 
     /// <summary>How alight the entity is, written where the proxy says (B336).</summary>
@@ -4191,26 +4358,31 @@ internal sealed unsafe class WorldRenderer : IDisposable
             return;
         }
 
+        // **A proxy whose sources do not exist does not RUN**, which is the engine's own refusal:
+        // `Init` calls `FindVar( name, &foundVar, false )` and returns false when the material does
+        // not declare the variable, and a proxy that failed to initialise is never bound.
+        //
+        // **This was learned by breaking it** (B337). Widening the variable table to every material
+        // — needed because `YellowLevel` writes `$yellow` on materials carrying no paint — made this
+        // proxy run on materials where `$colortint_base` is absent, read it as zero, take the other
+        // branch and OVERWRITE the modulation. Five reflection pixel tests went red, which is the
+        // fourth time that family has caught a change to this buffer. The gate it replaced was
+        // load-bearing, and the comment beside it said so: *"a SelectFirstIfNonZero reading a
+        // missing variable as zero would paint every unpainted cosmetic black"*.
+        if (!variables.ContainsKey(first) && !variables.ContainsKey(second))
+        {
+            return;
+        }
+
         _ = variables.TryGetValue(first, out (float Red, float Green, float Blue) a);
         _ = variables.TryGetValue(second, out (float Red, float Green, float Blue) b);
 
         (float Red, float Green, float Blue) chosen = a is (0f, 0f, 0f) ? b : a;
 
-        variables[result] = chosen;
-
-        if (!result.Equals("$color2", StringComparison.OrdinalIgnoreCase))
-        {
-            return;
-        }
-
-        (float Red, float Green, float Blue) factor =
-            materialIndex >= 0 && materialIndex < _colourFactors.Count
-                ? _colourFactors[materialIndex]
-                : (1f, 1f, 1f);
-
-        contents[ModulationRed] = factor.Red * chosen.Red;
-        contents[ModulationRed + 1] = factor.Green * chosen.Green;
-        contents[ModulationRed + 2] = factor.Blue * chosen.Blue;
+        // **Through the shared publish**, which is where the `$color2` step lived when this was the
+        // only chain. Extracted for B337 rather than copied: five more proxies now write variables,
+        // and any of them may be the one a material ends its chain on.
+        Publish(contents, variables, result, chosen, materialIndex);
     }
 
     /// <summary>Oscillates whichever variable the proxy names.</summary>
@@ -4318,7 +4490,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         SurfaceCategory? category = null,
         (float Red, float Green, float Blue)? tint = null,
         (float Red, float Green, float Blue)? paint = null,
-        float burn = 0f)
+        float burn = 0f,
+        (float Red, float Green, float Blue)? urine = null)
     {
         // **The category view's underlay, chosen per material because that is what decides it.**
         // A material that resolved to nothing draws Valve's magenta-and-black chequer; everything
@@ -4440,7 +4613,16 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // the material's resting state, and a proxy must not bake this frame's value into it.
             contents = [.. contents];
 
-            ApplyProxies(contents, _proxies[materialIndex], materialIndex, paint, burn);
+            ApplyProxies(
+                contents,
+                _proxies[materialIndex],
+                materialIndex,
+                paint,
+                burn,
+
+                // **White, not the default triple.** An unset multiplier of (0,0,0) would draw
+                // every player black — the neutral-default trap `_white` already sprang once.
+                urine ?? (1f, 1f, 1f));
         }
 
         // **Every array feeding this buffer must be exactly the shader struct's length, and this is
@@ -5093,6 +5275,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <c>$detailblendfactor</c> and so blends in the fire overlay the material already carries.
     /// Zero for everything not on fire, which is the proxy's own resting value.
     /// </param>
+    /// <param name="urine">
+    /// The jarate multiplier for this ENTITY, or null for white (B336). Feeds <c>YellowLevel</c>,
+    /// whose result two <c>Equals</c> proxies copy into <c>$color2</c> and <c>$selfillumtint</c>.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **One matrix and one draw per entity, which is the engine's shape.** The vertices were
@@ -5121,7 +5307,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         IReadOnlyList<LocalLight>? locals = null,
         string? overrideMaterial = null,
         (float Red, float Green, float Blue)? paint = null,
-        float burn = 0f)
+        float burn = 0f,
+        (float Red, float Green, float Blue)? urine = null)
     {
         ArgumentNullException.ThrowIfNull(matrix);
         ArgumentNullException.ThrowIfNull(batches);
@@ -5532,7 +5719,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
             // A model's own batches carry their category too — `Prop`, or `Missing` where the
             // material did not resolve. A brush entity adds its class colour on top (B219).
-            SetMaterial(context, material, batch.Category, tint, paint, burn);
+            SetMaterial(context, material, batch.Category, tint, paint, burn, urine);
 
             drawn += batch.VertexCount;
 

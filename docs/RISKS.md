@@ -23023,3 +23023,58 @@ contributes nothing and reads as absent for a correct scan exactly as for a brok
 control is `>=DX90` at 5,688 materials. That is
 `docs/memory/an-empty-search-needs-a-control.md` one level up: the absence was checked, and the
 check was vacuous.
+
+### B337 FIXED 2026-09-05: Valve's arithmetic proxies, and a gate whose removal was the regression
+
+**They outrank everything this project evaluated.** `Multiply` runs on 4,654 shipped materials and
+`Equals` on 3,870, against `Sine` on 322 and `TextureScroll` on 283 — the two that did run. All are
+published in `mathproxy.cpp`.
+
+`Equals` is the one that unblocks a chain: `YellowLevel` writes `$yellow` and two `Equals` proxies
+copy it into `$color2` and `$selfillumtint` (`soldier_red.vmt`), so the jarate tint reaches nothing
+without it. Running `YellowLevel` alone would have been half a mechanism.
+
+**Three engine details a plausible implementation gets wrong**, each pinned by a test:
+
+- **`Divide` by zero yields the NUMERATOR** (`mathproxy.cpp:229-233`), not zero and not infinity.
+  Dividing anyway puts an infinity in a material variable and a NaN in a colour, which draws as
+  black or as nothing depending on the blend and reads as a missing texture.
+- **`Clamp` SWAPS its bounds** before clamping (`:283-288`). A material stating `min 1 max 0`
+  otherwise clamps to a range containing nothing, and the answer is whichever comparison runs first.
+- **`Subtract` is src1 − src2**, which a symmetric test cannot see.
+
+**THE REGRESSION, and it is the part worth keeping.** The variable table was built only for
+materials carrying `$colortint_base`, and every variable proxy was gated on it existing. Widening
+that — necessary, because `YellowLevel` writes `$yellow` on 7,570 materials most of which carry no
+paint — made `SelectFirstIfNonZero` run on materials where `$colortint_base` is absent, read it as
+ZERO, take the other branch, and overwrite the modulation constants. **Five reflection pixel tests
+went red.** That is the fourth time that family has caught a change to this buffer and the first
+time it caught a REMOVED guard rather than an added constant.
+
+**The gate was reproducing the engine's own refusal.** `CFunctionProxy::Init` calls
+`FindVar( name, &foundVar, false )` and returns false for a variable the material does not declare,
+and a proxy whose `Init` fails is never bound at all. So the fix is neither "seed more variables"
+nor "keep the gate": it is **a proxy whose named sources do not exist does not run**, now an
+explicit test in each handler. Recorded in
+`docs/memory/a-guard-you-remove-may-be-the-mechanism.md`.
+
+**Measured on cp_process_final**: 3 of 412 materials run a proxy, and **all three carry no
+`$colortint_base`** — so all three were skipped whole by the old gate. Their proxies are
+`PlayerProximity`, `Clamp`, `Subtract`, `PlayerTeamMatch`, `Divide`, `Multiply`, `invis`,
+`AnimatedTexture`, `BurnLevel`, `YellowLevel`, `Equals`.
+
+**Two divergences, stated rather than hidden**, both from holding every variable as a triple:
+
+- **The INT path is not reproduced.** The engine picks a result type per bind
+  (`CFunctionProxy::ComputeResultType`, `functionproxy.cpp:231`) — the result variable's own type,
+  then src1's, then src2's — and an integer result computes on `GetIntValue()`. Componentwise float
+  arithmetic agrees for every value TF2 stores and differs only for a variable holding a fraction
+  the engine would have truncated.
+- **`vecSize` is always three.** The engine reads 2 for a two-component variable and leaves the
+  third alone. No shipped material seen runs a math proxy on one; if one turns up, that is where it
+  breaks.
+
+**Still open.** `YellowLevel` is wired and has no subject: **no demo checked contains
+`TF_COND_URINE` at all** (B336). `AnimatedTexture` at 7,027 materials is the largest remaining, and
+needs multi-frame VTF — the reader currently states *"Frame zero is the only one this reads"*.
+`PlayerProximity`, `PlayerTeamMatch` and `LessOrEqual` are still unevaluated.

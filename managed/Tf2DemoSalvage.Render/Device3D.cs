@@ -747,7 +747,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 // Always null on a viewmodel's own three, and passed anyway so the four draw sites
                 // stay one shape — a painted weapon a player HOLDS is a world model (B330).
                 paint: instance.Paint,
-                burn: instance.Burn);
+                burn: instance.Burn,
+                urine: instance.Urine);
         }
 
         // **Both of the pass's changes are put back, and forgetting the camera was a real defect.**
@@ -1119,7 +1120,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
                         // TF2's paint, feeding the ItemTintColor proxy at the bind (B330).
                         paint: instance.Paint,
-                        burn: instance.Burn);
+                        burn: instance.Burn,
+                        urine: instance.Urine);
                 }
 
                 // **The see-through parts of models, after every solid one.** A hologram, a glass
@@ -1209,7 +1211,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
                         // TF2's paint, feeding the ItemTintColor proxy at the bind (B330).
                         paint: instance.Paint,
-                        burn: instance.Burn);
+                        burn: instance.Burn,
+                        urine: instance.Urine);
                 }
 
                 WorldRenderer.ResetBlend(_context);

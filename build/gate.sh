@@ -642,7 +642,11 @@ run Tf2DemoSalvage.Animation.Tests animation 111
 # `MomentScene`, which is the hop `PaintSceneWiringTests` records having been lost in a move once
 # already. The burning and unburnt cases are asserted as a PAIR because the proxy rests at zero, so
 # a delegate never assigned at all also answers zero.
-run Tf2DemoSalvage.Scene.Tests    scene     467
+# 467 -> 475: Valve's arithmetic proxies (B337). Eight for `mathproxy.cpp` — Equals, Add, the
+# asymmetry of Subtract, Multiply, Divide and its zero guard that yields the NUMERATOR, and Clamp
+# with the bound swap that runs before any clamping. Together these outrank everything this project
+# evaluated: Multiply on 4,654 shipped materials and Equals on 3,870, against Sine on 322.
+run Tf2DemoSalvage.Scene.Tests    scene     475
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -1335,7 +1339,13 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     156
 # itself is not exercised here and pretending otherwise would be a prediction about Valve's level
 # design. What this catches is a list appended in some paths and not others, which the renderer's
 # own bounds check would turn into "no exponent map" rather than into an error.
-run Tf2DemoSalvage.Rendering.Tests rendering 744
+#
+# 744 -> 746: the proxy chain reaching a real map's materials (B337). Two, and the second is the
+# one that matters — it asserts materials EXIST that run a chained proxy and carry no
+# `$colortint_base`, because those are exactly the ones the variable table used to skip whole. All
+# three of cp_process_final's proxy-running materials are in that set, so without this the widening
+# would be untested by construction.
+run Tf2DemoSalvage.Rendering.Tests rendering 746
 # 101 -> 103 on 2026-08-29: LaunchOptionWiringTests (B223, D118). Two tests, and they cost about
 # seventeen seconds EACH, because each builds a real MainForm and loads a corpus demo — which reads
 # cp_badlands.bsp when Team Fortress 2 is installed. That is the most expensive pair in this file
