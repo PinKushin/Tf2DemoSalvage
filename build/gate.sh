@@ -316,7 +316,11 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # the field-by-field rebuild, while asking earlier hits the causality guard and returns the earlier
 # pose untouched. The first version of that file had the two claims the wrong way round, and only
 # sabotaging the rebuild's assignment showed which test actually reddened.
-run Tf2DemoSalvage.Core.Tests     core     1795
+# 1795 -> 1799: the chamber's clock, stamped on the TRANSITION rather than while the tubes differ
+# (B348). Four, and the control is three snapshots all with the tubes already apart — the case that
+# separates "stamped once and held" from "restamped every packet", which would freeze the chamber a
+# few degrees from where it set off with nothing about the pose looking wrong.
+run Tf2DemoSalvage.Core.Tests     core     1799
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
@@ -701,7 +705,12 @@ run Tf2DemoSalvage.Animation.Tests animation 111
 # alternative uses ROLL), Approach's SNAP, the `> AC_STATE_IDLE` comparison that includes DRYFIRE,
 # and the per-FRAME acceleration. Four wiring tests carry three controls: idle does not spin, a
 # model with no bone called `barrel` is untouched, and a prop with no weapon state is skipped.
-run Tf2DemoSalvage.Scene.Tests    scene     504
+# 504 -> 518: the grenade launcher's chamber (B348), a keyframed spline rather than the minigun's
+# integrated velocity. Nine conformance tests and five wiring. The ninth was added after sabotage
+# showed the OVERSHOOT — the whole point of the entry — was pinned by nothing: the test that named
+# it sampled a KNOT, where every interpolation agrees by construction. It now samples strictly
+# between control points, where a lerp is a full degree out.
+run Tf2DemoSalvage.Scene.Tests    scene     518
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

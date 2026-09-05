@@ -77,6 +77,10 @@ public sealed class EntityState
             // that never sends it.
             ["DT_WeaponMinigun"] = ["m_iWeaponState"],
 
+            // The chamber's two tube numbers (B348), which say both where it is and whether it is
+            // turning. Listed for the same reason as the line above.
+            ["DT_WeaponGrenadeLauncher"] = ["m_iCurrentTube", "m_iGoalTube"],
+
             // **Fog, which is the first entry here that is not about a thing you can see.** A
             // CFogController has no model and no position that matters; it exists to carry the
             // atmosphere, and it changes during a round as triggers fire. Without these the demo
@@ -1317,6 +1321,23 @@ public sealed class EntityState
     /// </remarks>
     public int? MinigunWeaponState() =>
         Integer("DT_WeaponMinigun.m_iWeaponState");
+
+    /// <summary>The grenade launcher's chamber, as two tube numbers.</summary>
+    /// <remarks>
+    /// **Both are networked** — `m_iCurrentTube` and `m_iGoalTube`
+    /// (<c>tf_weapon_grenadelauncher.cpp:55</c>) — so unlike the minigun the only client-side state
+    /// is WHEN the rotation began (B348). The chamber is turning exactly while the two differ,
+    /// which is the engine's own test (<c>:641</c>).
+    ///
+    /// **Returned together because neither answers anything alone.** The current tube gives the base
+    /// angle and the goal says whether an animation is running; a caller holding one would have to
+    /// ask for the other in the next line, and the pair is the state.
+    /// </remarks>
+    public (int Current, int Goal)? ChamberTubes() =>
+        Integer("DT_WeaponGrenadeLauncher.m_iCurrentTube") is { } current &&
+        Integer("DT_WeaponGrenadeLauncher.m_iGoalTube") is { } goal
+            ? (current, goal)
+            : null;
 
     public int? NoInterpolationParity() =>
         Integer($"{BaseEntityTable}.m_ubInterpolationFrame");

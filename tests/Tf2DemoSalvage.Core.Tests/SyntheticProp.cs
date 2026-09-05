@@ -104,6 +104,44 @@ internal static class SyntheticProp
     {
         ArgumentNullException.ThrowIfNull(frames);
 
+        (int, int, int, int, int, int)[] widened = new (int, int, int, int, int, int)[frames.Length];
+
+        for (int index = 0; index < frames.Length; index++)
+        {
+            // The chamber held settled — goal equal to the fixed current tube of zero — for the
+            // reason the two knobs above are held still: a fixture that moved everything at once
+            // could not say which signal the code read.
+            widened[index] = (
+                frames[index].Tick,
+                frames[index].Sequence,
+                frames[index].Parity,
+                frames[index].FrameReset,
+                frames[index].NoInterp,
+                0);
+        }
+
+        return Demo(clientSideAnimation, widened);
+    }
+
+    /// <summary>The same, plus the grenade launcher's GOAL tube — <c>m_iGoalTube</c>.</summary>
+    /// <param name="clientSideAnimation">Whether the client advances the cycle.</param>
+    /// <param name="frames">
+    /// Tick, sequence, sequence parity, frame reset, no-interp parity and goal tube per snapshot.
+    /// </param>
+    /// <returns>The demo's bytes.</returns>
+    /// <remarks>
+    /// **The current tube is fixed at zero and only the GOAL varies** (B348), because the signal
+    /// under test is the moment the two stop being equal — which is what `OnDataChanged` stamps a
+    /// clock on (<c>tf_weapon_grenadelauncher.cpp:626</c>). Varying both would let a reader that
+    /// watched the wrong one still pass.
+    /// </remarks>
+    public static byte[] Demo(
+        bool clientSideAnimation,
+        params (int Tick, int Sequence, int Parity, int FrameReset, int NoInterp, int GoalTube)[]
+            frames)
+    {
+        ArgumentNullException.ThrowIfNull(frames);
+
         DemoSchema schema = Schema();
 
         EntityDecoder decoder = new(
@@ -124,7 +162,8 @@ internal static class SyntheticProp
 
         for (int index = 0; index < frames.Length; index++)
         {
-            (int tick, int sequence, int parity, int frameReset, int noInterp) = frames[index];
+            (int tick, int sequence, int parity, int frameReset, int noInterp, int goalTube) =
+                frames[index];
 
             List<DecodedProperty> properties =
             [
@@ -135,6 +174,11 @@ internal static class SyntheticProp
                 // because it is not the default: a zero would be indistinguishable from the value
                 // never arriving, which is the case this fixture exists to tell apart.
                 Property(flat, "m_iWeaponState", PropertyValue.FromInt(3)),
+
+                // **The chamber's current tube is fixed at zero; only the goal varies** (B348), so
+                // the moment they stop being equal is unambiguous.
+                Property(flat, "m_iCurrentTube", PropertyValue.FromInt(0)),
+                Property(flat, "m_iGoalTube", PropertyValue.FromInt(goalTube)),
                 Property(flat, "m_nSequence", PropertyValue.FromInt(sequence)),
                 Property(flat, "m_nNewSequenceParity", PropertyValue.FromInt(parity)),
                 Property(
@@ -252,6 +296,16 @@ internal static class SyntheticProp
                 new SendProperty(
                     SendPropType.Int, "m_iWeaponState", 1, string.Empty, 0f, 0f, 4, 0),
             ]),
+            // **The grenade launcher's two tube numbers** (B348), both networked as the engine
+            // sends them (`tf_weapon_grenadelauncher.cpp:59`). On this fixture's one prop class for
+            // the same reason as the minigun's state above.
+            new SendTable("DT_WeaponGrenadeLauncher", NeedsDecoder: true,
+            [
+                new SendProperty(
+                    SendPropType.Int, "m_iCurrentTube", 1, string.Empty, 0f, 0f, 4, 0),
+                new SendProperty(
+                    SendPropType.Int, "m_iGoalTube", 1, string.Empty, 0f, 0f, 4, 0),
+            ]),
             new SendTable("DT_ServerAnimationData", NeedsDecoder: true,
             [
                 new SendProperty(SendPropType.Float, "m_flCycle", 0, string.Empty, 0f, 1f, 15, 0),
@@ -276,6 +330,9 @@ internal static class SyntheticProp
                     SendPropType.DataTable, "baseanimating", 1, "DT_BaseAnimating", 0f, 0f, 0, 0),
                 new SendProperty(
                     SendPropType.DataTable, "minigun", 1, "DT_WeaponMinigun", 0f, 0f, 0, 0),
+                new SendProperty(
+                    SendPropType.DataTable, "launcher", 1, "DT_WeaponGrenadeLauncher",
+                    0f, 0f, 0, 0),
             ]),
         ],
         [new ServerClass(PropClassId, "CDynamicProp", "DT_DynamicProp")]);

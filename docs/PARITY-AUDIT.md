@@ -629,3 +629,27 @@ model have a bone called `barrel`" is a question about a model chosen by NAME, a
 here walked a demo's drawn props — where a weapon is not among the 14 skinned models at a tick. The
 `model` probe now lists bone names, which answered it in one call: `c_minigun.mdl` carries
 `weapon_bone, barrel, c_weapon_stattrack`.
+
+### The family closed, 2026-09-05: four live barrel paths, one dead
+
+B347 and B348 between them implement the two world-model paths. The full table, measured rather than
+inferred, is in `docs/findings/09`. What the audit established beyond the two fixes:
+
+- **The axis is `z` on every LIVE path.** The `a.x` in `CTFViewModel::StandardBlendingRules`
+  (`tf_viewmodel.cpp:333`) belongs to the v_model era: it poses the viewmodel ENTITY, which every
+  demo checked resolves to `c_*_arms.mdl`, and those carry no `v_minigun_barrel`. The model that
+  does — `v_minigun_heavy.mdl`, bone 2 of 18 — is still shipped and no longer reached.
+- **That explains the commented-out block in the world file**, which B347 flagged as a trap without
+  knowing why. It is a paste from when the axis was `x`, and its guarding comment ("Weapon happens
+  to be aligned to (0,0,0) / If that changes, use this code block instead") invites exactly the
+  reader who would inherit it.
+- **Two write styles, split by which model is posed.** World paths assign the whole quaternion and
+  check no bone mask; viewmodel-attachment paths read the existing angles, replace one component,
+  and are wrapped in `if ( hdr->boneFlags( iBarrelBone ) & boneMask )`. They agree only while the
+  animation leaves the other two components at zero on that bone.
+
+**Still open: the two viewmodel-attachment paths** (`tf_weapon_minigun.cpp:1343`,
+`tf_weapon_grenadelauncher.cpp:683`). Same angles, same bone names, reached through
+`CEconEntity::StandardBlendingRules` → `ViewModelAttachmentBlending` rather than the weapon's own
+override. Filed rather than assumed equivalent, because the write style and the mask check both
+differ from what is now implemented.

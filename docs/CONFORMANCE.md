@@ -87,6 +87,7 @@ readers actually use.
 | `EntityMessageConformanceTests` | two message ids that collide at 1 | `game/shared/base*_shared.h` |
 | `NoInterpolationParityConformanceTests` | `m_ubInterpolationFrame` — a discontinuity counter, whose ZERO is a value and not an absence | `baseentity.cpp:273`, `c_baseentity.h:2164` |
 | `MinigunBarrelConformanceTests` | the barrel spin: `Approach`'s snap, the `> AC_STATE_IDLE` comparison, the per-FRAME acceleration, and the Z axis | `tf_weapon_minigun.cpp:1068`, `mathlib_base.cpp:3433, 2039` |
+| `ChamberRotationConformanceTests` | the chamber's keyframed spline, its 63.546° OVERSHOOT, the strict `tVal < 1` boundary, and 60° per tube | `tf_weapon_grenadelauncher.cpp:35, 639`, `mathlib_base.cpp:2477` |
 
 **The sweep that closed it.** Every constant in this project whose own doc comment cites an
 ALL_CAPS engine identifier was collected — each of those comments is a claim — and checked against a

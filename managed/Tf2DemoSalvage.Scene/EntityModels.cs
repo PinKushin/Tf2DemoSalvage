@@ -788,6 +788,12 @@ public sealed class EntityModelSet
             // networked state and run the engine's own arithmetic from it.
             SpinBarrel(prop, skinned, posed, seconds);
 
+            // **The grenade launcher's chamber, the other weapon in this override family** (B348).
+            // A different mechanism from the minigun's — a fixed-length keyframed animation rather
+            // than an integrated velocity — and it runs after, because only one of the two can
+            // apply to any model and the second call finds no bone.
+            TurnChamber(prop, skinned, posed, seconds);
+
             // **The ROOT model's bytes, for the jiggle bones' own parameters** (B293).
             // `mstudiobone_t::pProcedure()` is an offset from the BONE, and the bones being posed
             // are `Models[0]`'s — reading it against an included animation model's bytes would land
@@ -2260,7 +2266,7 @@ public sealed class EntityModelSet
     /// **Cached per model, because the lookup is a string compare over every bone** and the engine
     /// does it once in `OnNewModel` rather than per frame.
     /// </remarks>
-    private readonly Dictionary<string, int> _barrelBones = [];
+    private readonly Dictionary<(string Model, string Name), int> _barrelBones = [];
 
     /// <summary>Each spinning barrel's velocity and angle, integrated across frames.</summary>
     private readonly Dictionary<int, (float Velocity, float Angle)> _barrelSpin = [];
@@ -2294,7 +2300,7 @@ public sealed class EntityModelSet
             return;
         }
 
-        int bone = BarrelBoneOf(skinned, prop.ModelPath);
+        int bone = BoneNamed(skinned, prop.ModelPath, "barrel");
 
         if (bone < 0)
         {
@@ -2325,10 +2331,72 @@ public sealed class EntityModelSet
         FurthestBarrelAngle = MathF.Max(FurthestBarrelAngle, MathF.Abs(spin.Angle));
     }
 
-    /// <summary>The index of a model's <c>barrel</c> bone, or -1.</summary>
-    private int BarrelBoneOf(PropModels.SkinnedModel skinned, string model)
+    /// <summary>Turns a grenade launcher's chamber, as its own blending rules do.</summary>
+    /// <param name="prop">The entity.</param>
+    /// <param name="skinned">Its model, for the bone list.</param>
+    /// <param name="posed">The pose being built.</param>
+    /// <param name="seconds">Demo time now.</param>
+    /// <remarks>
+    /// **Driven by absolute time, not a per-frame integration** (B348), which is the difference from
+    /// the minigun beside it. `UpdateBarrelMovement` computes
+    /// `tVal = ( gpGlobals->curtime - m_flBarrelRotateBeginTime ) / cProceduralBarrelRotationTime`
+    /// (<c>tf_weapon_grenadelauncher.cpp:645</c>) — a fraction of a fixed-length animation, so the
+    /// same tick always gives the same angle however the viewer arrived at it.
+    ///
+    /// **The tube advances locally when the animation ends**, exactly as the engine does
+    /// (<c>:687</c>): `m_iCurrentTube = m_iGoalTube;`. Without it the chamber would hold its old
+    /// base angle until the wire restated the tube, which is a visible stall rather than a jump.
+    /// </remarks>
+    private void TurnChamber(
+        SceneProp prop, PropModels.SkinnedModel skinned, SkeletonPose posed, double seconds)
     {
-        if (_barrelBones.TryGetValue(model, out int cached))
+        if (prop.Pose.Chamber is not { } chamber)
+        {
+            return;
+        }
+
+        int bone = BoneNamed(skinned, prop.ModelPath, "procedural_chamber");
+
+        if (bone < 0)
+        {
+            return;
+        }
+
+        float fraction = ChamberRotation.Fraction(seconds - chamber.StartedSeconds);
+
+        // **Turning only while the two differ**, which is the engine's own guard (`:641`). A settled
+        // chamber still gets its bone written, at the base angle of the tube it sits on — the
+        // override is outside that test, so a chamber that has stopped is not a chamber the
+        // animation reclaims.
+        bool turning = chamber.Current != chamber.Goal;
+
+        float partial = turning ? ChamberRotation.Degrees(fraction) : 0f;
+
+        int tube = turning && fraction >= 1f ? chamber.Goal : chamber.Current;
+
+        posed.BarrelBone = bone;
+        posed.BarrelRotation = MinigunBarrel.Rotation(ChamberRotation.Angle(tube, partial));
+
+        TurnedChambers++;
+        FurthestChamberAngle = MathF.Max(
+            FurthestChamberAngle, MathF.Abs(ChamberRotation.Angle(tube, partial)));
+    }
+
+    /// <summary>The index of a model's bone with the given name, or -1.</summary>
+    /// <remarks>
+    /// **The name is a parameter because the engine looks up a different one per weapon** —
+    /// `LookupBone( "barrel" )` (<c>tf_weapon_minigun.cpp:1048</c>) and
+    /// `LookupBone( "procedural_chamber" )` (<c>tf_weapon_grenadelauncher.cpp:602</c>). Keyed by
+    /// model AND name, since one model may be asked for either.
+    /// </remarks>
+    private int BoneNamed(PropModels.SkinnedModel skinned, string model, string name)
+    {
+        // **A tuple key, not a concatenation.** Joining the two strings makes
+        // `("a", "bc")` and `("ab", "c")` the same entry, and it allocates on every lookup of a
+        // path this asks for once per frame per prop.
+        (string Model, string Name) key = (model, name);
+
+        if (_barrelBones.TryGetValue(key, out int cached))
         {
             return cached;
         }
@@ -2337,14 +2405,14 @@ public sealed class EntityModelSet
 
         for (int bone = 0; bone < skinned.Bones.Count; bone++)
         {
-            if (string.Equals(skinned.Bones[bone].Name, "barrel", StringComparison.Ordinal))
+            if (string.Equals(skinned.Bones[bone].Name, name, StringComparison.Ordinal))
             {
                 found = bone;
                 break;
             }
         }
 
-        _barrelBones[model] = found;
+        _barrelBones[key] = found;
         return found;
     }
 
@@ -2579,6 +2647,18 @@ public sealed class EntityModelSet
             return spun;
         }
     }
+
+    /// <summary>Chambers whose bone this pass wrote — the wiring check for B348.</summary>
+    /// <remarks>
+    /// **Counted here rather than carried out of <c>SkeletonPose</c>, unlike <see cref="SpunBarrels"/>,
+    /// and the difference is deliberate.** The pose writes ONE barrel bone, so a single counter
+    /// there cannot say which weapon asked for it. This says the chamber path ran; `SpunBarrels`
+    /// says a bone was actually written, and both being non-zero is what says the two agree.
+    /// </remarks>
+    public int TurnedChambers { get; private set; }
+
+    /// <summary>The furthest a chamber has turned, in radians.</summary>
+    public float FurthestChamberAngle { get; private set; }
 
     /// <summary>The furthest any barrel has turned, in radians.</summary>
     /// <remarks>

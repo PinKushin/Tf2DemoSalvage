@@ -152,3 +152,4 @@
 - [An exception type can be load-bearing](an-exception-type-can-be-load-bearing.md) — a handler that attaches context to one type loses it for every other.
 - [A player is not a prop track](a-player-is-not-a-prop-track.md) — two populations, two paths to the renderer.
 - [The base is not the behaviour](the-base-is-not-the-behaviour.md) — read the overrides; some are dead.
+- [Sample between the knots](sample-between-the-knots.md) — every curve agrees at its own control points.
