@@ -120,9 +120,16 @@ public sealed class SendTableConformanceTests
 
     /// <summary>Every send table the SDK declares, and the properties inside each one.</summary>
     /// <remarks>
-    /// Blocks run from the macro that names the table to <c>END_SEND_TABLE()</c>. Both spellings
-    /// are collected: <c>IMPLEMENT_SERVERCLASS_ST</c> for a class's own table and
-    /// <c>BEGIN_SEND_TABLE</c> for the standalone ones, each with a <c>_NOBASE</c> variant.
+    /// Blocks run from the macro that names the table to <c>END_SEND_TABLE()</c>. THREE spellings
+    /// are collected: <c>IMPLEMENT_SERVERCLASS_ST</c> for a class's own table,
+    /// <c>BEGIN_SEND_TABLE</c> for the standalone ones, and <c>BEGIN_NETWORK_TABLE</c> for the
+    /// shared client/server form — each with a <c>_NOBASE</c> variant.
+    ///
+    /// **The third was missing and it hid every TF2 weapon** (B347). `tf_weapon_minigun.cpp:44`
+    /// declares `BEGIN_NETWORK_TABLE( CTFMinigun, DT_WeaponMinigun )`, and that is the spelling all
+    /// of `game/shared/tf` uses — so this instrument reported "no such send table in the SDK" for a
+    /// table a real demo sends 462 times. The absence was a fact about the PATTERN, which is the
+    /// same failure its own `SENDINFO` comment above records one line down.
     /// </remarks>
     private static Dictionary<string, HashSet<string>> SendTables()
     {
@@ -132,7 +139,8 @@ public sealed class SendTableConformanceTests
         }
 
         Regex opens = new(
-            @"(?:IMPLEMENT_SERVERCLASS_ST(?:_NOBASE)?|BEGIN_SEND_TABLE(?:_NOBASE)?)\s*\(\s*"
+            @"(?:IMPLEMENT_SERVERCLASS_ST(?:_NOBASE)?|BEGIN_SEND_TABLE(?:_NOBASE)?"
+            + @"|BEGIN_NETWORK_TABLE(?:_NOBASE)?)\s*\(\s*"
             + @"[A-Za-z_][A-Za-z0-9_]*\s*,\s*(DT_[A-Za-z0-9_]+)\s*\)",
             RegexOptions.Compiled,
             TimeSpan.FromSeconds(10));

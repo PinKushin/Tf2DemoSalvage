@@ -145,6 +145,57 @@ public sealed class TransitionProbe : IProbe
                 $"timeline: {jumpTicks.Count} player discontinuities across " +
                 $"{playerJumps.Count} players{where}"));
 
+        // **Where the miniguns are, before rendering anything** (B347). "Zero barrels spun" has two
+        // causes — the spin never runs, or no minigun is drawn in the window — and only this tells
+        // them apart. It is the same stacking the discontinuity scan above uses, and it is cheap
+        // because it asks the timeline rather than the pose path.
+        Dictionary<int, int> spunAt = [];
+        List<SceneProp> scannedProps = [];
+        int miniguns = 0;
+        List<int> minigunTicks = [];
+        string minigunModel = string.Empty;
+
+        for (int tick = timeline.FirstTick; tick <= timeline.LastTick; tick += 4)
+        {
+            timeline.PropsAt(tick, scannedProps);
+
+            foreach (SceneProp one in scannedProps)
+            {
+                if (one.Pose.MinigunState is { } minigun && !spunAt.ContainsKey(tick))
+                {
+                    spunAt[tick] = minigun;
+                }
+
+                // **The control one level below.** "No tick carries a minigun state" has two causes
+                // — no minigun is drawn, or the state does not reach the pose — and counting the
+                // MODEL separates them without rendering anything.
+                if (one.ModelPath.Contains("minigun", StringComparison.OrdinalIgnoreCase))
+                {
+                    miniguns++;
+
+                    if (minigunTicks.Count < 8 && !minigunTicks.Contains(tick))
+                    {
+                        minigunTicks.Add(tick);
+                        minigunModel = one.ModelPath;
+                    }
+                }
+            }
+        }
+
+        string spinning = spunAt.Count == 0
+            ? string.Empty
+            : $", first at ticks {string.Join(", ", spunAt.Keys.Take(8))}";
+
+        string seenAs = minigunTicks.Count == 0
+            ? string.Empty
+            : $", from tick {minigunTicks[0]} as '{minigunModel}'";
+
+        output.WriteLine(
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"timeline: {spunAt.Count} sampled ticks carry a minigun state{spinning}; " +
+                $"{miniguns} minigun-model props seen across the same samples{seenAs}"));
+
         string mapName = Tf2DemoSalvage.Core.Container.DemoHeader
             .Parse(bytes).MapName;
 
@@ -212,6 +263,17 @@ public sealed class TransitionProbe : IProbe
                 $"transition queues cleared: {models.QueuesClearedByADiscontinuity} by a " +
                 $"discontinuity (the bInterpolate half, B346), " +
                 $"{models.QueuesClearedBySnap} by STUDIO_SNAP"));
+
+        // **Whether a minigun's barrel ever spins on a real demo** (B347). The conformance tests
+        // pin the arithmetic against the engine; only this says production reaches it. The ANGLE is
+        // reported beside the count for the reason the IK locks report their effect: a non-zero
+        // count with a zero angle means every minigun in the window is idle, which looks identical
+        // on screen to the spin never running and is a different fact about the demo.
+        output.WriteLine(
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"barrels spun: {models.SpunBarrels} bone writes, furthest angle " +
+                $"{models.FurthestBarrelAngle:0.###} rad"));
 
         if (models.SequenceChangesSeen == 0)
         {

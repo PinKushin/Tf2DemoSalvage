@@ -782,6 +782,12 @@ public sealed class EntityModelSet
             posed.Controllers = skinned.Controllers;
             posed.BoneControllers = where.BoneControllers;
 
+            // **`CTFMinigun::StandardBlendingRules`, which overwrites one bone after everything
+            // else** (B347). The barrel's angle is not on the wire — the client integrates it from
+            // `m_iWeaponState` alone — so this is the same shape as the burn clock: watch the
+            // networked state and run the engine's own arithmetic from it.
+            SpinBarrel(prop, skinned, posed, seconds);
+
             // **The ROOT model's bytes, for the jiggle bones' own parameters** (B293).
             // `mstudiobone_t::pProcedure()` is an offset from the BONE, and the bones being posed
             // are `Models[0]`'s — reading it against an included animation model's bytes would land
@@ -2243,6 +2249,105 @@ public sealed class EntityModelSet
         return fading;
     }
 
+    /// <summary>The bone a model spins procedurally, by the name the engine looks it up under.</summary>
+    /// <remarks>
+    /// **Two weapons and two names**: `LookupBone("barrel")` for the minigun
+    /// (<c>tf_weapon_minigun.cpp:1048</c>) and `LookupBone("procedural_chamber")` for the grenade
+    /// launcher (<c>tf_weapon_grenadelauncher.cpp:602</c>). Only the first is driven here; the
+    /// second turns on a keyframed spline over `m_iGoalTube`, which is a different mechanism and is
+    /// filed rather than half-built.
+    ///
+    /// **Cached per model, because the lookup is a string compare over every bone** and the engine
+    /// does it once in `OnNewModel` rather than per frame.
+    /// </remarks>
+    private readonly Dictionary<string, int> _barrelBones = [];
+
+    /// <summary>Each spinning barrel's velocity and angle, integrated across frames.</summary>
+    private readonly Dictionary<int, (float Velocity, float Angle)> _barrelSpin = [];
+
+    /// <summary>Demo time at the previous pose pass, so a frame's duration can be differenced.</summary>
+    /// <remarks>
+    /// **`gpGlobals->frametime`, which the engine has and this layer has to derive.** Clamped at
+    /// zero rather than allowed negative: frametime never is, so scrubbing BACKWARDS holds the
+    /// barrel where it is instead of unwinding it — the engine has no opinion about a case it
+    /// cannot reach, and unwinding would be ours.
+    /// </remarks>
+    private double _barrelSeconds = double.NaN;
+
+    /// <summary>Spins a minigun's barrel bone, as its own blending rules do.</summary>
+    /// <param name="prop">The entity.</param>
+    /// <param name="skinned">Its model, for the bone list.</param>
+    /// <param name="posed">The pose being built.</param>
+    /// <param name="seconds">Demo time now.</param>
+    /// <remarks>
+    /// **Per FRAME, which is TF2's arithmetic rather than a misreading.** `UpdateBarrelMovement`
+    /// steps the velocity by a literal 0.1 once per call and is reached from
+    /// `StandardBlendingRules`, so a minigun genuinely winds up faster at a higher framerate. That
+    /// is reproduced rather than corrected — a per-second rate would be our number, not the game's,
+    /// and `docs/DECISIONS.md` D89 settles which one this project wants.
+    /// </remarks>
+    private void SpinBarrel(
+        SceneProp prop, PropModels.SkinnedModel skinned, SkeletonPose posed, double seconds)
+    {
+        if (prop.Pose.MinigunState is not { } state)
+        {
+            return;
+        }
+
+        int bone = BarrelBoneOf(skinned, prop.ModelPath);
+
+        if (bone < 0)
+        {
+            return;
+        }
+
+        float frame = double.IsNaN(_barrelSeconds)
+            ? 0f
+            : (float)Math.Max(seconds - _barrelSeconds, 0d);
+
+        _barrelSpin.TryGetValue(prop.EntityIndex, out (float Velocity, float Angle) spin);
+
+        // **`CanHolsterWhileSpinning` is an econ ATTRIBUTE — the Tomislav's** — and this layer does
+        // not read attributes, so the ordinary 0.1 is used for every minigun. Named rather than
+        // silently assumed: a Tomislav winds up five times faster and will look slow here.
+        spin.Velocity = MinigunBarrel.Approach(
+            MinigunBarrel.TargetVelocity((MinigunState)state),
+            spin.Velocity,
+            MinigunBarrel.Acceleration(canHolsterWhileSpinning: false));
+
+        spin.Angle = MinigunBarrel.Advance(spin.Angle, spin.Velocity, frame);
+
+        _barrelSpin[prop.EntityIndex] = spin;
+
+        posed.BarrelBone = bone;
+        posed.BarrelRotation = MinigunBarrel.Rotation(spin.Angle);
+
+        FurthestBarrelAngle = MathF.Max(FurthestBarrelAngle, MathF.Abs(spin.Angle));
+    }
+
+    /// <summary>The index of a model's <c>barrel</c> bone, or -1.</summary>
+    private int BarrelBoneOf(PropModels.SkinnedModel skinned, string model)
+    {
+        if (_barrelBones.TryGetValue(model, out int cached))
+        {
+            return cached;
+        }
+
+        int found = -1;
+
+        for (int bone = 0; bone < skinned.Bones.Count; bone++)
+        {
+            if (string.Equals(skinned.Bones[bone].Name, "barrel", StringComparison.Ordinal))
+            {
+                found = bone;
+                break;
+            }
+        }
+
+        _barrelBones[model] = found;
+        return found;
+    }
+
     /// <summary>What sequence each entity was playing last frame, and where its cycle stood.</summary>
     /// <remarks>
     /// **`UpdateCurrent`'s job**, kept per entity for the same reason the queue is. The cycle is
@@ -2445,6 +2550,43 @@ public sealed class EntityModelSet
             return solved;
         }
     }
+
+    /// <summary>Barrel bones actually WRITTEN — the wiring check for B347.</summary>
+    /// <remarks>
+    /// **Summed out of the poses that did the work, not counted here** (B243). The first version
+    /// incremented a field in <see cref="SpinBarrel"/> as soon as it had a state and a bone index,
+    /// which measured this method's INTENT: sabotaging `SkeletonPose.SpinBarrel`, the code that
+    /// actually writes the rotation, left every assertion green. A count kept beside the work is a
+    /// second route, and a second route is free to be wrong.
+    ///
+    /// **The same shape as <see cref="AppliedIkLocks"/>**, which reads `posed.AppliedLocks` for
+    /// exactly this reason.
+    /// </remarks>
+    public int SpunBarrels
+    {
+        get
+        {
+            int spun = 0;
+
+            foreach (AnimatingEntity animating in _entities.Values)
+            {
+                if (animating.Pose is SkeletonPose posed)
+                {
+                    spun += posed.SpunBarrels;
+                }
+            }
+
+            return spun;
+        }
+    }
+
+    /// <summary>The furthest any barrel has turned, in radians.</summary>
+    /// <remarks>
+    /// **The question a count cannot answer**: whether the barrels MOVE. A non-zero count with a
+    /// zero angle would mean every minigun is idle, which looks identical on screen to the spin
+    /// never running and is a different fact about the demo.
+    /// </remarks>
+    public float FurthestBarrelAngle { get; private set; }
 
     /// <summary>Transition queues emptied because the entity JUMPED — the <c>bInterpolate</c> half.</summary>
     /// <remarks>
@@ -3946,6 +4088,11 @@ public sealed class EntityModelSet
         long simulatedAt = System.Diagnostics.Stopwatch.GetTimestamp();
 
         Simulate(props, seconds);
+
+        // **After the pass, not during it** (B347). Every barrel in this frame differences against
+        // the SAME previous time, which is what one `gpGlobals->frametime` means; advancing it per
+        // prop would give the first minigun the whole frame and the rest nothing.
+        _barrelSeconds = seconds;
 
         SimulateTicks += System.Diagnostics.Stopwatch.GetTimestamp() - simulatedAt;
 

@@ -246,6 +246,16 @@ public readonly record struct ScenePose
     /// </remarks>
     public double DiscontinuitySeconds { get; init; }
 
+    /// <summary>A minigun's wind-up state, when this entity is one — <c>m_iWeaponState</c>.</summary>
+    /// <remarks>
+    /// **The only networked input to the barrel spin** (B347), which the client computes rather
+    /// than the animation: `CTFMinigun::StandardBlendingRules` overwrites the barrel bone outright
+    /// (<c>tf_weapon_minigun.cpp:1068</c>), discarding whatever `fire_loop` put there.
+    ///
+    /// Null for every entity that is not a minigun, which is nearly all of them.
+    /// </remarks>
+    public int? MinigunState { get; init; }
+
     /// <summary>How fast the entity is moving horizontally, when that was worked out.</summary>
     /// <remarks>
     /// **Only players carry this, and only because nothing else can supply it.** A demo networks
@@ -1592,6 +1602,10 @@ public sealed class ScenePropTrack
             // blended toward the later one — a discontinuity happened at a moment, and half of one
             // is not a thing.
             DiscontinuitySeconds = from.DiscontinuitySeconds,
+
+            // Discrete, so it takes the earlier keyframe's value rather than being blended — half
+            // of "spinning" is not a state (B347).
+            MinigunState = from.MinigunState,
 
             // Discrete, so it takes the earlier keyframe's value rather than being blended.
             // Half-hidden is not a state the engine has.

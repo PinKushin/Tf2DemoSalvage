@@ -596,3 +596,36 @@ invariant nothing checks.
 `AddSequenceLocks/SolveSequenceLocks, not implemented` a day after B311 implemented them and measured
 88 applied on the pose path. A census that keeps reporting a gap after it closes is how a fixed thing
 gets re-filed, and it is the same class as the counters this document warns about elsewhere.
+
+## The weapon overrides of `StandardBlendingRules`, audited 2026-09-05
+
+**The base is not the behaviour, and this is the clearest case of it in the tree.** Reading
+`C_BaseAnimating::StandardBlendingRules` to the closing brace tells you nothing about the minigun,
+because everything the minigun does happens in an override that runs *after* `BaseClass::` returns.
+Seven live overrides exist; three of them are TF2 weapons and two of those exist for one purpose —
+turning a barrel bone the animation does not turn.
+
+| override | file:line | what it adds |
+|---|---|---|
+| `CTFMinigun` | `tf_weapon_minigun.cpp:1068` | spins `barrel` from `m_iWeaponState` — **was missing, fixed as B347** |
+| `CTFGrenadeLauncher` | `tf_weapon_grenadelauncher.cpp:610` | rotates `procedural_chamber` on a spline — **filed, not built** |
+| `C_TFViewModel` | `tf_viewmodel.cpp:313` | the same barrel, by name, for the viewmodel |
+| `C_BaseFlex` | `c_baseflex.cpp:227` | entirely inside `#ifdef HL2_CLIENT_DLL` — nothing for TF2 |
+| `CEconEntity` | `econ_entity.cpp:890` | delegates to `ViewModelAttachmentBlending`, `{}` for all but those two |
+| `C_Barnacle` | `c_barnacle.cpp:203` | HL2 |
+| `C_AI_BaseHumanoid` | `c_ai_basehumanoid.cpp:77` | **the whole file is `#if 0`** — does not compile into the game |
+
+**Two of those rows are absences worth having measured**, because both look like features until read:
+`C_BaseFlex`'s body is HL2-only, and `C_AI_BaseHumanoid`'s override does not exist in a built game at
+all. Implementing either would be implementing nothing.
+
+**`ChildLayerBlend` is dead the same way**, and it is called unconditionally from
+`StandardBlendingRules` (`c_baseanimating.cpp:2005`): its body opens with a bare `return;`
+(`:1909`), so the bone-merge loop beneath is unreachable. A reader who quoted the call site and not
+the body would build a whole child-merge pass that TF2 never runs.
+
+**Method note: the instrument had to be extended before the question could be asked.** "Does this
+model have a bone called `barrel`" is a question about a model chosen by NAME, and every bone census
+here walked a demo's drawn props — where a weapon is not among the 14 skinned models at a tick. The
+`model` probe now lists bone names, which answered it in one call: `c_minigun.mdl` carries
+`weapon_bone, barrel, c_weapon_stattrack`.

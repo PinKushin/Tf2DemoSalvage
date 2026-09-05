@@ -3375,6 +3375,9 @@ public sealed class DemoTimeline
 
                 // **When it last jumped**, so a sequence change at that moment cuts (B346).
                 DiscontinuitySeconds = track.DiscontinuitySeconds,
+
+                // **A minigun's wind-up state, which is what spins its barrel** (B347).
+                MinigunState = state.MinigunWeaponState(),
                 X = origin.X,
                 Y = origin.Y,
                 Z = origin.Z,

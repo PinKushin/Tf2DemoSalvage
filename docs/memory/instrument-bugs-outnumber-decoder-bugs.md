@@ -643,3 +643,26 @@ stronger assertion on the same proxy would have produced a tighter test that sti
 **Ask what the output CARRIES before writing an assertion on it.** A normalised vector cannot carry a
 magnitude; a boolean cannot carry a count; a clamped value cannot carry what it was clamped from.
 When the claim is about something the output discards, no assertion on that output is a test of it.
+
+**A COUNTER placed upstream of the work measures intent, not the work** (B347, 2026-09-05).
+`EntityModels.SpinBarrel` incremented `SpunBarrels` as soon as it had a weapon state and a bone
+index — then handed both to `SkeletonPose.SpinBarrel`, which does the actual rotation write.
+Sabotaging that write reddened NOTHING: four wiring tests, three of them controls, all green while
+the barrel never turned.
+
+The fix is the one B243 already states, applied one layer further in: **the number the caller reports
+is carried out of the code that did the work.** `SkeletonPose` now counts its own writes and
+`EntityModels` sums them, which is exactly the shape `AppliedIkLocks` already had beside it —
+`posed.AppliedLocks`, not a tally kept where the call was made.
+
+**How to spot it before a sabotage does:** ask where the counter is incremented relative to the
+thing it names. If the increment can run when the named action does not, it is a second route.
+`SpunBarrels++` sat three lines above the call that spins a barrel, and read as obviously correct.
+
+**And the same session's other instrument fault, for contrast:** `SendTableConformanceTests` matched
+two macro spellings and not `BEGIN_NETWORK_TABLE`, so **251 send tables were invisible — 185 of them
+TF2's own.** It reported `DT_WeaponMinigun (no such send table in the SDK)` about a table the SDK
+declares and a demo sends 462 times. That one failed in the direction that *punishes correct work*:
+it argues a right name is wrong, which is worse than not checking at all. Same file already carried
+a note about a regex that "reported every fog property as declared-nowhere — a fact about the
+pattern rather than about Valve's tables". Second time, same file, same cause.

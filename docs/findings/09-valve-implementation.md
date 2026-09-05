@@ -398,3 +398,52 @@ it an absent entry would have meant "all defaults" and a very different fix.
 
 The class id as the entry's TEXT confirms `BaselineBuilder`'s rule from the other side: the engine
 writes `snprintf( name, 64, "%d", classId )` and looks it up by that name.
+
+## A virtual's overrides are where the behaviour is — and some of them are dead
+
+**Reading an engine function to its closing brace can tell you nothing about what the game does.**
+`C_BaseAnimating::StandardBlendingRules` is a complete, sensible pose pipeline; everything TF2's
+minigun does happens in an override that runs *after* `BaseClass::` returns
+(`tf_weapon_minigun.cpp:1068`). Seven live overrides exist. Two of them exist purely to turn a
+barrel bone the animation does not turn.
+
+**Three of the seven are dead, in three different ways**, and each reads as a feature from the call
+site:
+
+| override | why it does nothing |
+|---|---|
+| `C_AI_BaseHumanoid` (`c_ai_basehumanoid.cpp:77`) | the **whole file** is wrapped `#if 0` … `#endif` (lines 13, 169) |
+| `C_BaseFlex` (`c_baseflex.cpp:227`) | its entire body after `BaseClass::` is inside `#ifdef HL2_CLIENT_DLL` |
+| `C_NPC_Hydra` (`c_npc_hydra.cpp:148`) | four parameters against the base's five — it does not override anything |
+
+**`ChildLayerBlend` is the sharpest of them**, because it is called unconditionally from
+`StandardBlendingRules` (`c_baseanimating.cpp:2005`) and its body opens with a bare `return;`
+(`:1909`). Thirty-five lines of bone-merge follow, unreachable. A reader who quoted the call and not
+the body would implement a whole child-merge pass the engine has never run.
+
+## Valve's commented-out alternative uses a different axis from its live code
+
+`CTFMinigun::StandardBlendingRules` sets the barrel bone with
+`AngleQuaternion( RadianEuler( 0, 0, m_flBarrelAngle ), q[m_iBarrelBone] )` — the third component,
+which `AngleQuaternion` reads into the YAW terms (`mathlib_base.cpp:2039`).
+
+Directly above it sits a commented-out block, guarded by *"Weapon happens to be aligned to (0,0,0) /
+If that changes, use this code block instead"*:
+
+```cpp
+RadianEuler a;
+QuaternionAngles( q[iBarrelBone], a );
+a.x = m_flBarrelAngle;
+AngleQuaternion( a, q[iBarrelBone] );
+```
+
+**`a.x` is ROLL.** The live code and its own documented alternative rotate about different axes, so
+the comment is a sketch of the general shape rather than an equivalent — and a reader who took the
+commented version as authoritative, on the reasonable grounds that it is the more general one, would
+spin the barrel about the wrong axis and have Valve's own text to point at.
+
+**The axis costs two hops to establish at all**, which is why this is worth writing down:
+`RadianEuler`'s members are `x, y, z` in declaration order (`vector.h:1692`), and only
+`AngleQuaternion`'s body says which of those is yaw. Its X360 branch carries the warning outright —
+*"the ordering here is different … because p, y, r are not in the same locations in QAngle +
+RadianEuler"*.
