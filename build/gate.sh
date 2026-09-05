@@ -657,7 +657,13 @@ run Tf2DemoSalvage.Animation.Tests animation 111
 # clamp on negative time — load-bearing HERE where it is not in the engine, because a client clock
 # never goes backwards and this project seeks, and C#'s modulo of a negative is negative — the
 # refusal of a texture declaring no frames, the still-texture case, and the two rates TF2 uses.
-run Tf2DemoSalvage.Scene.Tests    scene     481
+# 481 -> 488: a proxy naming ONE component of a vector variable (B339), which B337 had recorded as
+# a stated divergence and which turned out to be reachable on 150 shipped materials —
+# `$selfillumfresnelminmaxexp[1]`, `$envmaptint[1]`, `$temp[1]`. Seven: the split that strips the
+# brackets (the lookup uses the bare name, so a bracketed key matches nothing), `strtol`'s answer of
+# zero for a malformed index, the component written ALONE, the broadcast when none is named, a
+# component past the three this layer holds, and the scalar read.
+run Tf2DemoSalvage.Scene.Tests    scene     488
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

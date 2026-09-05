@@ -4165,18 +4165,16 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // engine refuses such a proxy at `Init` rather than reading zero from it. See the longer
         // note in `ApplySelectFirstIfNonZero`, where relaxing exactly this reddened five pixel
         // tests.
-        if (!variables.ContainsKey(first))
+        if (Read(variables, first) is not { } a)
         {
             return;
         }
-
-        _ = variables.TryGetValue(first, out (float Red, float Green, float Blue) a);
 
         (float Red, float Green, float Blue) b = default;
 
         if (proxy.Argument("srcVar2") is { Length: > 0 } second)
         {
-            _ = variables.TryGetValue(second, out b);
+            b = Read(variables, second) ?? default;
         }
         else if (operation is not MaterialProxies.MathProxy.Equals)
         {
@@ -4205,12 +4203,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
     {
         if (proxy.Argument("srcVar1") is not { Length: > 0 } source ||
             proxy.Argument("resultVar") is not { Length: > 0 } result ||
-            !variables.ContainsKey(source))
+            Read(variables, source) is not { } value)
         {
             return;
         }
-
-        _ = variables.TryGetValue(source, out (float Red, float Green, float Blue) value);
 
         Publish(
             contents,
@@ -4223,10 +4219,32 @@ internal sealed unsafe class WorldRenderer : IDisposable
             materialIndex);
     }
 
+    /// <summary>One of a proxy's sources, or null when the material declares no such variable.</summary>
+    /// <param name="variables">The table.</param>
+    /// <param name="reference">What the VMT wrote, possibly naming one component.</param>
+    /// <returns>The value, with a named component broadcast; null when there is no variable.</returns>
+    /// <remarks>
+    /// **Null and zero are different answers**, which is the whole reason this returns a nullable:
+    /// a variable the material never declared means the engine refused the proxy at `Init`, and a
+    /// variable holding zero means it ran on a zero. Collapsing them is what reddened five
+    /// reflection tests in B337.
+    /// </remarks>
+    private static (float Red, float Green, float Blue)? Read(
+        Dictionary<string, (float Red, float Green, float Blue)> variables, string reference)
+    {
+        (string name, int component) = MaterialProxies.Reference(reference);
+
+        return variables.TryGetValue(name, out (float Red, float Green, float Blue) value)
+            ? MaterialProxies.ReadComponent(value, component)
+            : null;
+    }
+
     /// <summary>Stores a proxy's result, and pushes it to the constants when it is drawn.</summary>
     /// <param name="contents">The material constants for this draw.</param>
     /// <param name="variables">The table.</param>
-    /// <param name="result">Which variable the proxy named.</param>
+    /// <param name="reference">
+    /// Which variable the proxy named, possibly naming one component — <c>$envmaptint[1]</c>.
+    /// </param>
     /// <param name="value">What it computed.</param>
     /// <param name="materialIndex">Which material, for the colour factor.</param>
     /// <remarks>
@@ -4241,10 +4259,25 @@ internal sealed unsafe class WorldRenderer : IDisposable
     private void Publish(
         float[] contents,
         Dictionary<string, (float Red, float Green, float Blue)> variables,
-        string result,
+        string reference,
         (float Red, float Green, float Blue) value,
         int materialIndex)
     {
+        // **A proxy may name ONE component of a vector variable, and 150 shipped materials do**
+        // (B339) — `$envmaptint[1]`, `$selfillumfresnelminmaxexp[2]`, `$temp[1]`. The engine writes
+        // that component alone and leaves the rest (`functionproxy.cpp:141-160`); writing all three
+        // turns a reflection tint or a self-illumination ramp into a grey of itself.
+        (string result, int component) = MaterialProxies.Reference(reference);
+
+        if (component >= 0)
+        {
+            // The operation is float-typed when a component is named, so the value arrives
+            // broadcast and any of its components is the scalar the engine computed.
+            _ = variables.TryGetValue(result, out (float Red, float Green, float Blue) current);
+
+            value = MaterialProxies.WriteComponent(current, component, value.Red);
+        }
+
         variables[result] = value;
 
         if (!result.Equals("$color2", StringComparison.OrdinalIgnoreCase))
@@ -4369,13 +4402,14 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // fourth time that family has caught a change to this buffer. The gate it replaced was
         // load-bearing, and the comment beside it said so: *"a SelectFirstIfNonZero reading a
         // missing variable as zero would paint every unpainted cosmetic black"*.
-        if (!variables.ContainsKey(first) && !variables.ContainsKey(second))
+        if (Read(variables, first) is not { } a && Read(variables, second) is null)
         {
             return;
         }
 
-        _ = variables.TryGetValue(first, out (float Red, float Green, float Blue) a);
-        _ = variables.TryGetValue(second, out (float Red, float Green, float Blue) b);
+        a = Read(variables, first) ?? default;
+
+        (float Red, float Green, float Blue) b = Read(variables, second) ?? default;
 
         (float Red, float Green, float Blue) chosen = a is (0f, 0f, 0f) ? b : a;
 
