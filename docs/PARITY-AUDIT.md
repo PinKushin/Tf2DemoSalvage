@@ -648,8 +648,15 @@ inferred, is in `docs/findings/09`. What the audit established beyond the two fi
   and are wrapped in `if ( hdr->boneFlags( iBarrelBone ) & boneMask )`. They agree only while the
   animation leaves the other two components at zero on that bone.
 
-**Still open: the two viewmodel-attachment paths** (`tf_weapon_minigun.cpp:1343`,
-`tf_weapon_grenadelauncher.cpp:683`). Same angles, same bone names, reached through
-`CEconEntity::StandardBlendingRules` → `ViewModelAttachmentBlending` rather than the weapon's own
-override. Filed rather than assumed equivalent, because the write style and the mask check both
-differ from what is now implemented.
+**The two viewmodel-attachment paths are a MEASURED non-divergence** (`tf_weapon_minigun.cpp:1343`,
+`tf_weapon_grenadelauncher.cpp:683`), filed as B349. They read the bone's existing angles and
+replace one component where the world paths assign outright — but both barrel bones have identity
+bind rotations and **no animation in either model tracks them**: every animation moves exactly one
+bone, `weapon_bone`. So `q[bone]` is identity when the override runs, and read-modify-write on
+identity yields the same pure-Z quaternion the flat assign produces. Arithmetically equal, not
+merely similar.
+
+**So the family is closed.** Four live paths, two implemented and two proved equivalent to them, one
+dead. The measurement that settled it is now a probe rather than a one-off: `model <path>` reports
+bind rotations and per-animation tracked bones, so the same question can be asked of any weapon in
+one call.
