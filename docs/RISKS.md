@@ -22889,3 +22889,56 @@ test can use the materials a real map has and cannot author one. cp_process_fina
 that takes its exponent from a map, so there is no pixel test to write without changing production
 for a test's sake. **What holds the shader half is the transcription and its citation, not a
 measurement**, and saying so is more useful than a green test that measured something else.
+
+### B335 OPEN 2026-09-04: Core's branch coverage fell 89.3% → 84.0% and CI has been unable to say so
+
+**The coverage floor is doing exactly what it was written to do, and nobody has seen it for weeks.**
+`.github/workflows/test.yml` asserts `Tf2DemoSalvage.Core 90 85` — line 90, branch 85 — and the
+comment beside it says the floor *"exists to catch a whole area losing its tests, not to chase a
+number"*. It is now failing:
+
+```
+Tf2DemoSalvage.Core: 92.0% line (floor 90), 83.4% branch (floor 85)     CI, 54b2cc22
+Tf2DemoSalvage.Core: 92.7% line (floor 90), 84.0% branch (floor 85)     locally, all tests running
+```
+
+**Against 95.2 line / 89.3 branch when the floor was set** on 2026-08-22 — the numbers are recorded
+in `build/assert-coverage.sh`'s own header, which is why the comparison is possible at all.
+
+**It was invisible because the coverage step runs AFTER the tests**, and the unit job has been
+failing at the test step since at least 2026-09-04: B333's dead absent-game guards, then the six
+`.phy` tests that threw instead of skipping. Both are fixed, the tests now pass, and the step
+underneath them ran for the first time in days and immediately said no. **A red step masks every
+step behind it**, which is the same shape as a green tick masking annotations.
+
+**Where it went, measured** (uncovered branches, largest first, from the Cobertura report):
+
+| missed | of | rate | file |
+|---|---|---|---|
+| 226 | 681 | 66.8% | `Scene/DemoTimeline.cs` |
+| 89 | 279 | 68.0% | `Scene/EntityState.cs` |
+| 53 | 306 | 82.5% | `Text/MessageAssembly.cs` |
+| 28 | 205 | 86.2% | `Scene/ScenePropTrack.cs` |
+| 24 | 24 | 0% | a nested type in `DemoTimeline.cs` |
+| 20 | 20 | 0% | `Scene/EconAttribute.cs` |
+| 19 | 33 | 41.7% | `Scene/DirectorShot.cs` |
+| 15 | 15 | 0% | `Scene/SceneSoundscape.cs` |
+| 13 | 17 | 25.0% | `Primitives/ValveLzma.cs` |
+
+**The diagnosis is NOT that this code is untested**, and saying so would be the easy wrong answer.
+`DemoTimeline` is named in 27 `Core.Tests` files — and in **44 `Corpus.Tests` files**. The tests
+exist; they are in the assembly whose coverage nothing measures, whose demos CI does not fetch, and
+which the measurement boxes cannot run at all because it needs Git LFS.
+
+**So this is D38 drifting the wrong way, and the coverage floor is the instrument that caught it.**
+The rule is synthetic-first in `Core.Tests`, corpus only for what real bytes alone can prove. A
+2:1 majority of the files exercising the scene timeline sitting in `Corpus.Tests` is the opposite,
+and every one of those is a test Stryker never mutates and CI never counts.
+
+**Do not lower the floor.** `build/assert-coverage.sh`'s header names that reflex specifically —
+*"the obvious fix — lowering the floor until it passes — produces a number that can never fail"*.
+
+**What is not established.** Which of the 226 branches are genuinely unreached versus reached only
+from `Corpus.Tests`; whether the newest of these types (`EconAttribute`, `SceneSoundscape`,
+`DirectorShot`, all at or near zero) were ever given synthetic tests at all; and whether the line
+floor of 90 is also close to falling — it is at 92.0 on CI, two points of headroom.
