@@ -149,3 +149,4 @@
 - [A proxy is per entity per draw](a-proxy-is-per-entity-per-draw.md) — paint cannot live on the material; the chain needs both proxies.
 - [Address a struct by name, not from its end](address-a-struct-by-name-not-from-its-end.md) — fourth time this buffer bit; reflections went white.
 - [A guard you remove may be the mechanism](a-guard-you-remove-may-be-the-mechanism.md) — ask what the narrow version REFUSED; the engine's refusal is a failed Init.
+- [An exception type can be load-bearing](an-exception-type-can-be-load-bearing.md) — a handler that attaches context to one type loses it for every other.
