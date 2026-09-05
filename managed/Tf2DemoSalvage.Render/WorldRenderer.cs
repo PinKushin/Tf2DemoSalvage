@@ -1882,6 +1882,18 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <summary>Each material's animation rate, from its <c>AnimatedTexture</c> proxy (B341).</summary>
     private readonly List<float> _animationRates = [];
 
+    /// <summary>The frames of every animated DETAIL texture, keyed by path (B342).</summary>
+    /// <remarks>
+    /// **One upload per FILE, which is the engine's arrangement and the reason this is a
+    /// dictionary rather than another per-material list.** 6,735 shipped materials animate
+    /// `effects/tiledfire/fireLayeredSlowTiled512.vtf` — 121 frames — and TF2 loads it once.
+    /// </remarks>
+    private readonly Dictionary<string, ComPtr<ID3D11ShaderResourceView>[]> _detailAnimations =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Which animated detail each material uses, and how fast (B342).</summary>
+    private readonly List<(string? Path, float Rate)> _detailAnimation = [];
+
     /// <summary>Each material's <c>$color</c> alone, which <c>$color2</c> multiplies against.</summary>
     private readonly List<(float Red, float Green, float Blue)> _colourFactors = [];
 
@@ -2434,6 +2446,14 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // geometry, which is white times the lightmap. Binding `_white` there produced the chequer
         // the owner reported, and removing the material from `_chequered` did not help because the
         // fallback bind is what draws it.
+        // **Every animated detail texture, once each** (B342). Keyed by path because thousands of
+        // materials share one file, so this loop runs a handful of times where a per-material
+        // upload would run thousands.
+        foreach ((string path, IReadOnlyList<MapTexture> frames) in assets.AnimatedDetails)
+        {
+            _detailAnimations[path] = [.. frames.Select(frame => Upload(device, context, frame))];
+        }
+
         _flatWhite = CreateTexture(
             device, context, 1, 1, TextureImage.Rgba(new byte[] { 255, 255, 255, 255 }));
 
@@ -2857,7 +2877,14 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
             // **The rate is per material, from its own proxy**, and the engine's default when a
             // material states none is 15 rather than the 30 TF2's own files almost all say.
-            _animationRates.Add(RateOf(index < assets.Proxies.Count ? assets.Proxies[index] : []));
+            _animationRates.Add(RateOf(
+                index < assets.Proxies.Count ? assets.Proxies[index] : [], "$basetexture"));
+
+            // **The animated DETAIL, by path** (B342) — the frames themselves are uploaded once
+            // below, not once per material.
+            _detailAnimation.Add((
+                index < assets.DetailAnimations.Count ? assets.DetailAnimations[index] : null,
+                RateOf(index < assets.Proxies.Count ? assets.Proxies[index] : [], "$detail")));
             _colourFactors.Add(surface?.ColourFactor ?? (1f, 1f, 1f));
 
             float rimExponent = phong?.Rim?.Exponent ?? 4f;
@@ -3382,11 +3409,14 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // The detail pattern, or white with the mode set to "none" - the shader skips the
             // combine entirely rather than multiplying by an identity, because several of the modes
             // have no identity to multiply by.
-            ComPtr<ID3D11ShaderResourceView> detail =
+            ComPtr<ID3D11ShaderResourceView> stillDetail =
                 batch.MaterialIndex >= 0 && batch.MaterialIndex < _details.Count &&
                 _details[batch.MaterialIndex].Handle is not null
                     ? _details[batch.MaterialIndex]
                     : _white;
+
+            ComPtr<ID3D11ShaderResourceView> detail =
+                DetailFrame(batch.MaterialIndex, stillDetail);
 
             ComPtr<ID3D11ShaderResourceView> bump =
                 batch.MaterialIndex >= 0 && batch.MaterialIndex < _bumps.Count &&
@@ -4418,22 +4448,52 @@ internal sealed unsafe class WorldRenderer : IDisposable
             MaterialProxies.AnimationFrame(Seconds, _animationRates[materialIndex], frames.Length)];
     }
 
+    /// <summary>The detail frame a material shows now, or a null handle (B342).</summary>
+    /// <param name="materialIndex">Which material.</param>
+    /// <param name="still">What to bind when the material's detail animates nothing.</param>
+    /// <returns>The frame's view, or <paramref name="still"/>.</returns>
+    /// <remarks>
+    /// **The frames come from the shared table**, so this looks up a path rather than an index —
+    /// which is what lets 6,735 materials animate one file without 6,735 uploads.
+    /// </remarks>
+    private ComPtr<ID3D11ShaderResourceView> DetailFrame(
+        int materialIndex, ComPtr<ID3D11ShaderResourceView> still)
+    {
+        if (materialIndex < 0 || materialIndex >= _detailAnimation.Count)
+        {
+            return still;
+        }
+
+        (string? path, float rate) = _detailAnimation[materialIndex];
+
+        if (path is null ||
+            !_detailAnimations.TryGetValue(path, out ComPtr<ID3D11ShaderResourceView>[]? frames) ||
+            frames.Length == 0)
+        {
+            return still;
+        }
+
+        return frames[MaterialProxies.AnimationFrame(Seconds, rate, frames.Length)];
+    }
+
     /// <summary>A material's base-texture animation rate, or the engine's default (B341).</summary>
     /// <param name="proxies">The material's proxies.</param>
+    /// <param name="variable">Which variable's animation — <c>$basetexture</c> or <c>$detail</c>.</param>
     /// <returns><c>animatedTextureFrameRate</c>, or 15.</returns>
     /// <remarks>
-    /// **Only the proxy animating `$basetexture` counts.** A material may run several
+    /// **Only the proxy animating the NAMED variable counts.** A material may run several
     /// `AnimatedTexture` proxies at different rates — one for the base and one for the detail — and
-    /// taking the first would give the base texture the detail's rate.
+    /// taking the first would give one of them the other's rate. TF2's own files make that a real
+    /// risk rather than a theoretical one: the detail animations state 30 and the base ones vary.
     /// </remarks>
-    private static float RateOf(IReadOnlyList<MaterialProxy> proxies)
+    private static float RateOf(IReadOnlyList<MaterialProxy> proxies, string variable)
     {
         foreach (MaterialProxy proxy in proxies)
         {
             if (proxy.Name.Equals("AnimatedTexture", StringComparison.OrdinalIgnoreCase) &&
                 string.Equals(
                     proxy.Argument("animatedTextureVar"),
-                    "$basetexture",
+                    variable,
                     StringComparison.OrdinalIgnoreCase))
             {
                 return MaterialProxies.Number(
@@ -5007,11 +5067,16 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // onto any material whose combine mode is not −1. No decal in the corpus has been seen
             // to declare one — this is the second instance of one fault, fixed with it rather than
             // left to be found again from a screenshot.
-            ComPtr<ID3D11ShaderResourceView> detail =
+            ComPtr<ID3D11ShaderResourceView> stillDetail =
                 batch.MaterialIndex < _details.Count &&
                 _details[batch.MaterialIndex].Handle is not null
                     ? _details[batch.MaterialIndex]
                     : _white;
+
+            // **The animated frame outranks the still one** (B342): for a material running
+            // `AnimatedTexture` on `$detail`, the still texture IS frame zero.
+            ComPtr<ID3D11ShaderResourceView> detail =
+                DetailFrame(batch.MaterialIndex, stillDetail);
 
             ComPtr<ID3D11ShaderResourceView> bump =
                 batch.MaterialIndex < _bumps.Count &&
@@ -5057,11 +5122,16 @@ internal sealed unsafe class WorldRenderer : IDisposable
             ComPtr<ID3D11ShaderResourceView> texture =
                 AnimationFrame(batch.MaterialIndex, _textures[batch.MaterialIndex]);
 
-            ComPtr<ID3D11ShaderResourceView> detail =
+            ComPtr<ID3D11ShaderResourceView> stillDetail =
                 batch.MaterialIndex < _details.Count &&
                 _details[batch.MaterialIndex].Handle is not null
                     ? _details[batch.MaterialIndex]
                     : _white;
+
+            // **The animated frame outranks the still one** (B342): for a material running
+            // `AnimatedTexture` on `$detail`, the still texture IS frame zero.
+            ComPtr<ID3D11ShaderResourceView> detail =
+                DetailFrame(batch.MaterialIndex, stillDetail);
 
             ComPtr<ID3D11ShaderResourceView> bump =
                 batch.MaterialIndex < _bumps.Count &&
@@ -5104,11 +5174,16 @@ internal sealed unsafe class WorldRenderer : IDisposable
             ComPtr<ID3D11ShaderResourceView> texture =
                 AnimationFrame(batch.MaterialIndex, _textures[batch.MaterialIndex]);
 
-            ComPtr<ID3D11ShaderResourceView> detail =
+            ComPtr<ID3D11ShaderResourceView> stillDetail =
                 batch.MaterialIndex < _details.Count &&
                 _details[batch.MaterialIndex].Handle is not null
                     ? _details[batch.MaterialIndex]
                     : _white;
+
+            // **The animated frame outranks the still one** (B342): for a material running
+            // `AnimatedTexture` on `$detail`, the still texture IS frame zero.
+            ComPtr<ID3D11ShaderResourceView> detail =
+                DetailFrame(batch.MaterialIndex, stillDetail);
 
             SetMaterial(context, batch.MaterialIndex, batch.Category);
 
@@ -5166,6 +5241,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
                  _textures.Concat(_blendTextures).Concat(_details).Concat(_bumps).Concat(_cubemaps)
                      .Concat(_placedCubemaps).Concat(_lightWarps).Concat(_selfIllumMasks)
                      .Concat(_phongExponentMaps).Concat(_animationFrames.SelectMany(frames => frames))
+                     .Concat(_detailAnimations.Values.SelectMany(frames => frames))
                      .Concat(_thumbnails)
                      .Where(texture => texture.Handle is not null))
         {
@@ -5188,6 +5264,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         _variables.Clear();
         _animationFrames.Clear();
         _animationRates.Clear();
+        _detailAnimations.Clear();
+        _detailAnimation.Clear();
         _colourFactors.Clear();
         _sortedTranslucent = [];
         _decals = [];

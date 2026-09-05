@@ -23261,3 +23261,39 @@ rather than from the first one found.
 **What is NOT done.** The `$detail` animation — the fire — still binds frame zero, and needs the
 path-keyed cache. Until then a burning player shows a still flame rather than a moving one, on top
 of the blend factor B336 already drives.
+
+### B342 FIXED 2026-09-05: the animated DETAIL texture, keyed by path as the engine keys it
+
+**The half B341 left, and B338 had already worked out the design.** 6,735 shipped materials animate
+`$detail` and they nearly all animate ONE file — `effects/tiledfire/fireLayeredSlowTiled512.vtf`,
+121 frames, TF2's fire overlay. A per-material table would decode it once per material; the engine
+loads it once and points every material at the same `ITexture`.
+
+**So the material carries a KEY and the frames live in one table.** Measured on the f12 demo:
+
+```
+62 materials animate their base texture, 184 frames in all
+245 materials animate a detail texture, across 2 files and 242 frames
+```
+
+**245 materials, 2 files.** Per material that would have been roughly 29,600 image decodes; it is
+242. Both numbers are logged together for that reason — materials against FILES is the gap the
+design exists to close, and one number alone cannot show it.
+
+**The table is a `ConcurrentDictionary` because the brushwork resolve is a `Parallel.For`.** An
+ordinary Dictionary written from several threads corrupts silently, and the symptom would be a map
+whose textures differ between runs. `TryAdd` rather than a lock: two threads decoding the same file
+produce the same frames, so losing the race costs one duplicate decode and no correctness.
+
+**The rate is taken from the proxy naming the variable, not the first one found.** A material may
+run two `AnimatedTexture` proxies — one for `$basetexture` and one for `$detail` — at different
+rates, and TF2's files make that real rather than theoretical: the detail animations state 30 and
+the base ones vary.
+
+**What this completes.** A burning player now gets the blend factor from `BurnLevel` (B336) AND a
+moving flame rather than a still one. The whole chain — condition, clock, proxy, blend, frame — is
+implemented and each link asserted.
+
+**What it still does not do is prove the picture**, and that is unchanged: no demo in the corpus
+both contains `TF_COND_BURNING` and uses an installed map. What CAN be seen is the base-texture
+half (B341), which the f12 demo exercises on 62 materials with no condition gating it.
