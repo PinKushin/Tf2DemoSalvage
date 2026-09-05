@@ -1148,6 +1148,22 @@ public sealed class SkeletonPose : IBonePose
     /// bones being posed are the root model's. An included animation model has its own bone table
     /// and its own offsets, and reading one against the other lands on arbitrary bytes.
     /// </remarks>
+    /// <remarks>
+    /// **Assign this from an expression that is already nullable, never from a `byte[]` conditional
+    /// with a `null` arm** (B333). `byte[]` converts implicitly to `ReadOnlyMemory&lt;byte&gt;`, so
+    /// such a conditional decides its own type as `byte[]` and lifts the RESULT — which turns a
+    /// null array into <c>Empty</c>, a perfectly present value. `EntityModels` set this with exactly
+    /// that shape, so both `is not { } model` guards in this file were dead: a skinned model
+    /// carrying no models at all arrived here as a present, zero-byte one.
+    ///
+    /// Nothing was visibly wrong, because `StudioJiggleBones.Read` is total and answers null for a
+    /// span too short to describe itself — the guard's job was being done one call further on, by
+    /// accident, and would stop being done the moment that reader gained a fixture it could parse.
+    ///
+    /// `byte[]?` would make the mistake inexpressible, which is what
+    /// `docs/memory/nullable-pattern-on-a-struct-is-dead-code.md` recommends, and CA1819 forbids an
+    /// array property. So the type stays and the ASSIGNMENT carries the burden.
+    /// </remarks>
     public ReadOnlyMemory<byte>? JiggleSource { get; set; }
 
     /// <summary>How many of this entity's bones the spring simulation has actually run on.</summary>

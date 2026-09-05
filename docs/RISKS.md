@@ -22715,3 +22715,62 @@ named the section had it survived.
 
 The pinned marker count came down 2 → 1 **with** the deletion rather than to make a run pass — the
 distinction the count is pinned to enforce.
+
+### B333 FIXED 2026-09-04: a null array converted to `ReadOnlyMemory<byte>` is Empty, not null, so two "the game is not installed" guards were dead
+
+**Two tests failed on CI for four days with a message that reads as a broken reader** —
+`sequences should be greater than 0 but was 0`, from
+`StudioIkLockTests.Read_ForAPlayerAnimationModel_FindsTheLocksItDeclares` — while the same two
+passed on every developer machine. They are supposed to SKIP where Team Fortress 2 is not
+installed, and the sibling suites beside them did skip.
+
+The helper:
+
+```csharp
+private static ReadOnlyMemory<byte>? Read(string path) =>
+    GameInstall.Vpk("tf2_misc") is { } archive &&
+    VpkArchive.Open(archive).ReadFile(path) is { } bytes
+        ? bytes
+        : null;
+```
+
+`ReadFile` returns `byte[]?`. The conditional's arms are therefore `byte[]` and the null literal,
+so the conditional's own type is **`byte[]`** and the lift to `ReadOnlyMemory<byte>?` happens on
+the way out — applied to whichever arm was taken. **A null array converted to
+`ReadOnlyMemory<byte>` is `Empty`, which is a perfectly good value**, so the absent-game path
+returned a PRESENT, empty memory. Every caller's `is not { } model` guard was dead code, the test
+read a zero-byte model, and `StudioSequences.Read` correctly reported no sequences in it.
+
+**Evidence: measured, and the failing state was reproduced locally** by naming an archive that
+cannot exist (`tf2_absent`), which gave the identical two failures and zero skips. Against the fix
+the same manipulation gives three skips, and with the game present all six pass. Three states, one
+edit apart.
+
+**The fix is a statement body.** A bare `return null;` has no second arm to unify with, so it is
+target-typed straight to the nullable and `HasValue` is false:
+
+```csharp
+if (GameInstall.Vpk("tf2_misc") is not { } archive ||
+    VpkArchive.Open(archive).ReadFile(path) is not { } bytes)
+{
+    return null;
+}
+
+return bytes;
+```
+
+**Two other helpers in the repository return `ReadOnlyMemory<byte>?` and both were already safe** —
+`StudioSequenceFadeTests.Read` and `OverlayPassConformanceTests.Map` each end in a bare
+`return null;`. The expression-bodied ternary is the whole of the exposure, and it is the form that
+looks tidiest.
+
+**What this says about the instruments, which is the part worth keeping.** Nothing local could
+have found it: the machine that runs the gate has the game, so the dead branch is never taken.
+`ci-is-the-machine-without-tf2` is the standing note and this is the first defect it has caught
+that was not a missing-install crash — a wrong ANSWER, dressed as a reader bug, on a test whose
+whole purpose is to prove the reader works.
+
+**And a vacuous pass hid alongside the two failures.**
+`Read_WithASequenceNumberTheModelDoesNotHave_IsEmpty` passed on CI throughout, because an empty
+model has no sequence 100,000 either. It now skips. A green test on a machine that cannot run it
+is not evidence of anything.

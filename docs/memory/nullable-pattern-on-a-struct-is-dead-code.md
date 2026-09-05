@@ -62,3 +62,43 @@ implicit conversion FROM a reference type — `ReadOnlySpan`, `Memory`, and `Imm
 
 Note that `VpkArchive.ReadFile` already returns `byte[]?`, so the real call site had the same latent
 bug purely from the delegate's signature — the trap was in the API's shape, not in either caller.
+
+## It happened AGAIN, twice, with this note already written — 2026-09-04
+
+The section above ends with *"prefer `byte[]?` over `ReadOnlyMemory<byte>?` in any API where null
+means absent"* and names `VpkArchive.ReadFile` as the exact call site. Two more instances were
+written anyway, in two different assemblies, and neither author was stopped by the note:
+
+```csharp
+// tests/…/StudioIkLockTests.cs — the game-not-installed guard
+… is { } archive && … .ReadFile(path) is { } bytes ? bytes : null;
+
+// managed/Tf2DemoSalvage.Scene/EntityModels.cs:746 — the jiggle bones' root model
+posed.JiggleSource = skinned.Models.Count > 0 ? skinned.Models[0] : null;
+```
+
+**The first was invisible on every developer machine and failed only on CI**, with
+`sequences should be greater than 0 but was 0` — a message that reads as a broken READER rather
+than as a dead guard. Four days of red. See [[ci-is-the-machine-without-tf2]]; this is the first
+defect that note has caught which was a wrong ANSWER rather than a missing-install crash.
+
+**The second is in production and had no symptom at all**, because `StudioJiggleBones.Read` is
+total and answers null for a span too short to describe itself — the guard's job was being done one
+call further down, by accident. That is worse than a visible bug, not better: it will start
+mattering the moment that reader gains a fixture it can parse.
+
+**So the rule is not enough, and here is what to do instead.** Nothing in the compiler, the
+analyzers or a local test run can see this; only a machine without the data can, and only for the
+sites that read data. Two things that DO work:
+
+- **Grep for the shape when touching any of it**:
+  `grep -rn "ReadOnlyMemory<byte>?" --include=*.cs` returned four declarations in the whole
+  repository. That is a small enough set to read every one, and doing so found both bugs in a
+  minute.
+- **Reproduce the absent case locally rather than reasoning about it.** Naming an archive that
+  cannot exist (`GameInstall.Vpk("tf2_absent")`) turned a CI-only failure into a local one in a
+  single edit, and the three states — absent+broken FAILS, absent+fixed SKIPS, present+fixed
+  PASSES — settled it with no speculation at all.
+
+CA1819 forbids an array *property*, so `JiggleSource` could not simply become `byte[]?`; there the
+burden falls on the assignment, spelled `: (ReadOnlyMemory<byte>?)null`.

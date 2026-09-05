@@ -984,7 +984,13 @@ run Tf2DemoSalvage.Presentation.Tests presentation 440
 # tint lands. One of the four is the control that an ordinary material takes the other branch, and
 # one pins that self-illumination wins where both are asked for — a pixel-shader limit Valve states
 # with a SKIP, not an art decision.
-run Tf2DemoSalvage.Content.Tests  content   993
+# 993 -> 997: `StudioJiggleBones.Read` proved total (B333). Four, and they exist because something
+# else was silently DEPENDING on that totality: `SkeletonPose`'s `JiggleSource is not { }` guard was
+# dead — `EntityModels` assigned it from a `byte[]` conditional whose null arm converts to
+# `ReadOnlyMemory.Empty`, which is present — and the reader answering null for a zero-length span was
+# quietly doing the guard's job. Empty input, the length boundary one byte short, a header declaring
+# no bones as the control that the length guard is what rejected the other two, and a negative bone.
+run Tf2DemoSalvage.Content.Tests  content   997
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
