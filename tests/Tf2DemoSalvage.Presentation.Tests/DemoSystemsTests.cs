@@ -243,6 +243,9 @@ public sealed class DemoSystemsTests
         // the honest answer for one.
         public int? RoundStateAt(double tick) => null;
 
+        // No recorder, which is a SourceTV recording — the case these tests are about.
+        public int? Recorder => null;
+
         // Nothing to tell: this stub has no tracks to teach, and dropping the fact is what a source
         // with no interpolator does.
         public void OnNewModel(int entityIndex, IReadOnlyList<bool> looping)

@@ -20,6 +20,10 @@ namespace Tf2DemoSalvage.Scene;
 /// <c>GR_STATE_TEAM_WIN</c> is 5, and it is the state in which a spawn's team wall is drawn to
 /// nobody (<c>c_func_respawnroom.cpp:47</c>). Null is "the demo did not say" rather than a state.
 /// </param>
+/// <param name="Recorder">
+/// The player the demo was recorded from, whose vision filters decide which items are drawn at all
+/// (B354). Null is a SourceTV recording, whose viewer is a spectator carrying nothing.
+/// </param>
 /// <remarks>
 /// **This is <c>SetupRenderInfo_t</c>'s shape, and the shape is the point.** Valve's renderables-list
 /// builder takes one:
@@ -74,7 +78,17 @@ public readonly record struct MomentInfo(
     // Null means the demo carries no game rules entity — every pre-2009 era specimen — and is NOT
     // a state: a consumer that read absent as `GR_STATE_TEAM_WIN` would blank every spawn wall on
     // every one of those recordings.
-    int? RoundState = null)
+    int? RoundState = null,
+
+    // **Who the demo was recorded from, because the viewer of a demo is its recorder** (B354).
+    // `ShouldHideForVisionFilterFlags` (`econ_entity.cpp:1812`) hides a Pyroland item from anyone
+    // without Pyrovision, and the vision it asks about belongs to the local player — which during
+    // playback is whoever pressed record.
+    //
+    // Null is a SourceTV recording, whose viewer is a spectator carrying nothing, and that is a
+    // real answer rather than a missing one: a live spectator sees no Pyroland either, because
+    // `tf_spectate_pyrovision` defaults to 0.
+    int? Recorder = null)
 {
     /// <summary>How far into the demo this moment is, in seconds.</summary>
     /// <remarks>
