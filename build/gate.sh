@@ -888,7 +888,11 @@ run Tf2DemoSalvage.Audio.Tests    audio     183
 # moment. They assert through the drawn list rather than by counting the call, because a presenter
 # that read the value and dropped it would pass a call count while hiding every Pyroland item in
 # every point-of-view demo.
-run Tf2DemoSalvage.Presentation.Tests presentation 442
+#
+# 442 -> 444 on 2026-09-05: two for B357 — an unrecognised option is reported rather than filed as
+# a demo path. The second is the control that a BARE word is still a path, which is why the rule
+# tests for a leading dash instead of duplicating the list of known flags thirty lines above it.
+run Tf2DemoSalvage.Presentation.Tests presentation 444
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.
