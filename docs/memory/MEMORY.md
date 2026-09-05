@@ -154,3 +154,5 @@
 - [The base is not the behaviour](the-base-is-not-the-behaviour.md) — read the overrides; some are dead.
 - [Sample between the knots](sample-between-the-knots.md) — every curve agrees at its own control points.
 - [Prove the equivalence before building it](prove-the-equivalence-before-building-it.md) — measure what the difference needs to be visible.
+- [A schema key nobody reads is a lead](a-schema-key-nobody-reads-is-a-lead.md) — 747 on the left, zero on the right.
+- [A duplicated guard cannot be tested](a-duplicated-guard-cannot-be-tested.md) — fix the input, not the assertion.
