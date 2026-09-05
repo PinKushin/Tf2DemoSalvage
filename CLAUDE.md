@@ -335,8 +335,14 @@ opening the file to find out what the test even touches. That is paid every time
 
 Two facts make the conversion safe, and both were checked: **nothing outside the test assemblies
 references a test method name** — no `--filter` pins one, no Stryker config filters by test — and
-**the count cannot change**, because `build/gate.sh`'s floors are exact, so a rename that drops or
-merges a test reddens the gate immediately.
+**the count cannot silently FALL**, because `build/gate.sh` asserts a floor per project, so a rename
+that drops or merges a test reddens the gate immediately.
+
+**They are floors and not equalities, which this file said for a while and which matters when you
+are planning work.** `build/assert-test-count.sh:13` says so outright — *"exact counts make every
+added test a red build"* — so adding tests passes and only a drop is caught. Read as "exact", it
+implies the gate must be edited before new tests can go green, which is the opposite of what
+happens.
 
 **Do not attempt it with a regex.** Choosing the subject, scenario and expectation means reading
 what the test asserts. A mechanical transform produces plausible names that are wrong, and nobody
