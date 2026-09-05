@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -368,6 +369,12 @@ public readonly record struct MapPlacedCubemap(
 /// UNCONDITIONALLY — unlike the 6,735 that animate <c>$detail</c>, whose blend factor is gated
 /// behind <c>BurnLevel</c>.
 /// </param>
+/// <param name="DetailAnimation">
+/// The texture PATH whose frames this material's <c>$detail</c> animates, or null (B342). A path
+/// rather than the frames themselves, because 6,735 materials animate one file and holding the
+/// frames per material would decode 121 images thousands of times — the engine loads it once and
+/// points every material at the same <c>ITexture</c>.
+/// </param>
 /// <remarks>
 /// A record rather than a longer and longer tuple: at four members the positional form stops
 /// saying which is which at the call site, and two of these are the same type.
@@ -387,7 +394,8 @@ public readonly record struct ResolvedMaterial(
     MapTexture? SelfIllumMask = null,
     MapTexture? PhongExponentMap = null,
     IReadOnlyDictionary<string, (float Red, float Green, float Blue)>? Variables = null,
-    IReadOnlyList<MapTexture>? AnimationFrames = null);
+    IReadOnlyList<MapTexture>? AnimationFrames = null,
+    string? DetailAnimation = null);
 
 // GameArchives moved to Tf2DemoSalvage.Content.Assets on 2026-08-22 (D53's sibling): every other
 // reader of the game's files already lived there, and sound needs it now as well as the renderer.
@@ -740,6 +748,22 @@ public sealed class MapAssets
     /// </remarks>
     public IReadOnlyList<IReadOnlyList<MapTexture>?> AnimationFrames { get; private init; } = [];
 
+    /// <summary>Which animated detail texture each material uses, by path (B342).</summary>
+    public IReadOnlyList<string?> DetailAnimations { get; private init; } = [];
+
+    /// <summary>The frames of every animated detail texture, keyed by path (B342).</summary>
+    /// <remarks>
+    /// **One entry per FILE, not per material**, which is the engine's own arrangement: TF2 loads
+    /// `effects/tiledfire/fireLayeredSlowTiled512.vtf` once and points every material at the same
+    /// `ITexture`. 6,735 shipped materials animate that one file, so a per-material table would
+    /// decode 121 images thousands of times.
+    /// </remarks>
+    public IReadOnlyDictionary<string, IReadOnlyList<MapTexture>> AnimatedDetails
+    {
+        get;
+        private init;
+    } = new Dictionary<string, IReadOnlyList<MapTexture>>();
+
     /// <summary>The proxies each material runs, empty for the great majority that run none.</summary>
     /// <remarks>
     /// **Evaluated per BIND rather than per frame**, which is what the engine does:
@@ -864,8 +888,17 @@ public sealed class MapAssets
         // and repaint the map with the wrong textures, differently on each run.
         ResolvedMaterial[] found = new ResolvedMaterial[materials.Count];
 
+        // **One table of animated detail frames for the whole map** (B342), shared by every
+        // material that animates the same file. 6,735 shipped materials animate ONE 121-frame
+        // texture; per material that is thousands of decodes of the same bytes, and the engine
+        // does it once.
+        ConcurrentDictionary<string, IReadOnlyList<MapTexture>> animatedDetails =
+            new(StringComparer.OrdinalIgnoreCase);
+
         Parallel.For(0, materials.Count, index =>
-            found[index] = Resolve(assets, materials[index].Name, pak, archives, maximumTextureSize));
+            found[index] = Resolve(
+                assets, materials[index].Name, pak, archives, maximumTextureSize,
+                report: true, animatedDetails));
 
         for (int index = 0; index < found.Length; index++)
         {
@@ -961,7 +994,8 @@ public sealed class MapAssets
 
         ResolvedMaterial? ResolveProp(string path)
         {
-            ResolvedMaterial? resolved = Resolve(assets, path, pak, archives, maximumTextureSize, report: false);
+            ResolvedMaterial? resolved = Resolve(
+                assets, path, pak, archives, maximumTextureSize, report: false, animatedDetails);
 
             if (resolved is { } material)
             {
@@ -1265,6 +1299,15 @@ public sealed class MapAssets
             $"{table.AnimationFrames.Count(frames => frames is not null)} materials animate their " +
             $"base texture, {table.AnimationFrames.Sum(frames => frames?.Count ?? 0)} frames in all");
 
+        // **Materials against FILES, because the gap between them is the whole design** (B342).
+        // Thousands of materials sharing one 121-frame texture is the case a per-material table
+        // would decode thousands of times, and these two numbers are what say the sharing works.
+        assets.LogInformation(
+            "{Message}",
+            $"{table.DetailAnimations.Count(path => path is not null)} materials animate a detail " +
+            $"texture, across {animatedDetails.Count} files and " +
+            $"{animatedDetails.Values.Sum(frames => frames.Count)} frames");
+
         return new MapAssets(
             table.Textures,
             table.BlendTextures,
@@ -1293,6 +1336,8 @@ public sealed class MapAssets
             PhongExponentMaps = table.PhongExponentMaps,
             Variables = table.Variables,
             AnimationFrames = table.AnimationFrames,
+            DetailAnimations = table.DetailAnimations,
+            AnimatedDetails = animatedDetails,
             DevGrid = LoadDevGrid(assets, archives, maximumTextureSize),
 
             // The 2D skybox, from worldspawn's `skyname` — every map has one, because `sv_skyname`
@@ -1689,7 +1734,13 @@ public sealed class MapAssets
         PakFile pak,
         GameArchives archives,
         int maximumTextureSize,
-        bool report = true)
+        bool report = true,
+
+        // **Concurrent, because the brushwork resolve is a `Parallel.For`** — several materials
+        // decode at once and they share this table by design. An ordinary Dictionary written from
+        // several threads corrupts silently, and the symptom would be a map whose textures differ
+        // between runs.
+        ConcurrentDictionary<string, IReadOnlyList<MapTexture>>? animatedDetails = null)
     {
         byte[]? Find(string path)
         {
@@ -1793,7 +1844,79 @@ public sealed class MapAssets
             // **Only for a material that runs a proxy**, because nothing else reads them and a
             // dictionary per material across a whole map is a real cost for a table nobody opens.
             material.Proxies.Count > 0 ? material.NumericValues() : null,
-            ResolveAnimationFrames());
+            ResolveAnimationFrames(),
+            ResolveDetailAnimation());
+
+        string? ResolveDetailAnimation()
+        {
+            // **Keyed by texture PATH, and that is the whole design** (B342). 6,735 shipped
+            // materials animate `$detail`, and they nearly all animate ONE file — 121 frames of
+            // `effects/tiledfire/fireLayeredSlowTiled512.vtf`. Decoding that per material is
+            // thousands of decodes of the same bytes; the engine loads it once and every material
+            // points at the same `ITexture`. So the material carries the KEY and the frames live
+            // in one table.
+            if (animatedDetails is null || material.Detail is not { } detail)
+            {
+                return null;
+            }
+
+            bool animates = false;
+
+            foreach (MaterialProxy proxy in material.Proxies)
+            {
+                if (proxy.Name.Equals("AnimatedTexture", StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(
+                        proxy.Argument("animatedTextureVar"),
+                        "$detail",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    animates = true;
+                    break;
+                }
+            }
+
+            if (!animates)
+            {
+                return null;
+            }
+
+            if (animatedDetails.TryGetValue(detail, out IReadOnlyList<MapTexture>? already))
+            {
+                // **Already decoded, so this material costs nothing** — which is the point, and is
+                // measurable: without the table the same file is read once per material.
+                return already.Count > 1 ? detail : null;
+            }
+
+            if (Load(detail) is not { } probe || probe.FrameCount <= 1)
+            {
+                return null;
+            }
+
+            List<MapTexture> frames = [];
+
+            for (int frame = 0; frame < probe.FrameCount; frame++)
+            {
+                if (LoadFrame(detail, frame) is not { } decoded)
+                {
+                    break;
+                }
+
+                frames.Add(new MapTexture(
+                    decoded.Width, decoded.Height, decoded.Image, IsTransparent: false));
+            }
+
+            if (frames.Count <= 1)
+            {
+                return null;
+            }
+
+            // **`TryAdd`, and losing the race is fine**: two threads decoding the same file produce
+            // the same frames, so whichever lands first is as good as the other. Locking to make
+            // one of them wait would cost more than the occasional duplicate decode.
+            _ = animatedDetails.TryAdd(detail, frames);
+
+            return detail;
+        }
 
         IReadOnlyList<MapTexture>? ResolveAnimationFrames()
         {
