@@ -97,7 +97,7 @@ public sealed class BoneFlagProbe : IProbe
         // reports zero IK chains on a demo full of them, which is exactly the wrong answer this
         // probe gave before it was corrected (B296).
         PlayerProps.Add(
-            players, props, new GameAppearance(game.Classes, null), (_, _, _, body) => body);
+            players, props, new GameAppearance(game.Classes, null), NoBodygroups.Instance);
 
         new WeaponPropModels().Resolve(props, players, game.Weapons.For);
 
@@ -832,7 +832,7 @@ public sealed class BoneFlagProbe : IProbe
             timeline.PlayersAt(at, players);
 
             PlayerProps.Add(
-                players, props, new GameAppearance(game.Classes, null), (_, _, _, body) => body);
+                players, props, new GameAppearance(game.Classes, null), NoBodygroups.Instance);
 
             new WeaponPropModels().Resolve(props, players, game.Weapons.For);
 

@@ -24056,8 +24056,17 @@ Both callers pass a state of 1 — `pWpn->UpdateBodygroups( pPlayer, 1 )` (`tf_w
 and `nVisibleState = 1` (`econ_wearable.cpp:317`) — so **only entries valued 1 can ever apply**, no
 two applied entries can disagree, and the order between the passes cannot change the result. The
 eight entries valued 0 exist for `ShouldHideForVisionFilterFlags`, which drops the state to 0 for a
-pyro-vision-filtered item; a demo carries no such condition. Reading the pair as "set this group to
-this number" is the plausible misreading and removes a part the engine leaves alone.
+pyro-vision-filtered item. Reading the pair as "set this group to this number" is the plausible
+misreading and removes a part the engine leaves alone.
+
+**This entry first said those eight are unreachable because "a demo carries no vision filter", and
+that reason was wrong** — see `docs/PARITY-AUDIT.md`. `GetVisionFilterFlags` (`c_tf_player.cpp:8028`)
+turns the Halloween filter on for everyone whenever `IsHolidayActive( kHoliday_HalloweenOrFullMoon )`,
+which reads networked gamerules state, so a Halloween recording has a live filter. The conclusion
+holds for a measured reason instead: the eight zero-valued entries belong to items 16, 125, 382, 384,
+440, 938, 1073 and 30406, the 23 items declaring `vision_filter_flags` are 738, 745, 746, 995 and
+30143–30161, and **the two sets are disjoint**. No shipped item can be hidden by a vision filter and
+also have a state-0 entry to apply when it is.
 
 **What the split really decides is the deployed-only weapon**, which survives as its own condition:
 `if ( bHideBodygroupsDeployedOnly && pPlayer->GetActiveWeapon() != pWpn ) continue;`
@@ -24132,18 +24141,104 @@ lookup falls back to the base:
 Both replace a hand with a robot arm, so the symptom is a heavy or engineer holding one whose normal
 hand is still drawn underneath.
 
-**Why it is filed rather than folded into B352.** The resolver B352 threads through
-`PlayerProps.Add` maps a NAME to a body number; this needs the part's `base` and `nummodels` for an
-INDEX, which is a second entry point on the model set and a second delegate parameter across
-twenty call sites. It is a small, separate change, not a smaller version of the same one.
+**It was filed and then fixed the same day**, in two commits: the resolver B352 threaded through
+`PlayerProps.Add` mapped a NAME to a body number, which cannot express an INDEX at all, so it was
+first replaced by Valve's own pair — `FindBodygroup` and `SetBodygroup`, `IModelBodygroups` — with
+Scene's 535 tests and the `bodygroups` probe's measurement both unchanged as the assertion that the
+refactor changed nothing.
+
+#### The models say the reading is right
+
+Measured on the shipped class models, and this is the part that turns a plausible reading into a
+settled one:
+
+| model | the part the override names | alternatives |
+|---|---|---|
+| `heavy.mdl` | **PART 1 `hands`** (place 1) | **3** |
+| `engineer.mdl` | **PART 2 `rightarm`** (place 2) | **3** |
+
+The Purity Fist names part 1 on a Heavy and the Short Circuit names part 2 on an Engineer, both at
+state 2 — and both parts are called exactly what the item replaces, with a third alternative to move
+to. A wrong reading of either number would have landed on a part with too few alternatives and been
+silently ignored by `SetBodygroup`.
 
 **The fields default to -1** (`econ_item_schema.h:1065`), so the guard is what keeps this from
 firing on every item — worth knowing, because a reader that defaulted them to 0 would set part 0 to
-0 on everybody, and part 0 is `hat` on several class models.
+0 on everybody, and part 0 is `hat` on several class models. The Short Circuit is also
+`hide_bodygroups_deployed_only`, so its arm appears only while it is out; that gate was already
+B352's.
+
+#### A test that could not fail, and the fix was to the input
+
+The half-declaration test — an item naming the part with no state — asserted a body of 0 while
+wearing nothing else. **Sabotage deleting the guard's `OverrideState > -1` clause reddened nothing**,
+and the reason is structural rather than a badly chosen value: `SetBodygroup` returns the body
+unchanged for a negative value, in our code and in Valve's (`shared/animation.cpp:863` returns early
+for an out-of-range value), so the outer clause has no observable effect **in the engine either**.
+There is no integer that distinguishes the two versions.
+
+So the input changed rather than the assertion. The item now also hides `hat`, which is part 0 here:
+a correct read leaves the body at 1, and a reader treating the missing state as 0 puts the part back
+and reads 0. That version reddens alone under the mutation it was written for — `OverrideState`
+defaulting to 0 — which was verified by making it.
+
+**The guard stays**, because it is where Valve writes it and the citation is the point; it is now
+documented as redundant with `SetBodygroup`'s own check rather than believed to be load-bearing.
 
 **A wrong key name nearly filed this as absent.** The first search used
-`use_model_bodygroup_override`, invented from the accessor's name, and returned zero — the schema
+`use_model_bodygroup_override`, invented from the accessor's C++ name, and returned zero — the schema
 spells it `wm_bodygroup_override`. The control that caught it was `player_bodygroups`, which
 returned 747.
 
-**Evidence class: read-from-source** for the branch and the default, **measured** for the two items.
+**The viewmodel pair is deliberately not read.** `vm_bodygroup_override` sets a part on the wearer's
+own view model (`econ_entity.cpp:2091`), which a demo viewer drawing another player never has — and
+the Purity Fist declares both pairs **with the same numbers**, so a reader keyed to the wrong prefix
+passes every shipped case. A test with an item declaring only the `vm_` pair pins it.
+
+**Evidence class: read-from-source** for the branch and the default, **measured** for the two items,
+their models' part names and alternative counts, and the sabotage results.
+
+### B354 OPEN 2026-09-05: 23 items are drawn to viewers the engine hides them from
+
+**`CEconEntity::ShouldDraw` is two lines and we implement the second one**
+(`econ_entity.cpp:1800`):
+
+```cpp
+bool CEconEntity::ShouldDraw()
+{
+    if ( ShouldHideForVisionFilterFlags() )
+        return false;
+    return BaseClass::ShouldDraw();
+}
+```
+
+An item declaring `vision_filter_flags` is drawn only to a viewer whose own vision filter matches
+(`econ_entity.cpp:1812`, via `IsLocalPlayerUsingVisionFilterFlags`). **23 shipped items declare it:**
+
+| flag | count | items |
+|---|---|---|
+| `TF_VISION_FILTER_PYRO` (1) | 4 | Pet Balloonicorn (738), Infernal Orchestrina (745), Burning Bongos (746), Pet Reindoonicorn (995) |
+| `TF_VISION_FILTER_ROME` (4) | 19 | the MvM robot skins, 30143–30161 |
+
+We draw all 23 to everybody. The visible symptom is a Balloonicorn floating beside a Pyro in a demo
+recorded by someone without Pyrovision — a cosmetic that the recording player could not see.
+
+**It is implementable, and both halves of the viewer's flags are reachable from a demo**, which is
+what distinguishes this from the arms of `UpdateBodygroups` that are unreachable for a spectator:
+
+- `vision_opt_in_flags` is an **item attribute** on the recorder's own loadout, and attributes are
+  decoded (B234). `ItemSchema.AttributeDefinitionIndex` already resolves one by name.
+- The Halloween arm reads `IsHolidayMap` (`tf_gamerules.cpp:1030`), which is networked gamerules
+  state.
+
+**The "local player" in a demo is the recorder**, which is the design question to settle before
+implementing: a POV demo has one, a SourceTV recording arguably has none, and `GetVisionFilterFlags`
+has a `REPLAY_ENABLED` arm that answers `tf_replay_pyrovision` for a replay demo — evidence that
+Valve treats "who is watching a recording" as a real question rather than an accident.
+
+**Evidence class: read-from-source** for the branch and the flag values (`shareddefs.h:976`),
+**measured** for the 23 items and their split.
+
+**What is NOT established:** how often those items appear in the demos this project actually reads.
+The Romevision nineteen are MvM-only and the corpus has no MvM demo at all, so the honest expectation
+is that this is visible for the four Pyroland items and nothing else.

@@ -65,7 +65,7 @@ public sealed class PlayerPoseWiringCompletenessTests
     {
         List<SceneProp> drawn = [];
 
-        PlayerProps.Add([Distinctive()], drawn, new StubAppearance(), (_, _, _, body) => body);
+        PlayerProps.Add([Distinctive()], drawn, new StubAppearance(), NoBodygroups.Instance);
 
         drawn.Count.ShouldBe(1, "the player reached the draw list at all");
 
@@ -103,7 +103,7 @@ public sealed class PlayerPoseWiringCompletenessTests
     {
         List<SceneProp> drawn = [];
 
-        PlayerProps.Add([Plain()], drawn, new StubAppearance(), (_, _, _, body) => body);
+        PlayerProps.Add([Plain()], drawn, new StubAppearance(), NoBodygroups.Instance);
 
         drawn.Count.ShouldBe(1);
 

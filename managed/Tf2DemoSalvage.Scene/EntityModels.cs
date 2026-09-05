@@ -221,7 +221,7 @@ public readonly record struct ModelInstance(
 /// A rigid entity is the one-bone case. Animation adds a matrix per bone and a weight per vertex;
 /// nothing about the packing changes.
 /// </remarks>
-public sealed class EntityModelSet
+public sealed class EntityModelSet : IModelBodygroups
 {
     /// <summary>What was posed and how, reported under `props` as the prop loader does.</summary>
     private readonly ILogger _props;
@@ -3684,31 +3684,63 @@ public sealed class EntityModelSet
     /// correctly. The alternative would be to block the scene on a model load, which is worse than
     /// one frame of an unmasked spy.
     /// </remarks>
-    public int WithBodygroup(string modelPath, string group, int value, int body)
+    public int WithBodygroup(string modelPath, string group, int value, int body) =>
+        SetBodygroup(modelPath, FindBodygroup(modelPath, group), value, body);
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <c>FindBodygroupByName</c>, <c>shared/animation.cpp:927</c> — a linear search of the model's
+    /// part names, case-insensitive, answering -1 for a model that has no such part. **-1 is an
+    /// ordinary answer rather than an error**: `medic.mdl` ships with two body parts and neither is
+    /// called `hat`, so every medic cosmetic that names one gets it (B352).
+    ///
+    /// **Also -1 when the model is not loaded YET**, which is a real state: a model is packed on
+    /// first sight, so the first frame a player appears on resolves nothing and the next resolves
+    /// correctly.
+    /// </remarks>
+    public int FindBodygroup(string modelPath, string group)
     {
         ArgumentNullException.ThrowIfNull(modelPath);
         ArgumentNullException.ThrowIfNull(group);
 
         if (!_frames.TryGetValue(modelPath, out PropModels.ModelFrames? model)
-            || model.BodyParts is not { Count: > 0 } parts
             || model.BodyPartNames is not { Count: > 0 } names)
+        {
+            return -1;
+        }
+
+        for (int part = 0; part < names.Count; part++)
+        {
+            if (string.Equals(names[part], group, StringComparison.OrdinalIgnoreCase))
+            {
+                return part;
+            }
+        }
+
+        return -1;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <c>SetBodygroup</c>, <c>shared/animation.cpp:863</c>. The arithmetic itself lives in
+    /// <see cref="StudioModelInfo"/>, once, because a second copy of the subtraction corrupts a
+    /// DIFFERENT part's digit and so shows up on a piece the mistaken line never mentions.
+    /// </remarks>
+    public int SetBodygroup(string modelPath, int group, int value, int body)
+    {
+        ArgumentNullException.ThrowIfNull(modelPath);
+
+        if (group < 0
+            || !_frames.TryGetValue(modelPath, out PropModels.ModelFrames? model)
+            || model.BodyParts is not { Count: > 0 } parts
+            || group >= parts.Count)
         {
             return body;
         }
 
-        for (int part = 0; part < names.Count && part < parts.Count; part++)
-        {
-            if (!string.Equals(names[part], group, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
+        (int place, int count) = parts[group];
 
-            (int place, int count) = parts[part];
-
-            return StudioModelInfo.WithBodygroup(body, place, count, value);
-        }
-
-        return body;
+        return StudioModelInfo.WithBodygroup(body, place, count, value);
     }
 
     /// <summary>Which material paints which skinref, for one skin family.</summary>

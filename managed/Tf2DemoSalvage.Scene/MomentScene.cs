@@ -326,7 +326,7 @@ public sealed class MomentScene : IGameSystemPerFrame
         // mask is a bodygroup named `spyMask` whose index differs per model, so the rule
         // (`Disguise.WearsMask`) and the arithmetic (`WithBodygroup`) meet here — the same shape as
         // `Appearance`, which the player prop already asks for its model and weapon suffix.
-        PlayerProps.Add(players, _drawn, Appearance, _models.WithBodygroup);
+        PlayerProps.Add(players, _drawn, Appearance, _models);
 
         // **The engine does not draw the player whose eyes you are using**, and cosmetics merge onto
         // their wearer's bones, so the hat goes with them. Without this the first-person view is the

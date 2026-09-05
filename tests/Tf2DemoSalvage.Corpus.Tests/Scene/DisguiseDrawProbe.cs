@@ -69,7 +69,7 @@ public sealed class DisguiseDrawProbe
             }
 
             drawn.Clear();
-            PlayerProps.Add(players, drawn, appearance, (_, _, _, body) => body);
+            PlayerProps.Add(players, drawn, appearance, NoBodygroups.Instance);
 
             foreach (ScenePlayer player in players
                 .Where(player => player.Conditions.Has(PlayerConditions.Disguised)))

@@ -45,7 +45,7 @@ public sealed class PlayerBodygroupWiringTests
     {
         List<SceneProp> drawn = [Worn(Hat)];
 
-        PlayerProps.Add([Scout()], drawn, new Wardrobe(), Bodygroup);
+        PlayerProps.Add([Scout()], drawn, new Wardrobe(), Bodygroup.Instance);
 
         // `hat` is part 0 on the fixture model, so its place is 1 and state 1 reads as 1.
         Player(drawn).Pose.Body.ShouldBe(1);
@@ -60,7 +60,7 @@ public sealed class PlayerBodygroupWiringTests
     {
         List<SceneProp> drawn = [];
 
-        PlayerProps.Add([Scout()], drawn, new Wardrobe(), Bodygroup);
+        PlayerProps.Add([Scout()], drawn, new Wardrobe(), Bodygroup.Instance);
 
         Player(drawn).Pose.Body.ShouldBe(0);
     }
@@ -75,7 +75,7 @@ public sealed class PlayerBodygroupWiringTests
     {
         List<SceneProp> drawn = [Worn(Hat, wearer: 3)];
 
-        PlayerProps.Add([Scout(), Scout() with { EntityIndex = 4 }], drawn, new Wardrobe(), Bodygroup);
+        PlayerProps.Add([Scout(), Scout() with { EntityIndex = 4 }], drawn, new Wardrobe(), Bodygroup.Instance);
 
         Player(drawn, entity: 3).Pose.Body.ShouldBe(1);
         Player(drawn, entity: 4).Pose.Body.ShouldBe(0);
@@ -97,7 +97,7 @@ public sealed class PlayerBodygroupWiringTests
     {
         List<SceneProp> drawn = [Worn(Hat), Worn(HatAgain, entity: 21)];
 
-        PlayerProps.Add([Scout()], drawn, new Wardrobe(), Bodygroup);
+        PlayerProps.Add([Scout()], drawn, new Wardrobe(), Bodygroup.Instance);
 
         Player(drawn).Pose.Body.ShouldBe(1);
     }
@@ -111,7 +111,7 @@ public sealed class PlayerBodygroupWiringTests
     {
         List<SceneProp> drawn = [Worn(HatAndHeadphones)];
 
-        PlayerProps.Add([Scout()], drawn, new Wardrobe(), Bodygroup);
+        PlayerProps.Add([Scout()], drawn, new Wardrobe(), Bodygroup.Instance);
 
         Player(drawn).Pose.Body.ShouldBe(3);
     }
@@ -127,7 +127,7 @@ public sealed class PlayerBodygroupWiringTests
     {
         List<SceneProp> drawn = [Worn(PutsTheHatBack)];
 
-        PlayerProps.Add([Scout()], drawn, new Wardrobe(), Bodygroup);
+        PlayerProps.Add([Scout()], drawn, new Wardrobe(), Bodygroup.Instance);
 
         Player(drawn).Pose.Body.ShouldBe(0);
     }
@@ -141,7 +141,7 @@ public sealed class PlayerBodygroupWiringTests
     {
         List<SceneProp> drawn = [Worn(FistsOfSteel, entity: 30)];
 
-        PlayerProps.Add([Scout() with { ActiveWeapon = 31 }], drawn, new Wardrobe(), Bodygroup);
+        PlayerProps.Add([Scout() with { ActiveWeapon = 31 }], drawn, new Wardrobe(), Bodygroup.Instance);
 
         Player(drawn).Pose.Body.ShouldBe(0);
     }
@@ -155,7 +155,7 @@ public sealed class PlayerBodygroupWiringTests
     {
         List<SceneProp> drawn = [Worn(FistsOfSteel, entity: 30)];
 
-        PlayerProps.Add([Scout() with { ActiveWeapon = 30 }], drawn, new Wardrobe(), Bodygroup);
+        PlayerProps.Add([Scout() with { ActiveWeapon = 30 }], drawn, new Wardrobe(), Bodygroup.Instance);
 
         Player(drawn).Pose.Body.ShouldBe(1);
     }
@@ -173,7 +173,7 @@ public sealed class PlayerBodygroupWiringTests
     {
         List<SceneProp> drawn = [Worn(Hat)];
 
-        PlayerProps.Add([DisguisedSpy()], drawn, new Wardrobe(), Bodygroup);
+        PlayerProps.Add([DisguisedSpy()], drawn, new Wardrobe(), Bodygroup.Instance);
 
         Player(drawn).Pose.Body.ShouldBe(9);
     }
@@ -187,7 +187,7 @@ public sealed class PlayerBodygroupWiringTests
     {
         List<SceneProp> drawn = [];
 
-        PlayerProps.Add([DisguisedSpy()], drawn, new Wardrobe(), Bodygroup);
+        PlayerProps.Add([DisguisedSpy()], drawn, new Wardrobe(), Bodygroup.Instance);
 
         Player(drawn).Pose.Body.ShouldBe(8);
     }
@@ -202,7 +202,7 @@ public sealed class PlayerBodygroupWiringTests
     {
         List<SceneProp> drawn = [Worn(Hat) with { AttachedTo = null, OwnedBy = null }];
 
-        PlayerProps.Add([Scout()], drawn, new Wardrobe(), Bodygroup);
+        PlayerProps.Add([Scout()], drawn, new Wardrobe(), Bodygroup.Instance);
 
         Player(drawn).Pose.Body.ShouldBe(0);
     }
@@ -217,9 +217,68 @@ public sealed class PlayerBodygroupWiringTests
     {
         List<SceneProp> drawn = [Worn(Hat) with { AttachedTo = null, OwnedBy = 3 }];
 
-        PlayerProps.Add([Scout()], drawn, new Wardrobe(), Bodygroup);
+        PlayerProps.Add([Scout()], drawn, new Wardrobe(), Bodygroup.Instance);
 
         Player(drawn).Pose.Body.ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **`wm_bodygroup_override`, the one arm that addresses a part by NUMBER** (B353,
+    /// `econ_entity.cpp:2083`). Two shipped items declare it — the Purity Fist and the Short
+    /// Circuit — and both replace a hand with a robot arm, so what is switched is the wearer's own
+    /// limb rather than a cosmetic slot.
+    ///
+    /// Part 2 here is `shoes_socks` at place 4, and state 1 therefore reads as 4.
+    /// </remarks>
+    [Test]
+    public void Add_AnItemWithAWorldModelOverride_SetsThatPartByNumber()
+    {
+        List<SceneProp> drawn = [Worn(RobotArm)];
+
+        PlayerProps.Add([Scout()], drawn, new Wardrobe(), Bodygroup.Instance);
+
+        Player(drawn).Pose.Body.ShouldBe(4);
+    }
+
+    /// <remarks>
+    /// **`if ( iBodyOverride &gt; -1 &amp;&amp; iBodyStateOverride &gt; -1 )`** — half a declaration does nothing.
+    ///
+    /// **The item ALSO hides `hat`, and that is what makes this test able to fail.** The first
+    /// version wore an item with the half-declaration and nothing else, and asserted a body of 0 —
+    /// which it could not help but observe. `SetBodygroup` returns the body unchanged for a negative
+    /// value in our code and in Valve's (`shared/animation.cpp:863` returns early for an
+    /// out-of-range value), so removing the outer guard entirely changes NOTHING observable; a
+    /// sabotage confirmed the test stayed green with the clause deleted.
+    ///
+    /// **The mistake the assertion actually has to catch is the state defaulting to 0**, and setting
+    /// a part to 0 is only visible from a body that is not already 0. So the item hides `hat` — part
+    /// 0 here, so a correct read leaves 1 — and a reader that treated the missing state as 0 would
+    /// put the part straight back and read 0. Same item, one extra field, and now the two readings
+    /// disagree.
+    /// </remarks>
+    [Test]
+    public void Add_AnItemWhoseOverrideNamesNoState_KeepsWhatItsNamesDid()
+    {
+        List<SceneProp> drawn = [Worn(HalfAnOverride)];
+
+        PlayerProps.Add([Scout()], drawn, new Wardrobe(), Bodygroup.Instance);
+
+        Player(drawn).Pose.Body.ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **The override runs after the named entries on the same item**, which is the engine's order
+    /// within `UpdateBodygroups` — names first (`:2044`), then the override (`:2083`). They address
+    /// different parts here, so both survive: `hat` at place 1 and `shoes_socks` at place 4.
+    /// </remarks>
+    [Test]
+    public void Add_AnItemWithBothNamesAndAnOverride_AppliesBoth()
+    {
+        List<SceneProp> drawn = [Worn(RobotArmWithAHat)];
+
+        PlayerProps.Add([Scout()], drawn, new Wardrobe(), Bodygroup.Instance);
+
+        Player(drawn).Pose.Body.ShouldBe(5);
     }
 
     private const int ScoutClass = 1;
@@ -230,6 +289,9 @@ public sealed class PlayerBodygroupWiringTests
     private const int HatAndHeadphones = 102;
     private const int PutsTheHatBack = 103;
     private const int FistsOfSteel = 104;
+    private const int RobotArm = 105;
+    private const int HalfAnOverride = 106;
+    private const int RobotArmWithAHat = 107;
 
     /// <summary>The fixture model's body parts, as a <c>.mdl</c> declares them.</summary>
     /// <remarks>
@@ -246,11 +308,33 @@ public sealed class PlayerBodygroupWiringTests
         [Disguise.MaskBodygroup] = (8, 2),
     };
 
-    /// <summary>The production arithmetic, resolved by name the way the model set resolves it.</summary>
-    private static int Bodygroup(string model, string group, int value, int body) =>
-        Parts.TryGetValue(group, out (int Place, int Count) part)
-            ? StudioModelInfo.WithBodygroup(body, part.Place, part.Count, value)
-            : body;
+    /// <summary>The fixture model, answering the two questions the engine asks of a model.</summary>
+    /// <remarks>
+    /// **The arithmetic is the production one**, so this cannot disagree with the scene about how
+    /// digits pack — and every assertion above predicts an exact number anyway, so a broken
+    /// <see cref="StudioModelInfo.WithBodygroup(int, int, int, int)"/> still reddens them.
+    /// </remarks>
+    private sealed class Bodygroup : IModelBodygroups
+    {
+        public static Bodygroup Instance { get; } = new();
+
+        public int FindBodygroup(string modelPath, string group) =>
+            Order.IndexOf(group);
+
+        public int SetBodygroup(string modelPath, int group, int value, int body)
+        {
+            if (group < 0 || group >= Order.Count)
+            {
+                return body;
+            }
+
+            (int place, int count) = Parts[Order[group]];
+
+            return StudioModelInfo.WithBodygroup(body, place, count, value);
+        }
+
+        private static readonly List<string> Order = [.. Parts.Keys];
+    }
 
     /// <summary>The player prop the run produced, found by the entity it was built for.</summary>
     private static SceneProp Player(IReadOnlyList<SceneProp> drawn, int entity = 3) =>
@@ -313,6 +397,20 @@ public sealed class PlayerBodygroupWiringTests
             PutsTheHatBack => new ItemBodygroups(new Dictionary<string, int> { ["hat"] = 0 }, false),
             FistsOfSteel => new ItemBodygroups(
                 new Dictionary<string, int> { ["hat"] = 1 }, true),
+            RobotArm => ItemBodygroups.None with { OverrideGroup = 2, OverrideState = 1 },
+            // Names `hat` as well, so the half-declaration has something to undo if it is read
+            // wrongly — see the test's remarks. The override names part 0, which IS `hat`.
+            HalfAnOverride => new ItemBodygroups(
+                new Dictionary<string, int> { ["hat"] = 1 }, false)
+            {
+                OverrideGroup = 0,
+            },
+            RobotArmWithAHat => new ItemBodygroups(
+                new Dictionary<string, int> { ["hat"] = 1 }, false)
+            {
+                OverrideGroup = 2,
+                OverrideState = 1,
+            },
             _ => ItemBodygroups.None,
         };
     }

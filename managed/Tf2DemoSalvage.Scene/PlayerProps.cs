@@ -63,6 +63,8 @@ public interface IPlayerAppearance
 /// <summary>What one equipped item does to its wearer's body parts.</summary>
 /// <param name="Named">Each body part NAME and the state the item puts it in.</param>
 /// <param name="DeployedOnly">Whether it does so only while it is the active weapon.</param>
+/// <param name="OverrideGroup">A part addressed by NUMBER, or -1 — <c>wm_bodygroup_override</c>.</param>
+/// <param name="OverrideState">Which alternative that part takes, or -1 (B353).</param>
 /// <remarks>
 /// **One value rather than two members on <see cref="IPlayerAppearance"/>**, because the pair is
 /// one question — what this item does to the body — and the flag is meaningless without the names.
@@ -71,14 +73,78 @@ public interface IPlayerAppearance
 /// `pOwner-&gt;FindBodygroupByName( pszBodyGroup )` (<c>econ_entity.cpp:2052</c>) runs against the
 /// WEARER, so the same hat resolves to a different index on every class model and an item cannot
 /// carry the answer.
+///
+/// **The override is the exception, and it is Valve's exception rather than ours.** The last arm of
+/// `UpdateBodygroups` (<c>econ_entity.cpp:2083</c>) takes a part NUMBER straight from the schema
+/// and applies it without a lookup, which is why the two forms sit side by side here.
+///
+/// **Use <see cref="None"/> rather than <c>default</c> for "nothing".** A default struct has null
+/// names and zeroed override fields, and zero is a real part index — the guard that keeps this from
+/// setting part 0 is `> -1` on both, exactly as the engine writes it.
 /// </remarks>
 public readonly record struct ItemBodygroups(
     IReadOnlyDictionary<string, int> Named,
-    bool DeployedOnly)
+    bool DeployedOnly,
+    int OverrideGroup = -1,
+    int OverrideState = -1)
 {
     /// <summary>An item that changes nothing — the answer for anything the schema does not name.</summary>
     public static ItemBodygroups None { get; } =
         new(new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase), false);
+}
+
+/// <summary>A model's body parts, addressed the two ways the engine addresses them.</summary>
+/// <remarks>
+/// **Valve's own pair, kept apart because the engine keeps them apart** — `FindBodygroupByName` and
+/// `SetBodygroup`, `shared/animation.cpp:927` and `:863`. An item's `player_bodygroups` names a
+/// part and needs both; `wm_bodygroup_override` gives an INDEX and needs only the second (B353).
+/// A single by-name operation cannot express the override at all, which is what this replaced.
+///
+/// **An interface rather than two delegates**, because they are one capability — what this model's
+/// parts are — and a caller that could supply one without the other would be able to wire half of
+/// it. The scene supplies <c>EntityModelSet</c>; anything with no models supplies
+/// <see cref="NoBodygroups"/>.
+/// </remarks>
+public interface IModelBodygroups
+{
+    /// <summary>The index of a named part, or -1 when this model has none.</summary>
+    /// <param name="modelPath">The model whose parts are being searched.</param>
+    /// <param name="group">The part's name, as the item schema spells it.</param>
+    /// <returns>An index for <see cref="SetBodygroup"/>, or -1.</returns>
+    public int FindBodygroup(string modelPath, string group);
+
+    /// <summary>A body number with one part set to one of its alternatives.</summary>
+    /// <param name="modelPath">The model the number describes.</param>
+    /// <param name="group">Which part, as <see cref="FindBodygroup"/> gives it.</param>
+    /// <param name="value">Which alternative.</param>
+    /// <param name="body">The body number to start from.</param>
+    /// <returns>The new body number, or <paramref name="body"/> when the request cannot be honoured.</returns>
+    /// <remarks>
+    /// **It takes the body to start from, because parts share one integer.** They are digits of a
+    /// mixed-radix number, so setting one has to subtract the digit it currently holds rather than
+    /// OR a bit in — and returning contributions to be added carries into the NEXT part's digit
+    /// whenever two items name the same part (B352).
+    /// </remarks>
+    public int SetBodygroup(string modelPath, int group, int value, int body);
+}
+
+/// <summary>A model set with nothing loaded, which answers every question honestly.</summary>
+/// <remarks>
+/// **Not a stand-in: this is a real state the production path passes through.** A model is packed
+/// on first sight, so the frame a player first appears on has no <c>.mdl</c> to resolve against and
+/// the engine's own lookup would fail too. Answering "no such part" leaves every default piece
+/// drawn, which is one frame of a hat over hair rather than a piece removed on a guess.
+/// </remarks>
+public sealed class NoBodygroups : IModelBodygroups
+{
+    /// <summary>The only instance, since it holds nothing.</summary>
+    public static NoBodygroups Instance { get; } = new();
+
+    /// <inheritdoc/>
+    public int FindBodygroup(string modelPath, string group) => -1;
+
+    /// <inheritdoc/>
+    public int SetBodygroup(string modelPath, int group, int value, int body) => body;
 }
 
 /// <summary>What the installed game actually says, from its own scripts.</summary>
@@ -122,12 +188,21 @@ public sealed record GameAppearance(
     public string? Hands(int playerClass) => Classes?.Hands(playerClass);
 
     /// <inheritdoc/>
-    public ItemBodygroups BodygroupsOf(int itemDefinitionIndex) =>
-        Items is null
-            ? ItemBodygroups.None
-            : new ItemBodygroups(
-                Items.PlayerBodygroupsFor(itemDefinitionIndex),
-                Items.HidesBodygroupsWhenDeployedOnly(itemDefinitionIndex));
+    public ItemBodygroups BodygroupsOf(int itemDefinitionIndex)
+    {
+        if (Items is null)
+        {
+            return ItemBodygroups.None;
+        }
+
+        (int group, int state) = Items.WorldmodelBodygroupOverrideFor(itemDefinitionIndex);
+
+        return new ItemBodygroups(
+            Items.PlayerBodygroupsFor(itemDefinitionIndex),
+            Items.HidesBodygroupsWhenDeployedOnly(itemDefinitionIndex),
+            group,
+            state);
+    }
 }
 
 /// <summary>Turns the timeline's players into props the draw loop can pose.</summary>
@@ -188,16 +263,10 @@ public static class PlayerProps
     /// <param name="players">The players at this moment, from the timeline.</param>
     /// <param name="into">The draw list to add to.</param>
     /// <param name="appearance">What the installed game says they look like.</param>
-    /// <param name="bodygroup">
-    /// Sets a model's named body part on a body number — <c>EntityModelSet.WithBodygroup</c> in
-    /// production. Passed in rather than reached for, because only the model set has the
-    /// <c>.mdl</c> and only it knows which index a part's name has on this model.
-    /// <para>
-    /// **It takes the body to start from, because parts share one integer.** They are digits of a
-    /// mixed-radix number (<c>shared/animation.cpp:863</c>), so a player wearing two items that
-    /// both hide <c>hat</c> must land on 1 rather than on 2 — and adding contributions carries into
-    /// the NEXT part's digit, removing a piece the arithmetic never mentioned (B352).
-    /// </para>
+    /// <param name="bodygroups">
+    /// The model's body parts — <c>EntityModelSet</c> in production. Passed in rather than reached
+    /// for, because only the model set has the <c>.mdl</c> and only it knows which index a part's
+    /// name has on this model.
     /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
@@ -211,12 +280,12 @@ public static class PlayerProps
         IReadOnlyList<ScenePlayer> players,
         IList<SceneProp> into,
         IPlayerAppearance appearance,
-        Func<string, string, int, int, int> bodygroup)
+        IModelBodygroups bodygroups)
     {
         ArgumentNullException.ThrowIfNull(players);
         ArgumentNullException.ThrowIfNull(into);
         ArgumentNullException.ThrowIfNull(appearance);
-        ArgumentNullException.ThrowIfNull(bodygroup);
+        ArgumentNullException.ThrowIfNull(bodygroups);
 
         // Captured before a single player is appended, so the equipment scan below reads only what
         // the props pass produced — see the remarks.
@@ -246,7 +315,7 @@ public static class PlayerProps
             // **What their equipment does to them, before anything else writes a body number**
             // (B352). This is `RecalculatePlayerBodygroups`' own starting point — the field is
             // cleared and rebuilt from the items — so the mask below composes onto it.
-            int equipped = Equipped(player, into, equipment, appearance, bodygroup, model);
+            int equipped = Equipped(player, into, equipment, appearance, bodygroups, model);
 
             into.Add(new SceneProp(
                 player.EntityIndex,
@@ -334,7 +403,11 @@ public static class PlayerProps
                     // mask therefore survives the rebuild rather than being wiped by it, and a
                     // hat's part keeps its own digit.
                     Body = Disguise.WearsMask(player)
-                        ? bodygroup(model, Disguise.MaskBodygroup, 1, equipped)
+                        ? bodygroups.SetBodygroup(
+                            model,
+                            bodygroups.FindBodygroup(model, Disguise.MaskBodygroup),
+                            1,
+                            equipped)
                         : equipped,
 
                     // **A player's gestures, which are the only animation layers they have**
@@ -396,7 +469,7 @@ public static class PlayerProps
     /// <param name="props">This moment's props; only the first <paramref name="equipment"/> are read.</param>
     /// <param name="equipment">How many props existed before any player was appended.</param>
     /// <param name="appearance">What the installed game says each item hides.</param>
-    /// <param name="bodygroup">Sets one named part on a body number.</param>
+    /// <param name="bodygroups">The wearer's model's body parts.</param>
     /// <param name="model">The wearer's model, on which the names are resolved.</param>
     /// <returns>Zero for a player wearing nothing the schema names.</returns>
     /// <remarks>
@@ -445,7 +518,7 @@ public static class PlayerProps
         IList<SceneProp> props,
         int equipment,
         IPlayerAppearance appearance,
-        Func<string, string, int, int, int> bodygroup,
+        IModelBodygroups bodygroups,
         string model)
     {
         int body = 0;
@@ -462,11 +535,6 @@ public static class PlayerProps
 
             ItemBodygroups groups = appearance.BodygroupsOf(item);
 
-            if (groups.Named is not { Count: > 0 })
-            {
-                continue;
-            }
-
             // `if ( bHideBodygroupsDeployedOnly && pPlayer->GetActiveWeapon() != pWpn ) continue;`
             // (`tf_weaponbase.cpp:6226`). All eight shipped items that set the flag are weapons, so
             // asking whether this prop is the one being held is the whole of the third pass.
@@ -475,13 +543,32 @@ public static class PlayerProps
                 continue;
             }
 
-            foreach ((string name, int state) in groups.Named)
+            if (groups.Named is { Count: > 0 } named)
             {
-                // `if ( iBody != iState ) continue;` with iState fixed at 1 — see the remarks.
-                if (state == AppliedState)
+                foreach ((string name, int state) in named)
                 {
-                    body = bodygroup(model, name, AppliedState, body);
+                    // `if ( iBody != iState ) continue;` with iState fixed at 1 — see the remarks.
+                    // The name is then resolved and set separately because that is the engine's own
+                    // pair: `FindBodygroupByName` answering -1 is a `continue`, not a body of -1.
+                    if (state == AppliedState)
+                    {
+                        body = bodygroups.SetBodygroup(
+                            model, bodygroups.FindBodygroup(model, name), AppliedState, body);
+                    }
                 }
+            }
+
+            // **The last arm, and the only one that takes a part NUMBER** (B353,
+            // `econ_entity.cpp:2083`). It runs after the named entries because the engine runs it
+            // there, and both guards are Valve's: the fields default to -1
+            // (`econ_item_schema.h:1065`) and half a declaration does nothing.
+            //
+            // **An item can declare ONLY this**, which is why the empty-names check above is no
+            // longer a `continue` — the Purity Fist has no `player_bodygroups` at all.
+            if (groups.OverrideGroup > -1 && groups.OverrideState > -1)
+            {
+                body = bodygroups.SetBodygroup(
+                    model, groups.OverrideGroup, groups.OverrideState, body);
             }
         }
 

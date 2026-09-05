@@ -29,7 +29,7 @@ public sealed class PlayerPropsTests
     {
         List<SceneProp> drawn = [];
 
-        PlayerProps.Add([Soldier()], drawn, new Appearance(), NoBodygroups);
+        PlayerProps.Add([Soldier()], drawn, new Appearance(), NoParts);
 
         drawn.Count.ShouldBe(1);
         drawn[0].ModelPath.ShouldBe("models/player/soldier.mdl");
@@ -45,7 +45,7 @@ public sealed class PlayerPropsTests
         // convincing players where nobody is standing.
         List<SceneProp> drawn = [];
 
-        PlayerProps.Add([Soldier() with { Team = null }], drawn, new Appearance(), NoBodygroups);
+        PlayerProps.Add([Soldier() with { Team = null }], drawn, new Appearance(), NoParts);
 
         drawn.ShouldBeEmpty();
     }
@@ -58,7 +58,7 @@ public sealed class PlayerPropsTests
         // stack inside the living one they are watching.
         List<SceneProp> drawn = [];
 
-        PlayerProps.Add([Soldier() with { Drawn = false }], drawn, new Appearance(), NoBodygroups);
+        PlayerProps.Add([Soldier() with { Drawn = false }], drawn, new Appearance(), NoParts);
 
         drawn.ShouldBeEmpty();
     }
@@ -70,7 +70,7 @@ public sealed class PlayerPropsTests
         // as a missing asset, which reads as a loading fault rather than as a player we cannot name.
         List<SceneProp> drawn = [];
 
-        PlayerProps.Add([Soldier() with { PlayerClass = null }], drawn, new Appearance(), NoBodygroups);
+        PlayerProps.Add([Soldier() with { PlayerClass = null }], drawn, new Appearance(), NoParts);
 
         drawn.ShouldBeEmpty();
     }
@@ -86,7 +86,7 @@ public sealed class PlayerPropsTests
         PlayerProps.Add(
             [Soldier(), Soldier() with { EntityIndex = 4, Team = SceneTeams.Blu }],
             drawn,
-            new Appearance(), NoBodygroups);
+            new Appearance(), NoParts);
 
         drawn.Select(prop => prop.Pose.Skin).ShouldBe([0, 1]);
     }
@@ -99,7 +99,7 @@ public sealed class PlayerPropsTests
         // every time they look up, and the eye pitch still has to arrive for `body_pitch`.
         List<SceneProp> drawn = [];
 
-        PlayerProps.Add([Soldier() with { Yaw = 90f, EyePitch = -45f }], drawn, new Appearance(), NoBodygroups);
+        PlayerProps.Add([Soldier() with { Yaw = 90f, EyePitch = -45f }], drawn, new Appearance(), NoParts);
 
         drawn[0].Pose.Pitch.ShouldBe(0f);
         drawn[0].Pose.Roll.ShouldBe(0f);
@@ -118,7 +118,7 @@ public sealed class PlayerPropsTests
         PlayerProps.Add(
             [Soldier() with { Airwalking = true, PlayerClass = MedicClass }],
             drawn,
-            new Appearance(), NoBodygroups);
+            new Appearance(), NoParts);
 
         drawn[0].Pose.Airwalking.ShouldBeFalse();
     }
@@ -129,7 +129,7 @@ public sealed class PlayerPropsTests
         // The control for the pair. Without it, "never airwalks" passes the test above.
         List<SceneProp> drawn = [];
 
-        PlayerProps.Add([Soldier() with { Airwalking = true }], drawn, new Appearance(), NoBodygroups);
+        PlayerProps.Add([Soldier() with { Airwalking = true }], drawn, new Appearance(), NoParts);
 
         drawn[0].Pose.Airwalking.ShouldBeTrue();
     }
@@ -141,7 +141,7 @@ public sealed class PlayerPropsTests
         // survive the conversion rather than being looked up again.
         List<SceneProp> drawn = [];
 
-        PlayerProps.Add([Soldier() with { WeaponClass = "tf_weapon_rocketlauncher" }], drawn, new Appearance(), NoBodygroups);
+        PlayerProps.Add([Soldier() with { WeaponClass = "tf_weapon_rocketlauncher" }], drawn, new Appearance(), NoParts);
 
         drawn[0].Pose.Slot.ShouldBe("PRIMARY");
     }
@@ -203,21 +203,14 @@ public sealed class PlayerPropsTests
         // mask mesh is alternative 1 of the `spyMask` part. A rule nobody applies is a rule that
         // does nothing.
         List<SceneProp> drawn = [];
-        List<(string Model, string Group, int Value)> asked = [];
+        Recorder asked = new();
 
-        PlayerProps.Add(
-            [DisguisedSpy()],
-            drawn,
-            new Appearance(),
-            (model, group, value, _) =>
-            {
-                asked.Add((model, group, value));
-                return 1;
-            });
+        PlayerProps.Add([DisguisedSpy()], drawn, new Appearance(), asked);
 
-        asked.ShouldHaveSingleItem();
-        asked[0].Group.ShouldBe("spyMask", "the part is addressed by NAME; its index differs per model");
-        asked[0].Value.ShouldBe(1, "alternative 1 is the mask mesh on models/player/spy.mdl");
+        asked.Found.ShouldHaveSingleItem();
+        asked.Found[0].Group.ShouldBe("spyMask", "the part is addressed by NAME; its index differs per model");
+        asked.WasSet.ShouldHaveSingleItem();
+        asked.WasSet[0].Value.ShouldBe(1, "alternative 1 is the mask mesh on models/player/spy.mdl");
         drawn.ShouldHaveSingleItem();
         drawn[0].Pose.Body.ShouldBe(1, "the resolved body number has to reach the prop");
     }
@@ -229,19 +222,12 @@ public sealed class PlayerPropsTests
         // always asked would pass the test above while leaving every spy in a mask for the rest of
         // the round — and `Body` would be right for the wrong reason.
         List<SceneProp> drawn = [];
-        List<string> asked = [];
+        Recorder asked = new();
 
         PlayerProps.Add(
-            [DisguisedSpy() with { Conditions = default }],
-            drawn,
-            new Appearance(),
-            (_, group, _, _) =>
-            {
-                asked.Add(group);
-                return 1;
-            });
+            [DisguisedSpy() with { Conditions = default }], drawn, new Appearance(), asked);
 
-        asked.ShouldBeEmpty();
+        asked.Found.ShouldBeEmpty();
         drawn.ShouldHaveSingleItem();
         drawn[0].Pose.Body.ShouldBe(0);
     }
@@ -271,6 +257,30 @@ public sealed class PlayerPropsTests
     /// says the same thing on the first frame a model is seen. Tests that care about the mask
     /// supply their own.
     /// </remarks>
-    private static readonly Func<string, string, int, int, int> NoBodygroups =
-        (_, _, _, body) => body;
+    private static readonly IModelBodygroups NoParts = NoBodygroups.Instance;
+
+    /// <summary>A model whose every part resolves, recording what was asked of it.</summary>
+    /// <remarks>
+    /// **It records the two calls separately because the engine makes them separately.**
+    /// `FindBodygroupByName` answering -1 is what stops a part being set at all, so a recorder that
+    /// only saw the set could not tell "asked for a part this model lacks" from "never asked".
+    /// </remarks>
+    private sealed class Recorder : IModelBodygroups
+    {
+        public List<(string Model, string Group)> Found { get; } = [];
+
+        public List<(string Model, int Group, int Value)> WasSet { get; } = [];
+
+        public int FindBodygroup(string modelPath, string group)
+        {
+            Found.Add((modelPath, group));
+            return 0;
+        }
+
+        public int SetBodygroup(string modelPath, int group, int value, int body)
+        {
+            WasSet.Add((modelPath, group, value));
+            return 1;
+        }
+    }
 }
