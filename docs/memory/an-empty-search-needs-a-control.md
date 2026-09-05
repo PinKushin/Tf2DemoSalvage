@@ -121,3 +121,17 @@ third of the mass, and the distribution was misread as "mostly −4 and 0" for o
 skimming. If a result must be short, count it first — `grep -c` — and only then print a slice, so a
 truncated list cannot be mistaken for a complete one. A `head` on evidence is a truncated trx total
 with the truncation hidden, which is [[read-the-trx-total-not-the-console]] exactly.
+
+**The tool itself can be the absence, 2026-09-05.** Searching a VPK index for `vcd` and
+`scenes.image` returned zero for both — and zero for the control, `mdl`, in a VPK this project reads
+14,109 models from. The cause was that **there is no `strings` binary on this machine**, so every
+search had been reporting on a missing program rather than on the file. `grep -a` works and shows a
+top-level `scenes` entry.
+
+**So the control has a control: does the TOOL run at all.** `command -v strings` would have said so
+in one line, and the shape to watch for is *every* query returning zero, including ones that must
+match. A pattern that is merely wrong gives a mixed result; a broken instrument gives a uniform one.
+
+Same session, same shape, twice: a `grep -E` with escaped alternation inside a `for` loop returned
+empty for three subjects at once, and autolayers turned out to be implemented in eleven files.
+**Uniform zeros are the tell.**

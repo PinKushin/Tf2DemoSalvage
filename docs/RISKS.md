@@ -23984,3 +23984,36 @@ absence on our side — no file in `managed/` reads any taunt property.
 start/stop pairs, and whether the taunt sequence can be reached without the scene system (some taunts
 are plain sequences on the class model). The second question is worth asking first — if the common
 case resolves by name, most of the value lands without a scenes reader.
+
+#### Refinement, same day: the concept resolves, but the SCENE NAME is not the sequence name
+
+Chasing the "worth asking first" question above got a firm answer, and it is the discouraging one.
+
+**Two of the three hops are already available:**
+
+- **`items_game.txt` names the scene per class**, keyed by the item definition index — which IS
+  networked as `m_iTauntItemDefIndex`. This project already parses that file (`ItemSchema`):
+
+  ```
+  "taunt" { "custom_taunt_scene_per_class" {
+      "scout"  "scenes/player/scout/low/taunt_hi5_start.vcd"
+      "heavy"  "scenes/player/heavy/low/taunt_hi5_start.vcd"  ... } }
+  ```
+
+- **The class models carry taunts as ordinary named sequences.** `scout.mdl` declares
+  `taunt_highFiveStart`, `taunt_highFiveSuccess`, `taunt_laugh` and their `layer_` variants — no
+  scene system needed to PLAY one, only to choose it.
+
+**The third hop is the one that bites: `taunt_hi5_start.vcd` versus `taunt_highFiveStart`.** The
+scene's filename and the model's sequence label are different spellings of the same taunt, so no
+naming convention bridges them — the sequence name lives INSIDE the scene, which is what has to be
+read. That is `scenes.image` (or raw `.vcd`), and it remains a new asset reader.
+
+**So the estimate stands, and is now precise:** everything except reading a scene's `sequence`
+command is already in hand.
+
+**A control caught a wrong answer on the way**, which is worth recording because it nearly went the
+other way. Searching the VPK index for `vcd` and `scenes.image` returned zero for both — and zero
+for the CONTROL, `mdl`, in a VPK from which this project reads 14,109 models. The cause was no
+`strings` binary on this machine, so every search had been about the missing tool. With `grep -a`
+the index does carry a top-level `scenes` entry.
