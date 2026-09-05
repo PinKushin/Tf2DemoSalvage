@@ -24507,3 +24507,66 @@ and the `TOOLS/TOOLSBLACK` faces.
 except a zoomed sniper's — the conformance suite pins the arithmetic, and nothing wires a live FOV
 into it yet. And `BackgroundBModel`, the optional second brush drawn at blend 1: no window on
 harvest declares one, so there is nothing here to test it against.
+
+### B359 FIXED 2026-09-05: a force field stayed up after the round was won
+
+**Found by the same sweep as B358**, and it is the same shape: a drawn TF2 brush entity whose
+client-side `DrawModel` this project never implemented. `C_FuncForceField::DrawModel`
+(`c_func_forcefield.cpp:28`) is two lines:
+
+```cpp
+// Don't draw for anyone during a team win
+if ( TFGameRules()->State_Get() == GR_STATE_TEAM_WIN )
+    return 1;
+return BaseClass::DrawModel( flags );
+```
+
+**The rule was already implemented — for its sibling.** `RespawnRoomVisibility` has carried the
+identical `GR_STATE_TEAM_WIN` test for `C_FuncRespawnRoomVisualizer` since B241's era, with the same
+constant and the same round state decoded from the same entity. The force field simply was not in
+the list, so at the exact moment TF2 removes it — the winners chasing the losers into their spawn —
+we kept drawing a solid team-coloured slab across the doorway.
+
+`ShouldCollide` turns the field off in the same state, which is the other half of one intent: after
+a win it is neither drawn nor solid.
+
+#### What separates the two entities, and why it needed its own control
+
+**The force field takes the FIRST of the visualizer's two rules and not the second.** The wall is
+invisible to its own team — *"Don't draw for friendly players"* — and the field has **no
+local-player test at all**: you see your own team's field, which is how you watch enemies fail to
+walk through it. Reusing the wall's rule wholesale would have deleted every field the recorder's own
+team owns, and a test that only checked the team-win case would not have noticed.
+
+That is the third test of the three, and sabotage confirms it: giving the field the own-team rule
+reddens exactly that one and nothing else.
+
+**Handled in `RespawnRoomVisibility` rather than a class of its own**, because the round-state rule
+is one rule and two files would be two places to change when the state enum moves. The whole of the
+difference between the entities is one boolean.
+
+**Evidence class: read-from-source** for both `DrawModel`s.
+
+**What is NOT established:** how often a demo is watched past a round win, and therefore how visible
+this was. The rule is the engine's either way, but nobody has counted the ticks.
+
+#### The sweep that produced both
+
+Every client class overriding `DrawModel` in the SDK, diffed against what this repository cites —
+the denominator method applied to DRAWN ENTITY CLASSES rather than to one class's methods. Nine had
+no citation at all: `C_FuncOccluder`, `C_BreakableSurface`, `C_FuncForceField`, `C_VGuiScreen`,
+`C_EntityDissolve`, `CDetailModel`, `C_BaseObject`, `C_PasstimeBall`, `C_TFAmmoPack`.
+
+Chased so far:
+
+- **`C_FuncForceField`** — this entry.
+- **`C_BaseObject`** — not a divergence. Its `DrawModel` is dispatch plus `HighlightBuildPoints`,
+  which returns immediately without a local player holding a builder.
+- **`C_FuncOccluder`** — `Assert(0); return 0;`, so an occluder is never drawn, and drawing one
+  would be a solid invisible wall. **Measured absent**: no `func_occluder` on `koth_harvest_final`,
+  `cp_process_f12`, `cp_badlands`, `pl_upward` or `cp_gullywash_final1`, with `areaportal` as the
+  control returning 32 on cp_process. Nothing to fix on the maps this project reads.
+- **`C_BreakableSurface`** — open. Its draw differs only once the surface is BROKEN, when it goes
+  translucent and installs a custom brush-surface renderer.
+
+Still unread: `C_VGuiScreen`, `C_EntityDissolve`, `CDetailModel`, `C_PasstimeBall`, `C_TFAmmoPack`.

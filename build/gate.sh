@@ -741,7 +741,12 @@ run Tf2DemoSalvage.Animation.Tests animation 111
 # distance blend and six wiring for the drawn instance. The split is the point: the blend was never
 # the hard part, and a rule computed correctly and never applied is what drew every spawn window as
 # a solid black panel. Sampled between the knots, because a remap agrees with anything at its ends.
-run Tf2DemoSalvage.Scene.Tests    scene     567
+#
+# 567 -> 570 on 2026-09-05: three for B359, the force field obeying the team-win rule its sibling
+# already did. One of the three is the control that it does NOT take the wall's own-team rule --
+# `C_FuncForceField::DrawModel` has no local-player test, so reusing the wall's rule wholesale
+# would delete every field the recorder's own team owns.
+run Tf2DemoSalvage.Scene.Tests    scene     570
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
