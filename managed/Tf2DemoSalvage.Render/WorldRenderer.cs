@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -6118,16 +6119,35 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // The rule was already written down one file over, on `DrawTally.Report`: *"A change guard
         // against a value that oscillates is not a guard."* Same trap, same week, same shape — a
         // per-pass quantity keyed as though it were per-model.
-        (string Model, ModelPass Pass) subject = (modelPath, pass);
+        // **And by BODY, which is the third thing that decides what gets submitted** (B355).
+        // `Shown` filters batches against the body number, so two players in different cosmetics
+        // submit different counts from the same model in the same pass. Keyed without it they
+        // overwrite each other's slot every frame and the guard below fires on every draw: measured
+        // at 181,693 lines of 202,977 in one two-minute UI run, 90% of the file, all of it the
+        // eight class models. Invisible until B352, when every player's body number was zero.
+        (string Model, ModelPass Pass, int Body) subject = (modelPath, pass, body);
 
         _reportedDraw.TryGetValue(subject, out (int Kept, int Drawn, int Reports) last);
 
         // **Guarded on the work.** The message below joins and de-duplicates a description of every
         // batch, which is real allocation on a path that runs for 250 props a frame. A diagnostic
         // must cost nothing when nobody is reading it.
+        // **And rate limited, because the cap this comment block promised was never written**
+        // (B355). `Reports` is incremented below and read only for `> 0`, so "capped per model" was
+        // a description of an intention. `DrawTally.Report` had already settled the shape — *"A
+        // change guard against a value that oscillates is not a guard. Paired with a rate limit"* —
+        // and a rate limit is the right half of that pair rather than a count: a budget spent early
+        // goes silent for the run where the interesting thing happens late.
+        long now = Stopwatch.GetTimestamp();
+
+        _reportedDrawAt.TryGetValue(subject, out long lastAt);
+
         if (last.Reports > 0 && (last.Kept != kept || last.Drawn != drawn) &&
+            now - lastAt >= Stopwatch.Frequency &&
             _render.IsEnabled(LogLevel.Debug))
         {
+            _reportedDrawAt[subject] = now;
+
             // **Skin and body are printed because they are what is LEFT.** During a sticky charge
             // the weapon is built, submitted, drawn, correctly sized, and merged onto the same
             // bones as the arms — so it cannot be somewhere the arms are not, or they would vanish
@@ -6182,8 +6202,21 @@ internal sealed unsafe class WorldRenderer : IDisposable
     private readonly HashSet<(string Model, ModelPass Pass)> _reportedEmptyDraw = [];
 
     /// <summary>What each model last submitted, and how many changes it has reported.</summary>
-    private readonly Dictionary<(string Model, ModelPass Pass), (int Kept, int Drawn, int Reports)>
+    /// <remarks>
+    /// **Keyed by BODY as well, because the body number decides which batches survive** (B355).
+    /// Two players wearing different cosmetics are the same model in the same pass submitting
+    /// different counts, so one slot per (model, pass) has them overwriting each other and the
+    /// change guard fires on every draw. That is B264's fault exactly — a per-INSTANCE quantity
+    /// keyed as though it were per-model — and it stayed hidden until B352 gave players a body
+    /// number that was not always zero.
+    /// </remarks>
+    private readonly Dictionary<
+        (string Model, ModelPass Pass, int Body), (int Kept, int Drawn, int Reports)>
         _reportedDraw = [];
+
+    /// <summary>When each subject last reported, so an oscillating one is rate limited.</summary>
+    private readonly Dictionary<(string Model, ModelPass Pass, int Body), long>
+        _reportedDrawAt = [];
 
 
     /// <summary>Whether a batch is the alternative its body part shows.</summary>

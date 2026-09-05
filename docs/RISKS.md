@@ -24293,3 +24293,80 @@ says the rule is right, and the wiring suite says production runs it.
 ones vanish in a real Pyroland demo is a question for the owner rather than something a count can
 settle. The corpus has no demo containing any of the 23, so there is no measurement to offer — the
 fixtures use the shipped item numbers precisely because nothing real could be pointed at.
+
+### B355 FIXED 2026-09-05: two diagnostics wrote 95% of the viewer log
+
+**The UI suite slowed down and the cause was the log rather than the tests.** One two-minute run
+wrote **202,977 lines / 42 MB**, and the suite polls that file several times a second while the
+viewer writes it. Two change-guarded diagnostics were firing on every draw.
+
+| line | count | share |
+|---|---|---|
+| `<model> submitted: … in the EntireModel pass, body N, …` | 181,693 | 90% |
+| `_locker changed render group: … (opaque True) -> … (opaque False)` | 11,576 | 6% |
+
+#### The submitted line: B264's own fault, one level down
+
+Its guard is keyed `(model, pass)`. But `Shown` filters batches against the **body number**, so two
+players wearing different cosmetics submit different counts from the same model in the same pass —
+they overwrite each other's slot every frame and the guard sees a change on every draw. Measured in
+one run: `pyro` submits with **4** distinct body values, `scout` **3**, every other class **2**.
+
+**It was invisible until B352.** Before that every player's body number was 0, so all instances of a
+class model submitted identical counts and the guard held. B264's comment names the trap in advance
+— *"a per-pass quantity keyed as though it were per-model"* — and this is the same sentence with
+"instance" in place of "pass".
+
+#### The render-group line: a cap that was described and never written
+
+Its comment reads *"Capped, because an unbounded log is its own defect… The cap is per MODEL"*.
+There is no cap: `Reported` is incremented on every write and read only for `> 0`. The same is true
+of the submitted line's `Reports`. **Both diagnostics documented a per-model report budget that
+neither applied.**
+
+`DrawTally.Report` had already settled the right shape a week earlier, in its own comment: *"A
+change guard against a value that oscillates is not a guard. Paired with a rate limit."* A rate limit
+is the correct half of that pair rather than a count — a budget spent in the first second is silent
+for the run where the interesting flip starts late, which is the case the `_faded` set beside it is
+explicitly designed for. Both now rate limit to one line a second per subject, change guard kept.
+
+#### Measured at both ends, same suite, same conditions
+
+| | before | after |
+|---|---|---|
+| test time | 50 s | **12 s** |
+| wall clock | 123 s | **78 s** |
+| log | 202,977 lines / 42 MB | **8,502 lines / 1.4 MB** |
+
+Gate green, twelve assemblies at their floors, UI 31/31. No test asserts on either line, so nothing
+was silenced by the limit.
+
+**Evidence class: measured** throughout — the line census, the distinct body counts, and both ends
+of the comparison.
+
+**What is NOT established:** the remaining 66 seconds of wall clock, which is the one-time launch —
+a runtime, a device against a real adapter, a map and every model in a real match. That is inherent
+to a suite that drives the real viewer and was not touched here.
+
+### B356 OPEN 2026-09-05: the render-group guard cannot tell two instances apart
+
+**`Device3D._classified` is keyed by MODEL PATH while the input its own comment names as the varying
+one is the FRAME**, so two instances of one model at different animation frames report a change on
+every draw. That is what `_locker` alternating 5,788 times in each direction almost certainly is: a
+map carries two resupply lockers, and one slot receives both.
+
+**"Almost certainly" is the honest word, and the reason it is not settled is the instrument.** A
+genuine per-frame flip and two instances sharing a slot produce the identical log, which is the
+whole difficulty — and B355's rate limit bounds the noise without answering the question.
+
+**What it needs:** an identity `ModelInstance` does not carry. The record has `ModelPath`, `Matrix`,
+`Frame`, `Body` and the rest, but no entity index, so nothing downstream of the scene can say which
+locker it is drawing. Adding one is the fix and it is not free: `ModelInstance` is built per prop per
+frame on the hot path.
+
+**Why it matters beyond the log**: if a model really does alternate between drawing and not drawing,
+that is a visible flicker, and this instrument is the only thing that would report it. Right now it
+cries wolf on a map with two of anything.
+
+**Evidence class: read-from-source** for the key and the comment, **measured** for the 11,576 lines;
+**interpolated** for the two-lockers explanation, which is why it is filed rather than fixed.
