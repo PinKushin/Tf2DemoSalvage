@@ -293,6 +293,12 @@ public sealed class SkeletonPose : IBonePose
         // hinge — and is the last thing to touch the local pose before it is concatenated.
         animated = Adjust(animated);
 
+        // **`CTFMinigun::StandardBlendingRules`, and this is exactly where it runs** (B347). The
+        // override calls `BaseClass::StandardBlendingRules` FIRST and then overwrites one bone
+        // (`tf_weapon_minigun.cpp:1068`) — so it lands after everything the base did, `CalcBoneAdj`
+        // included, and before the pose is concatenated.
+        animated = SpinBarrel(animated);
+
         // **Indexed once, not searched per bone — and the first version of this did the latter.**
         // It set a `bool` here and then scanned `animated` again INSIDE the per-bone loop, which is
         // O(bones × animated): about 6,400 iterations for an eighty-bone player, times every
@@ -845,6 +851,33 @@ public sealed class SkeletonPose : IBonePose
         return result;
     }
 
+    /// <summary>The bone a procedural barrel spin overwrites, or -1 when there is none.</summary>
+    /// <remarks>
+    /// **Resolved by NAME upstream**, because the engine does: `m_iBarrelBone = LookupBone("barrel")`
+    /// (<c>tf_weapon_minigun.cpp:1048</c>), `LookupBone("procedural_chamber")` for the grenade
+    /// launcher (<c>tf_weapon_grenadelauncher.cpp:602</c>). An index rather than a name here so this
+    /// layer does no string work per frame.
+    /// </remarks>
+    public int BarrelBone { get; set; } = -1;
+
+    /// <summary>The rotation that bone is given, replacing whatever the animation put there.</summary>
+    /// <remarks>
+    /// **A rotation rather than an angle, so this layer knows nothing about weapons.** Which bone
+    /// spins and how fast is <c>MinigunBarrel</c>'s business in the scene layer; what happens here
+    /// is that one bone's rotation is overwritten, which is a fact about posing.
+    /// </remarks>
+    public (float X, float Y, float Z, float W) BarrelRotation { get; set; } = (0f, 0f, 0f, 1f);
+
+    /// <summary>How many times this pose has actually WRITTEN a barrel rotation into a bone.</summary>
+    /// <remarks>
+    /// **Counted where the write happens, because a count kept upstream measures intent** (B243).
+    /// `EntityModels` knew it had a minigun and a bone index and counted that; breaking the write
+    /// itself left every assertion green, which a sabotage found. This is the same shape as
+    /// <c>AppliedLocks</c> for the IK bracket: the number the caller reports is carried out of the
+    /// code that did the work, never recomputed beside it.
+    /// </remarks>
+    public int SpunBarrels { get; private set; }
+
     /// <summary>Bends bones by the entity's controller values — <c>CalcBoneAdj</c>.</summary>
     /// <param name="pose">The pose so far.</param>
     /// <returns>The pose with the controllers applied.</returns>
@@ -877,6 +910,59 @@ public sealed class SkeletonPose : IBonePose
     /// **Returns the pose untouched when there is nothing to do**, which is almost every entity:
     /// a model with no controllers, or a demo that never sent a value.
     /// </remarks>
+    /// <summary>Overwrites the barrel bone's rotation, as the weapon's override does.</summary>
+    /// <remarks>
+    /// **An ASSIGNMENT, not a composition**, which is the whole character of this step:
+    /// `AngleQuaternion( RadianEuler( 0, 0, m_flBarrelAngle ), q[m_iBarrelBone] )` writes over
+    /// whatever `fire_loop` animated onto that bone. Composing instead would add the spin to an
+    /// already-spinning barrel and double its rate while firing.
+    ///
+    /// **The engine writes the bone whether or not the animation listed it.** `q[]` is the whole
+    /// array by then, seeded by `InitPose`, so a sparse pose that omits the barrel still has to gain
+    /// it here — dropping it would leave the barrel at its bind rotation exactly when the model has
+    /// nothing to say about it, which is idle: the case a viewer looks at most.
+    ///
+    /// **No bone-mask test, because the override has none.** `CalcBoneAdj` checks
+    /// <c>boneFlags(k) &amp; boneMask</c> and this does not; adding one would be our economy rather
+    /// than Valve's, and `docs/memory/a-budget-rule-must-not-gate-a-correctness-rule.md` records
+    /// what that costs.
+    /// </remarks>
+    private IReadOnlyList<StudioBonePose> SpinBarrel(IReadOnlyList<StudioBonePose> pose)
+    {
+        if (BarrelBone < 0 || BarrelBone >= _bones.Count)
+        {
+            return pose;
+        }
+
+        (float X, float Y, float Z, float W) spun = BarrelRotation;
+
+        List<StudioBonePose> spinning = new(pose.Count + 1);
+        bool wrote = false;
+
+        foreach (StudioBonePose moved in pose)
+        {
+            if (moved.Bone == BarrelBone)
+            {
+                spinning.Add(new StudioBonePose(moved.Bone, moved.Position, spun));
+                wrote = true;
+            }
+            else
+            {
+                spinning.Add(moved);
+            }
+        }
+
+        if (!wrote)
+        {
+            spinning.Add(
+                new StudioBonePose(BarrelBone, _bones[BarrelBone].Position, spun));
+        }
+
+        SpunBarrels++;
+
+        return spinning;
+    }
+
     private IReadOnlyList<StudioBonePose> Adjust(IReadOnlyList<StudioBonePose> pose)
     {
         if (Controllers.Count == 0 || BoneControllers.Count == 0)

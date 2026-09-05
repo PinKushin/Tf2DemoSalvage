@@ -208,6 +208,10 @@ public sealed class PoseCompletenessTests
         // restarting is not the entity jumping, and a fixture sharing one value could not tell a
         // swap between them from a correct carry.
         DiscontinuitySeconds = 3.25d,
+
+        // `AC_STATE_SPINNING`, chosen because zero is `AC_STATE_IDLE` and would be
+        // indistinguishable from the field never being carried (B347).
+        MinigunState = 3,
         Speed = 320f,
         MoveX = 0.5f,
         MoveY = -0.5f,

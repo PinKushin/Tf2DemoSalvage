@@ -83,6 +83,18 @@ public sealed class ModelProbe : IProbe
             + $"{families.ToString(CultureInfo.InvariantCulture)} skin families over "
             + $"{references.ToString(CultureInfo.InvariantCulture)} references");
 
+        // **The bone NAMES, for the same reason the IK chains are here.** The engine looks bones up
+        // by name at runtime — `m_iBarrelBone = LookupBone("barrel")`
+        // (`tf_weapon_minigun.cpp:1048`) is one of several — so "does this model have that bone" is
+        // a question about a model chosen by name, which no demo-driven census can answer. The
+        // `bone-flags` one reports the 14 skinned models at a tick, and a weapon is not among them.
+        IReadOnlyList<StudioBone> bones = StudioBones.Read(bytes);
+
+        output.WriteLine(
+            $"    bones {bones.Count.ToString(CultureInfo.InvariantCulture)}: "
+            + string.Join(", ", bones.Take(24).Select(bone => bone.Name))
+            + (bones.Count > 24 ? ", …" : string.Empty));
+
         // **IK chains, so the question can be asked of a model chosen by NAME.** The `bone-flags`
         // census walks a demo's networked props, which are weapons, cosmetics and buildings — a
         // player's body is not among them, and feet are exactly where IK lives. A zero from that

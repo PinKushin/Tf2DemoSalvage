@@ -130,6 +130,11 @@ internal static class SyntheticProp
             [
                 Property(flat, "m_nModelIndex", PropertyValue.FromInt(Model)),
                 Property(flat, "m_ubInterpolationFrame", PropertyValue.FromInt(noInterp)),
+
+                // **A minigun state on every frame** (B347). Three is `AC_STATE_SPINNING`, chosen
+                // because it is not the default: a zero would be indistinguishable from the value
+                // never arriving, which is the case this fixture exists to tell apart.
+                Property(flat, "m_iWeaponState", PropertyValue.FromInt(3)),
                 Property(flat, "m_nSequence", PropertyValue.FromInt(sequence)),
                 Property(flat, "m_nNewSequenceParity", PropertyValue.FromInt(parity)),
                 Property(
@@ -238,6 +243,15 @@ internal static class SyntheticProp
                 new SendProperty(
                     SendPropType.DataTable, "animtime", 1, "DT_AnimTimeMustBeFirst", 0f, 0f, 0, 0),
             ]),
+            // **The minigun's wind-up state** (B347), four bits unsigned as the engine sends it
+            // (`tf_weapon_minigun.cpp:51`). On this fixture's one prop class because the question is
+            // whether the value reaches a POSE, which is the same hop for every entity — not
+            // whether a minigun is classified as one.
+            new SendTable("DT_WeaponMinigun", NeedsDecoder: true,
+            [
+                new SendProperty(
+                    SendPropType.Int, "m_iWeaponState", 1, string.Empty, 0f, 0f, 4, 0),
+            ]),
             new SendTable("DT_ServerAnimationData", NeedsDecoder: true,
             [
                 new SendProperty(SendPropType.Float, "m_flCycle", 0, string.Empty, 0f, 1f, 15, 0),
@@ -260,6 +274,8 @@ internal static class SyntheticProp
             [
                 new SendProperty(
                     SendPropType.DataTable, "baseanimating", 1, "DT_BaseAnimating", 0f, 0f, 0, 0),
+                new SendProperty(
+                    SendPropType.DataTable, "minigun", 1, "DT_WeaponMinigun", 0f, 0f, 0, 0),
             ]),
         ],
         [new ServerClass(PropClassId, "CDynamicProp", "DT_DynamicProp")]);

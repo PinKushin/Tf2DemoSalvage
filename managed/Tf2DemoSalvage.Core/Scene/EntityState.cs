@@ -42,6 +42,11 @@ public sealed class EntityState
             [
                 OriginProperty, OriginZProperty, AnglesProperty, EffectsProperty,
                 ModelIndexProperty, OwnerProperty, ParentProperty,
+
+                // The discontinuity parity a teleport bumps, read to CUT a sequence transition
+                // rather than fade it (B346). Added here for the same reason as the minigun's
+                // state below: it is read in production and nothing else checks the name is real.
+                "m_ubInterpolationFrame",
             ],
             [LocalOriginTable] = [OriginProperty, OriginZProperty, EyeAnglesPitch, EyeAnglesYaw],
             [NonLocalOriginTable] = [OriginProperty, OriginZProperty, EyeAnglesPitch, EyeAnglesYaw],
@@ -64,6 +69,13 @@ public sealed class EntityState
             [BasePlayerTable] = [FlagsProperty, LifeStateProperty],
             [CombatCharacterTable] = [ActiveWeaponProperty],
             [TfPlayerTable] = [WaterLevelProperty],
+
+            // **The minigun's wind-up state, which is what spins its barrel** (B347). Listed
+            // because this list's whole job is to be checked against Valve's own send tables by
+            // `SendPropConformanceTests` — a name read in production and missing from here is a
+            // name nothing confirms is real, and a typo in one is indistinguishable from an entity
+            // that never sends it.
+            ["DT_WeaponMinigun"] = ["m_iWeaponState"],
 
             // **Fog, which is the first entry here that is not about a thing you can see.** A
             // CFogController has no model and no position that matters; it exists to carry the
@@ -1293,6 +1305,19 @@ public sealed class EntityState
     /// **Measured on the wire** rather than assumed: `tf2-2026-pub-pov-cheater` sends it 13,261
     /// times across all four values — 12,830 zero, then 102, 149 and 180 of one, two and three.
     /// </remarks>
+    /// <summary>The minigun's wind-up state — <c>m_iWeaponState</c>.</summary>
+    /// <remarks>
+    /// **The only networked input to the barrel spin** (B347). `m_flBarrelAngle` is integrated
+    /// client-side (<c>tf_weapon_minigun.cpp:1118</c>) and nothing else about the barrel is on the
+    /// wire, so a demo has exactly what the client had. Four bits unsigned (<c>:51</c>).
+    ///
+    /// **`DT_WeaponFlameThrower` declares a field of the same name**, which is why the table is
+    /// named rather than the property searched for: they are different state machines and reading
+    /// one as the other would spin a flamethrower's non-existent barrel.
+    /// </remarks>
+    public int? MinigunWeaponState() =>
+        Integer("DT_WeaponMinigun.m_iWeaponState");
+
     public int? NoInterpolationParity() =>
         Integer($"{BaseEntityTable}.m_ubInterpolationFrame");
 

@@ -23610,3 +23610,125 @@ is what stops the suite decaying into a list of whatever currently passes.
 itself (`|| jumped` removed reddens the jump test alone), the entry case after its fixture was
 fixed, and the always-clear control — forcing `jumped` true reddens FIVE tests including
 `Instances_WhenTheEntityDidNotJump_StillFades`, so no guard that clears unconditionally can pass.
+
+### B347 FIXED 2026-09-05: the minigun's barrel never spun
+
+**`CTFMinigun` overrides `StandardBlendingRules` to overwrite one bone**
+(`tf_weapon_minigun.cpp:1068`):
+
+```cpp
+BaseClass::StandardBlendingRules( hdr, pos, q, currentTime, boneMask );
+
+if (m_iBarrelBone != -1)
+{
+    UpdateBarrelMovement();
+    AngleQuaternion( RadianEuler( 0, 0, m_flBarrelAngle ), q[m_iBarrelBone] );
+}
+```
+
+**It ASSIGNS rather than composes**, so whatever `fire_loop` animated onto that bone is discarded —
+the barrel is procedural at every moment, including the ones where no sequence is playing. We did
+neither: `m_iWeaponState` had **zero references** in the repository, and nothing rotated any bone
+named `barrel`.
+
+**Found by the audit's own method — rank by what is on screen.** A spun-up Heavy is one of the most
+constant sights in TF2, and three TF2 classes override `StandardBlendingRules` for nothing but this.
+
+#### Measured before a line was written
+
+- **`DT_WeaponMinigun.m_iWeaponState` is in a real protocol-24 demo's schema**, four bits unsigned
+  (`tf_weapon_minigun.cpp:51`), and `tf2-2026-pub-pov-cheater` sends it **462 times across all four
+  states** — 197 SPINNING, 163 FIRING, 57 IDLE, 45 STARTFIRING.
+- **`c_minigun.mdl` carries the bone**, and the `model` probe now lists bones so this could be asked
+  of a model by NAME: `bones 3: weapon_bone, barrel, c_weapon_stattrack`. The grenade launcher's is
+  `procedural_chamber` (7 bones), which is why the engine looks each up separately.
+- **Nothing else is on the wire.** `m_flBarrelAngle` is integrated client-side (`:1118`), so the
+  client has no more information than a demo does — the same shape as the burn clock (B336).
+
+#### Four details the source had to settle, not the other way round
+
+- **The rotation is about Z, and reading that off takes two hops.** The call passes
+  `RadianEuler( 0, 0, m_flBarrelAngle )` — the third component — and `AngleQuaternion` reads
+  `angles.z` into the YAW terms (`mathlib_base.cpp:2039`). **The file's own commented-out
+  alternative sets `a.x`, which is ROLL**; following it would spin the barrel about the wrong axis.
+- **`Approach` SNAPS inside one step** (`mathlib_base.cpp:3433`). A lerp approaches the target
+  asymptotically and never arrives, so the engine's `if (0 == m_flBarrelCurrentVelocity)` wind-down
+  check would never fire.
+- **The target is a COMPARISON, not a table of cases.** `m_iWeaponState > AC_STATE_IDLE` is what
+  `CanHolster`, `Holster` and `Lower` all use to mean "wound up" (`:806, :824, :837`) — which
+  includes `AC_STATE_DRYFIRE`, the case a state-by-state mapping is the natural way to miss.
+- **The acceleration is per FRAME, not per second.** `UpdateBarrelMovement` steps by a literal 0.1
+  once per call and is reached from `StandardBlendingRules`, so a minigun genuinely winds up five
+  times faster at 300fps than at 60. Reproduced rather than corrected: a per-second rate would be
+  our number rather than the game's (D89).
+
+#### The corpus cannot assert this, and that is a fact about the demo
+
+**`tf2-2026-pub-pov-cheater` carries the state 462 times on entity 229 and never DRAWS it.** Every
+minigun-model prop in it is a `CTFDroppedWeapon` lying on the ground, which has no weapon state at
+all — measured with a probe that counts minigun MODELS beside minigun STATES, because "zero states"
+alone has two causes and only the second number separates them.
+
+So the end-to-end assertions are synthetic (D38), and that is the stronger instrument here: a corpus
+test would have measured the demo's roster rather than this project's wiring, and would have passed
+while asserting nothing.
+
+**Evidence class: read-from-source** for every branch and constant, **measured** for the wire census,
+the bone lists and the drawn-prop split.
+
+**What is NOT established:** how it looks. The claim asserted is that the bone is written and the
+angle grows; whether a spinning barrel reads correctly on screen is a question for the owner, and
+`--shot` is for looking rather than diffing.
+
+**Filed, not done: the grenade launcher's `procedural_chamber`.** Same override shape
+(`tf_weapon_grenadelauncher.cpp:610`) but a different mechanism — a keyframed spline over
+`cProceduralBarrelRotationAnimationPoints`, driven by `m_iGoalTube != m_iCurrentTube`. Both are
+networked (`RecvPropInt( RECVINFO( m_iGoalTube ) )`, `:56`), so it is reproducible; it is a separate
+piece of work rather than half of this one.
+
+#### The conformance instrument was blind to 251 send tables, TF2's 185 among them
+
+**Adding `m_iWeaponState` to `NetworkedProperties` reddened `SendTableConformanceTests` with
+`DT_WeaponMinigun (no such send table in the SDK)`** — about a table `tf_weapon_minigun.cpp:44`
+declares and a real demo sends 462 times.
+
+**The absence was a fact about the PATTERN.** The scanner matched two spellings —
+`IMPLEMENT_SERVERCLASS_ST` and `BEGIN_SEND_TABLE`, each with `_NOBASE` — and not the third,
+`BEGIN_NETWORK_TABLE`, which is the shared client/server form that all of `game/shared/tf` uses.
+Measured after widening it: **251 tables use that spelling, 185 of them under `shared/tf` and
+`server/tf`.**
+
+**It failed in the direction that punishes correct work.** A property read from any of those 251
+tables was reported as looked-for in a table that does not exist — so the check would have argued a
+right name was wrong, which is worse than not checking. That is the same shape as the `SENDINFO`
+note living four lines above it in the same file: *"Matching only identifier characters captured
+`m_fog` and reported every fog property as declared-nowhere — a fact about the pattern rather than
+about Valve's tables."* Second time for one file.
+
+**`m_ubInterpolationFrame` was added in the same pass** (B346 read it in production and never listed
+it), so both of this week's new reads are now confirmed against Valve's own declarations rather than
+merely spelled confidently.
+
+#### Verification, and the counter that was measuring the wrong thing
+
+**Six wiring tests sabotaged; five sensitive, one gap found and closed.**
+
+- The state's two paths through `At` **reddened the opposite tests from the ones predicted**, which
+  corrected the suite's own documentation rather than the code. `At` subtracts
+  `InterpolationDelayTicks` (8) and refuses a keyframe that has not arrived —
+  `if (arrivedAt > tick) return from;` (`ScenePropTrack.cs:1492`). So asking AT the later keyframe
+  falls through to the field-by-field rebuild, and asking earlier returns the earlier pose
+  untouched. The tests were named the other way round and are now named for what they exercise.
+  Both paths reach the renderer, so both need an assertion.
+- **`SpunBarrels` was incremented upstream of the write it named**, in `EntityModels.SpinBarrel`, as
+  soon as a weapon state and a bone index were in hand. Sabotaging `SkeletonPose.SpinBarrel` — the
+  code that actually writes the rotation — reddened NOTHING. `SkeletonPose` now counts its own
+  writes and `EntityModels` sums them, which is the shape `AppliedIkLocks` already had beside it.
+  Re-verified: killing the write now reddens `Instances_ForASpinningMinigun_TurnsItsBarrelBone`
+  alone.
+
+**The other four were sensitive to their own claims**: nulling the timeline's read reddens both
+state tests and neither Scene test (that suite builds poses directly and never calls
+`DemoTimeline.Build`); accepting a missing state reddens the not-a-minigun control alone; matching
+`weapon_bone` instead of `barrel` reddens the no-barrel control alone; and `>=` instead of `>` in
+`TargetVelocity` reddens the idle control alone, at 0.35 rad where zero is required.

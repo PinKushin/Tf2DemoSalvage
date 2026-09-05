@@ -311,7 +311,12 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # and five on the timeline stamp. One of the five could not fail as first written — the stamp is
 # tick * interval and the fixture entered at tick 0, so a wrongly-counted first sighting wrote zero,
 # which is what "never jumped" also writes. Found by sabotage; the entity now enters at tick 600.
-run Tf2DemoSalvage.Core.Tests     core     1793
+# 1793 -> 1795: the minigun's wind-up state reaches a pose (B347). Two, and they cover DIFFERENT
+# paths through `At` rather than two samples of one: asking at the later keyframe falls through to
+# the field-by-field rebuild, while asking earlier hits the causality guard and returns the earlier
+# pose untouched. The first version of that file had the two claims the wrong way round, and only
+# sabotaging the rebuild's assignment showed which test actually reddened.
+run Tf2DemoSalvage.Core.Tests     core     1795
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
@@ -691,7 +696,12 @@ run Tf2DemoSalvage.Animation.Tests animation 111
 # more are PlayerPoseWiringCompletenessTests, which guards the player-to-pose hop as a CLASS: it has
 # lost a field four times (B259, B312 x3, B346) and a per-field test was written each time, which
 # cannot catch the next one. Deleting an assignment there now names the exact field.
-run Tf2DemoSalvage.Scene.Tests    scene     492
+# 492 -> 504: the minigun's barrel spin (B347), which the client computes and we did not. Eight
+# conformance tests pin the arithmetic against the engine — the Z axis (its own commented-out
+# alternative uses ROLL), Approach's SNAP, the `> AC_STATE_IDLE` comparison that includes DRYFIRE,
+# and the per-FRAME acceleration. Four wiring tests carry three controls: idle does not spin, a
+# model with no bone called `barrel` is untouched, and a prop with no weapon state is skipped.
+run Tf2DemoSalvage.Scene.Tests    scene     504
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
