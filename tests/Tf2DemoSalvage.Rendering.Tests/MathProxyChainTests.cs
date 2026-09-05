@@ -1,6 +1,9 @@
+using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
@@ -80,6 +83,76 @@ public sealed class MathProxyChainTests
             0,
             "these are the materials the variable table used to skip entirely; if this is zero the "
             + "widening in B337 is untested by construction");
+    }
+
+    /// <remarks>
+    /// **Every source a real chain reads must be findable, and this is what B340 was about.** A
+    /// proxy's source is looked up on the MATERIAL — `FindVar` — so a chain seeded from proxy
+    /// outputs alone drops any operation reading a declared constant. `dec18_dumb_bell.vmt`
+    /// multiplies `$saturatedTint` by `$tintMulti`, the constant `"10"`, and lost its phong and
+    /// envmap tint multiplier entirely.
+    ///
+    /// **Asserted as a COUNT of unfindable sources rather than as a list**, because the map's own
+    /// materials are Valve's to change: what must hold is that nothing a chain reads is missing,
+    /// whatever the chains happen to be.
+    /// </remarks>
+    [Test]
+    public void Variables_EverySourceARealMapsChainsRead_IsFindable()
+    {
+        if (Assets is not { } assets)
+        {
+            Assert.Ignore("the map or the game is not installed");
+            return;
+        }
+
+        List<string> unfindable = [];
+        int checkedSources = 0;
+
+        for (int index = 0; index < assets.Proxies.Count; index++)
+        {
+            IReadOnlyDictionary<string, (float Red, float Green, float Blue)>? declared =
+                index < assets.Variables.Count ? assets.Variables[index] : null;
+
+            // What an earlier proxy in the same block wrote is findable too, so the set grows as
+            // the chain runs — exactly as the renderer's table does.
+            HashSet<string> written = new(StringComparer.OrdinalIgnoreCase);
+
+            foreach (MaterialProxy proxy in assets.Proxies[index])
+            {
+                foreach (string argument in new[] { "srcVar1", "srcVar2" })
+                {
+                    if (proxy.Argument(argument) is not { Length: > 0 } reference)
+                    {
+                        continue;
+                    }
+
+                    checkedSources++;
+
+                    string name = MaterialProxies.Reference(reference).Name;
+
+                    if (declared?.ContainsKey(name) != true && !written.Contains(name))
+                    {
+                        unfindable.Add($"{assets.Materials[index].Name}: {proxy.Name} reads {name}");
+                    }
+                }
+
+                if (proxy.Argument("resultVar") is { Length: > 0 } result)
+                {
+                    written.Add(MaterialProxies.Reference(result).Name);
+                }
+            }
+        }
+
+        TestContext.Out.WriteLine(
+            $"{checkedSources} proxy sources across the map; unfindable: "
+            + (unfindable.Count == 0 ? "none" : string.Join(", ", unfindable)));
+
+        checkedSources.ShouldBeGreaterThan(
+            0, "the map's materials run proxies with sources, or this test measures nothing");
+
+        unfindable.ShouldBeEmpty(
+            "a source the material declares must be findable; anything here is an operation the "
+            + "engine runs and this renderer refuses");
     }
 
     private static MapAssets? Assets

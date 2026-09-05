@@ -44,6 +44,9 @@ public sealed class MaterialTable
 
     private readonly List<MapTexture?> _selfIllumMasks = [];
     private readonly List<MapTexture?> _phongExponentMaps = [];
+
+    private readonly List<IReadOnlyDictionary<string, (float Red, float Green, float Blue)>?>
+        _variables = [];
     private readonly List<IReadOnlyList<MaterialProxy>> _proxies = [];
 
     /// <summary>How many materials the table holds.</summary>
@@ -106,6 +109,14 @@ public sealed class MaterialTable
     /// </remarks>
     public IReadOnlyList<MapTexture?> PhongExponentMaps => _phongExponentMaps;
 
+    /// <summary>Each material's declared numeric parameters, for its proxies (B340).</summary>
+    /// <remarks>
+    /// Null for the great majority, which run no proxy and so have nothing to look a variable up
+    /// for.
+    /// </remarks>
+    public IReadOnlyList<IReadOnlyDictionary<string, (float Red, float Green, float Blue)>?>
+        Variables => _variables;
+
     /// <summary>The proxies each material runs, empty for the great majority.</summary>
     public IReadOnlyList<IReadOnlyList<MaterialProxy>> Proxies => _proxies;
 
@@ -132,6 +143,7 @@ public sealed class MaterialTable
         _lightWarps.Add(resolved.LightWarp);
         _selfIllumMasks.Add(resolved.SelfIllumMask);
         _phongExponentMaps.Add(resolved.PhongExponentMap);
+        _variables.Add(resolved.Variables);
         _proxies.Add(resolved.Proxies ?? []);
 
         // **The shader name, kept because "no base texture" is only a fault for SOME shaders**
