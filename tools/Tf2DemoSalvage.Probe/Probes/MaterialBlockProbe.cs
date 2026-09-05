@@ -22,10 +22,17 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// use, and which parameters are behind them.
 ///
 /// So this walks every `.vmt` the archives ship and tallies the name of every block opened inside
-/// the shader's own — the depth this reader currently drops. `Proxies` is expected and is reported
-/// with the rest rather than filtered out, as its own control: a run that reported no `Proxies` at
-/// all would be a broken scan rather than a finding
-/// (`docs/memory/an-empty-search-needs-a-control.md`).
+/// the shader's own — the depth this reader currently drops.
+///
+/// **The control named here was `Proxies`, and it could never have fired** (2026-09-05). This
+/// yields a pair only at `open.Count == 2` AND only for a key/value pair; a `Proxies` block
+/// contains sub-blocks and no bare keys, so it contributes nothing and is absent from the tally for
+/// a correct scan exactly as it would be for a broken one. **A control that cannot fire is not a
+/// control** — the same shape as `docs/memory/an-empty-search-needs-a-control.md`, one level up:
+/// there the absence was believed, here the check for believing it was itself vacuous.
+///
+/// The working control is `>=DX90`, which 5,688 materials open and which this reports. Proxy names
+/// live at depth three and are counted by `vmt-proxy`, written for that.
 ///
 /// <code>
 ///   vmt-blocks              — every block name, by count

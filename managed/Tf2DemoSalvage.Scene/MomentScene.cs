@@ -303,6 +303,18 @@ public sealed class MomentScene : IGameSystemPerFrame
         _models.Paint = prop => Weapons.PaintFor(
             prop, TeamOf(prop.OwnedBy ?? prop.AttachedTo, players));
 
+        // **How alight the wearer is, asked the same way and for the same reason** (B336).
+        // `CProxyBurnLevel` reads the entity it is bound to — a player, or a `C_TFRagdoll` through
+        // `GetBurnStartTime()` — and writes `$detailblendfactor`, which 6,715 of the 6,718 shipped
+        // materials running it name as their result. So the fire overlay a player already carries
+        // in `$detail` is blended by this and by nothing else.
+        //
+        // **A worn item burns with its wearer**, which is why this resolves through the same
+        // owner-or-wearer chain the paint does rather than asking the prop: a hat has no condition
+        // of its own and the engine binds the proxy against the entity being drawn, whose material
+        // came from the player.
+        _models.BurnLevel = prop => BurnLevelOf(prop.OwnedBy ?? prop.AttachedTo, players);
+
         ReportUndressedPlayers(players);
 
         // **The model set resolves the mask's body part**, because only it has the .mdl. A spy's
@@ -593,6 +605,34 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// Null for an entity no player occupies, which is the honest answer for a dropped weapon and
     /// leaves the caller to decide rather than guessing a side.
     /// </remarks>
+    /// <summary>How alight the player in an entity slot is, 0 to 1 (B336).</summary>
+    /// <param name="entity">The slot, or null for a prop nobody owns.</param>
+    /// <param name="players">This moment's players.</param>
+    /// <returns><c>CProxyBurnLevel</c>'s value, and zero where nothing is burning.</returns>
+    /// <remarks>
+    /// **Zero is the engine's own resting value**, not a fallback: `CProxyBurnLevel` starts
+    /// `flResult` at 0 and leaves it there unless a burn start time is set. So an unowned prop, a
+    /// player who is not alight, and a demo too old to carry the condition all answer the same
+    /// thing the engine answers.
+    /// </remarks>
+    private static float BurnLevelOf(int? entity, IReadOnlyList<ScenePlayer> players)
+    {
+        if (entity is null)
+        {
+            return 0f;
+        }
+
+        foreach (ScenePlayer player in players)
+        {
+            if (player.EntityIndex == entity)
+            {
+                return player.BurningFor is { } since ? MaterialProxies.BurnLevel(since) : 0f;
+            }
+        }
+
+        return 0f;
+    }
+
     private static int? TeamOf(int? entity, IReadOnlyList<ScenePlayer> players)
     {
         if (entity is null)

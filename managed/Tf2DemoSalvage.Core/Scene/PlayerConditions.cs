@@ -55,6 +55,24 @@ public readonly record struct PlayerConditions(int Cond, int Ex, int Ex2, int Ex
     /// <summary><c>TF_COND_DISGUISED_AS_DISPENSER</c>, <c>tf_shareddefs.h:739</c>.</summary>
     public const int DisguisedAsDispenser = 49;
 
+    /// <summary><c>TF_COND_BURNING</c>, <c>tf_shareddefs.h:712</c> — alight (B336).</summary>
+    /// <remarks>
+    /// **What the client does with it is derive a TIME.** `CTFPlayerShared::OnAddBurning` sets
+    /// `m_flBurnEffectStartTime = gpGlobals->curtime` when the bit is ADDED
+    /// (`tf_player_shared.cpp:7306`) and `OnRemoveBurning` clears it (`:6884`); nothing networks
+    /// that time. `CProxyBurnLevel` then ramps `$detailblendfactor` from it, so the fire overlay's
+    /// whole shape hangs off the tick this bit turns on.
+    /// </remarks>
+    public const int Burning = 22;
+
+    /// <summary><c>TF_COND_URINE</c>, <c>tf_shareddefs.h:714</c> — jarate'd (B336).</summary>
+    /// <remarks>
+    /// `CProxyUrineLevel` multiplies the player by `(6,9,2)` on RED and `(7,5,1)` on BLU while this
+    /// holds, and by white otherwise — so the proxy runs on 7,570 shipped materials and shows
+    /// nothing at all until somebody is hit.
+    /// </remarks>
+    public const int Urine = 24;
+
     /// <summary>How many conditions one variable carries.</summary>
     private const int PerVariable = 32;
 

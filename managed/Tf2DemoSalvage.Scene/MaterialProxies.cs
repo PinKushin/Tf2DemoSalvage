@@ -331,6 +331,79 @@ public static class MaterialProxies
         return middle + (half * MathF.Sin((float)(seconds * 2d * Math.PI / period)));
     }
 
+    /// <summary>How long a flame lives, <c>TF_BURNING_FLAME_LIFE</c>.</summary>
+    /// <remarks>
+    /// <c>#define TF_BURNING_FLAME_LIFE 10.0</c> (<c>tf_shareddefs.h:665</c>). There is a
+    /// <c>TF_BURNING_FLAME_LIFE_PYRO</c> of 0.25 beside it, and it is NOT this: it shortens how
+    /// long a pyro BURNS, and the proxy reads the plain one whoever is alight.
+    /// </remarks>
+    private const float FlameLife = 10f;
+
+    /// <summary>How long the burn takes to reach full strength.</summary>
+    /// <remarks><c>float flBurnPeakTime = flBurnStartTime + 0.3;</c> (<c>c_tf_player.cpp:1871</c>).</remarks>
+    private const float BurnPeak = 0.3f;
+
+    /// <summary>How alight a player looks, <c>CProxyBurnLevel</c> (B336).</summary>
+    /// <param name="since">Seconds since the burning condition was added; may be negative.</param>
+    /// <returns>0 to 1, for <c>$detailblendfactor</c>.</returns>
+    /// <remarks>
+    /// **Fast in, slow out, and the asymmetry is the whole shape** — up over 0.3 seconds and down
+    /// over the remaining 9.7 (<c>c_tf_player.cpp:1868-1885</c>):
+    ///
+    /// <code>
+    /// if ( gpGlobals->curtime &lt; flBurnPeakTime )
+    ///     flTempResult = RemapValClamped( curtime, flBurnStartTime, flBurnPeakTime, 0.0, 1.0 );
+    /// else
+    ///     flTempResult = RemapValClamped( curtime, flBurnPeakTime, flBurnStartTime + TF_BURNING_FLAME_LIFE, 1.0, 0.0 );
+    /// flResult = 1.0 - abs( flTempResult - 1.0 );
+    /// </code>
+    ///
+    /// **That last line is an identity and is not reproduced.** `RemapValClamped` already clamps to
+    /// [0, 1], and on that interval `1 - |t - 1|` is `t`. Valve's comment above it says *"We have to
+    /// do some more calc here instead of in materialvars"*, which reads as a leftover from when the
+    /// remap was unclamped. Writing it out would suggest it does something.
+    ///
+    /// **The clamps are load-bearing here in a way they are not in the engine.** A negative
+    /// `since` cannot arise in a client that only moves forward; this project seeks, so it can, and
+    /// an unclamped ramp would answer a negative blend factor.
+    /// </remarks>
+    public static float BurnLevel(float since)
+    {
+        if (since <= 0f)
+        {
+            return 0f;
+        }
+
+        return since < BurnPeak
+            ? since / BurnPeak
+            : Math.Clamp((FlameLife - since) / (FlameLife - BurnPeak), 0f, 1f);
+    }
+
+    /// <summary>How yellow a jarate'd player is, <c>CProxyUrineLevel</c> (B336).</summary>
+    /// <param name="urine">Whether the player is in <c>TF_COND_URINE</c>.</param>
+    /// <param name="isBlue">Whether the team the viewer SEES is BLU.</param>
+    /// <returns>A multiplier, white when the condition is absent.</returns>
+    /// <remarks>
+    /// **The numbers are multipliers, not colours** (<c>c_tf_player.cpp:1948-1960</c>): `(6,9,2)`
+    /// for RED and `(7,5,1)` for BLU, well above one, which is how the effect BRIGHTENS into yellow
+    /// rather than tinting toward it. Read as 0-255 and divided they would draw an almost-black
+    /// player.
+    ///
+    /// **The team is the one the viewer sees, not the one the player is on**, and the engine is
+    /// explicit: a disguised spy is tinted for the DISGUISE team unless the viewer is on the spy's
+    /// own team or is the spy. That distinction is not made here yet — see B336 — because it needs
+    /// the viewing player, and this layer is handed one entity.
+    /// </remarks>
+    public static (float Red, float Green, float Blue) YellowLevel(bool urine, bool isBlue)
+    {
+        if (!urine)
+        {
+            return (1f, 1f, 1f);
+        }
+
+        return isBlue ? (7f, 5f, 1f) : (6f, 9f, 2f);
+    }
+
     /// <summary>Reads a proxy's numeric argument, or its default when the key is absent.</summary>
     /// <param name="value">The raw text from the VMT, or null.</param>
     /// <param name="fallback">What the engine's own <c>Init</c> call passes as the default.</param>

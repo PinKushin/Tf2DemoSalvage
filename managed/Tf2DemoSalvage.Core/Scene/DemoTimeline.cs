@@ -38,6 +38,13 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// <param name="Conditions">
 /// The five <c>m_nPlayerCond</c> bitfields, read as <c>CTFPlayerShared::InCond</c> does.
 /// </param>
+/// <param name="BurningFor">
+/// Seconds since this player caught fire, or null when they are not alight (B336). The engine reads
+/// <c>m_flBurnEffectStartTime</c>, which is set CLIENT-SIDE when <c>TF_COND_BURNING</c> is added
+/// (<c>tf_player_shared.cpp:7306</c>) and networked nowhere — so this watches the same transition
+/// the client watches rather than reading a field the demo does not carry. It drives
+/// <c>CProxyBurnLevel</c>, and through it <c>$detailblendfactor</c> on the fire overlay.
+/// </param>
 /// <param name="DisguiseClass">Which class a disguised spy appears to be, <c>m_nDisguiseClass</c>.</param>
 /// <param name="DisguiseTeam">Which team they appear to be on, <c>m_nDisguiseTeam</c>.</param>
 /// <param name="DisguiseMaskClass">
@@ -169,6 +176,7 @@ public readonly record struct ScenePlayer(
     // the LOCAL player (`c_tf_player.cpp:5384`) and in a recording that is the recorder — which
     // only the timeline knows.
     PlayerConditions Conditions = default,
+    float? BurningFor = null,
     int? DisguiseClass = null,
     int? DisguiseTeam = null,
     int? DisguiseMaskClass = null,
@@ -1439,6 +1447,15 @@ public sealed class DemoTimeline
         // carries no such event, so this watches FL_ONGROUND clear instead.
         Dictionary<int, int> leftGroundAt = [];
 
+        // **When each player caught fire** (B336), and the reasoning is the same as the line above.
+        // `CProxyBurnLevel` ramps `$detailblendfactor` from `m_flBurnEffectStartTime`, which is set
+        // CLIENT-SIDE by `CTFPlayerShared::OnAddBurning` to `gpGlobals->curtime` when
+        // `TF_COND_BURNING` is ADDED (`tf_player_shared.cpp:7306`) and cleared by `OnRemoveBurning`
+        // (`:6884`). Nothing networks it. The client has no more information than a demo does — the
+        // moment the bit turns on — so watching the transition reproduces the client rather than
+        // inventing a time for it.
+        Dictionary<int, int> burningSince = [];
+
         // Where each player was last tick, so a vertical speed can be differenced. The client does
         // the same: GetOuterAbsVelocity calls EstimateAbsVelocity on the client, which estimates
         // from position history rather than reading a networked velocity.
@@ -1834,6 +1851,32 @@ public sealed class DemoTimeline
                 // is measured from the moment the flag cleared.
                 float? airborne = null;
 
+                // **The burn clock, on the same reasoning and in the same loop** (B336). Null when
+                // the player is not alight, which is what `m_flBurnEffectStartTime == 0` means to
+                // `CProxyBurnLevel` — it defaults `flBurnStartTime` to 0 and does nothing at all
+                // unless the value is above it.
+                float? burningFor = null;
+
+                if (player.Conditions().Has(PlayerConditions.Burning))
+                {
+                    if (!burningSince.TryGetValue(player.EntityIndex, out int caught))
+                    {
+                        caught = command.Tick;
+                        burningSince[player.EntityIndex] = caught;
+                    }
+
+                    // Null while the interval is unknown, exactly as the jump clock is: the first
+                    // frames arrive before `net_tick` states one, and a zero interval would peg
+                    // every burn at its own first instant for ever.
+                    burningFor = interval > 0f ? (command.Tick - caught) * interval : null;
+                }
+                else
+                {
+                    // `OnRemoveBurning` clears the start time, so a second burn is a new clock
+                    // rather than a continuation of the first.
+                    burningSince.Remove(player.EntityIndex);
+                }
+
                 // **The rise, differenced from the last height this player was seen at.** Only the
                 // upward component matters: the air-walk test is on velocity.z alone.
                 float? rising = null;
@@ -2050,6 +2093,7 @@ public sealed class DemoTimeline
                     // `InCond( TF_COND_DISGUISED ) && IsEnemyPlayer()`, so the three travel
                     // together and `Disguise` applies them.
                     Conditions: player.Conditions(),
+                    BurningFor: burningFor,
                     DisguiseClass: player.DisguiseClass(),
                     DisguiseTeam: player.DisguiseTeam(),
                     DisguiseMaskClass: player.DisguiseMaskClass(),
