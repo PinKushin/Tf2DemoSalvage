@@ -57,6 +57,12 @@ public readonly record struct FiredAnimationEvent(
 /// what blends in the fire overlay a player material already carries in <c>$detail</c>. Zero for
 /// everything not on fire, which is the proxy's own resting value.
 /// </param>
+/// <param name="Urine">
+/// The jarate multiplier for this entity's wearer (B336), or null for white. <c>CProxyUrineLevel</c>
+/// answers <c>(6,9,2)</c> on RED and <c>(7,5,1)</c> on BLU while the player is in
+/// <c>TF_COND_URINE</c> — multipliers above one, which is how the effect brightens into yellow
+/// rather than tinting toward it.
+/// </param>
 /// <param name="Mirrored">
 /// Whether this is a viewmodel, drawn mirrored — which reverses its winding, so the cull has to
 /// flip with it or the weapon draws inside out.
@@ -123,6 +129,15 @@ public readonly record struct ModelInstance(
     // entity for the same reason the paint is: two players in the same class share one material,
     // and only one of them may be on fire.
     float Burn = 0f,
+
+    // **The jarate multiplier** (B336), feeding `CProxyUrineLevel`. White for everyone not hit,
+    // which is a multiply by one and therefore the same picture an unevaluated proxy gave.
+    //
+    // **Nullable because a default triple is (0,0,0) and this is a MULTIPLIER**, so an unset one
+    // would draw every player black. A parameter default cannot be `(1,1,1)` — it is not a constant
+    // expression — and `docs/memory/a-neutral-default-must-be-neutral.md` is about precisely this
+    // substitution going wrong once already, where `_white` turned out to be the magenta chequer.
+    (float Red, float Green, float Blue)? Urine = null,
     bool Mirrored = false,
 
     // **Where the model stands, which its Matrix does not always say** (B170). A baked model is put
@@ -278,6 +293,12 @@ public sealed class EntityModelSet
     /// scene behind it draws exactly what an unburnt player draws.
     /// </remarks>
     public Func<SceneProp, float>? BurnLevel { get; set; }
+
+    /// <summary>The jarate multiplier for each prop's wearer, for <c>CProxyUrineLevel</c> (B336).</summary>
+    /// <remarks>
+    /// White when nothing supplies it, which is the proxy's own resting value — a multiply by one.
+    /// </remarks>
+    public Func<SceneProp, (float Red, float Green, float Blue)>? UrineTint { get; set; }
 
     /// <summary>Where the entities this set builds report, so the bone merge can say what paired.</summary>
     private readonly ILoggerFactory _loggers;
@@ -4289,6 +4310,7 @@ public sealed class EntityModelSet
                 // burning, and a nullable here would invite a caller to treat "no scene" as
                 // different from "not on fire" when the engine does not.
                 Burn: BurnLevel?.Invoke(prop) ?? 0f,
+                Urine: UrineTint?.Invoke(prop) ?? (1f, 1f, 1f),
                 Mirrored: false,
                 Origin: origin,
 

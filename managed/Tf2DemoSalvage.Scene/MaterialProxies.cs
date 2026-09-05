@@ -331,6 +331,99 @@ public static class MaterialProxies
         return middle + (half * MathF.Sin((float)(seconds * 2d * Math.PI / period)));
     }
 
+    /// <summary>One of Valve's arithmetic proxies, <c>mathproxy.cpp</c> (B337).</summary>
+    /// <remarks>
+    /// **Named rather than dispatched on a string at the call site**, so an unrecognised proxy is
+    /// refused where it is read rather than silently computing the wrong operation.
+    /// </remarks>
+    public enum MathProxy
+    {
+        /// <summary><c>CEqualsProxy</c> — a copy, which is how a value reaches two variables.</summary>
+        Equals,
+
+        /// <summary><c>CAddProxy</c>.</summary>
+        Add,
+
+        /// <summary><c>CSubtractProxy</c> — src1 minus src2, in that order.</summary>
+        Subtract,
+
+        /// <summary><c>CMultiplyProxy</c>.</summary>
+        Multiply,
+
+        /// <summary><c>CDivideProxy</c> — and a zero divisor yields the NUMERATOR.</summary>
+        Divide,
+    }
+
+    /// <summary>Runs one arithmetic proxy over two variables (B337).</summary>
+    /// <param name="operation">Which proxy.</param>
+    /// <param name="first"><c>srcVar1</c>.</param>
+    /// <param name="second"><c>srcVar2</c>, ignored by <see cref="MathProxy.Equals"/>.</param>
+    /// <returns>What the proxy writes to <c>resultVar</c>.</returns>
+    /// <remarks>
+    /// **Componentwise, because every variable in this layer is a triple.** The engine chooses a
+    /// result type per bind — `CFunctionProxy::ComputeResultType` (`functionproxy.cpp:231`) takes
+    /// the RESULT variable's own type, then src1's, then src2's — and computes on a vector, a float
+    /// or an int accordingly. Componentwise arithmetic on floats agrees with the vector and float
+    /// paths exactly; it differs from the INT path only for a variable holding a fraction the
+    /// engine would have truncated first, and from a two-component variable by writing a third
+    /// component. Both are stated in `MathProxyConformanceTests` rather than left to be discovered.
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException">The operation is not one of the five.</exception>
+    public static (float Red, float Green, float Blue) Apply(
+        MathProxy operation,
+        (float Red, float Green, float Blue) first,
+        (float Red, float Green, float Blue) second) =>
+        operation switch
+        {
+            MathProxy.Equals => first,
+            MathProxy.Add => (
+                first.Red + second.Red, first.Green + second.Green, first.Blue + second.Blue),
+            MathProxy.Subtract => (
+                first.Red - second.Red, first.Green - second.Green, first.Blue - second.Blue),
+            MathProxy.Multiply => (
+                first.Red * second.Red, first.Green * second.Green, first.Blue * second.Blue),
+            MathProxy.Divide => (
+                Divide(first.Red, second.Red),
+                Divide(first.Green, second.Green),
+                Divide(first.Blue, second.Blue)),
+            _ => throw new ArgumentOutOfRangeException(nameof(operation)),
+        };
+
+    /// <summary>One component of <c>CDivideProxy</c>.</summary>
+    /// <remarks>
+    /// **A zero divisor yields the NUMERATOR** — Valve's own guard, `mathproxy.cpp:229-233`. Not
+    /// zero and not infinity: letting it divide would put an infinity in a material variable and a
+    /// NaN in a colour, which draws as black or as nothing depending on the blend and reads as a
+    /// missing texture rather than as arithmetic.
+    /// </remarks>
+    private static float Divide(float numerator, float divisor) =>
+        divisor != 0f ? numerator / divisor : numerator;
+
+    /// <summary><c>CClampProxy</c>, bounds and all (B337).</summary>
+    /// <param name="value"><c>srcVar1</c>.</param>
+    /// <param name="minimum">The proxy's <c>min</c>, default 0.</param>
+    /// <param name="maximum">Its <c>max</c>, default 1.</param>
+    /// <returns>The value brought inside the range.</returns>
+    /// <remarks>
+    /// **The bounds are SWAPPED first when they arrive the wrong way round**
+    /// (<c>mathproxy.cpp:283-288</c>), which is not tidiness: a material stating `min 1 max 0`
+    /// otherwise clamps to a range that contains nothing, and the answer becomes whichever
+    /// comparison runs first.
+    /// </remarks>
+    public static (float Red, float Green, float Blue) Clamp(
+        (float Red, float Green, float Blue) value, float minimum = 0f, float maximum = 1f)
+    {
+        if (minimum > maximum)
+        {
+            (minimum, maximum) = (maximum, minimum);
+        }
+
+        return (
+            Math.Clamp(value.Red, minimum, maximum),
+            Math.Clamp(value.Green, minimum, maximum),
+            Math.Clamp(value.Blue, minimum, maximum));
+    }
+
     /// <summary>How long a flame lives, <c>TF_BURNING_FLAME_LIFE</c>.</summary>
     /// <remarks>
     /// <c>#define TF_BURNING_FLAME_LIFE 10.0</c> (<c>tf_shareddefs.h:665</c>). There is a

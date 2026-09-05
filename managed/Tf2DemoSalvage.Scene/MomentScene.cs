@@ -315,6 +315,11 @@ public sealed class MomentScene : IGameSystemPerFrame
         // came from the player.
         _models.BurnLevel = prop => BurnLevelOf(prop.OwnedBy ?? prop.AttachedTo, players);
 
+        // **And the jarate tint, resolved the same way** (B336). `CProxyUrineLevel` takes the
+        // player from the entity OR from its owner — `pEntity->GetOwnerEntity()->IsPlayer()`
+        // (`c_tf_player.cpp:1935`) — which is the same chain, written out in the engine.
+        _models.UrineTint = prop => UrineTintOf(prop.OwnedBy ?? prop.AttachedTo, players);
+
         ReportUndressedPlayers(players);
 
         // **The model set resolves the mask's body part**, because only it has the .mdl. A spy's
@@ -631,6 +636,42 @@ public sealed class MomentScene : IGameSystemPerFrame
         }
 
         return 0f;
+    }
+
+    /// <summary>The jarate multiplier for the player in an entity slot (B336).</summary>
+    /// <param name="entity">The slot, or null for a prop nobody owns.</param>
+    /// <param name="players">This moment's players.</param>
+    /// <returns><c>CProxyUrineLevel</c>'s value, white where nobody is jarate'd.</returns>
+    /// <remarks>
+    /// **The team is the one the VIEWER sees, and this uses the player's own** — a divergence, and
+    /// it is stated rather than hidden. The engine tints for the DISGUISE team when a disguised spy
+    /// is seen by the other side (`c_tf_player.cpp:1946-1953`); reproducing that needs the same
+    /// enemy-of-the-recorder test `Disguise` already applies, and it is not wired here yet. It
+    /// changes the tint only for a jarate'd disguised spy, which needs both conditions at once.
+    ///
+    /// **No demo checked contains `TF_COND_URINE` at all**, so this has never been exercised on
+    /// real data — see B336. White for everyone is exactly what an unimplemented proxy produced, so
+    /// nothing regresses either way.
+    /// </remarks>
+    private static (float Red, float Green, float Blue) UrineTintOf(
+        int? entity, IReadOnlyList<ScenePlayer> players)
+    {
+        if (entity is null)
+        {
+            return (1f, 1f, 1f);
+        }
+
+        foreach (ScenePlayer player in players)
+        {
+            if (player.EntityIndex == entity)
+            {
+                return MaterialProxies.YellowLevel(
+                    player.Conditions.Has(PlayerConditions.Urine),
+                    isBlue: player.Team == SceneTeams.Blu);
+            }
+        }
+
+        return (1f, 1f, 1f);
     }
 
     private static int? TeamOf(int? entity, IReadOnlyList<ScenePlayer> players)
