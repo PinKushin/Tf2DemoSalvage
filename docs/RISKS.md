@@ -23110,10 +23110,12 @@ before the start is clamped — load-bearing here in a way it is not in the engi
 clock never runs backwards and this project seeks, and C#'s modulo of a negative is negative, so
 without the clamp the index reads off the FRONT of the file.
 
-**Not reproduced: the wrap callback.** `AnimationWrapped` fires when the frame goes round, and
-under `animationNoWrap` the frame pins to the last one instead. Nothing here subscribes — it drives
-`MaterialModify` entities and particle systems — and no shipped material this census has seen
-states `animationNoWrap`.
+**The wrap callback: nothing to reproduce, and B343 establishes why.** `AnimationWrapped` is
+declared `virtual void AnimationWrapped( void* pBaseEntity ) {}` on `CBaseAnimatedTextureProxy`
+(`baseanimatedtextureproxy.h:36`) and is overridden only by the `MaterialModify` proxies —
+`CAnimatedTextureProxy` does not. So for this proxy it provably does nothing. `animationNoWrap`,
+which pins the frame instead of looping, is stated by ZERO shipped materials, measured with a
+control.
 
 ## What remains, and the numbers that decide the design
 
@@ -23330,7 +23332,24 @@ read the PREVIOUS draw's frame: on a material whose neighbours animate, that is 
 somebody else's texture. A third-person capture on the f12 demo at tick 30000 renders identically
 to before the reorder.
 
-**What remains of the animation work.** `AnimationWrapped` — the callback that fires when a frame
-wraps, and that `animationNoWrap` pins instead — is still not reproduced. It drives
-`MaterialModify` entities and particle systems, and no shipped material this census has seen states
-`animationNoWrap`.
+**What remains of the animation work: nothing, and that is established rather than assumed.** This
+was left as an open item — *"`AnimationWrapped` is still not reproduced"* — and reading the source
+settles it in both halves.
+
+**The callback is EMPTY for this proxy, by construction.** `CBaseAnimatedTextureProxy` declares it
+as `virtual void AnimationWrapped( void* pBaseEntity ) {}` (`baseanimatedtextureproxy.h:36`), and
+the only overrides in the whole client are `CMaterialModifyProxy` and
+`CMaterialModifyAnimatedProxy` (`C_MaterialModifyControl.cpp:527, 783`), which are the
+`MaterialModify` proxies — a different proxy name. `CAnimatedTextureProxy` does not override it. So
+for the proxy implemented here the callback provably does nothing, and reproducing it would mean
+reproducing an empty method.
+
+**`animationNoWrap` is stated by ZERO shipped materials**, which changes the frame rather than the
+callback — it pins to `numFrames - 1` after the first wrap instead of looping. Measured over the
+30,684 materials with `vmt-proxy AnimatedTexture`, and the absence has a control: that proxy's
+declaration list comes back with 23 distinct settings, so the scan is finding arguments and this one
+is not among them.
+
+**It becomes live only if `MaterialModify` is implemented**, which the census puts at 6 materials —
+and those overrides call `TextureAnimationWrapped()` on the entity, which is entity state this
+layer does not have. Noted where it would matter rather than left as an open item here.

@@ -475,10 +475,16 @@ public static class MaterialProxies
     /// so without it the index reads off the FRONT of the file. And a texture declaring no frames
     /// is refused rather than divided by, which the engine does with an assert.
     ///
-    /// **What is NOT reproduced: the wrap callback.** `AnimationWrapped` fires when the frame goes
-    /// round, and under `animationNoWrap` the frame is pinned to the last one instead. Nothing here
-    /// subscribes to that callback — it drives `MaterialModify` entities and particle systems — and
-    /// `animationNoWrap` is stated by no shipped material this census has seen.
+    /// **The wrap callback is EMPTY for this proxy, so there is nothing to reproduce** (B343).
+    /// `CBaseAnimatedTextureProxy` declares
+    /// <c>virtual void AnimationWrapped( void* pBaseEntity ) {}</c>
+    /// (<c>baseanimatedtextureproxy.h:36</c>) and the only overrides in the client are the
+    /// `MaterialModify` proxies (<c>C_MaterialModifyControl.cpp:527, 783</c>);
+    /// `CAnimatedTextureProxy` does not override it.
+    ///
+    /// **`animationNoWrap` — which pins the frame to the last one instead of looping — is stated by
+    /// ZERO shipped materials**, measured over all 30,684 with a control: that proxy's declaration
+    /// list comes back with 23 distinct settings, so the scan finds arguments and this is not one.
     /// </remarks>
     public static int AnimationFrame(double seconds, float rate, int frames)
     {
