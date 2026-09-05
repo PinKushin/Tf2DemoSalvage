@@ -922,3 +922,66 @@ entry to apply when it is.
 
 Recorded rather than quietly edited, because the wrong version was a plausible-sounding inference
 that would have been repeated: it reads like a fact about demos and is actually a fact about nothing.
+
+## The owner's diagnosis was right and the investigation argued with it twice (B358)
+
+**"windows are not transparent right now, the vis culling is not completely correct basically"**, and
+then, unprompted: **"func_areaportal has to be it… im positive, this bug is a known map bug when you
+fuck up making your map."**
+
+It was. Every `func_areaportalwindow` drew as a solid black panel, because the brush it steals is
+`TOOLS/TOOLSBLACK` and we drew it at its own `renderamt 255` instead of at
+`GetDistanceBlend()`. This section is about the two things that delayed agreeing with him, because
+both are reusable mistakes rather than bad luck.
+
+### "Not implementing X draws MORE, not less" — right, and about the wrong X
+
+The reasoning was: the engine's rule is PVS **and** area bit, we apply PVS only, therefore missing
+areaportals can only over-draw. Every step of that is true and it settles nothing, because
+**`func_areaportalwindow` is a DRAWN ENTITY, not a visibility structure.** The name contains
+"areaportal" and the mechanism is a brush model with a blend.
+
+The lesson is narrow and worth keeping: **a subsystem's name is not its category.** "Do we implement
+areaportals" has two answers — the area bits (no, and it over-draws) and the window entity (no, and
+it under-draws) — and answering the first while the symptom belongs to the second is how a correct
+argument defends a wrong conclusion for three messages.
+
+### A differential whose manipulation was never verified
+
+The PVS was disabled and the frame re-captured. It came back identical, and that was reported as
+"the visible-leaf set is not the cause". **That inference needs a control that was not run**: it is
+only evidence if the PVS was filtering to begin with.
+
+It was. The `vis` probe, written afterwards for exactly this, reports from that spawn:
+
+```
+  leaves kept WITH the PVS:    1205
+  leaves kept WITHOUT it:      1756
+  the PVS removes 551 leaves (31.4%)
+```
+
+So the manipulation was real and the frames matched for a third reason — the frustum had already
+excluded everything the PVS would have. **A differential can fail three ways, and "I changed nothing"
+looks exactly like "this is not the cause".** The probe now prints the two counts side by side and
+says outright when they are equal.
+
+Same family as `an-empty-search-needs-a-control`, one level up: there the control is for an absence,
+here it is for a *manipulation*.
+
+### A colour read without its legend
+
+`--colours` showed the window openings magenta, which was read as the missing-material chequer and
+reported as "the material does not resolve". The viewer's own log says
+`textures: 1156 materials, 0 will draw as the missing-material chequer`, and the category palette is
+green / orange / violet / white — none of them magenta. The reading was invented.
+
+### What actually found it
+
+`brush-ents`, written because **a brush entity has no origin.** Its geometry is a brush model already
+in world space, so `map-near` ranks it at the world origin and a search around the spawn returned
+twenty-four static props and nothing else. One run of the new probe named
+`spawn_portal_blue_01`/`_02`, their targets, and the fade values — and `brush-model` named the
+material on the six faces.
+
+**Three probes existed for map questions and none could answer this one**, which is the useful
+finding about the instruments: they were all keyed by position, and the subject had none.

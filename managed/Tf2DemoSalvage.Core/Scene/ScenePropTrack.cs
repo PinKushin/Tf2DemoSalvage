@@ -113,6 +113,18 @@ public readonly record struct ScenePose
     /// <summary>Where this entity becomes invisible — <c>m_fadeMaxDist</c>.</summary>
     public float FadeMaximumDistance { get; init; }
 
+    /// <summary>An areaportal window's fade, or null when this is not one (B358).</summary>
+    /// <remarks>
+    /// **Three values that only travel together**, and null is the test for whether the entity is
+    /// a `func_areaportalwindow` at all: `DT_FuncAreaPortalWindow` is the only table that sends
+    /// them, so their presence identifies the class without a name comparison.
+    ///
+    /// **Carried rather than resolved here** because the blend needs the VIEW ORIGIN, which the
+    /// timeline does not have and must not acquire — the same division that keeps
+    /// <see cref="FadeMinimumDistance"/> a decoded number rather than an alpha.
+    /// </remarks>
+    public (float FadeStart, float FadeEnd, float TranslucencyLimit)? PortalWindow { get; init; }
+
     /// <summary>What the wire says this entity's pose parameters are, normalised.</summary>
     /// <remarks>
     /// **Empty for a player and populated for everything else animating**, which is the send
@@ -1725,6 +1737,10 @@ public sealed class ScenePropTrack
             // and a value part-way between two settings names nothing (B268).
             FadeMinimumDistance = from.FadeMinimumDistance,
             FadeMaximumDistance = from.FadeMaximumDistance,
+
+            // Discrete like the two above: a window's configured distances do not interpolate, and
+            // a rebuild that dropped this would draw the black panel solid again (B358).
+            PortalWindow = from.PortalWindow,
 
             // **Interpolated, because the engine puts them in the interpolation list**:
             // `AddVar( m_flPoseParameter, &m_iv_flPoseParameter, LATCH_ANIMATION_VAR, true )`
