@@ -985,3 +985,35 @@ material on the six faces.
 
 **Three probes existed for map questions and none could answer this one**, which is the useful
 finding about the instruments: they were all keyed by position, and the subject had none.
+
+## The drawn-entity sweep, completed (B358, B359)
+
+**The method that found the areaportal window, run to exhaustion.** Every client class overriding
+`DrawModel` or `ShouldDraw` in `game/client/tf`, `game/shared/tf` and `game/shared/econ`, diffed
+against what this repository cites. This is the denominator method applied to **drawn entity
+classes** rather than to one class's methods, and it is the shape that catches "we draw this, but
+not the way the engine draws it".
+
+**Two real divergences, both fixed the same day**, and seven closed without code:
+
+| class | outcome |
+|---|---|
+| `C_FuncAreaPortalWindow` | **B358** — drew a `TOOLS/TOOLSBLACK` brush opaque instead of at its distance blend |
+| `C_FuncForceField` | **B359** — stayed drawn after a team win, a rule its sibling already obeyed |
+| `C_BaseObject` | not a divergence: dispatch plus `HighlightBuildPoints`, which returns without a local player holding a builder |
+| `C_FuncOccluder` | `Assert(0); return 0;` — never drawn. **Measured absent** from five maps, control `areaportal` = 32 on cp_process |
+| `C_BreakableSurface` | its draw differs only once BROKEN. **TF2 has no breakable geometry** — the owner's point, and zero `func_breakable*` across six maps confirms it; broken windows are authored into the brushwork |
+| `C_TFAmmoPack` | `DrawModel` is debug-only. Its `ValidateModelIndex` resolves through `TranslateEffectForVisionFilter`, so the only divergence is a Pyrovision model swap — the vision filter for the third time |
+| `CCaptureFlag` | one branch, and it is `TF_FLAGTYPE_PLAYER_DESTRUCTION`. No `pd_` map in the corpus |
+| `CSniperDot` | has a real branch — not drawn in third person — but is a sprite effect rather than a model, so nothing in our prop path draws it either way. A missing feature, not a wrong one |
+| the HUD classes | ~70 `CHudElement::ShouldDraw` overrides, none of them world geometry |
+
+**What the two hits had in common, and it is the lesson to carry forward:** both are BRUSH entities
+whose special draw is a few lines long, sitting in a class file nobody had reason to open, while the
+brush itself arrives through the ordinary prop path and draws perfectly plausibly. Neither is
+findable by measuring our own output — the geometry is there, correctly placed, correctly lit. Only
+the engine's own `DrawModel` says it should not look like that.
+
+**Where this sweep does NOT reach**, stated so the next pass starts somewhere new: a class that
+draws correctly through `DrawModel` and is wrong in `OnDataChanged`, in an interpolator, or in a
+proxy. `C_TFAmmoPack` is the near miss — its `DrawModel` is clean and its model resolution is not.
