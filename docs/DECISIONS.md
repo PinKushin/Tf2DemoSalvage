@@ -7508,39 +7508,38 @@ the rule would erode a second time.
 not at the end of a session. The merge gate already exists for this; what was missing is the branch
 for it to gate.
 
-## D141 — reading surf demos is a goal, not just an audience (2026-09-05)
+## D141 — surf demos need no feature; they are Valve parity (2026-09-05)
 
-**The owner, in the middle of closing `C_BreakableSurface` as unreachable:**
+**This entry was written wrongly first, and the owner corrected it in the same exchange.** Both
+versions are kept, because the wrong one is the more instructive.
 
-> *"i want to be able to read surf demos"*
+**What I wrote:** that *"i want to be able to read surf demos"* was a statement of intent needing its
+own goal, that it set an expiry date on closing `C_BreakableSurface`, and that *"the load-bearing gap
+is the MAP"* because a surf demo names a custom map no TF2 install carries.
 
-preceded, in the same exchange, by *"i have no demos from surf maps"* and *"nor any installed"*.
+**The owner:**
 
-**So this is a statement of intent about the future, not a report of a broken case.** There is
-nothing to reproduce today and nothing to measure against — which is exactly why it is written down
-here rather than left as a task, because a goal with no failing test attached is the kind that gets
-quietly dropped.
+> *"we already should be able to read the maps, its really not a decision though, its literally just
+> valve parity, surf maps are just maps and a small mod that changes air accel behaivior to be
+> faster"*
 
-**What it changes immediately:** `C_BreakableSurface` moves from "unreachable, nothing to do" to a
-real target. `docs/PARITY-AUDIT.md` had just recorded it as compiled into TF2 but placed by no
-installed map, on the strength of there being no surf demos and no surf maps. That reasoning is
-sound and its conclusion has an expiry date, which has now been set.
+**Both halves of that are checkable and both are right.**
 
-**What it does NOT change:** the priority list in
-`docs/memory/surf-and-jump-are-an-audience.md`, recorded 2026-08-16 when surf was first named as an
-audience. That list stands and is the right order to work in — `dem_usercmd` (the strafe itself),
-position and velocity per tick, tick timing, then zone and timer events, which on most surf servers
-are plugin-driven rather than engine entities. The first three are decoded already.
+- **Custom maps already work.** `MapDownloader` fetches from `https://fastdl.serveme.tf/maps/` and
+  `MapProvider.Installed()` wires it in beside the Steam library and the user's own maps folder. The
+  gap I named as load-bearing was built months ago.
+- **The air-acceleration mod is server-side movement**, and a demo records the RESULT — origins,
+  angles, `dem_usercmd` — not the simulation that produced them. This project reads what was
+  recorded and never runs the movement code, so a server that accelerates differently changes
+  nothing whatever about decoding or drawing. A surf map is a map; a surf demo is a demo.
 
-**The load-bearing gap is the MAP, and it is not a decode problem.** A surf demo names a custom map
-that no TF2 install carries, so the viewer has nothing to draw the world from. That is
-`MapDownloader`'s territory rather than the parser's, and it is the first thing a real surf demo
-would hit.
+**So there is no surf FEATURE, and inventing one is the mistake this entry now exists to prevent.**
+Reading surf demos is what Valve parity already means (D89). The one thing that genuinely changed is
+narrow: `docs/PARITY-AUDIT.md` had closed `C_BreakableSurface` on the grounds that no reachable map
+places one, and a custom map could — so that closure rests on the six maps measured, not on the
+class being unreachable in principle.
 
-**And the memory's own ranking is the reason not to start with rendering:** *"the viewer's rendering
-can be approximate and still be useful"* for this audience, because what a documented run needs is
-the numbers — ticks, angles, inputs — rather than the picture.
-
-**Recorded rather than acted on in the same breath**, because the honest first step is a demo. No
-surf specimen exists in either corpus; everything below "make sure nothing structurally prevents it"
-would be built against a guess about what those maps contain.
+**Why the wrong version is worth keeping:** it converted an offhand remark into a goal, a goal into a
+gap, and a gap into a plan — none of which the owner asked for, and the "gap" was already
+implemented. `docs/memory/a-filed-design-choice-may-not-be-one.md` is the same failure from the other
+end. **Ask what is actually missing before writing down that something is.**

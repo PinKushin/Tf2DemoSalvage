@@ -1028,15 +1028,24 @@ breakable geometry"* and that is the one of the three that is not quite true.
   measured from `z1800`'s `dem_datatables`, with `CFuncAreaPortalWindow` as the control. So it is
   compiled into the game, inherited from Source along with the rest of the HL2 entity set.
 - **No map uses it.** Zero `func_breakable_surf` across the six maps checked directly.
-- **Nothing here could read one anyway.** The owner: *"i have no demos from surf maps"*, and
-  *"nor any installed"* — the 234 installed maps are stock. A custom map could place the entity,
-  since the code is present; none that this project will ever open does.
+- **No STOCK map places one.** The owner: *"i have no demos from surf maps"*, *"nor any installed"* —
+  the 234 installed maps are stock, so a sweep over all of them would have measured the same
+  six-map answer 234 times. It was started and abandoned for that reason.
 
-**So the correct statement is the third, not the first.** The owner's point stands on the axis that
-matters — broken windows in TF2 are authored into the brushwork, and no demo this viewer reads can
-contain a shattering one — and the reason to write it precisely is that "the engine cannot do X" and
-"no content asks it to" fail differently later. If a surf demo ever arrives, the class is there and
-this entry says what it would need.
+**So the correct statement is the second, and the third does not hold.** The first draft of this
+entry closed the class as *unreachable in principle*, on the grounds that nothing this project reads
+could contain one. That is wrong, and the owner said so within minutes: *"i want to be able to read
+surf demos"*, and then — the part that matters — *"surf maps are just maps and a small mod that
+changes air accel behaivior to be faster"*. A custom map is an ordinary map, this project already
+fetches them (`MapDownloader`, `fastdl.serveme.tf`), and the air-acceleration difference is
+server-side movement that never reaches a demo as anything but the resulting origins and angles.
 
-**A sweep of all 234 installed maps was started and abandoned as pointless** once the maps were known
-to be stock: it would have measured the same six-map answer 234 times.
+**The closure therefore rests on measurement, not on principle**, and the difference decides what
+happens next: *"no stock map places one"* expires the moment a custom map arrives, where *"nothing
+can reach it"* would not. See D141, which records the mistake — an offhand remark turned into a goal,
+the goal into a gap, and the gap into a plan, with the supposed gap already implemented.
+
+**What would make this a real target** is one surf demo. The class is registered with its full
+shatter table, the draw rule is four lines of `c_func_breakablesurf.cpp`, and D38's synthetic-first
+rule means a fixture could be built without a specimen — but not the knowledge of whether those maps
+place the entity at all, which is the only thing that decides whether it is worth building.
