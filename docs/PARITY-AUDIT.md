@@ -660,3 +660,37 @@ merely similar.
 dead. The measurement that settled it is now a probe rather than a one-off: `model <path>` reports
 bind rotations and per-animation tracked bones, so the same question can be asked of any weapon in
 one call.
+
+### `StandardBlendingRules` is now accounted for end to end
+
+The pose audit above checked seven of its eight steps. The eighth, `UnragdollBlend`
+(`c_baseanimating.cpp:1873`), is **unreachable**, and both of its arming routes fail independently:
+
+- **`m_bStoreRagdollInfo` is never set true anywhere in the SDK.** It is initialised to `false`
+  (`:703`) and read at `:1788` and `:4926`; there is no assignment of `true` in the tree. So the
+  `SaveRagdollInfo` call inside `BecomeRagdollOnClient` cannot fire.
+- **`m_hUnragdoll` is never sent.** `C_ServerRagdoll::UpdateOnRemove` arms the blend only when that
+  handle points at an animating entity (`ragdoll.cpp:657`), and it is set by `CRagdollProp::
+  SetUnragdoll` — an HL2 physics-prop path. `DT_Ragdoll.m_hUnragdoll` IS in a TF2 demo's schema, and
+  across 60,000 expanded snapshots of `tf2-2026-pub-pov-cheater` it is sent **zero times**. Control:
+  `m_hOwnerEntity`, an ordinary handle, appears 11,921 times in the same dump.
+
+So the blend from a ragdoll back into animation has nothing to blend from. Implementing it would be
+implementing a path TF2 does not take — the same answer as `ChildLayerBlend` and the three dead
+overrides, reached by measurement rather than by reading alone.
+
+**Evidence class: read-from-source** for the `m_bStoreRagdollInfo` half, **measured** for the
+networked half. **What is NOT established:** this is one demo. A map that spawned a `prop_ragdoll`
+with an unragdoll target would reach it, and nothing here rules that out for TF2 content generally —
+only for the recording checked.
+
+| step | state |
+|---|---|
+| `InitPose` → `AccumulatePose` | implemented, order verified |
+| `MaintainSequenceTransitions` | implemented; its `bInterpolate` half was B346 |
+| `AccumulateLayers` | implemented |
+| `CalcAutoplaySequences` | implemented, and its position in the order verified |
+| `CalcBoneAdj` | implemented |
+| `ChildLayerBlend` | **dead** — body opens with a bare `return;` |
+| `UnragdollBlend` | **unreachable** — neither arming route fires |
+| the weapon overrides that run after it | B347, B348 implemented; B349 proved equivalent |
