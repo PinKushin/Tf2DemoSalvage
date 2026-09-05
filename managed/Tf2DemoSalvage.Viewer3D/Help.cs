@@ -58,9 +58,9 @@ internal static class Help
           --tick <n>                 Seek here before drawing.
           --shot <path>              Save one frame to path, then exit.
           --spectate <entity>        Follow this entity rather than choosing one.
-          --look-at <x> <y>          Point the overhead camera at a world position.
+          --look <x> <y>             Point the overhead camera at a world position.
           --zoom <factor>            Overhead camera zoom.
-          --surface-colours          Draw surface categories instead of textures.
+          --colours                  Draw surface categories instead of textures.
           --measure <seconds>        Play for this many seconds OF PLAYBACK, print the mean frame
                                      cost, and exit. Not wall clock: loading a map takes about
                                      twenty seconds and does not count against it.
