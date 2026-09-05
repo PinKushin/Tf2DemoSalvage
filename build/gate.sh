@@ -990,7 +990,12 @@ run Tf2DemoSalvage.Presentation.Tests presentation 440
 # `ReadOnlyMemory.Empty`, which is present — and the reader answering null for a zero-length span was
 # quietly doing the guard's job. Empty input, the length boundary one byte short, a header declaring
 # no bones as the control that the length guard is what rejected the other two, and a negative bone.
-run Tf2DemoSalvage.Content.Tests  content   997
+# 997 -> 1010: `$phongexponenttexture` and the three parameters that could not act without it
+# (B334). Eleven synthetic — the exponent sentinel each way, the albedo-tint request an all-zero
+# `$phongtint` makes, the rim mask's three-way conjunction failed each way, and the rim exponent's
+# clamp to one — plus two that read a material TF2 actually SHIPS, because a synthetic fixture is
+# text this project wrote and cannot notice that no real material spells the parameter that way.
+run Tf2DemoSalvage.Content.Tests  content   1010
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
@@ -1310,7 +1315,13 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     156
 # the resting value had to stop being the identity: every one of the 21 was being lost. Its first
 # version asserted the opposite (that some material states a neutral transform) and measured zero,
 # which is a wrong premise rather than a bug.
-run Tf2DemoSalvage.Rendering.Tests rendering 741
+#
+# 741 -> 744: the exponent map reaching a real map's materials (B334). Three, and the one that can
+# fail is the parallel-list check — cp_process_final resolves ZERO exponent maps, so the texture
+# itself is not exercised here and pretending otherwise would be a prediction about Valve's level
+# design. What this catches is a list appended in some paths and not others, which the renderer's
+# own bounds check would turn into "no exponent map" rather than into an error.
+run Tf2DemoSalvage.Rendering.Tests rendering 744
 # 101 -> 103 on 2026-08-29: LaunchOptionWiringTests (B223, D118). Two tests, and they cost about
 # seventeen seconds EACH, because each builds a real MainForm and loads a corpus demo — which reads
 # cp_badlands.bsp when Team Fortress 2 is installed. That is the most expensive pair in this file

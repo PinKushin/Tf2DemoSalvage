@@ -83,9 +83,7 @@ internal static class MaterialCensus
         "$fresnelreflection",
 
         // **The model specular highlight**, which was the largest single unimplemented parameter on
-        // this map at 330 materials. $phongalbedotint and $phongexponenttexture are deliberately NOT
-        // here: the tint is read from the exponent texture's green channel, so the boolean alone
-        // does nothing and neither is implemented.
+        // this map at 330 materials.
         "$phong",
         "$phongexponent",
         "$phongboost",
@@ -93,12 +91,24 @@ internal static class MaterialCensus
         "$phongtint",
         "$basemapalphaphongmask",
 
-        // The silhouette light, folded into the specular with max rather than added. $rimmask is
-        // NOT here: it selects between 1 and the exponent texture's alpha, and with no exponent
-        // texture there is nothing to select, so the control is inert rather than implemented.
+        // **The per-texel exponent, and the two parameters that could not act without it** (B334).
+        // One image, three unrelated jobs: red is the exponent as `1 + 149 * r`, green is how much
+        // of the albedo tints the highlight, alpha masks the rim. 1,862 of the 30,684 materials TF2
+        // ships name one, every single one `VertexLitGeneric`, and they are overwhelmingly
+        // cosmetics, weapons and bots — which is to say what a demo draws on every player.
+        "$phongexponenttexture",
+        "$phongexponentfactor",
+        "$phongalbedotint",
+
+        // The silhouette light, folded into the specular with max rather than added.
         "$rimlight",
         "$rimlightexponent",
         "$rimlightboost",
+
+        // **$rimmask, which stopped being inert the moment there was an alpha to select** (B334).
+        // It was left out of this set for exactly as long as no exponent texture was read, because
+        // `lerp(1, a, 0)` is 1 and the control was always zero.
+        "$rimmask",
 
         // The authored lighting ramp, indexed by the diffuse term. It REPLACES the half-Lambert
         // square rather than scaling the result, and the lookup is doubled — both stated in

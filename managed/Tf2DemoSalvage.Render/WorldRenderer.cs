@@ -452,6 +452,13 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // engine's own `lerp( baseColor.aaa, mask, control )` collapses to.
         Texture2D    selfIllumMask : register(t10);
 
+        // **`$phongexponenttexture`: three unrelated controls in one image** (B334). Red is the
+        // exponent as `1 + 149 * r`, green is how much of the albedo tints the highlight, and alpha
+        // masks the rim. Sampled on the BASE texture's coordinates (`skin_ps20b.fxc:253`), not a
+        // set of its own — and always bound, flat white where the material names none, which is
+        // what the engine substitutes and is the neutral for all three.
+        Texture2D    specExpMap  : register(t11);
+
         SamplerState wrapSampler : register(s0);
         SamplerState clampSampler: register(s1);
 
@@ -1298,7 +1305,25 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 //     float LdotR = saturate(dot( vReflect, vLightDir ));
                 //     specularLighting = pow( LdotR, fSpecularExponent );
                 float3 mirrored = (2.0f * phongNormal * dot(phongNormal, toEye)) - toEye;
-                float highlight = pow(saturate(dot(mirrored, toLight)), phongControl.x);
+
+                // **The exponent map, and its three sentinels** (B334). Sampled once on the base
+                // coordinates and read three ways, exactly as `skin_ps20b.fxc:253-276` does.
+                float4 specExp = specExpMap.Sample(wrapSampler, input.uv);
+
+                // A NEGATIVE constant is the request to read the map, and its magnitude is the
+                // scale — 149 ordinarily, or `$phongexponentfactor` where the material states one:
+                //
+                //     fSpecExp = (g_EyePos_SpecExponent.w >= 0.0) ? g_EyePos_SpecExponent.w
+                //                                                 : (1.0f + 149.0f * vSpecExpMap.r);
+                //
+                // With no exponent texture the slot holds flat white, so this is `1 + 149` = 150 —
+                // which is the engine's effective default for a phong material that states no
+                // exponent, and NOT the 5 the parameter declares.
+                float specularExponent = phongControl.x >= 0.0f
+                    ? phongControl.x
+                    : (1.0f + (-phongControl.x * specExp.r));
+
+                float highlight = pow(saturate(dot(mirrored, toLight)), specularExponent);
 
                 // **Masked by N.L, which is the half easy to drop.** Without it a highlight appears
                 // on the side of the model facing AWAY from the light, which reads as a material
@@ -1322,7 +1347,16 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 phongMask *= phongFresnel.y +
                     ((edge >= 0.0f ? phongFresnel.z : phongFresnel.x) * edge);
 
-                float3 shine = phong * phongMask * phongControl.y * phongTint.rgb;
+                // **A NEGATIVE red is the request to tint by the albedo**, through the map's green
+                // channel — `vSpecularTint = (g_SpecularTint.r >= 0.0) ? g_SpecularTint.rgb :
+                // lerp( float3(1,1,1), baseColor.rgb, vSpecExpMap.g )`, `skin_ps20b.fxc:275-276`.
+                // The lerp runs against the ALBEDO before any lighting, which is what makes a gold
+                // weapon's highlight gold rather than white.
+                float3 specularTint = phongTint.r >= 0.0f
+                    ? phongTint.rgb
+                    : lerp(float3(1.0f, 1.0f, 1.0f), albedo.rgb, specExp.g);
+
+                float3 shine = phong * phongMask * phongControl.y * specularTint;
 
                 // **The rim, folded in with MAX rather than added** — Valve's own line and their own
                 // reason (skin_ps20b.fxc:359): "Fold rim lighting into specular term by using the
@@ -1334,6 +1368,13 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     // The rim's own exponent, on the same L.R, with the same N.L mask.
                     float rim = pow(saturate(dot(mirrored, toLight)), rimControl.x);
                     rim *= saturate(dot(phongNormal, toLight));
+
+                    // **$rimmask: the exponent map's ALPHA, selected by a control that is zero
+                    // unless all three conditions hold** — `fRimMask = lerp( 1.0f, vSpecExpMap.a,
+                    // g_RimMaskControl )`, `skin_ps20b.fxc:257`. At zero the lerp is 1 and this
+                    // costs nothing, which is exactly why the parameter was inert rather than
+                    // missing for as long as no exponent texture was read.
+                    rim *= lerp(1.0f, specExp.a, rimControl.w);
 
                     // **Fresnel4, not the ranged one**, and Valve annotates the difference:
                     // "modulated with tint, mask and traditional Fresnel (not using Fresnel
@@ -1787,6 +1828,29 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
     /// <summary>Each material's <c>$selfillummask</c>, or a null handle where it has none.</summary>
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _selfIllumMasks = [];
+
+    /// <summary>The fixed multiplier the exponent map's red channel is scaled by.</summary>
+    /// <remarks>
+    /// <c>fSpecExp = 1.0f + 149.0f * vSpecExpMap.r</c> (<c>skin_ps20b.fxc:268</c>), so the map's
+    /// 0..1 spans exponents 1 to 150. <c>$phongexponentfactor</c> replaces this number for the 60
+    /// materials that state one.
+    /// </remarks>
+    private const float ExponentFromMapScale = 149f;
+
+    /// <summary>Each material's <c>$phongexponenttexture</c>, or a null handle (B334).</summary>
+    /// <remarks>
+    /// **A null handle here means WHITE, not "skip"**, because that is what the engine binds when a
+    /// material names no exponent texture (<c>skin_dx9_helper.cpp:565</c>). The shader reads the
+    /// slot unconditionally and its three channels all rest at 1, which is exactly the neutral the
+    /// arithmetic wants — an exponent of 150, an untouched tint and an unmasked rim. A sampler read
+    /// with no view bound returns ZERO in D3D11, which would give an exponent of 1 and a flooded
+    /// highlight, so <see cref="_flatWhite"/> is bound in its place.
+    ///
+    /// **<c>_flatWhite</c> and not <c>_white</c>**, which despite its name is Valve's magenta
+    /// chequer — <c>docs/memory/a-neutral-default-must-be-neutral.md</c> is about exactly this
+    /// substitution going wrong once already.
+    /// </remarks>
+    private readonly List<ComPtr<ID3D11ShaderResourceView>> _phongExponentMaps = [];
 
     /// <summary>Each material's <c>$colortint_base</c>, null where it is not tintable (B330).</summary>
     /// <remarks>
@@ -2659,7 +2723,27 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // for every pixel, and a boost of 0 erases the term the mask was authored against.
             MapPhong? phong = index < assets.Phong.Count ? assets.Phong[index] : null;
 
-            float phongExponent = phong?.Exponent ?? 5f;
+            // **Valve's own sentinel, kept as a sentinel** (B334). The engine does not carry a
+            // separate "use the map" flag: it writes a NEGATIVE exponent and lets the shader choose,
+            //
+            //   fSpecExp = (g_EyePos_SpecExponent.w >= 0.0) ? g_EyePos_SpecExponent.w
+            //                                               : (1.0f + 149.0f * vSpecExpMap.r);
+            //
+            // `skin_ps20b.fxc:268`. Encoding it the same way costs no constant-buffer slot, and
+            // appending a float4 to this struct is the regression that has landed FOUR times here —
+            // every one of them silent, because the per-batch write is addressed from the array's
+            // end. A parity-faithful encoding that also cannot cause that is the whole argument.
+            //
+            // When `$phongexponentfactor` is stated it replaces the 149 rather than the branch, so
+            // the negative constant carries the factor: -f, read back as `1 + f * r`.
+            float phongExponent = phong switch
+            {
+                { ExponentFromMap: true, ExponentFactor: { } factor } => -factor,
+                { ExponentFromMap: true } => -ExponentFromMapScale,
+                { } stated => stated.Exponent,
+                null => 5f,
+            };
+
             float phongBoost = phong?.Boost ?? 1f;
             float hasPhong = phong is null ? 0f : 1f;
 
@@ -2671,7 +2755,26 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 phong is { MaskedByBaseAlpha: true } || (phong is not null && bump is null) ? 1f : 0f;
 
             (float Low, float Mid, float High) phongFresnel = phong?.Fresnel ?? (1f, 0.5f, 1f);
-            (float Red, float Green, float Blue) phongTint = phong?.Tint ?? (1f, 1f, 1f);
+
+            // **The tint's own sentinel, and it is the RED component that carries it.** Valve packs
+            // the request to read the map's green channel as `vSpecularTint[0] = -1`
+            // (`skin_dx9_helper.cpp:867`), tested as `g_SpecularTint.r >= 0.0`. Same reasoning as
+            // the exponent above: the engine's encoding, and no new constant.
+            (float Red, float Green, float Blue) phongTint =
+                phong is { TintFromAlbedo: true }
+                    ? (-1f, 1f, 1f)
+                    : phong?.Tint ?? (1f, 1f, 1f);
+
+            // **The exponent map, and WHITE when there is none** — which is not a convenience, it is
+            // what the engine binds (`skin_dx9_helper.cpp:565`, `BindStandardTexture( SHADER_SAMPLER7,
+            // TEXTURE_WHITE )`). The arithmetic runs either way: white gives `1 + 149 x 1 = 150` for
+            // a material stating no exponent, an albedo tint of `lerp(white, albedo, 1)` for one
+            // that asks, and a rim mask of 1.
+            MapTexture? exponentMap =
+                index < assets.PhongExponentMaps.Count ? assets.PhongExponentMaps[index] : null;
+
+            _phongExponentMaps.Add(
+                exponentMap is { } exponents ? Upload(device, context, exponents) : default);
 
             // The rim, which only exists inside phong. Its exponent defaults to 4 rather than the
             // highlight's 5, so the resting value is its own.
@@ -2719,6 +2822,13 @@ internal sealed unsafe class WorldRenderer : IDisposable
             float rimExponent = phong?.Rim?.Exponent ?? 4f;
             float rimBoost = phong?.Rim?.Boost ?? 1f;
             float hasRim = phong?.Rim is null ? 0f : 1f;
+
+            // **`g_RimMaskControl`, and it is a float rather than a flag** (B334). The helper writes
+            // `$rimmask`'s VALUE when all three conditions hold and 0 otherwise
+            // (`skin_dx9_helper.cpp:856`), and the shader lerps with it — so a material stating
+            // `$rimmask 0.5` gets half the mask rather than all or none. 1,942 materials state one;
+            // 1,643 of those say 1.
+            float rimMaskControl = phong?.Rim?.MaskControl ?? 0f;
 
             // **One is the resting value and it means NO Fresnel falloff**, which is the opposite of
             // what a term called "fresnel" resting at zero would suggest. $fresnelreflection is
@@ -2783,7 +2893,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     // phongFresnel's carries the light warp's and for the same reason: a constant
                     // buffer is sized in whole float4s and this slot was already there.
                     phongTint.Red, phongTint.Green, phongTint.Blue, hasSelfIllumMask,
-                    rimExponent, rimBoost, hasRim, 0f,
+                    // rimControl's spare w carries `g_RimMaskControl` (B334) — the same
+                    // already-there-slot argument, and the reason no float4 was appended for the
+                    // exponent texture's three controls: two of them ride Valve's own sentinels.
+                    rimExponent, rimBoost, hasRim, rimMaskControl,
 
                     // categoryColour, a placeholder: it is per BATCH, so SetMaterial overwrites it
                     // in the mapped buffer after this array is copied in. Present so the array
@@ -2840,7 +2953,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     // phongFresnel's carries the light warp's and for the same reason: a constant
                     // buffer is sized in whole float4s and this slot was already there.
                     phongTint.Red, phongTint.Green, phongTint.Blue, hasSelfIllumMask,
-                    rimExponent, rimBoost, hasRim, 0f,
+                    // rimControl's spare w carries `g_RimMaskControl` (B334) — the same
+                    // already-there-slot argument, and the reason no float4 was appended for the
+                    // exponent texture's three controls: two of them ride Valve's own sentinels.
+                    rimExponent, rimBoost, hasRim, rimMaskControl,
 
                     // categoryColour, a placeholder: it is per BATCH, so SetMaterial overwrites it
                     // in the mapped buffer after this array is copied in. Present so the array
@@ -4668,7 +4784,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         foreach (ComPtr<ID3D11ShaderResourceView> texture in
                  _textures.Concat(_blendTextures).Concat(_details).Concat(_bumps).Concat(_cubemaps)
                      .Concat(_placedCubemaps).Concat(_lightWarps).Concat(_selfIllumMasks)
-                     .Concat(_thumbnails)
+                     .Concat(_phongExponentMaps).Concat(_thumbnails)
                      .Where(texture => texture.Handle is not null))
         {
             texture.Dispose();
@@ -4685,6 +4801,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         _usesLocalCubemap.Clear();
         _lightWarps.Clear();
         _selfIllumMasks.Clear();
+        _phongExponentMaps.Clear();
         _tintBases.Clear();
         _colourFactors.Clear();
         _sortedTranslucent = [];
@@ -5346,6 +5463,20 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     : default;
 
             context.PSSetShaderResources(10, 1, ref illumMask);
+
+            // **The exponent map, or flat white — never nothing** (B334). The engine's own
+            // substitution is `BindStandardTexture( SHADER_SAMPLER7, TEXTURE_WHITE )`
+            // (`skin_dx9_helper.cpp:565`), and it matters that it is WHITE rather than an unbound
+            // slot: D3D11 reads zero from an unbound view, which would give `1 + 149 x 0 = 1` and
+            // put a full-strength highlight on every unlit face of every material with no exponent
+            // texture. Every draw sets it, for the same reason the mask above does.
+            ComPtr<ID3D11ShaderResourceView> exponents =
+                material >= 0 && material < _phongExponentMaps.Count &&
+                _phongExponentMaps[material].Handle is not null
+                    ? _phongExponentMaps[material]
+                    : _flatWhite;
+
+            context.PSSetShaderResources(11, 1, ref exponents);
 
             // A model's own batches carry their category too — `Prop`, or `Missing` where the
             // material did not resolve. A brush entity adds its class colour on top (B219).

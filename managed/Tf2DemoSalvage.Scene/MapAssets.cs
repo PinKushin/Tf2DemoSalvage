@@ -238,13 +238,31 @@ public readonly record struct MapEnvmapShading(
 /// and a viewer without it draws them as flat colour.
 /// </remarks>
 /// <param name="Rim">The rim light along the silhouette, or null for a material without one.</param>
+/// <param name="ExponentFromMap">
+/// Whether <see cref="Exponent"/> is superseded by the exponent map's RED channel (B334). The
+/// engine encodes this as a negative constant and lets the shader choose —
+/// <c>fSpecExp = (g_EyePos_SpecExponent.w &gt;= 0.0) ? w : (1.0f + 149.0f * vSpecExpMap.r)</c> — so
+/// the flag travels as its own boolean here and is turned back into Valve's sentinel at the buffer.
+/// </param>
+/// <param name="ExponentFactor">
+/// <c>$phongexponentfactor</c>, which replaces the fixed 149 with the material's own multiplier:
+/// <c>fSpecExp = 1.0f + factor * vSpecExpMap.r</c> under the <c>PHONG_USE_EXPONENT_FACTOR</c>
+/// combo. Null for the great majority; 60 of the 30,684 materials TF2 ships state one.
+/// </param>
+/// <param name="TintFromAlbedo">
+/// Whether the highlight is tinted by the albedo through the exponent map's GREEN channel, which
+/// an all-zero <c>$phongtint</c> beside <c>$phongalbedotint</c> REQUESTS rather than states.
+/// </param>
 public readonly record struct MapPhong(
     float Exponent,
     float Boost,
     (float Low, float Mid, float High) Fresnel,
     (float Red, float Green, float Blue) Tint,
     bool MaskedByBaseAlpha,
-    MapRimLight? Rim = null);
+    MapRimLight? Rim = null,
+    bool ExponentFromMap = false,
+    float? ExponentFactor = null,
+    bool TintFromAlbedo = false);
 
 /// <summary>The light along a model's silhouette, <c>$rimlight</c>.</summary>
 /// <param name="Exponent">How tightly it hugs the edge; 4 by default, against phong's 5.</param>
@@ -263,7 +281,19 @@ public readonly record struct MapPhong(
 /// into specular term by using the max so that we don't really add light twice"*. Adding
 /// double-counts on the silhouette of anything shiny, which is exactly where both terms peak.
 /// </remarks>
-public readonly record struct MapRimLight(float Exponent, float Boost);
+/// <param name="MaskControl">
+/// How much of the rim the exponent map's ALPHA masks — <c>g_RimMaskControl</c>, zero for a
+/// material that does not ask (B334). Three conditions gate it at once:
+/// <c>bHasRimMaskMap = bHasSpecularExponentTexture &amp;&amp; bHasRimLight &amp;&amp; $rimmask != 0</c>
+/// (<c>skin_dx9_helper.cpp:263</c>). With any one missing it is zero and <c>lerp(1, a, 0)</c> is 1,
+/// which is why <c>$rimmask</c> counted as inert for as long as no exponent texture was read.
+///
+/// **A float rather than a flag**, because the engine gates on the integer and writes the float.
+/// </param>
+public readonly record struct MapRimLight(
+    float Exponent,
+    float Boost,
+    float MaskControl = 0f);
 
 /// <summary>A material's baked reflection: six cube faces and how to shade them.</summary>
 /// <param name="Faces">
@@ -322,6 +352,10 @@ public readonly record struct MapPlacedCubemap(
 /// Which parts light themselves, or null — in which case the base map's ALPHA says, which is the
 /// engine's own fallback rather than "nothing glows" (B327).
 /// </param>
+/// <param name="PhongExponentMap">
+/// The per-texel exponent, albedo tint and rim mask, or null — in which case the engine binds WHITE
+/// and the arithmetic still runs (B334).
+/// </param>
 /// <remarks>
 /// A record rather than a longer and longer tuple: at four members the positional form stops
 /// saying which is which at the call site, and two of these are the same type.
@@ -338,7 +372,8 @@ public readonly record struct ResolvedMaterial(
     MapEnvmapShading? LocalReflection = null,
     MapPhong? Phong = null,
     MapTexture? LightWarp = null,
-    MapTexture? SelfIllumMask = null);
+    MapTexture? SelfIllumMask = null,
+    MapTexture? PhongExponentMap = null);
 
 // GameArchives moved to Tf2DemoSalvage.Content.Assets on 2026-08-22 (D53's sibling): every other
 // reader of the game's files already lived there, and sound needs it now as well as the renderer.
@@ -648,6 +683,26 @@ public sealed class MapAssets
     /// (B326). The census tripwire is what surfaced it, in the same run.
     /// </remarks>
     public IReadOnlyList<MapTexture?> SelfIllumMasks { get; private init; } = [];
+
+    /// <summary>The per-texel phong exponent map for each material, where it has one.</summary>
+    /// <remarks>
+    /// <c>$phongexponenttexture</c>, and it is three unrelated controls sharing one image (B334):
+    /// RED is the exponent, scaled <c>1 + 149 × r</c>; GREEN says how much of the albedo tints the
+    /// highlight; ALPHA masks the rim. Sampled on the BASE texture's coordinates
+    /// (<c>skin_ps20b.fxc:253</c>), not a set of its own.
+    ///
+    /// **Null and white are the same picture but not the same fact.** With no exponent texture the
+    /// engine binds <c>TEXTURE_WHITE</c> to that sampler (<c>skin_dx9_helper.cpp:560-567</c>), which
+    /// is why a phong material stating no <c>$phongexponent</c> ends up at <c>1 + 149 × 1 = 150</c>
+    /// rather than at the parameter's declared default of 5. Keeping null here rather than
+    /// substituting a white texture leaves that substitution where it belongs — in the renderer,
+    /// once, instead of in a texture upload per material.
+    ///
+    /// **1,862 of the 30,684 materials TF2 ships name one**, every one `VertexLitGeneric`, and they
+    /// are overwhelmingly cosmetics, weapons and bots — which is to say, the things a demo draws on
+    /// every player. Measured with <c>vmt-param $phongexponenttexture</c>.
+    /// </remarks>
+    public IReadOnlyList<MapTexture?> PhongExponentMaps { get; private init; } = [];
 
     /// <summary>The proxies each material runs, empty for the great majority that run none.</summary>
     /// <remarks>
@@ -1176,6 +1231,7 @@ public sealed class MapAssets
             Phong = table.Phong,
             LightWarps = table.LightWarps,
             SelfIllumMasks = table.SelfIllumMasks,
+            PhongExponentMaps = table.PhongExponentMaps,
             DevGrid = LoadDevGrid(assets, archives, maximumTextureSize),
 
             // The 2D skybox, from worldspawn's `skyname` — every map has one, because `sv_skyname`
@@ -1670,7 +1726,36 @@ public sealed class MapAssets
             ResolveLocalReflection(),
             ResolvePhong(),
             ResolveLightWarp(),
-            ResolveSelfIllumMask());
+            ResolveSelfIllumMask(),
+            ResolvePhongExponentMap());
+
+        MapTexture? ResolvePhongExponentMap()
+        {
+            // **Only where the material has phong**, which is the engine's own gate: the sampler is
+            // bound `if ( bHasSpecularExponentTexture && bHasPhong )` and otherwise takes
+            // `TEXTURE_WHITE` (`skin_dx9_helper.cpp:560-567`). A material naming an exponent texture
+            // with no `$phong` reaches no shader that samples it.
+            if (!material.HasPhong || material.PhongExponentTexture is not { } name)
+            {
+                return null;
+            }
+
+            if (Load(name) is not { } decoded)
+            {
+                // **Five of the 1,862 materials that name one set it to the literal `"1"`**, which
+                // is not a path and never loads. That is a fact about TF2's own data rather than a
+                // fault here, and the warning says which material so the two are distinguishable.
+                assets.LogWarning(
+                    "{Message}",
+                    $"phong exponent texture {name}, named by materials/{materialName}.vmt, " +
+                    "could not be read");
+
+                return null;
+            }
+
+            return new MapTexture(
+                decoded.Width, decoded.Height, decoded.Image, IsTransparent: false);
+        }
 
         MapTexture? ResolveSelfIllumMask()
         {
@@ -1714,15 +1799,28 @@ public sealed class MapAssets
                 material.PhongExponent,
                 material.PhongBoost,
                 material.PhongFresnelRanges,
-                material.PhongTint ?? (1f, 1f, 1f),
+
+                // **An all-zero `$phongtint` is a REQUEST rather than a colour** when there is an
+                // exponent map to read it from, so it must not travel as black. The helper's own
+                // `else` is white (`skin_dx9_helper.cpp:869-873`), and `TintFromAlbedo` beside it
+                // says which of the two happened.
+                material.PhongTintFromAlbedo
+                    ? (1f, 1f, 1f)
+                    : material.PhongTint ?? (1f, 1f, 1f),
                 material.UsesBaseMapAlphaAsPhongMask,
 
                 // **Only reachable through phong**, which is the engine's dispatch: the rim lives in
                 // the Skin shader and VertexLitGeneric routes there on $phong alone. A material with
                 // $rimlight and no $phong gets neither, so it is resolved inside this branch.
                 material.HasRimLight
-                    ? new MapRimLight(material.RimLightExponent, material.RimLightBoost)
-                    : null);
+                    ? new MapRimLight(
+                        material.RimLightExponent,
+                        material.RimLightBoost,
+                        material.RimMaskControl)
+                    : null,
+                material.PhongExponentFromTexture,
+                material.PhongExponentFactor,
+                material.PhongTintFromAlbedo);
         }
 
         MapEnvmapShading? ResolveLocalReflection()

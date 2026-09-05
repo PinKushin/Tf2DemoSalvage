@@ -242,8 +242,19 @@ public sealed class PhysicsModelConformanceTests
         ("medic", 24),
     ];
 
+    /// <summary>The physics model, or skips the calling test when the game is absent.</summary>
+    /// <remarks>
+    /// **This threw, and CI is the only machine that could tell.** Six tests here reported as
+    /// FAILURES on the machine without Team Fortress 2 rather than as skips, because the missing
+    /// install was raised as an `InvalidOperationException` — which NUnit records as a failure like
+    /// any other. <see cref="Skip.Unless{T}"/> exists for exactly this and was written before these
+    /// tests were; reaching for a throw was the mistake.
+    ///
+    /// See also `docs/memory/ci-is-the-machine-without-tf2.md`: this is the second family of
+    /// absent-game guard that only CI could falsify, found in the same session as B333.
+    /// </remarks>
     private static PhysicsModel Physics(string path) =>
-        Read(path) ?? throw new InvalidOperationException("the game is not installed");
+        Skip.Unless(Read(path), GameInstall.Missing);
 
     private static PhysicsModel? Read(string path)
     {

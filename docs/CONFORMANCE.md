@@ -217,7 +217,7 @@ sabotages predicted before they were run, and each failed exactly the case predi
 
 ## Not implemented, ordered by what it costs
 
-### `$phong` — IMPLEMENTED; what remains is the exponent texture
+### `$phong` — IMPLEMENTED, exponent texture included
 330 materials, with `$phongboost` 329, `$phongfresnelranges` 329, `$phongexponent` 323,
 `$basemapalphaphongmask` 102. This is Source's specular for characters, and its absence is the
 single largest visual difference on players. **Read `vertexlitgeneric_dx9_helper.cpp` and
@@ -225,9 +225,29 @@ single largest visual difference on players. **Read `vertexlitgeneric_dx9_helper
 `$basemapalphaphongmask` versus the normal map's alpha, and picking the wrong one produces a
 plausible sheen in the wrong places.
 
-**Implemented 2026-08-21, B128.** What remains of it is `$phongexponenttexture` — the per-texel
-exponent — and with it `$phongalbedotint`, which reads its tint from that texture's green channel and
-so cannot do anything without one.
+**Implemented 2026-08-21, B128**, and completed 2026-09-04 as B334: `$phongexponenttexture`,
+`$phongexponentfactor`, `$phongalbedotint` and `$rimmask` are all read and all reach the frame.
+
+**1,862 of the 30,684 materials TF2 ships name an exponent texture** — every one
+`VertexLitGeneric`, and overwhelmingly cosmetics, weapons and bots, which is what a demo draws on
+every player. Measured with `vmt-param $phongexponenttexture`. Its three channels do three
+unrelated jobs: red is the exponent as `1 + 149 × r`, green is how much of the albedo tints the
+highlight, alpha masks the rim.
+
+**Three sentinels, all of them backwards from the naive reading**, and this project keeps Valve's
+encoding rather than inventing flags beside it:
+
+- A **negative** `$phongexponent` constant means "read the map"; a positive one WINS over it.
+- A **negative** `$phongtint` red means "tint by the albedo"; an all-zero `$phongtint` is that
+  request rather than a colour, and reading it literally multiplies every highlight by black.
+- `$rimmask` is gated on an INTEGER and written as a FLOAT, so `$rimmask 2` over-masks and
+  `$rimmask 0.5` masks nothing at all.
+
+**And the default exponent was wrong for a year: it is 150, not the 5 the parameter declares.**
+The helper writes `-1` unless the VMT states a positive value, and with no exponent texture it
+binds `TEXTURE_WHITE` to the sampler — so the shader computes `1 + 149 × 1`. Seven of
+cp_process's 330 phong materials state no exponent and were all drawn with a broad wash where TF2
+draws a tight point.
 
 **And a limit worth knowing before reading the picture**: the term is driven by the SUN alone. The
 engine sums it over the light cache's local lights as well, and those do not reach a model here, so a

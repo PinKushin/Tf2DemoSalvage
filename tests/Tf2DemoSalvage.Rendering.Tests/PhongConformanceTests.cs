@@ -130,7 +130,7 @@ public sealed class PhongConformanceTests
         declaration.ShouldContain(
             "SHADER_PARAM( PHONGEXPONENT, SHADER_PARAM_TYPE_FLOAT, \"5.0\"",
             Case.Sensitive,
-            "and the exponent to 5, which is broad rather than tight");
+            "the exponent's DECLARED default is 5 — and nothing reads it; see below");
 
         // **Ours, parsed from those same declarations rather than restated.** A default reaches the
         // shader for every material that omits the key, which is most of them — so a wrong default
@@ -138,11 +138,35 @@ public sealed class PhongConformanceTests
         VmtMaterial bare = Vmt("$phong 1");
 
         bare.PhongBoost.ShouldBe(Declared(declaration, "PHONGBOOST"), 1e-5f);
-        bare.PhongExponent.ShouldBe(Declared(declaration, "PHONGEXPONENT"), 1e-5f);
+
+        // **The exponent is the exception, and this assertion USED to read the same way** (B334).
+        // It asserted `bare.PhongExponent == Declared(…, "PHONGEXPONENT")` — 5 — on the reasoning
+        // in the paragraph above, which is correct for `$phongboost` and false for this one. The
+        // helper never consults the declared default:
+        //
+        //     vEyePos_SpecExponent[3] = -1.f;
+        //     if ( … params[info.m_nPhongExponent]->IsDefined() )
+        //         if ( fValue > 0.f ) vEyePos_SpecExponent[3] = fValue;
+        //
+        // (`skin_dx9_helper.cpp:815-828`) and, with no `$phongexponenttexture`, binds
+        // `TEXTURE_WHITE` to that sampler (`:560-567`) — so the shader takes its other branch and
+        // computes `1 + 149 * 1`. **150, not 5**, and a factor of thirty is a tight point against a
+        // broad wash.
+        //
+        // **The declaration is still asserted above**, because the point is not that 5 is wrong: it
+        // is that a declared default and an effective default are different facts, and this file
+        // had been treating them as one.
+        shader.ShouldContain(
+            "fSpecExp = (g_EyePos_SpecExponent.w >= 0.0) ? g_EyePos_SpecExponent.w : (1.0f + 149.0f * vSpecExpMap.r);",
+            Case.Sensitive,
+            "the branch that makes the effective default 150 rather than the declared 5");
+
+        bare.PhongExponent.ShouldBe(150f, 1e-5f, "1 + 149 x white, which is what the engine binds");
 
         // The control: a material that STATES a value must override the default, or the two
         // assertions above are satisfied by an accessor that ignores the VMT entirely.
         Vmt("$phongboost 12").PhongBoost.ShouldBe(12f, 1e-5f);
+        Vmt("$phong 1\n\t$phongexponent 20").PhongExponent.ShouldBe(20f, 1e-5f);
     }
 
     [Test]

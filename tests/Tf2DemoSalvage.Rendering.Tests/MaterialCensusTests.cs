@@ -40,19 +40,25 @@ public sealed class MaterialCensusTests
         // replaced $rimlight the same way. The lesson is about which example to pick: reach for
         // something NOT next on the list, or this file is a chore rather than a signal.
         //
-        // These two are chosen because each needs a pipeline nothing here has —
-        // $phongexponenttexture a per-texel exponent map, $iris the EyeRefract shader — rather than
-        // because they happen to be unimplemented today.
+        // **Five times now.** $phongexponenttexture was picked LAST time as the example that could
+        // not graduate soon — *"each needs a pipeline nothing here has"* — and it graduated in
+        // B334, in the same session that the comment above was written about $lightwarptexture.
+        // The prediction keeps failing in the same direction: whatever is chosen as "far off" is
+        // chosen because it is interesting, and interesting is what gets built.
+        //
+        // So these two are picked on a different basis: each needs something that is not a
+        // rendering feature at all. $outline is a TF2 shader this project does not dispatch to, and
+        // $iris needs the EyeRefract shader and per-eye state from the closed CStudioRender.
         IReadOnlyList<(string Parameter, int Materials)> census = MaterialCensus.Unimplemented(
         [
-            ["$basetexture", "$phongexponenttexture"],
-            ["$basetexture", "$phongexponenttexture", "$iris"],
+            ["$basetexture", "$outline"],
+            ["$basetexture", "$outline", "$iris"],
         ]);
 
         census.Count.ShouldBe(2);
 
         census[0].Parameter.ShouldBe(
-            "$phongexponenttexture", "the commonest unimplemented parameter comes first");
+            "$outline", "the commonest unimplemented parameter comes first");
 
         census[0].Materials.ShouldBe(2);
 
@@ -88,7 +94,7 @@ public sealed class MaterialCensusTests
         // which is the kind of number that gets quoted into a document and then disbelieved.
         IReadOnlyList<(string Parameter, int Materials)> census =
             MaterialCensus.Unimplemented(
-                [["$phongexponenttexture", "$phongexponenttexture", "$PHONGEXPONENTTEXTURE"]]);
+                [["$outline", "$outline", "$OUTLINE"]]);
 
         census.Single().Materials.ShouldBe(1);
     }
