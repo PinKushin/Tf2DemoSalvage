@@ -282,7 +282,13 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # field arriving as `short` rather than `int` is the defect class this project has shipped three
 # times; `ModelPaths`, the precache list, whose gaps show as a hitch rather than a missing model;
 # and `EntityState`'s soundscape accessors and EF_NODRAW rule.
-run Tf2DemoSalvage.Core.Tests     core     1737
+# 1737 -> 1743: `EntityState`'s weapon and viewmodel accessors, written to restore the coverage
+# margin B336 ate. Each is a table name plus a property name, and getting the PAIR wrong is a
+# silent no match rather than a near miss — the case
+# `docs/memory/a-property-name-needs-its-declaring-table.md` records. Six: the weapon's three
+# states, zero-against-absent (WeaponNotCarried IS zero), the world model kept apart from the
+# entity's own, and a viewmodel owner handle carrying a serial that must not survive the decode.
+run Tf2DemoSalvage.Core.Tests     core     1743
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
