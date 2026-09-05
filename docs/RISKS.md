@@ -22825,9 +22825,24 @@ engine never reads. **A factor of thirty**: 5 is a broad wash and 150 is a tight
 
 **Evidence: read-from-source, and the general claim is falsifiable from the same file.** If declared
 defaults reached the shader, `$phongtint`'s — the nonsensical `"5.0"` for a VEC3 — would give every
-phong material a fivefold white tint. Measured on cp_process_final: 25 of 412 materials have phong
-and exactly 1 states no exponent, so this is one material on that map and an unknown number on
-others.
+phong material a fivefold white tint.
+
+**How many materials this actually moves: 170 of 30,684** — `vmt-param $phong !$phongexponent`,
+a form added to the probe for this question. They are paint-kit tools, flame balls, taunt props and
+weapon warpaints; 169 `VertexLitGeneric` and one `UnLitTwoTexture` where it does nothing.
+
+**That number was first recorded as "25 of 412 materials have phong and exactly 1 states no
+exponent", and the 1 was wrong** — an unfaithful proxy rather than a miscount. The test asked which
+materials ARRIVED at an exponent of 150 and called them materials that state none; but a material
+stating 150 is indistinguishable from one falling back to it once the value has arrived. The map's
+one hit, `models/props_gameplay/bottle001`, declares `"$phongexponent" "150"` in its own VMT.
+**Zero of cp_process_final's materials fall back**, so this change alters nothing on that map, and
+an assertion that "proved" it did would have gone on passing against a reader never fixed.
+
+The distinction cannot be made where the value arrives, so the claim was moved to where the VMT is
+visible — `PhongExponentTextureConformanceTests` and `PhongConformanceTests` — and the map-level
+test now asserts the SPREAD of exponents instead, which is what a reader ignoring the VMT would
+lose whatever constant it substituted.
 
 **Implemented keeping Valve's encoding rather than adding flags beside it**, which is parity and is
 also the one thing that could not cause the constant-buffer regression this project has shipped
@@ -22848,7 +22863,29 @@ reports is worth recording: `jump_fortress_third` states `$phongexponent 10` BES
 texture, so the constant wins and the texture's actual job on that material is the rim mask. How
 often that is true across the 1,862 is not measured.
 
-**And the picture is not verified.** A third-person capture on the f12 demo at tick 30000 renders
-correctly with no regression visible, but it is an indoor shot of a soldier whose material states
-`$phongexponent 20` — unchanged by any of this. Whether the one material now at 150 looks right is
-not something that frame can answer.
+**The demo path DOES exercise it, and that is now measured rather than assumed.** A production log
+line reports both halves at map load, and on the f12 demo at tick 30000 it says:
+
+```
+21 materials carry a phong exponent map, 16 of them taking the exponent from it
+```
+
+So the feature is not a no-op: 21 resolved, 16 reading the exponent from the map's red channel and
+5 stating a positive `$phongexponent` beside it — which matches what a shipped cosmetic does
+(`jump_fortress_third` states 10). Both counts are printed because they fail separately; a material
+claiming to read a map that failed to load is exactly the two diverging.
+
+**The picture is NOT verified, and the attempt to verify it failed its own control.** A
+third-person capture renders correctly with no regression visible, but it is an indoor shot where
+highlights are not judgeable. Trying to make it assertable — capture, sabotage `specExp.r` to 1,
+capture again, compare — gave "different", and then the control (**re-running the unchanged build**)
+also gave different. **Viewer screenshots are not byte-reproducible**, at minimum because the fps
+overlay prints a per-run number, so screenshot diffing is not an instrument here. Recorded in
+`docs/memory/a-picture-is-assertable.md`.
+
+**And the deterministic instrument cannot reach this branch either.** `Rendering.Tests`' offscreen
+harness draws from a loaded `MapAssets`, which is a sealed class with `private init` members — a
+test can use the materials a real map has and cannot author one. cp_process_final has no material
+that takes its exponent from a map, so there is no pixel test to write without changing production
+for a test's sake. **What holds the shader half is the transcription and its citation, not a
+measurement**, and saying so is more useful than a green test that measured something else.

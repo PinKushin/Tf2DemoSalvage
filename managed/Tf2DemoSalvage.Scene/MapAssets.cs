@@ -1206,6 +1206,20 @@ public sealed class MapAssets
             "{Count} materials run a proxy",
             table.Proxies.Count(list => list.Count > 0));
 
+        // **The exponent map, reported for the reason the cubemap line above was split in two**
+        // (B334). 1,862 of the 30,684 materials TF2 ships name one and NONE of them is on
+        // cp_process_final — they are cosmetics, weapons and bots, which enter this table through
+        // the PROP path when a demo loads them. So a map-level test can only ever see zero, and the
+        // number that says whether the feature does anything is this one, on a real demo.
+        //
+        // Both halves are printed because they fail separately: a material can claim to take its
+        // exponent from a map that failed to load, and the two counts diverging is exactly that.
+        assets.LogInformation(
+            "{Message}",
+            $"{table.PhongExponentMaps.Count(map => map is not null)} materials carry a phong " +
+            $"exponent map, {table.Phong.Count(phong => phong is { ExponentFromMap: true })} of " +
+            "them taking the exponent from it");
+
         return new MapAssets(
             table.Textures,
             table.BlendTextures,
