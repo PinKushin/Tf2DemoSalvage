@@ -7507,3 +7507,40 @@ the rule would erode a second time.
 **What changes going forward: branch first, announce the name, and merge when the gate is green** —
 not at the end of a session. The merge gate already exists for this; what was missing is the branch
 for it to gate.
+
+## D141 — reading surf demos is a goal, not just an audience (2026-09-05)
+
+**The owner, in the middle of closing `C_BreakableSurface` as unreachable:**
+
+> *"i want to be able to read surf demos"*
+
+preceded, in the same exchange, by *"i have no demos from surf maps"* and *"nor any installed"*.
+
+**So this is a statement of intent about the future, not a report of a broken case.** There is
+nothing to reproduce today and nothing to measure against — which is exactly why it is written down
+here rather than left as a task, because a goal with no failing test attached is the kind that gets
+quietly dropped.
+
+**What it changes immediately:** `C_BreakableSurface` moves from "unreachable, nothing to do" to a
+real target. `docs/PARITY-AUDIT.md` had just recorded it as compiled into TF2 but placed by no
+installed map, on the strength of there being no surf demos and no surf maps. That reasoning is
+sound and its conclusion has an expiry date, which has now been set.
+
+**What it does NOT change:** the priority list in
+`docs/memory/surf-and-jump-are-an-audience.md`, recorded 2026-08-16 when surf was first named as an
+audience. That list stands and is the right order to work in — `dem_usercmd` (the strafe itself),
+position and velocity per tick, tick timing, then zone and timer events, which on most surf servers
+are plugin-driven rather than engine entities. The first three are decoded already.
+
+**The load-bearing gap is the MAP, and it is not a decode problem.** A surf demo names a custom map
+that no TF2 install carries, so the viewer has nothing to draw the world from. That is
+`MapDownloader`'s territory rather than the parser's, and it is the first thing a real surf demo
+would hit.
+
+**And the memory's own ranking is the reason not to start with rendering:** *"the viewer's rendering
+can be approximate and still be useful"* for this audience, because what a documented run needs is
+the numbers — ticks, angles, inputs — rather than the picture.
+
+**Recorded rather than acted on in the same breath**, because the honest first step is a demo. No
+surf specimen exists in either corpus; everything below "make sure nothing structurally prevents it"
+would be built against a guess about what those maps contain.
