@@ -364,6 +364,24 @@ public sealed class MomentScene : IGameSystemPerFrame
         // owner was looking through when he reported the gates as wrong.
         DrawList.KeepOnly(_drawn, RespawnRoomVisibility.Visible(_drawn, info.RoundState));
 
+        // **An item nobody watching has the vision for is not drawn at all** — the first line of
+        // `CEconEntity::ShouldDraw` (`econ_entity.cpp:1800`), B354. Four Pyroland items and nineteen
+        // MvM robot skins declare a filter, and the vision tested is the VIEWER's, which for a demo
+        // is the recorder's.
+        //
+        // **Last, after the rules about whose gear it is.** They are independent — a holstered
+        // weapon is holstered whatever anyone can see — but this one asks the schema per item, so
+        // running it on the smallest list is free and changes nothing.
+        if (Weapons.Items is { } vision)
+        {
+            DrawList.KeepOnly(
+                _drawn,
+                VisionVisibility.Visible(
+                    _drawn,
+                    VisionVisibility.ViewerFlags(_drawn, info.Recorder, VisionGrantedBy),
+                    vision.VisionFilterFlagsFor));
+        }
+
         long rolesAt = Stopwatch.GetTimestamp();
 
         Pack();
@@ -690,6 +708,42 @@ public sealed class MomentScene : IGameSystemPerFrame
         }
 
         return null;
+    }
+
+    /// <summary>The vision one carried item grants whoever carries it (B354).</summary>
+    /// <param name="prop">A worn or held item belonging to the recorder.</param>
+    /// <returns>Its <c>vision opt in flags</c>, or 0 — which is all but a handful of items.</returns>
+    /// <remarks>
+    /// **Resolved through <see cref="WeaponModels.AttributesFor"/>, like every other attribute
+    /// question here**, so the four branches of `IterateAttributes` cannot be applied differently
+    /// to this one. `CALL_ATTRIB_HOOK_INT( nVisionOptInFlags, vision_opt_in_flags )`
+    /// (`c_tf_player.cpp:8043`) reads the same merged list.
+    ///
+    /// **`(int)Value`, not `AsInteger`.** The attribute definition sets `stored_as_integer 0`, so
+    /// its 32 bits are a float whose VALUE is the flag set — `"1"` is 1.0f. Reinterpreting the bits
+    /// gives 1065353216, which has the PYRO bit clear and every viewer losing Pyroland.
+    /// </remarks>
+    private int VisionGrantedBy(SceneProp prop)
+    {
+        if (Weapons.Items?.AttributeDefinitionIndex(VisionVisibility.OptInAttribute)
+            is not { } optIn)
+        {
+            return 0;
+        }
+
+        int flags = 0;
+
+        foreach (EconAttributeValue attribute in Weapons.AttributesFor(prop))
+        {
+            if (attribute.DefinitionIndex == optIn)
+            {
+                // `iTmp |= (int)flValueModifier` — `ATTDESCFORM_VALUE_IS_OR`,
+                // `attribute_manager.cpp:613`. Summing would turn two grants of 1 into 2.
+                flags |= (int)attribute.Value;
+            }
+        }
+
+        return flags;
     }
 
     private void AddViewmodel(IReadOnlyList<ScenePlayer> players, in MomentInfo info)

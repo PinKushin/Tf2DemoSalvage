@@ -57,6 +57,17 @@ public interface IMomentSource
     /// </remarks>
     public int? RoundStateAt(double tick);
 
+    /// <summary>The player the demo was recorded from, or null for a SourceTV recording.</summary>
+    /// <remarks>
+    /// **Asked because the viewer of a demo IS its recorder, and one drawing rule turns on that**
+    /// (B354). `CEconEntity::ShouldHideForVisionFilterFlags` (<c>econ_entity.cpp:1812</c>) hides a
+    /// Pyroland item from anyone without Pyrovision, and the vision it asks about is the local
+    /// player's — which during playback is whoever recorded the demo.
+    ///
+    /// **Not a tick function, unlike the round.** The recorder is a property of the file.
+    /// </remarks>
+    public int? Recorder { get; }
+
     /// <summary>Tells the source what an entity's model says about its pose parameters.</summary>
     /// <param name="entityIndex">The entity whose model has been resolved.</param>
     /// <param name="looping">Which of its pose parameters wrap, by index.</param>
@@ -167,6 +178,9 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
 
     /// <inheritdoc />
     public int? RoundStateAt(double tick) => timeline.RoundStateAt(tick);
+
+    /// <inheritdoc />
+    public int? Recorder => timeline.RecorderEntityIndex;
 
     /// <inheritdoc />
     public void OnNewModel(int entityIndex, IReadOnlyList<bool> looping)

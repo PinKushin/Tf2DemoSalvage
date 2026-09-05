@@ -835,7 +835,7 @@ Having read `UpdateBodygroups` to its closing brace for B352, the cheapest next 
 denominator for its own class. Sixteen `CEconEntity` methods have never been cited here; seven have
 no mention at all. Three were chased.
 
-### `ShouldDraw` — a real divergence, 23 items (B354)
+### `ShouldDraw` — a real divergence, 23 items (B354, fixed the same day)
 
 The whole function is two lines and we implement the second one:
 
@@ -853,10 +853,17 @@ not have the matching vision. **23 shipped items declare it** — four Pyroland 
 the Pet Reindoonicorn, the Infernal Orchestrina, the Burning Bongos) at `TF_VISION_FILTER_PYRO`, and
 nineteen MvM robot skins at `TF_VISION_FILTER_ROME`. We draw all 23 to everybody.
 
-**It is implementable, which is why it is filed rather than dismissed.** The viewer's flags are the
-recorder's, and both sources are reachable from a demo: `vision_opt_in_flags` is an item attribute
-(B234 decodes attributes, and `ItemSchema.AttributeDefinitionIndex` resolves one by name), and the
-Halloween arm reads `IsHolidayMap`, which is networked gamerules state.
+**It was implementable, which is why it was filed rather than dismissed — and then built.** The
+viewer's flags are the recorder's, and the source is reachable from a demo: `vision_opt_in_flags` is
+an item attribute, B234 decodes attributes, and `ItemSchema.AttributeDefinitionIndex` resolves one by
+name. `IMomentSource.Recorder` now carries the recorder into `MomentInfo` beside the round state.
+
+**Two of the engine's three flag sources turned out not to matter, and saying WHY is the useful
+part.** The Halloween arm sets a bit no shipped item requires, so it cannot change a drawing
+decision; the Rome arm needs MvM state and a client convar a demo does not carry, so ROME is never
+granted and the nineteen MvM skins are hidden — TF2's own default for a viewer who has not opted in.
+Both were checked against the shipped data rather than deferred, which is what turned an
+"unimplementable" claim into a scoped one.
 
 ### `ValidateEntityAttachedToPlayer` — a non-divergence, and the reason is worth keeping
 

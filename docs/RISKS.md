@@ -24198,9 +24198,9 @@ passes every shipped case. A test with an item declaring only the `vm_` pair pin
 **Evidence class: read-from-source** for the branch and the default, **measured** for the two items,
 their models' part names and alternative counts, and the sabotage results.
 
-### B354 OPEN 2026-09-05: 23 items are drawn to viewers the engine hides them from
+### B354 FIXED 2026-09-05: 23 items were drawn to viewers the engine hides them from
 
-**`CEconEntity::ShouldDraw` is two lines and we implement the second one**
+**`CEconEntity::ShouldDraw` is two lines and we implemented the second one**
 (`econ_entity.cpp:1800`):
 
 ```cpp
@@ -24212,33 +24212,84 @@ bool CEconEntity::ShouldDraw()
 }
 ```
 
-An item declaring `vision_filter_flags` is drawn only to a viewer whose own vision filter matches
-(`econ_entity.cpp:1812`, via `IsLocalPlayerUsingVisionFilterFlags`). **23 shipped items declare it:**
+An item declaring `vision_filter_flags` is drawn only to a viewer whose own vision matches, and the
+comparison is **every requested bit, not any** — `( nLocalPlayerFlags & nFlags ) == nFlags`
+(`cdll_util.cpp:125`). **23 shipped items declare one:**
 
 | flag | count | items |
 |---|---|---|
 | `TF_VISION_FILTER_PYRO` (1) | 4 | Pet Balloonicorn (738), Infernal Orchestrina (745), Burning Bongos (746), Pet Reindoonicorn (995) |
 | `TF_VISION_FILTER_ROME` (4) | 19 | the MvM robot skins, 30143–30161 |
 
-We draw all 23 to everybody. The visible symptom is a Balloonicorn floating beside a Pyro in a demo
-recorded by someone without Pyrovision — a cosmetic that the recording player could not see.
+The symptom was a Balloonicorn floating beside a Pyro in a demo recorded by somebody who could not
+see it.
 
-**It is implementable, and both halves of the viewer's flags are reachable from a demo**, which is
-what distinguishes this from the arms of `UpdateBodygroups` that are unreachable for a spectator:
+#### The viewer of a demo is its recorder
 
-- `vision_opt_in_flags` is an **item attribute** on the recorder's own loadout, and attributes are
-  decoded (B234). `ItemSchema.AttributeDefinitionIndex` already resolves one by name.
-- The Halloween arm reads `IsHolidayMap` (`tf_gamerules.cpp:1030`), which is networked gamerules
-  state.
+`ShouldHideForVisionFilterFlags` asks about the **local player**, which during playback is whoever
+pressed record — so `IMomentSource.Recorder` now carries `RecorderEntityIndex` into `MomentInfo`
+beside the round state, and their carried items decide.
 
-**The "local player" in a demo is the recorder**, which is the design question to settle before
-implementing: a POV demo has one, a SourceTV recording arguably has none, and `GetVisionFilterFlags`
-has a `REPLAY_ENABLED` arm that answers `tf_replay_pyrovision` for a replay demo — evidence that
-Valve treats "who is watching a recording" as a real question rather than an accident.
+**The vision comes from an item attribute, and the combination is an OR rather than a sum.** That is
+read from the engine, not inferred: attribute 406 `vision opt in flags` has
+`description_format value_is_or`, and `ApplyAttribute` handles that case as
 
-**Evidence class: read-from-source** for the branch and the flag values (`shareddefs.h:976`),
-**measured** for the 23 items and their split.
+```cpp
+case ATTDESCFORM_VALUE_IS_OR:
+    { int iTmp = flValue; iTmp |= (int)flValueModifier; flValue = iTmp; }
+```
 
-**What is NOT established:** how often those items appear in the demos this project actually reads.
-The Romevision nineteen are MvM-only and the corpus has no MvM demo at all, so the honest expectation
-is that this is visible for the four Pyroland items and nothing else.
+(`attribute_manager.cpp:613`). **Summing is the plausible mistake and it is destructive**: two items
+each granting 1 — a Pyro carrying the Rainblower and a Balloonicorn, which is the ordinary Pyroland
+loadout — add to 2, which is the HALLOWEEN bit and grants Pyrovision to nobody.
+
+**The items that grant Pyrovision are largely the Pyroland items themselves**: the Balloonicorn, the
+Reindoonicorn, the Rainblower (741), the Lollichop (739), the Infernal Orchestrina, the Burning
+Bongos and the Hardy Laurel, plus the Pyrovision Goggles (744). So a player carrying one sees their
+own — which is why this reads as "Pyroland cosmetics are invisible to everybody not in Pyroland"
+rather than as items vanishing at random.
+
+**`(int)Value`, not `AsInteger`.** The attribute sets `stored_as_integer 0`, so its 32 bits are a
+float whose value is the flag set — `"1"` is 1.0f. Reinterpreting the bits gives 1065353216, whose
+low bit is clear, and every viewer loses Pyrovision. Same trap as the paint attribute (B330), and
+the same fix.
+
+#### Two arms of the engine's flag computation are not reproduced, and neither is a gap
+
+- **Halloween.** `GetVisionFilterFlags` adds `TF_VISION_FILTER_HALLOWEEN` for everybody on a holiday
+  map (`c_tf_player.cpp:8092`). **No shipped item requires that bit** — the 23 ask for 1 or 4 — so it
+  cannot change any answer here. It matters for particles and world tinting, which are not this rule.
+  Measured, not assumed.
+- **Romevision.** Needs `IsMannVsMachineMode()`, `IsSharedVisionAvailable` and the client's
+  `tf_romevision_opt_in`. A demo carries none of the three, so ROME is never granted and the nineteen
+  MvM skins are hidden — which is what TF2 draws for a viewer who has not opted in, its default. The
+  corpus has no MvM demo at all.
+
+**What a viewer still cannot do is opt IN.** `tf_spectate_pyrovision` (`c_tf_player.cpp:218`,
+default 0) lets a live spectator turn Pyroland on, and this viewer has no store for cvar VALUES —
+`ConfigConsole` keeps binds and aliases only. Its default is off, so the behaviour shipped here is
+TF2's out of the box; the knob is what is missing, not the rule.
+
+#### Verification
+
+Fifteen Scene tests (eleven conformance, four wiring), four Content tests, two Presentation tests.
+The split matters and is the rule this project has been bitten by three times: the conformance suite
+says the rule is right, and the wiring suite says production runs it.
+
+- **Sabotaging the scene** — OR-ing `int.MaxValue` into the viewer's flags, so everybody sees
+  everything — reddened `Build_APyrolandItemWithNoRecorder_IsNotDrawn` and
+  `Build_APyrolandItemWhenSOMEONEELSEHasPyrovision_IsNotDrawn` and left both controls green.
+- **Sabotaging the presenter** — carrying `source.Recorder + 500` instead of the recorder — reddened
+  `Show_WhenTheSourceNamesARecorderWithPyrovision_DrawsThePyrolandItem` alone. A call-counting
+  assertion would have passed it, which is why both presenter tests assert through the drawn list.
+- **Two earlier sabotages would not build.** `&& false` is S1125 and dropping the call left
+  `VisionGrantedBy` unreferenced, which is S1144. Analyzers at error level make a lazy sabotage
+  impossible, which is a feature and a cost worth knowing about.
+
+**Evidence class: read-from-source** for the branch, the comparison and the OR; **measured** for the
+23 items, their flag split, the granting items and the absence of any item requiring HALLOWEEN.
+
+**What is NOT established:** how this looks. It removes items from the screen, and whether the right
+ones vanish in a real Pyroland demo is a question for the owner rather than something a count can
+settle. The corpus has no demo containing any of the 23, so there is no measurement to offer — the
+fixtures use the shipped item numbers precisely because nothing real could be pointed at.

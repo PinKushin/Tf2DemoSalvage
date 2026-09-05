@@ -141,6 +141,23 @@ public sealed class ItemSchema
         /// </remarks>
         public bool? HideBodygroupsDeployedOnly { get; set; }
 
+        /// <summary>The vision needed to see it at all, or null when it does not say (B354).</summary>
+        /// <remarks>
+        /// **`vision_filter_flags`, read straight off the item definition**
+        /// (<c>econ_item_schema.cpp:3156</c>) and consumed by
+        /// `CEconEntity::ShouldHideForVisionFilterFlags` (<c>econ_entity.cpp:1820</c>), which hides
+        /// the item from any VIEWER lacking that vision.
+        ///
+        /// **On the item, not inside `visuals`**, unlike the bodygroup override two members down —
+        /// checked against the shipped file rather than inferred from its neighbours.
+        ///
+        /// **Null rather than 0 when unstated**, so an item can turn a prefab's filter off. The
+        /// engine gets that free by merging the prefab chain into one KeyValues block before
+        /// reading it; here the chain is walked, so "states 0" and "states nothing" have to stay
+        /// distinguishable or a prefab's filter would be unremovable.
+        /// </remarks>
+        public int? VisionFilterFlags { get; set; }
+
         /// <summary>A wearer's body part addressed by NUMBER, or -1 (B353).</summary>
         /// <remarks>
         /// **`wm_bodygroup_override`, the one arm of `UpdateBodygroups` that uses no name**
@@ -980,6 +997,45 @@ public sealed class ItemSchema
             ? (Override(item, LongestChain, state: false), Override(item, LongestChain, state: true))
             : (-1, -1);
 
+    /// <summary>The vision a viewer needs before this item is drawn to them (B354).</summary>
+    /// <param name="definitionIndex">The item, as <c>m_iItemDefinitionIndex</c> gives it.</param>
+    /// <returns>The flag set, or 0 — which is all but 23 shipped items.</returns>
+    /// <remarks>
+    /// `m_nVisionFilterFlags = m_pKVItem-&gt;GetInt( "vision_filter_flags", 0 )`
+    /// (<c>econ_item_schema.cpp:3156</c>). Zero is the engine's own default and the value its
+    /// consumer's `!= 0` guard reads as "never hidden", so an unknown item answering 0 degrades the
+    /// same way the engine does rather than hiding something.
+    /// </remarks>
+    public int VisionFilterFlagsFor(int definitionIndex) =>
+        _items.TryGetValue(definitionIndex, out Entry? item)
+            ? Vision(item, LongestChain) ?? 0
+            : 0;
+
+    /// <summary>The first stated vision filter in an entry's prefab chain, or null.</summary>
+    private int? Vision(Entry entry, int remaining)
+    {
+        if (entry.VisionFilterFlags is { } stated)
+        {
+            return stated;
+        }
+
+        if (remaining <= 0)
+        {
+            return null;
+        }
+
+        foreach (string name in entry.Prefabs)
+        {
+            if (_prefabs.TryGetValue(name, out Entry? prefab)
+                && Vision(prefab, remaining - 1) is { } inherited)
+            {
+                return inherited;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>The first stated half of an override in an entry's prefab chain, or -1.</summary>
     private int Override(Entry entry, int remaining, bool state)
     {
@@ -1250,6 +1306,14 @@ public sealed class ItemSchema
         if (string.Equals(key, "hide_bodygroups_deployed_only", StringComparison.OrdinalIgnoreCase))
         {
             entry.HideBodygroupsDeployedOnly = value != "0";
+            return;
+        }
+
+        if (string.Equals(key, "vision_filter_flags", StringComparison.OrdinalIgnoreCase)
+            && int.TryParse(
+                value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int vision))
+        {
+            entry.VisionFilterFlags = vision;
             return;
         }
 

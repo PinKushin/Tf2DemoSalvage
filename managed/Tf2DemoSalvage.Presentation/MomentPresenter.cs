@@ -203,7 +203,11 @@ public sealed class MomentPresenter
 
             // From the recording, not from the window: the round is something the demo knows
             // and the viewer cannot derive.
-            source.RoundStateAt(tick));
+            source.RoundStateAt(tick),
+
+            // The same, and for the same reason — who recorded it decides whose vision filters
+            // the scene is drawn through (B354).
+            source.Recorder);
 
         // **Selection only. The pose is `Pose`, and it runs after the camera** (B255).
         _built = _moment.Build(_players, _props, info);

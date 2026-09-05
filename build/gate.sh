@@ -731,7 +731,12 @@ run Tf2DemoSalvage.Animation.Tests animation 111
 # wearing nothing, and deleting the guard it tested reddened NOTHING, because `SetBodygroup` already
 # ignores a negative value in our code and in Valve's. The item now also hides `hat`, so a correct
 # read leaves 1 and a state misread as 0 puts the part back — the two readings finally disagree.
-run Tf2DemoSalvage.Scene.Tests    scene     538
+#
+# 538 -> 553 on 2026-09-05: fifteen for B354, TF2's vision filters — eleven conformance and four
+# wiring. The split is the point: the conformance suite says the rule is right and the wiring suite
+# says `MomentScene` runs it, which is the only kind that can fail when a rule is implemented,
+# tested and never called. Both halves carry a control that must NOT be filtered.
+run Tf2DemoSalvage.Scene.Tests    scene     553
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -878,7 +883,12 @@ run Tf2DemoSalvage.Audio.Tests    audio     183
 # rather than reporting the one that crossed the count.
 # 434 -> 438: --measure and --help (LaunchOptions). Both malformed twins included, per that file's own
 # rule that a parser ignoring an option passes any test that only checks the bad input is refused.
-run Tf2DemoSalvage.Presentation.Tests presentation 440
+#
+# 440 -> 442 on 2026-09-05: two for B354, asserting the RECORDER travels from the source into the
+# moment. They assert through the drawn list rather than by counting the call, because a presenter
+# that read the value and dropped it would pass a call count while hiding every Pyroland item in
+# every point-of-view demo.
+run Tf2DemoSalvage.Presentation.Tests presentation 442
 # Raised from 606 on 2026-08-21: OverlayLumpConformanceTests adds five (the overlay lump's packed
 # field, each constant compared against Valve's own #define) and OverlayRenderOrderProbe one.
 # 613: SoundFormatProbe, [Explicit], which measured the shipped audio formats before a decoder existed.
@@ -1117,7 +1127,11 @@ run Tf2DemoSalvage.Presentation.Tests presentation 440
 # 1023 -> 1028 on 2026-09-05: five for B353's schema half. The one that earns its place gives an item
 # only the `vm_` pair and requires the `wm_` answer to stay -1: the Purity Fist declares both pairs
 # with the SAME numbers, so a reader keyed to the wrong prefix passes every shipped case.
-run Tf2DemoSalvage.Content.Tests  content   1028
+#
+# 1028 -> 1032 on 2026-09-05: four for B354's schema half, `vision_filter_flags`. One of them lets an
+# item override its prefab's filter with 0, which is what forces the field to be a tri-state: read as
+# a plain int, a prefab's filter could never be turned off.
+run Tf2DemoSalvage.Content.Tests  content   1032
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2

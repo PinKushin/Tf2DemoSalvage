@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Text;
 
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -62,6 +63,106 @@ public sealed class MomentPresenterTests
 
         source.RoundStateCalls.ShouldBe(1, "the scene cannot derive the round; it must be asked for");
     }
+
+    /// <remarks>
+    /// **The value has to ARRIVE, not merely be asked for** (B354). A presenter that read
+    /// <c>Recorder</c> and dropped it would pass a call-counting assertion while every Pyroland item
+    /// in every point-of-view demo stayed hidden — the recorder's own Balloonicorn included.
+    ///
+    /// So this asserts through the SCENE: the same Pyroland item is drawn or not depending only on
+    /// who the source says recorded the demo, which is observable at the far end of the wiring and
+    /// nowhere in between.
+    /// </remarks>
+    [Test]
+    public void Show_WhenTheSourceNamesARecorderWithPyrovision_DrawsThePyrolandItem()
+    {
+        MomentPresenter presenter = Presenter(out FrameLedger _, out MomentScene scene);
+        scene.Weapons = new WeaponModels(VisionSchema, NullLogger.Instance);
+        presenter.Source = new StubSource { Recorder = 3, Props = [Balloonicorn(), Rainblower()] };
+
+        presenter.Show(tick: 123.5, View());
+
+        scene.Drawn.Count.ShouldBe(2, "the recorder carries a Rainblower, so they see Pyroland");
+    }
+
+    /// <remarks>
+    /// The control, and the half that fails when the recorder never travels: the same props with
+    /// nobody recording — a SourceTV demo — hide the Balloonicorn, because a spectator sees no
+    /// Pyroland (`tf_spectate_pyrovision` defaults to 0, `c_tf_player.cpp:218`).
+    /// </remarks>
+    [Test]
+    public void Show_WhenTheSourceNamesNoRecorder_HidesThePyrolandItem()
+    {
+        MomentPresenter presenter = Presenter(out FrameLedger _, out MomentScene scene);
+        scene.Weapons = new WeaponModels(VisionSchema, NullLogger.Instance);
+        presenter.Source = new StubSource { Recorder = null, Props = [Balloonicorn(), Rainblower()] };
+
+        presenter.Show(tick: 123.5, View());
+
+        scene.Drawn.Count.ShouldBe(1, "the Rainblower has no filter of its own and stays");
+        scene.Drawn[0].ItemDefinitionIndex.ShouldBe(741);
+    }
+
+    private static SceneProp Balloonicorn() =>
+        new(
+            EntityIndex: 20,
+            ModelPath: "models/player/items/pyro/balloonicorn.mdl",
+            Kind: SceneModelKind.Studio,
+            Pose: new ScenePose(),
+            AttachedTo: 3,
+            BoneMerged: true,
+            ItemDefinitionIndex: 738);
+
+    private static SceneProp Rainblower() =>
+        new(
+            EntityIndex: 21,
+            ModelPath: "models/weapons/c_models/c_rainblower/c_rainblower.mdl",
+            Kind: SceneModelKind.Studio,
+            Pose: new ScenePose(),
+            AttachedTo: 3,
+            BoneMerged: true,
+            ItemDefinitionIndex: 741);
+
+    /// <summary>The two shipped items this needs, with their real numbers and keys.</summary>
+    private static byte[]? VisionSchema(string path) =>
+        path == "scripts/items/items_game.txt"
+            ? Encoding.UTF8.GetBytes(
+                """
+                "items_game"
+                {
+                    "attributes"
+                    {
+                        "406"
+                        {
+                            "name" "vision opt in flags"
+                            "attribute_class" "vision_opt_in_flags"
+                            "description_format" "value_is_or"
+                            "stored_as_integer" "0"
+                        }
+                    }
+                    "items"
+                    {
+                        "738"
+                        {
+                            "name" "Pet Balloonicorn"
+                            "vision_filter_flags" "1"
+                        }
+                        "741"
+                        {
+                            "name" "The Rainblower"
+                            "attributes"
+                            {
+                                "vision opt in flags"
+                                {
+                                    "attribute_class" "vision_opt_in_flags"
+                                    "value" "1"
+                                }
+                            }
+                        }
+                    }
+                }
+                """)
+            : null;
 
     [Test]
     public void Show_CalledTwice_HandsTheSourceTheSameBuffersAgain()
@@ -246,11 +347,19 @@ public sealed class MomentPresenterTests
 
         private ICollection<ScenePlayer>? _firstBuffer;
 
+        /// <summary>Props this stub hands over at every tick, so a scene has something to filter.</summary>
+        public IReadOnlyList<SceneProp> Props { get; init; } = [];
+
         public void PropsAt(
             double tick, ICollection<SceneProp> into, IReadOnlySet<int>? interpolate = null)
         {
             PropCalls++;
             into.Clear();
+
+            foreach (SceneProp prop in Props)
+            {
+                into.Add(prop);
+            }
         }
 
         /// <summary>What round this stub claims, and whether it was asked.</summary>
@@ -263,6 +372,9 @@ public sealed class MomentPresenterTests
             RoundStateCalls++;
             return RoundState;
         }
+
+        /// <summary>Who recorded it, so a test can assert the fact reaches the moment (B354).</summary>
+        public int? Recorder { get; init; }
 
         /// <summary>Which entities were told what, so a test can assert the fact travelled.</summary>
         public List<(int Entity, IReadOnlyList<bool> Looping)> NewModels { get; } = [];
