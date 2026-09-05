@@ -362,6 +362,12 @@ public readonly record struct MapPlacedCubemap(
 /// wrote, so a chain seeded from proxy outputs alone drops any operation reading a declared
 /// constant. Null for a material that declares none.
 /// </param>
+/// <param name="AnimationFrames">
+/// Every frame of the base texture, for a material whose <c>AnimatedTexture</c> proxy animates
+/// <c>$basetexture</c> (B341); null for everything else. 152 shipped materials do, and they animate
+/// UNCONDITIONALLY — unlike the 6,735 that animate <c>$detail</c>, whose blend factor is gated
+/// behind <c>BurnLevel</c>.
+/// </param>
 /// <remarks>
 /// A record rather than a longer and longer tuple: at four members the positional form stops
 /// saying which is which at the call site, and two of these are the same type.
@@ -380,7 +386,8 @@ public readonly record struct ResolvedMaterial(
     MapTexture? LightWarp = null,
     MapTexture? SelfIllumMask = null,
     MapTexture? PhongExponentMap = null,
-    IReadOnlyDictionary<string, (float Red, float Green, float Blue)>? Variables = null);
+    IReadOnlyDictionary<string, (float Red, float Green, float Blue)>? Variables = null,
+    IReadOnlyList<MapTexture>? AnimationFrames = null);
 
 // GameArchives moved to Tf2DemoSalvage.Content.Assets on 2026-08-22 (D53's sibling): every other
 // reader of the game's files already lived there, and sound needs it now as well as the renderer.
@@ -724,6 +731,14 @@ public sealed class MapAssets
     /// </remarks>
     public IReadOnlyList<IReadOnlyDictionary<string, (float Red, float Green, float Blue)>?>
         Variables { get; private init; } = [];
+
+    /// <summary>Each material's base-texture animation frames, null where it has none (B341).</summary>
+    /// <remarks>
+    /// **The 152 materials that animate `$basetexture` are the ones a viewer can SEE moving**,
+    /// because nothing gates them — unlike the 6,735 animating `$detail`, whose blend factor is
+    /// `BurnLevel` and therefore zero unless somebody is on fire.
+    /// </remarks>
+    public IReadOnlyList<IReadOnlyList<MapTexture>?> AnimationFrames { get; private init; } = [];
 
     /// <summary>The proxies each material runs, empty for the great majority that run none.</summary>
     /// <remarks>
@@ -1241,6 +1256,15 @@ public sealed class MapAssets
             $"exponent map, {table.Phong.Count(phong => phong is { ExponentFromMap: true })} of " +
             "them taking the exponent from it");
 
+        // **Both halves, because they fail separately** (B341): a material can run the proxy on a
+        // texture with one frame — 292 shipped ones do, the proxy written once for a whole family —
+        // and that is a legitimate no-op rather than a fault. A count of materials with frames but
+        // no proxy, or the reverse, is what a broken resolve looks like.
+        assets.LogInformation(
+            "{Message}",
+            $"{table.AnimationFrames.Count(frames => frames is not null)} materials animate their " +
+            $"base texture, {table.AnimationFrames.Sum(frames => frames?.Count ?? 0)} frames in all");
+
         return new MapAssets(
             table.Textures,
             table.BlendTextures,
@@ -1268,6 +1292,7 @@ public sealed class MapAssets
             SelfIllumMasks = table.SelfIllumMasks,
             PhongExponentMaps = table.PhongExponentMaps,
             Variables = table.Variables,
+            AnimationFrames = table.AnimationFrames,
             DevGrid = LoadDevGrid(assets, archives, maximumTextureSize),
 
             // The 2D skybox, from worldspawn's `skyname` — every map has one, because `sv_skyname`
@@ -1767,7 +1792,61 @@ public sealed class MapAssets
 
             // **Only for a material that runs a proxy**, because nothing else reads them and a
             // dictionary per material across a whole map is a real cost for a table nobody opens.
-            material.Proxies.Count > 0 ? material.NumericValues() : null);
+            material.Proxies.Count > 0 ? material.NumericValues() : null,
+            ResolveAnimationFrames());
+
+        IReadOnlyList<MapTexture>? ResolveAnimationFrames()
+        {
+            // **Only the BASE texture's animation, and only where a proxy asks for it** (B341).
+            // 152 of the shipped materials animate `$basetexture` through `$frame`, and those
+            // animate unconditionally — nothing gates them, so they are the ones a viewer can
+            // actually see moving. The 6,735 that animate `$detail` need the same machinery keyed
+            // by texture PATH, because they nearly all animate one file (B338); doing that per
+            // material would decode 121 frames thousands of times.
+            MaterialProxy? animator = null;
+
+            foreach (MaterialProxy proxy in material.Proxies)
+            {
+                if (proxy.Name.Equals("AnimatedTexture", StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(
+                        proxy.Argument("animatedTextureVar"),
+                        "$basetexture",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    animator = proxy;
+                    break;
+                }
+            }
+
+            if (animator is null || material.BaseTexture is not { } texture)
+            {
+                return null;
+            }
+
+            if (Load(texture) is not { } probe || probe.FrameCount <= 1)
+            {
+                // **A material can animate a still texture and 292 of them do** — the proxy is
+                // written once and applied to a whole family. The engine refuses it at bind
+                // (`if ( numFrames <= 0 )`) and one frame needs no animating, so this is a
+                // legitimate no-op rather than a fault to report.
+                return null;
+            }
+
+            List<MapTexture> frames = [];
+
+            for (int frame = 0; frame < probe.FrameCount; frame++)
+            {
+                if (LoadFrame(texture, frame) is not { } decoded)
+                {
+                    break;
+                }
+
+                frames.Add(new MapTexture(
+                    decoded.Width, decoded.Height, decoded.Image, IsTransparent: false));
+            }
+
+            return frames.Count > 1 ? frames : null;
+        }
 
         MapTexture? ResolvePhongExponentMap()
         {
@@ -2007,7 +2086,9 @@ public sealed class MapAssets
                 decoded.IsSelfShadowBump || material.IsSelfShadowingBump);
         }
 
-        VtfTexture? Load(string name)
+        VtfTexture? Load(string name) => LoadFrame(name, 0);
+
+        VtfTexture? LoadFrame(string name, int frame)
         {
             string bare = name.EndsWith(".vtf", StringComparison.OrdinalIgnoreCase)
                 ? name[..^4]
@@ -2020,7 +2101,7 @@ public sealed class MapAssets
 
             try
             {
-                return VtfTexture.Read(file, maximumTextureSize);
+                return VtfTexture.Read(file, maximumTextureSize, face: 0, frame);
             }
             catch (InvalidDataException failure)
             {

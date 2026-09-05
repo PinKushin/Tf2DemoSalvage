@@ -1382,7 +1382,13 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     156
 # found a live defect by sabotage: with the seed removed, `overlays/no_entry` has three unfindable
 # sources — `$fadedistance` twice and `$one` — declared constants driving a fade chain the renderer
 # was refusing whole. Counted rather than listed, because the map's materials are Valve's to change.
-run Tf2DemoSalvage.Rendering.Tests rendering 747
+#
+# 747 -> 750: an animated base texture arriving with every frame (B341). Three, and the one that
+# can catch a wrong frame offset is that consecutive frames are DIFFERENT pictures — a reader still
+# returning frame zero satisfies every count. cp_process_final animates none of its own materials,
+# so that test skips there; the f12 demo loads 62 through the prop path, which is what says the
+# feature has a subject at all.
+run Tf2DemoSalvage.Rendering.Tests rendering 750
 # 101 -> 103 on 2026-08-29: LaunchOptionWiringTests (B223, D118). Two tests, and they cost about
 # seventeen seconds EACH, because each builds a real MainForm and loads a corpus demo — which reads
 # cp_badlands.bsp when Team Fortress 2 is installed. That is the most expensive pair in this file
