@@ -3660,7 +3660,8 @@ public sealed class EntityModelSet
     /// <param name="modelPath">The model whose parts are being addressed.</param>
     /// <param name="group">The part's name, as <c>FindBodygroupByName</c> takes it.</param>
     /// <param name="value">Which alternative.</param>
-    /// <returns>The body number, or zero when this model has no such part.</returns>
+    /// <param name="body">The body number to start from.</param>
+    /// <returns>The new body number, or <paramref name="body"/> when this model has no such part.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The pair of engine functions, together, because separately they invite the wrong
@@ -3672,14 +3673,18 @@ public sealed class EntityModelSet
     ///   body = ( body - ( iCurrent * pbodypart-&gt;base ) + ( iValue * pbodypart-&gt;base ) );
     /// </code>
     ///
-    /// Parts share one integer like digits of a mixed-radix number, so this is not an OR.
+    /// Parts share one integer like digits of a mixed-radix number, so this is not an OR — and
+    /// **that is why the number to fold into is a parameter** (B352). A player wearing two items
+    /// that both hide `hat` must land on 1; contributions returned separately and added land on 2,
+    /// which overflows the part's digit and carries into the NEXT part, removing a piece the
+    /// arithmetic never mentioned. The arithmetic itself lives in <see cref="StudioModel"/>, once.
     ///
-    /// **Zero when the model is not loaded YET**, which is a real state: a model is packed on first
-    /// sight, so the first frame a spy appears on answers zero and the next answers correctly. The
-    /// alternative would be to block the scene on a model load, which is worse than one frame of an
-    /// unmasked spy.
+    /// **The body unchanged when the model is not loaded YET**, which is a real state: a model is
+    /// packed on first sight, so the first frame a spy appears on answers zero and the next answers
+    /// correctly. The alternative would be to block the scene on a model load, which is worse than
+    /// one frame of an unmasked spy.
     /// </remarks>
-    public int WithBodygroup(string modelPath, string group, int value)
+    public int WithBodygroup(string modelPath, string group, int value, int body)
     {
         ArgumentNullException.ThrowIfNull(modelPath);
         ArgumentNullException.ThrowIfNull(group);
@@ -3688,7 +3693,7 @@ public sealed class EntityModelSet
             || model.BodyParts is not { Count: > 0 } parts
             || model.BodyPartNames is not { Count: > 0 } names)
         {
-            return 0;
+            return body;
         }
 
         for (int part = 0; part < names.Count && part < parts.Count; part++)
@@ -3700,10 +3705,10 @@ public sealed class EntityModelSet
 
             (int place, int count) = parts[part];
 
-            return place > 0 && value >= 0 && value < count ? value * place : 0;
+            return StudioModelInfo.WithBodygroup(body, place, count, value);
         }
 
-        return 0;
+        return body;
     }
 
     /// <summary>Which material paints which skinref, for one skin family.</summary>

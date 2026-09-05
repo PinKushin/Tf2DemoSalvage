@@ -779,5 +779,8 @@ public sealed class MomentSceneTests
 
         public string? Hands(int playerClass) =>
             playerClass == SoldierClass ? "models/weapons/c_models/c_soldier_arms.mdl" : null;
+
+        // These tests are about which props a moment produces, not about what the props wear.
+        public ItemBodygroups BodygroupsOf(int itemDefinitionIndex) => ItemBodygroups.None;
     }
 }

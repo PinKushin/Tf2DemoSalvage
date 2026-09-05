@@ -767,3 +767,64 @@ It reproduces both hand sweeps: `CTFPlayerAnimState` now reports **0 uncited**, 
 
 **The three real leads it left** are `AddVCDSequenceToGestureSlot` — chased immediately, and it is
 B351, taunts — plus `GetGestureSlotLayer` and `InitGestureSlots`, which are slot plumbing.
+
+## The player's body number — a whole engine mechanism with no implementation (B352)
+
+**Ranked by what is already on screen, which is the rule this document is written under.** Every
+player in every modern demo wears cosmetics; every one of those cosmetics is drawn; and the body
+number of the player underneath was hard-wired to the spy's mask or to zero. So this was not a
+missing feature nobody would see — it was a wrong pixel on twelve players at once, every frame.
+
+| | |
+|---|---|
+| **The engine** | `CTFPlayerShared::RecalculatePlayerBodygroups` (`tf_player_shared.cpp:13693`) clears `m_nBody` and rebuilds it from the equipped set in three passes; each item resolves its `player_bodygroups` names against the wearer and sets them (`econ_entity.cpp:2044`). |
+| **Ours, before** | `PlayerProps.Add` set `Body` to the spy mask's contribution or to 0. Nothing else ever wrote it. |
+| **Visible when wrong** | A hat sits on top of the hair it replaces; a headset draws through the one on the cosmetic; the demoman's grenades stay on his chest under the bandolier. |
+| **Evidence class** | read-from-source for the passes, measured for the 747 items and the post-fix run |
+| **Would falsify it** | a client that applied the item's bodygroups somewhere else — searched, and `RecalculatePlayerBodygroups` is the only writer besides `ValidateModelIndex`'s mask |
+
+### How it was found: by asking what the SCHEMA declares that nothing reads
+
+Not by a sweep of engine methods this time, and not by looking at output. `items_game.txt` carries a
+block that no code in this repository mentioned. **A key the game ships and we never read is the
+same lead as an engine method we never cite** — and it is cheaper to check, because the denominator
+is a file rather than a class:
+
+```bash
+grep -c '"player_bodygroups"' items_game.txt      # 747
+grep -rn "player_bodygroups" --include=*.cs .     # nothing
+```
+
+That pairing — a large number on the left and zero on the right — is the whole finding. It is worth
+adding to the rotation alongside `parity <filter> <class>`.
+
+### Three neighbours, decided rather than deferred
+
+Reading the function to its closing brace turned up three more arms, and each got an answer instead
+of a shrug:
+
+- **`hide_bodygroups_deployed_only`** — implemented. It is what the three passes exist for, eight
+  shipped items declare it, and all eight are weapons.
+- **The style arm** (`GetAdditionalHideBodygroups`, `GetBodygroupName`) — **proved dead in a demo**
+  rather than deferred. `GetStyleInfo` needs `GetSOCData`, which finds an inventory only for the
+  subscribed account (`econ_item_view.cpp:839`); a demo has none, so a live client watching another
+  player takes the same branch we do. 102 shipped items declare `additional_hidden_bodygroups` and
+  none of them can reach it here. The exception is the networked `item style override` attribute,
+  already B234.
+- **`wm_bodygroup_override`** — a real divergence, filed as B353 with its two items named. It
+  addresses a part by index rather than by name and needs a second resolver.
+
+**A wrong key name nearly turned the third into a false absence.** `use_model_bodygroup_override`
+was invented from the accessor's C++ name and returned zero matches; the schema spells it
+`wm_bodygroup_override`, and the control that exposed the mistake was `player_bodygroups` returning
+747. Same shape as the `strings`-binary failure two sections up: **an absence claim about shipped
+data needs a control in the same file, keyed the same way.**
+
+### The measurement, and the instrument that lied on its first run
+
+`bodygroups <demo> <tick> [class]` reports what the production resolver returned, call by call —
+never a second computation from the schema, which would agree with the schema and say nothing about
+the scene. Its first run reported "no such part on this model" for all 24 requests, which reads as a
+decisive negative and was a fact about the probe: `EntityModelSet.Geometry` answers nothing until a
+map sets it. It now prints a control first and says outright that a zero there voids everything
+below.

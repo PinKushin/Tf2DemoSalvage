@@ -237,7 +237,7 @@ public sealed class CycleProbe : IProbe
             {
                 timeline.PropsAt(at, drawn);
                 PlayerProps.Add(
-                    players, drawn, new GameAppearance(content.Classes, null), (_, _, body) => body);
+                    players, drawn, new GameAppearance(content.Classes, null), (_, _, _, body) => body);
 
                 set.Add(drawn, load);
                 set.UpdateClientSideAnimations(drawn);

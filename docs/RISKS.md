@@ -24017,3 +24017,133 @@ other way. Searching the VPK index for `vcd` and `scenes.image` returned zero fo
 for the CONTROL, `mdl`, in a VPK from which this project reads 14,109 models. The cause was no
 `strings` binary on this machine, so every search had been about the missing tool. With `grep -a`
 the index does carry a top-level `scenes` entry.
+
+### B352 FIXED 2026-09-05: a hat never removed the head it replaces
+
+**A player's equipment changes their body, and this project applied none of it.** The only body
+number a player prop ever carried was the spy's mask, so every hat sat on top of the hair it is
+modelled to replace, every headset drew through the one on the cosmetic, and the demoman's grenades
+stayed on his chest under the bandolier that covers them.
+
+`CTFPlayerShared::RecalculatePlayerBodygroups` (`tf_player_shared.cpp:13693`) clears the field and
+rebuilds it from the equipped set:
+
+```cpp
+m_pOuter->m_nBody = 0;
+CTFWeaponBase::UpdateWeaponBodyGroups( m_pOuter, false );
+CEconWearable::UpdateWearableBodyGroups( m_pOuter );
+CTFWeaponBase::UpdateWeaponBodyGroups( m_pOuter, true );
+```
+
+and each item resolves its own names against the WEARER (`econ_entity.cpp:2044`):
+
+```cpp
+int iBody = 0;
+const char *pszBodyGroup = pItemDef->GetModifiedBodyGroup( 0, i, iBody );
+if ( iBody != iState ) continue;
+int iBodyGroup = pOwner->FindBodygroupByName( pszBodyGroup );
+if ( iBodyGroup == -1 ) continue;
+pOwner->SetBodygroup( iBodyGroup, iState );
+```
+
+**747 shipped items declare `player_bodygroups`** — `hat` on 457, `headphones` on 306, then
+`grenades` on 63, `head` on 62, `dogtags` on 46. Of the 1,052 individual entries, **1,044 are valued
+1 and 8 are valued 0**, which matters because of the `iBody != iState` line below.
+
+#### Three passes collapse to one, and the reason is arithmetic rather than convenience
+
+Both callers pass a state of 1 — `pWpn->UpdateBodygroups( pPlayer, 1 )` (`tf_weaponbase.cpp:6229`)
+and `nVisibleState = 1` (`econ_wearable.cpp:317`) — so **only entries valued 1 can ever apply**, no
+two applied entries can disagree, and the order between the passes cannot change the result. The
+eight entries valued 0 exist for `ShouldHideForVisionFilterFlags`, which drops the state to 0 for a
+pyro-vision-filtered item; a demo carries no such condition. Reading the pair as "set this group to
+this number" is the plausible misreading and removes a part the engine leaves alone.
+
+**What the split really decides is the deployed-only weapon**, which survives as its own condition:
+`if ( bHideBodygroupsDeployedOnly && pPlayer->GetActiveWeapon() != pWpn ) continue;`
+(`tf_weaponbase.cpp:6226`). Eight shipped items declare `hide_bodygroups_deployed_only` and **all
+eight are weapons** — six pairs of fists (Fists of Steel, KGB, Apoco-Fists, Holiday Punch, Bread
+Bite, GRU MvM), plus the Short Circuit. It is what makes the Fists of Steel enlarge the hands only
+while they are out.
+
+#### Adding the contributions is a real bug, not a shortcut
+
+Parts share one integer as digits of a mixed-radix number (`shared/animation.cpp:863`), so two items
+that both hide `hat` must land on 1. Summing lands on 2, which overruns the part's alternative count
+and **carries into the NEXT part's digit** — removing a piece the arithmetic never mentioned. With
+457 items declaring `hat` and a player wearing several cosmetics, that collision is the ordinary
+case. The subtraction now lives once, in `StudioModelInfo.WithBodygroup`, and the scene's
+name-resolving wrapper delegates to it instead of returning a contribution to be added.
+
+#### Measured, on a real match
+
+`bodygroups demostf-cp_process_f12-2026-08-07 14000` — a 12-player pug, through the production path,
+reporting the values the resolver actually returned:
+
+```
+control: setting 'hat' to 1 on models/player/scout.mdl gives 1
+player    6  class 1   body    7  wears 4 items  scout.mdl
+                set 'hat' to 1: 0 -> 1
+                set 'headphones' to 1: 1 -> 3
+                set 'shoes_socks' to 1: 3 -> 7
+9 of 12 drawn players carry a non-zero body number, from 24 bodygroup requests
+```
+
+Before the fix that column read 0 for all twelve. **The three that still read zero are correct**:
+they are medics and demomen whose items name `hat` and `headphones`, and `medic.mdl` ships with only
+**two** body parts — `medic` and `medic_backpack`. `FindBodygroupByName` returns -1 there for the
+engine too, so the item changes nothing. That was checked rather than assumed.
+
+**Evidence class: read-from-source** for the three passes and the state rule, **measured** for the
+747 items, the 1,044/8 value split, the eight deployed-only items, the model part lists and the
+post-fix run.
+
+#### The instrument lied first, and the control is what caught it
+
+`BodygroupProbe`'s first run reported **"NO CHANGE — no such part on this model" for all 24
+requests**, which reads as "the wiring does not reach the model". It was a fact about the probe:
+`EntityModelSet.Geometry` answers nothing until a map sets it, so a set built without a map packs no
+models. The probe now prints a control line first — setting `hat` on `models/player/scout.mdl`, a
+part that certainly exists — and says outright that a 0 there means nothing below can be believed.
+
+**What is NOT established:** whether the parts a cosmetic hides look right at close range. That is
+visible and therefore the owner's to judge, not something a body number can settle.
+
+### B353 OPEN 2026-09-05: two items set a body part by index, and we ignore it
+
+**`UpdateBodygroups`' last arm addresses a part by NUMBER rather than by name**
+(`econ_entity.cpp:2083`):
+
+```cpp
+int iBodyOverride = pItemDef->GetWorldmodelBodygroupOverride( pOwner->GetTeamNumber() );
+int iBodyStateOverride = pItemDef->GetWorldmodelBodygroupStateOverride( pOwner->GetTeamNumber() );
+if ( iBodyOverride > -1 && iBodyStateOverride > -1 )
+    pOwner->SetBodygroup( iBodyOverride, iBodyStateOverride );
+```
+
+**Exactly two shipped items declare it**, both in their untagged `visuals` block so the per-team
+lookup falls back to the base:
+
+| item | keys |
+|---|---|
+| 524, The Purity Fist | `wm_bodygroup_override 1`, `wm_bodygroup_state_override 2` (plus the `vm_` pair) |
+| 528, The Short Circuit | `wm_bodygroup_override 2`, `wm_bodygroup_state_override 2` |
+
+Both replace a hand with a robot arm, so the symptom is a heavy or engineer holding one whose normal
+hand is still drawn underneath.
+
+**Why it is filed rather than folded into B352.** The resolver B352 threads through
+`PlayerProps.Add` maps a NAME to a body number; this needs the part's `base` and `nummodels` for an
+INDEX, which is a second entry point on the model set and a second delegate parameter across
+twenty call sites. It is a small, separate change, not a smaller version of the same one.
+
+**The fields default to -1** (`econ_item_schema.h:1065`), so the guard is what keeps this from
+firing on every item — worth knowing, because a reader that defaulted them to 0 would set part 0 to
+0 on everybody, and part 0 is `hat` on several class models.
+
+**A wrong key name nearly filed this as absent.** The first search used
+`use_model_bodygroup_override`, invented from the accessor's name, and returned zero — the schema
+spells it `wm_bodygroup_override`. The control that caught it was `player_bodygroups`, which
+returned 747.
+
+**Evidence class: read-from-source** for the branch and the default, **measured** for the two items.

@@ -1317,4 +1317,13 @@ internal sealed class NoAppearance : IPlayerAppearance
 
     /// <inheritdoc/>
     public string? Hands(int playerClass) => null;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// **Nothing, which is the honest answer and also the safe one.** Without `items_game.txt` we
+    /// cannot know what a hat replaces, and a player drawn with every default part is a player
+    /// wearing their own hair under a cosmetic — the state this viewer was in before B352, and a
+    /// far better failure than removing a part on a guess.
+    /// </remarks>
+    public ItemBodygroups BodygroupsOf(int itemDefinitionIndex) => ItemBodygroups.None;
 }

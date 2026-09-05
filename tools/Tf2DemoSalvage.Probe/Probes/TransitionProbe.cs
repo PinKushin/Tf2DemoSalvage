@@ -242,7 +242,7 @@ public sealed class TransitionProbe : IProbe
             timeline.PropsAt(tick, drawn);
 
             PlayerProps.Add(
-                players, drawn, new GameAppearance(game.Classes, null), (_, _, body) => body);
+                players, drawn, new GameAppearance(game.Classes, null), (_, _, _, body) => body);
 
             models.Add(drawn, assets.Geometry);
             models.UpdateClientSideAnimations(drawn);

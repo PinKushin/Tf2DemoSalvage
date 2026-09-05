@@ -46,18 +46,53 @@ public interface IPlayerAppearance
     /// domain question (B188, D90). Asked here, the scene resolves it from what it already holds.
     /// </remarks>
     public string? Hands(int playerClass);
+
+    /// <summary>What an equipped item does to the body parts of whoever wears it.</summary>
+    /// <param name="itemDefinitionIndex">The item, as <c>m_iItemDefinitionIndex</c> gives it.</param>
+    /// <returns><see cref="ItemBodygroups.None"/> when the schema says nothing about it.</returns>
+    /// <remarks>
+    /// **Asked here for the same reason the model is: it is in the game's scripts, not on the
+    /// wire** (B352). A demo carries the item's definition index and nothing about what the item
+    /// hides, so a player prop built without an install keeps every default part — which is what a
+    /// machine with no TF2 should draw, and is why this degrades to <c>None</c> rather than
+    /// throwing.
+    /// </remarks>
+    public ItemBodygroups BodygroupsOf(int itemDefinitionIndex);
+}
+
+/// <summary>What one equipped item does to its wearer's body parts.</summary>
+/// <param name="Named">Each body part NAME and the state the item puts it in.</param>
+/// <param name="DeployedOnly">Whether it does so only while it is the active weapon.</param>
+/// <remarks>
+/// **One value rather than two members on <see cref="IPlayerAppearance"/>**, because the pair is
+/// one question — what this item does to the body — and the flag is meaningless without the names.
+///
+/// **Named rather than indexed, because the engine resolves by name.**
+/// `pOwner-&gt;FindBodygroupByName( pszBodyGroup )` (<c>econ_entity.cpp:2052</c>) runs against the
+/// WEARER, so the same hat resolves to a different index on every class model and an item cannot
+/// carry the answer.
+/// </remarks>
+public readonly record struct ItemBodygroups(
+    IReadOnlyDictionary<string, int> Named,
+    bool DeployedOnly)
+{
+    /// <summary>An item that changes nothing — the answer for anything the schema does not name.</summary>
+    public static ItemBodygroups None { get; } =
+        new(new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase), false);
 }
 
 /// <summary>What the installed game actually says, from its own scripts.</summary>
 /// <param name="Classes">The class script, or null when no install was found.</param>
 /// <param name="Roles">The weapon-to-activity map, or null.</param>
+/// <param name="Items">The item schema, or null when no install was found (B352).</param>
 /// <remarks>
 /// **Null means "no install", and answering null is the honest response.** A viewer with no TF2
 /// draws what it can rather than refusing, so every member here degrades to "cannot say" rather
 /// than throwing — and a player whose model cannot be named is simply not drawn, which
 /// <see cref="PlayerProps.Add"/> treats as a reason to skip.
 /// </remarks>
-public sealed record GameAppearance(PlayerClassModels? Classes, WeaponRoles? Roles)
+public sealed record GameAppearance(
+    PlayerClassModels? Classes, WeaponRoles? Roles, ItemSchema? Items = null)
     : IPlayerAppearance
 {
     /// <inheritdoc/>
@@ -85,6 +120,14 @@ public sealed record GameAppearance(PlayerClassModels? Classes, WeaponRoles? Rol
 
     /// <inheritdoc/>
     public string? Hands(int playerClass) => Classes?.Hands(playerClass);
+
+    /// <inheritdoc/>
+    public ItemBodygroups BodygroupsOf(int itemDefinitionIndex) =>
+        Items is null
+            ? ItemBodygroups.None
+            : new ItemBodygroups(
+                Items.PlayerBodygroupsFor(itemDefinitionIndex),
+                Items.HidesBodygroupsWhenDeployedOnly(itemDefinitionIndex));
 }
 
 /// <summary>Turns the timeline's players into props the draw loop can pose.</summary>
@@ -146,21 +189,38 @@ public static class PlayerProps
     /// <param name="into">The draw list to add to.</param>
     /// <param name="appearance">What the installed game says they look like.</param>
     /// <param name="bodygroup">
-    /// Resolves a model's named body part to a body number — <c>EntityModelSet.WithBodygroup</c> in
+    /// Sets a model's named body part on a body number — <c>EntityModelSet.WithBodygroup</c> in
     /// production. Passed in rather than reached for, because only the model set has the
     /// <c>.mdl</c> and only it knows which index a part's name has on this model.
+    /// <para>
+    /// **It takes the body to start from, because parts share one integer.** They are digits of a
+    /// mixed-radix number (<c>shared/animation.cpp:863</c>), so a player wearing two items that
+    /// both hide <c>hat</c> must land on 1 rather than on 2 — and adding contributions carries into
+    /// the NEXT part's digit, removing a piece the arithmetic never mentioned (B352).
+    /// </para>
     /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **<paramref name="into"/> is read as well as written, and the order is the reason it is a
+    /// list.** The props already in it are this moment's wearables and weapons, so it stands in for
+    /// the engine's <c>m_hMyWearables</c> and <c>m_hMyWeapons</c>; the player props appended below
+    /// are not equipment and are deliberately not looked at, which is what the captured count
+    /// enforces. Enumerating a list while adding to it would throw in any case.
+    /// </remarks>
     public static void Add(
         IReadOnlyList<ScenePlayer> players,
-        ICollection<SceneProp> into,
+        IList<SceneProp> into,
         IPlayerAppearance appearance,
-        Func<string, string, int, int> bodygroup)
+        Func<string, string, int, int, int> bodygroup)
     {
         ArgumentNullException.ThrowIfNull(players);
         ArgumentNullException.ThrowIfNull(into);
         ArgumentNullException.ThrowIfNull(appearance);
         ArgumentNullException.ThrowIfNull(bodygroup);
+
+        // Captured before a single player is appended, so the equipment scan below reads only what
+        // the props pass produced — see the remarks.
+        int equipment = into.Count;
 
         foreach (ScenePlayer player in players)
         {
@@ -182,6 +242,11 @@ public static class PlayerProps
             {
                 continue;
             }
+
+            // **What their equipment does to them, before anything else writes a body number**
+            // (B352). This is `RecalculatePlayerBodygroups`' own starting point — the field is
+            // cleared and rebuilt from the items — so the mask below composes onto it.
+            int equipped = Equipped(player, into, equipment, appearance, bodygroup, model);
 
             into.Add(new SceneProp(
                 player.EntityIndex,
@@ -260,9 +325,17 @@ public static class PlayerProps
                     // `C_TFPlayer::ValidateModelIndex`'s tail (`c_tf_player.cpp:9024`) sets it in
                     // exactly the two cases `GetSkin` adds an offset for, which is what makes the
                     // two one mechanism.
+                    //
+                    // **Applied OVER the equipment, because that is the order in one frame**
+                    // (B352). `C_TFPlayer::DrawModel` calls `RecalcBodygroupsIfDirty()`
+                    // (`c_tf_player.cpp:6935`), which clears `m_nBody` and rebuilds it from the
+                    // items, and then falls through to `C_BaseAnimating::DrawModel`, which calls
+                    // `ValidateModelIndex()` (`c_baseanimating.cpp:3195`) under TF_CLIENT_DLL. The
+                    // mask therefore survives the rebuild rather than being wiped by it, and a
+                    // hat's part keeps its own digit.
                     Body = Disguise.WearsMask(player)
-                        ? bodygroup(model, Disguise.MaskBodygroup, 1)
-                        : 0,
+                        ? bodygroup(model, Disguise.MaskBodygroup, 1, equipped)
+                        : equipped,
 
                     // **A player's gestures, which are the only animation layers they have**
                     // (B282). `tf_player.cpp:774` excludes `overlay_vars` from the player's send
@@ -317,4 +390,104 @@ public static class PlayerProps
 
         return kept.Count > 0 ? kept : null;
     }
+
+    /// <summary>The body number a player's equipment leaves them with.</summary>
+    /// <param name="player">Whose equipment, and whose active weapon decides the deployed-only items.</param>
+    /// <param name="props">This moment's props; only the first <paramref name="equipment"/> are read.</param>
+    /// <param name="equipment">How many props existed before any player was appended.</param>
+    /// <param name="appearance">What the installed game says each item hides.</param>
+    /// <param name="bodygroup">Sets one named part on a body number.</param>
+    /// <param name="model">The wearer's model, on which the names are resolved.</param>
+    /// <returns>Zero for a player wearing nothing the schema names.</returns>
+    /// <remarks>
+    /// **`CTFPlayerShared::RecalculatePlayerBodygroups` (`tf_player_shared.cpp:13693`), whose three
+    /// passes collapse into this one loop — for reasons of arithmetic, not convenience:**
+    ///
+    /// <code>
+    ///   m_pOuter-&gt;m_nBody = 0;
+    ///   CTFWeaponBase::UpdateWeaponBodyGroups( m_pOuter, false );
+    ///   CEconWearable::UpdateWearableBodyGroups( m_pOuter );
+    ///   CTFWeaponBase::UpdateWeaponBodyGroups( m_pOuter, true );
+    /// </code>
+    ///
+    /// Both callers pass a state of 1 — `pWpn-&gt;UpdateBodygroups( pPlayer, 1 )`
+    /// (`tf_weaponbase.cpp:6229`) and `nVisibleState = 1` (`econ_wearable.cpp:317`) — and
+    /// `CEconEntity::UpdateBodygroups` applies an entry only when its value equals that state
+    /// (`econ_entity.cpp:2046`). Every entry that CAN apply therefore sets its group to 1, no two
+    /// applied entries can disagree, and the order between passes cannot change the result.
+    ///
+    /// **The one thing the split really decides is the deployed-only weapon**, which survives here
+    /// as its own condition against <c>ActiveWeapon</c>.
+    ///
+    /// **What is deliberately not reproduced, and what it would cost:**
+    /// <list type="bullet">
+    /// <item><c>nVisibleState = 0</c> for a pyro-vision-filtered item, the only route by which an
+    /// entry valued 0 applies. It is a client vision filter, not demo state.</item>
+    /// <item><c>IsBeingRepurposedForTaunt</c> and <c>IsDynamicModelLoading</c>, which skip a weapon
+    /// mid-taunt and one whose model has not arrived. Taunt props are B351; a model we have not
+    /// loaded produces no prop here to walk.</item>
+    /// <item>The style arm of <c>UpdateBodygroups</c>, and this one is PROVED dead rather than
+    /// deferred: <c>GetStyleInfo</c> needs <c>GetSOCData</c>, which finds an inventory only for the
+    /// subscribed account (<c>econ_item_view.cpp:839</c>), and a demo has none. The exception is
+    /// the networked `item style override` attribute — B234.</item>
+    /// <item><c>wm_bodygroup_override</c>, which sets a part by INDEX rather than by name. Two
+    /// shipped items declare it and it needs a second resolver — B353.</item>
+    /// </list>
+    ///
+    /// **The equipped set is read from the draw list rather than from a roster, and that IS the
+    /// engine's own reconstruction.** `m_hMyWearables` is a server-side vector; the client rebuilds
+    /// its copy from each wearable entity as it arrives, keyed by the owner the entity names. The
+    /// owner-or-wearer chain here is the same one the paint and the burn level resolve through
+    /// (`MomentScene.cs:305`).
+    /// </remarks>
+    private static int Equipped(
+        ScenePlayer player,
+        IList<SceneProp> props,
+        int equipment,
+        IPlayerAppearance appearance,
+        Func<string, string, int, int, int> bodygroup,
+        string model)
+    {
+        int body = 0;
+
+        for (int index = 0; index < equipment; index++)
+        {
+            SceneProp prop = props[index];
+
+            if (prop.ItemDefinitionIndex is not { } item
+                || (prop.OwnedBy ?? prop.AttachedTo) != player.EntityIndex)
+            {
+                continue;
+            }
+
+            ItemBodygroups groups = appearance.BodygroupsOf(item);
+
+            if (groups.Named is not { Count: > 0 })
+            {
+                continue;
+            }
+
+            // `if ( bHideBodygroupsDeployedOnly && pPlayer->GetActiveWeapon() != pWpn ) continue;`
+            // (`tf_weaponbase.cpp:6226`). All eight shipped items that set the flag are weapons, so
+            // asking whether this prop is the one being held is the whole of the third pass.
+            if (groups.DeployedOnly && player.ActiveWeapon != prop.EntityIndex)
+            {
+                continue;
+            }
+
+            foreach ((string name, int state) in groups.Named)
+            {
+                // `if ( iBody != iState ) continue;` with iState fixed at 1 — see the remarks.
+                if (state == AppliedState)
+                {
+                    body = bodygroup(model, name, AppliedState, body);
+                }
+            }
+        }
+
+        return body;
+    }
+
+    /// <summary>The state both equipment passes run at, and so the only value that applies.</summary>
+    private const int AppliedState = 1;
 }

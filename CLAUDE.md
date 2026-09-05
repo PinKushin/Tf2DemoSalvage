@@ -268,7 +268,7 @@ dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -- <name> [args]
 dotnet run --project tools/Tf2DemoSalvage.Probe -c Release --                # lists them
 ```
 
-Thirty-two of them. The ones worth knowing before writing a thirty-third:
+Thirty-four of them. The ones worth knowing before writing a thirty-fifth:
 
 | probe | answers |
 |---|---|
@@ -286,6 +286,7 @@ Thirty-two of them. The ones worth knowing before writing a thirty-third:
 | `paint <demo> <tick>` | which items are painted and with what — hex, so a wrong read is recognisable |
 | `corpses <demo>` | what each `CTFRagdoll` says about itself, and how many are drawn at a tick |
 | `autoplay <demo>` | which models animate themselves off the clock — `STUDIO_AUTOPLAY` |
+| `bodygroups <demo> <tick>` | what each player's items hide on them, call by call, with a control |
 
 **Probes run the PRODUCTION path or they are worthless.** `DemoCorpus` lives here and
 `Corpus.Tests` references the tool rather than the reverse, so the probe and the test cannot disagree

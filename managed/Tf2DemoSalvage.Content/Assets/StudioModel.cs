@@ -154,7 +154,25 @@ public sealed record StudioModelInfo(
 
         (int place, int count) = BodyParts[group];
 
-        if (place <= 0 || value >= count)
+        return WithBodygroup(body, place, count, value);
+    }
+
+    /// <summary>The same, for a caller that already holds the part's place and alternatives.</summary>
+    /// <param name="body">The body number to start from.</param>
+    /// <param name="place">The part's <c>base</c>, its digit's weight in the mixed-radix number.</param>
+    /// <param name="count">How many alternatives the part has, its digit's radix.</param>
+    /// <param name="value">Which alternative.</param>
+    /// <returns>The new body number, or the old one when the request cannot be honoured.</returns>
+    /// <remarks>
+    /// **Extracted so the arithmetic has one home** (B352). The scene resolves a body part by NAME
+    /// against a model it holds as <c>(base, count)</c> pairs rather than as a
+    /// <see cref="StudioModel"/>, and a second copy of the subtraction is exactly the duplicate
+    /// that drifts: getting it wrong corrupts a DIFFERENT part's digit, so the symptom appears on
+    /// a piece the mistaken line never mentions.
+    /// </remarks>
+    public static int WithBodygroup(int body, int place, int count, int value)
+    {
+        if (place <= 0 || value < 0 || value >= count)
         {
             return body;
         }

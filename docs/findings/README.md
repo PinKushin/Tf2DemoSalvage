@@ -94,6 +94,11 @@ in any public writeup found:
   skin and no body; the client rebuilds all three from a 4-bit class and a 3-bit team. The model
   paths are not in Valve's code at all but in shipped script files, so a viewer without the game
   installed genuinely cannot know them ([48](48-a-corpse-describes-itself-in-two-integers.md)).
+- **A hat removes the head it replaces, and the number it edits is mixed-radix** — 747 shipped items
+  switch off a part of the player they are worn on, resolved by NAME against the wearer because one
+  hat serves nine class models with different parts. Adding each item's contribution is correct until
+  two items name the same part, which 457 of them do; then the digit overruns and a *different*
+  piece vanishes ([49](49-a-hat-removes-the-head-it-replaces.md)).
 
 ## Conventions used throughout
 

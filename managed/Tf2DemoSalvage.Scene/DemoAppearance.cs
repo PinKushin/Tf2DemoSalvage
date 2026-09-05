@@ -104,6 +104,10 @@ public static class DemoAppearance
                         $"{pair.Weapon}/{pair.Class?.ToString(CultureInfo.InvariantCulture) ?? "?"}=" +
                         roles.Suffix(pair.Weapon, pair.Class))));
 
-        return new GameAppearance(game.Classes, roles);
+        // **The item schema comes along because a player's body number needs it** (B352): a hat
+        // hides the head it replaces, and only `items_game.txt` says which part that is. Reached
+        // for here rather than by the scene for the same reason the class models are — this is the
+        // one place that already holds the install.
+        return new GameAppearance(game.Classes, roles, game.Weapons.Items);
     }
 }

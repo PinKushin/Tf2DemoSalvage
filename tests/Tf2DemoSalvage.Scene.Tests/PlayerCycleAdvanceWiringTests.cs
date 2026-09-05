@@ -137,7 +137,7 @@ public sealed class PlayerCycleAdvanceWiringTests
     {
         List<SceneProp> drawn = [];
 
-        PlayerProps.Add([Running()], drawn, new StubAppearance(), (_, _, body) => body);
+        PlayerProps.Add([Running()], drawn, new StubAppearance(), (_, _, _, body) => body);
 
         drawn.ShouldHaveSingleItem();
 
@@ -161,7 +161,7 @@ public sealed class PlayerCycleAdvanceWiringTests
             [Running() with { ClientSideAnimated = false }],
             drawn,
             new StubAppearance(),
-            (_, _, body) => body);
+            (_, _, _, body) => body);
 
         drawn.ShouldHaveSingleItem();
 
