@@ -293,7 +293,14 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # machine does not have. Six, and the one that matters is the second burn: without the reset on the
 # condition CLEARING, a player burned twice reads as one very long burn and the proxy clamps it to
 # zero, so they draw unburnt the second time. Verified by sabotage; only that test reddens.
-run Tf2DemoSalvage.Core.Tests     core     1749
+# 1749 -> 1764: the refusal paths of the two assembly readers (B344). Fifteen, and a corpus can
+# reach none of them — every demo is a valid recording, so the round-trip suites only ever hand
+# well-formed text. Six on MessageAssembly (empty line, whitespace, unknown name, both no-schema
+# routes, an unclosed block) and nine on EntityAssembly's mistyped VALUES, which is a different
+# failure from EntityAssemblyRefusalTests' truncation and lives in its own file for that reason.
+# The type is the point: DemoAssembly.cs:533 catches InvalidDataException and nothing else, to
+# attach the offending line, so a bare Enum.Parse or int.Parse lost it. Three verified by sabotage.
+run Tf2DemoSalvage.Core.Tests     core     1764
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.

@@ -236,7 +236,7 @@ public static class EntityAssembly
     {
         Dictionary<string, string> fields = Fields(parts);
         int classId = Field(fields, "class");
-        float delay = float.Parse(fields["delay"], CultureInfo.InvariantCulture);
+        float delay = Real(Text(fields, "delay"), "'delay' field");
 
         List<DecodedProperty> properties = [];
         IReadOnlyList<FlatProperty> flat = decoder.FlattenedFor(classId);
@@ -257,7 +257,7 @@ public static class EntityAssembly
                 break;
             }
 
-            (int index, int indexWidth, int shape) = ParseIndex(tokens[1]);
+            (int index, int indexWidth, int shape) = ParseIndex(Token(tokens, 1, "property index"));
             properties.Add(new DecodedProperty(
                 index, flat[index], PropertyText.Read(flat[index], tokens, 3), indexWidth, shape));
         }
@@ -320,14 +320,14 @@ public static class EntityAssembly
 
             if (parts[0] == "removed")
             {
-                removed.Add(int.Parse(parts[1], CultureInfo.InvariantCulture));
+                removed.Add(Number(Token(parts, 1, "removed index"), "removed index"));
                 continue;
             }
 
             if (parts[0] == "slack")
             {
-                slackBits = int.Parse(parts[1], CultureInfo.InvariantCulture);
-                slack = Convert.FromHexString(parts[2]);
+                slackBits = Number(Token(parts, 1, "slack width"), "slack width");
+                slack = Hex(Token(parts, 2, "slack payload"), "slack payload");
                 continue;
             }
 
@@ -352,7 +352,7 @@ public static class EntityAssembly
         return new PacketEntitiesMessage(
             Field(header, "max"),
             isDelta,
-            header["from"] == "-" ? null : Field(header, "from"),
+            Text(header, "from") == "-" ? null : Field(header, "from"),
             Field(header, "baseline") != 0,
             Field(header, "updated"),
             lengthBits,
@@ -363,8 +363,8 @@ public static class EntityAssembly
     private static DecodedEntity ReadEntity(
         List<string> parts, Func<string?> nextLine, EntityDecoder decoder)
     {
-        int index = int.Parse(parts[1], CultureInfo.InvariantCulture);
-        EntityUpdateType update = Enum.Parse<EntityUpdateType>(parts[2], ignoreCase: true);
+        int index = Number(Token(parts, 1, "entity index"), "entity index");
+        EntityUpdateType update = Update(Token(parts, 2, "update type"));
         Dictionary<string, string> fields = Fields(parts);
         int classId = Field(fields, "class");
 
@@ -390,7 +390,7 @@ public static class EntityAssembly
             // The name is written for a reader and ignored here: the index is what addresses the
             // flattened list, and a name that disagreed with it would be the schema's problem
             // rather than something to reconcile at parse time.
-            (int propertyIndex, int indexWidth, int shape) = ParseIndex(tokens[1]);
+            (int propertyIndex, int indexWidth, int shape) = ParseIndex(Token(tokens, 1, "property index"));
 
             properties.Add(new DecodedProperty(
                 propertyIndex,
@@ -403,7 +403,7 @@ public static class EntityAssembly
         return new DecodedEntity(
             index, classId, Field(fields, "serial"), update, properties,
             fields.TryGetValue("ibits", out string? width)
-                ? int.Parse(width, CultureInfo.InvariantCulture)
+                ? Number(width, "'ibits' field")
                 : 0);
     }
 
@@ -412,9 +412,9 @@ public static class EntityAssembly
     {
         string[] parts = token.Split('/');
         return (
-            int.Parse(parts[0], CultureInfo.InvariantCulture),
-            parts.Length > 1 ? int.Parse(parts[1], CultureInfo.InvariantCulture) : 0,
-            parts.Length > 2 ? int.Parse(parts[2], CultureInfo.InvariantCulture) : 0);
+            Number(parts[0], "property index"),
+            parts.Length > 1 ? Number(parts[1], "property index width") : 0,
+            parts.Length > 2 ? Number(parts[2], "property coordinate shape") : 0);
     }
 
     private static Dictionary<string, string> Fields(IReadOnlyList<string> tokens)
@@ -433,9 +433,95 @@ public static class EntityAssembly
     }
 
     private static int Field(Dictionary<string, string> fields, string name) =>
+        Number(Text(fields, name), $"'{name}' field");
+
+    /// <summary>A field's text, or a refusal naming the field that is missing.</summary>
+    /// <remarks>
+    /// **Every read of a hand-edited trace goes through one of these five, and that is the point**
+    /// (B344). `DemoAssembly.cs:533` catches `InvalidDataException` and nothing else, to rethrow it
+    /// with the offending line attached; a `FormatException` from a bare `int.Parse` or an
+    /// `ArgumentException` from a bare `Enum.Parse` walks straight past that handler and reaches the
+    /// person with no line, no field and no file named.
+    ///
+    /// So the type is not a detail — it is what carries the context. Each of these quotes what was
+    /// written as well as what was expected, because a trace is edited by hand and the value is the
+    /// half the editor can act on.
+    /// </remarks>
+    /// <param name="fields">The line's <c>name=value</c> fields.</param>
+    /// <param name="name">The field to read.</param>
+    /// <returns>The field's text.</returns>
+    private static string Text(Dictionary<string, string> fields, string name) =>
         fields.TryGetValue(name, out string? value)
-            ? int.Parse(value, CultureInfo.InvariantCulture)
+            ? value
             : throw new InvalidDataException($"An entity line has no '{name}' field.");
+
+    /// <summary>The token at an index, or a refusal naming what the line lacks.</summary>
+    /// <param name="parts">The line's tokens.</param>
+    /// <param name="index">The token to read.</param>
+    /// <param name="what">What that token holds, for the message.</param>
+    /// <returns>The token.</returns>
+    private static string Token(List<string> parts, int index, string what) =>
+        index < parts.Count
+            ? parts[index]
+            : throw new InvalidDataException(
+                $"An entity line has no {what}: '{string.Join(' ', parts)}'.");
+
+    /// <summary>A whole number, or a refusal quoting what was written instead.</summary>
+    /// <param name="value">The text to read.</param>
+    /// <param name="what">What the number means, for the message.</param>
+    /// <returns>The number.</returns>
+    private static int Number(string value, string what) =>
+        int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int number)
+            ? number
+            : throw new InvalidDataException(
+                $"An entity line's {what} is not a whole number: '{value}'.");
+
+    /// <summary>A real number, or a refusal quoting what was written instead.</summary>
+    /// <param name="value">The text to read.</param>
+    /// <param name="what">What the number means, for the message.</param>
+    /// <returns>The number.</returns>
+    private static float Real(string value, string what) =>
+        float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out float number)
+            ? number
+            : throw new InvalidDataException(
+                $"An entity line's {what} is not a number: '{value}'.");
+
+    /// <summary>An update type, or a refusal listing the ones that exist.</summary>
+    /// <remarks>
+    /// **The valid names are listed because the set is small and closed.** A person who typed
+    /// `entre` cannot recover `ENTER` from `Requested value 'entre' was not found`, and there are
+    /// four candidates in total — so printing them costs a line and ends the search.
+    ///
+    /// **A numeric type outside the enum is refused too.** `Enum.Parse` accepts `99` and yields an
+    /// undefined value, which would then decode against a rule that matches no branch; `IsDefined`
+    /// makes the refusal total rather than leaving one shape through.
+    /// </remarks>
+    /// <param name="value">The token to read.</param>
+    /// <returns>The update type.</returns>
+    private static EntityUpdateType Update(string value) =>
+        Enum.TryParse(value, ignoreCase: true, out EntityUpdateType update)
+            && Enum.IsDefined(update)
+            ? update
+            : throw new InvalidDataException(
+                $"An entity line's update type is not one of " +
+                $"{string.Join(", ", Enum.GetNames<EntityUpdateType>())}: '{value}'.");
+
+    /// <summary>Hexadecimal bytes, or a refusal quoting what was written instead.</summary>
+    /// <param name="value">The text to read.</param>
+    /// <param name="what">What the bytes hold, for the message.</param>
+    /// <returns>The bytes.</returns>
+    private static byte[] Hex(string value, string what)
+    {
+        try
+        {
+            return Convert.FromHexString(value);
+        }
+        catch (FormatException failure)
+        {
+            throw new InvalidDataException(
+                $"An entity line's {what} is not hexadecimal: '{value}'.", failure);
+        }
+    }
 
     /// <summary>Splits a line into bare tokens and quoted strings.</summary>
     private static List<string> Tokens(string line)

@@ -49,3 +49,27 @@ Nothing failed. Every test passed, the build was clean, and the only trace was t
   mask AND the projection correction. `ls` on the directory before writing costs nothing.
 - **Exact floors are why this was recoverable.** A floor written as "at least 379" would have
   passed at 383 and the deletion would have shipped.
+
+**Third time, 2026-09-05 — and this one the FLOOR WOULD HAVE PASSED.** `EntityAssemblyRefusalTests.cs`
+already held four tests that cut real generated assembly text at a marker and asserted which of three
+nested "not closed" messages came back, plus a control round-tripping the uncut text to bytes. A
+`Write` believing the path was new replaced all four.
+
+**The count went UP, so every check the two cases above rely on was green.** Nine tests were added in
+the same edit, so `Core.Tests` measured **1760** against a floor of **1749** — comfortably over. The
+gate would have passed, and the destroyed tests would have shipped.
+
+**What caught it was DELTA arithmetic, not the floor**: passed rose by 5 when 9 tests were added.
+1755 + 9 − 4 = 1760, and the 4 is exact. Then `git status` said **`M`**, not `??`.
+
+So the rule gains a step, because "the floor catches it" is now known to be false in the common case
+where the same commit adds more than it destroys:
+
+- **Predict the count before running, and subtract.** "I added N, so the total should be exactly
+  prior + N." An increase that is smaller than N is a deletion hiding under an addition, and it is
+  invisible to any floor.
+- **`git status` on the test directory before committing.** `M` on a file you believe you created is
+  the whole finding, available in one command and needing no arithmetic at all.
+- **Being mid-flow is when it happens.** All three times, the write was a step inside fixing
+  something else — a compile error, a rename — where the path had already been "established" earlier
+  in the session and the question felt answered. It was answered for the wrong write.

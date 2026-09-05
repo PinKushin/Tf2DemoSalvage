@@ -23353,3 +23353,87 @@ is not among them.
 **It becomes live only if `MaterialModify` is implemented**, which the census puts at 6 materials —
 and those overrides call `TextureAnimationWrapped()` on the entity, which is entity state this
 layer does not have. Noted where it would matter rather than left as an open item here.
+
+### B344 FIXED 2026-09-05: a malformed trace lost the line that caused it
+
+**`DemoAssembly.cs:533` catches `InvalidDataException` and nothing else, for one purpose**: to
+rethrow it with the offending text attached — `$"{failure.Message} (assembling: {line})"`. That is
+the whole mechanism by which a person hand-editing a decompiled trace finds out *which line* they
+broke, and the readable form exists so that they can.
+
+**`EntityAssembly` stated that contract in five places and left it in fourteen.** `Field` refuses a
+missing field with `An entity line has no 'class' field.`; the four unclosed-block guards say the
+same kind of thing. But every other read went out bare, each raising a type the handler does not
+catch:
+
+| what was written | what came back | what it named |
+|---|---|---|
+| `entity 1 entre class=0 …` | `ArgumentException: Requested value 'entre' was not found.` | nothing |
+| `entity x ENTER …` | `FormatException: The input string 'x' was not in a correct format.` | nothing |
+| `entity 1` (truncated) | `ArgumentOutOfRangeException` | nothing |
+| a header with no `from` | `KeyNotFoundException: The given key 'from' …` | the key only |
+| `class=x` | `FormatException` | nothing |
+| a slack payload of `zz` | `FormatException` | nothing |
+| `delay=soon` | `FormatException` | nothing |
+
+**The asymmetry is the defect, and it is visible.** A typo in a field NAME reported the file, the
+line and the field; a typo in that same line's update type, three tokens earlier, reported
+`Requested value 'entre' was not found` and reached the user with no line attached at all — because
+a different exception type walks straight past the handler that would have attached it.
+
+**Fixed with one helper family in the file's own voice** — `Text`, `Token`, `Number`, `Real`,
+`Update`, `Hex` — with every one of the fourteen sites routed through it. Each quotes what was
+written as well as what was expected, since on a hand-edited trace the value is the half the editor
+can act on. `Update` lists the four names that exist, because `entre` does not suggest `ENTER`.
+
+**One shape got through that was not merely a wrong exception type.** `Enum.Parse` accepts `99` and
+yields an undefined `EntityUpdateType`, which then decodes against a switch matching no branch — a
+wrong answer rather than a refusal. `Enum.IsDefined` makes it total.
+
+**Evidence class: read-from-source** for the handler's behaviour (`DemoAssembly.cs:533`), **measured**
+for each exception type — twelve tests in `EntityAssemblyRefusalTests`, five of which were RED
+against the old code with the exact types tabulated above.
+
+**A corpus can never reach any of this**, which is why it survived: every demo is a valid recording,
+so the round-trip suites only ever hand this well-formed text. The refusals exist for the hand-edited
+trace the readable form was built to allow. Same shape as `MessageAssemblyRefusalTests` and filed
+under the same reasoning as D38.
+
+**What is NOT established:** whether any other assembly layer has the same split. `MessageAssembly`
+and `DemoAssembly` were not audited for bare parses in this pass — only `EntityAssembly` was, because
+that is where the failing test landed.
+
+### B345 OPEN 2026-09-05: the same split in the other four assembly layers
+
+**B344 fixed `EntityAssembly` and its own entry named the gap: the siblings were not audited.** They
+were now, and all four have it. Twenty-eight bare parses across five files, against seven places
+where the same files state the contract properly.
+
+| file | bare reads | its own voice, stated at |
+|---|---|---|
+| `MessageAssembly` | 10 | `A sound has no '{name}' field.` (565, 570) |
+| `EventAssembly` | 7 | `'{name}' is not a game event field type.` (204) |
+| `StringTableAssembly` | 4 | `A string table line has no '{name}' field.` (294) |
+| `DemoAssembly` | 3 | four messages in `ParseCommand` (449–460) |
+| `PropertyText` | 3 | none |
+
+**`DemoAssembly.ParseCommand` is the whole finding in one function.** It bounds-checks the line, it
+`TryGetValue`s the command name, it `TryParse`s the tick — each refusing with a message naming the
+offending text — and then, eight lines later, reads its payload with a bare
+`Convert.FromHexString(parts[i + 1])` (`DemoAssembly.cs:468`). The right answer is written three
+times directly above the wrong one.
+
+**This defect class has already reached a real demo, and the fix was applied at one site.** The
+comment at `MessageAssembly.cs:332–341` records it: *"Reading tokens[4] unconditionally threw
+ArgumentOutOfRangeException on the first demo whose players spoke"* — patched with a
+`tokens.Count > 4` guard on that line alone. The note even diagnoses why it survived: the corpus
+round trip compares the first 600 commands, and *"voice data does not start until someone talks"*.
+So this is not hypothetical hardening; it is a recurrence of a bug the corpus is structurally unable
+to catch.
+
+**Evidence class: measured** for the site counts (grep over the five files, listed above),
+**read-from-source** for the handler that loses the context (`DemoAssembly.cs:533`).
+
+**The fix is B344's, applied once rather than five times**: one shared helper family in
+`Text/`, each file passing its own subject noun, every site routed through it. Doing it per file
+would triple the duplication B344 already created.
