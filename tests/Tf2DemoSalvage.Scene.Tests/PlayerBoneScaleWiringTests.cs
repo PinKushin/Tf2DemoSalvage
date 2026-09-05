@@ -34,7 +34,7 @@ public sealed class PlayerBoneScaleWiringTests
             [Scaled()],
             drawn,
             new StubAppearance(),
-            (_, _, _, body) => body);
+            NoBodygroups.Instance);
 
         drawn.Count.ShouldBe(1, "the player reached the draw list at all");
 
@@ -58,7 +58,7 @@ public sealed class PlayerBoneScaleWiringTests
             [Plain()],
             drawn,
             new StubAppearance(),
-            (_, _, _, body) => body);
+            NoBodygroups.Instance);
 
         drawn.Count.ShouldBe(1);
 

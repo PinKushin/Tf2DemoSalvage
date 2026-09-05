@@ -45,7 +45,7 @@ public sealed class PlayerBodygroupWiringTests
     {
         List<SceneProp> drawn = [Worn(Hat)];
 
-        PlayerProps.Add([Scout()], drawn, new Wardrobe(), Bodygroup);
+        PlayerProps.Add([Scout()], drawn, new Wardrobe(), Bodygroup.Instance);
 
         // `hat` is part 0 on the fixture model, so its place is 1 and state 1 reads as 1.
         Player(drawn).Pose.Body.ShouldBe(1);
@@ -60,7 +60,7 @@ public sealed class PlayerBodygroupWiringTests
     {
         List<SceneProp> drawn = [];
 
-        PlayerProps.Add([Scout()], drawn, new Wardrobe(), Bodygroup);
+        PlayerProps.Add([Scout()], drawn, new Wardrobe(), Bodygroup.Instance);
 
         Player(drawn).Pose.Body.ShouldBe(0);
     }
@@ -75,7 +75,7 @@ public sealed class PlayerBodygroupWiringTests
     {
         List<SceneProp> drawn = [Worn(Hat, wearer: 3)];
 
-        PlayerProps.Add([Scout(), Scout() with { EntityIndex = 4 }], drawn, new Wardrobe(), Bodygroup);
+        PlayerProps.Add([Scout(), Scout() with { EntityIndex = 4 }], drawn, new Wardrobe(), Bodygroup.Instance);
 
         Player(drawn, entity: 3).Pose.Body.ShouldBe(1);
         Player(drawn, entity: 4).Pose.Body.ShouldBe(0);
@@ -97,7 +97,7 @@ public sealed class PlayerBodygroupWiringTests
     {
         List<SceneProp> drawn = [Worn(Hat), Worn(HatAgain, entity: 21)];
 
-        PlayerProps.Add([Scout()], drawn, new Wardrobe(), Bodygroup);
+        PlayerProps.Add([Scout()], drawn, new Wardrobe(), Bodygroup.Instance);
 
         Player(drawn).Pose.Body.ShouldBe(1);
     }
@@ -111,7 +111,7 @@ public sealed class PlayerBodygroupWiringTests
     {
         List<SceneProp> drawn = [Worn(HatAndHeadphones)];
 
-        PlayerProps.Add([Scout()], drawn, new Wardrobe(), Bodygroup);
+        PlayerProps.Add([Scout()], drawn, new Wardrobe(), Bodygroup.Instance);
 
         Player(drawn).Pose.Body.ShouldBe(3);
     }
@@ -127,7 +127,7 @@ public sealed class PlayerBodygroupWiringTests
     {
         List<SceneProp> drawn = [Worn(PutsTheHatBack)];
 
-        PlayerProps.Add([Scout()], drawn, new Wardrobe(), Bodygroup);
+        PlayerProps.Add([Scout()], drawn, new Wardrobe(), Bodygroup.Instance);
 
         Player(drawn).Pose.Body.ShouldBe(0);
     }
@@ -141,7 +141,7 @@ public sealed class PlayerBodygroupWiringTests
     {
         List<SceneProp> drawn = [Worn(FistsOfSteel, entity: 30)];
 
-        PlayerProps.Add([Scout() with { ActiveWeapon = 31 }], drawn, new Wardrobe(), Bodygroup);
+        PlayerProps.Add([Scout() with { ActiveWeapon = 31 }], drawn, new Wardrobe(), Bodygroup.Instance);
 
         Player(drawn).Pose.Body.ShouldBe(0);
     }
@@ -155,7 +155,7 @@ public sealed class PlayerBodygroupWiringTests
     {
         List<SceneProp> drawn = [Worn(FistsOfSteel, entity: 30)];
 
-        PlayerProps.Add([Scout() with { ActiveWeapon = 30 }], drawn, new Wardrobe(), Bodygroup);
+        PlayerProps.Add([Scout() with { ActiveWeapon = 30 }], drawn, new Wardrobe(), Bodygroup.Instance);
 
         Player(drawn).Pose.Body.ShouldBe(1);
     }
@@ -173,7 +173,7 @@ public sealed class PlayerBodygroupWiringTests
     {
         List<SceneProp> drawn = [Worn(Hat)];
 
-        PlayerProps.Add([DisguisedSpy()], drawn, new Wardrobe(), Bodygroup);
+        PlayerProps.Add([DisguisedSpy()], drawn, new Wardrobe(), Bodygroup.Instance);
 
         Player(drawn).Pose.Body.ShouldBe(9);
     }
@@ -187,7 +187,7 @@ public sealed class PlayerBodygroupWiringTests
     {
         List<SceneProp> drawn = [];
 
-        PlayerProps.Add([DisguisedSpy()], drawn, new Wardrobe(), Bodygroup);
+        PlayerProps.Add([DisguisedSpy()], drawn, new Wardrobe(), Bodygroup.Instance);
 
         Player(drawn).Pose.Body.ShouldBe(8);
     }
@@ -202,7 +202,7 @@ public sealed class PlayerBodygroupWiringTests
     {
         List<SceneProp> drawn = [Worn(Hat) with { AttachedTo = null, OwnedBy = null }];
 
-        PlayerProps.Add([Scout()], drawn, new Wardrobe(), Bodygroup);
+        PlayerProps.Add([Scout()], drawn, new Wardrobe(), Bodygroup.Instance);
 
         Player(drawn).Pose.Body.ShouldBe(0);
     }
@@ -217,7 +217,7 @@ public sealed class PlayerBodygroupWiringTests
     {
         List<SceneProp> drawn = [Worn(Hat) with { AttachedTo = null, OwnedBy = 3 }];
 
-        PlayerProps.Add([Scout()], drawn, new Wardrobe(), Bodygroup);
+        PlayerProps.Add([Scout()], drawn, new Wardrobe(), Bodygroup.Instance);
 
         Player(drawn).Pose.Body.ShouldBe(1);
     }
@@ -246,11 +246,33 @@ public sealed class PlayerBodygroupWiringTests
         [Disguise.MaskBodygroup] = (8, 2),
     };
 
-    /// <summary>The production arithmetic, resolved by name the way the model set resolves it.</summary>
-    private static int Bodygroup(string model, string group, int value, int body) =>
-        Parts.TryGetValue(group, out (int Place, int Count) part)
-            ? StudioModelInfo.WithBodygroup(body, part.Place, part.Count, value)
-            : body;
+    /// <summary>The fixture model, answering the two questions the engine asks of a model.</summary>
+    /// <remarks>
+    /// **The arithmetic is the production one**, so this cannot disagree with the scene about how
+    /// digits pack — and every assertion above predicts an exact number anyway, so a broken
+    /// <see cref="StudioModelInfo.WithBodygroup(int, int, int, int)"/> still reddens them.
+    /// </remarks>
+    private sealed class Bodygroup : IModelBodygroups
+    {
+        public static Bodygroup Instance { get; } = new();
+
+        public int FindBodygroup(string modelPath, string group) =>
+            Order.IndexOf(group);
+
+        public int SetBodygroup(string modelPath, int group, int value, int body)
+        {
+            if (group < 0 || group >= Order.Count)
+            {
+                return body;
+            }
+
+            (int place, int count) = Parts[Order[group]];
+
+            return StudioModelInfo.WithBodygroup(body, place, count, value);
+        }
+
+        private static readonly List<string> Order = [.. Parts.Keys];
+    }
 
     /// <summary>The player prop the run produced, found by the entity it was built for.</summary>
     private static SceneProp Player(IReadOnlyList<SceneProp> drawn, int entity = 3) =>

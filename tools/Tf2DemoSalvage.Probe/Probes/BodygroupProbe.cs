@@ -131,7 +131,7 @@ public sealed class BodygroupProbe : IProbe
 
         // The load pass — see the remarks. Its answers are discarded; only the models it packs
         // matter, and the resolver is the identity so nothing here can be mistaken for a result.
-        PlayerProps.Add(players, props, appearance, (_, _, _, body) => body);
+        PlayerProps.Add(players, props, appearance, NoBodygroups.Instance);
         _ = models.Add(props);
 
         // **The control, and it is not optional** (`docs/memory/an-empty-search-needs-a-control.md`).
@@ -143,27 +143,15 @@ public sealed class BodygroupProbe : IProbe
                 .ToString(CultureInfo.InvariantCulture) +
             " (0 means the model is not loaded, so nothing below can be believed)");
 
-        List<(int Player, string Group, int Value, int Before, int After)> asked = [];
-
         List<SceneProp> drawn = [.. props.Take(equipment)];
-        int wearer = 0;
+
+        Recording asked = new(models);
 
         foreach (ScenePlayer player in players)
         {
-            wearer = player.EntityIndex;
+            asked.Wearer = player.EntityIndex;
 
-            PlayerProps.Add(
-                [player],
-                drawn,
-                appearance,
-                (model, group, value, body) =>
-                {
-                    int after = models.WithBodygroup(model, group, value, body);
-
-                    asked.Add((wearer, group, value, body, after));
-
-                    return after;
-                });
+            PlayerProps.Add([player], drawn, appearance, asked);
         }
 
         output.WriteLine(
@@ -205,7 +193,7 @@ public sealed class BodygroupProbe : IProbe
                     + $"body {prop.Pose.Body,4}  wears {worn.Count} items  "
                     + $"{Path.GetFileName(prop.ModelPath)}"));
 
-            foreach ((int _, string group, int value, int before, int after) in asked
+            foreach ((int _, string group, int value, int before, int after) in asked.Calls
                 .Where(call => call.Player == prop.EntityIndex))
             {
                 string moved = before == after
@@ -237,6 +225,40 @@ public sealed class BodygroupProbe : IProbe
             string.Create(
                 CultureInfo.InvariantCulture,
                 $"{dressed} of {drawn.Count - equipment} drawn players carry a non-zero body "
-                + $"number, from {asked.Count} bodygroup requests"));
+                + $"number, from {asked.Calls.Count} bodygroup requests"));
+    }
+
+    /// <summary>The production model set, recording every part it was asked to set.</summary>
+    /// <remarks>
+    /// **A wrapper rather than a reimplementation, so the numbers below are the ones the scene
+    /// used** (B243). It records at <c>SetBodygroup</c> rather than at <c>FindBodygroup</c> because
+    /// the body number is what the prop carries, and a name that resolved to nothing shows up as a
+    /// set that did not move — which is the line the reader needs.
+    /// </remarks>
+    private sealed class Recording(EntityModelSet models) : IModelBodygroups
+    {
+        /// <summary>Which player the next calls belong to.</summary>
+        public int Wearer { get; set; }
+
+        /// <summary>Every set, in order, with the body before and after it.</summary>
+        public List<(int Player, string Group, int Value, int Before, int After)> Calls { get; } = [];
+
+        public int FindBodygroup(string modelPath, string group)
+        {
+            _asked = group;
+
+            return models.FindBodygroup(modelPath, group);
+        }
+
+        public int SetBodygroup(string modelPath, int group, int value, int body)
+        {
+            int after = models.SetBodygroup(modelPath, group, value, body);
+
+            Calls.Add((Wearer, _asked, value, body, after));
+
+            return after;
+        }
+
+        private string _asked = string.Empty;
     }
 }
