@@ -70,8 +70,6 @@ public static class BspStaticProps
     /// <summary>'sprp', as it appears in the game lump directory.</summary>
     private const int StaticPropId = 0x73707270;
 
-    private const int DirectoryEntryBytes = 16;
-
     /// <summary>Bytes per model path in the dictionary, fixed since the format's first version.</summary>
     internal const int ModelNameBytes = 128;
 
@@ -113,116 +111,23 @@ public static class BspStaticProps
     /// <param name="file">The map's bytes.</param>
     /// <returns>The placements, empty when the map has none.</returns>
     /// <exception cref="InvalidDataException">The game lump is malformed.</exception>
+    /// <remarks>
+    /// **The directory walk moved to <see cref="BspGameLumps"/> when a second sub-lump needed it**
+    /// (B360). `sprp` was the only entry anyone read, so the walk lived here; `dprp` — the detail
+    /// props — made it shared, and the packed-end rule is subtle enough that a second copy would
+    /// have been a second chance to get it wrong.
+    /// </remarks>
     public static IReadOnlyList<BspStaticProp> Read(ReadOnlyMemory<byte> file)
     {
-        BspHeader header = BspHeader.Parse(file.Span);
-        BspLump game = header.Lump(BspLumpIndex.GameLump);
-
-        if (game.Length == 0)
+        foreach (BspGameLumpEntry entry in BspGameLumps.Directory(file))
         {
-            return [];
-        }
-
-        if (!TryFindPayload(file, game, out ReadOnlyMemory<byte> payload, out int version))
-        {
-            return [];
-        }
-
-        return ReadPayload(payload.Span, version);
-    }
-
-    /// <summary>Locates the static-prop sub-lump inside the game lump and decompresses it.</summary>
-    private static bool TryFindPayload(
-        ReadOnlyMemory<byte> file, BspLump game, out ReadOnlyMemory<byte> payload, out int version)
-    {
-        payload = ReadOnlyMemory<byte>.Empty;
-        version = 0;
-
-        ReadOnlySpan<byte> directory = file.Slice(game.Offset, game.Length).Span;
-
-        if (directory.Length < sizeof(int))
-        {
-            throw new InvalidDataException("The game lump is too short to hold its own count.");
-        }
-
-        int count = BinaryPrimitives.ReadInt32LittleEndian(directory);
-
-        if (count < 0 || sizeof(int) + ((long)count * DirectoryEntryBytes) > directory.Length)
-        {
-            throw new InvalidDataException(string.Create(
-                CultureInfo.InvariantCulture,
-                $"The game lump declares {count:N0} sub-lumps, which do not fit in its " +
-                $"{directory.Length:N0} bytes."));
-        }
-
-        for (int index = 0; index < count; index++)
-        {
-            ReadOnlySpan<byte> entry = directory.Slice(
-                sizeof(int) + (index * DirectoryEntryBytes), DirectoryEntryBytes);
-
-            if (BinaryPrimitives.ReadInt32LittleEndian(entry) != StaticPropId)
+            if (entry.Id == StaticPropId)
             {
-                continue;
-            }
-
-            version = BinaryPrimitives.ReadUInt16LittleEndian(entry[6..]);
-            int offset = BinaryPrimitives.ReadInt32LittleEndian(entry[8..]);
-            int length = BinaryPrimitives.ReadInt32LittleEndian(entry[12..]);
-
-            // **The stored length is the decompressed one when the entry is compressed**, so the
-            // bytes actually present run to the next entry's offset. Taking the rest of the file
-            // would work for the last entry and overrun into the next lump for any other.
-            int packedEnd = NextOffset(directory, count, index, file.Length);
-
-            if (offset < 0 || packedEnd <= offset || packedEnd > file.Length)
-            {
-                throw new InvalidDataException(string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"The static prop lump lies at {offset:N0} to {packedEnd:N0} of a " +
-                    $"{file.Length:N0}-byte file."));
-            }
-
-            // Through the same reader as every other lump, which recognises the LZMA header by its
-            // magic rather than by the flag - one place that knows how a compressed lump looks.
-            payload = BspLumpData.Read(file, new BspLump(offset, packedEnd - offset, version));
-
-            if (payload.Length > length && length > 0)
-            {
-                payload = payload[..length];
-            }
-
-            return true;
-        }
-
-        return false;
-    }
-
-    /// <summary>Where the sub-lump after this one begins, or the end of the file.</summary>
-    private static int NextOffset(
-        ReadOnlySpan<byte> directory, int count, int index, int fileLength)
-    {
-        int next = fileLength;
-
-        for (int other = 0; other < count; other++)
-        {
-            if (other == index)
-            {
-                continue;
-            }
-
-            int offset = BinaryPrimitives.ReadInt32LittleEndian(
-                directory.Slice(sizeof(int) + (other * DirectoryEntryBytes) + 8, sizeof(int)));
-
-            int mine = BinaryPrimitives.ReadInt32LittleEndian(
-                directory.Slice(sizeof(int) + (index * DirectoryEntryBytes) + 8, sizeof(int)));
-
-            if (offset > mine && offset < next)
-            {
-                next = offset;
+                return ReadPayload(BspGameLumps.Payload(file, entry).Span, entry.Version);
             }
         }
 
-        return next;
+        return [];
     }
 
     private static List<BspStaticProp> ReadPayload(ReadOnlySpan<byte> payload, int version)
