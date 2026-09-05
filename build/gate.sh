@@ -288,7 +288,12 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # `docs/memory/a-property-name-needs-its-declaring-table.md` records. Six: the weapon's three
 # states, zero-against-absent (WeaponNotCarried IS zero), the world model kept apart from the
 # entity's own, and a viewmodel owner handle carrying a serial that must not survive the decode.
-run Tf2DemoSalvage.Core.Tests     core     1743
+# 1743 -> 1749: the burn clock on an AUTHORED demo (B336), which is the assertion that feature
+# shipped without and the corpus cannot supply — every demo containing burning is on a map this
+# machine does not have. Six, and the one that matters is the second burn: without the reset on the
+# condition CLEARING, a player burned twice reads as one very long burn and the proxy clamps it to
+# zero, so they draw unburnt the second time. Verified by sabotage; only that test reddens.
+run Tf2DemoSalvage.Core.Tests     core     1749
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.

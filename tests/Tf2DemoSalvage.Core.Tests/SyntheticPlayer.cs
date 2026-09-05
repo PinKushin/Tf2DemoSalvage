@@ -198,6 +198,129 @@ internal static class SyntheticPlayer
             ]);
     }
 
+    /// <summary>
+    /// A schema that also declares <c>DT_TFPlayerShared</c>, where the conditions live (B336).
+    /// </summary>
+    /// <returns>The schema.</returns>
+    /// <remarks>
+    /// **A variant rather than a change to <see cref="Schema()"/>, deliberately.** Adding a
+    /// property to the shared schema shifts every flattened index for every test that uses it —
+    /// the shared-helper hazard `docs/memory/instrument-bugs-outnumber-decoder-bugs.md` is about,
+    /// where a change to what a helper MEANS passes every targeted check.
+    ///
+    /// **`DT_TFPlayer` has to be rebuilt rather than appended to**, which is the difference from
+    /// <see cref="SchemaWithResource"/>: the conditions are reached through a link from the player
+    /// table, and the flattened key a reader looks up is <c>DT_TFPlayerShared.m_nPlayerCond</c> —
+    /// the OWNER table supplies the prefix. A table nothing links to is flattened into nothing, and
+    /// the player comes back with no conditions and no error.
+    ///
+    /// **32 bits unsigned, because the conditions are a bitfield and bit 31 is a real condition.**
+    /// A signed 32-bit read makes the top bit negative, and `InCond` tests it by mask.
+    /// </remarks>
+    public static DemoSchema SchemaWithConditions()
+    {
+        DemoSchema baseline = Schema(OriginTable.NonLocal);
+
+        List<SendTable> tables = [];
+
+        foreach (SendTable table in baseline.Tables)
+        {
+            tables.Add(
+                table.Name == "DT_TFPlayer"
+                    ? table with
+                    {
+                        Properties =
+                        [
+                            .. table.Properties,
+                            Table("playershared", "DT_TFPlayerShared"),
+                        ],
+                    }
+                    : table);
+        }
+
+        tables.Add(new SendTable("DT_TFPlayerShared", NeedsDecoder: true,
+        [
+            UnsignedInt("m_nPlayerCond", bits: 32),
+            UnsignedInt("m_nPlayerCondEx", bits: 32),
+            UnsignedInt("m_nPlayerCondEx2", bits: 32),
+            UnsignedInt("m_nPlayerCondEx3", bits: 32),
+            UnsignedInt("m_nPlayerCondEx4", bits: 32),
+        ]));
+
+        return new DemoSchema(tables, baseline.ServerClasses);
+    }
+
+    /// <summary>One player whose conditions change over several snapshots (B336).</summary>
+    /// <param name="intervalPerTick">Seconds per tick, as <c>svc_ServerInfo</c> declares it.</param>
+    /// <param name="states">One entry per snapshot: the tick and the <c>m_nPlayerCond</c> word.</param>
+    /// <returns>A demo's bytes.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="states"/> is null.</exception>
+    /// <remarks>
+    /// **The corpus cannot answer what this asks.** A burn clock is derived from the TICK a
+    /// condition bit turns on, so testing it needs a recording where that tick is known — and the
+    /// demos that contain burning at all are on maps this machine does not have (B336). Authoring
+    /// the specimen is the only way to predict the answer rather than compare two readings of it.
+    /// </remarks>
+    public static byte[] DemoOfConditionsOverTicks(
+        float intervalPerTick, params (int Tick, int Conditions)[] states)
+    {
+        ArgumentNullException.ThrowIfNull(states);
+
+        DemoSchema schema = SchemaWithConditions();
+        EntityDecoder decoder = new(
+            schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        List<DemoCommand> commands =
+        [
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol, 0, ServerInfo(intervalPerTick)),
+            SyntheticDemo.DataTables(schema),
+        ];
+
+        for (int index = 0; index < states.Length; index++)
+        {
+            (int tick, int conditions) = states[index];
+
+            Dictionary<string, PropertyValue> values = new()
+            {
+                // A position every snapshot, because a player with nowhere to be is declined
+                // before becoming a frame at all.
+                ["m_vecOrigin"] = PropertyValue.FromVectorXY(64f, 0f),
+                ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+                ["m_nPlayerCond"] = PropertyValue.FromInt(conditions),
+            };
+
+            if (index == 0)
+            {
+                values["m_iTeamNum"] = PropertyValue.FromInt(SceneTeams.Red);
+                values["m_lifeState"] = PropertyValue.FromInt(0);
+            }
+
+            DecodedEntity player = Entity(decoder, PlayerClassId, 1, values) with
+            {
+                UpdateType = index == 0 ? EntityUpdateType.Enter : EntityUpdateType.Delta,
+            };
+
+            byte[] body = decoder.EncodeEntities(
+                [player], [], isDelta: index > 0, 0, out int bits);
+
+            commands.Add(SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                tick,
+                new PacketEntitiesMessage(
+                    MaxEntries: 64,
+                    IsDelta: index > 0,
+                    DeltaFromTick: index > 0 ? states[index - 1].Tick : null,
+                    BaselineIndex: false,
+                    UpdatedEntries: 1,
+                    LengthBits: bits,
+                    UpdateBaseline: false,
+                    Body: body)));
+        }
+
+        return SyntheticDemo.From(SyntheticDemo.DefaultProtocol, [.. commands]);
+    }
+
     /// <summary>One of Valve's generated array sub-tables: properties named 000, 001, …</summary>
     private static SendTable ArrayTable(string name) => new(
         name,
