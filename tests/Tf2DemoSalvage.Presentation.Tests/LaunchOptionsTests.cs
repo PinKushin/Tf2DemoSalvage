@@ -79,6 +79,41 @@ public sealed class LaunchOptionsTests
         log.Count("is not a position").ShouldBe(1);
     }
 
+    /// <remarks>
+    /// **An unrecognised option used to become a DEMO PATH, silently** (B357). The viewer then
+    /// failed to open it, loaded no map, and said nothing — which is what
+    /// <c>--surface-colours</c> did, a name this program's own <c>--help</c> advertised and this
+    /// parser never accepted. Half an hour of a session went into photographing an empty screen.
+    /// </remarks>
+    [Test]
+    public void Read_AnOptionItDoesNotKnow_IsReportedRatherThanTakenAsADemo()
+    {
+        RecordingLogger log = new();
+
+        LaunchOptions read = LaunchOptionsReader.Read(
+            ["--surface-colours", "a.dem"], ViewerSettings.Load(), log);
+
+        read.Paths.ShouldBe(["a.dem"], "an option is not a demo, however unrecognised");
+        log.Count("is not an option this viewer knows").ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// The control, and the reason the test above uses a leading dash rather than a known list: a
+    /// bare word IS a demo path, and a rule that reported everything it did not recognise would
+    /// refuse every demo.
+    /// </remarks>
+    [Test]
+    public void Read_ABareWord_IsStillTakenAsADemoPath()
+    {
+        RecordingLogger log = new();
+
+        LaunchOptions read = LaunchOptionsReader.Read(
+            ["surface-colours.dem"], ViewerSettings.Load(), log);
+
+        read.Paths.ShouldBe(["surface-colours.dem"]);
+        log.Count("is not an option this viewer knows").ShouldBe(0);
+    }
+
     [Test]
     public void Read_APlusCommand_AppliesItOverTheConfig()
     {
@@ -146,16 +181,26 @@ public sealed class LaunchOptionsTests
         Read("--spectate", "11").Spectate.ShouldBe(11);
     }
 
+    /// <remarks>
+    /// **This asserted the fall-through until B357, and the intent it recorded is why it changed.**
+    /// The old comment read *"visible as a nonsense demo rather than silently doing nothing"* — so
+    /// the goal was always that the user find out. Becoming a path achieved that only by accident,
+    /// through a failed file open, and the same fall-through is what made `--surface-colours`
+    /// invisible: a name `--help` advertised, silently filed as a demo, no map, nothing said.
+    ///
+    /// The warning serves the original intent directly. What the test still pins is the part that
+    /// mattered most: the end-of-line case must not hang or throw.
+    /// </remarks>
     [Test]
-    public void Read_AnOptionWithItsValueMissing_IsTreatedAsAPathRatherThanConsumingNothing()
+    public void Read_AnOptionWithItsValueMissing_IsReportedRatherThanTakenAsAPath()
     {
-        // **The end-of-line case, and it must not hang or throw.** `--tick` with nothing after it
-        // cannot consume a value, so it falls through to the path list — visible as a nonsense
-        // "demo" rather than silently doing nothing.
-        LaunchOptions read = Read("--tick");
+        RecordingLogger log = new();
 
-        read.Paths.ShouldBe(["--tick"]);
+        LaunchOptions read = LaunchOptionsReader.Read(["--tick"], ViewerSettings.Load(), log);
+
+        read.Paths.ShouldBeEmpty();
         read.ShotTick.ShouldBe(0);
+        log.Count("is not an option this viewer knows").ShouldBe(1);
     }
 
     [Test]

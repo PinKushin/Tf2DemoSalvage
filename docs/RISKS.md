@@ -24370,3 +24370,39 @@ cries wolf on a map with two of anything.
 
 **Evidence class: read-from-source** for the key and the comment, **measured** for the 11,576 lines;
 **interpolated** for the two-lockers explanation, which is why it is filed rather than fixed.
+
+### B357 FIXED 2026-09-05: `--help` named two flags the parser never accepted
+
+**The viewer's own help advertised `--surface-colours` and `--look-at`; `LaunchOptionsReader` accepts
+`--colours` and `--look`.** Neither mismatched name was parsed by anything, and an unrecognised
+argument fell through to `paths.Add(argument)` — so it became a DEMO PATH, failed to open, and the
+viewer sat on no map with nothing said.
+
+**Measured, on me:** half an hour of a session went into capturing and reading a screenshot of an
+empty blue screen whose HUD said `on no map`, while investigating something else entirely. The
+instrument I reached for was named wrongly in the document I read it from, and the failure mode was
+silence.
+
+**Two changes:**
+
+- The help now names `--colours` and `--look`, which is what the parser has always taken. The docs
+  already used the real names (`docs/HANDOFF-viewmodel.md`, `docs/findings/15-detail-textures.md`),
+  so the help was the only wrong copy.
+- **An argument beginning with `-` that no option claimed is reported and dropped.** The test is the
+  leading dash rather than a list of known flags, because the list is thirty lines above and a
+  second copy is the one that drifts.
+
+#### This changed a recorded contract, and the old one asked for the same thing
+
+`Read_AnOptionWithItsValueMissing_IsTreatedAsAPathRatherThanConsumingNothing` asserted the
+fall-through deliberately, and its comment said why: *"visible as a nonsense demo rather than
+silently doing nothing"*. **The intent was always that the user find out** — becoming a path achieved
+that only by accident, through a failed file open, and the same mechanism is what made
+`--surface-colours` invisible. The test is rewritten to the warning and still pins the part that
+mattered most: the end-of-line case must not hang or throw.
+
+**Evidence class: measured** for the mismatch and the silent load; **read-from-source** — of our own
+parser — for the fall-through.
+
+**What is NOT established:** whether any other documented interface names something that does not
+exist. Only the viewer's `--help` was compared against its parser.

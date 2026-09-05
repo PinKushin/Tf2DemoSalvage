@@ -263,6 +263,25 @@ public static class LaunchOptionsReader
                 continue;
             }
 
+            // **An unrecognised option is REPORTED, not filed as a demo** (B357). Everything that
+            // reaches here becomes a path, so a mistyped or renamed flag was silently added to the
+            // demo list, failed to open, and left the viewer sitting on no map with nothing said —
+            // which is exactly what `--surface-colours` did, a name this program's own `--help`
+            // advertised and this parser never accepted.
+            //
+            // A leading dash is the test rather than a list of known flags, because the list is
+            // above and duplicating it here is the copy that drifts. A demo whose filename begins
+            // with a dash is not a case this viewer needs to serve.
+            if (argument.StartsWith('-'))
+            {
+                log.LogWarning(
+                    "{Message}",
+                    $"'{argument}' is not an option this viewer knows; ignoring it. " +
+                    "Run with --help for the list.");
+
+                continue;
+            }
+
             paths.Add(argument);
         }
 
