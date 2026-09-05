@@ -23187,3 +23187,44 @@ divergence is real, narrow, and inert until the frame chain is wired.
 **Fixing it needs variable TYPES**, which this layer does not carry — every proxy variable is a
 triple, and the engine's `ComputeResultType` reads the result variable's declared type first. That
 is the change to make when the frame chain lands, and it is a bigger one than this entry.
+
+### B340 FIXED 2026-09-05: a proxy's source is looked up on the MATERIAL, and the chain only saw proxy outputs
+
+**Found by reading a real material's chain, not by any test failing** — and it was a defect in code
+shipped hours earlier, in B337.
+
+`CFunctionProxy::Init` calls `pMaterial->FindVar( name, &foundVar, … )`, which finds **every
+parameter the VMT declares**. B337 seeded the variable table from proxy OUTPUTS alone, plus
+`$colortint_base`, and then — correctly — refused any proxy whose source was absent. The two
+together silently dropped every operation reading a declared constant.
+
+**`dec18_dumb_bell.vmt` is the worked example**, and it is an ordinary cosmetic:
+
+```
+"$tintMulti" "10"
+…
+"Multiply" { "srcVar1" "$saturatedTint"  "srcVar2" "$tintMulti"  "resultVar" "$phongTint" }
+"Multiply" { "srcVar1" "$saturatedTint"  "srcVar2" "$tintMulti"  "resultVar" "$envMapTint" }
+```
+
+`$tintMulti` is a declared constant, so it was never in the table, so both multiplies were refused
+and the item's phong and envmap tints never got their tenfold multiplier.
+
+**It was live on cp_process_final's own materials too**, which the new assertion showed by
+sabotage: without the seed, `overlays/no_entry` has three unfindable sources — `$fadedistance`
+twice and `$one` — both declared constants driving a `Subtract`/`Divide` fade chain.
+
+**The value's SHAPE is its type, and that one cosmetic carries all three forms.** `{ 111 78 41 }`
+is a 0-255 colour divided by 255; `[0 0 0]` is a float vector used as written; `"10"` is a float var
+that `CBaseVSShader::ColorVarsToVector` BROADCASTS across three components rather than treating as
+red alone (`BaseVSShader.cpp:681-690`). `VmtMaterial.Colour` already implemented all three for its
+own callers, which is why this was a plumbing change rather than a parsing one.
+
+**Non-numeric parameters are left OUT rather than included as zero.** A texture path read as a
+colour is black, and a proxy multiplying by it would erase whatever it touched — so absence has to
+keep meaning "no numeric variable here", which is what the refusal rule depends on.
+
+**What this says about the B337 fix.** Refusing a proxy whose source is absent was right — it is
+`Init` returning false — but it is only safe once the table sees what `FindVar` sees. Half of a
+refusal rule is stricter than the engine, and the half that was missing is the half that makes it
+correct. Same shape as `docs/memory/half-a-mechanism-is-not-parity.md`.

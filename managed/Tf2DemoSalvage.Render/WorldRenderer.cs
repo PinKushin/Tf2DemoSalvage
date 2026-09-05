@@ -1860,6 +1860,15 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// </remarks>
     private readonly List<(float Red, float Green, float Blue)?> _tintBases = [];
 
+    /// <summary>Each material's declared numeric parameters, for its proxy chain (B340).</summary>
+    /// <remarks>
+    /// Null for the great majority — a material running no proxy has nothing to look up. What this
+    /// buys is that a proxy reading a declared CONSTANT finds it, which the engine's `FindVar`
+    /// does and a table seeded from proxy outputs alone does not.
+    /// </remarks>
+    private readonly List<IReadOnlyDictionary<string, (float Red, float Green, float Blue)>?>
+        _variables = [];
+
     /// <summary>Each material's <c>$color</c> alone, which <c>$color2</c> multiplies against.</summary>
     private readonly List<(float Red, float Green, float Blue)> _colourFactors = [];
 
@@ -2817,6 +2826,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // `$colortint_base` non-null is also what marks a material as tintable at all, so a
             // material without one never builds the proxy variable table.
             _tintBases.Add(surface?.TintBase);
+
+            // Parallel to every other per-material list, and null wherever the material runs no
+            // proxy — which is nearly all of them.
+            _variables.Add(
+                index < assets.Variables.Count ? assets.Variables[index] : null);
             _colourFactors.Add(surface?.ColourFactor ?? (1f, 1f, 1f));
 
             float rimExponent = phong?.Rim?.Exponent ?? 4f;
@@ -4068,14 +4082,25 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // and `YellowLevel` writes `$yellow` on 7,570 materials, most of which carry no paint at
         // all. Gating the table on the paint would have left every one of those evaluating nothing
         // while looking implemented.
+        // **Seeded from the material's OWN declared parameters** (B340), because that is what the
+        // engine's lookup finds: `CFunctionProxy::Init` calls `pMaterial->FindVar( name, … )`,
+        // which sees every parameter the VMT declares and not only what an earlier proxy wrote.
+        //
+        // **Seeding from proxy outputs alone drops whole operations**, and `dec18_dumb_bell.vmt` is
+        // the worked example: it multiplies `$saturatedTint` by `$tintMulti`, and `$tintMulti` is
+        // the declared constant `"10"`. With no seed the source is absent, the refusal below fires,
+        // and the item's phong and envmap tints never get their multiplier.
         Dictionary<string, (float Red, float Green, float Blue)> variables =
-            new(StringComparer.OrdinalIgnoreCase);
+            materialIndex >= 0 && materialIndex < _variables.Count &&
+            _variables[materialIndex] is { } declared
+                ? new(declared, StringComparer.OrdinalIgnoreCase)
+                : new(StringComparer.OrdinalIgnoreCase);
 
         if (Tintable(materialIndex) is { } tintBase)
         {
-            // Seeded rather than left empty: `$colortint_base` is what an UNPAINTED item wears, and
-            // a `SelectFirstIfNonZero` reading a missing variable as zero would paint every
-            // unpainted cosmetic black.
+            // `$colortint_base` is what an UNPAINTED item wears. It is normally among the declared
+            // parameters above; this keeps the resolved value, which has been through the same
+            // brace-versus-bracket rule and is what the rest of the renderer draws with.
             variables["$colortint_base"] = tintBase;
         }
 
@@ -5065,6 +5090,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         _selfIllumMasks.Clear();
         _phongExponentMaps.Clear();
         _tintBases.Clear();
+        _variables.Clear();
         _colourFactors.Clear();
         _sortedTranslucent = [];
         _decals = [];

@@ -356,6 +356,12 @@ public readonly record struct MapPlacedCubemap(
 /// The per-texel exponent, albedo tint and rim mask, or null — in which case the engine binds WHITE
 /// and the arithmetic still runs (B334).
 /// </param>
+/// <param name="Variables">
+/// Every numeric parameter the material declares, for the proxy chain to read (B340). A proxy's
+/// source is looked up on the MATERIAL — <c>FindVar</c> — not only among what earlier proxies
+/// wrote, so a chain seeded from proxy outputs alone drops any operation reading a declared
+/// constant. Null for a material that declares none.
+/// </param>
 /// <remarks>
 /// A record rather than a longer and longer tuple: at four members the positional form stops
 /// saying which is which at the call site, and two of these are the same type.
@@ -373,7 +379,8 @@ public readonly record struct ResolvedMaterial(
     MapPhong? Phong = null,
     MapTexture? LightWarp = null,
     MapTexture? SelfIllumMask = null,
-    MapTexture? PhongExponentMap = null);
+    MapTexture? PhongExponentMap = null,
+    IReadOnlyDictionary<string, (float Red, float Green, float Blue)>? Variables = null);
 
 // GameArchives moved to Tf2DemoSalvage.Content.Assets on 2026-08-22 (D53's sibling): every other
 // reader of the game's files already lived there, and sound needs it now as well as the renderer.
@@ -703,6 +710,20 @@ public sealed class MapAssets
     /// every player. Measured with <c>vmt-param $phongexponenttexture</c>.
     /// </remarks>
     public IReadOnlyList<MapTexture?> PhongExponentMaps { get; private init; } = [];
+
+    /// <summary>Each material's declared numeric parameters, for its proxy chain (B340).</summary>
+    /// <remarks>
+    /// **A proxy's source is looked up on the MATERIAL, and this is what that lookup sees.**
+    /// `CFunctionProxy::Init` calls `pMaterial->FindVar( name, … )`, which finds any parameter the
+    /// material declares — not only the ones an earlier proxy in the same block wrote. Seeding a
+    /// chain from proxy outputs alone drops every operation whose source is a declared constant,
+    /// and `dec18_dumb_bell.vmt` has one: it multiplies `$saturatedTint` by `$tintMulti`, which is
+    /// the constant `"10"`.
+    ///
+    /// Null for the great majority — a material running no proxy has nothing to look up.
+    /// </remarks>
+    public IReadOnlyList<IReadOnlyDictionary<string, (float Red, float Green, float Blue)>?>
+        Variables { get; private init; } = [];
 
     /// <summary>The proxies each material runs, empty for the great majority that run none.</summary>
     /// <remarks>
@@ -1246,6 +1267,7 @@ public sealed class MapAssets
             LightWarps = table.LightWarps,
             SelfIllumMasks = table.SelfIllumMasks,
             PhongExponentMaps = table.PhongExponentMaps,
+            Variables = table.Variables,
             DevGrid = LoadDevGrid(assets, archives, maximumTextureSize),
 
             // The 2D skybox, from worldspawn's `skyname` — every map has one, because `sv_skyname`
@@ -1741,7 +1763,11 @@ public sealed class MapAssets
             ResolvePhong(),
             ResolveLightWarp(),
             ResolveSelfIllumMask(),
-            ResolvePhongExponentMap());
+            ResolvePhongExponentMap(),
+
+            // **Only for a material that runs a proxy**, because nothing else reads them and a
+            // dictionary per material across a whole map is a real cost for a table nobody opens.
+            material.Proxies.Count > 0 ? material.NumericValues() : null);
 
         MapTexture? ResolvePhongExponentMap()
         {

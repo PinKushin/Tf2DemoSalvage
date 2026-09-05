@@ -1018,6 +1018,48 @@ public sealed class VmtMaterial
     /// </remarks>
     public IReadOnlyCollection<string> Keys => _values.Keys;
 
+    /// <summary>Every declared parameter that reads as a number, for the proxy chain (B340).</summary>
+    /// <returns>Name to value, with a single number broadcast across three components.</returns>
+    /// <remarks>
+    /// **A proxy's source is looked up on the MATERIAL, not only among what earlier proxies
+    /// wrote** — `pMaterial->FindVar( name, &amp;foundVar, … )` — and a material's declared constants
+    /// are exactly what that finds. `dec18_dumb_bell.vmt` multiplies `$saturatedTint` by
+    /// `$tintMulti`, and `$tintMulti` is the declared constant `"10"`: a chain seeded only from
+    /// proxy outputs cannot find it and drops the operation.
+    ///
+    /// **The value's SHAPE is its type, which is Source's own rule.** `{ 111 78 41 }` is a
+    /// 0-255 colour and is divided by 255; `[0 0 0]` is a float vector used as written; a bare
+    /// number is a float var, and `CBaseVSShader::ColorVarsToVector` broadcasts it across three
+    /// components rather than treating it as red alone (`BaseVSShader.cpp:681-690`). All three
+    /// forms appear in that one material.
+    ///
+    /// **Textures and flags are skipped rather than guessed at.** A value that is not a number —
+    /// a path, a shader name — has no numeric meaning, and including it as zero would let a proxy
+    /// read a texture path as a colour.
+    /// </remarks>
+    public IReadOnlyDictionary<string, (float Red, float Green, float Blue)> NumericValues()
+    {
+        Dictionary<string, (float Red, float Green, float Blue)> values =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (string key in _values.Keys)
+        {
+            try
+            {
+                values[key] = Colour(key);
+            }
+            catch (InvalidDataException)
+            {
+                // Not a number: a texture path, a shader name, anything else a VMT carries. The
+                // engine's FindVar would return a var of a non-numeric type, and a proxy reading it
+                // as a float gets nothing useful — so leaving it out is what makes the absence
+                // mean "no numeric variable here".
+            }
+        }
+
+        return values;
+    }
+
     /// <summary>Strips a platform condition from a key, leaving the parameter it qualifies.</summary>
     /// <remarks>
     /// **A VMT key may be prefixed with the platform it applies to** — <c>360?$color2</c> sets

@@ -1035,7 +1035,12 @@ run Tf2DemoSalvage.Presentation.Tests presentation 440
 # put the frame, and a hand-built fixture would check this project's arithmetic against itself. The
 # one that can fail is `Decode_TwoDifferentFrames_ReturnDifferentPixels`: a reader still returning
 # frame zero satisfies every count assertion and fails only that.
-run Tf2DemoSalvage.Content.Tests  content   1014
+# 1014 -> 1018: the declared parameters a proxy chain looks its sources up in (B340). Four: a bare
+# number broadcast across three components — the case that caused the bug, since `$tintMulti "10"`
+# multiplies a vector — braces against brackets, which differ by 255 and would multiply a tint by a
+# hundred if confused, textures left OUT rather than included as zero, and every source of one real
+# cosmetic's chain being findable.
+run Tf2DemoSalvage.Content.Tests  content   1018
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2
@@ -1367,7 +1372,12 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     156
 # `$colortint_base`, because those are exactly the ones the variable table used to skip whole. All
 # three of cp_process_final's proxy-running materials are in that set, so without this the widening
 # would be untested by construction.
-run Tf2DemoSalvage.Rendering.Tests rendering 746
+#
+# 746 -> 747: every source a real map's proxy chains read is findable (B340). ONE test, and it
+# found a live defect by sabotage: with the seed removed, `overlays/no_entry` has three unfindable
+# sources — `$fadedistance` twice and `$one` — declared constants driving a fade chain the renderer
+# was refusing whole. Counted rather than listed, because the map's materials are Valve's to change.
+run Tf2DemoSalvage.Rendering.Tests rendering 747
 # 101 -> 103 on 2026-08-29: LaunchOptionWiringTests (B223, D118). Two tests, and they cost about
 # seventeen seconds EACH, because each builds a real MainForm and loads a corpus demo — which reads
 # cp_badlands.bsp when Team Fortress 2 is installed. That is the most expensive pair in this file
