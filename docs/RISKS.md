@@ -23228,3 +23228,36 @@ keep meaning "no numeric variable here", which is what the refusal rule depends 
 `Init` returning false — but it is only safe once the table sees what `FindVar` sees. Half of a
 refusal rule is stricter than the engine, and the half that was missing is the half that makes it
 correct. Same shape as `docs/memory/half-a-mechanism-is-not-parity.md`.
+
+### B341 FIXED 2026-09-05: an animated base texture was bound as its first frame, on 152 shipped materials
+
+**B338 read the frames and computed which one to show, and stopped before uploading them.** This is
+the hop that makes it draw.
+
+**`$basetexture` rather than `$detail`, and the reason is visibility.** Measured with `vmt-proxy`:
+152 shipped materials animate `$basetexture` through `$frame` and they animate UNCONDITIONALLY;
+6,735 animate `$detail`, whose blend factor is `BurnLevel` and therefore zero unless somebody is on
+fire. The second group also nearly all animate ONE file — 121 frames of TF2's fire sheet — so doing
+them per material would decode it thousands of times, which is why B338 records a cache keyed by
+texture path as their design. This is not that, and says so where the list is declared.
+
+**It has a subject on the parity reference, which the burning work does not.** cp_process_final
+animates **0 of its own 412** materials; the f12 demo loads **62** through the prop path, 184 frames
+in all — animated medals and workshop cosmetics. So a viewer opening that demo is now watching
+something that was frozen before, and that is checkable by looking rather than only by arithmetic.
+
+**The frame is a function of the playback clock alone**, which is why this needed no entity:
+`CAnimatedTextureProxy::GetAnimationStartTime` returns 0 (`animatedtextureproxy.cpp:25-28`), so
+every draw of a material shows the same frame and it belongs beside `Sine` rather than beside the
+paint.
+
+**Two guards that are the engine's, not tidiness.** A material may run `AnimatedTexture` over a
+single-frame texture — the proxy is written once for a whole family — and the engine refuses that
+at bind (`if ( numFrames <= 0 )`), so a one-frame "animation" resolves to null here rather than to
+a list of one. And a material may run several `AnimatedTexture` proxies at different rates, one for
+the base and one for the detail, so the rate is taken from the proxy that names `$basetexture`
+rather than from the first one found.
+
+**What is NOT done.** The `$detail` animation — the fire — still binds frame zero, and needs the
+path-keyed cache. Until then a burning player shows a still flame rather than a moving one, on top
+of the blend factor B336 already drives.

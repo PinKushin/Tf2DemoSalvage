@@ -47,6 +47,8 @@ public sealed class MaterialTable
 
     private readonly List<IReadOnlyDictionary<string, (float Red, float Green, float Blue)>?>
         _variables = [];
+
+    private readonly List<IReadOnlyList<MapTexture>?> _animationFrames = [];
     private readonly List<IReadOnlyList<MaterialProxy>> _proxies = [];
 
     /// <summary>How many materials the table holds.</summary>
@@ -117,6 +119,9 @@ public sealed class MaterialTable
     public IReadOnlyList<IReadOnlyDictionary<string, (float Red, float Green, float Blue)>?>
         Variables => _variables;
 
+    /// <summary>Each material's base-texture animation frames, null where it has none (B341).</summary>
+    public IReadOnlyList<IReadOnlyList<MapTexture>?> AnimationFrames => _animationFrames;
+
     /// <summary>The proxies each material runs, empty for the great majority.</summary>
     public IReadOnlyList<IReadOnlyList<MaterialProxy>> Proxies => _proxies;
 
@@ -144,6 +149,7 @@ public sealed class MaterialTable
         _selfIllumMasks.Add(resolved.SelfIllumMask);
         _phongExponentMaps.Add(resolved.PhongExponentMap);
         _variables.Add(resolved.Variables);
+        _animationFrames.Add(resolved.AnimationFrames);
         _proxies.Add(resolved.Proxies ?? []);
 
         // **The shader name, kept because "no base texture" is only a fault for SOME shaders**
