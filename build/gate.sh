@@ -710,7 +710,15 @@ run Tf2DemoSalvage.Animation.Tests animation 111
 # showed the OVERSHOOT — the whole point of the entry — was pinned by nothing: the test that named
 # it sampled a KNOT, where every interpolation agrees by construction. It now samples strictly
 # between control points, where a lerp is a full degree out.
-run Tf2DemoSalvage.Scene.Tests    scene     518
+# 518 -> 522: a flinch the model cannot play falls back to the CHEST one (B350), which is the ONE
+# gesture the engine substitutes rather than abandoning. Four, three of them controls: a flinch the
+# model has plays its own, a non-flinch gesture is still dropped, and a model with no flinch at all
+# drops it. TF2's class models declare only FLINCH_CHEST, and the measured demo fires 69 non-chest
+# flinch events against 55 chest ones — so this was most of them. The fifth was added after
+# sabotage: weakening the abandonment from `<= 0` to `< 0` reddened nothing, because every other
+# fixture put the activity at index one to avoid the ambiguity. Sequence ZERO is "no answer" to the
+# engine even though it is an ordinary index elsewhere, and that boundary needed its own case.
+run Tf2DemoSalvage.Scene.Tests    scene     523
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

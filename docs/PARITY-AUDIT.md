@@ -694,3 +694,25 @@ only for the recording checked.
 | `ChildLayerBlend` | **dead** — body opens with a bare `return;` |
 | `UnragdollBlend` | **unreachable** — neither arming route fires |
 | the weapon overrides that run after it | B347, B348 implemented; B349 proved equivalent |
+
+## The animation state, audited 2026-09-05 by DENOMINATOR rather than by reading
+
+A different method from the pose audit above, and it found more per hour: list every method of
+`CMultiPlayerAnimState` (52 of them), diff against what this repository cites, and run down the ones
+with **no citation at all**. Five had none.
+
+| function | outcome |
+|---|---|
+| `CalcMovementPlaybackRate` | **dead** — zero call sites in TF2's hierarchy; the class is `DECLARE_CLASS_NOBASE` so the base's four calls belong to a tree TF2 never instantiates |
+| `GetInterpolatedGroundSpeed` | **dead** — its only non-debug use is commented out inside the function above |
+| `ComputeFireSequence` | **empty body, no caller** |
+| `ShouldUpdateAnimState` | its general conditions we already honour; its TF2-specific one (a custom player model that opts out of class animations) is **unreachable** — `m_iszCustomModel` arrives EMPTY in all five sends across two demos, one of them a Halloween map |
+| `PlayFlinchGesture` | **a real divergence — B350**, and most flinches were affected |
+
+**Four dead ends and one defect is a good ratio for the cost**, and the four are worth having written
+down: each looked like a feature from its declaration, and one of them (`CalcMovementPlaybackRate`)
+computes exactly the speed-matching a reader would expect a viewer to need.
+
+**The method generalises.** A function this project has never cited is a function nobody has compared
+against the engine — which is a sharper filter than branch count, and cheaper than reading a whole
+subsystem. `parity <filter>` already ranks what we DO cite; the gap is what it cannot show.

@@ -1278,7 +1278,12 @@ public sealed class EntityModelSet
     /// and the layer's own <c>m_flPlaybackRate</c>, which the engine keeps per layer and a gesture
     /// leaves at one. Named rather than silently omitted.
     /// </remarks>
-    private static List<PoseLayer> LayersFor(
+    /// <remarks>
+    /// **An instance method because it COUNTS its own substitutions** (B350). It was static, and a
+    /// counter kept anywhere else would measure this method's intent rather than its work — the
+    /// fault B347 shipped and a sabotage caught.
+    /// </remarks>
+    private List<PoseLayer> LayersFor(
         SceneProp prop, PropModels.SkinnedModel skinned, double seconds)
     {
         List<PoseLayer> layers = [];
@@ -1367,8 +1372,39 @@ public sealed class EntityModelSet
             // three gestures reaching the drawn prop, and zero layers.
             int sequence = skinned.ForActivity(activity);
 
+            // **A FLINCH is the one gesture the engine substitutes rather than abandoning** (B350),
+            // and it does so before `AddToGestureSlot` is ever reached
+            // (`multiplayer_animstate.cpp:376`):
+            //
+            //     if ( iActivity != ACT_MP_GESTURE_FLINCH_CHEST &&
+            //          GetBasePlayer()->SelectWeightedSequence( iActivity ) == -1 )
+            //         RestartGesture( GESTURE_SLOT_FLINCH, ACT_MP_GESTURE_FLINCH_CHEST );
+            //
+            // **Measured, and it is most of them.** TF2's class models declare only
+            // `ACT_MP_GESTURE_FLINCH_CHEST` in the merged table — no HEAD, LEFTARM, RIGHTARM,
+            // LEFTLEG or RIGHTLEG. `tf2-2026-pub-pov-cheater` fires 55 chest flinches and 69
+            // non-chest ones, every one of which this dropped.
+            //
+            // **Resolved here rather than at event time, which is where the engine decides.** The
+            // substitution needs the model, and only this layer has it; the layer produced is the
+            // same either way because nothing between the two moments can change which sequences a
+            // model declares.
+            if (sequence <= 0 &&
+                gesture.Slot == GestureSlot.Flinch &&
+                !string.Equals(activity, FlinchChestActivity, StringComparison.Ordinal))
+            {
+                sequence = skinned.ForActivity(FlinchChestActivity);
+
+                if (sequence > 0)
+                {
+                    SubstitutedFlinches++;
+                }
+            }
+
             // `if ( iGestureSequence <= 0 ) return;` — the engine abandons a gesture whose activity
-            // this model does not have, rather than substituting one.
+            // this model does not have, rather than substituting one. That still holds for every
+            // other slot, and for a flinch on a model carrying no flinch at all: the substitution
+            // above reaches this same check with the chest activity and is abandoned on it.
             if (sequence <= 0)
             {
                 continue;
@@ -2618,6 +2654,23 @@ public sealed class EntityModelSet
             return solved;
         }
     }
+
+    /// <summary>The flinch every class model declares, and the one the others fall back to.</summary>
+    /// <remarks>
+    /// **`ACT_MP_GESTURE_FLINCH_CHEST` is the engine's own literal**
+    /// (<c>multiplayer_animstate.cpp:376</c>), not a choice of ours — the substitution names it
+    /// twice in four lines, as both the guard and the replacement.
+    /// </remarks>
+    private const string FlinchChestActivity = "ACT_MP_GESTURE_FLINCH_CHEST";
+
+    /// <summary>Flinches that fell back to the chest animation — the wiring check for B350.</summary>
+    /// <remarks>
+    /// **Counted where the substitution happens, and only when it SUCCEEDS.** A conformance test
+    /// proves the fallback picks chest when asked; only this says a real demo asks. Zero here beside
+    /// a demo that fires 69 non-chest flinch events would mean the events never reach the gesture
+    /// feed, which is a different defect from the one this fixes.
+    /// </remarks>
+    public int SubstitutedFlinches { get; private set; }
 
     /// <summary>Barrel bones actually WRITTEN — the wiring check for B347.</summary>
     /// <remarks>

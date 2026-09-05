@@ -23862,3 +23862,69 @@ tracked bones for a model named on the command line, so the question can be re-a
 one call rather than re-derived.
 
 **Evidence class: measured** for all three facts, **arithmetic** for the equality that follows.
+
+### B350 FIXED 2026-09-05: most flinches never played
+
+**A flinch is the ONE gesture the engine substitutes rather than abandoning**, and it does so before
+`AddToGestureSlot` is ever reached (`multiplayer_animstate.cpp:371`):
+
+```cpp
+if ( iActivity != ACT_MP_GESTURE_FLINCH_CHEST &&
+     GetBasePlayer()->SelectWeightedSequence( iActivity ) == -1 )
+    RestartGesture( GESTURE_SLOT_FLINCH, ACT_MP_GESTURE_FLINCH_CHEST );
+else
+    RestartGesture( GESTURE_SLOT_FLINCH, iActivity );
+```
+
+**This project reproduced the abandonment faithfully and missed the exception.** `AddToGestureSlot`
+drops any gesture whose activity resolves to nothing — `if ( iGestureSequence <= 0 ) return;`
+(`:634`) — and our comment said so, correctly, right where the flinch was being dropped. The flinch
+never reaches that check with an unresolvable activity, because `PlayFlinchGesture` has already
+swapped it.
+
+**It was most of them.** TF2's class models declare only `ACT_MP_GESTURE_FLINCH_CHEST` in the merged
+table — no HEAD, LEFTARM, RIGHTARM, LEFTLEG or RIGHTLEG. And the events for those DO arrive: the
+`CTEPlayerAnimEvent` stream in `tf2-2026-pub-pov-cheater` fires
+
+| event | id | count |
+|---|---|---|
+| `FlinchChest` | 9 | 55 |
+| `FlinchHead` | 10 | 8 |
+| `FlinchLeftArm` | 11 | 36 |
+| `FlinchRightArm` | 12 | 7 |
+| `FlinchLeftLeg` | 13 | 18 |
+
+**Sixty-nine non-chest flinches against fifty-five chest ones** — so more than half of every flinch
+in the demo drew nothing where the engine plays the chest animation. A player shot in the leg simply
+did not react.
+
+**Measured after the fix, on the pose path:** **707 substitutions** over ticks 9000–9600, against a
+control of 180 sequence changes in the same window. (Resolution runs per frame while a gesture is
+live, so the count is frames rather than events; the point is that it is not zero.)
+
+**How it was found.** Not by looking at output — by listing every `CMultiPlayerAnimState` method and
+diffing against what this repository cites. Five had no citation at all; four turned out to be dead
+or unreachable (`CalcMovementPlaybackRate`, `GetInterpolatedGroundSpeed`, `ComputeFireSequence`, and
+the TF2-specific half of `ShouldUpdateAnimState`), and the fifth was this.
+
+**Evidence class: read-from-source** for the substitution, **measured** for the model's activity list,
+the event census and the post-fix count.
+
+**What is NOT established:** whether a chest flinch looks right standing in for a leg hit. It is what
+TF2 draws, which settles it for parity; whether it reads well is the owner's to judge.
+
+#### Verification, and a boundary that was designed around rather than tested
+
+The substitution test was RED before the fix, with all three controls already green — so the defect
+and the guard against over-correcting were both established before a line changed. Two further
+sabotages:
+
+- **Applying the fallback to every slot** reddens
+  `Instances_ForANonFlinchGestureTheModelLacks_StillDropsIt` alone. `AddToGestureSlot`'s abandonment
+  is untouched for every other gesture, which is what stops a missing reload playing a flinch.
+- **Weakening the abandonment from `<= 0` to `< 0` reddened NOTHING**, and that was a gap rather
+  than a spare assertion. **Sequence zero is "no answer" to the engine** — `if ( iGestureSequence
+  <= 0 ) return;` abandons on it even though zero is an ordinary sequence index everywhere else —
+  and every fixture here deliberately placed the activity at index one to avoid the ambiguity. The
+  boundary had been designed around instead of tested. A fifth case now pins it, and reddens alone
+  under that sabotage.

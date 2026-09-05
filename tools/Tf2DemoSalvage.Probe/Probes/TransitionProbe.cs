@@ -275,6 +275,15 @@ public sealed class TransitionProbe : IProbe
                 $"barrels spun: {models.SpunBarrels} bone writes, furthest angle " +
                 $"{models.FurthestBarrelAngle:0.###} rad"));
 
+        // **Whether a flinch the model cannot play falls back to the chest one** (B350). The
+        // conformance suite proves the substitution picks chest; only this says a real demo asks
+        // for it. Zero here, on a demo whose `CTEPlayerAnimEvent` stream fires 69 non-chest flinch
+        // events, would mean they never reach the gesture feed at all.
+        output.WriteLine(
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"flinches substituted to CHEST: {models.SubstitutedFlinches}"));
+
         if (models.SequenceChangesSeen == 0)
         {
             output.WriteLine(
