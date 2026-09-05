@@ -222,6 +222,65 @@ public sealed class PlayerBodygroupWiringTests
         Player(drawn).Pose.Body.ShouldBe(1);
     }
 
+    /// <remarks>
+    /// **`wm_bodygroup_override`, the one arm that addresses a part by NUMBER** (B353,
+    /// `econ_entity.cpp:2083`). Two shipped items declare it — the Purity Fist and the Short
+    /// Circuit — and both replace a hand with a robot arm, so what is switched is the wearer's own
+    /// limb rather than a cosmetic slot.
+    ///
+    /// Part 2 here is `shoes_socks` at place 4, and state 1 therefore reads as 4.
+    /// </remarks>
+    [Test]
+    public void Add_AnItemWithAWorldModelOverride_SetsThatPartByNumber()
+    {
+        List<SceneProp> drawn = [Worn(RobotArm)];
+
+        PlayerProps.Add([Scout()], drawn, new Wardrobe(), Bodygroup.Instance);
+
+        Player(drawn).Pose.Body.ShouldBe(4);
+    }
+
+    /// <remarks>
+    /// **`if ( iBodyOverride &gt; -1 &amp;&amp; iBodyStateOverride &gt; -1 )`** — half a declaration does nothing.
+    ///
+    /// **The item ALSO hides `hat`, and that is what makes this test able to fail.** The first
+    /// version wore an item with the half-declaration and nothing else, and asserted a body of 0 —
+    /// which it could not help but observe. `SetBodygroup` returns the body unchanged for a negative
+    /// value in our code and in Valve's (`shared/animation.cpp:863` returns early for an
+    /// out-of-range value), so removing the outer guard entirely changes NOTHING observable; a
+    /// sabotage confirmed the test stayed green with the clause deleted.
+    ///
+    /// **The mistake the assertion actually has to catch is the state defaulting to 0**, and setting
+    /// a part to 0 is only visible from a body that is not already 0. So the item hides `hat` — part
+    /// 0 here, so a correct read leaves 1 — and a reader that treated the missing state as 0 would
+    /// put the part straight back and read 0. Same item, one extra field, and now the two readings
+    /// disagree.
+    /// </remarks>
+    [Test]
+    public void Add_AnItemWhoseOverrideNamesNoState_KeepsWhatItsNamesDid()
+    {
+        List<SceneProp> drawn = [Worn(HalfAnOverride)];
+
+        PlayerProps.Add([Scout()], drawn, new Wardrobe(), Bodygroup.Instance);
+
+        Player(drawn).Pose.Body.ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **The override runs after the named entries on the same item**, which is the engine's order
+    /// within `UpdateBodygroups` — names first (`:2044`), then the override (`:2083`). They address
+    /// different parts here, so both survive: `hat` at place 1 and `shoes_socks` at place 4.
+    /// </remarks>
+    [Test]
+    public void Add_AnItemWithBothNamesAndAnOverride_AppliesBoth()
+    {
+        List<SceneProp> drawn = [Worn(RobotArmWithAHat)];
+
+        PlayerProps.Add([Scout()], drawn, new Wardrobe(), Bodygroup.Instance);
+
+        Player(drawn).Pose.Body.ShouldBe(5);
+    }
+
     private const int ScoutClass = 1;
     private const int SpyClass = 8;
 
@@ -230,6 +289,9 @@ public sealed class PlayerBodygroupWiringTests
     private const int HatAndHeadphones = 102;
     private const int PutsTheHatBack = 103;
     private const int FistsOfSteel = 104;
+    private const int RobotArm = 105;
+    private const int HalfAnOverride = 106;
+    private const int RobotArmWithAHat = 107;
 
     /// <summary>The fixture model's body parts, as a <c>.mdl</c> declares them.</summary>
     /// <remarks>
@@ -335,6 +397,20 @@ public sealed class PlayerBodygroupWiringTests
             PutsTheHatBack => new ItemBodygroups(new Dictionary<string, int> { ["hat"] = 0 }, false),
             FistsOfSteel => new ItemBodygroups(
                 new Dictionary<string, int> { ["hat"] = 1 }, true),
+            RobotArm => ItemBodygroups.None with { OverrideGroup = 2, OverrideState = 1 },
+            // Names `hat` as well, so the half-declaration has something to undo if it is read
+            // wrongly — see the test's remarks. The override names part 0, which IS `hat`.
+            HalfAnOverride => new ItemBodygroups(
+                new Dictionary<string, int> { ["hat"] = 1 }, false)
+            {
+                OverrideGroup = 0,
+            },
+            RobotArmWithAHat => new ItemBodygroups(
+                new Dictionary<string, int> { ["hat"] = 1 }, false)
+            {
+                OverrideGroup = 2,
+                OverrideState = 1,
+            },
             _ => ItemBodygroups.None,
         };
     }

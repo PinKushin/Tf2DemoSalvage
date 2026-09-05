@@ -828,3 +828,90 @@ the scene. Its first run reported "no such part on this model" for all 24 reques
 decisive negative and was a fact about the probe: `EntityModelSet.Geometry` answers nothing until a
 map sets it. It now prints a control first and says outright that a zero there voids everything
 below.
+
+## The rest of `CEconEntity` — one divergence, one non-divergence, and a correction
+
+Having read `UpdateBodygroups` to its closing brace for B352, the cheapest next question was the
+denominator for its own class. Sixteen `CEconEntity` methods have never been cited here; seven have
+no mention at all. Three were chased.
+
+### `ShouldDraw` — a real divergence, 23 items (B354)
+
+The whole function is two lines and we implement the second one:
+
+```cpp
+bool CEconEntity::ShouldDraw()
+{
+    if ( ShouldHideForVisionFilterFlags() )
+        return false;
+    return BaseClass::ShouldDraw();
+}
+```
+
+(`econ_entity.cpp:1800`.) An item declaring `vision_filter_flags` is hidden from a viewer who does
+not have the matching vision. **23 shipped items declare it** — four Pyroland (the Pet Balloonicorn,
+the Pet Reindoonicorn, the Infernal Orchestrina, the Burning Bongos) at `TF_VISION_FILTER_PYRO`, and
+nineteen MvM robot skins at `TF_VISION_FILTER_ROME`. We draw all 23 to everybody.
+
+**It is implementable, which is why it is filed rather than dismissed.** The viewer's flags are the
+recorder's, and both sources are reachable from a demo: `vision_opt_in_flags` is an item attribute
+(B234 decodes attributes, and `ItemSchema.AttributeDefinitionIndex` resolves one by name), and the
+Halloween arm reads `IsHolidayMap`, which is networked gamerules state.
+
+### `ValidateEntityAttachedToPlayer` — a non-divergence, and the reason is worth keeping
+
+It is the client's anti-griefing check: a hat parented to something that is not its owner is
+suppressed, and `UpdateWearableBodyGroups` skips an item that fails it. Two independent reasons it
+cannot fire for us, and the first is decisive:
+
+```cpp
+m_bDeemedInvalid = engine->IsHLTV() ? false : !ValidateEntityAttachedToPlayer( bRetry );
+```
+
+(`c_baseentity.cpp:1383`.) **Under HLTV the check is not run at all**, so every SourceTV demo already
+takes our branch. And on a POV demo it runs but cannot conclude: it needs
+`pOwner->Inventory()->GetSOC()` — the Steam inventory of the player being validated — which a client
+has only for itself, so the "lost connection to the GC" arm returns true and trusts the server.
+
+This is the second mechanism today whose absence is at parity because **the engine's own
+preconditions do not hold for a spectator** — the first was the style arm of `UpdateBodygroups`. It
+is worth naming as a class of result: checking the precondition costs one call chain and converts a
+plausible defect into a settled question.
+
+### `TranslateViewmodelHandActivity` — a non-divergence, resolved before the wire
+
+196 entries in `s_viewmodelacttable` (`tf_weaponbase.cpp:4292`) map a base viewmodel activity plus a
+weapon role onto a role-specific one, so a primary weapon's hands play `ACT_PRIMARY_VM_IDLE` rather
+than `ACT_VM_IDLE`. A table that size looks like a substantial gap.
+
+**It runs before the value is networked.** The call site is inside `SendWeaponAnim`
+(`basecombatweapon_shared.cpp:1216`), which translates and then calls
+`SendViewModelMatchingSequence` → `SetSequence` on the viewmodel — and `m_nSequence` on
+`DT_BaseViewModel` is what a demo carries. The client never re-derives it; by the time anything is
+recorded, the translation has already happened and collapsed into a sequence number.
+
+Same shape as the two above and worth stating as the third: **a translation applied by the sender is
+not a translation the receiver owes.** The test is where the call sits relative to the network
+variable, not how large the table is.
+
+The remaining uncited pair, `SetupWeights` and `UsesFlexDelayedWeights`, are both downstream of
+facial flexes, which `docs/RISKS.md` already records as unimplemented — a worn item with its own
+flex controllers takes the wearer's weights, and there are no weights to take. Filed here only so the
+next sweep of this class does not chase them again.
+
+### A correction to B352's stated reason, which was wrong
+
+B352 recorded that the eight `player_bodygroups` entries valued 0 are unreachable because "a demo
+carries no vision filter". **That reason is false.** `C_TFPlayer::GetVisionFilterFlags`
+(`c_tf_player.cpp:8028`) is not only a local-player opt-in: the Halloween arm applies to everyone
+whenever `IsHolidayActive( kHoliday_HalloweenOrFullMoon )`, and that reads `IsHolidayMap`, which a
+demo does carry. A Halloween recording has a live vision filter.
+
+The conclusion survives, for a different and stronger reason — **measured, not inferred**. The eight
+zero-valued entries belong to items 16, 125, 382, 384, 440, 938, 1073 and 30406. The 23 items
+declaring `vision_filter_flags` are 738, 745, 746, 995 and 30143–30161. **The two sets are
+disjoint**, so no shipped item can both be hidden by a vision filter and have a state-0 bodygroup
+entry to apply when it is.
+
+Recorded rather than quietly edited, because the wrong version was a plausible-sounding inference
+that would have been repeated: it reads like a fact about demos and is actually a fact about nothing.

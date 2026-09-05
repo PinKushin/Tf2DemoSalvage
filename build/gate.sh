@@ -725,7 +725,13 @@ run Tf2DemoSalvage.Animation.Tests animation 111
 # boolean: two items hiding `hat` must land on 1, and summing their contributions lands on 2, which
 # carries into the next part's digit. Three are controls the fix must not disturb — a player wearing
 # nothing, a bystander beside a wearer, and a disguised spy whose mask still composes over the hat.
-run Tf2DemoSalvage.Scene.Tests    scene     535
+#
+# 535 -> 538 on 2026-09-05: three for B353, `wm_bodygroup_override` — a part set by NUMBER. One of
+# the three was rewritten before it counted: the half-declaration case asserted a body of 0 while
+# wearing nothing, and deleting the guard it tested reddened NOTHING, because `SetBodygroup` already
+# ignores a negative value in our code and in Valve's. The item now also hides `hat`, so a correct
+# read leaves 1 and a state misread as 0 puts the part back — the two readings finally disagree.
+run Tf2DemoSalvage.Scene.Tests    scene     538
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound
@@ -1107,7 +1113,11 @@ run Tf2DemoSalvage.Presentation.Tests presentation 440
 # its place asserts that an item's own entry beats its prefab's for the same name — a bodygroup is
 # one state per name, unlike `attached_models`, so the accumulating read is wrong here and gives the
 # same answer for every shipped item except the eight valued 0.
-run Tf2DemoSalvage.Content.Tests  content   1023
+#
+# 1023 -> 1028 on 2026-09-05: five for B353's schema half. The one that earns its place gives an item
+# only the `vm_` pair and requires the `wm_` answer to stay -1: the Purity Fist declares both pairs
+# with the SAME numbers, so a reader keyed to the wrong prefix passes every shipped case.
+run Tf2DemoSalvage.Content.Tests  content   1028
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2

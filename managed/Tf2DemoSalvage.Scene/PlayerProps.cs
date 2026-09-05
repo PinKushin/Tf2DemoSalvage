@@ -63,6 +63,8 @@ public interface IPlayerAppearance
 /// <summary>What one equipped item does to its wearer's body parts.</summary>
 /// <param name="Named">Each body part NAME and the state the item puts it in.</param>
 /// <param name="DeployedOnly">Whether it does so only while it is the active weapon.</param>
+/// <param name="OverrideGroup">A part addressed by NUMBER, or -1 — <c>wm_bodygroup_override</c>.</param>
+/// <param name="OverrideState">Which alternative that part takes, or -1 (B353).</param>
 /// <remarks>
 /// **One value rather than two members on <see cref="IPlayerAppearance"/>**, because the pair is
 /// one question — what this item does to the body — and the flag is meaningless without the names.
@@ -71,10 +73,20 @@ public interface IPlayerAppearance
 /// `pOwner-&gt;FindBodygroupByName( pszBodyGroup )` (<c>econ_entity.cpp:2052</c>) runs against the
 /// WEARER, so the same hat resolves to a different index on every class model and an item cannot
 /// carry the answer.
+///
+/// **The override is the exception, and it is Valve's exception rather than ours.** The last arm of
+/// `UpdateBodygroups` (<c>econ_entity.cpp:2083</c>) takes a part NUMBER straight from the schema
+/// and applies it without a lookup, which is why the two forms sit side by side here.
+///
+/// **Use <see cref="None"/> rather than <c>default</c> for "nothing".** A default struct has null
+/// names and zeroed override fields, and zero is a real part index — the guard that keeps this from
+/// setting part 0 is `> -1` on both, exactly as the engine writes it.
 /// </remarks>
 public readonly record struct ItemBodygroups(
     IReadOnlyDictionary<string, int> Named,
-    bool DeployedOnly)
+    bool DeployedOnly,
+    int OverrideGroup = -1,
+    int OverrideState = -1)
 {
     /// <summary>An item that changes nothing — the answer for anything the schema does not name.</summary>
     public static ItemBodygroups None { get; } =
@@ -176,12 +188,21 @@ public sealed record GameAppearance(
     public string? Hands(int playerClass) => Classes?.Hands(playerClass);
 
     /// <inheritdoc/>
-    public ItemBodygroups BodygroupsOf(int itemDefinitionIndex) =>
-        Items is null
-            ? ItemBodygroups.None
-            : new ItemBodygroups(
-                Items.PlayerBodygroupsFor(itemDefinitionIndex),
-                Items.HidesBodygroupsWhenDeployedOnly(itemDefinitionIndex));
+    public ItemBodygroups BodygroupsOf(int itemDefinitionIndex)
+    {
+        if (Items is null)
+        {
+            return ItemBodygroups.None;
+        }
+
+        (int group, int state) = Items.WorldmodelBodygroupOverrideFor(itemDefinitionIndex);
+
+        return new ItemBodygroups(
+            Items.PlayerBodygroupsFor(itemDefinitionIndex),
+            Items.HidesBodygroupsWhenDeployedOnly(itemDefinitionIndex),
+            group,
+            state);
+    }
 }
 
 /// <summary>Turns the timeline's players into props the draw loop can pose.</summary>
@@ -514,11 +535,6 @@ public static class PlayerProps
 
             ItemBodygroups groups = appearance.BodygroupsOf(item);
 
-            if (groups.Named is not { Count: > 0 })
-            {
-                continue;
-            }
-
             // `if ( bHideBodygroupsDeployedOnly && pPlayer->GetActiveWeapon() != pWpn ) continue;`
             // (`tf_weaponbase.cpp:6226`). All eight shipped items that set the flag are weapons, so
             // asking whether this prop is the one being held is the whole of the third pass.
@@ -527,16 +543,32 @@ public static class PlayerProps
                 continue;
             }
 
-            foreach ((string name, int state) in groups.Named)
+            if (groups.Named is { Count: > 0 } named)
             {
-                // `if ( iBody != iState ) continue;` with iState fixed at 1 — see the remarks. The
-                // name is then resolved and set separately because that is the engine's own pair:
-                // `FindBodygroupByName` answering -1 is a `continue`, not a body of -1.
-                if (state == AppliedState)
+                foreach ((string name, int state) in named)
                 {
-                    body = bodygroups.SetBodygroup(
-                        model, bodygroups.FindBodygroup(model, name), AppliedState, body);
+                    // `if ( iBody != iState ) continue;` with iState fixed at 1 — see the remarks.
+                    // The name is then resolved and set separately because that is the engine's own
+                    // pair: `FindBodygroupByName` answering -1 is a `continue`, not a body of -1.
+                    if (state == AppliedState)
+                    {
+                        body = bodygroups.SetBodygroup(
+                            model, bodygroups.FindBodygroup(model, name), AppliedState, body);
+                    }
                 }
+            }
+
+            // **The last arm, and the only one that takes a part NUMBER** (B353,
+            // `econ_entity.cpp:2083`). It runs after the named entries because the engine runs it
+            // there, and both guards are Valve's: the fields default to -1
+            // (`econ_item_schema.h:1065`) and half a declaration does nothing.
+            //
+            // **An item can declare ONLY this**, which is why the empty-names check above is no
+            // longer a `continue` — the Purity Fist has no `player_bodygroups` at all.
+            if (groups.OverrideGroup > -1 && groups.OverrideState > -1)
+            {
+                body = bodygroups.SetBodygroup(
+                    model, groups.OverrideGroup, groups.OverrideState, body);
             }
         }
 

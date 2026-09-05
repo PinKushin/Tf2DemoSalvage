@@ -61,12 +61,39 @@ if ( pItem->ShouldHideForVisionFilterFlags() )
 }
 ```
 
-An item hidden by pyro-vision puts the part **back**. A demo carries no vision filter, so those
-eight entries are unreachable here — but a reader that treats the pair as an assignment applies
-them and removes a piece the engine leaves alone.
+An item hidden by pyro-vision puts the part **back**. A reader that treats the pair as an assignment
+applies those eight anyway, and removes a piece the engine leaves alone.
+
+### The first answer here was wrong, and the wrong version was the comfortable one
+
+This section originally read *"a demo carries no vision filter, so those eight entries are
+unreachable here"*. That is false, and it is the kind of false that survives review because it sounds
+like a fact about demos.
+
+`C_TFPlayer::GetVisionFilterFlags` (`c_tf_player.cpp:8028`) is not only a local-player opt-in. Past
+the `IsLocalPlayer()` block it adds the Halloween filter for **everyone**:
+
+```cpp
+if ( TFGameRules()->IsHolidayActive( kHoliday_HalloweenOrFullMoon ) )
+    nVisionOptInFlags |= TF_VISION_FILTER_HALLOWEEN;
+```
+
+and `TF_IsHolidayActive` (`tf_gamerules.cpp:1030`) answers from `IsHolidayMap`, which is networked
+gamerules state a demo carries. A Halloween recording has a live vision filter, and so does a POV
+demo whose recorder wore Pyrovision Goggles — that is `vision_opt_in_flags`, an item attribute, and
+attributes are decoded (B234).
+
+**The conclusion survives on a measured reason instead of an inferred one.** The eight zero-valued
+entries belong to items 16, 125, 382, 384, 440, 938, 1073 and 30406. The 23 items declaring
+`vision_filter_flags` are 738, 745, 746, 995 and 30143–30161. The sets are **disjoint**: no shipped
+item can be hidden by a vision filter and also carry a state-0 entry to apply while it is.
+
+The difference between the two arguments is the difference between "this cannot happen" and "this
+does not happen with the data Valve ships" — and only the second is checkable, which is why it is
+the one now recorded.
 
 **Evidence class: read-from-source** for the rule, **measured** for the split (1,044 entries valued
-1, 8 valued 0, across 747 items).
+1, 8 valued 0, across 747 items) and for the disjointness.
 
 ## The three passes exist for eight items
 

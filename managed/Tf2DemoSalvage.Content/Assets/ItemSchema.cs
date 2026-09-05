@@ -141,6 +141,28 @@ public sealed class ItemSchema
         /// </remarks>
         public bool? HideBodygroupsDeployedOnly { get; set; }
 
+        /// <summary>A wearer's body part addressed by NUMBER, or -1 (B353).</summary>
+        /// <remarks>
+        /// **`wm_bodygroup_override`, the one arm of `UpdateBodygroups` that uses no name**
+        /// (<c>econ_entity.cpp:2083</c>). Two shipped items declare it — the Purity Fist and the
+        /// Short Circuit — and both replace a hand with a robot arm.
+        ///
+        /// **-1, not 0, and the default is the load-bearing part.** The engine's guard is
+        /// `iBodyOverride &gt; -1 &amp;&amp; iBodyStateOverride &gt; -1` against fields initialised to -1
+        /// (<c>econ_item_schema.h:1065</c>), so a reader defaulting them to 0 satisfies it for every
+        /// item in the schema and sets part 0 to 0 on every player — putting back the hair that
+        /// item 30700's `hat` entry had just removed.
+        /// </remarks>
+        public int WorldModelBodygroupOverride { get; set; } = -1;
+
+        /// <summary>Which alternative <see cref="WorldModelBodygroupOverride"/> takes, or -1.</summary>
+        /// <remarks>
+        /// **Both halves are required**, which is why this is tracked separately rather than folded
+        /// into the pair: `wm_bodygroup_override` without `wm_bodygroup_state_override` is a real
+        /// shape in the schema and the engine ignores it.
+        /// </remarks>
+        public int WorldModelBodygroupStateOverride { get; set; } = -1;
+
         /// <summary>Its definition attributes by NAME, from both shipped forms.</summary>
         /// <remarks>
         /// The named block (<c>"attributes" { "damage bonus" { … "value" "1.1" } }</c>) and the
@@ -304,6 +326,28 @@ public sealed class ItemSchema
                         && string.Equals(key, "attributes", StringComparison.OrdinalIgnoreCase);
 
                     Apply(entry, key, value);
+                    break;
+
+                // **A scalar inside `visuals`, addressing a part by number rather than by name**
+                // (B353). Read only for the WORLD model: `vm_bodygroup_override` sets a part on the
+                // wearer's own view model (`econ_entity.cpp:2091`), which a demo viewer drawing
+                // another player never has — and the Purity Fist declares both pairs with the same
+                // numbers, so a reader keyed to the wrong prefix passes every shipped case.
+                case 4 when entry is not null && inVisuals && value is not null
+                    && key.StartsWith("wm_bodygroup", StringComparison.OrdinalIgnoreCase)
+                    && int.TryParse(
+                        value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int part):
+
+                    if (key.Equals("wm_bodygroup_override", StringComparison.OrdinalIgnoreCase))
+                    {
+                        entry.WorldModelBodygroupOverride = part;
+                    }
+                    else if (key.Equals(
+                        "wm_bodygroup_state_override", StringComparison.OrdinalIgnoreCase))
+                    {
+                        entry.WorldModelBodygroupStateOverride = part;
+                    }
+
                     break;
 
                 // `static_attrs` is flat: the pair IS the attribute.
@@ -917,6 +961,53 @@ public sealed class ItemSchema
     public bool HidesBodygroupsWhenDeployedOnly(int definitionIndex) =>
         _items.TryGetValue(definitionIndex, out Entry? item)
         && DeployedOnly(item, LongestChain) == true;
+
+    /// <summary>A wearer's body part an item addresses by NUMBER, and the state to put it in.</summary>
+    /// <param name="definitionIndex">The item, as <c>m_iItemDefinitionIndex</c> gives it.</param>
+    /// <returns>The pair from <c>wm_bodygroup_override</c>, each -1 when the chain does not state it.</returns>
+    /// <remarks>
+    /// **Reported as the file has it, guard and all left to the caller** (B353). The engine applies
+    /// `if ( iBodyOverride &gt; -1 &amp;&amp; iBodyStateOverride &gt; -1 )` at the point of use
+    /// (<c>econ_entity.cpp:2085</c>), and half a declaration is a real shape in the schema — so
+    /// collapsing the pair here would mean this method deciding a question the engine decides
+    /// elsewhere, and a reader could no longer tell "declares nothing" from "declares half".
+    ///
+    /// **The two halves are searched independently**, because the chain can split them: an item may
+    /// restate the part while taking the state from its prefab.
+    /// </remarks>
+    public (int Group, int State) WorldmodelBodygroupOverrideFor(int definitionIndex) =>
+        _items.TryGetValue(definitionIndex, out Entry? item)
+            ? (Override(item, LongestChain, state: false), Override(item, LongestChain, state: true))
+            : (-1, -1);
+
+    /// <summary>The first stated half of an override in an entry's prefab chain, or -1.</summary>
+    private int Override(Entry entry, int remaining, bool state)
+    {
+        int stated = state
+            ? entry.WorldModelBodygroupStateOverride
+            : entry.WorldModelBodygroupOverride;
+
+        if (stated > -1)
+        {
+            return stated;
+        }
+
+        if (remaining <= 0)
+        {
+            return -1;
+        }
+
+        foreach (string name in entry.Prefabs)
+        {
+            if (_prefabs.TryGetValue(name, out Entry? prefab)
+                && Override(prefab, remaining - 1, state) is var inherited and > -1)
+            {
+                return inherited;
+            }
+        }
+
+        return -1;
+    }
 
     /// <summary>The first answer in an entry's prefab chain, or null when none states it.</summary>
     private bool? DeployedOnly(Entry entry, int remaining)
