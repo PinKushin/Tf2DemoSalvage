@@ -1266,6 +1266,28 @@ public sealed class DemoTimeline
         new([], props: null, playerTracks: null, recordedViews: null, viewmodels: null,
             fog: null, sounds: sounds);
 
+    /// <summary>A timeline carrying all three sources of a MODEL path (B335).</summary>
+    /// <param name="props">Prop tracks, which is where most models come from.</param>
+    /// <param name="players">Player tracks, which live in their own list.</param>
+    /// <param name="viewmodels">The weapons a first-person view holds, by tick.</param>
+    /// <returns>A timeline whose <see cref="ModelPaths"/> sees all three.</returns>
+    /// <remarks>
+    /// **The sibling of <see cref="ForSounds"/>, and for the same reason.** The sound precache list
+    /// got a seam of its own because building a demo to test three loops and a set exercises the
+    /// entity decoder instead of the thing under test; the model list needs one more because its
+    /// sources are three lists rather than one, and the property that matters — a single set spanning
+    /// all three — cannot be seen from any one of them.
+    ///
+    /// **`ForTracks` and `ForPlayerTracks` exist beside this and fill exactly one list each**, which
+    /// is what makes them the wrong seam here: a version of `ModelPaths` that walked props alone
+    /// would pass against either.
+    /// </remarks>
+    internal static DemoTimeline ForEverything(
+        List<ScenePropTrack>? props = null,
+        List<ScenePropTrack>? players = null,
+        List<(int Tick, SceneViewmodel Weapon)>? viewmodels = null) =>
+        new([], props: props, playerTracks: players, recordedViews: null, viewmodels: viewmodels);
+
     /// <summary>Walks a demo and records where everyone was.</summary>
     /// <param name="file">The whole demo file, header included.</param>
     /// <returns>The timeline, empty when the demo carries no schema or no entities.</returns>
