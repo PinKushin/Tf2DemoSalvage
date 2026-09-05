@@ -142,6 +142,11 @@ public sealed class PlayerCompletenessTests
         // True, since false is the default and would hide the field being dropped.
         Airwalking: true,
 
+        // **When this player last teleported or respawned** (B346), non-zero so losing it reads as
+        // "never jumped" rather than as a default — and distinct from every other clock here, since
+        // a discontinuity is its own event.
+        DiscontinuitySeconds: 6.5d,
+
         // Non-zero, so losing it reads as level rather than as a default.
         EyePitch: 21f,
 

@@ -204,6 +204,14 @@ public static class PlayerProps
                     HandScale = player.HandScale,
                     Speed = player.Speed,
                     Flags = player.Flags,
+
+                    // **The one that made this comment's warning real** (B346). Carried on the
+                    // prop track first, where it stamped zero across 570 tracks — because all 332
+                    // sends that change it belong to `CTFPlayer`, and a player is not a prop track.
+                    // Every unit test passed throughout, which is why
+                    // `PlayerPoseWiringCompletenessTests` now guards this hop as a CLASS rather
+                    // than one field at a time — it has lost four now (B259, B312 x3, B346).
+                    DiscontinuitySeconds = player.DiscontinuitySeconds,
                     Slot = appearance.WeaponSuffix(player.WeaponClass, player.PlayerClass),
                     AirborneSeconds = player.AirborneSeconds,
                     EyePitch = player.EyePitch,

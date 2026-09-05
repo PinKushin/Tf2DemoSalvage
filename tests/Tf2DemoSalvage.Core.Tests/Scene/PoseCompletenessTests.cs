@@ -203,6 +203,11 @@ public sealed class PoseCompletenessTests
         // restarts its animation on `m_nAnimationParity` and measures from here instead, so a
         // default here would compare a default against a default and never notice the field.
         AnimationStartSeconds = 8.75d,
+
+        // Distinct from the clock above, because the two are separate events (B346): a sequence
+        // restarting is not the entity jumping, and a fixture sharing one value could not tell a
+        // swap between them from a correct carry.
+        DiscontinuitySeconds = 3.25d,
         Speed = 320f,
         MoveX = 0.5f,
         MoveY = -0.5f,

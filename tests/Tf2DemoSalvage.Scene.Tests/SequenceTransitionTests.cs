@@ -156,12 +156,83 @@ public sealed class SequenceTransitionTests
             "nothing began again, so there is nothing to fade");
     }
 
+    /// <remarks>
+    /// **The half of `CheckForSequenceChange` that was quoted here and not run** (B346):
+    ///
+    /// <code>
+    ///   if ((seqdesc.flags &amp; STUDIO_SNAP) || !bInterpolate )
+    ///       m_animationQueue.RemoveAll();
+    /// </code>
+    ///
+    /// `bInterpolate` is `!IsNoInterpolationFrame()` (`c_baseanimating.cpp:1832`), which is the
+    /// networked `m_ubInterpolationFrame` parity holding still (`c_baseentity.h:2166`). TF2 bumps
+    /// it when a dead player becomes respawnable (`tf_player.cpp:14005`) and `CBaseEntity::Teleport`
+    /// bumps it for every entity given a new position (`baseentity.cpp:4955`).
+    ///
+    /// A transition only exists when the sequence changed, so this bites exactly where the two
+    /// coincide — which is what a respawn is: without it the pre-death pose fades into the spawn
+    /// animation instead of cutting.
+    /// </remarks>
+    [Test]
+    public void Instances_WhenTheEntityJumped_QueuesNothingRatherThanFading()
+    {
+        EntityModelSet models = new() { Geometry = _ => Frames() };
+
+        List<SceneProp> drawn = [Playing(sequence: 0)];
+
+        models.Add(drawn, _ => Frames());
+        models.Instances(drawn, [], seconds: 0d);
+
+        // The sequence changes AND the entity jumped, on the same frame.
+        drawn[0] = Playing(sequence: 1, jumpedAt: 0.05d);
+
+        models.Instances(drawn, [], seconds: 0.05d);
+
+        models.LayersOf(4).ShouldNotBeNull().ShouldBeEmpty(
+            "the entity teleported, so the engine cuts to the new sequence rather than fading");
+
+        models.QueuesClearedByADiscontinuity.ShouldBe(
+            1, "and it was cleared for that reason rather than by STUDIO_SNAP");
+    }
+
+    /// <remarks>
+    /// **The control, and it is what makes the test above about the JUMP.** The same sequence
+    /// change with the stamp held still must still fade — otherwise a guard that cleared the queue
+    /// unconditionally would satisfy the assertion above and no cross-fade would ever survive.
+    /// </remarks>
+    [Test]
+    public void Instances_WhenTheEntityDidNotJump_StillFades()
+    {
+        EntityModelSet models = new() { Geometry = _ => Frames() };
+
+        List<SceneProp> drawn = [Playing(sequence: 0, jumpedAt: 0.05d)];
+
+        models.Add(drawn, _ => Frames());
+        models.Instances(drawn, [], seconds: 0d);
+
+        // The stamp is unchanged between the two frames — an entity that jumped once, earlier,
+        // and has not jumped since.
+        drawn[0] = Playing(sequence: 1, jumpedAt: 0.05d);
+
+        models.Instances(drawn, [], seconds: 0.05d);
+
+        models.LayersOf(4).ShouldNotBeNull().Count.ShouldBe(
+            1, "the stamp did not move, so this is an ordinary sequence change");
+
+        models.QueuesClearedByADiscontinuity.ShouldBe(0);
+    }
+
     /// <summary>A prop playing one sequence, client-side animated so its cycle advances.</summary>
     /// <param name="sequence">Which sequence it plays.</param>
     /// <param name="startedAt">
     /// When that run of the animation began — the timeline's record of the restart signal.
     /// </param>
-    private static SceneProp Playing(int sequence, double startedAt = 0d) =>
+    /// <param name="jumpedAt">
+    /// When the entity last teleported or respawned — the timeline's record of the no-interp
+    /// parity moving (B346). Zero means never, which is what an entity that stays put reports.
+    /// </param>
+    /// <returns>The prop.</returns>
+    private static SceneProp Playing(int sequence, double startedAt = 0d, double jumpedAt = 0d) =>
         new(
             4,
             "models/props_gameplay/resupply_locker.mdl",
@@ -171,6 +242,7 @@ public sealed class SequenceTransitionTests
                 Sequence = sequence,
                 Cycle = 0f,
                 AnimationStartSeconds = startedAt,
+                DiscontinuitySeconds = jumpedAt,
             },
             null,
             ClientSideAnimated: true);

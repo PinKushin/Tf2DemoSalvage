@@ -23497,3 +23497,116 @@ design makes, and it is the right way round: a change to what a shared helper ME
 whole suite rather than by one file, which is the case `CLAUDE.md` records as the one no targeted
 check can see. It also confirms the three layers genuinely route through the same helper rather than
 each having grown a copy.
+
+### B346 FIXED 2026-09-05: a teleport CUTS the animation, and half that guard was missing
+
+**`CheckForSequenceChange` empties the whole transition queue on either of two conditions**
+(`sequence_Transitioner.cpp:41`):
+
+```cpp
+if ((seqdesc.flags & STUDIO_SNAP) || !bInterpolate )
+{
+    // remove all entries
+    m_animationQueue.RemoveAll();
+}
+```
+
+**Only the first half was implemented, and the line was quoted verbatim in our own comment while
+half of it ran.** `bInterpolate` is `!IsNoInterpolationFrame()` (`c_baseanimating.cpp:1832`), which
+is `m_ubOldInterpolationFrame != m_ubInterpolationFrame` (`c_baseentity.h:2166`) — a NETWORKED parity
+counter, `SendPropInt(SENDINFO(m_ubInterpolationFrame), NOINTERP_PARITY_MAX_BITS, SPROP_UNSIGNED)`
+(`baseentity.cpp:273`), bumped by `IncrementInterpolationFrame` (`baseentity.cpp:8471`) — whose
+declaration says what it is for: *"Call this to cause a discontinuity (teleport)"*
+(`baseentity.h:878`).
+
+**Four things bump it and one is every teleporter in the game:** `CBaseEntity::Teleport` given a new
+position (`baseentity.cpp:4955`), `CBaseAnimating::CopyAnimationDataFrom` (`baseanimating.cpp:3374`),
+`CBaseCombatCharacter`'s death fade (`basecombatcharacter.cpp:304`), and TF2's own
+`CTFPlayer::PlayerDeathThink` the moment a dead player becomes respawnable, immediately after
+`StopAnimation()` (`tf_player.cpp:14005`).
+
+**A transition only exists when the sequence changed, so the divergence bites where the two
+coincide — which is what a respawn is.** Without this the pre-death pose cross-fades into the spawn
+animation over the fade window instead of cutting.
+
+**Measured on the wire before a line was written**, because a divergence that cannot be reached is
+not worth the change. `DT_BaseEntity.m_ubInterpolationFrame` is in a real protocol-24 demo's schema,
+and `tf2-2026-pub-pov-cheater` sends it **13,261 times across all four values** — 12,830 zero, then
+102, 149 and 180 of one, two and three. Of those, **332 are DELTA updates**, so it genuinely changes
+on live entities rather than only arriving with them.
+
+#### The wiring gap, which is the part worth keeping
+
+**Every one of those 332 changing sends belongs to a `CTFPlayer`.** The field was carried on
+`ScenePropTrack` first, matching where `m_nNewSequenceParity` lives — and a player is not a prop
+track. The timeline stamped **zero discontinuities across 570 prop tracks** while every unit test
+passed, because `PlayerProps.Add` builds a player's `SceneProp` from a `ScenePlayer` and nothing was
+carried there.
+
+The file that needed the extra line already carries the warning, written for B312:
+
+> **Carried through, because this pose is built field by field.** A value with no assignment here is
+> one the renderer never sees whatever the timeline decoded.
+
+**Only the output-level check found it**, which is the rule working exactly as written. The unit
+tests were green throughout, and the probe reported a confident zero.
+
+#### The instrument needed two controls before its zero meant anything
+
+- **`bone-flags` was the wrong instrument and its zero was about itself.** It calls `PropsAt` once,
+  and a transition compares this frame's sequence with the last one — so a single-tick probe reports
+  zero however the code behaves. A new `transitions` probe walks a tick range with one
+  `EntityModelSet`, because a fresh one per tick has no previous frame either.
+- **Zero clears still meant nothing without a denominator**, so the probe reports
+  `SequenceChangesSeen` and `TransitionsCreated` beside them and says outright when the control is
+  zero. That is what distinguished "the guard never fires" from "nothing changed sequence here".
+
+**The result, on `tf2-2026-pub-pov-cheater`:** 71 player discontinuities across 14 players; and over
+ticks 3400–3800, **2 queues cleared by a discontinuity** against a control of 35 sequence changes
+and 33 cross-fades queued. The half that was missing now fires on a real recording.
+
+**Evidence class: read-from-source** for the guard and every bump site, **measured** for the wire
+census, the player/prop split and the clear counts.
+
+**What is NOT established:** whether the two cleared queues are visible. The change is a cut where
+there was a blend, over a fade window of at most `MIN(fadeout, fadein)`, on a respawning player —
+too brief to catch in a still, and `--shot` is for looking rather than diffing
+(`docs/memory/a-picture-is-assertable.md` records why an A/B of two runs fails its own determinism
+control). The numeric claim is what is asserted; the appearance is not.
+
+#### Verification, and two tests that could not fail
+
+**Sabotage found two of my own tests insensitive**, which is the exercise working rather than a
+formality:
+
+- **`Build_APropEnteringWithANonZeroParity_DoesNotCountAsAJump` could not fail.** The stamp is
+  `tick * interval` and the fixture's first frame was at tick 0, so a reader that wrongly counted
+  the first sighting as a jump would write `0 * interval` — bit-identical to "never jumped". That is
+  the WRONG CONDITION case: an input for which correct and broken predict the same observation. The
+  fix is the input, not the assertion — the entity now enters at tick 600, and the sabotage reddens
+  it alone.
+- **Nothing tested the player-to-pose hop at all.** Deleting
+  `DiscontinuitySeconds = player.DiscontinuitySeconds` from `PlayerProps.Add` reddened NOTHING;
+  only the probe against a real demo covered it. That is the same hop whose absence caused this
+  defect in the first place.
+
+**So the second was fixed as a CLASS rather than an instance.** `PlayerPoseWiringCompletenessTests`
+walks every property `ScenePlayer` and `ScenePose` share by name, gives the player a distinctive
+value for each, runs the real `PlayerProps.Add`, and requires the pose to come back holding
+something other than its default. Deleting the assignment now names the exact field.
+
+**This hop has lost a field four times and a per-field test was written each time** — B259
+(`ClientSideAnimated`, so every player animated on the wrong clock), B312 (the three per-bone
+scales, guarded by `PlayerBoneScaleWiringTests`), and now B346. A test per lost field cannot catch
+the next one.
+
+**Exemptions are named individually with the reason**, never as a blanket: `Yaw` (a player facing
+due east IS the default, so a non-default fixture cannot distinguish carried from dropped), `Skin`
+(computed — `m_nSkin = (team == TF_TEAM_RED) ? 0 : 1`, `c_tf_player.cpp:712`), `Airwalking` (gated by
+the class script), `Slot` (resolved through the appearance). Requiring the distinction to be written
+is what stops the suite decaying into a list of whatever currently passes.
+
+**Verified sensitive:** the wrap case (`!=` weakened to `>` reddens the wrap test alone), the guard
+itself (`|| jumped` removed reddens the jump test alone), the entry case after its fixture was
+fixed, and the always-clear control — forcing `jumped` true reddens FIVE tests including
+`Instances_WhenTheEntityDidNotJump_StillFades`, so no guard that clears unconditionally can pass.

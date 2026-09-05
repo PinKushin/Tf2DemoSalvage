@@ -2088,10 +2088,11 @@ public sealed class EntityModelSet
         }
 
         if (!_currentSequence.TryGetValue(
-            prop.EntityIndex, out (int Sequence, float Cycle, double StartedAt) was))
+            prop.EntityIndex, out (int Sequence, float Cycle, double StartedAt, double JumpedAt) was))
         {
             _currentSequence[prop.EntityIndex] =
-                (sequence, cycle, prop.Pose.AnimationStartSeconds);
+                (sequence, cycle, prop.Pose.AnimationStartSeconds,
+                    prop.Pose.DiscontinuitySeconds);
 
             return [];
         }
@@ -2118,11 +2119,44 @@ public sealed class EntityModelSet
         bool restarted = prop.Pose.AnimationStartSeconds != was.StartedAt;
 #pragma warning restore S1244
 
+        // **The other half of the same guard, and it was quoted here while only half of it ran**
+        // (B346). `bInterpolate` is `!IsNoInterpolationFrame()` (`c_baseanimating.cpp:1832`), which
+        // is `m_ubOldInterpolationFrame != m_ubInterpolationFrame` (`c_baseentity.h:2166`) — a
+        // networked parity whose declaration says what it is for: "Call this to cause a
+        // discontinuity (teleport)" (`baseentity.h:878`).
+        //
+        // **Exact, for the reason the restart stamp above is exact**: a time the timeline wrote
+        // once and this copies verbatim, not a computed quantity. A tolerance would merge two
+        // discontinuities a frame apart.
+#pragma warning disable S1244
+        bool jumped = prop.Pose.DiscontinuitySeconds != was.JumpedAt;
+#pragma warning restore S1244
+
         if (was.Sequence != sequence || restarted)
         {
             // `if ((seqdesc.flags & STUDIO_SNAP) || !bInterpolate) m_animationQueue.RemoveAll();`
-            if (skinned.SnapsTo(sequence))
+            //
+            // **A teleport CUTS.** TF2 bumps the parity when a dead player becomes respawnable,
+            // straight after `StopAnimation()` (`tf_player.cpp:14005`), and `CBaseEntity::Teleport`
+            // bumps it for every entity given a new position (`baseentity.cpp:4955`) — every
+            // teleporter in the game. A transition only exists when the sequence changed, so this
+            // bites exactly where the two coincide, which is what a respawn is: without it the
+            // pre-death pose fades into the spawn animation instead of cutting.
+            if (skinned.SnapsTo(sequence) || jumped)
             {
+                // **Counted where the clear HAPPENS, not recomputed by a second route** (B243).
+                // The unit tests prove the guard clears a queue when it is called with a jump;
+                // only this says a real demo ever reaches it, and it separates the two halves so a
+                // reader can tell a teleport from an authored cut rather than seeing one total.
+                if (jumped)
+                {
+                    QueuesClearedByADiscontinuity++;
+                }
+                else
+                {
+                    QueuesClearedBySnap++;
+                }
+
                 queue.Clear();
             }
             else
@@ -2132,13 +2166,24 @@ public sealed class EntityModelSet
 
                 if (window > 0f)
                 {
+                    TransitionsCreated++;
+
                     queue.Add(new FadingSequence(
                         was.Sequence, was.Cycle, seconds, window, prop.Pose.PlaybackRate));
                 }
             }
+
+            // **The CONTROL for the two clear counters, and it is not optional here.** An absence
+            // means nothing without something that must be present: zero clears can mean the guard
+            // never fires or that nothing ever changed sequence, and only this separates them. The
+            // first instrument written for B346 reported "0 and 0" for a demo that certainly
+            // contains both, and the cause was the probe sampling a single tick — a fact about the
+            // measurement rather than about the code.
+            SequenceChangesSeen++;
         }
 
-        _currentSequence[prop.EntityIndex] = (sequence, cycle, prop.Pose.AnimationStartSeconds);
+        _currentSequence[prop.EntityIndex] =
+            (sequence, cycle, prop.Pose.AnimationStartSeconds, prop.Pose.DiscontinuitySeconds);
 
         if (queue.Count == 0)
         {
@@ -2204,7 +2249,7 @@ public sealed class EntityModelSet
     /// remembered as well as the number because a sequence being left has to carry on from where it
     /// was rather than restarting.
     /// </remarks>
-    private readonly Dictionary<int, (int Sequence, float Cycle, double StartedAt)>
+    private readonly Dictionary<int, (int Sequence, float Cycle, double StartedAt, double JumpedAt)>
         _currentSequence = [];
 
     /// <summary>Walks one entity's events for this frame.</summary>
@@ -2400,6 +2445,27 @@ public sealed class EntityModelSet
             return solved;
         }
     }
+
+    /// <summary>Transition queues emptied because the entity JUMPED — the <c>bInterpolate</c> half.</summary>
+    /// <remarks>
+    /// **Separated from the <c>STUDIO_SNAP</c> half deliberately** (B346). One total would let an
+    /// authored cut stand in for a teleport, and the whole question this answers is whether the
+    /// half that was missing until now ever fires on a real recording.
+    /// </remarks>
+    public int QueuesClearedByADiscontinuity { get; private set; }
+
+    /// <summary>Transition queues emptied because the incoming sequence carries <c>STUDIO_SNAP</c>.</summary>
+    public int QueuesClearedBySnap { get; private set; }
+
+    /// <summary>Sequence changes the transitioner saw at all — the CONTROL for the two above.</summary>
+    /// <remarks>
+    /// **An absence is uninterpretable without it.** Zero clears can mean the guard never fires or
+    /// that no entity ever changed sequence in the window, and only this tells them apart.
+    /// </remarks>
+    public int SequenceChangesSeen { get; private set; }
+
+    /// <summary>Cross-fades actually queued, which is what the clears above prevent.</summary>
+    public int TransitionsCreated { get; private set; }
 
     /// <summary>How many sequence IK locks the pose path actually applied.</summary>
     /// <remarks>

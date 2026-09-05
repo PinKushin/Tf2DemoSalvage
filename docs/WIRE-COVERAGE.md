@@ -14,18 +14,18 @@ ignorance rather than proof of use — a name can be mentioned and still not hon
 which is its own recurring bug here. A property this report calls read may still be
 decoded and dropped.
 
-**126 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
+**127 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
 
 ## Tables an entity this viewer draws composes
 
 ### DT_BaseEntity
 
-**12 of 24** mentioned.
+**13 of 24** mentioned.
 
 Not mentioned anywhere in a shipped assembly:
 
 ```
-m_Collision, m_CollisionGroup, m_bAlternateSorting, m_bAnimatedEveryTick, m_bSimulatedEveryTick, m_flElasticity, m_flGravity, m_flShadowCastDistance, m_hEffectEntity, m_iTextureFrameIndex, m_nModelIndexOverrides, m_ubInterpolationFrame
+m_Collision, m_CollisionGroup, m_bAlternateSorting, m_bAnimatedEveryTick, m_bSimulatedEveryTick, m_flElasticity, m_flGravity, m_flShadowCastDistance, m_hEffectEntity, m_iTextureFrameIndex, m_nModelIndexOverrides
 ```
 
 ### DT_AnimTimeMustBeFirst
