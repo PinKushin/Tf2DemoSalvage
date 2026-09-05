@@ -30,8 +30,16 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// control: a run reporting few of those has a broken scan rather than a finding
 /// (<c>docs/memory/an-empty-search-needs-a-control.md</c>).
 ///
+/// **A second argument prefixed with <c>!</c> EXCLUDES**, which is the form that answers "how many
+/// materials fall back to the engine's default" — a question no single count can reach, because
+/// a material stating the default value and one omitting the parameter are indistinguishable
+/// afterwards. That distinction corrected B334's own claim: cp_process_final's one material at a
+/// phong exponent of 150 turned out to STATE 150 rather than to have fallen back to it, and the
+/// assertion that found it had been passing for the wrong reason.
+///
 /// <code>
 ///   vmt-param $phongexponenttexture     — how many declare it, and ten that do
+///   vmt-param $phong !$phongexponent    — how many fall back to the engine's default
 ///   vmt-param $basetexture              — the control
 /// </code>
 /// </remarks>
@@ -42,7 +50,7 @@ public sealed class MaterialParameterProbe : IProbe
 
     /// <inheritdoc/>
     public string Summary =>
-        "how many shipped materials declare a parameter, and which: vmt-param <$parameter>";
+        "how many shipped materials declare a parameter: vmt-param <$parameter> [!$excluded]";
 
     /// <summary>How many materials to name, rather than only count.</summary>
     private const int Named = 10;
@@ -69,6 +77,11 @@ public sealed class MaterialParameterProbe : IProbe
         GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
 
         string wanted = arguments[0];
+
+        // An argument such as `!$phongexponent` narrows to materials that do NOT state it.
+        string? excluded = arguments.Count > 1 && arguments[1].StartsWith('!')
+            ? arguments[1][1..]
+            : null;
 
         int materials = 0;
         int unreadable = 0;
@@ -114,7 +127,8 @@ public sealed class MaterialParameterProbe : IProbe
                 control++;
             }
 
-            if (material.Value(wanted) is not { } value)
+            if (material.Value(wanted) is not { } value ||
+                (excluded is not null && material.Value(excluded) is not null))
             {
                 continue;
             }
@@ -131,7 +145,9 @@ public sealed class MaterialParameterProbe : IProbe
 
         output.WriteLine($"{materials} materials read ({unreadable} unreadable)");
         output.WriteLine($"{control} declare $basetexture — the control");
-        output.WriteLine($"{declaring} declare {wanted}");
+        output.WriteLine(
+            $"{declaring} declare {wanted}"
+            + (excluded is null ? string.Empty : $" and do NOT declare {excluded}"));
 
         if (declaring == 0)
         {

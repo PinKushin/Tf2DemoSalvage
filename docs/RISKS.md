@@ -22825,9 +22825,24 @@ engine never reads. **A factor of thirty**: 5 is a broad wash and 150 is a tight
 
 **Evidence: read-from-source, and the general claim is falsifiable from the same file.** If declared
 defaults reached the shader, `$phongtint`'s — the nonsensical `"5.0"` for a VEC3 — would give every
-phong material a fivefold white tint. Measured on cp_process_final: 25 of 412 materials have phong
-and exactly 1 states no exponent, so this is one material on that map and an unknown number on
-others.
+phong material a fivefold white tint.
+
+**How many materials this actually moves: 170 of 30,684** — `vmt-param $phong !$phongexponent`,
+a form added to the probe for this question. They are paint-kit tools, flame balls, taunt props and
+weapon warpaints; 169 `VertexLitGeneric` and one `UnLitTwoTexture` where it does nothing.
+
+**That number was first recorded as "25 of 412 materials have phong and exactly 1 states no
+exponent", and the 1 was wrong** — an unfaithful proxy rather than a miscount. The test asked which
+materials ARRIVED at an exponent of 150 and called them materials that state none; but a material
+stating 150 is indistinguishable from one falling back to it once the value has arrived. The map's
+one hit, `models/props_gameplay/bottle001`, declares `"$phongexponent" "150"` in its own VMT.
+**Zero of cp_process_final's materials fall back**, so this change alters nothing on that map, and
+an assertion that "proved" it did would have gone on passing against a reader never fixed.
+
+The distinction cannot be made where the value arrives, so the claim was moved to where the VMT is
+visible — `PhongExponentTextureConformanceTests` and `PhongConformanceTests` — and the map-level
+test now asserts the SPREAD of exponents instead, which is what a reader ignoring the VMT would
+lose whatever constant it substituted.
 
 **Implemented keeping Valve's encoding rather than adding flags beside it**, which is parity and is
 also the one thing that could not cause the constant-buffer regression this project has shipped
@@ -22848,7 +22863,82 @@ reports is worth recording: `jump_fortress_third` states `$phongexponent 10` BES
 texture, so the constant wins and the texture's actual job on that material is the rim mask. How
 often that is true across the 1,862 is not measured.
 
-**And the picture is not verified.** A third-person capture on the f12 demo at tick 30000 renders
-correctly with no regression visible, but it is an indoor shot of a soldier whose material states
-`$phongexponent 20` — unchanged by any of this. Whether the one material now at 150 looks right is
-not something that frame can answer.
+**The demo path DOES exercise it, and that is now measured rather than assumed.** A production log
+line reports both halves at map load, and on the f12 demo at tick 30000 it says:
+
+```
+21 materials carry a phong exponent map, 16 of them taking the exponent from it
+```
+
+So the feature is not a no-op: 21 resolved, 16 reading the exponent from the map's red channel and
+5 stating a positive `$phongexponent` beside it — which matches what a shipped cosmetic does
+(`jump_fortress_third` states 10). Both counts are printed because they fail separately; a material
+claiming to read a map that failed to load is exactly the two diverging.
+
+**The picture is NOT verified, and the attempt to verify it failed its own control.** A
+third-person capture renders correctly with no regression visible, but it is an indoor shot where
+highlights are not judgeable. Trying to make it assertable — capture, sabotage `specExp.r` to 1,
+capture again, compare — gave "different", and then the control (**re-running the unchanged build**)
+also gave different. **Viewer screenshots are not byte-reproducible**, at minimum because the fps
+overlay prints a per-run number, so screenshot diffing is not an instrument here. Recorded in
+`docs/memory/a-picture-is-assertable.md`.
+
+**And the deterministic instrument cannot reach this branch either.** `Rendering.Tests`' offscreen
+harness draws from a loaded `MapAssets`, which is a sealed class with `private init` members — a
+test can use the materials a real map has and cannot author one. cp_process_final has no material
+that takes its exponent from a map, so there is no pixel test to write without changing production
+for a test's sake. **What holds the shader half is the transcription and its citation, not a
+measurement**, and saying so is more useful than a green test that measured something else.
+
+### B335 OPEN 2026-09-04: Core's branch coverage fell 89.3% → 84.0% and CI has been unable to say so
+
+**The coverage floor is doing exactly what it was written to do, and nobody has seen it for weeks.**
+`.github/workflows/test.yml` asserts `Tf2DemoSalvage.Core 90 85` — line 90, branch 85 — and the
+comment beside it says the floor *"exists to catch a whole area losing its tests, not to chase a
+number"*. It is now failing:
+
+```
+Tf2DemoSalvage.Core: 92.0% line (floor 90), 83.4% branch (floor 85)     CI, 54b2cc22
+Tf2DemoSalvage.Core: 92.7% line (floor 90), 84.0% branch (floor 85)     locally, all tests running
+```
+
+**Against 95.2 line / 89.3 branch when the floor was set** on 2026-08-22 — the numbers are recorded
+in `build/assert-coverage.sh`'s own header, which is why the comparison is possible at all.
+
+**It was invisible because the coverage step runs AFTER the tests**, and the unit job has been
+failing at the test step since at least 2026-09-04: B333's dead absent-game guards, then the six
+`.phy` tests that threw instead of skipping. Both are fixed, the tests now pass, and the step
+underneath them ran for the first time in days and immediately said no. **A red step masks every
+step behind it**, which is the same shape as a green tick masking annotations.
+
+**Where it went, measured** (uncovered branches, largest first, from the Cobertura report):
+
+| missed | of | rate | file |
+|---|---|---|---|
+| 226 | 681 | 66.8% | `Scene/DemoTimeline.cs` |
+| 89 | 279 | 68.0% | `Scene/EntityState.cs` |
+| 53 | 306 | 82.5% | `Text/MessageAssembly.cs` |
+| 28 | 205 | 86.2% | `Scene/ScenePropTrack.cs` |
+| 24 | 24 | 0% | a nested type in `DemoTimeline.cs` |
+| 20 | 20 | 0% | `Scene/EconAttribute.cs` |
+| 19 | 33 | 41.7% | `Scene/DirectorShot.cs` |
+| 15 | 15 | 0% | `Scene/SceneSoundscape.cs` |
+| 13 | 17 | 25.0% | `Primitives/ValveLzma.cs` |
+
+**The diagnosis is NOT that this code is untested**, and saying so would be the easy wrong answer.
+`DemoTimeline` is named in 27 `Core.Tests` files — and in **44 `Corpus.Tests` files**. The tests
+exist; they are in the assembly whose coverage nothing measures, whose demos CI does not fetch, and
+which the measurement boxes cannot run at all because it needs Git LFS.
+
+**So this is D38 drifting the wrong way, and the coverage floor is the instrument that caught it.**
+The rule is synthetic-first in `Core.Tests`, corpus only for what real bytes alone can prove. A
+2:1 majority of the files exercising the scene timeline sitting in `Corpus.Tests` is the opposite,
+and every one of those is a test Stryker never mutates and CI never counts.
+
+**Do not lower the floor.** `build/assert-coverage.sh`'s header names that reflex specifically —
+*"the obvious fix — lowering the floor until it passes — produces a number that can never fail"*.
+
+**What is not established.** Which of the 226 branches are genuinely unreached versus reached only
+from `Corpus.Tests`; whether the newest of these types (`EconAttribute`, `SceneSoundscape`,
+`DirectorShot`, all at or near zero) were ever given synthetic tests at all; and whether the line
+floor of 90 is also close to falling — it is at 92.0 on CI, two points of headroom.

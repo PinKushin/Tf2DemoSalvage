@@ -26,6 +26,27 @@ public sealed class PhongExponentMapWiringTests
     /// <remarks>
     /// **Counted with the majority as the control**, the same shape as the transform wiring test.
     /// "Phong arrives" and "everything has phong" are the same observation without it.
+    ///
+    /// **This test asserted the 150 default and was passing for the wrong reason.** It counted
+    /// materials whose arrived exponent equals 150 and called them "materials that state no
+    /// `$phongexponent`" — an unfaithful proxy, because a material STATING 150 is indistinguishable
+    /// from one falling back to it once the value has arrived. cp_process_final has exactly one
+    /// material at 150, `models/props_gameplay/bottle001`, and reading its VMT settles it:
+    ///
+    /// <code>
+    /// "$phong" "1"
+    /// "$phongexponent" "150"
+    /// </code>
+    ///
+    /// It states 150. **Zero of this map's materials take the engine's default**, so B334's
+    /// exponent change alters nothing here — and the assertion that "proved" otherwise would have
+    /// gone on passing against a reader that had never been fixed.
+    ///
+    /// The real denominator is 170 of the 30,684 materials TF2 ships
+    /// (`vmt-param $phong !$phongexponent`) — paint-kit tools, flame balls, taunt props and
+    /// weapon warpaints, which are model materials rather than map ones. The claim belongs where
+    /// the VMT is visible, and it lives in `PhongExponentTextureConformanceTests` and
+    /// `PhongConformanceTests`.
     /// </remarks>
     [Test]
     public void Phong_ARealMapsMaterials_CarryTheExponentTheEngineWouldUse()
@@ -39,27 +60,37 @@ public sealed class PhongExponentMapWiringTests
         int withPhong = assets.Phong.Count(phong => phong is not null);
         int without = assets.Phong.Count(phong => phong is null);
 
-        // The engine's default for a phong material that states no exponent: 1 + 149 x white.
-        int atTheWhiteDefault = assets.Phong.Count(phong => phong is { Exponent: 150f });
+        // **NAMED, not just counted**, because a count cannot be looked at and a name can — and
+        // because naming it is what caught the wrong reading above.
+        string[] exponents =
+        [
+            .. Enumerable.Range(0, assets.Phong.Count)
+                .Where(index => assets.Phong[index] is not null)
+                .Select(index =>
+                    $"{assets.Materials[index].Name}={assets.Phong[index]!.Value.Exponent}"),
+        ];
 
         TestContext.Out.WriteLine(
-            $"{withPhong} of {withPhong + without} materials have phong; "
-            + $"{atTheWhiteDefault} of those state no exponent and rest at 150");
+            $"{withPhong} of {withPhong + without} materials have phong: "
+            + string.Join(", ", exponents.Take(8))
+            + (exponents.Length > 8 ? $" and {exponents.Length - 8} more" : string.Empty));
 
         withPhong.ShouldBeGreaterThan(0, "cp_process_final's models ask for phong");
 
         without.ShouldBeGreaterThan(
             withPhong, "the great majority of a map's materials are brushwork with no highlight");
 
-        atTheWhiteDefault.ShouldBeGreaterThan(
-            0,
-            "materials on this map state $phong and no $phongexponent; the engine draws those at "
-            + "150, and this project drew them at the declared default of 5 until B334");
-
-        // The control on THAT number: it must not be every phong material, or the reader has
-        // stopped honouring a stated exponent and this test is measuring a constant.
-        atTheWhiteDefault.ShouldBeLessThan(
-            withPhong, "most phong materials state an exponent of their own and must keep it");
+        // **The spread is the assertion, and it is what a broken reader would lose.** A reader that
+        // ignored the VMT would hand every phong material the same number — whether that number is
+        // 5, 150, or anything else — so counting DISTINCT exponents catches a constant where an
+        // equality against any one value cannot.
+        assets.Phong
+            .Where(phong => phong is not null)
+            .Select(phong => phong!.Value.Exponent)
+            .Distinct()
+            .Count()
+            .ShouldBeGreaterThan(
+                1, "these materials state different exponents and must not collapse to one");
     }
 
     /// <remarks>

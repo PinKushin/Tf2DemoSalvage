@@ -245,9 +245,16 @@ encoding rather than inventing flags beside it:
 
 **And the default exponent was wrong for a year: it is 150, not the 5 the parameter declares.**
 The helper writes `-1` unless the VMT states a positive value, and with no exponent texture it
-binds `TEXTURE_WHITE` to the sampler — so the shader computes `1 + 149 × 1`. Seven of
-cp_process's 330 phong materials state no exponent and were all drawn with a broad wash where TF2
-draws a tight point.
+binds `TEXTURE_WHITE` to the sampler — so the shader computes `1 + 149 × 1`. **170 of the 30,684
+shipped materials** state `$phong` and no `$phongexponent` (`vmt-param $phong !$phongexponent`)
+and were all drawn with a broad wash where TF2 draws a tight point: paint-kit tools, flame balls,
+taunt props and weapon warpaints.
+
+**None of them is on cp_process_final**, and that number was first written here as "seven of
+cp_process's 330", which was two mistakes at once — a denominator from a different measurement, and
+a count taken by asking which materials ARRIVED at an exponent of 150. That last is an unfaithful
+proxy: the map's one material at 150, `models/props_gameplay/bottle001`, states `$phongexponent
+150` in its own VMT. Zero of this map's materials fall back.
 
 **And a limit worth knowing before reading the picture**: the term is driven by the SUN alone. The
 engine sums it over the light cache's local lights as well, and those do not reach a model here, so a

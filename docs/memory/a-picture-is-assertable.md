@@ -37,3 +37,29 @@ reference so the next person does not have to. And never let "a person decides" 
 assertion that needs no judgement at all.
 
 Related: [[output-level-assertion-or-it-is-not-done]], [[instrument-bugs-outnumber-decoder-bugs]].
+
+## But a VIEWER SCREENSHOT is not a diffable artefact — measured 2026-09-04
+
+Two captures of the SAME code, same demo, same `--tick 30000 --third-person`, differ in bytes.
+That was found the right way round: a shader change was captured before and after, the two PNGs
+differed, and the **control** — re-running the unchanged build — differed too. So the "before and
+after are different" result proved nothing, and would have been reported as proof if the control had
+been skipped.
+
+**At least one confound is visible in the image**: the fps overlay prints a per-run number in the
+corner. There may be others; nothing here has established that removing the overlay would make the
+capture reproducible, and one attempt to switch it off with `+cl_showfps 0` produced no file at all
+while `cmp` cheerfully reported "different" about two paths that did not exist. Two instrument
+faults in one check.
+
+**So: `--shot` is for LOOKING, not for diffing.** When the question is "does this change any pixel",
+the instrument is `Rendering.Tests`' offscreen harness — `OffscreenTarget` + `DrawModelPose`, which
+draws a quad under a fixed camera and reads one pixel deterministically.
+
+**Its limit, which is why this note is here rather than a fixed test.** That harness draws from a
+loaded `MapAssets`, and `MapAssets` is a sealed class with `private init` members — so a test cannot
+build one carrying a chosen material state, only load a real map and use what is on it. If the
+map has no material exercising the branch, there is no pixel test to write. That is exactly the
+position `$phongexponenttexture` was in (B334): cp_process_final resolves zero exponent maps while a
+real demo resolves 21. See [[run-the-control-before-arguing]] and
+[[instrument-bugs-outnumber-decoder-bugs]].
