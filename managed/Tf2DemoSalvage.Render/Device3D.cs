@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.IO;
@@ -2209,13 +2210,32 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
         bool moved = was.Group != requested || was.Opaque != opaque || was.Translucent != blended;
 
-        // **Capped, because an unbounded log is its own defect.** A model that alternates every
-        // frame is exactly the case worth seeing and exactly the case that would write sixty lines a
-        // second; the first few carry the whole finding and the rest are weight. The cap is per
-        // MODEL, so a second model flipping is still reported.
+        // **Rate limited, because the cap this comment described was never written** (B355). A
+        // model that alternates every frame is exactly the case worth seeing and exactly the case
+        // that writes sixty lines a second — and `Reported` below was incremented and never read,
+        // so nothing bounded it. Measured on one two-minute UI run: `_locker` alone wrote 11,576
+        // lines, 5,788 in each direction.
+        //
+        // **A rate limit rather than a count**, per `DrawTally.Report`'s rule — *"A change guard
+        // against a value that oscillates is not a guard. Paired with a rate limit"* — and because
+        // a budget spent in the first second is silent for the run where the flip starts late.
+        //
+        // **The flapping itself is very likely two instances sharing one slot**, not a model
+        // changing its mind: this is keyed by MODEL PATH while `Frame` is the input the comment
+        // above names as the one that varies, so a map with two resupply lockers at different
+        // animation frames reports a change on every draw. Keying it by instance needs an identity
+        // `ModelInstance` does not carry, which is why the limit is the fix here and the identity
+        // is B356.
+        long now = Stopwatch.GetTimestamp();
+
+        _classifiedAt.TryGetValue(instance.ModelPath, out long lastAt);
+
         if (moved && _classified.ContainsKey(instance.ModelPath) &&
+            now - lastAt >= Stopwatch.Frequency &&
             _render.IsEnabled(LogLevel.Debug))
         {
+            _classifiedAt[instance.ModelPath] = now;
+
             _render.LogDebug(
                 "{Message}",
                 $"{System.IO.Path.GetFileNameWithoutExtension(instance.ModelPath)} changed render " +
@@ -2415,6 +2435,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// <summary>The last render group each model classified into, to report a change.</summary>
     private readonly Dictionary<string, (RenderGroup Group, bool Opaque, bool Translucent, int Reported)>
         _classified = [];
+
+    /// <summary>When each model last reported a change, so an alternating one is rate limited.</summary>
+    private readonly Dictionary<string, long> _classifiedAt = new(StringComparer.Ordinal);
 
     /// <summary>Models already reported as drawn below full alpha, so each says so once.</summary>
     /// <remarks>
