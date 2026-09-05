@@ -244,6 +244,19 @@ public sealed class TransitionProbe : IProbe
             PlayerProps.Add(
                 players, drawn, new GameAppearance(game.Classes, null), NoBodygroups.Instance);
 
+            // **An eye, because two of the counters below are view-dependent and read zero without
+            // one** (B358). The distance fade and the areaportal window's blend both need a view
+            // origin, and `EntityModelSet` leaves it null until a frame is posed — so a probe that
+            // never set one reported "0 windows faded" on a map carrying six of them, which reads
+            // as a defect in the code rather than in the harness.
+            //
+            // The first player standing in for the camera is enough for a counter: it is a real
+            // point in the map, near the geometry, which is all the blend needs to be exercised.
+            if (players.Count > 0)
+            {
+                models.ViewOrigin = (players[0].X, players[0].Y, players[0].Z);
+            }
+
             models.Add(drawn, assets.Geometry);
             models.UpdateClientSideAnimations(drawn);
             models.Instances(drawn, instances, seconds: tick * timeline.IntervalPerTick);
@@ -283,6 +296,15 @@ public sealed class TransitionProbe : IProbe
             string.Create(
                 CultureInfo.InvariantCulture,
                 $"flinches substituted to CHEST: {models.SubstitutedFlinches}"));
+
+        // **Areaportal windows given Valve's distance blend** (B358), read off the object that did
+        // the work rather than recounted here. Zero on a map that carries them means the three
+        // floats never arrived or no view origin was set — and the visible result of that is a
+        // solid black panel in every window, which is what this fixed.
+        output.WriteLine(
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"areaportal windows faded: {models.PortalWindowsFaded}"));
 
         if (models.SequenceChangesSeen == 0)
         {

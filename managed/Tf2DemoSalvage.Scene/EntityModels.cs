@@ -2672,6 +2672,18 @@ public sealed class EntityModelSet : IModelBodygroups
     /// </remarks>
     public int SubstitutedFlinches { get; private set; }
 
+    /// <summary>Areaportal windows given their distance blend — the wiring check for B358.</summary>
+    /// <remarks>
+    /// **Counted where the blend is WRITTEN, not where a window is recognised**, which is the
+    /// distinction B347's counter got wrong: incremented at the intent rather than at the work, it
+    /// reported success for a rotation nothing applied. Zero here on `koth_harvest_final`, which
+    /// carries six of them, means the three floats never arrived or the view origin was never set.
+    /// </remarks>
+    public int PortalWindowsFaded { get; private set; }
+
+    /// <summary>The alpha a fully solid entity draws at, as a byte.</summary>
+    private const int FullyOpaqueAlpha = 255;
+
     /// <summary>Barrel bones actually WRITTEN — the wiring check for B347.</summary>
     /// <remarks>
     /// **Summed out of the poses that did the work, not counted here** (B243). The first version
@@ -4659,6 +4671,35 @@ public sealed class EntityModelSet : IModelBodygroups
                 prop.EntityIndex,
                 (float)seconds,
                 clientSideFade: fade);
+
+            // **An areaportal window ignores all of that and uses its distance blend** (B358).
+            // `C_FuncAreaPortalWindow::ComputeFxBlend` sets `m_nRenderFXBlend = 255` with the
+            // comment *"We reset our blend down below"*, and `DrawModel` then calls
+            // `render->SetBlend( GetDistanceBlend() )` — so the entity's renderamt, rendermode and
+            // renderfx decide nothing. Harvest's windows say `rendermode 0` and `renderamt 255`,
+            // which is exactly why they drew as solid black panels.
+            //
+            // **Overwritten rather than multiplied in**, because the engine replaces the blend
+            // rather than modulating it; a multiply would keep whatever `ComputeFxBlend` returned
+            // and reintroduce the renderamt this class exists to ignore.
+            if (prop.Pose.PortalWindow is { } window && ViewOrigin is { } watching)
+            {
+                (float minX, float minY, float minZ, float maxX, float maxY, float maxZ) =
+                    WorldBoxFor(prop);
+
+                float portalBlend = AreaPortalWindow.Blend(
+                    AreaPortalWindow.Distance(
+                        watching, (minX, minY, minZ), (maxX, maxY, maxZ)),
+                    window.FadeStart,
+                    window.FadeEnd,
+                    window.TranslucencyLimit);
+
+                // 255 rather than `RenderGroups.FullyOpaque`, which lives in the render layer this
+                // one is beneath. `render->SetBlend` takes 0..1 and the byte is ours.
+                fx = fx with { Blend = (int)MathF.Round(portalBlend * FullyOpaqueAlpha) };
+
+                PortalWindowsFaded++;
+            }
 
             into.Add(new ModelInstance(
                 prop.ModelPath,

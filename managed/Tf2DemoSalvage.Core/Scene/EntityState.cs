@@ -195,6 +195,9 @@ public sealed class EntityState
     /// <summary>Only things that animate carry the six below.</summary>
     private const string AnimatingTable = "DT_BaseAnimating";
 
+    /// <summary>The areaportal window's own send table (B358).</summary>
+    private const string AreaPortalWindowTable = "DT_FuncAreaPortalWindow";
+
     private const string SequenceProperty = "m_nSequence";
 
     /// <summary>Which alternative each body part shows, packed into one number.</summary>
@@ -1884,6 +1887,33 @@ public sealed class EntityState
     /// <summary>The distance beyond which this entity is invisible.</summary>
     /// <returns><c>m_fadeMaxDist</c>, or <c>null</c> when it was never sent.</returns>
     public float? FadeMaximumDistance() => Number($"{AnimatingTable}.m_fadeMaxDist");
+
+    /// <summary>Where an areaportal window starts becoming solid (B358).</summary>
+    /// <returns><c>m_flFadeStartDist</c>, or <c>null</c> when this is not one.</returns>
+    /// <remarks>
+    /// **Its own send table, not <c>DT_BaseAnimating</c>'s fade pair.** `DT_FuncAreaPortalWindow`
+    /// (<c>func_areaportalwindow.cpp:22</c>) sends three floats of its own, and they mean the
+    /// opposite of `m_fadeMinDist`: a prop fades OUT with distance, a portal window fades IN,
+    /// becoming an opaque panel far away so the areaportal can cull the room behind it.
+    ///
+    /// **Null is the whole test for "is this a portal window".** Only that class sends these, so a
+    /// present value identifies the entity as well as configuring it — no class-name match needed.
+    /// </remarks>
+    public float? PortalFadeStartDistance() =>
+        Number($"{AreaPortalWindowTable}.m_flFadeStartDist");
+
+    /// <summary>Where an areaportal window becomes fully solid.</summary>
+    /// <returns><c>m_flFadeDist</c>, or <c>null</c> when this is not one.</returns>
+    public float? PortalFadeDistance() => Number($"{AreaPortalWindowTable}.m_flFadeDist");
+
+    /// <summary>The most transparent an areaportal window may become.</summary>
+    /// <returns><c>m_flTranslucencyLimit</c>, or <c>null</c> when this is not one.</returns>
+    /// <remarks>
+    /// **Zero on every window `koth_harvest_final` ships**, which is what makes the panel vanish
+    /// entirely at close range rather than merely thinning. A value above zero is smoked glass.
+    /// </remarks>
+    public float? PortalTranslucencyLimit() =>
+        Number($"{AreaPortalWindowTable}.m_flTranslucencyLimit");
 
     /// <summary>Which blend mode the entity draws with, when it says.</summary>
     /// <returns><c>m_nRenderMode</c>, or <c>null</c> when it was never sent.</returns>

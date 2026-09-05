@@ -24406,3 +24406,104 @@ parser — for the fall-through.
 
 **What is NOT established:** whether any other documented interface names something that does not
 exist. Only the viewer's `--help` was compared against its parser.
+
+### B358 FIXED 2026-09-05: every areaportal window drew as a solid black panel
+
+**The owner's report: "windows are not transparent", and "open doorways can be black too".** Both are
+one defect, and the owner named it before it was found — *"its exactly us not having areaportal
+right… this bug is a known map bug when you fuck up making your map"*. That is precisely what it
+looked like, and precisely why: the failure mode produces the same picture a broken areaportal gives
+in game.
+
+#### What the engine does
+
+A `func_areaportalwindow` takes the brush model of whatever its `target` names, and hides that
+entity (`func_areaportalwindow.cpp:81`, SERVER, in `Activate`):
+
+```cpp
+CBaseEntity *pTarget = gEntList.FindEntityByName( NULL, m_target );
+if( pTarget )
+{
+    SetModel( STRING(pTarget->GetModelName()) );
+    SetAbsOrigin( pTarget->GetAbsOrigin() );
+    pTarget->AddEffects( EF_NODRAW ); // we will draw for it.
+}
+```
+
+Because that runs on the server, **a demo already carries the target hidden and the window holding
+its model** — and `EF_NODRAW` is implemented here, so the target was correctly absent from the draw
+list all along. Nothing was missing from the decode. What was missing was the blend
+(`c_func_areaportalwindow.cpp:79`):
+
+```cpp
+render->SetBlend( GetDistanceBlend() );
+render->DrawBrushModelEx( this, (model_t *)GetModel(), ... );
+```
+
+```cpp
+float flDist = CollisionProp()->CalcDistanceFromPoint( CurrentViewOrigin() );
+flDist *= local->GetFOVDistanceAdjustFactor();
+return RemapValClamped( flDist, m_flFadeStartDist, m_flFadeDist, m_flTranslucencyLimit, 1 );
+```
+
+**The panel is the mechanism, not scenery.** Far away it is opaque so the areaportal can cull the
+room behind it; close up it clears so you can see through. We drew it always-opaque, keeping the half
+that hides and losing the half that reveals.
+
+#### Why it was black rather than some texture
+
+**Measured**: `koth_harvest_final` carries six of these. Both BLU spawn windows target brush models
+`*29` and `*28`, and **every one of their six faces is `TOOLS/TOOLSBLACK`**. The brushes declare
+`rendermode 0` and `renderamt 255`, so drawing them at their own render amount puts a literally
+black panel exactly in the opening.
+
+`C_FuncAreaPortalWindow` ignores all of that on purpose: `ComputeFxBlend` sets `m_nRenderFXBlend =
+255` with the comment *"We reset our blend down below"*, and `IsTransparent()` returns true
+unconditionally. So renderamt, rendermode and renderfx decide nothing for this class — which is why
+the blend is written over `FxBlend.Compute`'s answer rather than multiplied into it.
+
+Harvest's windows carry `FadeStartDist 1200`, `FadeDist 1500`, `TranslucencyLimit 0.0`. A player in
+spawn is a few hundred units from the glass, so the engine draws them at **alpha zero** and we drew
+them at 255.
+
+#### The route there, and two wrong turns worth keeping
+
+The owner's diagnosis was right from the first message and the investigation argued with it twice:
+
+- **"Not implementing areaportals draws MORE, not less"** — true of the AREA BITS, and irrelevant.
+  The defect was in a drawn entity, not in visibility.
+- **A screenshot differential with the PVS disabled produced an identical frame**, read as "the PVS
+  is not the cause". That reading needed a control nobody ran: the `vis` probe now reports the PVS
+  keeps **1205 of 2074 leaves from that spawn, removing 551 (31.4%) across 5 areas**, so it WAS
+  filtering — the two frames matched because the frustum had already excluded the same leaves. A
+  differential whose manipulation is not verified cannot tell "not the cause" from "changed nothing".
+- **The category view showed the openings magenta**, read as the missing-material chequer. The log
+  says `1156 materials, 0 will draw as the missing-material chequer`. A colour was read without
+  checking the legend.
+
+**What actually found it** was `brush-ents`, written because a brush entity has no origin — its
+geometry is a brush model already in world space — so `map-near` structurally cannot see one and had
+returned twenty-four static props and nothing else.
+
+#### Verification
+
+Eight conformance tests for the blend and the distance, six wiring tests for the instance. Sampled
+between the knots rather than at them, and the equal-distances branch is carried because
+`RemapValClamped` guards a division by zero there.
+
+**Sabotage:** swapping `FadeStart` and `FadeEnd` reddens five of the six wiring tests and leaves the
+conformance suite and the no-view-origin control green.
+
+**Looked at**: the same frame, `z1800` tick 300 in the BLU spawn, before and after. Both windows now
+show the yard through them with their frames visible, and the doorway shows the corridor beyond
+instead of black.
+
+**Evidence class: read-from-source** for `Activate`, `DrawModel`, `GetDistanceBlend`,
+`RemapValClamped` and `CalcDistanceFromPoint`; **measured** for the six windows, their fade values
+and the `TOOLS/TOOLSBLACK` faces.
+
+**What is NOT established:** the FOV distance factor. `GetFOVDistanceAdjustFactor` is
+`localFOV / defaultFOV` and exactly 1 whenever they match, which is every frame this viewer draws
+except a zoomed sniper's — the conformance suite pins the arithmetic, and nothing wires a live FOV
+into it yet. And `BackgroundBModel`, the optional second brush drawn at blend 1: no window on
+harvest declares one, so there is nothing here to test it against.

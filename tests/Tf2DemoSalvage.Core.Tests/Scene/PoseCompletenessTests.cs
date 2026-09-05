@@ -237,6 +237,10 @@ public sealed class PoseCompletenessTests
         FadeMinimumDistance = 826f,
         FadeMaximumDistance = 900f,
 
+        // An areaportal window's three, which travel together or not at all (B358). Distinctive
+        // rather than harvest's real 1200/1500/0, so a value copied from the wrong field is visible.
+        PortalWindow = (827f, 901f, 0.37f),
+
         // **Non-empty, because empty is the default AND the answer for every player** — so a
         // rebuild that dropped this would look correct on the entities this project draws most and
         // wrong only on buildings. Two values rather than one, so a rebuild that kept the array but

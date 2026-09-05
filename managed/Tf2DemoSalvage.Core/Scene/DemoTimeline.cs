@@ -3466,6 +3466,16 @@ public sealed class DemoTimeline
                 FadeMinimumDistance = state.FadeMinimumDistance() ?? 0f,
                 FadeMaximumDistance = state.FadeMaximumDistance() ?? 0f,
 
+                // **An areaportal window's three, which travel together or not at all** (B358).
+                // Only `DT_FuncAreaPortalWindow` sends them, so a present start distance is what
+                // identifies the class — and the tuple stays null for every other entity, which is
+                // what the scene tests before applying Valve's distance blend.
+                PortalWindow = state.PortalFadeStartDistance() is { } portalStart
+                    ? (portalStart,
+                        state.PortalFadeDistance() ?? portalStart,
+                        state.PortalTranslucencyLimit() ?? 0f)
+                    : null,
+
                 // **What the entity says its pose parameters are.** Empty for a player, because
                 // `tf_player.cpp:769` excludes the array from their send table and the client
                 // computes theirs — so this cannot override the ones `PoseValues` derives.
