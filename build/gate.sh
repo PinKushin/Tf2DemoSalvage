@@ -274,7 +274,15 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # dem_datatables, the entity encoded into a real svc_PacketEntities, DemoTimeline.Build reading it
 # back. Three, and the third is the control: an ordinary corpse must answer false to both, without
 # which a decode returning true unconditionally passes the other two.
-run Tf2DemoSalvage.Core.Tests     core     1696
+# 1696 -> 1737: Core's branch coverage, which CI's floor caught at 83.4% against 85 (B335). Six
+# synthetic suites for code that had tests only in `Corpus.Tests` — the assembly whose coverage
+# nothing measures and that the measurement boxes cannot run at all. `SceneSoundscape` and
+# `EconAttributeWire`'s hand-written equalities, both load-bearing because the samplers dedup on
+# them and the record default compares lists by REFERENCE; `DirectorShot`'s type switch, where a
+# field arriving as `short` rather than `int` is the defect class this project has shipped three
+# times; `ModelPaths`, the precache list, whose gaps show as a hitch rather than a missing model;
+# and `EntityState`'s soundscape accessors and EF_NODRAW rule.
+run Tf2DemoSalvage.Core.Tests     core     1737
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
