@@ -43,6 +43,9 @@ public static class RespawnRoomVisibility
     /// <summary>The class the map's spawn walls are.</summary>
     private const string Visualizer = "CFuncRespawnRoomVisualizer";
 
+    /// <summary>The spawn-door force field, which shares only the team-win rule (B359).</summary>
+    private const string ForceField = "CFuncForceField";
+
     /// <summary><c>GR_STATE_TEAM_WIN</c>, <c>teamplayroundbased_gamerules.h:63</c>.</summary>
     /// <remarks>
     /// **Counted from the enum rather than remembered**, because it has no explicit values past the
@@ -94,7 +97,24 @@ public static class RespawnRoomVisibility
 
     private static bool Keep(SceneProp prop, int? roundState)
     {
-        if (!string.Equals(prop.ClassName, Visualizer, StringComparison.Ordinal))
+        bool visualizer = string.Equals(prop.ClassName, Visualizer, StringComparison.Ordinal);
+
+        // **The force field obeys the FIRST of the visualizer's two rules and not the second**
+        // (B359). `C_FuncForceField::DrawModel` (`c_func_forcefield.cpp:28`) is two lines:
+        //
+        //   // Don't draw for anyone during a team win
+        //   if ( TFGameRules()->State_Get() == GR_STATE_TEAM_WIN )
+        //       return 1;
+        //   return BaseClass::DrawModel( flags );
+        //
+        // No local-player test at all — you SEE your own team's field, which is how you watch
+        // enemies fail to walk through it. Giving it the wall's own-team rule as well would delete
+        // every field the recorder's team owns.
+        //
+        // **Handled here rather than in a class of its own because the round-state rule is one
+        // rule.** Two files would be two places to change when the state enum moves, and the whole
+        // of the difference between the entities is the `visualizer` test below.
+        if (!visualizer && !string.Equals(prop.ClassName, ForceField, StringComparison.Ordinal))
         {
             return true;
         }
@@ -107,6 +127,6 @@ public static class RespawnRoomVisibility
             return false;
         }
 
-        return !prop.OfRecordersTeam;
+        return !visualizer || !prop.OfRecordersTeam;
     }
 }

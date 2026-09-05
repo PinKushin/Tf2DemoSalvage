@@ -149,4 +149,63 @@ public sealed class RespawnRoomVisibilityTests
             Kind: SceneModelKind.Brush,
             Pose: default,
             ClassName: "CBaseDoor");
+
+    /// <summary>A spawn-door force field, which shares only the team-win half of the rule.</summary>
+    private static SceneProp ForceField(bool ofRecordersTeam) =>
+        new(
+            EntityIndex: 44,
+            ModelPath: "*57",
+            Kind: SceneModelKind.Brush,
+            Pose: default,
+            ClassName: "CFuncForceField",
+            OfRecordersTeam: ofRecordersTeam);
+
+    /// <remarks>
+    /// **`C_FuncForceField::DrawModel` is two lines and this is the first**
+    /// (<c>c_func_forcefield.cpp:28</c>):
+    ///
+    /// <code>
+    ///   // Don't draw for anyone during a team win
+    ///   if ( TFGameRules()-&gt;State_Get() == GR_STATE_TEAM_WIN )
+    ///       return 1;
+    ///   return BaseClass::DrawModel( flags );
+    /// </code>
+    ///
+    /// **The same round state the wall beside it already obeyed** (B359). The visualizer's rule was
+    /// implemented and its sibling's was not, so the losing team's spawn kept a solid team-coloured
+    /// slab across the doorway at exactly the moment TF2 removes it and the winners run in.
+    ///
+    /// `ShouldCollide` turns the field off in the same state, which is the other half of the same
+    /// intent: after a win it is neither drawn nor solid.
+    /// </remarks>
+    [Test]
+    public void Visible_AForceFieldOnATeamWin_IsDropped()
+    {
+        RespawnRoomVisibility.Visible(
+            [ForceField(ofRecordersTeam: false)], RespawnRoomVisibility.TeamWin).ShouldBeEmpty();
+    }
+
+    /// <remarks>
+    /// The control for the pair: during a running round the field is drawn, so "never draw a force
+    /// field" cannot pass the test above.
+    /// </remarks>
+    [Test]
+    public void Visible_AForceFieldDuringTheRound_IsDrawn()
+    {
+        RespawnRoomVisibility.Visible([ForceField(ofRecordersTeam: false)], RoundRunning)
+            .Count.ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **A force field does NOT take the visualizer's own-team rule, and this is the case that
+    /// separates the two.** `C_FuncForceField::DrawModel` has no local-player test at all — you see
+    /// your own team's field, which is why you can watch enemies fail to walk through it. Reusing
+    /// the wall's rule wholesale would delete every force field the recorder's own team owns.
+    /// </remarks>
+    [Test]
+    public void Visible_AForceFieldOfTheRecordersOwnTeam_IsStillDrawn()
+    {
+        RespawnRoomVisibility.Visible([ForceField(ofRecordersTeam: true)], RoundRunning)
+            .Count.ShouldBe(1, "the engine's force field has no own-team test");
+    }
 }
