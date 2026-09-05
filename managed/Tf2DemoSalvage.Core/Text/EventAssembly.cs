@@ -102,7 +102,10 @@ public static class EventAssembly
             }
 
             definitions.Add(new GameEventDefinition(
-                int.Parse(line[1], CultureInfo.InvariantCulture), line[2], fields));
+                AssemblyText.Number(
+                    AssemblyText.Token(line, 1, "an event id", Subject), "event id", Subject),
+                AssemblyText.Token(line, 2, "an event name", Subject),
+                fields));
         }
 
         return new GameEventListMessage(definitions, Bits(tokens));
@@ -145,7 +148,8 @@ public static class EventAssembly
         ArgumentNullException.ThrowIfNull(nextLine);
         ArgumentNullException.ThrowIfNull(state);
 
-        int id = int.Parse(tokens[1], CultureInfo.InvariantCulture);
+        int id = AssemblyText.Number(
+            AssemblyText.Token(tokens, 1, "an event id", Subject), "event id", Subject);
 
         if (!state.EventDefinitions.TryGetValue(id, out GameEventDefinition? definition))
         {
@@ -179,10 +183,17 @@ public static class EventAssembly
     private static object? Parse(GameEventValueType type, string text) => type switch
     {
         GameEventValueType.String => text,
-        GameEventValueType.Float => float.Parse(text, CultureInfo.InvariantCulture),
-        GameEventValueType.Long => int.Parse(text, CultureInfo.InvariantCulture),
-        GameEventValueType.Short => short.Parse(text, CultureInfo.InvariantCulture),
-        GameEventValueType.Byte => byte.Parse(text, CultureInfo.InvariantCulture),
+        GameEventValueType.Float => AssemblyText.Real(text, "float field", Subject),
+        GameEventValueType.Long => AssemblyText.Number(text, "long field", Subject),
+
+        // **The narrow types are checked against their OWN range, not just parsed.** `modevents.res`
+        // documents `short` as 16-bit signed and `byte` as 8-bit unsigned, and a value outside that
+        // does not fit the bits the writer will give it — so accepting one here would produce a
+        // demo that does not say what the text said.
+        GameEventValueType.Short => checked(
+            (short)Ranged(text, short.MinValue, short.MaxValue, "short field")),
+        GameEventValueType.Byte => checked(
+            (byte)Ranged(text, byte.MinValue, byte.MaxValue, "byte field")),
         GameEventValueType.Bool => text == "1",
 
         // Declared by the server and never broadcast, so it occupies no bits in either direction.
@@ -215,14 +226,28 @@ public static class EventAssembly
     }
 
     /// <summary>The declared body length, which is not derivable from the fields.</summary>
+    /// <summary>What a refusal from this file calls the thing it was reading.</summary>
+    private const string Subject = "A game event line";
+
     private static int Bits(IReadOnlyList<string> tokens)
     {
         string? declared = tokens.FirstOrDefault(
             token => token.StartsWith("bits=", StringComparison.Ordinal));
 
         return declared is null
-            ? throw new InvalidDataException("A game event line has no 'bits' field.")
-            : int.Parse(declared[5..], CultureInfo.InvariantCulture);
+            ? throw new InvalidDataException($"{Subject} has no 'bits' field.")
+            : AssemblyText.Number(declared[5..], "'bits' field", Subject);
+    }
+
+    /// <summary>A number inside the range its field type can carry, or a refusal saying so.</summary>
+    private static int Ranged(string text, int low, int high, string what)
+    {
+        int value = AssemblyText.Number(text, what, Subject);
+
+        return value >= low && value <= high
+            ? value
+            : throw new InvalidDataException(
+                $"{Subject}'s {what} is {value}, outside the {low} to {high} it can carry.");
     }
 
     private static IEnumerable<List<string>> Block(Func<string?> nextLine)

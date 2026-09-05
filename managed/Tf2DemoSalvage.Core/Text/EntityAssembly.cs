@@ -432,96 +432,37 @@ public static class EntityAssembly
         return fields;
     }
 
+    /// <summary>What a refusal from this file calls the thing it was reading.</summary>
+    /// <remarks>
+    /// **Every read of a hand-edited trace goes through <see cref="AssemblyText"/>, and that is the
+    /// point** (B344). `DemoAssembly.cs:533` catches `InvalidDataException` and nothing else, to
+    /// rethrow it with the offending line attached; a `FormatException` from a bare `int.Parse` or
+    /// an `ArgumentException` from a bare `Enum.Parse` walks straight past that handler and reaches
+    /// the person with no line, no field and no file named. The type is not a detail — it is what
+    /// carries the context.
+    /// </remarks>
+    private const string Subject = "An entity line";
+
     private static int Field(Dictionary<string, string> fields, string name) =>
-        Number(Text(fields, name), $"'{name}' field");
+        Number(AssemblyText.Text(fields, name, Subject), $"'{name}' field");
 
-    /// <summary>A field's text, or a refusal naming the field that is missing.</summary>
-    /// <remarks>
-    /// **Every read of a hand-edited trace goes through one of these five, and that is the point**
-    /// (B344). `DemoAssembly.cs:533` catches `InvalidDataException` and nothing else, to rethrow it
-    /// with the offending line attached; a `FormatException` from a bare `int.Parse` or an
-    /// `ArgumentException` from a bare `Enum.Parse` walks straight past that handler and reaches the
-    /// person with no line, no field and no file named.
-    ///
-    /// So the type is not a detail — it is what carries the context. Each of these quotes what was
-    /// written as well as what was expected, because a trace is edited by hand and the value is the
-    /// half the editor can act on.
-    /// </remarks>
-    /// <param name="fields">The line's <c>name=value</c> fields.</param>
-    /// <param name="name">The field to read.</param>
-    /// <returns>The field's text.</returns>
     private static string Text(Dictionary<string, string> fields, string name) =>
-        fields.TryGetValue(name, out string? value)
-            ? value
-            : throw new InvalidDataException($"An entity line has no '{name}' field.");
+        AssemblyText.Text(fields, name, Subject);
 
-    /// <summary>The token at an index, or a refusal naming what the line lacks.</summary>
-    /// <param name="parts">The line's tokens.</param>
-    /// <param name="index">The token to read.</param>
-    /// <param name="what">What that token holds, for the message.</param>
-    /// <returns>The token.</returns>
     private static string Token(List<string> parts, int index, string what) =>
-        index < parts.Count
-            ? parts[index]
-            : throw new InvalidDataException(
-                $"An entity line has no {what}: '{string.Join(' ', parts)}'.");
+        AssemblyText.Token(parts, index, what, Subject);
 
-    /// <summary>A whole number, or a refusal quoting what was written instead.</summary>
-    /// <param name="value">The text to read.</param>
-    /// <param name="what">What the number means, for the message.</param>
-    /// <returns>The number.</returns>
     private static int Number(string value, string what) =>
-        int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int number)
-            ? number
-            : throw new InvalidDataException(
-                $"An entity line's {what} is not a whole number: '{value}'.");
+        AssemblyText.Number(value, what, Subject);
 
-    /// <summary>A real number, or a refusal quoting what was written instead.</summary>
-    /// <param name="value">The text to read.</param>
-    /// <param name="what">What the number means, for the message.</param>
-    /// <returns>The number.</returns>
     private static float Real(string value, string what) =>
-        float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out float number)
-            ? number
-            : throw new InvalidDataException(
-                $"An entity line's {what} is not a number: '{value}'.");
+        AssemblyText.Real(value, what, Subject);
 
-    /// <summary>An update type, or a refusal listing the ones that exist.</summary>
-    /// <remarks>
-    /// **The valid names are listed because the set is small and closed.** A person who typed
-    /// `entre` cannot recover `ENTER` from `Requested value 'entre' was not found`, and there are
-    /// four candidates in total — so printing them costs a line and ends the search.
-    ///
-    /// **A numeric type outside the enum is refused too.** `Enum.Parse` accepts `99` and yields an
-    /// undefined value, which would then decode against a rule that matches no branch; `IsDefined`
-    /// makes the refusal total rather than leaving one shape through.
-    /// </remarks>
-    /// <param name="value">The token to read.</param>
-    /// <returns>The update type.</returns>
     private static EntityUpdateType Update(string value) =>
-        Enum.TryParse(value, ignoreCase: true, out EntityUpdateType update)
-            && Enum.IsDefined(update)
-            ? update
-            : throw new InvalidDataException(
-                $"An entity line's update type is not one of " +
-                $"{string.Join(", ", Enum.GetNames<EntityUpdateType>())}: '{value}'.");
+        AssemblyText.Enumeration<EntityUpdateType>(value, "update type", Subject);
 
-    /// <summary>Hexadecimal bytes, or a refusal quoting what was written instead.</summary>
-    /// <param name="value">The text to read.</param>
-    /// <param name="what">What the bytes hold, for the message.</param>
-    /// <returns>The bytes.</returns>
-    private static byte[] Hex(string value, string what)
-    {
-        try
-        {
-            return Convert.FromHexString(value);
-        }
-        catch (FormatException failure)
-        {
-            throw new InvalidDataException(
-                $"An entity line's {what} is not hexadecimal: '{value}'.", failure);
-        }
-    }
+    private static byte[] Hex(string value, string what) =>
+        AssemblyText.Hex(value, what, Subject);
 
     /// <summary>Splits a line into bare tokens and quoted strings.</summary>
     private static List<string> Tokens(string line)

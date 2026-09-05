@@ -69,6 +69,23 @@ different questions and none substitutes for another:
    somewhere strange. Worth doing once the primitives are clean.
 4. **Whole-file parse**, seeded with `z1800.dem`. Last, because a crash here is
    harder to localise than one in a primitive.
+5. **`DemoAssembly.Parse` — the readable TRACE, not the binary demo.** Added
+   2026-09-05, and it belongs high rather than last: this is the only input the
+   project accepts that a PERSON writes, so malformed input is its normal case
+   rather than its corruption case. It also has a sharp property already written
+   down — every refusal is `InvalidDataException`, because `DemoAssembly.Parse`
+   catches that type and nothing else to attach the offending line (B344, B345).
+   Anything else reaching a caller is a defect by definition, which makes the
+   oracle one `catch` clause rather than a judgement.
+
+   **B345 is the argument for doing it.** Twenty-eight bare parses across five
+   files were found by hand and fixed, and the worst of them was not a message
+   at all: `PropertyText` passed an array's declared element count straight to
+   `new List<PropertyValue>(count)`, so `a 2000000000` raised
+   `OutOfMemoryException` — exactly the length-prefix allocation this document
+   predicts under item 2, in a layer it does not mention. Those were hand-picked
+   malformations, so what they establish is that the class exists, not that it
+   is exhausted.
 
 ## The property to assert
 

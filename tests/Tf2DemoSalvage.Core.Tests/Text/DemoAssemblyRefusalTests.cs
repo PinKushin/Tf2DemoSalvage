@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Core.Text;
@@ -107,6 +108,42 @@ public sealed class DemoAssemblyRefusalTests
     }
 
     /// <summary>Parses text expected to fail, returning the message.</summary>
+    /// <remarks>
+    /// **`ParseCommand` is the whole of B345 in one function.** It bounds-checks the line,
+    /// `TryGetValue`s the keyword and `TryParse`s the tick — each refusing with a message naming
+    /// the offending text, which is what the four tests above assert — and then read its payload
+    /// eight lines later with a bare `Convert.FromHexString`, whose `FormatException` walks past
+    /// the handler that attaches the line. The right answer was written three times directly above
+    /// the wrong one.
+    /// </remarks>
+    [Test]
+    public void Parse_ACommandPayloadThatIsNotHexadecimal_NamesTheSectionAndTheValue()
+    {
+        string message = Refuse(Header() + "stop 100 bytes zz\n");
+
+        message.ShouldContain("zz", Case.Sensitive);
+        message.ShouldContain("bytes");
+    }
+
+    /// <remarks>
+    /// **The header's one real number**, which took a different parse from every other field and
+    /// so kept its own escape after `Integer` had been fixed.
+    /// </remarks>
+    [Test]
+    public void Parse_APlaybackTimeThatIsNotANumber_NamesTheField()
+    {
+        string message = Refuse(
+            string.Join(
+                '\n',
+                HeaderLines.Select(
+                    line => line.Contains("playbacktime", StringComparison.Ordinal)
+                        ? "  playbacktime soon"
+                        : line)) + "\n");
+
+        message.ShouldContain("playbacktime");
+        message.ShouldContain("soon", Case.Sensitive);
+    }
+
     private static string Refuse(string text)
     {
         using StringReader reader = new(text);

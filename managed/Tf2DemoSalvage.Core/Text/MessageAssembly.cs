@@ -229,8 +229,8 @@ public static class MessageAssembly
         {
             // Raw bits go back exactly as they came, including the ones past the last whole byte.
             writer.AppendBits(
-                Convert.FromHexString(tokens[2]),
-                int.Parse(tokens[1], CultureInfo.InvariantCulture));
+                Hex(tokens, 2, "raw payload"),
+                Integer(tokens, 1));
             return;
         }
 
@@ -327,7 +327,7 @@ public static class MessageAssembly
 
         "svc_entitymessage" => new EntityMessage(
             Integer(tokens, 1), Integer(tokens, 2), Integer(tokens, 3),
-            Convert.FromHexString(tokens[4])),
+            Hex(tokens, 4, "entity message payload")),
 
         // **The hex payload is absent when the body is empty, and that is a real state.** The
         // writer builds this line by interpolation, so an empty body renders as nothing at all and
@@ -339,11 +339,11 @@ public static class MessageAssembly
         // whatever only happens late, which is a different blind spot from a cap on size.
         "svc_voicedata" => new VoiceDataMessage(
             Integer(tokens, 1), Integer(tokens, 2), Integer(tokens, 3),
-            tokens.Count > 4 ? Convert.FromHexString(tokens[4]) : default),
+            tokens.Count > 4 ? Hex(tokens, 4, "voice payload") : default),
 
         "svc_usermessage" => new UserMessage(
             Integer(tokens, 1), null, Integer(tokens, 2), null,
-            Convert.FromHexString(tokens[3])),
+            Hex(tokens, 3, "user message payload")),
 
         "svc_sounds" => BuildSounds(tokens, nextLine, state),
 
@@ -375,7 +375,7 @@ public static class MessageAssembly
         Integer(tokens, 4) != 0,
         (uint)Integer(tokens, 5),
         (ushort)Integer(tokens, 6),
-        Convert.FromHexString(tokens[7]),
+        Hex(tokens, 7, "payload"),
         (byte)Integer(tokens, 8),
         (byte)Integer(tokens, 9),
         Real(tokens, 10),
@@ -452,7 +452,7 @@ public static class MessageAssembly
     private static string Axis(float? value) => value is { } present ? Round(present) : "-";
 
     private static float? Axis(string token) =>
-        token == "-" ? null : float.Parse(token, CultureInfo.InvariantCulture);
+        token == "-" ? null : AssemblyText.Real(token, "axis", Subject);
 
     private static List<string> WriteSounds(SoundsMessage message, ushort protocol)
     {
@@ -560,15 +560,16 @@ public static class MessageAssembly
         return fields;
     }
 
+    /// <summary>What a refusal about a sound's fields calls the thing it was reading.</summary>
+    private const string SoundSubject = "A sound";
+
     private static int Field(Dictionary<string, string> fields, string name) =>
-        fields.TryGetValue(name, out string? value)
-            ? int.Parse(value, CultureInfo.InvariantCulture)
-            : throw new InvalidDataException($"A sound has no '{name}' field.");
+        AssemblyText.Number(
+            AssemblyText.Text(fields, name, SoundSubject), $"'{name}' field", SoundSubject);
 
     private static float Fraction(Dictionary<string, string> fields, string name) =>
-        fields.TryGetValue(name, out string? value)
-            ? float.Parse(value, CultureInfo.InvariantCulture)
-            : throw new InvalidDataException($"A sound has no '{name}' field.");
+        AssemblyText.Real(
+            AssemblyText.Text(fields, name, SoundSubject), $"'{name}' field", SoundSubject);
 
     private static SetConVarMessage BuildConVars(List<string> tokens)
     {
@@ -597,13 +598,44 @@ public static class MessageAssembly
         return line.ToString();
     }
 
-    private static int Integer(List<string> tokens, int index) =>
-        int.TryParse(tokens[index], NumberStyles.Integer, CultureInfo.InvariantCulture, out int value)
-            ? value
-            : (int)uint.Parse(tokens[index], CultureInfo.InvariantCulture);
+    /// <summary>What a refusal about a message line calls the thing it was reading.</summary>
+    private const string Subject = "A message line";
+
+    /// <remarks>
+    /// **The unsigned fallback is deliberate and stays.** A field written as an unsigned value
+    /// round-trips back through this, so <c>4294967295</c> must read as -1 rather than being
+    /// refused — only text that is neither is malformed.
+    /// </remarks>
+    private static int Integer(List<string> tokens, int index)
+    {
+        string token = AssemblyText.Token(tokens, index, $"a value at position {index}", Subject);
+
+        if (int.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value))
+        {
+            return value;
+        }
+
+        // **`uint`, not `long`.** Widening the fallback would accept a negative below int.MinValue
+        // and wrap it silently, where the unsigned parse refused it — the fallback exists for one
+        // reason, which is a field WRITTEN as unsigned coming back.
+        if (uint.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out uint wide))
+        {
+            return unchecked((int)wide);
+        }
+
+        throw new InvalidDataException(
+            $"{Subject}'s value at position {index} is not a whole number: '{token}'.");
+    }
 
     private static float Real(List<string> tokens, int index) =>
-        float.Parse(tokens[index], CultureInfo.InvariantCulture);
+        AssemblyText.Real(
+            AssemblyText.Token(tokens, index, $"a number at position {index}", Subject),
+            $"number at position {index}",
+            Subject);
+
+    private static byte[] Hex(List<string> tokens, int index, string what) =>
+        AssemblyText.Hex(
+            AssemblyText.Token(tokens, index, $"a {what}", Subject), what, Subject);
 
     /// <summary>The round-trip float format, so the value that comes back is the same value.</summary>
     private static string Round(float value) => value.ToString("R", CultureInfo.InvariantCulture);

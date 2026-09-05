@@ -66,13 +66,13 @@ public static class PropertyText
     private static PropertyValue Read(
         FlatProperty flat, IReadOnlyList<string> tokens, ref int index)
     {
-        string tag = tokens[index++];
+        string tag = Take(tokens, ref index, "a value tag");
 
         switch (tag)
         {
             case "i":
-                return PropertyValue.FromInt(
-                    long.Parse(tokens[index++], CultureInfo.InvariantCulture));
+                return PropertyValue.FromInt(AssemblyText.Wide(
+                    Take(tokens, ref index, "an integer"), "integer", Subject));
 
             case "f":
                 return PropertyValue.FromFloat(Real(tokens, ref index));
@@ -91,11 +91,20 @@ public static class PropertyText
             }
 
             case "s":
-                return PropertyValue.FromString(tokens[index++]);
+                return PropertyValue.FromString(Take(tokens, ref index, "a string"));
 
             case "a":
             {
-                int count = int.Parse(tokens[index++], CultureInfo.InvariantCulture);
+                // **The declared length is not trusted.** It was passed straight to the list's
+                // capacity, so `a 2000000000` raised OutOfMemoryException before a single element
+                // was read (B345). An array cannot have more elements than the line has tokens
+                // left, which is an exact ceiling rather than a tuned one.
+                int count = AssemblyText.Count(
+                    Take(tokens, ref index, "an element count"),
+                    tokens.Count - index,
+                    "elements",
+                    Subject);
+
                 List<PropertyValue> values = new(count);
 
                 // The element template rather than the array itself, matching how the decoder
@@ -147,8 +156,15 @@ public static class PropertyText
         return text.ToString();
     }
 
+    /// <summary>What a refusal from this file calls the thing it was reading.</summary>
+    private const string Subject = "A property value";
+
     private static float Real(IReadOnlyList<string> tokens, ref int index) =>
-        float.Parse(tokens[index++], CultureInfo.InvariantCulture);
+        AssemblyText.Real(Take(tokens, ref index, "a number"), "number", Subject);
+
+    /// <summary>The next token, or a refusal saying what the line stopped short of.</summary>
+    private static string Take(IReadOnlyList<string> tokens, ref int index, string what) =>
+        AssemblyText.Token(tokens, index++, what, Subject);
 
     private static string Round(float value) => value.ToString("R", CultureInfo.InvariantCulture);
 

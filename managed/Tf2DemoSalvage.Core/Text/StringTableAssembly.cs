@@ -112,14 +112,17 @@ public static class StringTableAssembly
         int maxEntries = Number(fields, "max");
         int bits = Number(fields, "bits");
         bool compressed = Number(fields, "compressed") != 0;
-        int? userBytes = fields["userbytes"] == "-" ? null : Number(fields, "userbytes");
+        int? userBytes =
+            AssemblyText.Text(fields, "userbytes", Subject) == "-"
+                ? null
+                : Number(fields, "userbytes");
         int userBits = Number(fields, "userbits");
 
         int payload = Payload(tokens);
         if (payload >= 0)
         {
             CreateStringTableWire opaque = new(
-                Number(fields, "count"), bits, Convert.FromHexString(tokens[payload]),
+                Number(fields, "count"), bits, Hex(tokens, payload, "table payload"),
                 userBytes, userBits);
 
             return new CreateStringTableMessage(
@@ -162,7 +165,7 @@ public static class StringTableAssembly
                 [],
                 "carried as bits",
                 new UpdateStringTableWire(
-                    Number(fields, "count"), bits, Convert.FromHexString(tokens[payload])));
+                    Number(fields, "count"), bits, Hex(tokens, payload, "table payload")));
         }
 
         List<StringTableEntry> entries = ReadEntries(nextLine);
@@ -229,7 +232,7 @@ public static class StringTableAssembly
                 Number(fields, "index"),
                 fields.TryGetValue("text", out string? text) ? text : null,
                 fields.TryGetValue("data", out string? data)
-                    ? Convert.FromHexString(data)
+                    ? AssemblyText.Hex(data, "'data' field", Subject)
                     : [],
                 Number(fields, "follows") != 0,
                 Number(fields, "hist"),
@@ -288,10 +291,16 @@ public static class StringTableAssembly
         return fields;
     }
 
+    /// <summary>What a refusal from this file calls the thing it was reading.</summary>
+    private const string Subject = "A string table line";
+
     private static int Number(Dictionary<string, string> fields, string name) =>
-        fields.TryGetValue(name, out string? value)
-            ? int.Parse(value, CultureInfo.InvariantCulture)
-            : throw new InvalidDataException($"A string table line has no '{name}' field.");
+        AssemblyText.Number(
+            AssemblyText.Text(fields, name, Subject), $"'{name}' field", Subject);
+
+    private static byte[] Hex(IReadOnlyList<string> tokens, int index, string what) =>
+        AssemblyText.Hex(
+            AssemblyText.Token(tokens, index, $"a {what}", Subject), what, Subject);
 
     private static string Quote(string value) =>
         "\"" + value

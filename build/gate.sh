@@ -300,7 +300,13 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # failure from EntityAssemblyRefusalTests' truncation and lives in its own file for that reason.
 # The type is the point: DemoAssembly.cs:533 catches InvalidDataException and nothing else, to
 # attach the offending line, so a bare Enum.Parse or int.Parse lost it. Three verified by sabotage.
-run Tf2DemoSalvage.Core.Tests     core     1764
+# 1764 -> 1785: the same refusal contract in the other four assembly layers (B345). Twenty-one, and
+# the corpus reaches none — every demo is a valid recording. Seven on PropertyText, four each on
+# MessageAssembly, EventAssembly and StringTableAssembly, two on DemoAssembly. The one that is not
+# about a message: PropertyText passed an array's DECLARED length straight to a list's capacity, so
+# `a 2000000000` raised OutOfMemoryException before reading an element — measured. Every suite
+# carries a control that must still parse, since a refusal rejecting everything satisfies the rest.
+run Tf2DemoSalvage.Core.Tests     core     1785
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
