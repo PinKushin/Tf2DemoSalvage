@@ -1388,7 +1388,13 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     156
 # returning frame zero satisfies every count. cp_process_final animates none of its own materials,
 # so that test skips there; the f12 demo loads 62 through the prop path, which is what says the
 # feature has a subject at all.
-run Tf2DemoSalvage.Rendering.Tests rendering 750
+#
+# 750 -> 754: the frame as a material VARIABLE (B343). Four for `$frame`'s arithmetic — the
+# truncation the engine's `GetIntValue()` does, the clamp that stops `$frameminusten`'s negatives
+# reading off the front of the list, an unwritten variable being frame zero, and the red component
+# being the value. This is what closed B339's INT divergence: it was inert only because the frame
+# was computed at the bind instead of read from the variable ten shipped materials write directly.
+run Tf2DemoSalvage.Rendering.Tests rendering 754
 # 101 -> 103 on 2026-08-29: LaunchOptionWiringTests (B223, D118). Two tests, and they cost about
 # seventeen seconds EACH, because each builds a real MainForm and loads a corpus demo — which reads
 # cp_badlands.bsp when Team Fortress 2 is installed. That is the most expensive pair in this file

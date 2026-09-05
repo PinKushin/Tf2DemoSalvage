@@ -23297,3 +23297,40 @@ implemented and each link asserted.
 **What it still does not do is prove the picture**, and that is unchanged: no demo in the corpus
 both contains `TF_COND_BURNING` and uses an installed map. What CAN be seen is the base-texture
 half (B341), which the f12 demo exercises on 62 materials with no condition gating it.
+
+### B343 FIXED 2026-09-05: the frame is a material VARIABLE, and computing it at the bind was a shortcut
+
+**B341 and B342 computed the animation frame where the texture is bound. The engine does not.** A
+texture's frame is `$frame` for the base and `$detailframe` for the detail — ordinary material
+variables, which is why `BindTexture` takes a frame var index beside the texture var index.
+`CBaseAnimatedTextureProxy` does not select an image at all; it writes that variable —
+`m_AnimatedTextureFrameNumVar->SetIntValue( intFrame )` (`baseanimatedtextureproxy.cpp:135`) — and
+the bind reads it.
+
+**Routing through the variable is what makes any chain work, not just `AnimatedTexture`.** Ten
+shipped materials compute a frame themselves with `Subtract` and `Clamp` and write `$frame`
+directly, with no `AnimatedTexture` proxy: `$frameminusten` clamped to 0..30. A renderer computing
+the frame from its own clock can never honour those.
+
+**This closes the divergence B339 recorded and could not.** That entry measured the INT path at 10
+materials and called it inert *"because nothing here reads `$frame` through the proxy chain"* — and
+the reason nothing did was this shortcut. The truncation now happens where the value is USED as an
+index, which closes it without typing the whole variable table:
+
+- **Truncated, not rounded** — `$frame` is an integer variable and the engine reads it with
+  `GetIntValue()`, so a chain computing 12.7 selects frame 12.
+- **A negative is clamped, not wrapped** — an index is not a modulo, and `$frameminusten` exists
+  precisely to produce negatives. C#'s modulo of a negative is negative, which reads off the front
+  of the frame list.
+
+**The ordering changed and that was the risky part.** The frame variable is written by the proxy
+chain, which runs in `SetMaterial` — the engine's `OnBind` — so every frame selection had to move
+to AFTER that call. Four of the seven draw sites chose their handle before it, which would have
+read the PREVIOUS draw's frame: on a material whose neighbours animate, that is a frame from
+somebody else's texture. A third-person capture on the f12 demo at tick 30000 renders identically
+to before the reorder.
+
+**What remains of the animation work.** `AnimationWrapped` — the callback that fires when a frame
+wraps, and that `animationNoWrap` pins instead — is still not reproduced. It drives
+`MaterialModify` entities and particle systems, and no shipped material this census has seen states
+`animationNoWrap`.

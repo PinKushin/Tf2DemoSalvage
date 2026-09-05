@@ -1894,6 +1894,23 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <summary>Which animated detail each material uses, and how fast (B342).</summary>
     private readonly List<(string? Path, float Rate)> _detailAnimation = [];
 
+    /// <summary>The frame variables the last bind's proxy chain produced (B343).</summary>
+    /// <remarks>
+    /// **This is the engine's actual model and the previous one was a shortcut.** A texture's frame
+    /// is not computed where it is bound; it is a MATERIAL VARIABLE — `$frame` for the base and
+    /// `$detailframe` for the detail — that a proxy writes and the bind then reads, which is why
+    /// `BindTexture` takes a frame var index beside the texture var index.
+    ///
+    /// **Routing through the variable is what makes any chain work, not just `AnimatedTexture`.**
+    /// Ten shipped materials compute a frame with `Subtract` and `Clamp` and write `$frame`
+    /// directly — no `AnimatedTexture` in sight — and a renderer computing the frame itself can
+    /// never honour those. That was the INT-path divergence B339 recorded and could not close.
+    ///
+    /// Published here rather than returned because `SetMaterial` already runs the chain and the
+    /// binds happen around it; the alternative was running the chain twice.
+    /// </remarks>
+    private (int Base, int Detail) _boundFrames;
+
     /// <summary>Each material's <c>$color</c> alone, which <c>$color2</c> multiplies against.</summary>
     private readonly List<(float Red, float Green, float Blue)> _colourFactors = [];
 
@@ -3392,11 +3409,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     ? _textures[batch.MaterialIndex]
                     : absent;
 
-            // **The animation frame outranks the still texture** (B341), because for a material
-            // running `AnimatedTexture` on `$basetexture` the still one IS frame zero — binding it
-            // is what left 152 shipped materials frozen.
-            ComPtr<ID3D11ShaderResourceView> texture =
-                AnimationFrame(batch.MaterialIndex, still);
+            // **The frame is chosen AFTER `SetMaterial`, not before** (B343). `SetMaterial` runs
+            // the proxy chain — that is the engine's `OnBind` — and the chain is what writes
+            // `$frame`. Selecting the handle first read the previous draw's value, which on a
+            // material whose neighbours animate is a frame from somebody else's texture.
+            ComPtr<ID3D11ShaderResourceView> texture = still;
 
             // The second layer, or the first again where a material has only one - so the
             // shader's mix becomes an identity rather than needing a branch.
@@ -3415,9 +3432,6 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     ? _details[batch.MaterialIndex]
                     : _white;
 
-            ComPtr<ID3D11ShaderResourceView> detail =
-                DetailFrame(batch.MaterialIndex, stillDetail);
-
             ComPtr<ID3D11ShaderResourceView> bump =
                 batch.MaterialIndex >= 0 && batch.MaterialIndex < _bumps.Count &&
                 _bumps[batch.MaterialIndex].Handle is not null
@@ -3435,6 +3449,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     : default;
 
             SetMaterial(context, batch.MaterialIndex, batch.Category);
+
+            // **After the chain has run, because the chain is what writes the frame** (B343).
+            texture = AnimationFrame(batch.MaterialIndex, texture);
+
+            ComPtr<ID3D11ShaderResourceView> detail =
+                DetailFrame(batch.MaterialIndex, stillDetail);
 
             context.PSSetShaderResources(0, 1, ref texture);
             context.PSSetShaderResources(2, 1, ref blend);
@@ -4189,6 +4209,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
             {
                 ApplyBurnLevel(contents, proxy, burn);
             }
+            else if (proxy.Name.Equals("AnimatedTexture", StringComparison.OrdinalIgnoreCase))
+            {
+                ApplyAnimatedTexture(variables, proxy, materialIndex);
+            }
             else if (proxy.Name.Equals("YellowLevel", StringComparison.OrdinalIgnoreCase))
             {
                 // **It writes a VARIABLE and nothing else.** `$yellow` reaches the picture only
@@ -4208,6 +4232,102 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 ApplyClamp(contents, variables, proxy, materialIndex);
             }
         }
+
+        // **The frame variables the chain produced, read once at the end** (B343). Whichever proxy
+        // wrote them — `AnimatedTexture` on most materials, `Subtract` and `Clamp` on the ten that
+        // compute a frame themselves — the bind reads the same two variables the engine reads.
+        _boundFrames = (FrameOf(variables, "$frame"), FrameOf(variables, "$detailframe"));
+    }
+
+    /// <summary>One frame variable, truncated as an integer variable is (B343).</summary>
+    /// <param name="variables">The material's variable table.</param>
+    /// <param name="name">The variable, <c>$frame</c> or <c>$detailframe</c>.</param>
+    /// <returns>The frame index, or 0 when no proxy wrote one.</returns>
+    /// <remarks>
+    /// **Truncated, and this is the INT path B339 recorded and could not close.** `$frame` is an
+    /// integer material variable, so the engine reads it with `GetIntValue()` — a chain that
+    /// computes 12.7 selects frame 12. Holding every proxy variable as a float is what made that
+    /// divergence unreachable before; taking the truncation HERE, where the value is used as an
+    /// index, closes it without typing the whole table.
+    ///
+    /// **Negative is clamped rather than wrapped**, because an index is not a modulo: a chain
+    /// subtracting past zero — `$frameminusten` on ten shipped materials does exactly that — would
+    /// otherwise read off the front of the frame list.
+    /// </remarks>
+    private static int FrameOf(
+        Dictionary<string, (float Red, float Green, float Blue)> variables, string name) =>
+        variables.TryGetValue(name, out (float Red, float Green, float Blue) value)
+            ? Math.Max((int)value.Red, 0)
+            : 0;
+
+    /// <summary>The frame read, for a test that cannot reach the private one.</summary>
+    /// <param name="variables">A material's variable table.</param>
+    /// <param name="name">The variable, <c>$frame</c> or <c>$detailframe</c>.</param>
+    /// <returns>The frame index.</returns>
+    /// <remarks>
+    /// **A seam rather than making the reader public**, because the reader is a detail of how the
+    /// bind works and only its ARITHMETIC is worth pinning — the truncation and the clamp, both of
+    /// which are the engine's and neither of which any test could otherwise reach without a device.
+    /// </remarks>
+    internal static int FrameOfForTesting(
+        Dictionary<string, (float Red, float Green, float Blue)> variables, string name) =>
+        FrameOf(variables, name);
+
+    /// <summary><c>CBaseAnimatedTextureProxy</c>, writing the frame VARIABLE (B343).</summary>
+    /// <param name="variables">The material's variable table.</param>
+    /// <param name="proxy">The proxy, naming the texture and the frame variable.</param>
+    /// <param name="materialIndex">Which material, for the frame count.</param>
+    /// <remarks>
+    /// **It writes `animatedTextureFrameNumVar` and stops**, which is the whole of what the engine's
+    /// proxy does: `m_AnimatedTextureFrameNumVar->SetIntValue( intFrame )`
+    /// (`baseanimatedtextureproxy.cpp:135`). Selecting the image is the BIND's job, reading that
+    /// variable — which is why routing through it makes a chain that writes `$frame` by other means
+    /// work too.
+    ///
+    /// **The frame count comes from the texture this material actually animates**, because the
+    /// modulo is taken against `GetNumAnimationFrames()` of that texture and two materials animating
+    /// different files wrap at different counts.
+    /// </remarks>
+    private void ApplyAnimatedTexture(
+        Dictionary<string, (float Red, float Green, float Blue)> variables,
+        MaterialProxy proxy,
+        int materialIndex)
+    {
+        if (proxy.Argument("animatedTextureFrameNumVar") is not { Length: > 0 } result)
+        {
+            return;
+        }
+
+        int frames = FrameCount(materialIndex, proxy.Argument("animatedTextureVar"));
+
+        if (frames <= 1)
+        {
+            return;
+        }
+
+        float rate = MaterialProxies.Number(
+            proxy.Argument("animatedTextureFrameRate"), MaterialProxies.DefaultAnimationRate);
+
+        float frame = MaterialProxies.AnimationFrame(Seconds, rate, frames);
+
+        variables[MaterialProxies.Reference(result).Name] = (frame, frame, frame);
+    }
+
+    /// <summary>How many frames the texture a proxy animates has (B343).</summary>
+    private int FrameCount(int materialIndex, string? variable)
+    {
+        if (string.Equals(variable, "$detail", StringComparison.OrdinalIgnoreCase))
+        {
+            return materialIndex >= 0 && materialIndex < _detailAnimation.Count &&
+                _detailAnimation[materialIndex].Path is { } path &&
+                _detailAnimations.TryGetValue(path, out ComPtr<ID3D11ShaderResourceView>[]? detail)
+                    ? detail.Length
+                    : 0;
+        }
+
+        return materialIndex >= 0 && materialIndex < _animationFrames.Count
+            ? _animationFrames[materialIndex].Length
+            : 0;
     }
 
     /// <summary>Which arithmetic proxy a name is, or null for anything else.</summary>
@@ -4444,8 +4564,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
             return still;
         }
 
-        return frames[
-            MaterialProxies.AnimationFrame(Seconds, _animationRates[materialIndex], frames.Length)];
+        // **`$frame`, whatever wrote it** (B343) — the modulo is here because the variable is an
+        // index into THIS texture and a chain that computed it by other means knows nothing about
+        // how many frames this file has.
+        return frames[_boundFrames.Base % frames.Length];
     }
 
     /// <summary>The detail frame a material shows now, or a null handle (B342).</summary>
@@ -4464,7 +4586,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             return still;
         }
 
-        (string? path, float rate) = _detailAnimation[materialIndex];
+        (string? path, _) = _detailAnimation[materialIndex];
 
         if (path is null ||
             !_detailAnimations.TryGetValue(path, out ComPtr<ID3D11ShaderResourceView>[]? frames) ||
@@ -4473,7 +4595,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             return still;
         }
 
-        return frames[MaterialProxies.AnimationFrame(Seconds, rate, frames.Length)];
+        return frames[_boundFrames.Detail % frames.Length];
     }
 
     /// <summary>A material's base-texture animation rate, or the engine's default (B341).</summary>
@@ -5049,8 +5171,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     ? _textures[batch.MaterialIndex]
                     : _white;
 
-            ComPtr<ID3D11ShaderResourceView> texture =
-                AnimationFrame(batch.MaterialIndex, still);
+            ComPtr<ID3D11ShaderResourceView> texture = still;
 
             SetMaterial(context, batch.MaterialIndex, batch.Category);
 
@@ -5083,6 +5204,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 _bumps[batch.MaterialIndex].Handle is not null
                     ? _bumps[batch.MaterialIndex]
                     : _white;
+
+            texture = AnimationFrame(batch.MaterialIndex, texture);
 
             context.PSSetShaderResources(0, 1, ref texture);
             context.PSSetShaderResources(2, 1, ref second);
@@ -5119,19 +5242,13 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 continue;
             }
 
-            ComPtr<ID3D11ShaderResourceView> texture =
-                AnimationFrame(batch.MaterialIndex, _textures[batch.MaterialIndex]);
+            ComPtr<ID3D11ShaderResourceView> texture = _textures[batch.MaterialIndex];
 
             ComPtr<ID3D11ShaderResourceView> stillDetail =
                 batch.MaterialIndex < _details.Count &&
                 _details[batch.MaterialIndex].Handle is not null
                     ? _details[batch.MaterialIndex]
                     : _white;
-
-            // **The animated frame outranks the still one** (B342): for a material running
-            // `AnimatedTexture` on `$detail`, the still texture IS frame zero.
-            ComPtr<ID3D11ShaderResourceView> detail =
-                DetailFrame(batch.MaterialIndex, stillDetail);
 
             ComPtr<ID3D11ShaderResourceView> bump =
                 batch.MaterialIndex < _bumps.Count &&
@@ -5140,6 +5257,14 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     : _white;
 
             SetMaterial(context, batch.MaterialIndex, batch.Category);
+
+            // **The animated frame outranks the still one** (B342), and is chosen AFTER the chain
+            // has run (B343): for a material running `AnimatedTexture` on `$detail`, the still
+            // texture IS frame zero, and the frame itself is a variable the chain writes.
+            ComPtr<ID3D11ShaderResourceView> detail =
+                DetailFrame(batch.MaterialIndex, stillDetail);
+
+            texture = AnimationFrame(batch.MaterialIndex, texture);
 
             context.PSSetShaderResources(0, 1, ref texture);
             context.PSSetShaderResources(2, 1, ref texture);
@@ -5171,8 +5296,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 continue;
             }
 
-            ComPtr<ID3D11ShaderResourceView> texture =
-                AnimationFrame(batch.MaterialIndex, _textures[batch.MaterialIndex]);
+            ComPtr<ID3D11ShaderResourceView> texture = _textures[batch.MaterialIndex];
 
             ComPtr<ID3D11ShaderResourceView> stillDetail =
                 batch.MaterialIndex < _details.Count &&
@@ -5180,12 +5304,14 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     ? _details[batch.MaterialIndex]
                     : _white;
 
-            // **The animated frame outranks the still one** (B342): for a material running
-            // `AnimatedTexture` on `$detail`, the still texture IS frame zero.
+            SetMaterial(context, batch.MaterialIndex, batch.Category);
+
+            // **Both frames chosen after the chain has run** (B343), because the chain is what
+            // writes `$frame` and `$detailframe`.
             ComPtr<ID3D11ShaderResourceView> detail =
                 DetailFrame(batch.MaterialIndex, stillDetail);
 
-            SetMaterial(context, batch.MaterialIndex, batch.Category);
+            texture = AnimationFrame(batch.MaterialIndex, texture);
 
             context.PSSetShaderResources(0, 1, ref texture);
             context.PSSetShaderResources(2, 1, ref texture);
@@ -5912,6 +6038,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
                             })
                             .Distinct()));
             }
+
+            texture = AnimationFrame(batch.MaterialIndex, texture);
 
             context.PSSetShaderResources(0, 1, ref texture);
             context.PSSetShaderResources(2, 1, ref second);
