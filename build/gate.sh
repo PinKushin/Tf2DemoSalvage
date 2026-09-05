@@ -306,7 +306,12 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # about a message: PropertyText passed an array's DECLARED length straight to a list's capacity, so
 # `a 2000000000` raised OutOfMemoryException before reading an element — measured. Every suite
 # carries a control that must still parse, since a refusal rejecting everything satisfies the rest.
-run Tf2DemoSalvage.Core.Tests     core     1785
+# 1785 -> 1793: the no-interp parity, which is the half of CheckForSequenceChange we quoted and did
+# not run (B346). Three on the accessor (a value, a zero that is NOT an absence, an omitted field)
+# and five on the timeline stamp. One of the five could not fail as first written — the stamp is
+# tick * interval and the fixture entered at tick 0, so a wrongly-counted first sighting wrote zero,
+# which is what "never jumped" also writes. Found by sabotage; the entity now enters at tick 600.
+run Tf2DemoSalvage.Core.Tests     core     1793
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
@@ -681,7 +686,12 @@ run Tf2DemoSalvage.Animation.Tests animation 111
 # brackets (the lookup uses the bare name, so a bracketed key matches nothing), `strtol`'s answer of
 # zero for a malformed index, the component written ALONE, the broadcast when none is named, a
 # component past the three this layer holds, and the scalar read.
-run Tf2DemoSalvage.Scene.Tests    scene     488
+# 488 -> 492: the discontinuity clears the transition queue (B346), and the hop that lost it.
+# Two on the guard itself, with a control that an always-clearing version reddens five tests. Two
+# more are PlayerPoseWiringCompletenessTests, which guards the player-to-pose hop as a CLASS: it has
+# lost a field four times (B259, B312 x3, B346) and a per-field test was written each time, which
+# cannot catch the next one. Deleting an assignment there now names the exact field.
+run Tf2DemoSalvage.Scene.Tests    scene     492
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

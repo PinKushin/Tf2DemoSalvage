@@ -556,3 +556,43 @@ easily the unfaithful-proxy fault survives being looked for.
 model is put there by its bones and its matrix stays at identity"* and nothing checked it; it held
 by accident for months and then cost an evening. When an audit finds an invariant stated in prose,
 the finding is not "it is documented" — it is "write the assertion or delete the claim".
+
+## The pose pipeline, audited 2026-09-05 — one divergence in six subjects
+
+Read in full: `CalcPoseSingle`, `StandardBlendingRules`, `AddSequenceLayers`,
+`CalcAutoplaySequences`, `MaintainSequenceTransitions`, `CalcBoneAdj`, with every override of every
+virtual each calls. The finding is one divergence and five confirmations, and both halves are worth
+recording — a subject that comes back clean is a subject nobody has to read again.
+
+**What matched, with what was checked:**
+
+| subject | ours | why it is the same |
+|---|---|---|
+| 2D blend grid | `StudioBlendGrid.ThreeWay` | Valve's own triangle decomposition — the quad split by the parity of `(i0+j0)`, three barycentric corners. `panim[4]` is sized four; a 2D grid fills three |
+| the 3-way path being live at all | — | `anim_3wayblend` defaults `"1"` and is `FCVAR_REPLICATED` (`bone_setup.cpp:1838`), so the four-corner bilinear branch is the dead one |
+| pose blending | `StudioPoseBlend.Blend` | `QuaternionBlend`/`BlendBones` exactly — align chosen per bone by `BONE_FIXED_ALIGNMENT`, linear lerp, normalize |
+| the order of the whole pass | `EntityModels`, `SkeletonPose` | local layers → sequence layers → transitions → overlays → autoplay → `CalcBoneAdj`, which is `StandardBlendingRules`' order (`c_baseanimating.cpp:1985-2003`) |
+| sequence transitions | `TransitionsFor` | queued fade-outs, which is how the engine runs them — one `AccumulatePose` per queued entry |
+
+**Three absences that are NOT divergences, and the instrument that settled them.** `sequence-flags`
+over 14,109 shipped models:
+
+- **`PoseIsAllZeros` / `ScaleBones`** — 810 animations carry `STUDIO_ALLZEROS` and **every one is
+  reached by a delta**, zero by an ordinary sequence. Expanding a delta all-zeros corner to identity
+  and blending gives exactly what `ScaleBones` gives, so the absence is arithmetic-equivalent.
+- **The `bResult` residue** — `CalcPoseSingle` returning false also skips `AddLocalLayers`, which
+  would be a real loss. It needs a `STUDIO_LOCAL` sequence with an all-zeros corner: **0 of 26,387**.
+- **`STUDIO_CYCLEPOSE`** — **0 of 26,387**. No shipped TF2 model takes its cycle from a pose
+  parameter.
+
+**The divergence: `bInterpolate`, filed as B346 and fixed.** `CheckForSequenceChange` clears the
+transition queue on `(seqdesc.flags & STUDIO_SNAP) || !bInterpolate`, and only the first half ran —
+with the whole line quoted in our own comment directly above the code that implemented half of it.
+That is this document's own rule biting: **a rule written in our own comments is not an enforced
+rule**, and quoting a two-clause guard while running one clause is the same fault as documenting an
+invariant nothing checks.
+
+**Method note worth keeping: a stale instrument is a finding too.** `sequence-flags` still printed
+`AddSequenceLocks/SolveSequenceLocks, not implemented` a day after B311 implemented them and measured
+88 applied on the pose path. A census that keeps reporting a gap after it closes is how a fixed thing
+gets re-filed, and it is the same class as the counters this document warns about elsewhere.

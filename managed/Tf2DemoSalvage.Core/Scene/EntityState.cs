@@ -1267,6 +1267,35 @@ public sealed class EntityState
     public int? NewSequenceParity() =>
         Integer($"{AnimatingTable}.m_nNewSequenceParity");
 
+    /// <summary>The counter that says this entity JUMPED — <c>m_ubInterpolationFrame</c>.</summary>
+    /// <remarks>
+    /// **A discontinuity, and its own declaration says so**: `void IncrementInterpolationFrame();
+    /// // Call this to cause a discontinuity (teleport)` (<c>baseentity.h:878</c>). It is on
+    /// <c>DT_BaseEntity</c> rather than <c>DT_BaseAnimating</c>, because a teleport is a fact about
+    /// the entity and not about its animation.
+    ///
+    /// **It is the second half of the guard that clears a sequence transition**
+    /// (<c>sequence_Transitioner.cpp:41</c>):
+    ///
+    /// <code>
+    ///   if ((seqdesc.flags &amp; STUDIO_SNAP) || !bInterpolate )
+    ///       m_animationQueue.RemoveAll();
+    /// </code>
+    ///
+    /// where `bInterpolate` is `!IsNoInterpolationFrame()` (<c>c_baseanimating.cpp:1832</c>) and
+    /// that is `m_ubOldInterpolationFrame != m_ubInterpolationFrame` (<c>c_baseentity.h:2166</c>).
+    ///
+    /// **Like <see cref="NewSequenceParity"/> it is a COUNTER, so the value means nothing and only
+    /// the change does.** Two teleports in consecutive snapshots read 1 then 2, and it wraps —
+    /// `(m_ubInterpolationFrame + 1) % NOINTERP_PARITY_MAX` (<c>baseentity.cpp:8473</c>) — so zero
+    /// is an ordinary value that a reader must not mistake for absence.
+    ///
+    /// **Measured on the wire** rather than assumed: `tf2-2026-pub-pov-cheater` sends it 13,261
+    /// times across all four values — 12,830 zero, then 102, 149 and 180 of one, two and three.
+    /// </remarks>
+    public int? NoInterpolationParity() =>
+        Integer($"{BaseEntityTable}.m_ubInterpolationFrame");
+
     /// <summary>The five condition bitfields, read as <c>CTFPlayerShared::InCond</c> does.</summary>
     /// <remarks>
     /// **All five, because 31 of `DT_TFPlayerShared`'s 66 fields live past the first.**

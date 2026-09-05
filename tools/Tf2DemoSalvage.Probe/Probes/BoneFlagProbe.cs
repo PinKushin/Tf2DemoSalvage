@@ -417,6 +417,12 @@ public sealed class BoneFlagProbe : IProbe
                 CultureInfo.InvariantCulture,
                 $"IK locks APPLIED on the pose path: {posed.AppliedIkLocks}"));
 
+        // **The transition counters are NOT reported here, deliberately** (B346). This probe calls
+        // `PropsAt` once, and a transition compares this frame's sequence with the LAST one — so a
+        // single-tick instrument reports zero however the code behaves. It did, for one run, and
+        // the zero was a fact about the probe rather than about the subject. `transitions` walks a
+        // tick range with one `EntityModelSet` and carries its own control; ask that instead.
+
         (int lockMoved, float lockFurthest) = posed.IkLockEffect;
 
         // **Whether they HOLD anything, which the count above cannot say.** A lock whose remembered

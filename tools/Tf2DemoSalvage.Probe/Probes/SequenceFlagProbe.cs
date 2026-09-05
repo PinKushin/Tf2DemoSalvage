@@ -318,7 +318,11 @@ public sealed class SequenceFlagProbe : IProbe
             (poseKeyExamples.Count > 0 ? $"  {string.Join(", ", poseKeyExamples)}" : string.Empty));
 
         output.WriteLine(
-            $"numiklocks > 0 (AddSequenceLocks/SolveSequenceLocks, not implemented): " +
+            // **Was "not implemented", and B311 implemented it on 2026-09-04** — measured at 88
+            // locks applied on the pose path for `tf2-2026-pub-pov-clean` at tick 14051. A census
+            // that keeps saying a feature is missing after it lands is an instrument reporting a
+            // false absence, which is the one thing this file exists to avoid.
+            $"numiklocks > 0 (AddSequenceLocks/SolveSequenceLocks, implemented B311): " +
             $"{locked} of {sequences} sequences, {lockedChains} chains" +
             (lockExamples.Count > 0 ? $"  {string.Join(", ", lockExamples)}" : string.Empty));
 

@@ -70,6 +70,40 @@ internal static class SyntheticProp
     {
         ArgumentNullException.ThrowIfNull(frames);
 
+        (int, int, int, int, int)[] widened = new (int, int, int, int, int)[frames.Length];
+
+        for (int index = 0; index < frames.Length; index++)
+        {
+            // No-interp parity held at zero, for the reason the frame reset is held at zero above:
+            // a fixture that moved two signals at once could not say which one the code read.
+            widened[index] = (
+                frames[index].Tick,
+                frames[index].Sequence,
+                frames[index].Parity,
+                frames[index].FrameReset,
+                0);
+        }
+
+        return Demo(clientSideAnimation, widened);
+    }
+
+    /// <summary>The same, plus the discontinuity parity — <c>m_ubInterpolationFrame</c>.</summary>
+    /// <param name="clientSideAnimation">Whether the client advances the cycle.</param>
+    /// <param name="frames">
+    /// Tick, sequence, sequence parity, frame reset and no-interp parity for each snapshot.
+    /// </param>
+    /// <returns>The demo's bytes.</returns>
+    /// <remarks>
+    /// **Its own knob, deliberately separable from the sequence parity** (B346). The engine treats
+    /// them as different signals — one creates a transition, the other destroys the queue — so a
+    /// fixture that could only move both together could not test either.
+    /// </remarks>
+    public static byte[] Demo(
+        bool clientSideAnimation,
+        params (int Tick, int Sequence, int Parity, int FrameReset, int NoInterp)[] frames)
+    {
+        ArgumentNullException.ThrowIfNull(frames);
+
         DemoSchema schema = Schema();
 
         EntityDecoder decoder = new(
@@ -90,11 +124,12 @@ internal static class SyntheticProp
 
         for (int index = 0; index < frames.Length; index++)
         {
-            (int tick, int sequence, int parity, int frameReset) = frames[index];
+            (int tick, int sequence, int parity, int frameReset, int noInterp) = frames[index];
 
             List<DecodedProperty> properties =
             [
                 Property(flat, "m_nModelIndex", PropertyValue.FromInt(Model)),
+                Property(flat, "m_ubInterpolationFrame", PropertyValue.FromInt(noInterp)),
                 Property(flat, "m_nSequence", PropertyValue.FromInt(sequence)),
                 Property(flat, "m_nNewSequenceParity", PropertyValue.FromInt(parity)),
                 Property(
@@ -193,6 +228,13 @@ internal static class SyntheticProp
                     SendPropType.VectorXY, "m_vecOrigin", 1, string.Empty, -16384f, 16384f, 32, 0),
                 new SendProperty(
                     SendPropType.Float, "m_vecOrigin[2]", 1, string.Empty, -16384f, 16384f, 32, 0),
+                // **The discontinuity parity, on DT_BaseEntity where the engine puts it** — a
+                // teleport is a fact about the entity rather than about its animation (B346).
+                // `NOINTERP_PARITY_MAX_BITS` is 3, matching `SendPropInt(SENDINFO(
+                // m_ubInterpolationFrame), NOINTERP_PARITY_MAX_BITS, SPROP_UNSIGNED)`
+                // (`baseentity.cpp:273`).
+                new SendProperty(
+                    SendPropType.Int, "m_ubInterpolationFrame", 1, string.Empty, 0f, 0f, 3, 0),
                 new SendProperty(
                     SendPropType.DataTable, "animtime", 1, "DT_AnimTimeMustBeFirst", 0f, 0f, 0, 0),
             ]),

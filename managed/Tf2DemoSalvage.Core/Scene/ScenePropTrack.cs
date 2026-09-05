@@ -228,6 +228,24 @@ public readonly record struct ScenePose
     /// </remarks>
     public double AnimationStartSeconds { get; init; }
 
+    /// <summary>When this entity last JUMPED, so a sequence change there cuts rather than fades.</summary>
+    /// <remarks>
+    /// **The second half of the guard that clears a sequence transition** (B346).
+    /// `CheckForSequenceChange` empties the whole queue on
+    /// `if ((seqdesc.flags &amp; STUDIO_SNAP) || !bInterpolate)`
+    /// (<c>sequence_Transitioner.cpp:41</c>), and only <c>STUDIO_SNAP</c> was implemented.
+    /// `bInterpolate` is `!IsNoInterpolationFrame()` (<c>c_baseanimating.cpp:1832</c>), which is
+    /// `m_ubOldInterpolationFrame != m_ubInterpolationFrame` (<c>c_baseentity.h:2166</c>).
+    ///
+    /// **A stamp rather than the counter, for the reason the sequence restart is a stamp**: the
+    /// wire carries a parity whose value means nothing, the timeline turns the CHANGE into a time,
+    /// and everything downstream compares times. Carrying the counter this far would be a second
+    /// copy of the signal, which is how two answers to one question start disagreeing.
+    ///
+    /// Zero means "never jumped", which is what every entity that is not teleported reports.
+    /// </remarks>
+    public double DiscontinuitySeconds { get; init; }
+
     /// <summary>How fast the entity is moving horizontally, when that was worked out.</summary>
     /// <remarks>
     /// **Only players carry this, and only because nothing else can supply it.** A demo networks
@@ -924,6 +942,16 @@ public sealed class ScenePropTrack
     /// </remarks>
     internal double AnimationStartSeconds { get; set; }
 
+    /// <summary>The no-interp parity last seen on the wire — <c>m_ubInterpolationFrame</c>.</summary>
+    /// <remarks>
+    /// Kept so the CHANGE can be seen. The value itself means nothing and it wraps
+    /// (<c>baseentity.cpp:8473</c>), so zero is an ordinary value rather than an absence.
+    /// </remarks>
+    internal int? LastNoInterpolationParity { get; set; }
+
+    /// <summary>When the parity above last moved.</summary>
+    internal double DiscontinuitySeconds { get; set; }
+
     /// <summary>The engine's serial for this occupant of the slot.</summary>
     /// <remarks>
     /// **An entity is its index AND its serial.** The index is a slot the engine reissues; the
@@ -1559,6 +1587,11 @@ public sealed class ScenePropTrack
             // neither animation began at. Taking the earlier keyframe's is the same rule the
             // sequence itself follows two lines up.
             AnimationStartSeconds = from.AnimationStartSeconds,
+
+            // A stamp, so it takes the earlier keyframe's like the one above rather than being
+            // blended toward the later one — a discontinuity happened at a moment, and half of one
+            // is not a thing.
+            DiscontinuitySeconds = from.DiscontinuitySeconds,
 
             // Discrete, so it takes the earlier keyframe's value rather than being blended.
             // Half-hidden is not a state the engine has.

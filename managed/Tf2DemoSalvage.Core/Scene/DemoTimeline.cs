@@ -35,6 +35,13 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// <c>m_flJumpStartTime</c> — a moment no demo records, so this is derived from when
 /// <c>FL_ONGROUND</c> cleared.
 /// </param>
+/// <param name="DiscontinuitySeconds">
+/// When this player last JUMPED — a teleport or a respawn — so a sequence change at that moment
+/// cuts rather than cross-fading (B346). `CheckForSequenceChange` empties the transition queue on
+/// <c>(seqdesc.flags &amp; STUDIO_SNAP) || !bInterpolate</c> (<c>sequence_Transitioner.cpp:41</c>),
+/// and <c>bInterpolate</c> is the networked <c>m_ubInterpolationFrame</c> parity holding still.
+/// Zero means never, which is what a player who is not teleported reports.
+/// </param>
 /// <param name="Conditions">
 /// The five <c>m_nPlayerCond</c> bitfields, read as <c>CTFPlayerShared::InCond</c> does.
 /// </param>
@@ -166,6 +173,7 @@ public readonly record struct ScenePlayer(
     bool Drawn = true,
     float? AirborneSeconds = null,
     bool Airwalking = false,
+    double DiscontinuitySeconds = 0d,
 
     // **The spy disguise, and the side we are on.** `C_TFPlayer::ValidateModelIndex` and `GetSkin`
     // both branch on `InCond( TF_COND_DISGUISED ) && IsEnemyPlayer()`, so all three travel
@@ -1456,6 +1464,20 @@ public sealed class DemoTimeline
         // inventing a time for it.
         Dictionary<int, int> burningSince = [];
 
+        // **When each player last JUMPED — a teleport or a respawn** (B346). The wire carries
+        // `m_ubInterpolationFrame`, a parity whose value means nothing and whose CHANGE means a
+        // discontinuity: `IncrementInterpolationFrame` (`baseentity.cpp:8471`), declared under the
+        // comment "Call this to cause a discontinuity (teleport)" (`baseentity.h:878`).
+        //
+        // **Players need their own tracker even though props have one**, and that is the whole
+        // reason this exists. Measured on `tf2-2026-pub-pov-cheater`: of 332 sends that change the
+        // field on a live entity, ALL 332 are `CTFPlayer` — so the prop-track path stamped zero
+        // across 570 tracks while every unit test passed. A player is not a prop track.
+        Dictionary<int, int> jumpParity = [];
+
+        // The stamp itself, in ticks, carried onto the player the same way the two above are.
+        Dictionary<int, int> jumpedAt = [];
+
         // Where each player was last tick, so a vertical speed can be differenced. The client does
         // the same: GetOuterAbsVelocity calls EstimateAbsVelocity on the client, which estimates
         // from position history rather than reading a networked velocity.
@@ -1877,6 +1899,21 @@ public sealed class DemoTimeline
                     burningSince.Remove(player.EntityIndex);
                 }
 
+                // **The discontinuity parity, watched for a CHANGE** (B346). The first value seen
+                // is not one: a player entering the world already carries whatever parity it had,
+                // and treating that as a jump would clear the transition queue for every player on
+                // the frame they appear. Measured: 12,929 of 13,261 sends are on an ENTER update.
+                if (player.NoInterpolationParity() is { } noInterp)
+                {
+                    if (jumpParity.TryGetValue(player.EntityIndex, out int wasParity) &&
+                        noInterp != wasParity)
+                    {
+                        jumpedAt[player.EntityIndex] = command.Tick;
+                    }
+
+                    jumpParity[player.EntityIndex] = noInterp;
+                }
+
                 // **The rise, differenced from the last height this player was seen at.** Only the
                 // upward component matters: the air-walk test is on velocity.z alone.
                 float? rising = null;
@@ -2072,6 +2109,13 @@ public sealed class DemoTimeline
                     // index so no consumer has to keep the entity table alive to make sense of it.
                     AirborneSeconds: airborne,
                     Airwalking: airwalkingSince.Contains(player.EntityIndex),
+
+                    // **In seconds, like every other clock on this record**, so the consumer
+                    // compares stamps rather than converting ticks itself (B346).
+                    DiscontinuitySeconds:
+                        jumpedAt.TryGetValue(player.EntityIndex, out int jumpTick)
+                            ? jumpTick * interval
+                            : 0d,
                     EyePitch: lookingAt,
                     WaterLevel: player.WaterLevel(),
                     ActiveWeapon: player.ActiveWeapon(),
@@ -3176,6 +3220,27 @@ public sealed class DemoTimeline
             track.AnimationStartSeconds = tick * interval;
         }
 
+        // **A discontinuity is a SEPARATE signal from a restart, and it must not be folded into
+        // `restarted`** (B346). They gate different things: a restart says the animation began
+        // again and creates a transition, while this says the entity JUMPED and destroys the queue.
+        // Folding them would make every teleport also restart the animation, which the engine
+        // does not do — `IncrementInterpolationFrame` touches no sequence state at all
+        // (`baseentity.cpp:8471`).
+        //
+        // **Kept current whether or not it fired, like both signals above**, since the stored value
+        // must track the wire or the next genuine change is missed. And the FIRST value seen is not
+        // a change: an entity entering the world already carries whatever parity it had.
+        if (state.NoInterpolationParity() is { } noInterp)
+        {
+            if (track.LastNoInterpolationParity is not null &&
+                noInterp != track.LastNoInterpolationParity)
+            {
+                track.DiscontinuitySeconds = tick * interval;
+            }
+
+            track.LastNoInterpolationParity = noInterp;
+        }
+
         // **The model, kept current for the same reason and on the engine's own adjacent line.**
         // `C_BaseEntity::PostDataUpdate` (`c_baseentity.cpp:2603`) calls `HierarchySetParent` and
         // then `ValidateModelIndex`, both ABOVE the `DATA_UPDATE_CREATED` test, so both run on
@@ -3307,6 +3372,9 @@ public sealed class DemoTimeline
                 // **When the animation now playing began**, so `elapsed` downstream is the time
                 // since the server stamped it rather than since the recording opened.
                 AnimationStartSeconds = track.AnimationStartSeconds,
+
+                // **When it last jumped**, so a sequence change at that moment cuts (B346).
+                DiscontinuitySeconds = track.DiscontinuitySeconds,
                 X = origin.X,
                 Y = origin.Y,
                 Z = origin.Z,

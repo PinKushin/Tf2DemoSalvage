@@ -150,3 +150,4 @@
 - [Address a struct by name, not from its end](address-a-struct-by-name-not-from-its-end.md) — fourth time this buffer bit; reflections went white.
 - [A guard you remove may be the mechanism](a-guard-you-remove-may-be-the-mechanism.md) — ask what the narrow version REFUSED; the engine's refusal is a failed Init.
 - [An exception type can be load-bearing](an-exception-type-can-be-load-bearing.md) — a handler that attaches context to one type loses it for every other.
+- [A player is not a prop track](a-player-is-not-a-prop-track.md) — two populations, two paths to the renderer.
