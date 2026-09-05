@@ -95,6 +95,70 @@ public sealed class ModelProbe : IProbe
             + string.Join(", ", bones.Take(24).Select(bone => bone.Name))
             + (bones.Count > 24 ? ", …" : string.Empty));
 
+        // **Which bones are NOT aligned to identity in the bind pose** (B349). Valve's barrel
+        // override replaces a bone's whole local rotation with a pure Z one, guarded by a comment
+        // saying "Weapon happens to be aligned to (0,0,0)" — so whether that holds for a given
+        // model decides whether a flat assign and a read-modify-write are the same thing. It is a
+        // fact about the FILE, which is why it belongs to a probe that takes a model by name.
+        List<string> turned = [];
+
+        for (int bone = 0; bone < bones.Count; bone++)
+        {
+            (float X, float Y, float Z, float W) rest = bones[bone].Rotation;
+
+            if (MathF.Abs(rest.X) > 1e-4f || MathF.Abs(rest.Y) > 1e-4f ||
+                MathF.Abs(rest.Z) > 1e-4f || MathF.Abs(MathF.Abs(rest.W) - 1f) > 1e-4f)
+            {
+                turned.Add(
+                    $"{bones[bone].Name} ({rest.X:0.###} {rest.Y:0.###} {rest.Z:0.###} {rest.W:0.###})");
+            }
+        }
+
+        // **Which bones each animation actually MOVES, and whether it moves them off the Z axis**
+        // (B349). The barrel overrides replace a bone's whole local rotation on the world path and
+        // only its Z on the viewmodel path, so the two agree exactly while the animation leaves X
+        // and Y alone. That is a question about the model's own tracks, not about any demo.
+        for (int animation = 0; animation < StudioAnimation.Count(bytes); animation++)
+        {
+            // **Two frames, because one is a claim about a frame and not about the TRACKS.** A
+            // bone the animation never lists cannot appear at any frame, so the counts agreeing is
+            // the control that says this is a property of the animation rather than of frame zero.
+            IReadOnlyList<StudioBonePose> posed =
+                StudioAnimation.Pose(bytes, bones, animation, 0);
+
+            IReadOnlyList<StudioBonePose> later =
+                StudioAnimation.Pose(bytes, bones, animation, 3);
+
+            List<string> offAxis = [];
+
+            foreach (StudioBonePose moved in posed)
+            {
+                (float X, float Y, float Z, float W) turn = moved.Rotation;
+
+                if (MathF.Abs(turn.X) > 1e-4f || MathF.Abs(turn.Y) > 1e-4f)
+                {
+                    offAxis.Add(bones[moved.Bone].Name);
+                }
+            }
+
+            string axis = offAxis.Count == 0
+                ? "none off the Z axis"
+                : $"OFF-AXIS: {string.Join(", ", offAxis.Take(6))}";
+
+            output.WriteLine(
+                $"    anim {animation.ToString(CultureInfo.InvariantCulture)} moves "
+                + $"{posed.Count.ToString(CultureInfo.InvariantCulture)} bones at frame 0 and "
+                + $"{later.Count.ToString(CultureInfo.InvariantCulture)} at frame 3, {axis}");
+        }
+
+        string more = turned.Count > 6 ? ", …" : string.Empty;
+
+        output.WriteLine(
+            turned.Count == 0
+                ? "    bind rotations: every bone is at identity"
+                : $"    bind rotations NOT identity, {turned.Count} of {bones.Count}: "
+                    + string.Join(", ", turned.Take(6)) + more);
+
         // **IK chains, so the question can be asked of a model chosen by NAME.** The `bone-flags`
         // census walks a demo's networked props, which are weapons, cosmetics and buildings — a
         // player's body is not among them, and feet are exactly where IK lives. A zero from that

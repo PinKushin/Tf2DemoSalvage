@@ -153,3 +153,4 @@
 - [A player is not a prop track](a-player-is-not-a-prop-track.md) — two populations, two paths to the renderer.
 - [The base is not the behaviour](the-base-is-not-the-behaviour.md) — read the overrides; some are dead.
 - [Sample between the knots](sample-between-the-knots.md) — every curve agrees at its own control points.
+- [Prove the equivalence before building it](prove-the-equivalence-before-building-it.md) — measure what the difference needs to be visible.

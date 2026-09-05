@@ -23827,3 +23827,38 @@ the correct blast radius for one shared mechanism), looking up `weapon_bone` ins
 
 **Each of the three fixes was re-verified by re-running its sabotage**: the lerp now reddens the
 shape test alone, and forcing `turning` now reddens the settled-chamber test.
+
+### B349 MEASURED NON-DIVERGENCE 2026-09-05: the viewmodel barrel paths write the same quaternion
+
+**B348 left two paths filed rather than built** — `CTFMinigun::ViewModelAttachmentBlending`
+(`tf_weapon_minigun.cpp:1343`) and `CTFGrenadeLauncher::ViewModelAttachmentBlending`
+(`tf_weapon_grenadelauncher.cpp:683`). They differ from the world paths already implemented in two
+ways: they READ the bone's existing angles and replace only one component, and they are wrapped in
+`if ( hdr->boneFlags( iBarrelBone ) & boneMask )`.
+
+**Both differences are inert for these models, and that is measured rather than argued.**
+
+| question | answer | how |
+|---|---|---|
+| is `barrel`'s bind rotation identity? | **yes** | `c_minigun.mdl`: the only non-identity bone is `c_weapon_stattrack` |
+| is `procedural_chamber`'s? | **yes** | `c_grenadelauncher.mdl`: three non-identity bones, none of them it |
+| does any animation move them? | **no** | every animation in both models moves exactly ONE bone, `weapon_bone`, at frame 0 and at frame 3 |
+
+So at the moment either override runs, `q[bone]` is identity. `QuaternionAngles` of identity is
+`(0,0,0)`; setting `a.z` and converting back gives a pure Z rotation — **the same quaternion the
+world path assigns outright.** The two styles are arithmetically equal here, not merely similar.
+
+**The bone-mask check decides only WHETHER the write happens**, and a bone outside
+`BONE_USED_BY_ANYTHING` carries no vertices, no hitbox and no attachment — so a write skipped there
+is a write nobody could see.
+
+**This is a real answer, not a deferral.** Implementing the two paths would produce identical output
+for every model TF2 ships for these weapons. The audit's own rule applies: say plainly when there is
+no visible symptom.
+
+**What would falsify it:** a weapon model whose barrel bone has a non-identity bind rotation, or an
+animation that tracks it. The probe that answers both now lists bind rotations and per-animation
+tracked bones for a model named on the command line, so the question can be re-asked of any model in
+one call rather than re-derived.
+
+**Evidence class: measured** for all three facts, **arithmetic** for the equality that follows.
