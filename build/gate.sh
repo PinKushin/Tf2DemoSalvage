@@ -636,7 +636,13 @@ run Tf2DemoSalvage.Animation.Tests animation 111
 # scale and offset), the translation applied AFTER the rotation as `CTextureTransformProxy` applies
 # it, a rotation and a scale each alone, the two-row 3x4 shape the constant buffer wants, and the
 # control that a material stating nothing yields the identity rather than a null.
-run Tf2DemoSalvage.Scene.Tests    scene     459
+# 459 -> 467: TF2's condition proxies (B336). Five for `CProxyBurnLevel`'s ramp and
+# `CProxyUrineLevel`'s per-team multipliers, written before the code so they state the engine rather
+# than describe the implementation; three that the value reaches the drawn INSTANCE through
+# `MomentScene`, which is the hop `PaintSceneWiringTests` records having been lost in a move once
+# already. The burning and unburnt cases are asserted as a PAIR because the proxy rests at zero, so
+# a delegate never assigned at all also answers zero.
+run Tf2DemoSalvage.Scene.Tests    scene     467
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

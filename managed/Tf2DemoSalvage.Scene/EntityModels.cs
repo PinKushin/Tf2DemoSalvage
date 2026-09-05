@@ -51,6 +51,12 @@ public readonly record struct FiredAnimationEvent(
 /// <c>ItemTintColor</c> proxy, which is per ENTITY — two players in the same hat and different
 /// paints share a material and must draw different colours, so this cannot live on the material.
 /// </param>
+/// <param name="Burn">
+/// How alight this entity's wearer is, 0 to 1 (B336). Feeds TF2's <c>BurnLevel</c> proxy, which
+/// writes <c>$detailblendfactor</c> on 6,715 of the 6,718 shipped materials that run it — so it is
+/// what blends in the fire overlay a player material already carries in <c>$detail</c>. Zero for
+/// everything not on fire, which is the proxy's own resting value.
+/// </param>
 /// <param name="Mirrored">
 /// Whether this is a viewmodel, drawn mirrored — which reverses its winding, so the cull has to
 /// flip with it or the weapon draws inside out.
@@ -112,6 +118,11 @@ public readonly record struct ModelInstance(
     // Per entity rather than per material, which is what a proxy is: two players wearing the same
     // hat in different paints share one material and draw different colours.
     (float Red, float Green, float Blue)? Paint = null,
+
+    // **How alight the wearer is** (B336), feeding TF2's `BurnLevel` proxy at the same bind. Per
+    // entity for the same reason the paint is: two players in the same class share one material,
+    // and only one of them may be on fire.
+    float Burn = 0f,
     bool Mirrored = false,
 
     // **Where the model stands, which its Matrix does not always say** (B170). A baked model is put
@@ -255,6 +266,18 @@ public sealed class EntityModelSet
     /// install, where an unpainted item is the right answer rather than a guessed one.
     /// </remarks>
     public Func<SceneProp, (float Red, float Green, float Blue)?>? Paint { get; set; }
+
+    /// <summary>How alight each prop's wearer is, for <c>CProxyBurnLevel</c> (B336).</summary>
+    /// <remarks>
+    /// **The same shape as <see cref="Paint"/> and for the same reason**: the value needs the
+    /// player's conditions, which live a layer up, and the engine binds the proxy against the
+    /// entity being drawn. Production supplies `MomentScene.BurnLevelOf`.
+    ///
+    /// Null when nothing supplies it, and a null delegate means zero — which is
+    /// `CProxyBurnLevel`'s own resting value rather than an invented one, so a viewer with no
+    /// scene behind it draws exactly what an unburnt player draws.
+    /// </remarks>
+    public Func<SceneProp, float>? BurnLevel { get; set; }
 
     /// <summary>Where the entities this set builds report, so the bone merge can say what paired.</summary>
     private readonly ILoggerFactory _loggers;
@@ -4260,6 +4283,12 @@ public sealed class EntityModelSet
                 // because it needs the econ resolution and the item schema, which this layer
                 // reaches through a delegate exactly as it does for attached models.
                 Paint: Paint?.Invoke(prop),
+
+                // **How alight the wearer is** (B336). Zero rather than null, because
+                // `CProxyBurnLevel` has no absent state — it answers 0 for a player who is not
+                // burning, and a nullable here would invite a caller to treat "no scene" as
+                // different from "not on fire" when the engine does not.
+                Burn: BurnLevel?.Invoke(prop) ?? 0f,
                 Mirrored: false,
                 Origin: origin,
 

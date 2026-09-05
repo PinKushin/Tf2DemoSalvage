@@ -127,6 +127,10 @@ public sealed class PlayerCompletenessTests
         Conditions: new PlayerConditions(
             1 << PlayerConditions.Disguised, 1 << 1, 1 << 2, 1 << 3, 1 << 4),
 
+        // Half a second into a burn (B336) — past the 0.3-second peak, so it is on the falling side
+        // and distinguishable from both ends of the ramp.
+        BurningFor: 0.5f,
+
         // A demoman on the other team, and a medic's mask — the mask is read in exactly one branch
         // (an enemy spy disguised AS a spy), so a value that matched the disguise class would leave
         // that branch unmeasurable.

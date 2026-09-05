@@ -22890,7 +22890,7 @@ that takes its exponent from a map, so there is no pixel test to write without c
 for a test's sake. **What holds the shader half is the transcription and its citation, not a
 measurement**, and saying so is more useful than a green test that measured something else.
 
-### B335 OPEN 2026-09-04: Core's branch coverage fell 89.3% → 84.0% and CI has been unable to say so
+### B335 FIXED 2026-09-05: Core's branch coverage fell 89.3% → 84.0% and CI has been unable to say so
 
 **The coverage floor is doing exactly what it was written to do, and nobody has seen it for weeks.**
 `.github/workflows/test.yml` asserts `Tf2DemoSalvage.Core 90 85` — line 90, branch 85 — and the
@@ -22942,3 +22942,84 @@ and every one of those is a test Stryker never mutates and CI never counts.
 from `Corpus.Tests`; whether the newest of these types (`EconAttribute`, `SceneSoundscape`,
 `DirectorShot`, all at or near zero) were ever given synthetic tests at all; and whether the line
 floor of 90 is also close to falling — it is at 92.0 on CI, two points of headroom.
+
+**Fixed by writing the synthetic half rather than by lowering the floor.** Six suites, 41 tests,
+84.0% → 85.8% locally and **85.2% on CI against the floor of 85** — the first green Test run in this
+stretch, with zero annotations on both jobs. Covered: `SceneSoundscape` and `EconAttributeWire`'s
+hand-written equalities (both load-bearing, because the samplers dedup on them and a record
+struct compares lists by REFERENCE), `DirectorShot`'s game-event type switch, `ModelPaths` — the
+model precache list — and `EntityState`'s `m_audio` accessors and `EF_NODRAW` rule.
+
+**The margin is 0.2 points and that is thin.** The local number ran 0.6 above CI's throughout,
+because ~92 more tests skip there for want of the game; the prediction of 85.2 from a local 85.8 was
+exact. So the next few branches added to Core without tests put this back under, and the honest
+reading is that this bought room rather than fixed the drift. **The drift itself is untouched**:
+`DemoTimeline` is still named in 44 `Corpus.Tests` files against 27 in `Core.Tests`, and 226 of its
+681 branches are still unreached from the assembly CI measures.
+
+### B336 PART DONE 2026-09-05: TF2's two most-run material proxies were not evaluated, and the corpus cannot show either of them
+
+**`vmt-proxy`, written for this, put the ranking beyond argument.** Of the 30,684 materials TF2
+ships, 8,304 run at least one proxy, and the top of the list is not what this project implements:
+
+```
+  7570  YellowLevel        6718  BurnLevel        4654  Multiply        3870  Equals
+  3867  SelectFirstIfNonZero   3863  ItemTintColor    322  Sine     283  TextureScroll
+```
+
+`Sine` and `TextureScroll` — the two time-driven ones already evaluated — are 322 and 283.
+`YellowLevel` and `BurnLevel` are the two largest and neither ran.
+
+**Both are PUBLISHED**, which corrects a standing assumption: `docs/CONFORMANCE.md` filed the
+entity-state proxies as needing an entity this layer does not have, and by implication a decompiler
+for TF2's own. `CProxyBurnLevel` and `CProxyUrineLevel` are both in `c_tf_player.cpp`, exposed at
+`:1896` and `:1978`.
+
+**Both rest at a NO-OP, which is why nothing ever looked wrong.** `YellowLevel` answers `(1,1,1)` —
+a multiply by one — unless the player is in `TF_COND_URINE`; `BurnLevel` answers 0 unless
+`TF_COND_BURNING`. Same trap as `$cloakPassEnabled` on 307 materials: a large number that shows
+nothing until a particular thing happens on camera.
+
+**Done: `BurnLevel`, end to end.** `TF_COND_BURNING` (22) and `TF_COND_URINE` (24) are named,
+`ScenePlayer.BurningFor` reconstructs the burn clock, `MomentScene` supplies the delegate,
+`ModelInstance.Burn` carries it per entity, and `ApplyBurnLevel` writes `$detailblendfactor` —
+which 6,715 of the 6,718 materials running the proxy name as their result. That is the parameter
+that blends in the fire overlay a player material already carries in `$detail`.
+
+**The burn clock is RECONSTRUCTED and that is faithful rather than authored.**
+`m_flBurnEffectStartTime` is set client-side by `OnAddBurning` to `gpGlobals->curtime` when the bit
+is ADDED (`tf_player_shared.cpp:7306`) and cleared by `OnRemoveBurning` (`:6884`); nothing networks
+it. The client has no more information than the demo does. Note `OnAddBurning` only sets it
+`if ( !m_pOuter->m_pBurningEffect )` — a re-ignite while already alight does NOT restart the clock,
+and the tracker here does the same.
+
+**Measured on real demos, which validated the reconstruction**: `pl_upward_f12` carries 146 burn
+episodes over 20,396 player-frames with clocks from 0.00 to 12.27 seconds, mean 2.28. Past ten is
+correct and is the re-ignite case; the proxy clamps those to zero, so a player still technically
+burning draws extinguished — as TF2 draws them.
+
+**Still open: `YellowLevel`.** It writes `$yellow`, and two `Equals` proxies then copy that into
+`$color2` and `$selfillumtint` (`soldier_red.vmt`). So it needs `Equals` — 3,870 materials — and a
+variable table on materials that are not tintable, where today the table is created only for those
+carrying `$colortint_base`. Also unimplemented and above `Sine` in the ranking: `Multiply` (4,654)
+and `AnimatedTexture` (7,027).
+
+**THE CORPUS CANNOT SHOW EITHER OF THESE, and that is the finding worth keeping.** Every demo in
+`lcor` containing `TF_COND_BURNING` is played on a competitive map version that is not installed —
+`pl_upward_f12`, `cp_steel_f12` — and the viewer draws an empty frame for those, logging
+`cp_steel_f12 is not installed; fetching it`. Every demo whose map IS installed is a 6s match with
+no pyro: **`cp_process_f12`, the parity reference, has zero burning player-frames out of
+1,380,278**, and zero urine. Measured with the `conditions` probe.
+
+So the picture is unverified, for a reason that is about the corpus rather than about this work,
+and closing it needs either a demo on a stock map with a pyro in it or the competitive maps
+installed. **`TF_COND_URINE` appears in NO demo checked at all**, so `YellowLevel` has no subject
+even in principle right now.
+
+**Also fixed here: a control that could never fire.** `MaterialBlockProbe` names `Proxies` as its
+control — *"a run that reported no `Proxies` at all would be a broken scan"* — and it yields only at
+`open.Count == 2` for a key/value pair. A `Proxies` block holds sub-blocks and no bare keys, so it
+contributes nothing and reads as absent for a correct scan exactly as for a broken one. The working
+control is `>=DX90` at 5,688 materials. That is
+`docs/memory/an-empty-search-needs-a-control.md` one level up: the absence was checked, and the
+check was vacuous.

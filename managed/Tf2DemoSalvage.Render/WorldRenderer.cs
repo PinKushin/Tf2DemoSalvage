@@ -4030,6 +4030,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <c>ItemTintColor</c> is a per-entity proxy, which is why it arrives at the bind rather than
     /// being folded into the material at load.
     /// </param>
+    /// <param name="burn">
+    /// How alight the entity is, 0 to 1, for TF2's <c>BurnLevel</c> proxy (B336). Per entity for
+    /// the same reason the paint is.
+    /// </param>
     /// <remarks>
     /// **In order, because last wins.** Two proxies writing the same variable is legal and the
     /// engine resolves it by running them in the order the file lists them.
@@ -4043,7 +4047,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         float[] contents,
         IReadOnlyList<MaterialProxy> proxies,
         int materialIndex,
-        (float Red, float Green, float Blue)? paint)
+        (float Red, float Green, float Blue)? paint,
+        float burn)
     {
         // **A material variable table, because TF2's paint chain writes one proxy's output into
         // another's input** (B330). `ItemTintColor` produces `$colortint_tmp` and
@@ -4083,8 +4088,48 @@ internal sealed unsafe class WorldRenderer : IDisposable
             {
                 ApplySelectFirstIfNonZero(contents, variables, proxy, materialIndex);
             }
+            else if (proxy.Name.Equals("BurnLevel", StringComparison.OrdinalIgnoreCase))
+            {
+                ApplyBurnLevel(contents, proxy, burn);
+            }
         }
     }
+
+    /// <summary>How alight the entity is, written where the proxy says (B336).</summary>
+    /// <param name="contents">The material constants for this draw.</param>
+    /// <param name="proxy">The proxy, whose <c>resultVar</c> names its output.</param>
+    /// <param name="burn">The value <c>CProxyBurnLevel</c> computed, 0 to 1.</param>
+    /// <remarks>
+    /// **`$detailblendfactor` and nothing else, because that is what the game asks for.** Measured
+    /// with `vmt-proxy BurnLevel` over the 30,684 shipped materials: 6,715 of the 6,718 running
+    /// this proxy name `$detailblendfactor` as their result. The other three name `$burnlevel` and
+    /// the literal `1`, neither of which any shader here reads — so they are left alone rather than
+    /// guessed at, which is what an unrecognised proxy already does.
+    ///
+    /// **The value REPLACES the material's own factor rather than scaling it**, and that is the
+    /// engine: `m_pResult->SetFloatValue( flResult )`. A player material rests at
+    /// `$detailblendfactor .01` — the fire is all but invisible — and the proxy writes over it, so
+    /// multiplying instead would leave a burning player at a hundredth of the fire they should
+    /// have.
+    /// </remarks>
+    private static void ApplyBurnLevel(float[] contents, MaterialProxy proxy, float burn)
+    {
+        if (!string.Equals(
+            proxy.Argument("resultVar"), "$detailblendfactor", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        contents[DetailBlendFactor] = burn;
+    }
+
+    /// <summary>Where <c>$detailblendfactor</c> sits in the material constants.</summary>
+    /// <remarks>
+    /// **Named rather than written as 1**, because the four regressions this buffer has had were
+    /// all a literal index that stopped meaning what it said. The guard on
+    /// <see cref="CategoryColourRed"/> is the same idea from the other end.
+    /// </remarks>
+    private const int DetailBlendFactor = 1;
 
     /// <summary>The colour an unpainted tintable item wears, or null for anything else.</summary>
     private (float Red, float Green, float Blue)? Tintable(int materialIndex) =>
@@ -4272,7 +4317,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         int materialIndex,
         SurfaceCategory? category = null,
         (float Red, float Green, float Blue)? tint = null,
-        (float Red, float Green, float Blue)? paint = null)
+        (float Red, float Green, float Blue)? paint = null,
+        float burn = 0f)
     {
         // **The category view's underlay, chosen per material because that is what decides it.**
         // A material that resolved to nothing draws Valve's magenta-and-black chequer; everything
@@ -4394,7 +4440,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // the material's resting state, and a proxy must not bake this frame's value into it.
             contents = [.. contents];
 
-            ApplyProxies(contents, _proxies[materialIndex], materialIndex, paint);
+            ApplyProxies(contents, _proxies[materialIndex], materialIndex, paint, burn);
         }
 
         // **Every array feeding this buffer must be exactly the shader struct's length, and this is
@@ -5042,6 +5088,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <c>ItemTintColor</c> proxy at the bind, which is where the engine runs it — a proxy is
     /// per entity per draw, so this cannot be folded into the material at load.
     /// </param>
+    /// <param name="burn">
+    /// How alight this ENTITY is, 0 to 1 (B336). Feeds TF2's <c>BurnLevel</c> proxy, which writes
+    /// <c>$detailblendfactor</c> and so blends in the fire overlay the material already carries.
+    /// Zero for everything not on fire, which is the proxy's own resting value.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **One matrix and one draw per entity, which is the engine's shape.** The vertices were
@@ -5069,7 +5120,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         (float Red, float Green, float Blue)? tint = null,
         IReadOnlyList<LocalLight>? locals = null,
         string? overrideMaterial = null,
-        (float Red, float Green, float Blue)? paint = null)
+        (float Red, float Green, float Blue)? paint = null,
+        float burn = 0f)
     {
         ArgumentNullException.ThrowIfNull(matrix);
         ArgumentNullException.ThrowIfNull(batches);
@@ -5480,7 +5532,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
             // A model's own batches carry their category too — `Prop`, or `Missing` where the
             // material did not resolve. A brush entity adds its class colour on top (B219).
-            SetMaterial(context, material, batch.Category, tint, paint);
+            SetMaterial(context, material, batch.Category, tint, paint, burn);
 
             drawn += batch.VertexCount;
 
