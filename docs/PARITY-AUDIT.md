@@ -716,3 +716,28 @@ computes exactly the speed-matching a reader would expect a viewer to need.
 **The method generalises.** A function this project has never cited is a function nobody has compared
 against the engine — which is a sharper filter than branch count, and cheaper than reading a whole
 subsystem. `parity <filter>` already ranks what we DO cite; the gap is what it cannot show.
+
+### The same sweep over `CTFPlayerAnimState` — eight uncited, zero divergences
+
+Repeating the denominator method on TF2's own subclass found nothing to fix, and the reasons are
+worth keeping so the eight do not get re-read:
+
+| function | why it is not a gap |
+|---|---|
+| `CheckStunAnimation` | a state machine whose OUTPUT is `PLAYERANIMEVENT_STUN_BEGIN/MIDDLE/END`, which reach a demo as `CTEPlayerAnimEvent` and which `PlayerGestureEvent.Map` already handles. Reproducing the machine would be reproducing the sender |
+| `CheckPasstimeThrowAnimation` | same shape — its events (34–36) are mapped |
+| `CheckCYOAPDAAnimtion` | same shape — its events (37–39) are mapped |
+| `GetCurrentMaxGroundSpeed` | feeds `m_flMaxGroundSpeed`, whose ONLY read is `GetInterpolatedGroundSpeed` (`:1100`) — used in a commented-out line and a debug print. Plus one item-testing-bot branch |
+| `Taunt_ComputePoseParam_MoveX` / `_MoveY` | driven by `pTFPlayer->m_nButtons`, which a demo carries for the recorder alone |
+| `Vehicle_ComputePoseParam_MoveYaw`, `Vehicle_LeanAccel` | TF2 has no rideable vehicle in normal play |
+| `IsItemTestingBot` | the item-testing mode only |
+
+**The event enum was checked against the SDK while here**, since a numbering slip would silently map
+the wrong gesture: ours matches member for member through `AttackPrimarySuper = 40`, and every
+unmapped member already carries its reason — jump, swim, death, spawn and snap-yaw drive the MAIN
+sequence rather than a layer, and `CustomGestureSequence` and `DoubleJumpCrouch` are commented out in
+the SDK itself.
+
+**So the flinch was the only defect in either animstate**, and it was in the RESOLUTION step rather
+than the mapping — which is why a sweep of the event table would not have found it. Two sweeps, one
+defect, and eleven dead ends now written down instead of waiting to be rediscovered.
