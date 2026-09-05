@@ -419,3 +419,28 @@ be wrapped in a timer.
 ---
 
 Related: [[measure-the-output-not-the-capability]], [[instrument-bugs-outnumber-decoder-bugs]].
+
+**A filtered gate command can leave you reading a STALE number, 2026-09-05.** Re-running the gate
+after adding one test, the command was:
+
+```bash
+bash build/gate.sh 2>&1 | grep -E "executed, .* failed" | grep -v ", 0 failed" | head -3
+echo "--- scene ---"; grep -E "scene:" /tmp/gate-b350.txt | tail -1
+```
+
+The first line prints only FAILURES, so a clean run prints nothing — fine on its own. The second
+line reads the file from the PREVIOUS run, and printed `scene: 522 executed, 0 failed (floor 522)`
+under a heading that read like this run's result. The floor was 523 by then and the suite had 523
+tests; both numbers on screen were one behind, and nothing about the output said so.
+
+**Two separate faults, and either alone is enough:**
+
+- **Filtering to failures makes success indistinguishable from a crashed run.** `CLAUDE.md` already
+  says not to filter the gate's output while iterating; this is the other reason — an empty result
+  is ambiguous, not reassuring.
+- **Reading a file the current command did not write.** The redirect target and the file grepped
+  must be the same path, and a run that redirects nowhere has no file to read.
+
+**How to apply:** redirect the gate to a file THIS invocation names, then read that file. Never grep
+a `/tmp/gate-*.txt` from an earlier step in the same breath as a fresh run — the two look identical
+in the transcript and only one of them is about the code as it stands now.
