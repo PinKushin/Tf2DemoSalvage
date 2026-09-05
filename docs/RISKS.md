@@ -23133,3 +23133,57 @@ At the per-material shape it would be 330 KB times however many player materials
 **And the picture still could not be checked afterwards** — the fire overlay is blended by
 `$detailblendfactor`, which `BurnLevel` drives, and B336 records that no demo in the corpus both
 contains burning and uses a map that is installed.
+
+### B339 FIXED 2026-09-05: a proxy naming one component of a vector wrote all three
+
+**B337 recorded this as a stated divergence. It was a defect.** That entry said *"`vecSize` is
+always three here… No shipped material seen so far runs a math proxy on a two-component variable;
+if one turns up, this is where it breaks"* — which was the wrong question. The reachable case is
+not a two-component VARIABLE; it is a proxy naming **one component** of an ordinary three-component
+one, and the census had the answer all along.
+
+**Measured with `vmt-proxy`, by result variable:**
+
+| materials | proxy | writes |
+|---|---|---|
+| 64 | `Equals` | `$selfillumfresnelminmaxexp[1]` |
+| 64 | `Equals` | `$selfillumfresnelminmaxexp[2]` |
+| 20 | `Equals` | `$temp[1]` |
+| 2 | `Subtract` | `$envmaptint[1]` |
+
+**150 materials, and writing all three turns a reflection tint or a self-illumination ramp into a
+grey of itself.**
+
+**The engine's two paths** (`functionproxy.cpp:141-160`), and this project only had the second:
+
+```cpp
+if ( m_ResultVecComp >= 0 )
+    m_pResult->SetVecComponentValue( result, m_ResultVecComp );
+else
+    for (int i = 0; i < vecSize; ++i) v[i] = result;   // broadcast
+```
+
+The index is parsed off the name by `strtol` after the `[` (`:117-133`) and the **brackets are
+stripped before the lookup** — so a table keyed on `$envmaptint[1]` matches nothing and the proxy
+is refused. The same parse runs on the sources (`CFloatInput::Init`, `:38-58`), and naming a
+component makes the operation FLOAT-typed (`ComputeResultType`, `:238`), so the arithmetic runs
+once on a scalar rather than three times on a vector.
+
+**`strtol`'s answer for a malformed index is 0**, so `$foo[]` and `$foo[x]` are component zero
+rather than errors. Reproduced rather than tightened: a material relying on that is relying on
+component zero.
+
+## The other divergence B337 stated, now measured rather than guessed
+
+**The INT path is reachable on 10 materials**, and B337 said only that it "differs only for a
+variable holding a fraction the engine would have truncated". The reachable case is `Clamp` writing
+`$frame` (5 materials) and `$frame2` (5), from `$frameminusten` clamped to 0..30 — an
+animated-texture frame chain, and `$frame` is an integer shader parameter.
+
+**It is currently unobservable**, because nothing in this renderer reads `$frame` through the proxy
+chain: the animation frame comes from `AnimatedTexture`'s own clock (B338), not from these. So the
+divergence is real, narrow, and inert until the frame chain is wired.
+
+**Fixing it needs variable TYPES**, which this layer does not carry — every proxy variable is a
+triple, and the engine's `ComputeResultType` reads the result variable's declared type first. That
+is the change to make when the frame chain lands, and it is a bigger one than this entry.

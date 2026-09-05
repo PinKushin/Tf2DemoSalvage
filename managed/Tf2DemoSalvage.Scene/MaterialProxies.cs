@@ -331,6 +331,117 @@ public static class MaterialProxies
         return middle + (half * MathF.Sin((float)(seconds * 2d * Math.PI / period)));
     }
 
+    /// <summary>Splits a proxy's variable reference into a name and a component (B339).</summary>
+    /// <param name="reference">What the VMT wrote, such as <c>$envmaptint[1]</c>.</param>
+    /// <returns>The name without brackets, and the component or -1 for none.</returns>
+    /// <remarks>
+    /// **The brackets are STRIPPED, because the lookup uses the bare name.** `CResultProxy::Init`
+    /// copies the string, replaces the `[` with a terminator and looks the variable up by what is
+    /// left (<c>functionproxy.cpp:117-133</c>) — so a table keyed on the bracketed form would match
+    /// nothing and the proxy would be refused.
+    ///
+    /// **`strtol` is what reads the index, and it answers 0 for anything that is not a number.**
+    /// `$foo[]` and `$foo[x]` are therefore component zero rather than errors. Reproduced rather
+    /// than tightened: a material relying on that is relying on component zero, and refusing it
+    /// here would change what draws.
+    ///
+    /// The same parse runs on the SOURCES — `CFloatInput::Init` (<c>:38-58</c>) — so it is used for
+    /// both ends.
+    /// </remarks>
+    public static (string Name, int Component) Reference(string? reference)
+    {
+        if (reference is null)
+        {
+            return (string.Empty, -1);
+        }
+
+        int bracket = reference.IndexOf('[', StringComparison.Ordinal);
+
+        if (bracket < 0)
+        {
+            return (reference, -1);
+        }
+
+        // `strtol` skips leading space, takes an optional sign and as many digits as it finds, and
+        // answers 0 having consumed nothing when there are none.
+        int at = bracket + 1;
+        int component = 0;
+
+        while (at < reference.Length && char.IsAsciiDigit(reference[at]))
+        {
+            component = (component * 10) + (reference[at] - '0');
+            at++;
+        }
+
+        return (reference[..bracket], component);
+    }
+
+    /// <summary>How many components a variable holds in this layer.</summary>
+    private const int Components = 3;
+
+    /// <summary>Writes a proxy's result into one component, or across all of them (B339).</summary>
+    /// <param name="into">The variable's current value.</param>
+    /// <param name="component">Which component, or -1 for none.</param>
+    /// <param name="value">What the proxy computed.</param>
+    /// <returns>The variable's new value.</returns>
+    /// <remarks>
+    /// **Valve's two paths, and the first is the one this project was missing**
+    /// (<c>functionproxy.cpp:141-160</c>): a named component is written ALONE and the rest of the
+    /// vector keeps what it had; an unnamed one BROADCASTS the float across every component.
+    ///
+    /// Writing all three where the material named one turns a reflection tint or a
+    /// self-illumination ramp into a grey of itself — measured on 150 shipped materials.
+    /// </remarks>
+    public static (float Red, float Green, float Blue) WriteComponent(
+        (float Red, float Green, float Blue) into, int component, float value)
+    {
+        if (component < 0)
+        {
+            return (value, value, value);
+        }
+
+        return component switch
+        {
+            0 => (value, into.Green, into.Blue),
+            1 => (into.Red, value, into.Blue),
+            2 => (into.Red, into.Green, value),
+
+            // The engine indexes a `float v[4]`, so a fourth component is legal there and is not
+            // here. Left alone rather than wrapped: a silent write to the wrong component is worse
+            // than no write at all.
+            _ => into,
+        };
+    }
+
+    /// <summary>Reads one component of a variable as a scalar (B339).</summary>
+    /// <param name="from">The variable's value.</param>
+    /// <param name="component">Which component, or -1 to take the whole vector.</param>
+    /// <returns>The component in every place, or the value unchanged.</returns>
+    /// <remarks>
+    /// **A named component makes the operation FLOAT-typed** — `ComputeResultType` answers
+    /// `MATERIAL_VAR_TYPE_FLOAT` when a component is named (<c>functionproxy.cpp:238</c>) — so the
+    /// arithmetic runs once on a scalar rather than three times on a vector. Broadcasting the
+    /// component is how that is expressed in a layer that holds every variable as a triple.
+    /// </remarks>
+    public static (float Red, float Green, float Blue) ReadComponent(
+        (float Red, float Green, float Blue) from, int component)
+    {
+        if (component < 0)
+        {
+            return from;
+        }
+
+        float value = component switch
+        {
+            0 => from.Red,
+            1 => from.Green,
+            2 => from.Blue,
+            _ => 0f,
+        };
+
+        return component < Components ? (value, value, value) : from;
+    }
+
     /// <summary>The engine's default animation rate when a material states none.</summary>
     /// <remarks>
     /// <c>m_FrameRate = pKeyValues-&gt;GetFloat( "animatedTextureFrameRate", 15 )</c>
