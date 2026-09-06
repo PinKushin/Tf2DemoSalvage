@@ -132,8 +132,31 @@ if ( !m_bFlipped )
 }
 ```
 
-`m_bFlipped` is set from a parameter to `InitSprite` and is not a field of the lump, so every sprite
-read from a map file takes that branch. The swap is not the exception; it is the only case.
+**`m_bFlipped` is not a field of the lump, and the first reading of that was wrong.** It looked like
+a flag that only the shape path ever sets, which would make the swap universal. It is not: it
+ALTERNATES with position in the file.
+
+```cpp
+bool bFlipped = true;
+while ( --count >= 0 )
+{
+    bFlipped = !bFlipped;
+    DetailObjectLump_t lump;
+    buf.Get( &lump, sizeof(DetailObjectLump_t) );
+```
+`detailobjectsystem.cpp:1771`
+
+The toggle is at the TOP of the loop, so object 0 reads `false` and every second object after it
+reads `true`; and it counts every OBJECT, models included, rather than every sprite. The engine's
+fast path expresses the same thing a second way — a whole second dictionary with the x coordinates
+pre-swapped (`m_DetailSpriteDictFlipped`, `detailobjectsystem.cpp:1621`), reached for under the same
+`!bFlipped` test — which is why the two look like different mechanisms and are one.
+
+**This shipped wrong for a few hours**, applying the swap to everything, which mirrors half a map's
+grass the wrong way. Nothing in a picture would ever have named it: a mirrored blade of grass is a
+blade of grass. It was found by reading `UnserializeModels` for a different question entirely, and
+that is the general case — **a flag with no field to read is one whose rule lives in the loop that
+sets it**, not at the site that tests it.
 
 *Evidence class: read-from-source, all three.*
 

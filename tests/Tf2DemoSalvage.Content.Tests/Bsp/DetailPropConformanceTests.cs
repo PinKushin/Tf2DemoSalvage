@@ -123,6 +123,30 @@ public sealed class DetailPropConformanceTests
     }
 
     /// <remarks>
+    /// **`bFlipped` is not in the lump — it alternates by POSITION.** `UnserializeModels` declares
+    /// `bool bFlipped = true;` before the loop and toggles it at the top of every iteration
+    /// (<c>detailobjectsystem.cpp:1771-1774</c>), so the first object reads false and every second
+    /// one after it reads true. The engine mirrors the flipped ones horizontally by reaching for a
+    /// second dictionary whose x coordinates are already swapped.
+    ///
+    /// **It counts every OBJECT, not every sprite**, so a model in the middle of the list still
+    /// advances the toggle. Four objects are needed to see the pattern: two would be satisfied by
+    /// "the first is false" alone.
+    /// </remarks>
+    [Test]
+    public void ReadPayload_TheFlipFlag_AlternatesByPositionStartingUnflipped()
+    {
+        IReadOnlyList<BspDetailProp> objects = BspDetailProps.ReadPayload(Payload(objects: 4)).Objects;
+
+        objects.Count.ShouldBe(4);
+
+        objects[0].Flipped.ShouldBeFalse();
+        objects[1].Flipped.ShouldBeTrue();
+        objects[2].Flipped.ShouldBeFalse();
+        objects[3].Flipped.ShouldBeTrue();
+    }
+
+    /// <remarks>
     /// A payload too short to hold what it declares is a stranger's file, and D32 requires the
     /// refusal rather than a partial read.
     /// </remarks>
@@ -160,11 +184,16 @@ public sealed class DetailPropConformanceTests
     private const int SpriteBytes = 32;
     private const int ObjectBytes = 52;
 
-    /// <summary>One name, one sprite and one object, every field distinctive.</summary>
-    private static byte[] Payload()
+    /// <summary>One name, one sprite and <paramref name="objects"/> objects, every field distinctive.</summary>
+    /// <remarks>
+    /// The objects are identical copies, which is what the flip test wants: anything that
+    /// distinguishes them would let a wrong reading agree with the right one for the wrong reason.
+    /// </remarks>
+    private static byte[] Payload(int objects = 1)
     {
         byte[] payload = new byte[
-            sizeof(int) + NameBytes + sizeof(int) + SpriteBytes + sizeof(int) + ObjectBytes];
+            sizeof(int) + NameBytes + sizeof(int) + SpriteBytes + sizeof(int) +
+            (ObjectBytes * objects)];
 
         Span<byte> span = payload;
 
@@ -184,24 +213,29 @@ public sealed class DetailPropConformanceTests
 
         at += SpriteBytes;
 
-        BinaryPrimitives.WriteInt32LittleEndian(span[at..], 1);
+        BinaryPrimitives.WriteInt32LittleEndian(span[at..], objects);
         at += sizeof(int);
 
-        foreach ((int offset, float value) in
-            new[] { (0, 1f), (4, 2f), (8, 3f), (12, 4f), (16, 5f), (20, 6f), (48, 1.5f) })
+        for (int index = 0; index < objects; index++)
         {
-            BinaryPrimitives.WriteSingleLittleEndian(span[(at + offset)..], value);
+            int start = at + (index * ObjectBytes);
+
+            foreach ((int offset, float value) in
+                new[] { (0, 1f), (4, 2f), (8, 3f), (12, 4f), (16, 5f), (20, 6f), (48, 1.5f) })
+            {
+                BinaryPrimitives.WriteSingleLittleEndian(span[(start + offset)..], value);
+            }
+
+            BinaryPrimitives.WriteUInt16LittleEndian(span[(start + 24)..], 7);
+            BinaryPrimitives.WriteUInt16LittleEndian(span[(start + 26)..], 8);
+
+            span[start + 36] = 10;     // light style count
+            span[start + 37] = 11;     // sway
+            span[start + 38] = 12;     // shape angle
+            span[start + 39] = 13;     // shape size
+            span[start + 40] = 2;      // orientation: screen aligned, vertical
+            span[start + 44] = 1;      // type: sprite
         }
-
-        BinaryPrimitives.WriteUInt16LittleEndian(span[(at + 24)..], 7);
-        BinaryPrimitives.WriteUInt16LittleEndian(span[(at + 26)..], 8);
-
-        span[at + 36] = 10;     // light style count
-        span[at + 37] = 11;     // sway
-        span[at + 38] = 12;     // shape angle
-        span[at + 39] = 13;     // shape size
-        span[at + 40] = 2;      // orientation: screen aligned, vertical
-        span[at + 44] = 1;      // type: sprite
 
         return payload;
     }
