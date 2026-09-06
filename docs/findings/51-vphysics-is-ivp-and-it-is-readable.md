@@ -1769,3 +1769,371 @@ across unrelated structures exactly as `0x118` is** — the same trap, twice.
 the application function and the copy chain; the `"m_gravityLength"` and `"sys:gravity"` strings are
 read; INFERRED and flagged for `realobj+0xe8` being `env[0]`; NOT ESTABLISHED for the per-tick call
 site.*
+
+## The constraint solve's arithmetic, and one thing it does NOT do
+
+**The three-axis solve writes ANGULAR velocity only.** That was not expected and is worth stating
+first: ~~`FUN_180036f80` consumes a point-to-point anchor offset — the thing anyone would call the
+translation solve~~ — **and that description is WRONG; see the correction below.** Every terminal
+write in it lands on `core+0x130..0x13c`. Linear velocity is never touched there. The only place the solve path writes `core+0x140..0x148` is a **separate,
+conditional** block in both dispatchers, gated on `*(char *)(corePair + 0x157) != 0` and reached
+through `FUN_180038070`, which is an anchor-drift correction rather than part of the axis solve.
+
+### The cached geometry, `FUN_180037bd0`
+
+Built once per constraint per tick and reused by every sweep — which is the entire point of the
+slot 3 / slot 4 split:
+
+```c
+r_A = R_bodyA · anchor          → cache[0..3]     // anchor read from constraint+0x110
+r_B = R_bodyB · (−anchor)       → cache[4..7]     // note the negation: equal and opposite
+cache[8..11]  = r_A ⊙ invInertia_A
+cache[12..15] = r_B ⊙ invInertia_B
+```
+
+using each core's own rotation rows at `core+0x90..0xe8`.
+
+**The immovable gate lives HERE, not in the solve.** Each body is included only when
+`(*coreFlags & 0x12) == 0`; a static one gets zeroed cache entries, which is what makes the
+unconditional accumulate later net to zero for it. That is a tidier arrangement than a branch in the
+inner loop and it is worth copying rather than "improving".
+
+**The effective mass, and its reciprocal:**
+
+```c
+K = Σ_bodies ( r_i · (invInertia_i ⊙ r_i) )
+y = rcpps(K); y = y + y − y*y*K;                      // one Newton-Raphson refinement
+cache[0x14..0x17] = (K > FLT_EPSILON) ? y : 0.0;      // zeroed rather than divided by
+```
+
+**A near-degenerate joint yields a zero multiplier rather than an infinity**, which is a behaviour
+and not a guard — every later impulse for that axis multiplies out to nothing.
+
+### The impulse
+
+Both `FUN_180036f80` and `FUN_1800372c0` compute the same shape:
+
+```
+bias    = ( axisSign * 0.8 * error * scale ) − ( torque * relativeVelocity )
+impulse = bias * cache[0x14]                          // × 1/K
+```
+
+then clamp the correction against `1.0` — never apply more than the error itself — and accumulate:
+
+```c
+core.angularVelocity += impulse * (r ⊙ invInertia)    // cache[8..11] / cache[12..15]
+```
+
+**`0.8` is a bias constant at `0x1800ee9b0`, and it is NOT the group's 0.4.** Those are two
+different numbers from two different tables: 0.4 is the per-sweep relaxation weight the group driver
+carries, 0.8 is the error-reduction term inside one axis solve. Reading either as the other would be
+easy and wrong.
+
+**The torque field is a DAMPING COEFFICIENT, not a clamp.** `constraint+0x2d0..0x2dc` is passed
+unmodified into all three inner solves, and its second lane multiplies the relative velocity in the
+expression above. So Valve's `SetAxisFriction( rmin, rmax, friction )` — which leaves the angular
+velocity at zero and puts the number in `torque` — produces a term that resists relative motion
+while the bias drives the error to zero. A transcription treating it as a cap on impulse magnitude
+would be a different joint.
+
+**The running target is warm-started.** Each pass advances a tracked value at `flags+0x18` by a
+fraction of the remaining error rather than recomputing it from a fresh transform, which is what
+makes two sweeps meaningful rather than two identical corrections.
+
+### The state tags, and a degenerate axis
+
+`cache[0x1c]` holds a small integer in a float slot: **1 means the geometry is cached and valid**,
+and **2 means the axis is degenerate and is skipped entirely**. The only place 2 is written is
+inside `FUN_1800372c0`:
+
+```c
+auVar24 = |cross(referenceAxis, axis)|²;
+if (movmskps(auVar24 <= 1.1920929e-7) != 0) { cache[0x1c] = 2; return; }
+```
+
+So a joint whose two axes have gone near-parallel is dropped for that axis rather than solved with a
+near-zero cross product — the gimbal case, handled by refusing.
+
+### Two gaps, named rather than filled
+
+**1. The min/max comparison itself was not found.** The machinery that APPLIES a limit correction is
+read in full, and the flag that enables it (`flags+0x1`) and the target it drives toward (`*param_7`)
+both arrive already resolved. No `angle < minRotation` / `angle > maxRotation` test appears in
+`FUN_180036f80`, `FUN_1800372c0`, `FUN_180036e10`, or either dispatcher. `FUN_180036b80` computes
+`1/max(|a|,|b|)` and `1/sum(a,b)` per lane — the shape of a cheap angle ratio — and writes into a
+DIFFERENT cache field from the one the solves read, but what it produces was not resolved. **Found
+the code that applies a limit; did not find the code that decides one is needed.**
+
+**2. There are only TWO angular solves, not three.** `FUN_180036e10` makes one anchor call and two
+angular calls, with the two differing in their reference vector (`geom+0x140` vs `geom+0x120`) and
+their per-axis flags (`flags+0xe8` vs `flags+0xcc`) while sharing a basis at `geom+0x130`. A ragdoll
+joint declares THREE axis limits. **The twist axis is unaccounted for**, and that is recorded as
+absent rather than assumed to be handled somewhere convenient.
+
+**The relaxation weights are read in a permuted order** — the anchor call takes `geom+0x100`, the
+first angular call `geom+0x108`, the second `geom+0x104` — which is consistent with the axis
+permutation already known from `constraint_ragdollparams_t`.
+
+*Evidence class: read from the decompiled binary for every expression and every dumped constant;
+NOT ESTABLISHED, and labelled, for the limit comparison and for the third angular axis.*
+
+## The collision hull format, decoded — and checked against real files
+
+**This was the last thing standing between a corpse and the floor.** A hull is Havok/Ipion's
+`IVPS` compact-ledge format, carried inside a model's `.phy` and inside a map's
+`LUMP_PHYSCOLLIDE`, and both readers here previously skipped the bytes.
+
+**The way in was a raw byte scan, not a string table.** `IVPS` is not a Ghidra-defined string — it
+appears as a 32-bit immediate compared inside four functions, which led straight to the deserialiser
+chain `FUN_18000a100` → `FUN_18000c600` → `FUN_18000bcf0` → `FUN_18000c1c0`.
+
+### The container, file-verified
+
+```
+0x00-0x0F  phyheader_t { int size = 16; int id; int solidCount; int32 checksum }
+0x10-0x13  per-solid size prefix (uint32); the solid's data follows at +4
+0x14-0x17  "VPHY"
+0x18-0x19  short type      (0 normal, 1 "Null physics model")
+0x1A-0x1B  reserved        (0 in every sample)
+0x1C-0x1F  int32 dataSize  -- guarded by `if (param_2 < 0x30) Error("Corrupt physics model")`
+0x20-0x2B  three floats    -- structure confirmed, MEANING NOT DECODED
+0x2C-0x2F  0 in every sample
+0x30..     IVP_Compact_Surface, then the plaintext KeyValues tail
+```
+
+### `IVP_Compact_Surface`, 0x30 bytes
+
+| offset | field |
+|---|---|
+| `+0x1C` | packed: **byte size is `value >> 8`**; the low byte is unidentified |
+| `+0x20` | int32 offset from the SURFACE's own base to the ledge-tree root |
+| `+0x2C` | magic: `IVPS`, `SPVI` (byte-swapped), `MOPP` (a different format this reader REFUSES), or `0` (an old `.PHY`, loaded anyway) |
+
+**The `>> 8` is verified three times over:** `barrel01` gives `0x00049cd3 >> 8` = 1180, exactly the
+`VPHY` dataSize; `ladder001` gives 4628; `barrel_flatbed01` gives 2668. Each matches its own file.
+
+### The ledge tree, and the ledge
+
+```
+IVP_Compact_Ledgetree_Node
+  +0x00  offset_right_node    -- 0 means LEAF, else a byte offset to the right child
+  +0x04  offset_compact_ledge -- leaf only, and usually NEGATIVE: ledges precede the tree
+  +0x1C  the LEFT child, inline, after a 28-byte node header
+
+IVP_Compact_Ledge
+  +0x00  c_point_offset  -- ADD to the ledge's own address; a point array can be SHARED
+  +0x04  0 in all eleven samples
+  +0x08  varies; low byte 0x04, upper bytes unresolved
+  +0x0C  low 16 bits = n_triangles
+  +0x10  IVP_Compact_Triangle[n_triangles], sixteen bytes each
+```
+
+**`ladder001` is the specimen that proves the tree is real**: nine internal nodes, ten leaves, all
+ten ledges stepping by exactly 208 bytes (16 header + 12 triangles × 16) with their
+`c_point_offset`s stepping in lockstep onto one **shared** point array.
+
+**A `-0x10` bound in the validator initially suggested the triangles start at `+0x14`, and the file
+said otherwise.** The validator's scan pointer begins one word INTO triangle 0 because it only
+bounds-checks the three edge words and deliberately skips the triangle's own header — so triangles
+start at `+0x10`. **The bytes settled it against a plausible misreading of the code.**
+
+### The edge, and a claim tested with a control
+
+A triangle is a header word — which nothing in the mindist path ever reads — plus three four-byte
+edges. An edge's **low 16 bits are the start point index**. Bits 16–30 are a **15-bit signed field**,
+which is what the decompiled `(V * 2) >> 17` idiom sign-extends while discarding bit 31.
+
+The two offset tables, dumped, four entries each keyed by `address & 0xC`:
+
+```
+DAT_180124fb8   { 0: 0, 4: +4, 8: +4, 12: -8 }     -- walks a triangle's three edges, 4→8→12→4
+DAT_180124fc8   { 0: 0, 4: +8, 8: -4, 12: -4 }     -- used before reading the 15-bit field
+```
+
+**And here is the part that makes this a measurement rather than a story.** The `fc8` link was run
+over all 132 edges of `barrel01`'s ledge:
+
+- **132 of 132** land on another real edge **in the same ledge**.
+- **132 of 132** of those targets share the **same start point index**, in a **different triangle**.
+- The classic half-edge twin — same edge, direction reversed — was tested explicitly and scored
+  **0 of 132**.
+
+So it is a **vertex fan**, not a twin: it enumerates every triangle touching a given point, which is
+exactly what the vertex-vertex and vertex-edge feature tests need. **The control is the 0 of 132**,
+because without it "132 of 132 hit a real edge" would be satisfied by several wrong readings.
+
+### The point array
+
+Sixteen-byte stride at `ledge + c_point_offset`: three little-endian floats and four bytes that were
+**zero in every sampled point**. Indexed by the plain 16-bit start index — confirmed in the reader
+itself, `pfVar13 = (float *)((ulonglong)*param2 * 0x10 + *param4)`.
+
+### Still open, named rather than guessed
+
+- `IVP_Compact_Surface` `+0x00..0x1B` and `+0x24..0x2B` — real data, no consumer traced.
+- Ledgetree node `+0x08..0x1B`, twenty bytes — plausibly a bounding volume, unconfirmed.
+- Ledge `+0x04` (always zero) and `+0x08` (low byte constant, upper bytes unresolved).
+- The triangle's own header word — never read by anything traced.
+- Bit 31 of an edge, deliberately excluded from the fan delta.
+- The three floats at container `+0x20`.
+
+*Evidence class: read from the decompiled binary for every function and both dumped tables;
+**file-verified** against three shipped `.phy` files for the container, the surface header, the tree,
+eleven ledges, the point array and the 132-edge fan test; NOT ESTABLISHED and listed above for the
+unidentified fields.*
+
+## Correction: there is no anchor axis — all THREE constraint axes are angular
+
+**`FUN_180036f80` was written up above as the anchor or translation solve, and that was wrong.**
+It is a third rotational axis, solved by a differently shaped routine than the other two. Two
+independent readings settle it:
+
+- **Its effective mass has no linear term and no lever arm.** A ball-socket point constraint needs
+  `1/mA + 1/mB + (r × n)·I⁻¹·(r × n)`. What `FUN_180037bd0` accumulates for this axis is
+  `Σ r·(invI ⊙ r)` with a plain rotated vector and no cross product — the same expression it builds
+  for the other two axes, and the rotational form.
+- **It shares the degenerate-axis state tag.** `FUN_180038620` resets the same sentinel for all
+  three geometry slots, and `FUN_180036f80` tests the same `1.4013e-45` / `2.8026e-45` pair. **A
+  degenerate cross product is a meaningless idea for a 3D position constraint** and a necessary one
+  for an axis direction.
+
+So `FUN_180036e10` solves **three angular limits**, and the three flag blocks at `+0xB0`, `+0xCC`
+and `+0xE8` are structurally identical — 28 bytes each, same layout, all populated by the same code
+in `FUN_180037890`. The earlier "one anchor plus two angular" reading, and the worry that a twist
+axis had gone missing, are both retracted: nothing was missing.
+
+**Why two of them use a different routine:** the `+0xCC` and `+0xE8` axes build their reference
+direction with a live cross product and so need the degenerate fallback, while `+0xB0`'s comes from
+a quaternion at `geom+0x2D0..0x2DC` (`w·x, w·y, w·z, w²`) built once per rebuild.
+
+**Still not established: which physical degree of freedom `+0xB0` is** — twist or one of the swings.
+What was eliminated is that it is a position constraint, and that any axis is silently dropped. Only
+the label is open.
+
+## Where a joint's limits are actually compared — and it is branchless
+
+**The bounds live at flag-block-relative `+0x4` (lower) and `+0x8` (upper)**, and there is no
+"is it outside" test anywhere, which is why a search for one found nothing:
+
+```c
+auVar19._0_4_ = (fVar34 - fVar16) * fVar23;   // predicted - lower
+auVar14._0_4_ = (fVar34 - fVar2 ) * fVar23;   // predicted - upper
+auVar15 = minps(auVar19, zero);               // non-zero only BELOW the lower bound
+auVar18 = maxps(auVar14, zero);               // non-zero only ABOVE the upper bound
+fVar29 = fVar29 - (float)((uint)(auVar18._0_4_ + auVar15._0_4_) & (uint)param_2[0x18]);
+```
+
+`min(0, x − lower) + max(0, x − upper)` is zero while the angle is inside its range and is the
+signed overshoot when it is outside — folded straight into the impulse with `minps`/`maxps` against
+a zero vector. **The comparison was invisible because it is arithmetic rather than a branch.**
+
+**A limit whose range covers a full turn is switched off at construction.** `FUN_180037890`:
+
+```c
+if (fVar4 <= fVar1 - fVar5) { *(undefined1 *)(param_1 + 0xb0) = 0; }   // fVar4 = 6.2831855
+```
+
+`DAT_1800eea18` dumps as **6.2831855**, which is 2π — so an axis free through 360 degrees has its
+limit disabled rather than clamped against bounds it can never reach. Other constants dumped
+alongside: `±0.017453292` (degrees to radians, both signs), `57.29578` (radians to degrees), `0.5`,
+and `0.001`.
+
+## The ball socket is a SEPARATE mechanism, and it is the only thing writing linear velocity
+
+`FUN_180038070`, gated on `*(char *)(corePair + 0x157) != 0`, measures **how far apart the two
+bodies' ideas of the shared pivot have drifted** — each body's rotation applied to its own local
+pivot offset, subtracted — then builds a 3×3 coupling matrix from cross products of the cached joint
+axes against that drift, inverts it with a Newton-refined reciprocal, and writes the correction
+**directly into `core+0x140..0x148`**, bypassing the accumulated-impulse path the three angular axes
+use.
+
+**That is why no fourth positional block exists in `FUN_180036e10`: position is not solved there at
+all.** It is a one-shot correction per geometry rebuild, beside the two-pass relaxation that handles
+the angles.
+
+## RESOLVED: the clamp has no gate at all, and the contradiction was a misreading
+
+**Joint limits run unconditionally — every axis, every call.** The chain below broke at exactly one
+link, and it is worth keeping because the broken link looked completely solid.
+
+**The clamp is not inside the `if` at all.** It sits textually and causally AFTER it:
+
+```c
+fVar29 = DAT_1800ff070;                  // 0.0, dumped
+if (param_7[1] != 0) {
+    …                                     // a separate, earlier computation
+    *(uint *)(param_7 + 0x18) = …;       // the gated block ENDS here
+}
+fVar16 = *(float *)(param_7 + 4);        // lower bound — read unconditionally
+fVar2  = *(float *)(param_7 + 8);        // upper bound — read unconditionally
+auVar15 = minps((fVar34 - fVar16) * fVar23, zero);
+auVar18 = maxps((fVar34 - fVar2 ) * fVar23, zero);
+fVar29 = fVar29 - ((auVar18 + auVar15) & param_2[0x18]);
+```
+
+`FUN_1800372c0` has the identical shape. **The earlier reading attributed the `if` to the wrong
+block** — it wraps a position/spring correction that SEEDS the impulse accumulator, and when the
+gate is false that accumulator is simply `0.0` (the constant is dumped) while the clamp still fires
+and is still applied to both bodies.
+
+**And the byte's source was misattributed too.** It is not `angularVelocity * torque`:
+
+```c
+fVar14 = (float)(**(code **)(**(longlong **)(param_1 + 0x10) + 0xe8))();   // a VIRTUAL CALL
+fVar1  = (float)param_4[0x23];                                            // torque
+auStack_137[lVar13 * 0x18] = fVar14 * fVar1 != 0.0;                       // the +0x1 byte
+```
+
+`angularVelocity` (`param_4[0x22]`) goes somewhere else entirely — scaled by `0.017453292`
+(degrees to radians) into a different field that never reaches this boolean. **Both operands of the
+supposed product were wrong.**
+
+**What the two bytes actually do:**
+
+- **`+0x0`** selects between two 16-byte constant tuples used as a SIMD lane and sign convention —
+  not a run/skip gate. It defaults to 1 for every axis (`FUN_1800393d0` sets it unconditionally) and
+  is cleared by the writer when the range covers 2π.
+- **`+0x1`** gates the spring/friction seed described above, and nothing else.
+
+**The third candidate is also ruled out.** `FUN_1800368c0` and `FUN_1800369e0` — the "driven" and
+"plain" constructors — both end with the same `FUN_180037890(param_1, param_3)` on the same buffer
+and both install the same vtable, so which one a ragdoll takes cannot affect the limit path.
+
+**So `SetAxisFriction` leaving `angularVelocity` at zero has no bearing on whether a limit fires.**
+It only zeroes a friction contribution that defaults cleanly to zero.
+
+**Worth keeping as a lesson about decompiler output:** a gated block and the code after it look
+identical in indentation once a decompiler has finished with them, and "this `if` wraps that
+arithmetic" is a claim about BRACES that is easy to assert and easy to get backwards. The tell was
+that the conclusion implied something observably false about the game — TF2's corpses do have joint
+limits — and that is what sent someone back to re-read rather than transcribe.
+
+## The contradiction as it stood before it was resolved
+
+**The clamp block above is gated by the flag byte at `+0x1`, and that byte is reported as being set
+from `(angularVelocity * torque) != 0`** (`FUN_18000eac0`). For a ragdoll,
+`constraint_axislimit_t::SetAxisFriction( rmin, rmax, friction )` leaves `angularVelocity` at **zero**
+and puts the number in `torque` — so the product is zero, the byte is false, and **the limit clamp
+would never run for any ragdoll joint in TF2**.
+
+**That cannot be right.** TF2's corpses visibly have working joint limits; a ragdoll without them is
+a bag of disconnected parts, which is not what the game draws.
+
+So one of these is wrong, and it is not yet known which:
+
+- the byte at `+0x1` gates the FRICTION term rather than the limit, and the limit is gated by `+0x0`
+  (the byte the 2π check clears) — which would make both readings consistent; or
+- the `+0x1` source was misattributed, and it comes from somewhere other than that product; or
+- `angularVelocity` is not zero for a ragdoll in practice, contrary to what `SetAxisFriction`
+  implies.
+
+**Nothing is being transcribed from this until it is settled**, because the two outcomes differ by
+whether ragdoll joints have limits at all — and a solver written on the wrong one produces a corpse
+that either collapses into a heap or is rigid, with no error anywhere to say which reading was
+taken.
+
+*Evidence class: read from the decompiled binary for the limit arithmetic, the three-axis
+correction, the 2π disable and the drift block, with all constants dumped; INFERRED and flagged for
+which DOF `+0xB0` is, and for the min/max floats' end-to-end link back to
+`constraint_ragdollparams_t::axes[]`; the gating contradiction is OPEN and is the next thing to
+settle.*
