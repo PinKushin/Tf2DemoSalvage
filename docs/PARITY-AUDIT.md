@@ -1207,8 +1207,8 @@ everything that DECIDES what the solver starts with — masses, joint limits, wh
 what velocity each one carries, where the kill's force lands — is in the SDK in full. This audit
 read that half end to end.
 
-**Seven findings: one fixed here, one WITHDRAWN by a measurement that says TF2 never reaches the
-mechanism, five open. Plus two things recorded as checked-and-neutral, because that is a different
+**Eight findings: three FIXED, one WITHDRAWN by a measurement that says TF2 never reaches the
+mechanism, four open. Plus three things recorded as checked-and-neutral, because that is a different
 state from unexamined, and one Valve hack that TF2 itself compiles out.**
 
 ### 1. The velocity a corpse inherits from its animation was not implemented at all (FIXED)
@@ -1520,3 +1520,56 @@ nobody's target.
 solver without its author's own repair path produces corpses that come apart and stay apart.
 
 *Evidence class: read from published source, including the preprocessor guard.*
+
+### 8. FIXED — three of the four initial conditions were on the wire and unread
+
+**`DT_TFRagdoll` sends initial conditions and nothing else**, because the corpse is simulated by the
+client. This project decoded one of the four:
+
+```cpp
+RecvPropVector( RECVINFO(m_vecRagdollOrigin) ),   // decoded
+RecvPropVector( RECVINFO(m_vecForce) ),           // not decoded
+RecvPropVector( RECVINFO(m_vecRagdollVelocity) ), // not decoded
+RecvPropInt( RECVINFO( m_nForceBone ) ),          // not decoded
+```
+
+`c_tf_player.cpp:518-521`.
+
+**Ours** read `m_vecRagdollOrigin` and stopped, which is enough to place a corpse and nothing like
+enough to simulate one.
+
+**Visible when wrong:** a finished solver would still drop every corpse straight down, identically,
+however it was killed. The force is the entire reason a rocket death looks unlike a bullet death —
+`RagdollCreate` applies it at the force bone's body and spreads the rest by mass share
+(`ragdoll_shared.cpp:661-681`).
+
+**The two vectors are adjacent, the same type, and mean opposite things**, which is the trap: the
+force is an impulse in kg·in/s that scales by each body's mass share, and the velocity is the
+player's own motion applied whole with `SetAbsVelocity`. Crossing them is a silent, plausible
+error.
+
+**Fixed** — `EntityState.RagdollForce`, `RagdollVelocity`, `RagdollForceBone`, carried onto
+`SceneRagdoll`, over one shared vector reader since the three are consecutive `RecvPropVector`
+entries. Proved by sabotage three times: swapping force and velocity, treating a negative force bone
+as absent, and returning a zero vector for an absent property.
+
+*Evidence class: read from published source for the table and every consumer; authored specimen for
+the decode, since no demo can be made to carry a chosen force.*
+
+**A wrong finding was nearly written here, and what killed it is worth keeping.** `RagdollCreate`
+uses the wire's `m_nForceBone` as `ragdoll.list[forceBone]` — an ELEMENT index — which reads like a
+bug, because a player model has ~100 bones and 16 elements, so most bone indices would fail the
+guard and apply no force at all. It is not a bug. `m_nForceBone` is set from `ptr->physicsbone`
+(`ai_basenpc.cpp:1134`, *"save this bone for physics forces"*), and `physicsbone` is an element
+index everywhere it is used: `m_pRagdoll->GetElement( tr.physicsbone )`
+(`c_baseanimating.cpp:5240`) and `if ( tr.physicsbone < pRagdollT->listCount )`
+(`c_stickybolt.cpp:77`). **Checked before writing, which is the only reason it is not in this
+document as a defect.**
+
+**`mstudiobone_t.physicsbone` is a field this project does not read, and that is filed rather than
+fixed.** It is the bone-to-element mapping — *"index into physically simulated bone"*,
+`studio.h:292`, sitting immediately after `procindex`, which we do read. **It is not on the ragdoll
+path**: elements are matched to bones BY NAME at build time, which is what `RagdollAddSolid` does
+too, and `RagdollGetBoneMatrix` walks the inverse direction. What needs `physicsbone` is a TRACE
+against a corpse — a sticky bolt pinned into a body, a decal on a limb — none of which this project
+draws. **Not a divergence, an unimplemented feature**, and this audit ranks by what we already draw.

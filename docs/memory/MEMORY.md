@@ -170,3 +170,4 @@
 - [Two accumulators cannot see order](two-accumulators-cannot-see-order.md) — the observer must read the observed.
 - [A calling shape is not a purpose](a-calling-shape-is-not-a-purpose.md) — name a function by what it WRITES.
 - [A sabotage that reddens nothing names the missing input](a-sabotage-that-reddens-nothing-names-the-missing-input.md) — sometimes the code is what is wrong.
+- [A gate in flight owns the tree](a-gate-in-flight-owns-the-tree.md) — an edit mid-run splits the measurement, and it still exits 0.
