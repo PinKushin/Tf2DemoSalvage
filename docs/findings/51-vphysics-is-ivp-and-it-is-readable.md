@@ -792,3 +792,44 @@ guessable from this function alone.
 
 *Evidence class: read from the decompiled binary; the constant table is a verbatim dump of
 `1800ee970`–`1800ee9ac`.*
+
+## The two routines differ in the GAINS they are handed, not only in the relaxation
+
+`FUN_180036e10` prepares the gains before it dispatches the three axes, and the four lines that do
+it answer half of what the last section left open:
+
+```c
+local_48  = *(float *)(param_3 + 0x2d0);      // four floats at +0x2d0
+fStack_44 = *(float *)(param_3 + 0x2d4);
+fStack_40 = *(float *)(param_3 + 0x2d8);
+fStack_3c = *(float *)(param_3 + 0x2dc);
+
+local_38  = fStack_3c * local_48;             // the vector scaled by its OWN fourth lane
+fStack_34 = fStack_3c * fStack_44;
+fStack_30 = fStack_3c * fStack_40;
+fStack_2c = fStack_3c * fStack_3c;
+```
+
+and then hands **`&local_38` — the scaled copy — to `FUN_180036f80`**, and **`&local_48` — the
+unscaled one — to both calls of `FUN_1800372c0`**.
+
+So the single-axis routine works in gains multiplied by the block's fourth lane and the pair does
+not, which is a second difference between them on top of the 0.8 relaxation only the pair applies.
+**Two independent differences means the axes are not three of a kind with a parameter**; they are
+genuinely different solves, and a transcription that shared one routine with flags would have to
+reproduce both differences to be right.
+
+The fourth lane multiplying the other three is the shape of a timestep — a rate gain converted to a
+per-step one — but that is an inference from the arithmetic and NOT established: nothing read so far
+shows where `+0x2d0` is filled.
+
+**Also here:** each axis is handed its own scalar from `+0x100`, `+0x104`, `+0x108`, broadcast to
+four lanes before the call, in the order 1, 3, 2 — the same crossed order the axis records are read
+in.
+
+**What is NOT established, restated because it is now the whole blocker:** who fills `+0x2d0` and
+`+0x100`, and whether the 0.8 is fixed. Those live in whatever prepares the scratch block each step,
+which is above the constraint entirely — the time manager's event loop, still unread because
+`ivp_core.cxx` carries no asserts and so names no file in the binary.
+
+*Evidence class: read from the decompiled binary.*
