@@ -208,7 +208,7 @@ public sealed class MapCollisionProbe : IProbe
             if (firstText.Length == 0 && keydataSize > 0)
             {
                 firstText = Encoding.ASCII
-                    .GetString(lump.Slice(at + dataSize, Math.Min(keydataSize, 200)))
+                    .GetString(lump.Slice(at + dataSize, Math.Min(keydataSize, 1200)))
                     .ReplaceLineEndings("\n      ");
             }
 
