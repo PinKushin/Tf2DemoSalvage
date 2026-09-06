@@ -301,6 +301,18 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
         context.RSSetState(_noCull);
 
         context.Draw((uint)_corners, 0);
+
+        // **Blending is turned back OFF here, and this is not tidiness.** The model pass that
+        // follows binds its own shaders, layout and camera through `BindPipeline` — but it does
+        // NOT bind a blend state, so it inherits whatever the last pass left. Leaving alpha
+        // blending on makes every model blend against its base texture's alpha channel, which in a
+        // TF2 model material is usually an envmap mask rather than opacity: shiny metal masks to
+        // near zero, so pipes ghost, a dome goes glassy and a silo's collar vanishes.
+        //
+        // That is B135 exactly, and it is written up in `DrawOpaqueBatches` as a defect that took
+        // the owner looking at it to find, because it reads as four unrelated art faults. This pass
+        // is newer than that note and re-created it within the hour.
+        context.OMSetBlendState(default(ComPtr<ID3D11BlendState>), factor, 0xFFFFFFFF);
     }
 
     /// <inheritdoc/>
