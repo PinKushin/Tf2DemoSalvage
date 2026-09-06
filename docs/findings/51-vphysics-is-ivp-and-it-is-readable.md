@@ -1008,3 +1008,111 @@ That is now the single remaining link between this loop and the constraint solve
 
 *Evidence class: read from the decompiled binary; vtable slot, xref and both constructor/destructor
 chains independently confirmed.*
+
+## From reading to code: what is now transcribed
+
+**The physics work has crossed from reading into implementation**, and only the parts that were read
+verbatim have crossed. What exists:
+
+| type | transcribes | citation |
+|---|---|---|
+| `RagdollJointLimits` | the axis remap, degrees→radians with axis 2 negated and its pair exchanged, the `useClockwiseRotations` flag, and "unlimited" as a magnitude test | `CPhysicsConstraint`'s constructor, `18000eac0` |
+| `PhysicsTimeManager` | the event loop, the queue, and the periodic rebase | `FUN_18008a110`, `FUN_18008a020` |
+| `PhysicsEnvironment` | the clock, the fixed step and the simulate target | `physics.cpp:177-180`, `FUN_180082540` |
+| `RagdollBody`, `IvpTransform` | bodies from the `.phy`, and IVP's axis/unit/transpose convention | `RagdollCreateObjects`, `RagdollGetBoneMatrix` |
+
+**Named for the engine's classes, not for what they hold.** `PhysicsTimeManager` was first called
+`PhysicsEventQueue`, which the analysers reject and which was the worse name anyway: it describes the
+data structure where IVP describes the job. The queue is a detail; being the thing that decides when
+everything happens is not.
+
+**What is still missing to make a corpse settle**, in the order the work needs it:
+
+1. **Which event performs the step.** The loop fires each event through its own vtable slot 1, so the
+   PSI is one particular event class and its slot 1 is the step. Not yet identified.
+2. **The integration** — gravity into velocity, velocity into the transform at `core+0x90`, with the
+   damping the `.phy` supplies and `g_PhysDefaultObjectParams`' 0.1/0.1 underneath it.
+3. **The constraint solve, assembled.** Every piece is read — the Jacobian row and its memo, the
+   effective mass `Jᵀ M⁻¹ J`, the accumulated impulse at `record+0x18`, the 0.8 relaxation on two of
+   three axes, the angle unwrap, the atan2 — but two inputs are not: what fills `+0x2d0` and
+   `+0x100`, and whether the 0.8 is fixed. Both live above the constraint.
+4. **Collision against the world**, `ivp_mindist*`, entirely unread.
+
+**Nothing about the integrator has been written**, deliberately. Its shape is guessable and a guess
+would be a divergence — the same rule that stopped `useClockwiseRotations` being "fixed". The
+transcribed types above stop exactly where the reading stops.
+
+*Evidence class: read-from-source for every line cited; the code is transcription rather than design.*
+
+## Correction: `FUN_18008a020` is the PSI EVENT, and the rebase happens every step
+
+**Recorded earlier in this document as "the rebase function", and that was half of it.** The function
+is the master PSI event's own fire routine — the thing the event loop dispatches through
+`(**(code **)(*event + 8))(event, env)` — and it does three jobs in one call.
+
+**The evidence is the time manager's own constructor.** `FUN_180089dc0` allocates the queue (0x20
+bytes, which becomes `timeManager+0x10`), allocates a 0x10-byte object, writes
+`&PTR_FUN_1800fd738` as its vtable, and **immediately inserts it into the queue it just built**,
+storing the returned slot index at the object's `+8` — the same "an event keeps its own queue index
+at +8" convention the loop relies on. The vtable is two slots:
+
+```
+SLOT 0  180081920   (destructor)
+SLOT 1  18008a020   <- the fire function
+SLOT 2  3ba3d70a    <- not a code address; the vtable ends at two
+```
+
+So the simulation's heartbeat is **an event that reschedules itself**:
+
+```c
+env[0x198] = env[0x188];                          // rebase base := now
+env[0x190] = (float)env[0x108] + env[0x188];      // next PSI := now + step
+for (each queued entry) entry.time -= (float)now; // rebase EVERY pending time
+tm[0x28] = env[0x198];  tm[0x20] = 0;
+FUN_180082560(env);                                // the whole physics pipeline
+slot = FUN_1800aaed0(queue, this,                  // requeue itself one PSI later
+         (float)(env[0x190] - tm[0x28]));
+*(uint *)(this + 8) = slot;
+```
+
+**Two things this changes about what was written here before:**
+
+- **The rebase is not periodic maintenance — it happens on EVERY PSI.** The queue's float times are
+  re-zeroed to "now" sixty-odd times a second, which is a stronger statement than "occasionally, to
+  protect precision": an event's stored time is never more than one step old. A transcription that
+  rebased lazily would hold larger offsets than the engine ever does.
+- **The physics step is an event, and now it is named.** The earlier note said the step "is not a
+  special case in the loop"; that is true and this is the specific event it was talking about.
+
+**The step's default is 1/66 exactly.** `env+0x108` holds `0.0151515151515152` and `env+0x110` its
+reciprocal, `66.0` — vphysics' own default rate. That is not in conflict with the client setting
+`SetSimulationTimestep( gpGlobals->interval_per_tick )` (`physics.cpp:180`): the binary's default is
+what the environment starts with, and the client overwrites it with the demo's tick interval. **Both
+numbers are real and they are answers to different questions** — what vphysics does if nobody says,
+and what TF2's client says.
+
+## The pipeline, `FUN_180082560`, and where the trail currently ends
+
+The PSI event delegates everything to `FUN_180082560(env)`, which is bracketed by profiler markers
+into phases. Read directly: a dirty-list flush, a budgeted work-queue walk, a listener fan-out, a
+contact/material-pair pass driving friction state, then three unnamed calls in the shape of broad
+phase → narrow phase → island solve, then a second friction pass and a re-prediction of every
+contact's next check time (which is one of the nine callers of the queue's insert function).
+
+**And the honest part: none of it writes `IVP_Core` directly.** No reference to `core+0x40`,
+`+0x90`, `+0x130` or `+0x140` appears anywhere in that body. The integration is another layer down,
+behind two live leads, neither yet chased:
+
+- **The island solve dispatches through yet another vtable** — `(**(code **)(*ev + 8))(ev, this, dt)`
+  inside `FUN_18009a690`/`FUN_18009a4f0`, against a float time budget. Same generic convention, a
+  different family of objects.
+- **`env+0xE0`'s sub-object at `+8`**, dispatched at its vtable `+0x10`, is **NULL in the
+  constructor** (`FUN_18009f490`) and populated at runtime by something not in this trace.
+
+**So the integrator remains unread, and nothing has been written that assumes its shape.** The
+labels "broad phase" and "narrow phase" above are inference from position and argument shape, not
+measurement, and are marked as such.
+
+*Evidence class: read from the decompiled binary for the constructor, the vtable, the fire function
+and the pipeline's call list; the phase LABELS are inferred and flagged; the 1/66 constants are read
+bit patterns.*
