@@ -7709,3 +7709,103 @@ second kind.
 **Instrument:** the `valve-hacks` probe intersects Valve's self-flagged comments with the engine
 files this project actually cites, so the list is ranked by what we have already implemented rather
 than by what exists — the same rule `docs/PARITY-AUDIT.md` opens with.
+
+**A third kind turned up on 2026-09-06 and it is the easiest one to get backwards: a hack Valve
+already switched OFF for TF2.** In `RagdollSolveSeparation` a mass-ratio heuristic that snaps a
+separated light limb back to its parent sits inside `#if !defined(TF_CLIENT_DLL)`, under the
+comment *"this fixes a bug in ep2 with antlion grubs, but causes problems in TF2 - revisit, but
+disable for TF now"* (`ragdoll_shared.cpp:648-663`).
+
+Every marker of a D144 candidate is present — an apologetic comment, a named bug, an explicit
+"revisit". **And the correct action is to implement nothing**, because the decision was already
+made and it was made for this game. Improving that heuristic would be improving Episode 2, which
+is not the target; TF2's separation repair keeps only the parent-propagation rule and the trace.
+
+**So the question to ask of a self-flagged hack is not only "is it observable" but "is it even
+compiled for TF2".** A preprocessor guard is the engine answering the D144 question itself, and it
+outranks the comment sitting above it.
+
+---
+
+## D145 — the subagent rule is the MODEL and the review, not the count (2026-09-06)
+
+**The owner, twice, the second correcting the first:**
+
+> *"ill let 3 agents run at once of the sonnet 4.6 models, and you review their work, i should setup
+> a review subagent really and have it review any code anyone writes, but that can be done later and
+> the audits kinda do that."*
+
+> *"really idc how many subagents are run because im pretty sure most of the time it wont be more
+> than 3 or 4 anyway, but they need to be cheap sonnet models, and reviewed"*
+
+**So the count stopped being the policy.** `.claude/hooks/subagent-policy.ps1` had
+`$Concurrent = 1`; it is 8, and that number is a **runaway backstop rather than a cap** — set well
+above the three or four he expects, so an unbounded spawn loop trips something instead of quietly
+running the budget down. It is not a target and it is not his number.
+
+**The model rule got STRICTER while the count got looser, and that is the real change.** The hook
+used to name three cheap-eligible agent types — `engine-reader`, `instrument-auditor`,
+`sabotage-verifier` — and let every other type pick whatever model it liked. That is backwards: the
+budget does not care which type spent it. The type list is gone and **every** subagent must now be
+`haiku` or `sonnet`, which is what *"they need to be cheap sonnet models"* says.
+
+**The condition is the part that matters and the hook cannot enforce it.** *"and you review their
+work"* is a requirement on the parent, not on the spawn: a script can count agents; it cannot check
+that anybody read the diff. So it is written here, and in the refusal message the hook prints, and
+the practice is: **every subagent's output is reviewed before it is believed or committed**, exactly
+as the subagent reports in this session have been — one of them returned a wrong conclusion
+(conflating DECLARED with IMPLEMENTED) that would have been repeated if taken at face value.
+
+**The operational rule that comes with concurrency: disjoint areas.** Two agents editing the same
+file is not a token problem, it is a correctness one — a sabotage-verifier holding a file mid-edit
+has already broken an unrelated build in this project, and with three running that risk triples.
+Each gets an area nothing else is touching, and the parent does not build or measure while one holds
+a source file.
+
+**Haiku is out, and on measured grounds rather than taste** — the owner, minutes later:
+
+> *"i dont really trust haiku, it just seemed horrible compared to sonnet and sonnet 4.6 used less
+> tokens than haiku it seemed like, while giving me better code"*
+
+That removes the only argument haiku had. It was in the policy as the cheap tier, and if it is both
+worse and not cheaper there is nothing left to trade — so the allowed set is **`sonnet` alone**, and
+the hook now refuses `haiku` and `opus` alike. Earlier notes in
+`docs/memory/one-subagent-and-prefer-cheap-models.md` recommending haiku for reading, quoting and
+sabotage are superseded by this; they were written when the assumption was that haiku was
+meaningfully cheaper.
+
+**Deferred, by him:** a dedicated review subagent that reviews any code anyone writes. *"that can be
+done later and the audits kinda do that."* Recorded so it is not mistaken for something never
+considered — `caveman:cavecrew-reviewer` and the parity audits cover part of it today.
+
+## D146 — physics is finished BEFORE taunts, and "finished" means the whole solver (2026-09-06)
+
+**The owner set the order and the standard in two sentences.** On what to do next: *"i want to
+finish physics first since that gives ragdolls then taunts"*. On how far to take it: *"your goal is
+to finish the physics 100%"*.
+
+**Both halves matter and the second is the unusual one.** The natural reading of "we need ragdolls"
+is that a corpse should fall over convincingly, which a rough solver achieves. That is not what was
+asked for. D89 already says parity is the first principle and a divergence is a defect whatever it
+costs; **D146 is that principle applied to a subsystem Valve did not publish**, so the price is
+reverse-engineering `vphysics.dll` rather than reading the SDK.
+
+**What it rules out**, written down so none of it comes back later as a shortcut:
+
+- **Substituting a physics library.** A third-party solver produces corpses that settle differently,
+  and "close enough" is the thing this project refuses everywhere else.
+- **Stopping at the initial conditions.** The velocity a corpse inherits from its death animation,
+  the joint limits and the force distribution are the published half and were the cheap part. The
+  integrator, the constraint solve and world collision are the subsystem.
+- **Treating an unread mechanism as an absent one.** `rotInertiaLimit` is set to `0.1` by Valve's own
+  ragdoll code and its consumer is closed. That is a question for the decompiler, not a field to
+  drop because the SDK stops there.
+
+**Why physics before taunts, in the owner's own reasoning:** physics *gives ragdolls*, and a corpse
+appears in every demo in every round. A taunt needs `scenes.image`, LZMA and a binary VCD parse
+before one sequence can even be looked up (B351), and it appears when somebody chooses to play one.
+
+**What this decision is NOT:** a promise that the result will be bit-identical to IVP. It will not
+be, and wherever it cannot be, the divergence gets written down beside what was measured — the same
+rule every other transcription here follows. The commitment is to read the engine before writing,
+not to guarantee an outcome that reading has not established yet.

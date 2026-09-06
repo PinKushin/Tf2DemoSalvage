@@ -1,5 +1,7 @@
 using System;
 
+using Tf2DemoSalvage.Content.Assets;
+
 namespace Tf2DemoSalvage.Content.Bsp;
 
 /// <summary>
@@ -271,22 +273,19 @@ public readonly record struct PropTransform
     /// </remarks>
     public (float Pitch, float Yaw, float Roll) Angles()
     {
-        // Valve reads columns: forward is column 0, left is column 1, and only `up.z` is needed.
-        float forwardX = _m00;
-        float forwardY = _m10;
-        float forwardZ = _m20;
-        float leftX = _m01;
-        float leftY = _m11;
-        float leftZ = _m21;
-        float upZ = _m22;
+        // **One `MatrixAngles`, not two.** This used to carry its own copy of the branch above, and
+        // `CalcBoneDerivatives` needed the same function on a bone matrix — so the arithmetic now
+        // lives in `StudioBones.ToAngles` and this lays its rotation out as the twelve floats that
+        // takes. The translation and scale a `PropPlacement` also holds are not part of the
+        // question, so they are left out rather than zeroed into a shared type.
+        Span<float> matrix =
+        [
+            _m00, _m01, _m02, 0f,
+            _m10, _m11, _m12, 0f,
+            _m20, _m21, _m22, 0f,
+        ];
 
-        float xyDist = MathF.Sqrt((forwardX * forwardX) + (forwardY * forwardY));
-
-        float pitch = Degrees(MathF.Atan2(-forwardZ, xyDist));
-
-        return xyDist > GimbalLimit
-            ? (pitch, Degrees(MathF.Atan2(forwardY, forwardX)), Degrees(MathF.Atan2(leftZ, upZ)))
-            : (pitch, Degrees(MathF.Atan2(-leftX, leftY)), 0f);
+        return StudioBones.ToAngles(matrix);
     }
 
     /// <summary>A parented entity's absolute angles, as <c>CalcAbsolutePosition</c> decides them.</summary>
@@ -336,11 +335,5 @@ public readonly record struct PropTransform
             .Angles();
     }
 
-    /// <summary>Where <c>MatrixAngles</c> stops trusting the forward vector's XY length.</summary>
-    /// <remarks><c>if ( xyDist &gt; 0.001f )</c>, <c>mathlib_base.cpp:233</c>.</remarks>
-    private const float GimbalLimit = 0.001f;
-
     private static float Radians(float degrees) => degrees * (MathF.PI / 180f);
-
-    private static float Degrees(float radians) => radians * (180f / MathF.PI);
 }

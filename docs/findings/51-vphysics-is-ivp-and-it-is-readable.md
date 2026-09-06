@@ -792,3 +792,422 @@ guessable from this function alone.
 
 *Evidence class: read from the decompiled binary; the constant table is a verbatim dump of
 `1800ee970`–`1800ee9ac`.*
+
+## The two routines differ in the GAINS they are handed, not only in the relaxation
+
+`FUN_180036e10` prepares the gains before it dispatches the three axes, and the four lines that do
+it answer half of what the last section left open:
+
+```c
+local_48  = *(float *)(param_3 + 0x2d0);      // four floats at +0x2d0
+fStack_44 = *(float *)(param_3 + 0x2d4);
+fStack_40 = *(float *)(param_3 + 0x2d8);
+fStack_3c = *(float *)(param_3 + 0x2dc);
+
+local_38  = fStack_3c * local_48;             // the vector scaled by its OWN fourth lane
+fStack_34 = fStack_3c * fStack_44;
+fStack_30 = fStack_3c * fStack_40;
+fStack_2c = fStack_3c * fStack_3c;
+```
+
+and then hands **`&local_38` — the scaled copy — to `FUN_180036f80`**, and **`&local_48` — the
+unscaled one — to both calls of `FUN_1800372c0`**.
+
+So the single-axis routine works in gains multiplied by the block's fourth lane and the pair does
+not, which is a second difference between them on top of the 0.8 relaxation only the pair applies.
+**Two independent differences means the axes are not three of a kind with a parameter**; they are
+genuinely different solves, and a transcription that shared one routine with flags would have to
+reproduce both differences to be right.
+
+The fourth lane multiplying the other three is the shape of a timestep — a rate gain converted to a
+per-step one — but that is an inference from the arithmetic and NOT established: nothing read so far
+shows where `+0x2d0` is filled.
+
+**Also here:** each axis is handed its own scalar from `+0x100`, `+0x104`, `+0x108`, broadcast to
+four lanes before the call, in the order 1, 3, 2 — the same crossed order the axis records are read
+in.
+
+**What is NOT established, restated because it is now the whole blocker:** who fills `+0x2d0` and
+`+0x100`, and whether the 0.8 is fixed. Those live in whatever prepares the scratch block each step,
+which is above the constraint entirely — the time manager's event loop, still unread because
+`ivp_core.cxx` carries no asserts and so names no file in the binary.
+
+*Evidence class: read from the decompiled binary.*
+
+## The time model: a double clock, float events, and a periodic rebase
+
+**Both simulate paths funnel into one dispatcher.** `FUN_180082540` (variable) and `FUN_180082780`
+(fixed step) each call `FUN_180089f30(timeManager, env, targetTime)`, differing only in how they
+compute the target:
+
+```c
+// variable
+FUN_180089f30(*(env + 8), env, *(double *)(env + 0x188) + dtime);
+
+// fixed step
+FUN_180089f30(*(env + 8), env,
+              *(double *)(env + 0x198) + (double)((float)*(double *)(env + 0x108) * count));
+```
+
+so **`env+0x108` is the PSI step** — the same field `CPhysicsEnvironment::Simulate` compares the
+requested delta against before choosing between the two — and the two paths advance from **different
+bases**, `+0x188` and `+0x198`.
+
+**`FUN_18008a020` says why there are two, and it is the most consequential thing in the time model:**
+
+```c
+dVar2       = *(double *)(env + 0x188);          // absolute time, a DOUBLE
+env[0x198]  = dVar2;                             // rebase point
+env[0x190]  = (float)env[0x108] + dVar2;         // next PSI
+
+lVar4 = *(longlong *)(tm + 0x10);                // the event list
+uVar7 = *(uint *)(lVar4 + 0x18);
+while ((int)uVar7 != 0xffff) {                   // 0xffff terminates
+    lVar1  = *(longlong *)(lVar4 + 8) + uVar7 * 0x18;    // 0x18 bytes per event
+    uVar7  = *(ushort *)(... + 4 + uVar7 * 0x18);        // next index, 16-bit
+    *(float *)(lVar1 + 8) -= (float)dVar2;               // event time is a FLOAT
+}
+*(float *)(*(longlong *)(tm + 0x10) + 0x10) -= (float)dVar2;
+*(undefined8 *)(tm + 0x28) = *(undefined8 *)(env + 0x198);
+*(undefined8 *)(tm + 0x20) = 0;
+```
+
+**The absolute clock is a double and every scheduled event's time is a float measured from a base**,
+and this walks the whole list subtracting the current time to move that base forward. It is the
+standard defence against a float clock losing resolution as a session runs — and it is a behaviour
+with consequences rather than an implementation detail: an event's time is only ever precise
+relative to the last rebase, so a transcription that stored absolute float times would drift apart
+from the engine the longer a demo ran, in a way that looks like jitter rather than like a bug.
+
+| field | what it is |
+|---|---|
+| `env+0x108` | the PSI step, a double read as float |
+| `env+0x188` | absolute current time, double |
+| `env+0x190` | the next PSI's time |
+| `env+0x198` | the rebase base the fixed-step path advances from |
+| `tm+0x10` | the event list; entries 0x18 bytes, float time at +8, 16-bit next index at +4, `0xffff` terminates |
+| `tm+0x20`, `tm+0x28` | the list's own counter and base |
+
+**What is still NOT found: the event loop itself.** `FUN_180089f30` reaches it through
+`(**(code **)(**(longlong **)(param_1 + 8) + 8))(…)` — vtable slot 1 of the object at
+`timeManager+8` — and that object's type cannot be resolved statically from here. Two routes remain
+and neither is a guess: find whoever WRITES `timeManager+8` (the environment's constructor), or find
+the vtable by its shape. Searching the neighbouring address range was tried and produced collision
+code, not the loop; `ivp_time_event.hxx`'s only reference is a shared assert thunk with no recorded
+callers, so the string route is exhausted for this one.
+
+*Evidence class: read from the decompiled binary.*
+
+## The decisive one: a TF2 corpse is SIMULATED BY THE CLIENT, so a demo carries no pose for it
+
+**This settles what B316 actually requires, and it is not what the entry assumed.**
+
+`C_TFRagdoll::CreateTFRagdoll` calls the ordinary client ragdoll path —
+`InitAsClientRagdoll( boneDelta0, boneDelta1, currentBones, boneDt, m_bFixedConstraints )`
+(`c_tf_player.cpp:920`) — which is `C_BaseAnimating`'s, the same one `C_ClientRagdoll` uses. From
+there: `CRagdoll::Init` → `RagdollCreate` → bodies and constraints in the **client's own**
+`IPhysicsEnvironment`.
+
+**And the send table proves the wire carries no pose.** `DT_TFRagdoll` sends
+
+```cpp
+RecvPropVector( RECVINFO(m_vecRagdollOrigin) ),
+RecvPropEHandle( RECVINFO( m_hPlayer ) ),
+RecvPropVector( RECVINFO(m_vecForce) ),
+RecvPropVector( RECVINFO(m_vecRagdollVelocity) ),
+RecvPropInt( RECVINFO( m_nForceBone ) ),
+RecvPropBool( RECVINFO( m_bGib ) ),      // and the rest of the appearance flags
+```
+
+— `c_tf_player.cpp:519`. **Initial conditions and nothing else.** Compare the OTHER ragdoll family,
+`C_ServerRagdoll` / `DT_Ragdoll`, which networks `m_ragPos` and `m_ragAngles` as per-element arrays
+(`ragdoll.cpp:423`) and whose `GetElement` returns `NULL` unconditionally because it owns no physics
+objects at all (`ragdoll.cpp:646`). That is the read-the-positions family. **TF2's death ragdoll is
+not in it.**
+
+**So there is no shortcut, and the physics work is not optional.** A demo hands us a position, a
+force, a velocity and a force bone; every pose after the first frame is something the client
+computed. A viewer that wants a corpse to lie correctly has to run the simulation the client ran —
+which is why B316's current behaviour (resting the corpse in `ACT_DIERAGDOLL`) is a stopgap and
+cannot be finished into correctness.
+
+**Two numbers the client's environment is set up with, and we have both:**
+
+```cpp
+physenv->SetGravity( Vector(0, 0, -GetCurrentGravity() ) );
+// 15 ms per tick
+// NOTE: Always run client physics at this rate - helps keep ragdolls stable
+physenv->SetSimulationTimestep( IsXbox() ? DEFAULT_XBOX_CLIENT_VPHYSICS_TICK
+                                         : gpGlobals->interval_per_tick );
+```
+
+`physics.cpp:177-180`. The step is **the demo's own tick interval**, which this project already
+decodes rather than assuming, and the gravity is `sv_gravity`. Valve's comment is worth keeping:
+running client physics at a fixed rate is deliberate, *"helps keep ragdolls stable"* — so the step
+is not the frame time.
+
+*Evidence class: read-from-source, and the two load-bearing claims independently confirmed — the
+call site at `c_tf_player.cpp:920` and the send table at `:519`, which agree.*
+
+## Found: the event loop, at `18008a110`
+
+**Pinned by two independent routes that agree, plus Ghidra's own xref table** — not by shape.
+
+- **The vtable.** The object at `timeManager+8` has its vtable at `1800fd498`: three function
+  pointers followed immediately by ASCII, exactly the layout the constraint family uses. Slots 3-4
+  read `6f5f636974617473` / `7463656a62` — **`static_object`**. Slot 1 is `18008a110`, and
+  `WhoPoints` confirms a data reference from `1800fd4a0`, which is that slot's own address.
+- **The constructor chain.** `FUN_180080d90` (environment init) allocates 0x30 bytes, calls
+  `FUN_180089dc0`, and stores the result at `env+8` — the time manager. `FUN_180089dc0` then
+  allocates 0x10, writes `&PTR_FUN_1800fd498` as its vtable, and stores it at `this+8` — which is
+  `timeManager+8`. The destructors mirror it exactly.
+
+The loop itself, verbatim:
+
+```c
+lVar2  = *(longlong *)(param_2 + 0x10);            // the event queue
+fVar3  = *(float *)(lVar2 + 0x10);                 // earliest queued time
+if (fVar3 < (float)(param_4 - *(double *)(param_2 + 0x28))) {   // target, in base-relative float
+  do {
+    plVar1 = *(longlong **)(*(longlong *)(lVar2 + 8) + 0x10 +
+                            (ulonglong)*(uint *)(lVar2 + 0x18) * 0x18);   // pop the earliest
+    FUN_1800ab1b0(lVar2, *(uint *)(plVar1 + 1));   // unlink it
+    *(undefined4 *)(plVar1 + 1) = 0xffff;          // mark "not queued"
+    *(double *)(param_2 + 0x20) = (double)fVar3;   // the manager's own clock
+    FUN_180082460(param_3, (double)fVar3 + *(double *)(param_2 + 0x28));  // env clock := absolute
+    (**(code **)(*plVar1 + 8))(plVar1, param_3);   // FIRE: the event's OWN vtable slot 1
+    if (*(int *)(*(longlong *)(param_2 + 8) + 8) == 1) break;             // stop flag
+    lVar2 = *(longlong *)(param_2 + 0x10);
+    fVar3 = *(float *)(lVar2 + 0x10);
+  } while (fVar3 < (float)(param_4 - *(double *)(param_2 + 0x28)));
+}
+FUN_180082460(param_3, param_4);                   // snap the clock to exactly the target
+```
+
+**So the whole of simulation is a priority queue drained by time**, and each event fires through its
+own vtable slot 1. The physics step is not a special case in this loop — it is an event like any
+other, which is what makes IVP event-driven rather than fixed-stepped internally, even though the
+environment above it is handed a fixed step.
+
+**Three things a transcription would get wrong without this:**
+
+- **The clock is set BEFORE the event fires**, to that event's time, and events therefore observe a
+  clock that walks forward inside one call rather than jumping at the end.
+- **The stop flag is checked AFTER each fire** (`*(tm+8)` field `+8` == 1), so an event can halt the
+  remainder of a step. A loop that only tested the queue would run events the engine skipped.
+- **The clock is snapped to the target afterwards regardless**, so time always ends exactly where
+  the caller asked even if the last event fired earlier.
+
+**It also confirms the time model read independently earlier**, which is now three agreeing
+sightings: `tm+0x28` is the base, event times are floats relative to it, `tm+0x10` is the queue with
+`0x18`-byte entries, and `0xffff` means "not queued".
+
+**What is NOT established:** which event type performs the physics step — that is one of the event
+objects' own slot 1, and finding it means identifying the event the environment schedules per PSI.
+That is now the single remaining link between this loop and the constraint solve already read.
+
+*Evidence class: read from the decompiled binary; vtable slot, xref and both constructor/destructor
+chains independently confirmed.*
+
+## From reading to code: what is now transcribed
+
+**The physics work has crossed from reading into implementation**, and only the parts that were read
+verbatim have crossed. What exists:
+
+| type | transcribes | citation |
+|---|---|---|
+| `RagdollJointLimits` | the axis remap, degrees→radians with axis 2 negated and its pair exchanged, the `useClockwiseRotations` flag, and "unlimited" as a magnitude test | `CPhysicsConstraint`'s constructor, `18000eac0` |
+| `PhysicsTimeManager` | the event loop, the queue, and the periodic rebase | `FUN_18008a110`, `FUN_18008a020` |
+| `PhysicsEnvironment` | the clock, the fixed step and the simulate target | `physics.cpp:177-180`, `FUN_180082540` |
+| `RagdollBody`, `IvpTransform` | bodies from the `.phy`, and IVP's axis/unit/transpose convention | `RagdollCreateObjects`, `RagdollGetBoneMatrix` |
+
+**Named for the engine's classes, not for what they hold.** `PhysicsTimeManager` was first called
+`PhysicsEventQueue`, which the analysers reject and which was the worse name anyway: it describes the
+data structure where IVP describes the job. The queue is a detail; being the thing that decides when
+everything happens is not.
+
+**What is still missing to make a corpse settle**, in the order the work needs it:
+
+1. **Which event performs the step.** The loop fires each event through its own vtable slot 1, so the
+   PSI is one particular event class and its slot 1 is the step. Not yet identified.
+2. **The integration** — gravity into velocity, velocity into the transform at `core+0x90`, with the
+   damping the `.phy` supplies and `g_PhysDefaultObjectParams`' 0.1/0.1 underneath it.
+3. **The constraint solve, assembled.** Every piece is read — the Jacobian row and its memo, the
+   effective mass `Jᵀ M⁻¹ J`, the accumulated impulse at `record+0x18`, the 0.8 relaxation on two of
+   three axes, the angle unwrap, the atan2 — but two inputs are not: what fills `+0x2d0` and
+   `+0x100`, and whether the 0.8 is fixed. Both live above the constraint.
+4. **Collision against the world**, `ivp_mindist*`, entirely unread.
+
+**Nothing about the integrator has been written**, deliberately. Its shape is guessable and a guess
+would be a divergence — the same rule that stopped `useClockwiseRotations` being "fixed". The
+transcribed types above stop exactly where the reading stops.
+
+*Evidence class: read-from-source for every line cited; the code is transcription rather than design.*
+
+## Correction: `FUN_18008a020` is the PSI EVENT, and the rebase happens every step
+
+**Recorded earlier in this document as "the rebase function", and that was half of it.** The function
+is the master PSI event's own fire routine — the thing the event loop dispatches through
+`(**(code **)(*event + 8))(event, env)` — and it does three jobs in one call.
+
+**The evidence is the time manager's own constructor.** `FUN_180089dc0` allocates the queue (0x20
+bytes, which becomes `timeManager+0x10`), allocates a 0x10-byte object, writes
+`&PTR_FUN_1800fd738` as its vtable, and **immediately inserts it into the queue it just built**,
+storing the returned slot index at the object's `+8` — the same "an event keeps its own queue index
+at +8" convention the loop relies on. The vtable is two slots:
+
+```
+SLOT 0  180081920   (destructor)
+SLOT 1  18008a020   <- the fire function
+SLOT 2  3ba3d70a    <- not a code address; the vtable ends at two
+```
+
+So the simulation's heartbeat is **an event that reschedules itself**:
+
+```c
+env[0x198] = env[0x188];                          // rebase base := now
+env[0x190] = (float)env[0x108] + env[0x188];      // next PSI := now + step
+for (each queued entry) entry.time -= (float)now; // rebase EVERY pending time
+tm[0x28] = env[0x198];  tm[0x20] = 0;
+FUN_180082560(env);                                // the whole physics pipeline
+slot = FUN_1800aaed0(queue, this,                  // requeue itself one PSI later
+         (float)(env[0x190] - tm[0x28]));
+*(uint *)(this + 8) = slot;
+```
+
+**Two things this changes about what was written here before:**
+
+- **The rebase is not periodic maintenance — it happens on EVERY PSI.** The queue's float times are
+  re-zeroed to "now" sixty-odd times a second, which is a stronger statement than "occasionally, to
+  protect precision": an event's stored time is never more than one step old. A transcription that
+  rebased lazily would hold larger offsets than the engine ever does.
+- **The physics step is an event, and now it is named.** The earlier note said the step "is not a
+  special case in the loop"; that is true and this is the specific event it was talking about.
+
+**The step's default is 1/66 exactly.** `env+0x108` holds `0.0151515151515152` and `env+0x110` its
+reciprocal, `66.0` — vphysics' own default rate. That is not in conflict with the client setting
+`SetSimulationTimestep( gpGlobals->interval_per_tick )` (`physics.cpp:180`): the binary's default is
+what the environment starts with, and the client overwrites it with the demo's tick interval. **Both
+numbers are real and they are answers to different questions** — what vphysics does if nobody says,
+and what TF2's client says.
+
+## The pipeline, `FUN_180082560`, and where the trail currently ends
+
+The PSI event delegates everything to `FUN_180082560(env)`, which is bracketed by profiler markers
+into phases. Read directly: a dirty-list flush, a budgeted work-queue walk, a listener fan-out, a
+contact/material-pair pass driving friction state, then three unnamed calls in the shape of broad
+phase → narrow phase → island solve, then a second friction pass and a re-prediction of every
+contact's next check time (which is one of the nine callers of the queue's insert function).
+
+**And the honest part: none of it writes `IVP_Core` directly.** No reference to `core+0x40`,
+`+0x90`, `+0x130` or `+0x140` appears anywhere in that body. The integration is another layer down.
+
+**Two leads were named here and one of them was WRONG.** Recorded rather than quietly deleted,
+because the shape of the mistake is the useful part:
+
+- ~~**The island solve dispatches through yet another vtable**~~ — `(**(code **)(*ev + 8))(ev, this,
+  dt)` inside `FUN_18009a690`/`FUN_18009a4f0`. **That is not an island solve.** Both functions are a
+  **contact-pair re-check scheduler**: `FUN_1800985a0` calls `FUN_180099380`, which computes the
+  relative velocity between two cores and re-queues the next broad-phase check time for the pair.
+  The label came from the SHAPE — a vtable dispatch taking a float time budget, inside the physics
+  step — and that shape is IVP's generic event convention, which is precisely why it says nothing
+  about what the objects are. **A vtable dispatch with a time argument is not evidence of a solver;
+  in this binary it is evidence of the event queue, which is everywhere.**
+- **`env+0xE0`'s sub-object at `+8`**, dispatched at its vtable `+0x10`, is NULL in the constructor
+  (`FUN_18009f490`) and populated at runtime. Still unchased, and no longer needed.
+
+**The integrator is found, and it was not behind either lead.** See the next section.
+
+*Evidence class: read from the decompiled binary for the constructor, the vtable, the fire function
+and the pipeline's call list; the phase LABELS are inferred and flagged; the 1/66 constants are read
+bit patterns; the struck-out island-solve label was inferred, and is now falsified by reading.*
+
+## The integrator, found: `FUN_180099a00`, and it is three functions deep
+
+**The chain from the physics step to a moved body**, each address read rather than inferred:
+
+```
+FUN_18008a020    the PSI event's fire routine        (above)
+  FUN_180082560  the seven-phase pipeline            (above)
+    FUN_180090700    island assembly
+      FUN_1800909d0  integrate every awake core in this island
+        FUN_180099a00  THE per-core integrator
+          FUN_180099fc0  build the step's delta rotation, and free-rotate the angular velocity
+            FUN_180070d60  quaternion product
+            FUN_180070c60  quaternion normalize
+```
+
+**`FUN_180099a00` does three things in order, and the first is the one worth noticing:**
+
+1. **Position integrates against the PREVIOUS step's velocity, not the current one.**
+   `core+0x150/0x158/0x160` (doubles) `+= core+0x170/0x174/0x178 * dt`. That is explicit Euler
+   deliberately lagged by one step — a body's velocity change this step does not move it until next
+   step.
+2. **Then the cache is refreshed**: `+0x170/0x174/0x178 := +0x140/0x144/0x148`, the current linear
+   velocity.
+3. **Orientation is integrated in a working buffer and then committed.** `FUN_180099fc0` overwrites
+   the predicted quaternion at `core+0x1a0..0x1b8` in place (build a delta, multiply through
+   `FUN_180070d60`, normalise through `FUN_180070c60`), and only afterwards is that buffer copied
+   down into the current orientation at `core+0x180..0x198`. **Two quaternions, not one**, which is
+   what lets a reader of the body during the step see the old orientation.
+
+**`FUN_180099fc0` also integrates the angular velocity itself** — Euler's rigid-body equation, with
+cross terms shaped like `(Iy − Iz)/Ix · ωy·ωz` off `core+0x40/0x44/0x48`, and it **sub-steps** when
+`|ω|²·dt²` passes a threshold held at `DAT_1800fdf90`. So a fast-spinning limb is integrated more
+finely than a slow one, inside one PSI. A transcription that stepped rotation once per PSI would
+diverge exactly where a corpse's arm is whipping.
+
+**The quaternion normalise is double precision with a hand-rolled Newton-Raphson reciprocal square
+root** (`FUN_180070c60`), not an `rsqrtss`. Worth stating because it was searched for the other way
+round first: a whole-binary scan found only twelve `RSQRT*` instructions in 2,938 functions and none
+of them is this.
+
+### The `IVP_Core` field map, as far as it is read
+
+| offset | field | how it is known |
+|---|---|---|
+| `+0x40/0x44/0x48` | inertia terms used by the free-rotation cross products | `FUN_180099fc0` |
+| `+0x4c` | inverse mass | `FUN_1800778c0`: `vel += impulseDir * core[+0x4c] * scale` |
+| `+0x130/0x134/0x138` | angular velocity | four independent readers agree |
+| `+0x140/0x144/0x148` | linear velocity | four independent readers agree |
+| `+0x150/0x158/0x160` | position, as DOUBLES | `FUN_180099a00` |
+| `+0x170/0x174/0x178` | previous-step velocity cache | `FUN_180099a00` |
+| `+0x180..0x198` | current world orientation quaternion | `FUN_180099a00` commits here |
+| `+0x1a0..0x1b8` | predicted/working orientation quaternion | integrated in place, then committed |
+| `+0x1d0` | last-synced absolute environment time | `FUN_1800783c0`, `FUN_180099a00` |
+
+### Gravity is written and read; the moment it enters a velocity is still unread
+
+`CPhysicsEnvironment::SetGravity` is `FUN_1800150f0` — vtable slot 3 — and it converts Source's
+vector into IVP's before storing it: scale by `DAT_18011f000`, negate Z by XOR against
+`DAT_1800ea5e0`, and reorder to X, Z, Y. **That is the same axis-and-unit convention already
+recorded for the ragdoll transform**, arrived at independently from a different function, which is
+the first cross-check this project has on it.
+
+It calls `FUN_1800824e0`, which writes `env+0x118/0x120/0x128` as doubles and caches the magnitude at
+`env+0x138` as a float. **The field's identity is confirmed by an unrelated reader** — a
+vehicle-wheel weight-transfer function, `FUN_18008bce0`, dereferences the environment and reads all
+three — so this is not `SetGravity` agreeing with itself.
+
+**What is NOT established: where gravity is added to a core's velocity each step.** A whole-binary
+decompile-and-search over 2,813 non-thunk functions, for anything touching the linear velocity at
+`+0x140/0x144/0x148` together with the absolute clock at `env+0x188`, returned eight functions and
+none of them contains `velocity += gravity * dt`. The nearest candidate is `FUN_180019cc0`, a
+per-core effector dispatcher whose third case adds a **mass-independent, world-space acceleration**
+straight into the velocity using the exact unit scale and sign-flip constants `SetGravity` uses:
+
+```c
+local_a8 = (float)local_c8 * DAT_18011f000;
+local_a4 = (float)((uint)(local_c0 * DAT_18011f000) ^ uVar5);
+*(float *)(lVar1 + 0x140) = local_a8 * fVar14 + *(float *)(lVar1 + 0x140);   // no inverse-mass scale
+```
+
+**Mass-independence is the tell** — every other effector path in that same function multiplies by
+the inverse mass at `core+0x4c` first. But the vector reaching case 3 arrives through a virtual call
+on a per-core controller list, and **that call has not been traced back to a gravity object**, so
+this is INFERRED and is written down as inference. It is equally consistent with a generic
+actuator/spring/wind path with gravity applied somewhere still unfound.
+
+*Evidence class: read from the decompiled binary for the whole chain, the field map, `SetGravity`
+and the gravity field's second reader; INFERRED and flagged for `FUN_180019cc0` being the gravity
+application.*

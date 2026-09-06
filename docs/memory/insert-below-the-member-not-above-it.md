@@ -29,3 +29,17 @@ When it happens anyway: move the STRANDED doc comment down to its member rather 
 The comment is correct and complete; only its position is wrong.
 
 Related: [[edit-files-with-the-file-tools]].
+
+**The sibling failure, 2026-09-06: a doc comment that never listed a parameter at all.** Writing a
+new method with two parameters and documenting only the first produces CS1573 — *"Parameter 'x' has
+no matching param tag in the XML comment (but other parameters do)"*. Same family, different cause:
+the first is a doc separated from its member, this is a doc that is merely incomplete.
+
+**What made it expensive was WHO paid.** A sabotage-verifier was running against that project at the
+time. My broken build stopped it after its first sabotage, so four of five checks never ran and the
+agent correctly reported the blocker rather than working around it. **A build break costs whatever
+else is running**, which with concurrent agents is no longer just my own next command.
+
+**How to apply:** after writing any new public member, the build is not optional before starting or
+resuming an agent that compiles the same project. And when an agent reports a compile error in a
+file it was told not to touch, that is my file and my fix — it is not the agent failing the task.

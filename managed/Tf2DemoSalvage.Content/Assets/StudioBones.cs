@@ -1020,4 +1020,170 @@ public static class StudioBones
             : (0f, 0f, 0f, 1f);
     }
 
+    /// <summary>A bone matrix's rotation as pitch, yaw and roll — <c>MatrixAngles</c>.</summary>
+    /// <param name="matrix">The matrix, row-major 3x4.</param>
+    /// <returns>Pitch, yaw and roll, in degrees.</returns>
+    /// <exception cref="ArgumentException"><paramref name="matrix"/> is not twelve floats.</exception>
+    /// <remarks>
+    /// **<c>mathlib_base.cpp:208</c>, the <c>QAngle</c> overload** — a different function from
+    /// <see cref="ToQuaternion"/>, which is the <c>Quaternion</c> overload of the same name. Which
+    /// one a caller wants is not interchangeable: <c>CalcBoneDerivatives</c> takes THIS one and
+    /// then converts back through <see cref="FromAngles"/>, so a bone's rotation makes a round trip
+    /// through three euler angles that the quaternion overload would have avoided. Reproduced,
+    /// because the round trip is lossy in exactly the place the branch below exists for.
+    ///
+    /// <code>
+    ///   forward = ( m[0][0], m[1][0], m[2][0] );  left = ( m[0][1], m[1][1], m[2][1] );
+    ///   xyDist  = sqrt( forward.x^2 + forward.y^2 );
+    ///   if ( xyDist &gt; 0.001f ) {
+    ///       yaw = atan2( forward.y, forward.x ); pitch = atan2( -forward.z, xyDist );
+    ///       roll = atan2( left.z, up.z );
+    ///   } else {                       // forward is mostly Z, gimbal lock
+    ///       yaw = atan2( -left.x, left.y ); pitch = atan2( -forward.z, xyDist ); roll = 0;
+    ///   }
+    /// </code>
+    ///
+    /// **The second branch is not an edge case to skip.** It DISCARDS roll and re-reads yaw from a
+    /// different column, so for a bone pointing at the sky it returns a different answer from the
+    /// general formula rather than a slightly worse one. On a ragdoll that bone is a spine.
+    /// </remarks>
+    public static (float Pitch, float Yaw, float Roll) ToAngles(ReadOnlySpan<float> matrix)
+    {
+        if (matrix.Length != 12)
+        {
+            throw new ArgumentException("A bone matrix is a matrix3x4_t of twelve floats.");
+        }
+
+        // Valve reads COLUMNS: forward is column 0, left is column 1, and only `up.z` is needed.
+        float forwardX = matrix[0];
+        float forwardY = matrix[4];
+        float forwardZ = matrix[8];
+        float leftX = matrix[1];
+        float leftY = matrix[5];
+        float leftZ = matrix[9];
+        float upZ = matrix[10];
+
+        float xyDist = MathF.Sqrt((forwardX * forwardX) + (forwardY * forwardY));
+
+        float pitch = Degrees(MathF.Atan2(-forwardZ, xyDist));
+
+        return xyDist > GimbalLimit
+            ? (pitch, Degrees(MathF.Atan2(forwardY, forwardX)), Degrees(MathF.Atan2(leftZ, upZ)))
+            : (pitch, Degrees(MathF.Atan2(-leftX, leftY)), 0f);
+    }
+
+    /// <summary>Pitch, yaw and roll as a rotation — <c>AngleQuaternion</c>.</summary>
+    /// <param name="pitch">Pitch, in degrees.</param>
+    /// <param name="yaw">Yaw, in degrees.</param>
+    /// <param name="roll">Roll, in degrees.</param>
+    /// <returns>The rotation.</returns>
+    /// <remarks>
+    /// **The <c>QAngle</c> overload, and it is NOT
+    /// <see cref="StudioAnimation.FromEulerRadians"/>.** Valve keeps both and says why in a comment
+    /// on the second: *"the ordering here is different from the AngleQuaternion above because p, y,
+    /// r are not in the same locations in QAngle + RadianEuler"*. A `QAngle` is
+    /// (pitch, yaw, roll); a `RadianEuler` is (roll, pitch, yaw). Reaching for the wrong one
+    /// compiles, runs, and rotates limbs about the wrong axes.
+    ///
+    /// <code>
+    ///   SinCos( DEG2RAD( angles.y ) * 0.5f, &amp;sy, &amp;cy );   // yaw
+    ///   SinCos( DEG2RAD( angles.x ) * 0.5f, &amp;sp, &amp;cp );   // pitch
+    ///   SinCos( DEG2RAD( angles.z ) * 0.5f, &amp;sr, &amp;cr );   // roll
+    ///   float srXcp = sr * cp, crXsp = cr * sp;
+    ///   outQuat.x = srXcp*cy - crXsp*sy;  outQuat.y = crXsp*cy + srXcp*sy;
+    ///   float crXcp = cr * cp, srXsp = sr * sp;
+    ///   outQuat.z = crXcp*sy - srXsp*cy;  outQuat.w = crXcp*cy + srXsp*sy;
+    /// </code>
+    /// </remarks>
+    public static (float X, float Y, float Z, float W) FromAngles(float pitch, float yaw, float roll)
+    {
+        (float sy, float cy) = MathF.SinCos(Radians(yaw) * 0.5f);
+        (float sp, float cp) = MathF.SinCos(Radians(pitch) * 0.5f);
+        (float sr, float cr) = MathF.SinCos(Radians(roll) * 0.5f);
+
+        float srXcp = sr * cp;
+        float crXsp = cr * sp;
+        float crXcp = cr * cp;
+        float srXsp = sr * sp;
+
+        return (
+            (srXcp * cy) - (crXsp * sy),
+            (crXsp * cy) + (srXcp * sy),
+            (crXcp * sy) - (srXsp * cy),
+            (crXcp * cy) + (srXsp * sy));
+    }
+
+    /// <summary>A rotation as an axis and an angle — <c>QuaternionAxisAngle</c>.</summary>
+    /// <param name="rotation">The rotation.</param>
+    /// <returns>The axis, normalised, and the angle in DEGREES.</returns>
+    /// <remarks>
+    /// **<c>angle = RAD2DEG( 2 * acos( q.w ) ); if ( angle &gt; 180 ) angle -= 360;</c>** — degrees,
+    /// which matters because Source's <c>AngularImpulse</c> is a degrees-per-second vector and
+    /// every caller scales this number straight into one.
+    ///
+    /// **The wrap is the behaviour, not tidying.** Without it a rotation of 300 degrees one way is
+    /// reported as 300 rather than as −60 the other way, which makes a derived angular velocity
+    /// five times too large and points it backwards.
+    ///
+    /// **The axis is normalised through Valve's <c>VectorNormalize</c>**, which divides by
+    /// <c>radius + FLT_EPSILON</c> — so a rotation of exactly zero returns a zero axis rather than
+    /// a division by zero, with no branch.
+    /// </remarks>
+    public static ((float X, float Y, float Z) Axis, float Angle) AxisAngle(
+        (float X, float Y, float Z, float W) rotation)
+    {
+        float angle = Degrees(2f * MathF.Acos(rotation.W));
+
+        if (angle > 180f)
+        {
+            angle -= 360f;
+        }
+
+        float radius = MathF.Sqrt(
+            (rotation.X * rotation.X) + (rotation.Y * rotation.Y) + (rotation.Z * rotation.Z));
+
+        // **C's FLT_EPSILON, not .NET's `float.Epsilon`** — see the same note on `QuaternionScale`.
+        float inverse = 1f / (radius + FloatEpsilon);
+
+        return ((rotation.X * inverse, rotation.Y * inverse, rotation.Z * inverse), angle);
+    }
+
+    /// <summary>Scales a rotation to unit length — <c>QuaternionNormalize</c>.</summary>
+    /// <param name="rotation">The rotation.</param>
+    /// <returns>The rotation, normalised.</returns>
+    /// <remarks>
+    /// **The guard is <c>if ( radius )</c> on the SUM OF SQUARES, before the square root**, and an
+    /// all-zero quaternion is therefore returned unchanged rather than turned into an identity.
+    /// Valve's own commented-out alternative in that line shows what it is not: a tolerance test.
+    /// </remarks>
+    public static (float X, float Y, float Z, float W) Normalize(
+        (float X, float Y, float Z, float W) rotation)
+    {
+        float radius =
+            (rotation.X * rotation.X) + (rotation.Y * rotation.Y) +
+            (rotation.Z * rotation.Z) + (rotation.W * rotation.W);
+
+        if (radius == 0f)
+        {
+            return rotation;
+        }
+
+        float inverse = 1f / MathF.Sqrt(radius);
+
+        return (
+            rotation.X * inverse, rotation.Y * inverse,
+            rotation.Z * inverse, rotation.W * inverse);
+    }
+
+    /// <summary>Where <c>MatrixAngles</c> stops trusting <c>forward</c>'s XY length.</summary>
+    private const float GimbalLimit = 0.001f;
+
+    /// <summary>C's <c>FLT_EPSILON</c>, 2^-23 — not .NET's <c>float.Epsilon</c>.</summary>
+    private const float FloatEpsilon = 1.1920929E-07f;
+
+    /// <summary>Radians to degrees — Valve's <c>RAD2DEG</c>.</summary>
+    private static float Degrees(float radians) => radians * (180f / MathF.PI);
+
+    /// <summary>Degrees to radians — Valve's <c>DEG2RAD</c>.</summary>
+    private static float Radians(float degrees) => degrees * (MathF.PI / 180f);
 }
