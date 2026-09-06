@@ -144,6 +144,37 @@ public static class IvpQuaternion
         return (x, y, z, (float)Math.Sqrt(remaining < 0d ? 0d : remaining));
     }
 
+    /// <summary>Turns a vector by a rotation.</summary>
+    /// <param name="rotation">The orientation, as a unit quaternion.</param>
+    /// <param name="vector">The vector, in the rotation's source frame.</param>
+    /// <returns>The vector in the rotated frame.</returns>
+    /// <remarks>
+    /// **The engine does this with a cached 3×3 rather than a quaternion.** `FUN_180037bd0` reads
+    /// the rows at `core+0x90..0xe8`, which are part of the 4×4 transform IVP keeps in DOUBLES
+    /// beside the orientation. **How that matrix is filled from the orientation was NOT read**, so
+    /// this is the same rotation reached by a different route rather than a transcription — the
+    /// difference is rounding, not behaviour, but it is a gap and is marked as one.
+    /// </remarks>
+    public static (float X, float Y, float Z) Rotate(
+        (float X, float Y, float Z, float W) rotation, (float X, float Y, float Z) vector)
+    {
+        // v + 2w(q × v) + 2q × (q × v), which avoids building the matrix for one vector.
+        (float X, float Y, float Z) first = (
+            (rotation.Y * vector.Z) - (rotation.Z * vector.Y),
+            (rotation.Z * vector.X) - (rotation.X * vector.Z),
+            (rotation.X * vector.Y) - (rotation.Y * vector.X));
+
+        (float X, float Y, float Z) second = (
+            (rotation.Y * first.Z) - (rotation.Z * first.Y),
+            (rotation.Z * first.X) - (rotation.X * first.Z),
+            (rotation.X * first.Y) - (rotation.Y * first.X));
+
+        return (
+            vector.X + (2f * ((rotation.W * first.X) + second.X)),
+            vector.Y + (2f * ((rotation.W * first.Y) + second.Y)),
+            vector.Z + (2f * ((rotation.W * first.Z) + second.Z)));
+    }
+
     /// <summary>The engine's sine: three terms, in single precision.</summary>
     /// <param name="angle">The half-angle, in radians.</param>
     /// <returns>Its approximate sine.</returns>

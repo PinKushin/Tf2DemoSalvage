@@ -129,9 +129,24 @@ Three measured on this project, all of which cost real time:
 - **`dotnet test --filter` matching nothing** — exits 0 with no summary at all, so a renamed fixture
   silently tests nothing.
 
+- **`run-exclusive.ps1` does not propagate the inner command's exit code.** Measured 2026-09-06: the
+  UI phase reported `Failed! - Failed: 1, Passed: 30, Skipped: 0, Total: 31` and the wrapper
+  **exited 0**. So the gate's second phase can never be judged by its status — only by reading the
+  `Passed!`/`Failed!` line. Worse, the same run was first read with `| tail -6`, which cut the line
+  naming the failing test and left only the summary; the stack trace above it was the only place
+  the test's name appeared.
+
 **The general shape: whenever a command's OUTPUT is being read rather than its exit code, the
 absence of expected output is the failure signal, and nothing reports it.** So assert on the shape —
 a total that matches a known floor, a line that must appear — rather than on the status.
+
+**And the corollary for a windowed suite: a person at the keyboard is an input to it.** The same run
+above failed `Click_TheCycleTargetButton_InTheFreeCamera_DoesNotCycle` on its ten-second "no
+free-camera frame was drawn" timeout, and the cause was the owner: *"i probably hit space"*. The
+machine-wide lock stops another AGENT stealing the desktop; it cannot stop a human, and it is not
+meant to. So a single UI failure whose assertion is about the app still drawing is a candidate for
+exactly this before it is a candidate for a regression — re-run it before investigating, and say
+which of the two you are reporting.
 
 This is the same family as `--no-build` and as a stale binary: the run succeeds at doing nothing.
 
