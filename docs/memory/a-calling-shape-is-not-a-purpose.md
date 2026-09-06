@@ -24,10 +24,24 @@ the property a generic convention destroys. What identifies a function is what i
 integrator was found by looking for writes to the core's position and orientation fields, and it was
 unambiguous the moment those were seen.
 
-**How to apply:** name a function from the fields it changes, never from how it is invoked. Before
-writing a label into a document, ask what OTHER function in the binary would satisfy the same
-description — if the honest answer is "hundreds", the description is of the convention rather than
-of the function. And when a shape-based label is later falsified, keep it struck through with what
+**It happened a second time, with CONSTANTS instead of a call shape, and the second one was mine.**
+`FUN_180019cc0` was written up as the best candidate for gravity because its unit-conversion
+fingerprint was "byte-for-byte `SetGravity`'s" — the same scale and the same sign mask. Those
+constants dump as **0.0254** (inches to metres) and **0x80000000** (the IEEE sign bit), and they
+appear in every function that moves a vector across the Source-to-IVP boundary. The function is
+actually `IPhysicsMotionController`'s per-object step, settled by its four branches matching the
+published `simresult_e` enum exactly.
+
+**A shared constant is the same trap as a shared calling convention.** "Uses the engine's unit
+conversion" is true of everything that touches a vector, so it narrows nothing — and it feels like
+strong evidence precisely because it is specific and checkable.
+
+**How to apply:** name a function from the fields it changes, never from how it is invoked or from
+which constants it borrows. Before writing a label into a document, ask what OTHER function in the
+binary would satisfy the same description — if the honest answer is "hundreds", the description is
+of the convention rather than of the function. **The way out both times was a published enum or a
+written field**: `simresult_e` named this one in four lines, where months of shape-matching had
+not. And when a shape-based label is later falsified, keep it struck through with what
 killed it: it is the second time a wrong conclusion here came from a pattern that was genuinely
 present and genuinely uninformative. Related: [[an-empty-search-needs-a-control]],
 [[a-flag-with-no-field-is-set-by-the-loop]], [[absent-from-the-sdk-is-not-unreadable]].

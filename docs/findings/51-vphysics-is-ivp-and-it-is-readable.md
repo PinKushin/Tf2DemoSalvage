@@ -1553,9 +1553,8 @@ local_a4 = (float)((uint)(local_c0 * DAT_18011f000) ^ uVar5);          // uVar5 
 *(float *)(lVar1 + 0x140) = local_a8 * fVar14 + *(float *)(lVar1 + 0x140);
 ```
 
-**Mass-independence is the tell** — gravity is the one effector that must not scale with mass — and
-the unit-conversion fingerprint is byte-for-byte `SetGravity`'s: same scale `DAT_18011f000`, same
-sign mask `DAT_1800ea5e0`, on the same component.
+**~~Mass-independence is the tell~~ — and the fingerprint argument below was WRONG.** See the
+correction that follows; the constants are general, and this dispatcher is not gravity.
 
 **And it is still not established, for three reasons that were checked rather than assumed:**
 
@@ -1580,3 +1579,102 @@ path, noted so it is not mistaken for one later.
 solver vtable and both solve slots; read for `FUN_180019cc0`'s four modes; NOT ESTABLISHED, and
 labelled so, for gravity's call site, the effector object, and the constraint solver's iteration
 count.*
+
+## Correction: `FUN_180019cc0` is the MOTION CONTROLLER, and my evidence for gravity was bad
+
+**The candidate above is dead, and the way it died is the useful part.** The argument for it was
+that its unit-conversion fingerprint was "byte-for-byte `SetGravity`'s" — the same scale
+`DAT_18011f000` and the same sign mask `DAT_1800ea5e0`. **That is not evidence of anything.** Those
+constants are dumped as **0.0254** (inches to metres, exactly) and **0x80000000** (the IEEE sign
+bit), and they have now been found in three unrelated places: `SetGravity`, the constraint group's
+`errorTolerance` conversion, and this dispatcher. **Every vector crossing the Source-to-IVP boundary
+needs them.** A fingerprint shared by everything identifies nothing — the same mistake as reading a
+vtable dispatch as a solver, one layer down.
+
+**What it actually is, established from a published enum.** `FUN_180019cc0` switches on a callback's
+return code taking values 1 to 4, and `vphysics_interface.h:464` declares:
+
+```cpp
+enum simresult_e { SIM_NOTHING = 0, SIM_LOCAL_ACCELERATION, SIM_LOCAL_FORCE,
+                   SIM_GLOBAL_ACCELERATION, SIM_GLOBAL_FORCE };
+```
+
+Every branch matches: 1 rotates into world space and skips the mass divide (local acceleration), 2
+rotates and divides (local force), 3 neither rotates nor divides (global acceleration — the
+"candidate"), 4 divides only (global force). And the call feeding it has the exact shape of
+`IMotionEvent::Simulate( IPhysicsMotionController *, IPhysicsObject *, float, Vector &, AngularImpulse & )`.
+
+**So this is `IPhysicsMotionController`** — the generic machinery that lets GAME code register an
+`IMotionEvent` and have its returned force applied per tick. It is not gravity and never was.
+
+**What was eliminated, and how**, because a negative result is only worth having with its method:
+
+- **Zero `LEA` installs of the vtable `0x1800ec880`**, across 221,934 instructions and 13,374 `LEA`s.
+  The search needed a purpose-built instrument, since a `LEA` encodes a RIP-relative displacement
+  rather than the absolute address — and the first version of that instrument was silently wrong
+  (`getOpObjects` returns a `Scalar`, not an `Address`) and was caught against a known control
+  before being trusted.
+- **Zero occurrences of the vtable's address** anywhere in aligned readable memory, with the same
+  instrument correctly finding slot 0's function address in `.rdata` as its control.
+- **The environment constructor `FUN_180080d90`, decompiled in full** — about fifteen sub-objects,
+  and it installs this vtable on none of them.
+
+**Gravity's integration site is therefore still unfound, and is now known NOT to be behind a generic
+dispatcher.** A grep for readers of `env+0x118` across ~2,800 decompiled functions returns 39 hits,
+none of them in the established pipeline stages. It is evidently inline in the per-core accumulation
+rather than dispatched, which is a narrower place to look than before.
+
+## The constraint solver runs exactly TWO iterations
+
+**Established by an exact inverse pair, which is as good as this gets without a symbol.** The group
+constructor stores the count with a bias and the getter removes it:
+
+```c
+*(int *)(param_1 + 4) = *(int *)(param_3 + 8) + 2;   // FUN_18003c330: additionalIterations + 2
+param_2[2] = *(int *)(param_1 + 0x20) + -2;          // FUN_18003d240: the exact inverse
+```
+
+**So the base is 2 and `additionalIterations` adds to it one for one, unscaled.** A ragdoll is built
+with `group.Defaults()`, which sets `additionalIterations = 0` (`ragdoll_shared.cpp:274-276`), so
+**a TF2 corpse's joints are solved with exactly two sweeps per step.**
+
+`CreateConstraintGroup` is slot 23, a thunk at `0x180012a40` that loads `environment+0x8` and
+tail-jumps to `FUN_18000d330`. The solve driver is slot 8 of a **different** vtable from the
+per-constraint one — `0x1800eeb10`, twelve slots — at `FUN_18003c780`:
+
+```c
+if (0 < *(int *)(param_1 + 0x20)) {
+    do {
+      fVar23 = *(float *)((longlong)&uStack_269f0 + uVar22);   // per-pass weight
+      if (fVar23 == 0.0) break;
+      // each attached constraint's slot 4 (the cheap re-solve), once descending then once ascending
+      uVar22 = uVar22 + 4;
+    } while ((int)uVar21 < *(int *)(param_1 + 0x20));
+}
+```
+
+**Each pass walks the constraint list forwards and then backwards** — a symmetric Gauss-Seidel
+sweep, which is what stops a chain of joints biasing toward whichever end is solved first. And each
+pass carries a **relaxation weight from a hardcoded table** at `0x1800eeb70`, dumped as
+`0.4, 0.4, 0.4, 0.4, 1.0, 1.0, 0.8, 0.6, 0.8, 0.8, 0.8, 0.8, …`. At the stock two iterations, both
+weights are **0.4**.
+
+**`errorTolerance` and `minErrorTicks` do NOT gate the loop**, which is the thing a reader would
+assume. They drive a counter AFTER it, and that counter is what `IsInErrorState` reports — the same
+call `CRagdoll::VPhysicsUpdate` makes before running `RagdollSolveSeparation`:
+
+```
+MOV EAX,[RDX+0x48]      ; minErrorTicks
+CMP [RDX+0x4c],EAX      ; errorTickCounter >= minErrorTicks
+SETGE AL
+```
+
+**And in this build that counter can never accumulate.** The value it is compared against is copied
+from `_DAT_1800ff070`, dumped as **0.0**, refreshed unconditionally at the top of every call — so
+`0.0 <= errorTolerance²` always holds and the counter resets each time. *INFERRED, and flagged: a
+`RefsTo` on that global found readers only and no writer, which is consistent with a compiled-in
+constant but does not exhaustively rule out an unresolved indirect write.*
+
+*Evidence class: read for the slot derivation, the thunk, the constructor/getter inverse pair, the
+loop and the weight table, all with dumped constants; INFERRED and flagged for the error counter
+being unreachable in this build.*
