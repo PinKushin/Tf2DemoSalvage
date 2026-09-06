@@ -1205,7 +1205,11 @@ so sabotaging it to `null` builds clean and reddens nothing. Only a capture catc
 integrator and the constraint solve are read out of `vphysics.dll` (D142, finding 51). But
 everything that DECIDES what the solver starts with — masses, joint limits, which bodies may touch,
 what velocity each one carries, where the kill's force lands — is in the SDK in full. This audit
-read that half end to end. **Five divergences, two non-divergences worth recording, and one fix.**
+read that half end to end.
+
+**Seven findings: one fixed here, one WITHDRAWN by a measurement that says TF2 never reaches the
+mechanism, five open. Plus two things recorded as checked-and-neutral, because that is a different
+state from unexamined, and one Valve hack that TF2 itself compiles out.**
 
 ### 1. The velocity a corpse inherits from its animation was not implemented at all (FIXED)
 
@@ -1310,11 +1314,33 @@ disabled by default"*, so the key's PRESENCE turns self-collision off — and an
 that jitters and locks — or none do, and limbs pass through the torso. There is no neutral default;
 the block is the answer.
 
-*Evidence class: read from published source. NOT established: whether TF2's own player models ship
-the block. That is a measurement over the shipped `.phy` files rather than a reading, and it decides
-whether this is urgent or dead.*
+**MEASURED, and it is universal.** The `ragdoll-constraints` probe now takes a census of every block
+name in every `.phy` in `tf2_misc_dir.vpk`:
 
-### 5. The `animatedfriction` block, and the four-state ramp it drives, are absent
+```
+Block census over 4755 readable .phy files — how many DECLARE each block:
+  solid               4755 of 4755  (control — this project parses it)
+  ragdollconstraint     37 of 4755  (control — this project parses it)
+  collisionrules        36 of 4755  (which bodies may touch; ragdoll_shared.cpp:296)
+  animatedfriction       0 of 4755  (the friction ramp; ragdoll_shared.cpp:147)
+  editparams          4755 of 4755
+  1 model(s) have joints and NO collisionrules: MAIN_ENTRANCE_DOOR.PHY
+  The raw scan and PhysicsModel agree on both control blocks in every file.
+```
+
+**Thirty-six of the thirty-seven models with joints declare collision rules**, and the one that does
+not is a hinged door rather than a ragdoll. So for every corpse TF2 draws, this block exists and we
+skip it. **The control is in that output on purpose** — `solid` and `ragdollconstraint` are counted
+by the same raw text scan and cross-checked per file against the production reader, so a census
+reporting zero for `animatedfriction` cannot be a broken search.
+
+**`editparams` is a sixth block, in all 4,755 files, that nothing in Valve's ragdoll code reads
+either.** It is authoring data left in by the compiler. Noted so nobody files it as a gap.
+
+*Evidence class: read from published source for the behaviour; MEASURED over 4,755 shipped files for
+the prevalence, with a control.*
+
+### 5. WITHDRAWN by measurement — the `animatedfriction` ramp is dead in TF2
 
 **The engine** ramps joint friction over time after death:
 
@@ -1333,15 +1359,24 @@ over `animfrictiontimeout`, then `OFF`. What is applied is a motor with a target
 and a torque cap — friction expressed as a motor, which is how vphysics spells it.
 
 **Ours** has neither the block (`RagdollSetupAnimatedFriction`, `ragdoll_shared.cpp:147`) nor the
-state machine.
+state machine, and **that turns out to be correct.**
 
-**Visible when wrong:** corpses that settle at the wrong rate — floppier or stiffer than TF2's for
-the first seconds after death, which is exactly the window anyone watching a demo is looking at.
+**Zero of 4,755 shipped `.phy` files declare `animatedfriction`** — the census under finding 4,
+whose control passed in the same run. The state machine's own gate is
+`if ( m_iMinFriction != 0 || m_iMaxFriction != 0 )`, and with no model supplying either number it
+goes `NONE` → `OFF` on the first update and never applies a motor. **The whole mechanism is
+unreachable in TF2.**
 
-**The gate is `if ( m_iMinFriction != 0 || m_iMaxFriction != 0 )`**, so a model shipping no block
-costs nothing. The same measurement as finding 4 settles it.
+**So the correct implementation is nothing, and this entry stays as a record of that.** It is the
+`$modblend` shape again: a real engine mechanism, fully published, that no shipped content
+triggers. Implementing it would have been days of work producing a state machine that never leaves
+its first state — and the only thing that could tell the difference was counting the files.
 
-*Evidence class: read from published source; whether TF2 models use it is unmeasured.*
+**What this does NOT say:** that the mechanism is dead in Source generally. HL2 and Episode 2
+models are not in this denominator; the claim is about `tf2_misc_dir.vpk` and TF2's corpses.
+
+*Evidence class: read from published source for the mechanism; MEASURED, 0 of 4,755, with a control,
+for its absence from TF2's content.*
 
 ### Not divergences, and recorded because that is a different state from unexamined
 

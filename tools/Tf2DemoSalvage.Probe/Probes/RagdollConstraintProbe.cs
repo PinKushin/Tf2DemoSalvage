@@ -82,6 +82,25 @@ public sealed class RagdollConstraintProbe : IProbe
 
         int shown = 0;
 
+        // **The census that decides whether two filed divergences are urgent or dead.** Valve's
+        // ragdoll code reads FIVE block names out of this text and this project reads two, so the
+        // question is which of the other three any TF2 model actually ships. `solid` and
+        // `ragdollconstraint` are in the list as the CONTROL: they must be found in every file that
+        // parses, and their counts are cross-checked against the production reader below. A census
+        // whose control comes back zero is a broken search, not an absent feature.
+        Dictionary<string, int> blocks = new(StringComparer.Ordinal)
+        {
+            ["solid"] = 0,
+            ["ragdollconstraint"] = 0,
+            ["collisionrules"] = 0,
+            ["animatedfriction"] = 0,
+            ["editparams"] = 0,
+        };
+
+        int filesRead = 0;
+        int scanDisagreed = 0;
+        List<string> jointsWithoutRules = [];
+
         foreach (string path in paths)
         {
             if (archive.ReadFile(path) is not { Length: >= HeaderSize } bytes)
@@ -110,6 +129,32 @@ public sealed class RagdollConstraintProbe : IProbe
 
             int joints = physics.Constraints.Count;
             int solidBlocks = physics.Solids.Count;
+
+            filesRead++;
+
+            // **The pairing is the interesting number, not either count alone.** A model with
+            // joints and no collision rules has to be handled by whatever reads the block, and one
+            // outlier is enough to make the absence a real branch rather than a theoretical one.
+            if (joints > 0 && Occurrences(tail, "collisionrules {") == 0)
+            {
+                jointsWithoutRules.Add(Path.GetFileName(path));
+            }
+
+            foreach (string block in blocks.Keys.ToList())
+            {
+                if (Occurrences(tail, block + " {") is var count && count > 0)
+                {
+                    blocks[block]++;
+                }
+
+                // The control, checked per file rather than only in aggregate: the raw scan and the
+                // production reader must agree about the two blocks both of them understand.
+                if ((block == "solid" && count != solidBlocks) ||
+                    (block == "ragdollconstraint" && count != joints))
+                {
+                    scanDisagreed++;
+                }
+            }
 
             output.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
@@ -147,6 +192,64 @@ public sealed class RagdollConstraintProbe : IProbe
                 output.WriteLine("  --- ends ---");
             }
         }
+
+        output.WriteLine();
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"Block census over {filesRead} readable .phy files — how many DECLARE each block:"));
+
+        foreach ((string block, int count) in blocks)
+        {
+            string note = block switch
+            {
+                "solid" or "ragdollconstraint" => "  (control — this project parses it)",
+                "collisionrules" => "  (which bodies may touch; ragdoll_shared.cpp:296)",
+                "animatedfriction" => "  (the friction ramp; ragdoll_shared.cpp:147)",
+                _ => string.Empty,
+            };
+
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  {block,-18} {count,5} of {filesRead}{note}"));
+        }
+
+        output.WriteLine(
+            jointsWithoutRules.Count == 0
+                ? "  Every model with ragdoll joints also declares collisionrules."
+                : string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"  {jointsWithoutRules.Count} model(s) have joints and NO collisionrules: " +
+                    $"{string.Join(", ", jointsWithoutRules)}"));
+
+        output.WriteLine(
+            scanDisagreed == 0
+                ? "  The raw scan and PhysicsModel agree on both control blocks in every file."
+                : string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"  WARNING: the scan and PhysicsModel disagreed {scanDisagreed} times — " +
+                    $"treat every number above as suspect, the instrument is broken."));
+    }
+
+    /// <summary>How many times a block opener appears in the text.</summary>
+    /// <param name="text">The <c>.phy</c>'s KeyValues tail, as ASCII.</param>
+    /// <param name="opener">The block name followed by its brace.</param>
+    /// <returns>The count.</returns>
+    /// <remarks>
+    /// **Counted rather than tested for presence**, because the count is what the control needs: a
+    /// search that finds `solid {` once in a file with seventeen solids is finding something else.
+    /// </remarks>
+    private static int Occurrences(string text, string opener)
+    {
+        int count = 0;
+        int at = text.IndexOf(opener, StringComparison.Ordinal);
+
+        while (at >= 0)
+        {
+            count++;
+            at = text.IndexOf(opener, at + opener.Length, StringComparison.Ordinal);
+        }
+
+        return count;
     }
 
     /// <summary>Bytes of <c>phyheader_t</c>.</summary>

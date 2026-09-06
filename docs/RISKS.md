@@ -25121,8 +25121,16 @@ radians.
 **What is NOT established:** nothing yet CALLS `RagdollVelocity` — the solver it feeds does not
 exist, so this is an initial condition with nothing to initialise. The remaining absences are filed
 separately in `docs/PARITY-AUDIT.md`: `rotInertiaLimit`, the discarded rotation half of
-`constraintToAttached`, the unparsed `collisionrules` block, and the unparsed `animatedfriction`
-block with the four-state ramp it drives.
+`constraintToAttached`, the unparsed `collisionrules` block, corpses never sleeping, and the
+separation repair.
+
+**One filed absence was WITHDRAWN by measurement in the same session**, and it is worth knowing
+which: the `animatedfriction` ramp. **Zero of 4,755 shipped `.phy` files declare the block**, so the
+state machine's gate is never true and the mechanism is unreachable in TF2. The census that says so
+carries its own control — `solid` at 4,755 of 4,755 and `ragdollconstraint` at 37, both cross-checked
+per file against the production reader — because a census reporting zero is exactly the shape a
+broken search takes. The same run confirms the opposite for `collisionrules`: 36 of the 37 models
+that have joints declare it, and the one that does not is a hinged door.
 
 **Evidence class: read-from-source** for every line of the transcription; **arithmetic** for the
 predicted test values.
