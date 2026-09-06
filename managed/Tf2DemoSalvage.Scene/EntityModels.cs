@@ -3526,6 +3526,74 @@ public sealed class EntityModelSet : IModelBodygroups
         return skinned.SequenceByActivity(fragment);
     }
 
+    /// <summary>The activity every player model's resting corpse pose answers to (B316).</summary>
+    /// <remarks>
+    /// **Measured: all nine class models ship exactly ONE sequence with it**, `'ragdoll'`, so the
+    /// weighted pick `SelectWeightedSequence` performs has nothing to pick between here — which is
+    /// why taking the highest-weighted candidate rather than drawing among ties is not a divergence
+    /// on this input.
+    /// </remarks>
+    private const string RagdollRestActivity = "ACT_DIERAGDOLL";
+
+    /// <summary>Which sequence a corpse rests in (B316).</summary>
+    /// <param name="prop">The corpse, whose model has been loaded by now.</param>
+    /// <returns>The sequence to pose it with, or the one it already carries.</returns>
+    /// <remarks>
+    /// **The engine sets this TWICE and the second one wins**, which is the whole finding.
+    /// `CreateTFRagdoll` copies the player's sequence —
+    ///
+    /// <code>
+    ///   m_flAnimTime = pPlayer-&gt;m_flAnimTime;
+    ///   SetSequence( pPlayer-&gt;GetSequence() );
+    ///   m_flPlaybackRate = pPlayer-&gt;GetPlaybackRate();
+    /// </code>
+    ///
+    /// `c_tf_player.cpp:757-766` — and then, unless a death animation was chosen,
+    /// `InitAsClientRagdoll` overwrites it:
+    ///
+    /// <code>
+    ///   m_nRestoreSequence = GetSequence();
+    ///   SetSequence( SelectWeightedSequence( ACT_DIERAGDOLL ) );
+    ///   m_nPrevSequence = GetSequence();
+    ///   m_flPlaybackRate = 0;
+    /// </code>
+    ///
+    /// `c_baseanimating.cpp:4931`. The copied sequence survives only as bone VELOCITY into the
+    /// physics solver (`RagdollApplyAnimationAsVelocity`); what a settled corpse is POSED with is
+    /// `ACT_DIERAGDOLL` at playback rate zero, and `BuildTransformations` applies it to every bone
+    /// the physics does not drive.
+    ///
+    /// **This is why the corpse stood up straight.** B316 was filed as "copy the player's
+    /// sequence", which needs this project's own client-side animation state and is the hard path;
+    /// it is also the wrong branch for the resting pose. Sequence zero was neither rule — it is
+    /// what a `ScenePose` holds when nothing has set it.
+    ///
+    /// **The death animation still wins where there is one**, because the engine's own condition
+    /// for reaching `InitAsClientRagdoll` at all is `!m_bDeathAnim`.
+    /// </remarks>
+    private int CorpseSequence(SceneProp prop)
+    {
+        if (!_frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? bodies) ||
+            bodies.Skinned is not { } corpse)
+        {
+            return prop.Pose.Sequence;
+        }
+
+        // `ResetSequence( iDeathSeq )` (`c_tf_player.cpp:851`); the label comes from
+        // `LookupSequence`, so it is matched by label and never by activity.
+        if (prop.DeathSequence is { Length: > 0 } wanted &&
+            corpse.SequenceByLabel(wanted) is >= 0 and int death)
+        {
+            return death;
+        }
+
+        // **A negative answer is left alone rather than written.** −1 means "this model has no such
+        // sequence", and storing it would freeze the corpse on frame zero of nothing.
+        int resting = corpse.ForActivity(RagdollRestActivity);
+
+        return resting >= 0 ? resting : prop.Pose.Sequence;
+    }
+
     /// <summary>Chooses each drawn player's sequence, now that their models are loaded.</summary>
     /// <param name="drawn">The draw list, updated in place.</param>
     /// <exception cref="ArgumentNullException"><paramref name="drawn"/> is null.</exception>
@@ -3570,17 +3638,12 @@ public sealed class EntityModelSet : IModelBodygroups
             // `ResetSequence( iDeathSeq )` is what the engine does with the answer
             // (`c_tf_player.cpp:851`); the label comes from `LookupSequence`, so it is matched by
             // label and never by activity.
-            if (prop.DeathSequence is { Length: > 0 } wanted)
+            if (string.Equals(prop.ClassName, RagdollProps.RagdollClassName, StringComparison.Ordinal))
             {
-                int death = _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? bodies) &&
-                    bodies.Skinned is { } corpse
-                    ? corpse.SequenceByLabel(wanted)
-                    : -1;
-
-                if (death >= 0)
+                drawn[index] = prop with
                 {
-                    drawn[index] = prop with { Pose = prop.Pose with { Sequence = death } };
-                }
+                    Pose = prop.Pose with { Sequence = CorpseSequence(prop) },
+                };
 
                 continue;
             }

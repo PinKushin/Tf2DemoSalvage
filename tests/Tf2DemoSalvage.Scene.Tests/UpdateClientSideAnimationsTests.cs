@@ -147,4 +147,147 @@ public sealed class UpdateClientSideAnimationsTests
                 Sequence = sequence,
                 Speed = speed,
             });
+
+    /// <remarks>
+    /// **A corpse rests in `ACT_DIERAGDOLL`, and sequence ZERO is the model's reference pose**
+    /// (B316). `InitAsClientRagdoll` overwrites the sequence `CreateTFRagdoll` copied from the
+    /// player —
+    ///
+    /// <code>
+    ///   m_nRestoreSequence = GetSequence();
+    ///   SetSequence( SelectWeightedSequence( ACT_DIERAGDOLL ) );
+    ///   m_flPlaybackRate = 0;
+    /// </code>
+    ///
+    /// `c_baseanimating.cpp:4931` — so the copied one survives only as bone velocity into the
+    /// solver, and what a settled corpse is POSED with is this.
+    ///
+    /// **The fixture's sequence 0 is `ref` because a real one's is.** Measured on all nine class
+    /// models: `[0] g0 'ref', [1] g0 'ragdoll' act ACT_DIERAGDOLL`. That is what made the defect
+    /// invisible as a lookup failure and visible as a T-pose — `ref` IS the reference pose — and it
+    /// is why the assertion below has to distinguish 1 from 0 rather than from −1.
+    /// </remarks>
+    [Test]
+    public void UpdateClientSideAnimations_ACorpse_RestsInTheRagdollActivityRatherThanTheReferencePose()
+    {
+        EntityModelSet models = new();
+
+        models.Add([Corpse(death: null)], Corpses);
+
+        List<SceneProp> drawn = [Corpse(death: null)];
+
+        models.UpdateClientSideAnimations(drawn);
+
+        drawn[0].Pose.Sequence.ShouldBe(1, "'ragdoll', the ACT_DIERAGDOLL sequence");
+    }
+
+    /// <remarks>
+    /// **The death animation still wins**, because the engine's own condition for reaching
+    /// `InitAsClientRagdoll` at all is `!m_bDeathAnim` (`c_tf_player.cpp:857`). Without this case,
+    /// "always ACT_DIERAGDOLL" would pass the test above and silently delete B323.
+    ///
+    /// It is matched by LABEL — `ResetSequence( iDeathSeq )` takes what `LookupSequence` returned —
+    /// so the fixture's third sequence answers to its name and not to an activity.
+    /// </remarks>
+    [Test]
+    public void UpdateClientSideAnimations_ACorpseWithADeathAnimation_KeepsItRatherThanResting()
+    {
+        EntityModelSet models = new();
+
+        models.Add([Corpse(death: "primary_death_headshot")], Corpses);
+
+        List<SceneProp> drawn = [Corpse(death: "primary_death_headshot")];
+
+        models.UpdateClientSideAnimations(drawn);
+
+        drawn[0].Pose.Sequence.ShouldBe(2, "the death sequence, matched by label");
+    }
+
+    /// <remarks>
+    /// **A model with no such activity keeps what it had rather than taking −1.** `ForActivity`
+    /// answers −1 for "no sequence answers to this", and storing that freezes the corpse on frame
+    /// zero of nothing — the same rule the speed path already keeps. `Standing` carries only
+    /// `ACT_MP_STAND_PRIMARY`, so it is the cheapest way to reach that answer.
+    /// </remarks>
+    [Test]
+    public void UpdateClientSideAnimations_ACorpseWhoseModelHasNoRagdollActivity_LeavesItAlone()
+    {
+        EntityModelSet models = new();
+
+        models.Add([Corpse(death: null)], Standing);
+
+        List<SceneProp> drawn = [Corpse(death: null)];
+
+        models.UpdateClientSideAnimations(drawn);
+
+        drawn[0].Pose.Sequence.ShouldBe(9);
+    }
+
+    /// <remarks>
+    /// The control: a prop that is not a corpse must not be given a corpse's pose. Without it,
+    /// "writes ACT_DIERAGDOLL onto everything" passes every case above.
+    /// </remarks>
+    [Test]
+    public void UpdateClientSideAnimations_APropThatIsNotACorpse_IsNotGivenTheRagdollActivity()
+    {
+        EntityModelSet models = new();
+
+        models.Add([PropAt(sequence: 7, speed: null)], Corpses);
+
+        List<SceneProp> drawn = [PropAt(sequence: 7, speed: null)];
+
+        models.UpdateClientSideAnimations(drawn);
+
+        drawn[0].Pose.Sequence.ShouldBe(7);
+    }
+
+    /// <summary>A packed model shaped like a real player model's sequence table.</summary>
+    /// <remarks>
+    /// Measured on all nine classes: `[0] g0 'ref', [1] g0 'ragdoll' act ACT_DIERAGDOLL`. The third
+    /// entry is a death animation, which is matched by label rather than by activity.
+    /// </remarks>
+    private static PropModels.ModelFrames? Corpses(string path) =>
+        new(
+            [
+                new PropVertex[]
+                {
+                    new(1f, 0f, 0f, 0f, 0f, MaterialIndex: 3),
+                    new(0f, 1f, 0f, 1f, 0f, MaterialIndex: 3),
+                    new(0f, 0f, 1f, 0f, 1f, MaterialIndex: 3),
+                },
+            ],
+            new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
+            [0],
+            [true],
+            // **Label and activity DIFFER here, and that is the whole point of this fixture.**
+            // `With` sets both to one string, and a corpse test written against it cannot fail:
+            // measured, it stayed green with `ForActivity` swapped for `SequenceByLabel`. A real
+            // model's ragdoll sequence is LABELLED `ragdoll` and answers to the ACTIVITY
+            // `ACT_DIERAGDOLL`, so only a fixture that separates them can tell the two lookups
+            // apart — and the death animation below answers to a label and to no activity at all.
+            Skinned: SyntheticSkinnedModel.WithActivities(
+                ("ref", "ACT_REFERENCE"),
+                ("ragdoll", "ACT_DIERAGDOLL"),
+                ("primary_death_headshot", "")));
+
+    /// <summary>A corpse, which is what `RagdollProps` builds for a `CTFRagdoll`.</summary>
+    /// <remarks>
+    /// **Sequence 9 rather than 0**, so "left alone" and "chose the reference pose" are different
+    /// observations. With 0 the two are the same number and the no-activity case could not fail.
+    /// </remarks>
+    private static SceneProp Corpse(string? death) =>
+        new(
+            3,
+            "models/player/soldier.mdl",
+            SceneModelKind.Studio,
+            new ScenePose
+            {
+                X = 10f,
+                Yaw = 90f,
+                Scale = 1f,
+                Skin = 1,
+                Sequence = 9,
+            },
+            ClassName: RagdollProps.RagdollClassName,
+            DeathSequence: death);
 }
