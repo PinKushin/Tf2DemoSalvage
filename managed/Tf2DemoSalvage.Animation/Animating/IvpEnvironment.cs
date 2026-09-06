@@ -29,11 +29,15 @@ namespace Tf2DemoSalvage.Animation.Animating;
 /// second; getting that wrong does not fail, it produces a corpse that settles differently at every
 /// frame rate.
 ///
-/// **What is NOT here yet:** the constraint solve. Its arithmetic is read (`docs/findings/51`) and
-/// one contradiction in its gating is open, so nothing is transcribed from it — a solver built on
-/// the wrong reading gives a corpse that is either rigid or entirely free, with nothing in the
-/// output to say which. Until then a body's angular motion is unconstrained, and the rigid
-/// re-attachment in `RagdollBody.Pose` is what still holds a corpse together.
+/// **What is NOT here yet:** the constraint solve is not DRIVEN from here, though it is now
+/// transcribed — see <see cref="IvpAngularLimit"/>, whose gating contradiction is resolved and
+/// whose arithmetic is tested. What is missing is its input: two of a joint's three limits are
+/// compared against dot products rather than radians, and how the degree bounds in
+/// `constraint_ragdollparams_t::axes[]` are converted for those two is not read
+/// (`docs/findings/51`). Wiring it up on a guess would give a corpse whose swing joints clamp at
+/// the wrong deflection with nothing in the output to say so, so until then a body's angular
+/// motion is unconstrained and the rigid re-attachment in `RagdollBody.Pose` is what holds a corpse
+/// together.
 /// </remarks>
 public sealed class IvpEnvironment
 {
@@ -109,7 +113,9 @@ public sealed class IvpEnvironment
         IvpGravity.Apply(_bodies, Gravity, Step, AlternateGravity);
 
         // The constraint solve belongs here — two relaxation sweeps at 0.4, forwards then backwards
-        // over the group's constraints — and is not transcribed while its gating is unsettled.
+        // over the group's constraints, each axis through IvpAngularLimit.Solve. It is not driven
+        // yet because the deflection measure the two swing axes are limited against has not been
+        // read; see the remarks above.
 
         Now += Step;
 

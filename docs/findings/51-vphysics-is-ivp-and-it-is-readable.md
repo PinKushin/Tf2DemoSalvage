@@ -2137,3 +2137,204 @@ correction, the 2π disable and the drift block, with all constants dumped; INFE
 which DOF `+0xB0` is, and for the min/max floats' end-to-end link back to
 `constraint_ragdollparams_t::axes[]`; the gating contradiction is OPEN and is the next thing to
 settle.*
+
+## The four solver constants, run to ground — and three of them are zero for a ragdoll
+
+Four numbers were left unread when the arithmetic was transcribed, each one a term that would change
+what a corpse looks like. They were chased to their writers, and the answer in three cases is that
+**for a TF2 ragdoll they are zero for the constraint's entire life** — so the solve is far smaller
+than the decompiled function looks.
+
+**The per-axis `+0x1` byte is zero for every ragdoll TF2 ships, and the reason is the DATA rather
+than the code.** `FUN_18000c750` clears both flag bytes at construction with one 16-bit store:
+
+```c
+*(undefined2 *)(param_1 + 0x10) = 0;
+```
+
+**An earlier pass reported that nothing writes it afterwards, and that was wrong.**
+`FUN_18000eac0` writes it, once per axis, from a virtual call multiplied by the axis's torque:
+
+```c
+fVar15 = (float)(**(code **)(**(longlong **)(param_1 + 0x10) + 0xe8))();
+fVar14 = (float)param_4[0x27];                            // torque
+auStack_137[lVar13 * 0x18] = fVar15 * fVar14 != 0.0;      // the +0x1 byte
+(&uStack_128)[lVar13 * 6]  = (uint)(fVar15 * fVar14) & DAT_1800ea5c0;   // the +0x10 field
+```
+
+So whether the branch runs is a question about `torque`, and `SetAxisFriction( rmin, rmax, friction
+)` puts `friction` straight into it with the angular velocity left at zero (`constraints.h:68-74`).
+That makes it answerable by measurement rather than by reading, because the number comes out of each
+model's `.phy`.
+
+**Measured over every `.phy` Team Fortress 2 ships — 4,755 files, 37 of them carrying ragdoll
+joints: `0 of 1734` joint axes declare a nonzero friction.** All nine player classes read
+`"xfriction" "0.000000"` on all three axes of all their joints. So the product is zero, the byte is
+false, and the spring/friction branch never executes for any corpse in this game.
+
+**Stated that way because the distinction matters for anyone reading this later.** The branch is not
+dead code — Valve's own `physics_prop_ragdoll.cpp:1525` ships `SetAxisFriction( -2, 2, 20 )`, so
+another game's ragdoll would take it. It is dead *for TF2's content*, which is what this project
+draws, and a `.phy` from elsewhere would need the branch transcribed before it simulated correctly.
+
+Two of the four unknowns fall out of that:
+
+- **The `+0x10` scale** is `|virtualCall × torque|` — the same product as the gate byte, kept as a
+  magnitude by `& DAT_1800ea5c0` at the writer and used through `& _DAT_1800ff0d0` (dumped as
+  `0x7fffffff`) at the reader. Zero wherever the gate is zero, so unreachable for a TF2 ragdoll by
+  the same measurement.
+- **The `+0x18` warm-start value** is READ at the top of the function and WRITTEN only in the last
+  line of the dead branch. Constructed to `0.0`, never reset per tick, never advanced. So there is
+  no accumulator carried between passes or between ticks, and nothing to seed — which removes the
+  "the running target is warm-started" sentence from the earlier transcription note above.
+
+**And one of the four was answered WRONG the first time, which is why the function was re-read
+rather than transcribed from notes.** The 0.4 per-pass weight was reported as reaching the axis
+solve only inside the dead branch. It does not:
+
+```c
+  if (param_7[1] != 0) { … }                 // the dead branch ENDS here
+  fVar24 = *(float *)(param_7 + 0xc);        // per-axis scale
+  fVar2  = *(float *)(param_7 + 8);          // upper bound
+  fVar16 = *(float *)(param_7 + 4);          // lower bound
+  fVar23 = fVar24 * *param_8 * fVar23 * param_2[0x14];
+//         └ axis scale ┘ └ 0.4 ┘  └ gain ┘  └ 1/K ┘
+```
+
+`*param_8` is the pass weight, and it multiplies the scale the overshoot is measured in — **on the
+live path, outside the branch, every pass.** So the relaxation is real for a ragdoll: each of the
+two sweeps applies its fraction of the limit correction rather than all of it. Reported as dead, it
+would have produced corpses that snap to their limits in one step.
+
+**The lesson is the same one this document has already recorded once**, in the section on the gating
+contradiction: after a decompiler has finished, a gated block and the code following it are
+indistinguishable by indentation, and "this line is inside that `if`" is a claim about braces that
+is easy to make and easy to get backwards. It has now been got backwards twice on the same
+function, in both directions.
+
+**The fourth is not a constant at all: it is a binary enable.** The `+0x0` byte selects a 16-byte
+tuple by address arithmetic —
+
+```c
+lVar1 = (*param_7 & 1) * 0x10;
+```
+
+— and the two tuples are **all-ones and all-zeros**. Anded against the overshoot, all-ones lets the
+clamp through and all-zeros deletes it. That is the mechanism behind the 2π disable read earlier: an
+axis free through a full turn has its byte cleared at construction and its clamp masked to nothing.
+
+**This corrects the earlier description of that byte**, which called it "a SIMD lane and sign
+convention". It is neither a lane select nor a sign flip; it is on/off, and the earlier wording
+would have sent an implementer looking for a second code path that does not exist.
+
+### The whole live path, for a ragdoll, in six lines
+
+With the branch dead, what remains in both `FUN_180036f80` and `FUN_1800372c0` is short enough to
+state completely:
+
+```
+rate     = ωA · Ja + ωB · Jb                        // cached by FUN_180037bd0, off core+0x130
+θ        = angle ± rate · gain                      // gain = param_1[0]; sign per routine
+scale    = flags[0xc] · passWeight · param_1[1] · (1/K)
+overshoot= min(0, (θ − lower)·scale) + max(0, (θ − upper)·scale)
+impulse  = ∓ (overshoot & enableMask)
+ωA += impulse · cache[8..0xb];  ωB += impulse · cache[0xc..0xf]
+```
+
+**The two bodies get the SAME impulse with a `+`, and equal-and-opposite comes out of the cache**:
+`FUN_180037bd0` builds body B's row from the negated anchor, so the sign is baked into
+`cache[0xc..0xf]` rather than applied here.
+
+**The fourth lane of angular velocity is forced to zero on every write.** `_DAT_1800ff0f0` dumps as
+`{~0, ~0, ~0, 0}` and each store is anded with it, so `core+0x13c` is cleared rather than carried —
+worth copying, because a transcription that keeps a W component would let junk accumulate in a lane
+the engine wipes.
+
+**The two routines have opposite sign conventions and they cancel.** `FUN_180036f80` builds
+`θ = rate·gain + angle` and subtracts the overshoot; `FUN_1800372c0` builds `θ = angle − rate·gain`
+and adds it. Both compute `min(0, θ−lower) + max(0, θ−upper)` from the same two fields at `+0x4`
+and `+0x8`. **So the axes are the same physics measured in opposite directions**, and an
+implementation that copied one routine's signs onto the other's angle would drive that joint the
+wrong way — a limb that pushes itself further out of its limit the harder it is pushed in.
+
+**Constants dumped for this pass**, all four lanes each: `1800ee970` = `0x00000000`, `1800ee980` =
+`0xffffffff` (the enable pair, selected by `(*flags & 1) * 0x10` — so a cleared byte reads the ZERO
+tuple and deletes the clamp), `1800ff070` = `0.0` (the vector `minps`/`maxps` compare against, and
+the impulse seed), `1800ff080` = `1.0`, `1800ff0d0` = `0x7fffffff`, `1800ff0f0` = `{~0,~0,~0,0}`,
+`1800ff100` = `{~0,0,0,0}`.
+
+**Lanes 1 to 3 are multiplied by literal `0.0` throughout both functions.** The decompiler has
+folded a constant tuple, and the effect is that each call solves exactly ONE axis in lane 0 while
+the SIMD width goes unused. A transcription that solved four axes per call would be four times the
+code for the same answer.
+
+**Honest gap:** the branch is disabled by the shipped data, so anything that changes an axis's
+friction after construction revives it. `CRagdollProp` has no such call and TF2's models declare
+zero, but a `physcannon`-style game, or `physics_prop_ragdoll`'s own
+`SetAxisFriction( -2, 2, 20 )`, would need the branch. It is recorded as "not transcribed because
+TF2 never reaches it", which is a different and weaker claim than "unreachable".
+
+**The other half of the gap is what makes this checkable:** the friction census lives in
+`ragdoll-constraints`, runs the production `PhysicsModel` reader over the whole archive, and carries
+`solid` and `ragdollconstraint` as controls — so if a future TF2 update ships a joint with friction,
+re-running one probe says so instead of the corpse quietly simulating wrong.
+
+*Evidence class: read from the decompiled binary — both solve routines decompiled in full for this
+pass rather than quoted from earlier notes, with every constant dumped four lanes at a time; the
+negative — that no other writer of the gate byte exists — is bounded by the search above and is
+flagged as such rather than claimed exhaustively.*
+
+## Correction: `geom+0x100/0x104/0x108` are the three JOINT ANGLES, not relaxation weights
+
+**Recorded twice above as "each axis is handed its own scalar", read "in a permuted order" and
+taken for a per-axis relaxation weight.** They are the angles. `FUN_180038620` writes all four lanes
+immediately before dispatching:
+
+```c
+uVar13 = FUN_180036b80(&local_148,&local_158);          // the four-lane atan2
+param_3[0x40] = … (DAT_1800ff070 - (float)uVar13) & _DAT_1800ff100 …;   // +0x100
+param_3[0x41] = …;   param_3[0x42] = …;   param_3[0x43] = …;            // +0x104, +0x108, +0x10c
+FUN_180036e10(param_1,param_2,(longlong)param_3);
+```
+
+and `FUN_180036e10` broadcasts one of them per axis — `+0x100` to the routine at `flags+0xb0`,
+`+0x108` to `flags+0xe8`, `+0x104` to `flags+0xcc`. That is the same permutation already known from
+`constraint_ragdollparams_t`, and it is the ANGLES being permuted, not weights.
+
+**Which relocates the relaxation weight.** It is not `param_8` — that is the constraint descriptor
+at `+0x2d0`, handed scaled to the twist axis and unscaled to the two swings. The weight arrives in
+`param_1`, the per-sweep vector the group driver builds, and reaches the scale as `param_1[1]`:
+
+```c
+fVar23 = fVar24 * *param_8 * fVar23 * param_2[0x14];
+//       └ +0xc ┘ └ +0x2d0 ┘ └ p1[1] ┘  └ 1/K ┘
+```
+
+**How the driver composes that vector from the weight and the timestep is NOT established.**
+
+### And only ONE of the three axes is measured as an angle
+
+The four lanes are not four copies of the atan2. Two dumped masks pick a different quantity per
+lane — `_DAT_1800ff100` = `{~0,0,0,0}` and `_DAT_1800ff120` = `{0,0,~0,0}` — so:
+
+| slot | axis solved | what it holds |
+|---|---|---|
+| `+0x100` | `flags+0xb0`, via `FUN_180036f80` | `0 − atan2(…)`, a true angle |
+| `+0x104` | `flags+0xcc`, via `FUN_1800372c0` | `fVar17`, a dot product |
+| `+0x108` | `flags+0xe8`, via `FUN_1800372c0` | `fVar21`, a different dot product |
+
+**So the twist limit is compared in radians and the two swing limits are compared against
+projections.** That is consistent with the two-routines-are-genuinely-different reading already
+recorded — the difference is not only relaxation and gains, it is the QUANTITY being limited.
+
+**What this opens, and it is not closed:** `constraint_ragdollparams_t::axes[]` carries
+`minRotation`/`maxRotation` in DEGREES, and `FUN_180037890` has the `±0.017453292` conversion beside
+the 2π disable. A bound in radians cannot be compared against a dot product, so either that function
+converts the two swing bounds differently or the projections are scaled somewhere not yet read.
+**Guessing it would give two joints that clamp at the wrong deflection with nothing in the output to
+say so**, which is exactly the failure this document exists to avoid — so it is recorded as the next
+thing to read rather than filled in.
+
+*Evidence class: read from the decompiled binary for the write site, the dispatch order and the
+per-lane selection, with both lane masks dumped; the bound conversion for the two projection axes is
+OPEN.*

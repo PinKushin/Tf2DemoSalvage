@@ -101,6 +101,22 @@ public sealed class RagdollConstraintProbe : IProbe
         int scanDisagreed = 0;
         List<string> jointsWithoutRules = [];
 
+        // **The census that decides whether half of vphysics' constraint solve runs at all.** Both
+        // solve routines are dominated by a spring/friction branch gated on a byte that
+        // `FUN_18000eac0` sets from `(virtualCall * torque) != 0`, and `SetAxisFriction( rmin, rmax,
+        // friction )` puts this number straight into `torque` with the angular velocity left at
+        // zero (`constraints.h:68-74`). So a corpus of zeroes means that branch never executes for
+        // a TF2 corpse and the whole solve is a limit clamp — which is what got transcribed.
+        //
+        // **Counted rather than assumed from one file.** The first constraint of the first model
+        // reads zero on all three axes, and one constraint is not a census: `physics_prop_ragdoll`
+        // ships `SetAxisFriction( -2, 2, 20 )` in Valve's own code, so a nonzero is entirely
+        // possible and would make the transcription wrong.
+        int axesCounted = 0;
+        int axesWithFriction = 0;
+        float largestFriction = 0f;
+        string largestFrictionModel = string.Empty;
+
         foreach (string path in paths)
         {
             if (archive.ReadFile(path) is not { Length: >= HeaderSize } bytes)
@@ -138,6 +154,25 @@ public sealed class RagdollConstraintProbe : IProbe
             if (joints > 0 && Occurrences(tail, "collisionrules {") == 0)
             {
                 jointsWithoutRules.Add(Path.GetFileName(path));
+            }
+
+            foreach (float friction in physics.Constraints
+                .SelectMany(joint => new[] { joint.X.Friction, joint.Y.Friction, joint.Z.Friction }))
+            {
+                axesCounted++;
+
+                if (friction == 0f)
+                {
+                    continue;
+                }
+
+                axesWithFriction++;
+
+                if (Math.Abs(friction) > Math.Abs(largestFriction))
+                {
+                    largestFriction = friction;
+                    largestFrictionModel = Path.GetFileName(path);
+                }
             }
 
             foreach (string block in blocks.Keys.ToList())
@@ -220,6 +255,16 @@ public sealed class RagdollConstraintProbe : IProbe
                     CultureInfo.InvariantCulture,
                     $"  {jointsWithoutRules.Count} model(s) have joints and NO collisionrules: " +
                     $"{string.Join(", ", jointsWithoutRules)}"));
+
+        string frictionNote = axesWithFriction == 0
+            ? " — so vphysics' spring/friction branch never runs on these models."
+            : string.Create(
+                CultureInfo.InvariantCulture,
+                $"; largest {largestFriction} on {largestFrictionModel}.");
+
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"  {axesWithFriction} of {axesCounted} joint axes declare a nonzero friction{frictionNote}"));
 
         output.WriteLine(
             scanDisagreed == 0
