@@ -164,6 +164,50 @@ public sealed class DetailPropConformanceTests
     }
 
     /// <remarks>
+    /// **A dictionary that exactly fills the payload leaves no room for the next count.** Reading
+    /// one anyway throws out of the span as an `ArgumentOutOfRangeException`, which is not what a
+    /// caller catches: `MapAssets` handles `InvalidDataException` and lets everything else escape,
+    /// so a malformed map would take the whole load down rather than costing itself its grass.
+    ///
+    /// The payload here is a count of one model name and exactly that name — no more.
+    /// </remarks>
+    [Test]
+    public void ReadPayload_ADictionaryThatFillsThePayload_IsRefusedAsMalformedData()
+    {
+        byte[] truncated = new byte[sizeof(int) + NameBytes];
+
+        BinaryPrimitives.WriteInt32LittleEndian(truncated, 1);
+
+        Should.Throw<System.IO.InvalidDataException>(
+            () => BspDetailProps.ReadPayload(truncated));
+    }
+
+    /// <remarks>
+    /// **A count near 2^32/128 wraps a 32-bit product to a SMALL positive offset**, which then
+    /// passes a bounds check and puts the reader inside a model name rather than on the sprite
+    /// count — a plausible, silent, wrong answer rather than a refusal. 33,554,433 times 128 is
+    /// 2^32 + 128, so the wrapped offset is 132 and the payload below is long enough to hold it.
+    ///
+    /// <see cref="BspDetailProps.Count"/> is the entry point that skips the dictionaries without
+    /// reading them, so it is the one where the arithmetic has to be widened.
+    ///
+    /// **A distinctive number is planted where the WRAPPED walk would land**, because a payload of
+    /// zeros would report zero under either reading and the test could not fail. Wrapped, the model
+    /// dictionary ends at 132, the sprite count read there is 0, and the object count is read at
+    /// 136 — so 4,242 sitting at 136 is what a 32-bit multiply returns and a 64-bit one never sees.
+    /// </remarks>
+    [Test]
+    public void Count_AModelCountThatOverflowsItsOwnStride_ReportsNothing()
+    {
+        byte[] payload = new byte[1024];
+
+        BinaryPrimitives.WriteInt32LittleEndian(payload, 33_554_433);
+        BinaryPrimitives.WriteInt32LittleEndian(payload.AsSpan(136), 4_242);
+
+        BspDetailProps.Count(payload).ShouldBe(0);
+    }
+
+    /// <remarks>
     /// The control: a payload declaring nothing at all is a map with no detail props, which is an
     /// ordinary state — `koth_viaduct` measures exactly zero — and must not throw.
     /// </remarks>

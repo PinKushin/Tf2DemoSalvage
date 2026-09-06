@@ -159,3 +159,4 @@
 - [Correct counts are not a chain of custody](correct-counts-are-not-a-chain-of-custody.md) — six green, nothing drawn.
 - [Point the camera from the data](point-the-camera-from-the-data.md) — eight guessed cameras hit walls.
 - [A flag with no field is set by the loop](a-flag-with-no-field-is-set-by-the-loop.md) — absence from the struct proves nothing.
+- [Two margins are not the table](two-margins-are-not-the-table.md) — print the cross; read every column.

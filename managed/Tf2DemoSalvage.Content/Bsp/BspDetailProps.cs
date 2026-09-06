@@ -200,18 +200,32 @@ public static class BspDetailProps
 
         int names = BinaryPrimitives.ReadInt32LittleEndian(payload);
 
-        at = sizeof(int) + (names * NameBytes);
+        // **Widened to 64 bits before multiplying, because a .bsp is a stranger's file** (D32).
+        // A count near 2^32/128 wraps a 32-bit product to a SMALL positive offset, which then
+        // passes every bounds check and puts the reader inside a name rather than on the sprite
+        // count — an answer that is plausible, silent and wrong. `Require` below already does the
+        // arithmetic this way; these two lines did not, three lines apart in one file.
+        long after = sizeof(int) + ((long)names * NameBytes);
 
-        if (names < 0 || at < 0 || at + sizeof(int) > payload.Length)
+        if (names < 0 || after + sizeof(int) > payload.Length)
         {
             return false;
         }
 
+        at = (int)after;
+
         int sprites = BinaryPrimitives.ReadInt32LittleEndian(payload[at..]);
 
-        at += sizeof(int) + (sprites * SpriteBytes);
+        after += sizeof(int) + ((long)sprites * SpriteBytes);
 
-        return sprites >= 0 && at >= 0 && at <= payload.Length;
+        if (sprites < 0 || after > payload.Length)
+        {
+            return false;
+        }
+
+        at = (int)after;
+
+        return true;
     }
 
     /// <summary>The same, from a payload already located and decompressed.</summary>
@@ -246,12 +260,16 @@ public static class BspDetailProps
 
             int end = name.IndexOf((byte)0);
 
-            models.Add(Encoding.ASCII.GetString(end < 0 ? name : name[..end]));
+            // **UTF-8 rather than ASCII, as every string in this project is** and as
+            // `BspStaticProps.ReadDictionary` already does for the identical field shape. A path is
+            // a path whatever the mapper's keyboard produced; ASCII replaces what it cannot read
+            // with a question mark, so the model silently never resolves.
+            models.Add(Encoding.UTF8.GetString(end < 0 ? name : name[..end]));
         }
 
         int at = sizeof(int) + (nameCount * NameBytes);
 
-        int spriteCount = BinaryPrimitives.ReadInt32LittleEndian(payload[at..]);
+        int spriteCount = ReadCount(payload, at, "sprite");
 
         Require(spriteCount, SpriteBytes, at + sizeof(int), payload.Length, "sprites");
 
@@ -272,7 +290,7 @@ public static class BspDetailProps
 
         at += spriteCount * SpriteBytes;
 
-        int objectCount = BinaryPrimitives.ReadInt32LittleEndian(payload[at..]);
+        int objectCount = ReadCount(payload, at, "object");
 
         Require(objectCount, ObjectBytes, at + sizeof(int), payload.Length, "objects");
 
@@ -315,6 +333,25 @@ public static class BspDetailProps
     }
 
     /// <summary>Refuses a count that does not fit, naming what was being read.</summary>
+    /// <summary>One counted array's length, refusing a payload that ends before it.</summary>
+    /// <remarks>
+    /// **A dictionary that exactly fills the payload leaves no room for the next count**, and
+    /// reading one anyway throws `ArgumentOutOfRangeException` out of the span — which is not the
+    /// exception a caller catches. `MapAssets` handles `InvalidDataException` and lets everything
+    /// else escape, so a malformed map would take the whole load down rather than costing itself
+    /// its grass. D32: a .bsp is a stranger's file and refusing it is part of reading it.
+    /// </remarks>
+    private static int ReadCount(ReadOnlySpan<byte> payload, int at, string what)
+    {
+        if (at < 0 || at + sizeof(int) > payload.Length)
+        {
+            throw new InvalidDataException(
+                $"The detail prop lump ends before its {what} count.");
+        }
+
+        return BinaryPrimitives.ReadInt32LittleEndian(payload[at..]);
+    }
+
     private static void Require(int count, int stride, int from, int length, string what)
     {
         if (count < 0 || from + ((long)count * stride) > length)

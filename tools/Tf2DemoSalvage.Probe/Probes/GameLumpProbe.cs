@@ -142,6 +142,27 @@ public sealed class GameLumpProbe : IProbe
                     byOrientation.TryGetValue(orientation, out int seen) ? seen + 1 : 1;
             }
 
+            // **Crossed with the type, because the two are not the same split and the difference
+            // decides what is drawn.** `koth_harvest_final` is 28,699 sprites of which 20,117 are
+            // fixed; `cp_granary` is 19,189 sprites of which NONE are, plus 324 models. Reporting
+            // the two margins separately made granary look like a map with 324 fixed sprites.
+            Dictionary<(DetailPropType Type, int Orientation), int> crossed = [];
+
+            foreach (BspDetailProp prop in objects)
+            {
+                (DetailPropType, int) key = (prop.Type, prop.Orientation);
+
+                crossed[key] = crossed.TryGetValue(key, out int both) ? both + 1 : 1;
+            }
+
+            foreach (((DetailPropType type, int orientation), int count) in
+                crossed.OrderByDescending(entry => entry.Value))
+            {
+                output.WriteLine(
+                    $"        {type} at orientation {orientation.ToString(CultureInfo.InvariantCulture)}: " +
+                    count.ToString("N0", CultureInfo.InvariantCulture));
+            }
+
             foreach ((int orientation, int count) in byOrientation)
             {
                 string named = orientation switch
@@ -185,30 +206,37 @@ public sealed class GameLumpProbe : IProbe
                 output.WriteLine($"        model '{model}'");
             }
 
-            // **Where to point a camera.** A count says the lump was read; it says nothing about
-            // whether the quads land on the ground somebody can look at. The densest 512-unit cell
-            // is the one place a screenshot is guaranteed to contain grass, and reporting it beats
-            // guessing at a map's layout from a picture.
+            // **Type and orientation are different questions and correlate differently per map**,
+            // which is a trap this probe walked into: on `cp_granary` every fixed-orientation
+            // object is a MODEL and every SPRITE is screen-aligned, so selecting on orientation
+            // alone reported models as sprites — and printed `m_flScale`, which a model does not
+            // use, as −181,657,600. Selecting on the TYPE is what these two lines are about.
             Dictionary<(int X, int Y), int> cells = [];
 
-            foreach ((float x, float y, float _) in
-                objects.Where(prop => prop.Orientation == 0).Select(prop => prop.Origin))
+            foreach ((float x, float y, float _) in objects
+                .Where(prop => prop.Type == DetailPropType.Sprite)
+                .Select(prop => prop.Origin))
             {
                 (int X, int Y) cell = ((int)(x / 512f), (int)(y / 512f));
 
                 cells[cell] = cells.TryGetValue(cell, out int seen) ? seen + 1 : 1;
             }
 
+            // **Where to point a camera.** A count says the lump was read; it says nothing about
+            // whether the quads land on the ground somebody can look at. The densest 512-unit cell
+            // is the one place a screenshot is guaranteed to contain grass, and reporting it beats
+            // guessing at a map's layout from a picture.
             foreach (((int x, int y), int count) in
                 cells.OrderByDescending(cell => cell.Value).Take(3))
             {
                 output.WriteLine(
-                    $"        densest fixed-orientation cell {(x * 512).ToString(CultureInfo.InvariantCulture)} " +
+                    $"        densest sprite cell {(x * 512).ToString(CultureInfo.InvariantCulture)} " +
                     $"{(y * 512).ToString(CultureInfo.InvariantCulture)}: " +
                     count.ToString("N0", CultureInfo.InvariantCulture) + " sprites");
             }
 
-            foreach (BspDetailProp prop in objects.Where(prop => prop.Orientation == 0).Take(3))
+            foreach (BspDetailProp prop in
+                objects.Where(prop => prop.Type == DetailPropType.Sprite).Take(3))
             {
                 output.WriteLine(
                     $"        sprite {prop.DetailModel.ToString(CultureInfo.InvariantCulture)} at " +

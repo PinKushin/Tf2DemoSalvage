@@ -1,5 +1,7 @@
 using System.Collections.Generic;
 
+using Tf2DemoSalvage.Content.Bsp;
+
 namespace Tf2DemoSalvage.Scene;
 
 /// <summary>Somewhere to put a level's world geometry and its textures.</summary>
@@ -61,6 +63,21 @@ public interface IWorldUpload
     /// which reads as a rendering fault rather than as a missing asset.
     /// </remarks>
     public void SetSkyFaces(IReadOnlyList<MapTexture?> faces);
+
+    /// <summary>The map's detail props — the grass (B361).</summary>
+    /// <param name="props">The detail props, from the <c>dprp</c> game lump.</param>
+    /// <param name="rectangles">The sprite dictionary they index.</param>
+    /// <param name="sheet">The one material they are all drawn from, or null.</param>
+    /// <remarks>
+    /// **Handed over as DATA rather than as geometry**, unlike everything else on this interface. A
+    /// detail sprite's quad depends on where the eye is — its alpha is a distance fade and two of
+    /// the three orientations turn toward the view — so there is nothing to upload at map load and
+    /// the quads are rebuilt when the camera moves.
+    /// </remarks>
+    public void SetDetailProps(
+        IReadOnlyList<BspDetailProp> props,
+        IReadOnlyList<BspDetailSprite> rectangles,
+        MapTexture? sheet);
 
     /// <summary>Points the world at a camera.</summary>
     /// <param name="matrix">The view-projection, row major, sixteen floats.</param>
