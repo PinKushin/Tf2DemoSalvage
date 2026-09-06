@@ -1,0 +1,270 @@
+using System;
+
+namespace Tf2DemoSalvage.Animation.Animating;
+
+/// <summary>
+/// One rigid body's state, as <c>IVP_Core</c> holds it (B58, D142, D146).
+/// </summary>
+/// <remarks>
+/// **Field for field from the decompiled binary**, with each offset recorded so a later reader can
+/// check it rather than trust this list:
+///
+/// | offset | field |
+/// |---|---|
+/// | `+0x20/0x24/0x28` | inertia about each axis |
+/// | `+0x40/0x44/0x48` | its reciprocals (INFERRED — the division was not found) |
+/// | `+0x4c` | inverse mass |
+/// | `+0x130/0x134/0x138` | angular velocity |
+/// | `+0x140/0x144/0x148` | linear velocity |
+/// | `+0x150/0x158/0x160` | position, as DOUBLES |
+/// | `+0x170/0x174/0x178` | the previous step's linear velocity |
+/// | `+0x180..0x198` | the orientation everything outside reads |
+/// | `+0x1a0..0x1b8` | the orientation the integrator works in |
+/// | `+0x1d0` | the absolute time this body was last stepped |
+///
+/// **Position is double and velocity is float, and that is not an oversight to tidy up.** A corpse
+/// accumulates position over thousands of steps and its velocity is rewritten every one, so the
+/// engine spends the precision where it accumulates. Flattening both to float drifts; both to
+/// double diverges from the engine's own rounding.
+///
+/// **Two of these fields exist so that what is READ lags what is COMPUTED**, by exactly one step —
+/// see <see cref="IvpIntegrator.Step"/>.
+/// </remarks>
+public sealed class IvpRigidBody
+{
+    /// <summary>Where the body is — <c>core+0x150/0x158/0x160</c>, in doubles.</summary>
+    public (double X, double Y, double Z) Position { get; set; }
+
+    /// <summary>How fast it is moving — <c>core+0x140/0x144/0x148</c>.</summary>
+    public (float X, float Y, float Z) Velocity { get; set; }
+
+    /// <summary>What <see cref="Velocity"/> was last step — <c>core+0x170/0x174/0x178</c>.</summary>
+    /// <remarks>
+    /// **This is what moves the body, not <see cref="Velocity"/>**, which is why it is a field
+    /// rather than a local. See <see cref="IvpIntegrator.Step"/>.
+    /// </remarks>
+    public (float X, float Y, float Z) PreviousVelocity { get; set; }
+
+    /// <summary>How fast it is turning — <c>core+0x130/0x134/0x138</c>, radians per second.</summary>
+    public (float X, float Y, float Z) AngularVelocity { get; set; }
+
+    /// <summary>The orientation everything outside the solver reads — <c>core+0x180</c>.</summary>
+    /// <remarks>**One step behind <see cref="WorkingOrientation"/>, deliberately.**</remarks>
+    public (float X, float Y, float Z, float W) Orientation { get; set; } = (0f, 0f, 0f, 1f);
+
+    /// <summary>The orientation the integrator advances — <c>core+0x1a0</c>.</summary>
+    public (float X, float Y, float Z, float W) WorkingOrientation { get; set; } = (0f, 0f, 0f, 1f);
+
+    /// <summary>Rotational inertia about each axis — <c>core+0x20/0x24/0x28</c>.</summary>
+    public (float X, float Y, float Z) Inertia { get; set; } = (1f, 1f, 1f);
+
+    /// <summary>Its reciprocal — <c>core+0x40/0x44/0x48</c>.</summary>
+    /// <remarks>
+    /// **That these hold reciprocals is INFERRED**, not read: it is what makes the free-rotation
+    /// expression equal Euler's torque-free equations, and it matches the inverse mass living at
+    /// `+0x4c` in the same block — but the division that produces them was not found in the binary.
+    /// </remarks>
+    public (float X, float Y, float Z) InverseInertia { get; set; } = (1f, 1f, 1f);
+
+    /// <summary>When this body was last stepped — <c>core+0x1d0</c>, absolute.</summary>
+    public double LastStepped { get; set; }
+}
+
+/// <summary>
+/// IVP's per-core integration step — <c>FUN_180099a00</c> (B58, D142, D146).
+/// </summary>
+/// <remarks>
+/// **Transcribed from the decompiled body, not designed.** `src/vphysics` ships no source, so this
+/// is the one part of a corpse that had to be read out of `vphysics.dll` rather than out of the SDK
+/// — and the reason to transcribe rather than write a plausible Euler integrator is that a
+/// plausible one produces a corpse that settles somewhere else, silently.
+///
+/// **The chain above it:** the PSI event `FUN_18008a020` runs the pipeline `FUN_180082560`, which
+/// assembles islands in `FUN_180090700`, and `FUN_1800909d0` calls this once per awake core in each.
+///
+/// **Everything a viewer reads is one step old, and it is old in the same way twice.** Position
+/// integrates against the PREVIOUS step's velocity, and the visible orientation is the PREVIOUS
+/// step's working one. Get either backwards and the corpse draws a step ahead of TF2.
+/// </remarks>
+public static class IvpIntegrator
+{
+    /// <summary>Advances one body by one step.</summary>
+    /// <param name="body">The body.</param>
+    /// <param name="positionDelta">
+    /// Seconds since this body was last stepped — <c>env+0x188 − core+0x1d0</c>, which is NOT the
+    /// same number as <paramref name="orientationDelta"/>.
+    /// </param>
+    /// <param name="orientationDelta">
+    /// The island's nominal step — <c>env+0x190 − env+0x188</c>, shared by every core in it.
+    /// </param>
+    /// <exception cref="ArgumentNullException"><paramref name="body"/> is null.</exception>
+    /// <remarks>
+    /// **The order is the finding.** Verbatim, and every line of it matters:
+    ///
+    /// <code>
+    /// dVar9 = env[0x188] - core[0x1d0];  core[0x1d0] = env[0x188];        // per-core dt
+    /// core[0x150] += (double)core[0x170] * dVar9;                          // move by LAST velocity
+    /// core[0x160] += (double)core[0x178] * dVar9;
+    /// core[0x158] += (double)core[0x174] * dVar9;
+    /// core[0x170] = core[0x140];  core[0x174] = core[0x144];  core[0x178] = core[0x148];
+    /// core[0x180..0x198] = core[0x1a0..0x1b8];                             // commit, THEN integrate
+    /// FUN_180070d60(core+0x1a0, core+0x1a0, delta);
+    /// FUN_180070c60(core+0x1a0);
+    /// </code>
+    ///
+    /// - **A body does not move on the step its velocity was first set.** A ragdoll handed a
+    ///   velocity from its death animation stands still for one step and then goes.
+    /// - **The visible orientation is committed BEFORE the working one advances.** An earlier note
+    ///   in `docs/findings/51` had this the other way round; it would draw a corpse a step ahead.
+    /// - **Two different clocks.** A body that has been asleep catches its POSITION up in one long
+    ///   step while its ORIENTATION advances by one nominal step, because one dt is per core and the
+    ///   other is per island.
+    /// - **The per-core dt is narrowed to `float` before use** — `(double)(float)(dVar9 - dVar2)` —
+    ///   so the arithmetic runs at single precision even though both operands are doubles.
+    /// </remarks>
+    public static void Step(IvpRigidBody body, double positionDelta, float orientationDelta)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+
+        // `(double)(float)(env[0x188] - core[0x1d0])` — the difference is taken in double and then
+        // narrowed, so a long catch-up carries single-precision error exactly as the engine's does.
+        double delta = (float)positionDelta;
+
+        body.Position = (
+            body.Position.X + (body.PreviousVelocity.X * delta),
+            body.Position.Y + (body.PreviousVelocity.Y * delta),
+            body.Position.Z + (body.PreviousVelocity.Z * delta));
+
+        body.PreviousVelocity = body.Velocity;
+
+        // **Commit first.** What the rest of the engine reads is last step's working orientation.
+        body.Orientation = body.WorkingOrientation;
+
+        (float X, float Y, float Z, float W) turn = Rotate(body, orientationDelta);
+
+        body.WorkingOrientation =
+            IvpQuaternion.Normalise(IvpQuaternion.Product(body.WorkingOrientation, turn));
+    }
+
+    /// <summary>Builds a step's rotation and advances the angular velocity — <c>FUN_180099fc0</c>.</summary>
+    /// <param name="body">The body, whose angular velocity this updates.</param>
+    /// <param name="delta">The step, in seconds.</param>
+    /// <returns>The rotation to apply to the orientation.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="body"/> is null.</exception>
+    /// <remarks>
+    /// **Sub-steps when the turn is large**, then applies Euler's torque-free equations between each
+    /// one. The sub-step count and the free rotation are separate enough to test on their own — see
+    /// <see cref="SubSteps"/> and <see cref="FreeRotation"/>.
+    /// </remarks>
+    public static (float X, float Y, float Z, float W) Rotate(IvpRigidBody body, float delta)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+
+        int steps = SubSteps(body.AngularVelocity, delta);
+
+        float step = (float)((double)delta / steps);
+
+        (float X, float Y, float Z, float W) turn = IvpQuaternion.Delta(body.AngularVelocity, step);
+
+        body.AngularVelocity =
+            FreeRotation(body.AngularVelocity, body.Inertia, body.InverseInertia, step);
+
+        for (int index = 1; index < steps; index++)
+        {
+            turn = IvpQuaternion.Product(
+                turn, IvpQuaternion.Delta(body.AngularVelocity, step));
+
+            body.AngularVelocity =
+                FreeRotation(body.AngularVelocity, body.Inertia, body.InverseInertia, step);
+        }
+
+        return turn;
+    }
+
+    /// <summary>How many sub-steps a step's rotation is broken into.</summary>
+    /// <param name="angularVelocity">Radians per second about each axis.</param>
+    /// <param name="delta">The step, in seconds.</param>
+    /// <returns>At least one.</returns>
+    /// <remarks>
+    /// **Both constants were dumped rather than inferred from the shape of the arithmetic:**
+    ///
+    /// <code>
+    /// dVar10 = (double)(wy*wy + wx*wx + wz*wz) * dt * dt;
+    /// if (_DAT_1800fdf90 &lt; dVar10) {                       // DAT_1800fdf90 = 0.027777777777777776
+    ///     auVar13 = sqrtpd(dVar10 * _DAT_1800fdfa0, …);     // DAT_1800fdfa0 = 144.0
+    ///     iVar6 = (int)auVar13._0_8_ + 1;
+    ///     dVar11 = dVar11 / (double)iVar6;
+    /// }
+    /// </code>
+    ///
+    /// `0.0277…` is 1/36 and 144 is 12², so the test is `|ω|·dt &gt; 1/6` radian — about 9.55 degrees
+    /// of turn in one step — and the count is `floor( 12·|ω|·dt ) + 1`.
+    ///
+    /// **The comparison is strictly less-than**, so a turn of exactly 1/6 radian does not sub-step.
+    ///
+    /// **A transcription that stepped rotation once per PSI is right for a settling corpse and wrong
+    /// for a limb that is whipping** — which is the frame anyone watching a demo is looking at.
+    /// </remarks>
+    public static int SubSteps((float X, float Y, float Z) angularVelocity, float delta)
+    {
+        double square =
+            ((double)angularVelocity.X * angularVelocity.X) +
+            ((double)angularVelocity.Y * angularVelocity.Y) +
+            ((double)angularVelocity.Z * angularVelocity.Z);
+
+        double turn = square * delta * delta;
+
+        return SubStepThreshold < turn ? (int)Math.Sqrt(turn * SubStepScale) + 1 : 1;
+    }
+
+    /// <summary>Euler's torque-free equations for one step.</summary>
+    /// <param name="angularVelocity">Radians per second about each axis.</param>
+    /// <param name="inertia">Rotational inertia about each axis.</param>
+    /// <param name="inverseInertia">Its reciprocal.</param>
+    /// <param name="delta">The step, in seconds.</param>
+    /// <returns>The angular velocity after the step.</returns>
+    /// <remarks>
+    /// **All three axes read the OLD angular velocity**, which the decompiled body arranges by
+    /// precomputing the cross products it needs before writing any of them back:
+    ///
+    /// <code>
+    /// fVar17 = local_110 * local_118;    // wz * wx, the OLD wx
+    /// fVar18 = local_114 * local_118;    // wy * wx, the OLD wx
+    /// local_118 = (local_110 * local_114 * fVar9) * dVar11 + local_118;
+    /// local_114 = (fVar17 * fVar16) * dVar11 + local_114;
+    /// local_110 = (fVar18 * fVar15) * dVar11 + local_110;
+    /// </code>
+    ///
+    /// **It is a simultaneous update.** Writing the three in sequence — which is what anyone would
+    /// do — feeds the new `ωx` into `ωy` and both into `ωz`, and the error grows with the timestep.
+    ///
+    /// **The coefficients pair each difference with the reciprocal of the axis being written:**
+    /// `(Iy − Iz)·(1/Ix)`, `(Iz − Ix)·(1/Iy)`, `(Ix − Iy)·(1/Iz)`.
+    /// </remarks>
+    public static (float X, float Y, float Z) FreeRotation(
+        (float X, float Y, float Z) angularVelocity,
+        (float X, float Y, float Z) inertia,
+        (float X, float Y, float Z) inverseInertia,
+        float delta)
+    {
+        float aboutX = (inertia.Y - inertia.Z) * inverseInertia.X;
+        float aboutY = (inertia.Z - inertia.X) * inverseInertia.Y;
+        float aboutZ = (inertia.X - inertia.Y) * inverseInertia.Z;
+
+        // Every product is taken from the values passed in, never from a partly updated triple.
+        float yz = angularVelocity.Z * angularVelocity.Y;
+        float zx = angularVelocity.Z * angularVelocity.X;
+        float yx = angularVelocity.Y * angularVelocity.X;
+
+        return (
+            (float)(((double)(yz * aboutX) * delta) + angularVelocity.X),
+            (float)(((double)(zx * aboutY) * delta) + angularVelocity.Y),
+            (float)(((double)(yx * aboutZ) * delta) + angularVelocity.Z));
+    }
+
+    /// <summary><c>DAT_1800fdf90</c>, dumped — 1/36, so the test is on 1/6 radian.</summary>
+    private const double SubStepThreshold = 0.027777777777777776d;
+
+    /// <summary><c>DAT_1800fdfa0</c>, dumped — 144, which is 12 squared.</summary>
+    private const double SubStepScale = 144d;
+}
