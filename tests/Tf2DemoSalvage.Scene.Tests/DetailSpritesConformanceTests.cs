@@ -78,11 +78,9 @@ public sealed class DetailSpritesConformanceTests
     /// <remarks>
     /// **Valve swaps the horizontal texture coordinates when the sprite is NOT flipped**
     /// (<c>detailobjectsystem.cpp:1057</c>), which reads backwards and is what the engine does.
-    /// `m_bFlipped` is set by a parameter to `InitSprite` and is not a field of the lump, so every
-    /// sprite read from a map takes the unflipped branch and the swap always applies.
     /// </remarks>
     [Test]
-    public void Build_ASpriteFromAMap_SwapsItsHorizontalTextureCoordinates()
+    public void Build_AnUnflippedSprite_SwapsItsHorizontalTextureCoordinates()
     {
         List<PropVertex> world = [];
 
@@ -93,6 +91,24 @@ public sealed class DetailSpritesConformanceTests
         (world[1].U, world[1].V).ShouldBe((0.5f, 0.25f));
         (world[2].U, world[2].V).ShouldBe((0f, 0.25f));
         (world[5].U, world[5].V).ShouldBe((0f, 0f));
+    }
+
+    /// <remarks>
+    /// **The control for the swap, and it is the case that was shipped wrong.** `m_bFlipped` is not
+    /// a field of the lump — `UnserializeModels` toggles it at the top of every iteration
+    /// (<c>detailobjectsystem.cpp:1771-1774</c>) — so every second detail object is mirrored, and a
+    /// builder that swapped unconditionally would draw half a map's grass facing the wrong way.
+    /// Without this case, "swaps" and "always swaps" are the same observation.
+    /// </remarks>
+    [Test]
+    public void Build_AFlippedSprite_KeepsItsHorizontalTextureCoordinatesAsRead()
+    {
+        List<PropVertex> world = [];
+
+        DetailSprites.Build([Prop(angles: (0f, 0f, 0f), flipped: true)], [Sprite()], Material, world);
+
+        (world[0].U, world[0].V).ShouldBe((0f, 0f));
+        (world[2].U, world[2].V).ShouldBe((0.5f, 0.25f));
     }
 
     /// <remarks>
@@ -256,7 +272,8 @@ public sealed class DetailSpritesConformanceTests
         float scale = 1f,
         int sprite = 0,
         DetailPropType type = DetailPropType.Sprite,
-        (float Red, float Green, float Blue) lighting = default) =>
+        (float Red, float Green, float Blue) lighting = default,
+        bool flipped = false) =>
         new((0f, 0f, 0f), angles, sprite, Leaf: 0, type, orientation,
-            SwayAmount: 0, ShapeAngle: 0, ShapeSize: 0, scale, lighting);
+            SwayAmount: 0, ShapeAngle: 0, ShapeSize: 0, scale, lighting, flipped);
 }

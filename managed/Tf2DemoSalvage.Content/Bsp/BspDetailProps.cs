@@ -41,6 +41,17 @@ public enum DetailPropType
 /// has no lightmap — it is a loose quad — so this is the only light it has, and drawing them white
 /// puts a field of glowing grass on a map at dusk.
 /// </param>
+/// <param name="Flipped">
+/// Whether the engine mirrors this sprite horizontally — <b>not a field of the lump</b>.
+/// <c>UnserializeModels</c> declares <c>bool bFlipped = true;</c> before the loop and toggles it at
+/// the TOP of every iteration (<c>detailobjectsystem.cpp:1771-1774</c>), so it alternates by
+/// position in the file and the first object is <c>false</c>. It counts every object, models
+/// included, rather than every sprite.
+///
+/// **It is decoded here because it is a fact about the file's ORDER**, which a consumer handed a
+/// list can only re-derive by knowing it was never filtered. Getting it wrong draws every blade of
+/// grass facing the same way where TF2 alternates them, and half a map's sprites are mirrored.
+/// </param>
 public readonly record struct BspDetailProp(
     (float X, float Y, float Z) Origin,
     (float Pitch, float Yaw, float Roll) Angles,
@@ -52,7 +63,8 @@ public readonly record struct BspDetailProp(
     byte ShapeAngle,
     byte ShapeSize,
     float Scale,
-    (float Red, float Green, float Blue) Lighting = default);
+    (float Red, float Green, float Blue) Lighting = default,
+    bool Flipped = false);
 
 /// <summary>One entry of the sprite sheet — <c>DetailSpriteDictLump_t</c>.</summary>
 /// <param name="UpperLeft">The quad's upper-left corner, in world units about the origin.</param>
@@ -291,7 +303,12 @@ public static class BspDetailProps
                 entry[38],
                 entry[39],
                 Float(entry[48..]),
-                Colour(entry[28..])));
+                Colour(entry[28..]),
+
+                // **Alternating, and the first object is NOT flipped.** `bFlipped` starts true and
+                // is toggled at the top of each iteration, so object 0 is false, object 1 is true,
+                // and so on — see the remarks on the parameter.
+                (index % 2) == 1));
         }
 
         return (models, sprites, objects);

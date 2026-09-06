@@ -40,8 +40,17 @@ namespace Tf2DemoSalvage.Scene;
 ///   }
 /// </code>
 ///
-/// `m_bFlipped` is a bit set from a parameter to `InitSprite` and is not in the lump, so every
-/// sprite read from a file takes the unflipped branch — the swap always applies here.
+/// **`m_bFlipped` is not in the lump: it ALTERNATES.** `UnserializeModels` declares
+/// `bool bFlipped = true;` before the loop and toggles it at the top of every iteration
+/// (`detailobjectsystem.cpp:1771-1774`), counting every object rather than every sprite, so the
+/// first is unflipped and every second one after it is mirrored. The engine keeps a second
+/// dictionary with the x coordinates already swapped (`m_DetailSpriteDictFlipped`,
+/// `detailobjectsystem.cpp:1621`) and reaches for it under the same `!bFlipped` test, which is why
+/// the two mechanisms look different and are one.
+///
+/// This was shipped applying the swap unconditionally, which mirrors half a map's grass the wrong
+/// way — an error nothing in a picture would name, since a mirrored blade of grass is a blade of
+/// grass. `BspDetailProp.Flipped` carries it now.
 ///
 /// **Only <c>DETAIL_PROP_ORIENT_NORMAL</c> is built.** The two screen-aligned orientations have
 /// their angles recomputed every frame from the view position
@@ -141,9 +150,11 @@ public static class DetailSprites
         (float X, float Y, float Z) alongX = (right.X * width, right.Y * width, right.Z * width);
         (float X, float Y, float Z) alongY = (up.X * height, up.Y * height, up.Z * height);
 
-        // The swap, which applies to every sprite read from a file — see the remarks on m_bFlipped.
-        float texLeft = sprite.TextureLowerRight.X;
-        float texRight = sprite.TextureUpperLeft.X;
+        // **The swap, applied to every OTHER sprite** — see the remarks on `m_bFlipped`. The flag
+        // alternates by position in the lump rather than being stored in it, so a builder that
+        // swapped unconditionally would mirror half the map's grass the wrong way.
+        float texLeft = prop.Flipped ? sprite.TextureUpperLeft.X : sprite.TextureLowerRight.X;
+        float texRight = prop.Flipped ? sprite.TextureLowerRight.X : sprite.TextureUpperLeft.X;
         float texTop = sprite.TextureUpperLeft.Y;
         float texBottom = sprite.TextureLowerRight.Y;
 

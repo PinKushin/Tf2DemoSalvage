@@ -24605,9 +24605,14 @@ order — so keeping the scan is declining to assume an ordering the format does
 
 - `AngleVectors( m_Angles, NULL, &dx, &dy )` asks for **right and up**, not forward. Reading the
   first output as forward builds every quad in the wrong plane, which looks like grass lying flat.
-- The horizontal texture coordinates are swapped when the sprite is **NOT** flipped. `m_bFlipped` is
-  a parameter to `InitSprite` and is not in the lump, so every sprite read from a map takes that
-  branch and the swap always applies.
+- The horizontal texture coordinates are swapped when the sprite is **NOT** flipped, and `m_bFlipped`
+  is not in the lump — it ALTERNATES. `UnserializeModels` declares `bool bFlipped = true;` before its
+  loop and toggles it at the top of every iteration (`detailobjectsystem.cpp:1771`), counting every
+  OBJECT rather than every sprite, so object 0 is unflipped and every second one after it is
+  mirrored. **This shipped wrong** — the swap was applied unconditionally, which mirrors half a map's
+  grass the wrong way, and nothing in a picture would have named it. Corrected the same day, with the
+  flag carried on `BspDetailProp.Flipped` because it is a fact about the file's ORDER that a consumer
+  handed a list cannot re-derive.
 - The rectangle's `ul.y` is 16 and its `lr.y` is 0, so the first corner is displaced UPWARD and the
   quad's height is negative: it grows from the top down to the ground.
 
