@@ -161,3 +161,4 @@
 - [A flag with no field is set by the loop](a-flag-with-no-field-is-set-by-the-loop.md) — absence from the struct proves nothing.
 - [Two margins are not the table](two-margins-are-not-the-table.md) — print the cross; read every column.
 - [Absent from the SDK is not unreadable](absent-from-the-sdk-is-not-unreadable.md) — ask which binary ships it.
+- [IVP is a third convention](ivp-is-a-third-convention.md) — axes, units and transpose, all at once.
