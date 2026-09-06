@@ -211,6 +211,31 @@ public sealed record ViewerSettings
     /// </remarks>
     public const string ThreeDimensionalSkyCommand = "r_3dsky";
 
+    /// <summary>Command name for how far detail props are drawn.</summary>
+    /// <remarks>
+    /// **Valve's name and Valve's default** —
+    /// <c>ConVar cl_detaildist( "cl_detaildist", "1200", 0, "Distance at which detail props are no
+    /// longer visible" );</c>, <c>detailobjectsystem.cpp:52</c>.
+    ///
+    /// **A setting rather than a constant, because the game's own quality configs move it a long
+    /// way** (`docs/memory/a-default-is-not-a-constant.md`). `tf/cfg/low.cfg` sets it to **0**,
+    /// which draws no detail props at all, and `tf/cfg/ultra.cfg` sets it to **8592** — seven times
+    /// the default. A user pasting either of those in gets what TF2 gives them, which is the whole
+    /// of D69.
+    ///
+    /// **Config-only, with no bind**, because TF2 gives it none — the first of the three tiers in
+    /// `docs/memory/not-every-setting-needs-a-bind.md`.
+    /// </remarks>
+    public const string DetailDistanceCommand = "cl_detaildist";
+
+    /// <summary>Command name for how wide the band is that detail props fade across.</summary>
+    /// <remarks>
+    /// <c>ConVar cl_detailfade( "cl_detailfade", "400", 0, "Distance across which detail props fade
+    /// in" );</c>, <c>detailobjectsystem.cpp:53</c>. `low.cfg` sets it to 0 and `ultra.cfg` leaves
+    /// it at 400.
+    /// </remarks>
+    public const string DetailFadeCommand = "cl_detailfade";
+
     /// <summary>Command name for where screenshots are written.</summary>
     /// <remarks>
     /// **A setting rather than an environment variable, on the owner's direction**: "env vars are a
@@ -532,6 +557,24 @@ public sealed record ViewerSettings
     /// </remarks>
     public int ThreeDimensionalSky { get; init; } = SkyboxView.DrawsByDefault;
 
+    /// <summary>How far detail props are drawn, in world units.</summary>
+    /// <remarks>
+    /// **Valve's shipped 1200.** Zero draws none at all, and that is a real setting rather than a
+    /// degenerate one: `low.cfg` ships it. The arithmetic reaches "draw nothing" by itself — see
+    /// <see cref="DetailFade"/>'s remarks and `DetailFade.For`.
+    /// </remarks>
+    public float DetailDistance { get; init; } = DefaultDetailDistance;
+
+    /// <summary>How wide the band is that detail props fade across, in world units.</summary>
+    /// <remarks>Valve's shipped 400.</remarks>
+    public float DetailFade { get; init; } = DefaultDetailFade;
+
+    /// <summary>Valve's <c>cl_detaildist</c> default.</summary>
+    public const float DefaultDetailDistance = 1200f;
+
+    /// <summary>Valve's <c>cl_detailfade</c> default.</summary>
+    public const float DefaultDetailFade = 400f;
+
     /// <summary>The field of view the first-person weapon is drawn with, in degrees.</summary>
     /// <remarks>
     /// **The game's own default and the game's own limits.** <c>viewmodel_fov</c> is declared in
@@ -847,6 +890,21 @@ public sealed record ViewerSettings
             settings = settings with { ThreeDimensionalSky = sky };
         }
 
+        // **Zero is accepted and negative is not**, which is the same rule the frame rate limit
+        // keeps and for the same reason: `low.cfg` ships `cl_detaildist 0` and it means "draw no
+        // detail props", while a negative distance is not a shorter range — it is nonsense that
+        // would make the fade's falloff divide the wrong way.
+        if (ReadNumber(values, DetailDistanceCommand) is { } detailDistance &&
+            detailDistance >= 0f)
+        {
+            settings = settings with { DetailDistance = detailDistance };
+        }
+
+        if (ReadNumber(values, DetailFadeCommand) is { } detailFade && detailFade >= 0f)
+        {
+            settings = settings with { DetailFade = detailFade };
+        }
+
         return settings;
     }
 
@@ -945,6 +1003,24 @@ public sealed record ViewerSettings
             TextureQualityCommand,
             ((int)TextureQuality).ToString(CultureInfo.InvariantCulture),
             TextureQuality == Defaults.TextureQuality);
+        text.AppendLine();
+        text.AppendLine("// How far detail props -- the scattered grass -- are drawn, and how wide");
+        text.AppendLine("// the band is that they fade out across. TF2's own quality configs move");
+        text.AppendLine("// these a long way: low.cfg sets the distance to 0, which draws no grass");
+        text.AppendLine("// at all, and ultra.cfg sets it to 8592.");
+        // Compared with a tolerance for the reason the viewmodel field of view is: these are floats
+        // that round-trip through the text of a config, and an exact comparison would call 1200
+        // "chosen" the first time the file is written back.
+        Setting(
+            text,
+            DetailDistanceCommand,
+            DetailDistance.ToString("0.##", CultureInfo.InvariantCulture),
+            Math.Abs(DetailDistance - Defaults.DetailDistance) < 0.005f);
+        Setting(
+            text,
+            DetailFadeCommand,
+            DetailFade.ToString("0.##", CultureInfo.InvariantCulture),
+            Math.Abs(DetailFade - Defaults.DetailFade) < 0.005f);
         text.AppendLine();
         text.AppendLine("// Most frames a second to draw, as in TF2. 0 is uncapped, and uncapped");
         text.AppendLine("// really is uncapped -- there is no engine ceiling. 300 is this viewer's");

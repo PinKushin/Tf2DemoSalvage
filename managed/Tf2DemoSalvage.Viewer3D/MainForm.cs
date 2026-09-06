@@ -3172,6 +3172,14 @@ internal class MainForm : Form, IFrameSteps
             // where the default and the ignored setting agree and nothing looks wrong.
             _device.Draw3dSky = _settings.ThreeDimensionalSky;
 
+            // **`cl_detaildist` and `cl_detailfade`, applied for the reason `r_3dsky` above is.**
+            // The device defaults them to Valve's 1200 and 400, so a config saying
+            // `cl_detaildist 0` — which `tf/cfg/low.cfg` ships, and which means draw no grass at
+            // all — would be silently dropped: the default and the ignored setting would agree
+            // everywhere except on the one machine that set it.
+            _device.DetailDistance = _settings.DetailDistance;
+            _device.DetailFadeWidth = _settings.DetailFade;
+
             // **Where packed geometry goes, and forgetting it draws NOTHING** (B193). Without this
             // the scene packs every model, poses it, transforms it correctly and submits it against
             // a vertex buffer the renderer never received — B148's symptom exactly, and silent.
