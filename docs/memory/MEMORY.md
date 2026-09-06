@@ -167,3 +167,4 @@
 - [Baking yields to parity](baking-yields-to-parity.md) — D143; ours, so it changes when the engine will not fit.
 - [A lookup is not a loader](a-lookup-is-not-a-loader.md) — MapAssets.Geometry answers from a dictionary built at load.
 - [A TF2 corpse is simulated, not sent](a-tf2-corpse-is-simulated-not-sent.md) — the wire carries a force, not a pose.
+- [Two accumulators cannot see order](two-accumulators-cannot-see-order.md) — the observer must read the observed.
