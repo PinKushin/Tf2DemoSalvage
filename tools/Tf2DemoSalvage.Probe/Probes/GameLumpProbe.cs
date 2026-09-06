@@ -66,14 +66,30 @@ public sealed class GameLumpProbe : IProbe
 
             string compressed = packed < entry.StoredLength ? "  (COMPRESSED)" : string.Empty;
 
+            // **The LAST entry has no next offset, so its bound is the end of the file** — and
+            // printing that subtraction as a byte count reads as corruption. Measured on
+            // `cp_granary`: `dplh` reported "4 bytes stored, 24,769,230 on disk", which is not a
+            // 24 MB lump but the distance to EOF. `BspGameLumps.Payload` already truncates to
+            // `StoredLength`, so nothing over-reads; only the report was misleading, and an
+            // instrument that invites a wrong conclusion is a defect in the instrument
+            // (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md`).
+            //
+            // **Decided by the offsets rather than by how big the number looks.** A threshold
+            // would be a guess that happens to fit granary; the last entry is exactly the one no
+            // other entry starts after, which is the same question `BspGameLumps.NextOffset` asks.
+            bool last = entries.All(other => other.Offset <= entry.Offset);
+
+            string extent = last
+                ? "bounded by the end of the file (nothing starts after it)"
+                : packed.ToString("N0", CultureInfo.InvariantCulture) + " on disk";
+
             output.WriteLine(
                 $"  '{entry.Name}' at " +
                 entry.Offset.ToString("N0", CultureInfo.InvariantCulture) + ", version " +
                 entry.Version.ToString(CultureInfo.InvariantCulture) + ", flags 0x" +
                 entry.Flags.ToString("X", CultureInfo.InvariantCulture) + ", " +
                 entry.StoredLength.ToString("N0", CultureInfo.InvariantCulture) +
-                " bytes stored, " +
-                packed.ToString("N0", CultureInfo.InvariantCulture) + " on disk" + compressed);
+                " bytes stored, " + extent + compressed);
 
             // **The first integer of a detail-prop payload is its object count**, which is the one
             // number that says whether implementing it would change any picture.
