@@ -1773,9 +1773,9 @@ site.*
 ## The constraint solve's arithmetic, and one thing it does NOT do
 
 **The three-axis solve writes ANGULAR velocity only.** That was not expected and is worth stating
-first: `FUN_180036f80` consumes a point-to-point anchor offset — the thing anyone would call the
-translation solve — and every terminal write in it lands on `core+0x130..0x13c`. Linear velocity is
-never touched there. The only place the solve path writes `core+0x140..0x148` is a **separate,
+first: ~~`FUN_180036f80` consumes a point-to-point anchor offset — the thing anyone would call the
+translation solve~~ — **and that description is WRONG; see the correction below.** Every terminal
+write in it lands on `core+0x130..0x13c`. Linear velocity is never touched there. The only place the solve path writes `core+0x140..0x148` is a **separate,
 conditional** block in both dispatchers, gated on `*(char *)(corePair + 0x157) != 0` and reached
 through `FUN_180038070`, which is an anchor-drift correction rather than part of the axis solve.
 
@@ -1981,3 +1981,102 @@ itself, `pfVar13 = (float *)((ulonglong)*param2 * 0x10 + *param4)`.
 **file-verified** against three shipped `.phy` files for the container, the surface header, the tree,
 eleven ledges, the point array and the 132-edge fan test; NOT ESTABLISHED and listed above for the
 unidentified fields.*
+
+## Correction: there is no anchor axis — all THREE constraint axes are angular
+
+**`FUN_180036f80` was written up above as the anchor or translation solve, and that was wrong.**
+It is a third rotational axis, solved by a differently shaped routine than the other two. Two
+independent readings settle it:
+
+- **Its effective mass has no linear term and no lever arm.** A ball-socket point constraint needs
+  `1/mA + 1/mB + (r × n)·I⁻¹·(r × n)`. What `FUN_180037bd0` accumulates for this axis is
+  `Σ r·(invI ⊙ r)` with a plain rotated vector and no cross product — the same expression it builds
+  for the other two axes, and the rotational form.
+- **It shares the degenerate-axis state tag.** `FUN_180038620` resets the same sentinel for all
+  three geometry slots, and `FUN_180036f80` tests the same `1.4013e-45` / `2.8026e-45` pair. **A
+  degenerate cross product is a meaningless idea for a 3D position constraint** and a necessary one
+  for an axis direction.
+
+So `FUN_180036e10` solves **three angular limits**, and the three flag blocks at `+0xB0`, `+0xCC`
+and `+0xE8` are structurally identical — 28 bytes each, same layout, all populated by the same code
+in `FUN_180037890`. The earlier "one anchor plus two angular" reading, and the worry that a twist
+axis had gone missing, are both retracted: nothing was missing.
+
+**Why two of them use a different routine:** the `+0xCC` and `+0xE8` axes build their reference
+direction with a live cross product and so need the degenerate fallback, while `+0xB0`'s comes from
+a quaternion at `geom+0x2D0..0x2DC` (`w·x, w·y, w·z, w²`) built once per rebuild.
+
+**Still not established: which physical degree of freedom `+0xB0` is** — twist or one of the swings.
+What was eliminated is that it is a position constraint, and that any axis is silently dropped. Only
+the label is open.
+
+## Where a joint's limits are actually compared — and it is branchless
+
+**The bounds live at flag-block-relative `+0x4` (lower) and `+0x8` (upper)**, and there is no
+"is it outside" test anywhere, which is why a search for one found nothing:
+
+```c
+auVar19._0_4_ = (fVar34 - fVar16) * fVar23;   // predicted - lower
+auVar14._0_4_ = (fVar34 - fVar2 ) * fVar23;   // predicted - upper
+auVar15 = minps(auVar19, zero);               // non-zero only BELOW the lower bound
+auVar18 = maxps(auVar14, zero);               // non-zero only ABOVE the upper bound
+fVar29 = fVar29 - (float)((uint)(auVar18._0_4_ + auVar15._0_4_) & (uint)param_2[0x18]);
+```
+
+`min(0, x − lower) + max(0, x − upper)` is zero while the angle is inside its range and is the
+signed overshoot when it is outside — folded straight into the impulse with `minps`/`maxps` against
+a zero vector. **The comparison was invisible because it is arithmetic rather than a branch.**
+
+**A limit whose range covers a full turn is switched off at construction.** `FUN_180037890`:
+
+```c
+if (fVar4 <= fVar1 - fVar5) { *(undefined1 *)(param_1 + 0xb0) = 0; }   // fVar4 = 6.2831855
+```
+
+`DAT_1800eea18` dumps as **6.2831855**, which is 2π — so an axis free through 360 degrees has its
+limit disabled rather than clamped against bounds it can never reach. Other constants dumped
+alongside: `±0.017453292` (degrees to radians, both signs), `57.29578` (radians to degrees), `0.5`,
+and `0.001`.
+
+## The ball socket is a SEPARATE mechanism, and it is the only thing writing linear velocity
+
+`FUN_180038070`, gated on `*(char *)(corePair + 0x157) != 0`, measures **how far apart the two
+bodies' ideas of the shared pivot have drifted** — each body's rotation applied to its own local
+pivot offset, subtracted — then builds a 3×3 coupling matrix from cross products of the cached joint
+axes against that drift, inverts it with a Newton-refined reciprocal, and writes the correction
+**directly into `core+0x140..0x148`**, bypassing the accumulated-impulse path the three angular axes
+use.
+
+**That is why no fourth positional block exists in `FUN_180036e10`: position is not solved there at
+all.** It is a one-shot correction per geometry rebuild, beside the two-pass relaxation that handles
+the angles.
+
+## An open contradiction, recorded rather than transcribed past
+
+**The clamp block above is gated by the flag byte at `+0x1`, and that byte is reported as being set
+from `(angularVelocity * torque) != 0`** (`FUN_18000eac0`). For a ragdoll,
+`constraint_axislimit_t::SetAxisFriction( rmin, rmax, friction )` leaves `angularVelocity` at **zero**
+and puts the number in `torque` — so the product is zero, the byte is false, and **the limit clamp
+would never run for any ragdoll joint in TF2**.
+
+**That cannot be right.** TF2's corpses visibly have working joint limits; a ragdoll without them is
+a bag of disconnected parts, which is not what the game draws.
+
+So one of these is wrong, and it is not yet known which:
+
+- the byte at `+0x1` gates the FRICTION term rather than the limit, and the limit is gated by `+0x0`
+  (the byte the 2π check clears) — which would make both readings consistent; or
+- the `+0x1` source was misattributed, and it comes from somewhere other than that product; or
+- `angularVelocity` is not zero for a ragdoll in practice, contrary to what `SetAxisFriction`
+  implies.
+
+**Nothing is being transcribed from this until it is settled**, because the two outcomes differ by
+whether ragdoll joints have limits at all — and a solver written on the wrong one produces a corpse
+that either collapses into a heap or is rigid, with no error anywhere to say which reading was
+taken.
+
+*Evidence class: read from the decompiled binary for the limit arithmetic, the three-axis
+correction, the 2π disable and the drift block, with all constants dumped; INFERRED and flagged for
+which DOF `+0xB0` is, and for the min/max floats' end-to-end link back to
+`constraint_ragdollparams_t::axes[]`; the gating contradiction is OPEN and is the next thing to
+settle.*
