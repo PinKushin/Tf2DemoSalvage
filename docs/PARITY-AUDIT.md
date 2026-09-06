@@ -1008,6 +1008,10 @@ not the way the engine draws it".
 | `CSniperDot` | has a real branch — not drawn in third person — but is a sprite effect rather than a model, so nothing in our prop path draws it either way. A missing feature, not a wrong one |
 | the HUD classes | ~70 `CHudElement::ShouldDraw` overrides, none of them world geometry |
 
+`CDetailModel` was the last name on that list, and it turned out not to be a divergence in something
+we draw at all: it is a whole subsystem we had never read. It became **B360** — the map's detail
+props — and the entry below records what chasing it found downstream.
+
 **What the two hits had in common, and it is the lesson to carry forward:** both are BRUSH entities
 whose special draw is a few lines long, sitting in a class file nobody had reason to open, while the
 brush itself arrives through the ordinary prop path and draws perfectly plausibly. Neither is
@@ -1049,3 +1053,44 @@ the goal into a gap, and the gap into a plan, with the supposed gap already impl
 shatter table, the draw rule is four lines of `c_func_breakablesurf.cpp`, and D38's synthetic-first
 rule means a fixture could be built without a specimen — but not the knowledge of whether those maps
 place the entity at all, which is the only thing that decides whether it is worth building.
+
+---
+
+## `CDetailModel` was not a wrong draw; it was a subsystem never opened (B360, B362)
+
+**The last unread name in the drawn-entity sweep, and it broke the sweep's own pattern.** Every
+other hit was something this project already drew and drew differently. `CDetailModel` is the
+client's detail-prop system, and nothing here had ever opened the lump it reads — so the failure
+mode was not "slightly wrong", it was a Source outdoor map with bare ground.
+
+**How much ground.** Detail props are what `vbsp` scatters from a material's `%detailtype`:
+
+| map | detail props | fixed orientation | screen-aligned |
+|---|---|---|---|
+| `koth_harvest_final` | 28,699 | 20,117 | 8,582 |
+| `cp_granary` | 19,513 | **324** | **19,189** |
+| `cp_process_f12` | 18,841 | 14,506 | 4,335 |
+| `cp_badlands`, `koth_badlands` | 0 | — | — |
+
+**That granary row is the finding inside the finding.** The two orientations look like a detail until
+you count them: a screen-aligned sprite has its angles recomputed from `CurrentViewOrigin()` every
+frame (`CDetailModel::ComputeAngles`, `detailobjectsystem.cpp:950`) and cannot be baked into static
+geometry, so B360's static build draws 70% of harvest's and **1.7% of granary's**. Ranking the
+remainder as a small follow-up would have been wrong by a factor of forty on the map that stresses
+it most, and only the census says so.
+
+**And chasing it downstream found a defect in something we HAVE drawn for months.** The sprite
+material is `$translucent 1`; 20,117 quads were built, every counter agreed, and the frame had no
+grass in it. `WorldRenderer` kept the world's batches and the prop batches in two lists — correctly,
+because the engine draws them in that order — but its translucent pass was fed only the first list
+while the opaque pass skipped every translucent material. **Five of `koth_harvest_final`'s eleven
+translucent batches are prop runs**, and all five had been issued by nothing at all. That is B362,
+and it was invisible precisely because both counts either side of the gap were right.
+
+**The lesson is the one this document keeps re-learning from the other side.** The sweep's usual
+lesson is that a divergence hides where the geometry looks fine. Here the geometry was *absent* and
+every instrument still read clean: the lump count, the quad count, the appended-triangle count and
+the material inventory all reported success for a pass that never ran. **A chain of correct counts
+is not a chain of custody** — nothing measured the last link, which is whether a draw call was
+issued, and the only instrument that could see it was a screenshot at a camera chosen from the
+lump's own coordinates.

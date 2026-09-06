@@ -81,4 +81,88 @@ public sealed class AngleVectorsTests
 
         length.ShouldBe(1d, 1e-6);
     }
+
+    /// <remarks>
+    /// **Roll 90 with nothing else, which is the case a reduced basis cannot produce.** With
+    /// `sr = 1` and `cr = 0` Valve's `right->x = (-1*sr*sp*cy + -1*cr*-sy)` collapses to `-sp*cy`
+    /// and `right->z` to `-cp`, so at pitch and yaw zero the right vector is `(0, 0, -1)` — pointing
+    /// straight DOWN, where the roll-free form returns `(0, -1, 0)` for the same input.
+    ///
+    /// Detail props are why this matters: 27,686 of 28,699 on `koth_harvest_final` carry a non-zero
+    /// roll, because `vbsp` builds a non-upright detail's orientation from the ground's surface
+    /// normal (<c>detailobjects.cpp:568-600</c>).
+    /// </remarks>
+    [Test]
+    public void Right_AtRoll90_PointsDownRatherThanSideways()
+    {
+        (float X, float Y, float Z) right = AngleVectors.Right(pitch: 0f, yaw: 0f, roll: 90f);
+
+        right.X.ShouldBe(0f, Tolerance);
+        right.Y.ShouldBe(0f, Tolerance);
+        right.Z.ShouldBe(-1f, Tolerance);
+    }
+
+    /// <remarks>
+    /// **Pitch enters `right` only through `sr`**, so this is the input that separates a
+    /// transcription of Valve's three lines from the reduction beside it: at roll 90 and pitch 90
+    /// the vector is `(-1, 0, 0)`, and pitch has moved it from `(0, 0, -1)`.
+    /// </remarks>
+    [Test]
+    public void Right_AtRoll90AndPitch90_TakesThePitchTermTheReductionDrops()
+    {
+        (float X, float Y, float Z) right = AngleVectors.Right(pitch: 90f, yaw: 0f, roll: 90f);
+
+        right.X.ShouldBe(-1f, Tolerance);
+        right.Y.ShouldBe(0f, Tolerance);
+        right.Z.ShouldBe(0f, Tolerance);
+    }
+
+    /// <remarks>
+    /// `up->x = (cr*sp*cy + -sr*-sy)` and `up->z = cr*cp`, so at roll 90 the up vector loses its
+    /// vertical component entirely and lies along negative Y.
+    /// </remarks>
+    [Test]
+    public void Up_AtRoll90_LiesFlatRatherThanStandingUp()
+    {
+        (float X, float Y, float Z) up = AngleVectors.Up(pitch: 0f, yaw: 0f, roll: 90f);
+
+        up.X.ShouldBe(0f, Tolerance);
+        up.Y.ShouldBe(-1f, Tolerance);
+        up.Z.ShouldBe(0f, Tolerance);
+    }
+
+    /// <remarks>
+    /// **The control.** The camera passes no roll and must keep the vectors it has always had, so
+    /// the three-argument form at roll zero has to agree with the reduced two-argument one — for
+    /// `right` at a pitch as well, since that is the term the reduction proves cannot reach the
+    /// result.
+    /// </remarks>
+    [Test]
+    public void RightAndUp_AtRollZero_AgreeWithTheReducedForms()
+    {
+        AngleVectors.Right(pitch: 30f, yaw: 57f, roll: 0f)
+            .ShouldBe(AngleVectors.Right(yaw: 57f));
+
+        AngleVectors.Up(pitch: 30f, yaw: 57f, roll: 0f)
+            .ShouldBe(AngleVectors.Up(pitch: 30f, yaw: 57f));
+    }
+
+    /// <remarks>
+    /// A basis is orthonormal at any roll, which is the property that catches a sign flipped in one
+    /// of the six lines while each component still looks plausible on its own.
+    /// </remarks>
+    [Test]
+    public void ForwardRightAndUp_AtAnArbitraryRoll_AreMutuallyPerpendicular()
+    {
+        (float X, float Y, float Z) forward = AngleVectors.Forward(pitch: -22f, yaw: 143f);
+        (float X, float Y, float Z) right = AngleVectors.Right(pitch: -22f, yaw: 143f, roll: 71f);
+        (float X, float Y, float Z) up = AngleVectors.Up(pitch: -22f, yaw: 143f, roll: 71f);
+
+        Dot(forward, right).ShouldBe(0d, 1e-6);
+        Dot(forward, up).ShouldBe(0d, 1e-6);
+        Dot(right, up).ShouldBe(0d, 1e-6);
+    }
+
+    private static double Dot((float X, float Y, float Z) first, (float X, float Y, float Z) second)
+        => (first.X * second.X) + (first.Y * second.Y) + (first.Z * second.Z);
 }

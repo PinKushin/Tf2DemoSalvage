@@ -99,6 +99,30 @@ public sealed class DetailPropConformanceTests
     }
 
     /// <remarks>
+    /// **The exponent of a <c>ColorRGBExp32</c> is a SIGNED char and is usually negative** — that is
+    /// how a byte mantissa encodes light below one. `TexLightToLinear` is `channel * 2^exponent`,
+    /// so an exponent of −1 halves every channel.
+    ///
+    /// **Read unsigned, 0xFF becomes 2^255 and every channel is infinity**, which is not an error
+    /// anywhere: the grass comes out pure white on a map at dusk. The fixture's exponent is
+    /// deliberately the byte that separates the two readings rather than a small negative one.
+    /// </remarks>
+    [Test]
+    public void ReadPayload_TheLightingExponent_IsSignedRatherThanUnsigned()
+    {
+        byte[] payload = Payload();
+
+        int lightingAt = sizeof(int) + NameBytes + sizeof(int) + SpriteBytes + sizeof(int) + 28;
+
+        payload[lightingAt] = 128;
+        payload[lightingAt + 1] = 64;
+        payload[lightingAt + 2] = 32;
+        payload[lightingAt + 3] = 0xFF;
+
+        BspDetailProps.ReadPayload(payload).Objects[0].Lighting.ShouldBe((64f, 32f, 16f));
+    }
+
+    /// <remarks>
     /// A payload too short to hold what it declares is a stranger's file, and D32 requires the
     /// refusal rather than a partial read.
     /// </remarks>

@@ -36,6 +36,11 @@ public enum DetailPropType
 /// <param name="ShapeAngle">The angle parameter of a cross or tri shape.</param>
 /// <param name="ShapeSize">The size parameter of a cross or tri shape.</param>
 /// <param name="Scale">A multiplier, used for sprites.</param>
+/// <param name="Lighting">
+/// The colour <c>vrad</c> baked for it, already decoded from <c>ColorRGBExp32</c>. A detail sprite
+/// has no lightmap — it is a loose quad — so this is the only light it has, and drawing them white
+/// puts a field of glowing grass on a map at dusk.
+/// </param>
 public readonly record struct BspDetailProp(
     (float X, float Y, float Z) Origin,
     (float Pitch, float Yaw, float Roll) Angles,
@@ -46,7 +51,8 @@ public readonly record struct BspDetailProp(
     byte SwayAmount,
     byte ShapeAngle,
     byte ShapeSize,
-    float Scale);
+    float Scale,
+    (float Red, float Green, float Blue) Lighting = default);
 
 /// <summary>One entry of the sprite sheet — <c>DetailSpriteDictLump_t</c>.</summary>
 /// <param name="UpperLeft">The quad's upper-left corner, in world units about the origin.</param>
@@ -284,7 +290,8 @@ public static class BspDetailProps
                 entry[37],
                 entry[38],
                 entry[39],
-                Float(entry[48..])));
+                Float(entry[48..]),
+                Colour(entry[28..])));
         }
 
         return (models, sprites, objects);
@@ -304,4 +311,18 @@ public static class BspDetailProps
 
     private static float Float(ReadOnlySpan<byte> at) =>
         BinaryPrimitives.ReadSingleLittleEndian(at);
+
+    /// <summary>A <c>ColorRGBExp32</c> — three bytes and a SIGNED power-of-two exponent.</summary>
+    /// <remarks>
+    /// **`TexLightToLinear`, `mathlib.h`**: each channel is `byte * 2^exponent`, and the exponent is
+    /// a **signed** char. Reading it unsigned turns every ordinary sample — exponents here are
+    /// usually negative, which is how a byte encodes a value below 1 — into a multiplier of 2^200,
+    /// and the grass comes out pure white rather than lit.
+    /// </remarks>
+    private static (float, float, float) Colour(ReadOnlySpan<byte> at)
+    {
+        float scale = MathF.Pow(2f, (sbyte)at[3]);
+
+        return (at[0] * scale, at[1] * scale, at[2] * scale);
+    }
 }

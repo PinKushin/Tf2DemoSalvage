@@ -24569,4 +24569,124 @@ Chased so far:
 - **`C_BreakableSurface`** — open. Its draw differs only once the surface is BROKEN, when it goes
   translucent and installs a custom brush-surface renderer.
 
-Still unread: `C_VGuiScreen`, `C_EntityDissolve`, `CDetailModel`, `C_PasstimeBall`, `C_TFAmmoPack`.
+Still unread: `C_VGuiScreen`, `C_EntityDissolve`, `C_PasstimeBall`, `C_TFAmmoPack`. `CDetailModel`
+was read and became B360 below.
+
+### B360 FIXED 2026-09-05: the map's detail props — the grass — were never read or drawn
+
+**`dprp`, the second sub-lump of game lump 35.** `sprp` beside it is the static props, and it is the
+only one this project had ever opened. `dprp` is what `vbsp` scatters from a material's
+`%detailtype`: thousands of small sprites that make a Source outdoor map read as ground rather than
+as a texture. **Measured: 28,699 on `koth_harvest_final`, 19,513 on `cp_granary`, 18,841 on
+`cp_process_f12`, and zero on `cp_badlands` and `koth_badlands`** — so it is not a universal feature,
+and the maps that have it have a great many.
+
+**The lump reader** — `BspDetailProps`, `DetailObjectLump_t` (`gamebspfile.h:87`) at a declared
+52-byte stride. Valve writes its padding as fields (`m_Padding2[3]`, `m_Padding3[3]`), so the stride
+is the field sum with no alignment to guess at, and the type byte is at **44 rather than 45** — the
+padding FOLLOWS the type. A reader one byte out reads a zero and reports every detail prop in the
+game as `DETAIL_PROP_TYPE_MODEL`, which is a plausible answer that draws nothing.
+
+Below version 4 the engine refuses the lump outright and warns *"Map uses old detail prop file
+format"* (`detailobjectsystem.cpp:1449`). That branch is carried rather than tolerated, because
+reading such a map would put grass on ground TF2 leaves bare.
+
+**The directory walk moved to `BspGameLumps`** in the same change. It had lived inside
+`BspStaticProps` because `sprp` was the only entry anyone read, and the packed-end rule is subtle
+enough that a second copy would have been a second chance to get it wrong: a compressed sub-lump's
+`filelen` is its DECOMPRESSED size, so the bytes present run to the next entry's offset. The rule
+was nearly rewritten as "the next entry in directory order" during the move, and was caught by
+reading the code being deleted rather than by any test. Both readings agree on every map measured —
+`koth_harvest_final`, `cp_process_f12` and `cp_granary` all list their sub-lumps in ascending offset
+order — so keeping the scan is declining to assume an ordering the format does not promise.
+
+**The quad builder** — `DetailSprites`, transcribing `CDetailModel::DrawTypeSprite`
+(`detailobjectsystem.cpp:1012`). Three things in it read wrong and are Valve's:
+
+- `AngleVectors( m_Angles, NULL, &dx, &dy )` asks for **right and up**, not forward. Reading the
+  first output as forward builds every quad in the wrong plane, which looks like grass lying flat.
+- The horizontal texture coordinates are swapped when the sprite is **NOT** flipped. `m_bFlipped` is
+  a parameter to `InitSprite` and is not in the lump, so every sprite read from a map takes that
+  branch and the swap always applies.
+- The rectangle's `ul.y` is 16 and its `lr.y` is 0, so the first corner is displaced UPWARD and the
+  quad's height is negative: it grows from the top down to the ground.
+
+**Roll is real, and `AngleVectors` had to grow a parameter for it.** `AngleVectors.Right(yaw)` and
+`Up(pitch, yaw)` were exact reductions at roll zero, documented as such, with a note saying that if
+anything ever rolled *"the full three-line form above is what replaces this, and it needs a `roll`
+parameter rather than a correction."* Detail props roll: `vbsp` builds a non-upright detail's
+orientation from the ground's surface normal — an arbitrary perpendicular basis, then a random spin
+about it (`detailobjects.cpp:568-600`) — and **27,686 of 28,699 on `koth_harvest_final` carry a
+non-zero pitch AND roll**. The three-argument forms are the implementation now and the reduced ones
+delegate to them, so no second copy of the arithmetic lives in the sprite builder.
+
+**Lighting is not doubled, and that is the difference from a static prop.** vrad stores a prop's
+vertex lighting halved and the shader doubles it back; a detail prop's base colour is written
+straight — `VectorToColorRGBExp32( totalColor, prop.m_Lighting )`, `vraddetailprops.cpp:801`, with
+the halving applied only to the lightstyle entries below it. The exponent is a **signed** char, so
+reading it unsigned turns an ordinary sample into a multiplier of 2^200 and the grass comes out pure
+white. Measured samples on harvest run from `(64, 34, 10)` to `(312, 224, 118)`, so both the darkness
+and the over-range clamp are exercised by real data.
+
+**What is drawn: the 20,117 fixed-orientation sprites of 28,699.** The other 8,582 are
+`DETAIL_PROP_ORIENT_SCREEN_ALIGNED_VERTICAL`, whose angles `CDetailModel::ComputeAngles` recomputes
+from `CurrentViewOrigin()` every frame (`detailobjectsystem.cpp:950`); they cannot be baked into
+static geometry, and are not drawn at all rather than drawn facing the wrong way. **That split is
+not the same on every map, and the difference is large: `cp_granary` is 19,189 screen-aligned
+against 324 fixed**, so on granary this change draws 1.7% of the detail props and on harvest 70%.
+B361 carries the rest.
+
+**Neither shape type is built, and that is not a gap.** `USE_DETAIL_SHAPES` is defined only for Day
+of Defeat and Counter-Strike (`detailobjectsystem.cpp:30`), so `SHAPE_CROSS`, `SHAPE_TRI` and the
+sway mechanic do not exist in TF2. Every detail prop measured on harvest, granary and process is a
+plain `SPRITE`, which agrees.
+
+**Evidence class: read-from-source** for the lump layout, the quad, the texture swap, the version
+floor and the shape exclusion; **measured** for every count and for the angles.
+
+**What is NOT established:** the distance fade. `cl_detaildist` (1200) and `cl_detailfade` (400)
+fade a sprite out as the view leaves it, and nothing here implements that — so distant grass draws
+at full strength where TF2 has faded it away. The lightstyle lumps `dplt` and `dplh` are read by
+nothing either: `koth_harvest_event` carries 335 KB of them and `koth_harvest_final` declares none.
+
+### B362 FIXED 2026-09-05: every translucent PROP batch was drawn by nothing at all
+
+**Found by two correct counts either side of a pass that never ran.** B360 built 20,117 detail
+sprite quads, `MapWorld` reported `398595 of 398595 prop triangles drawn`, the material resolved,
+and its index appeared in the renderer's translucent set — and the screenshot had no grass in it.
+
+`WorldRenderer` keeps the world's own batches and the static prop batches in two lists, because the
+engine draws them in that order: `DrawWorld`, then the overlays, then `DrawOpaqueRenderables`
+(`CBaseWorldView::DrawExecute`). `DrawOpaqueBatches` skips any batch whose material blends — it has
+to, or a window would be opaque — and `_sortedTranslucent` was built from the world's batches alone:
+
+```csharp
+_sortedTranslucent =
+[
+    .. batches
+        .Where(batch => _translucent.Contains(batch.MaterialIndex))
+        .OrderByDescending(batch => MeanDepth(vertices, batch)),
+];
+```
+
+So a prop run whose material is `$translucent` fell between the two passes and was **never issued**.
+The engine has no such gap: `DrawTranslucentRenderables` walks the world's translucent surfaces and
+the renderables together in one back-to-front pass.
+
+**This was never only about the grass. Measured on `koth_harvest_final`: 5 of the 11 translucent
+batches are prop runs**, and all five had been invisible since the two lists were separated.
+
+**Verified by manipulation twice over.** The selection is now `SortTranslucent`, an internal static
+with three tests; removing the props from its input reddens exactly the two that assert a prop run
+is issued and ordered by depth, and leaves the all-opaque control green. And the same camera on
+`z1800.dem` at tick 30000 — `TF2VIEW_CAMERA="2142 2250 360 12 90"` — renders a bare hill before the
+change and a hill covered in grass after it.
+
+**Evidence class: read-from-source** for the engine's pass order; **measured** for the five batches
+and for the before/after frames.
+
+**What is NOT established:** sorting WITHIN a batch. All 20,117 sprites share one material and
+therefore one run, so they blend against each other in buffer order rather than by depth, where the
+engine rebuilds and sorts its detail sprite mesh every frame. The sheet is close to a cut-out — its
+alpha is mostly 0 or 255 — which is why the artefact is not obvious, and it is the same limitation
+the world's own translucent batches already have.

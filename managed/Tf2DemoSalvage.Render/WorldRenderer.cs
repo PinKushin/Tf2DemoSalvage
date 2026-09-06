@@ -3133,12 +3133,16 @@ internal sealed unsafe class WorldRenderer : IDisposable
         _decals = decals ?? [];
         _props = props ?? [];
 
-        _sortedTranslucent =
-        [
-            .. batches
-                .Where(batch => _translucent.Contains(batch.MaterialIndex))
-                .OrderByDescending(batch => MeanDepth(vertices, batch)),
-        ];
+        _sortedTranslucent = SortTranslucent(vertices, batches, _props, _translucent);
+
+        // **Reported split by source, because the count alone would have looked healthy.** The
+        // brushwork half was always drawn; the prop half was the defect, so a combined total is
+        // exactly the number that hid it.
+        _render.LogInformation(
+            "{Message}",
+            $"{_sortedTranslucent.Count} translucent batches sorted back to front: " +
+            $"{batches.Count(batch => _translucent.Contains(batch.MaterialIndex))} of the world's " +
+            $"own and {_props.Count(batch => _translucent.Contains(batch.MaterialIndex))} from props");
     }
 
     /// <summary>Whether to combine each material's detail texture, on by default.</summary>
@@ -5093,6 +5097,49 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// </remarks>
     internal static bool Blends(bool marks, bool translucent, bool additive, bool modulate) =>
         marks || translucent || additive || modulate;
+
+    /// <summary>Every translucent run, world and prop alike, farthest first.</summary>
+    /// <param name="vertices">The uploaded corners, which carry the depth each batch is sorted by.</param>
+    /// <param name="batches">The world's own runs.</param>
+    /// <param name="props">The static prop runs, drawn after the overlays.</param>
+    /// <param name="translucent">Which material indices blend.</param>
+    /// <returns>The runs to issue in <c>DrawTranslucent</c>, back to front.</returns>
+    /// <remarks>
+    /// **Props belong in this list, and leaving them out drew them NOWHERE** (B362).
+    /// <c>DrawOpaqueBatches</c> skips every translucent material — it must, or a window would be
+    /// opaque — and this list used to be built from <paramref name="batches"/> alone, so a prop run
+    /// whose material blends fell between the two passes and was never issued at all.
+    ///
+    /// **The engine has no such gap.** <c>DrawTranslucentRenderables</c> walks the world's
+    /// translucent surfaces and the renderables together, which is what concatenating them here is.
+    ///
+    /// **Found while wiring detail sprites in (B360)**, and the shape is worth keeping: the sprite
+    /// material is `$translucent 1`, 20,117 quads were built and appended, `world:` reported all
+    /// 398,595 prop triangles drawn — and not one pixel of grass appeared. Two correct counts
+    /// either side of a pass that never ran. Measured on `koth_harvest_final`: 5 of the 11
+    /// translucent batches are prop runs, so this was never only about the grass.
+    ///
+    /// **Sorted once, at upload**, as the world's own were: the order does not depend on the
+    /// camera, because a batch's mean depth is a property of its geometry.
+    /// </remarks>
+    internal static IReadOnlyList<WorldBatch> SortTranslucent(
+        IReadOnlyList<WorldVertex> vertices,
+        IReadOnlyList<WorldBatch> batches,
+        IReadOnlyList<WorldBatch> props,
+        IReadOnlySet<int> translucent)
+    {
+        ArgumentNullException.ThrowIfNull(vertices);
+        ArgumentNullException.ThrowIfNull(batches);
+        ArgumentNullException.ThrowIfNull(props);
+        ArgumentNullException.ThrowIfNull(translucent);
+
+        return
+        [
+            .. batches.Concat(props)
+                .Where(batch => translucent.Contains(batch.MaterialIndex))
+                .OrderByDescending(batch => MeanDepth(vertices, batch)),
+        ];
+    }
 
     /// <summary>A batch's average depth, for ordering.</summary>
     private static float MeanDepth(IReadOnlyList<WorldVertex> vertices, WorldBatch batch)

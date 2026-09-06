@@ -104,6 +104,26 @@ public sealed class GameLumpProbe : IProbe
             output.WriteLine(
                 $"      dictionaries: {models.Count} models, {sprites.Count} sprite rectangles");
 
+            // **The rectangle is what decides whether a quad has any area at all.** A count of
+            // 28,699 sprites says nothing if the dictionary they index describes a degenerate
+            // quad, and that failure is invisible on screen — it draws nothing, exactly like not
+            // being implemented.
+            for (int rect = 0; rect < sprites.Count; rect++)
+            {
+                BspDetailSprite sprite = sprites[rect];
+
+                output.WriteLine(
+                    $"        sprite rect {rect.ToString(CultureInfo.InvariantCulture)}: " +
+                    $"ul ({sprite.UpperLeft.X.ToString("F2", CultureInfo.InvariantCulture)}, " +
+                    $"{sprite.UpperLeft.Y.ToString("F2", CultureInfo.InvariantCulture)}) " +
+                    $"lr ({sprite.LowerRight.X.ToString("F2", CultureInfo.InvariantCulture)}, " +
+                    $"{sprite.LowerRight.Y.ToString("F2", CultureInfo.InvariantCulture)}) " +
+                    $"tex ul ({sprite.TextureUpperLeft.X.ToString("F3", CultureInfo.InvariantCulture)}, " +
+                    $"{sprite.TextureUpperLeft.Y.ToString("F3", CultureInfo.InvariantCulture)}) " +
+                    $"lr ({sprite.TextureLowerRight.X.ToString("F3", CultureInfo.InvariantCulture)}, " +
+                    $"{sprite.TextureLowerRight.Y.ToString("F3", CultureInfo.InvariantCulture)})");
+            }
+
             foreach ((DetailPropType type, int count) in byType)
             {
                 output.WriteLine(
@@ -137,9 +157,71 @@ public sealed class GameLumpProbe : IProbe
                     count.ToString("N0", CultureInfo.InvariantCulture));
             }
 
+            // **Whether the angles use pitch and roll decides which basis this needs.**
+            // `AngleVectors.Right`/`Up` in this project assume roll is zero and say so; a detail
+            // prop carries a full QAngle, so the question is whether any map fills it in.
+            int pitched = 0;
+            int rolled = 0;
+
+            foreach ((float pitch, float _, float roll) in objects.Select(prop => prop.Angles))
+            {
+                if (pitch != 0f)
+                {
+                    pitched++;
+                }
+
+                if (roll != 0f)
+                {
+                    rolled++;
+                }
+            }
+
+            output.WriteLine(
+                $"        angles: {pitched.ToString("N0", CultureInfo.InvariantCulture)} with " +
+                $"pitch, {rolled.ToString("N0", CultureInfo.InvariantCulture)} with roll");
+
             foreach (string model in models)
             {
                 output.WriteLine($"        model '{model}'");
+            }
+
+            // **Where to point a camera.** A count says the lump was read; it says nothing about
+            // whether the quads land on the ground somebody can look at. The densest 512-unit cell
+            // is the one place a screenshot is guaranteed to contain grass, and reporting it beats
+            // guessing at a map's layout from a picture.
+            Dictionary<(int X, int Y), int> cells = [];
+
+            foreach ((float x, float y, float _) in
+                objects.Where(prop => prop.Orientation == 0).Select(prop => prop.Origin))
+            {
+                (int X, int Y) cell = ((int)(x / 512f), (int)(y / 512f));
+
+                cells[cell] = cells.TryGetValue(cell, out int seen) ? seen + 1 : 1;
+            }
+
+            foreach (((int x, int y), int count) in
+                cells.OrderByDescending(cell => cell.Value).Take(3))
+            {
+                output.WriteLine(
+                    $"        densest fixed-orientation cell {(x * 512).ToString(CultureInfo.InvariantCulture)} " +
+                    $"{(y * 512).ToString(CultureInfo.InvariantCulture)}: " +
+                    count.ToString("N0", CultureInfo.InvariantCulture) + " sprites");
+            }
+
+            foreach (BspDetailProp prop in objects.Where(prop => prop.Orientation == 0).Take(3))
+            {
+                output.WriteLine(
+                    $"        sprite {prop.DetailModel.ToString(CultureInfo.InvariantCulture)} at " +
+                    $"({prop.Origin.X.ToString("F0", CultureInfo.InvariantCulture)}, " +
+                    $"{prop.Origin.Y.ToString("F0", CultureInfo.InvariantCulture)}, " +
+                    $"{prop.Origin.Z.ToString("F0", CultureInfo.InvariantCulture)}) angles " +
+                    $"({prop.Angles.Pitch.ToString("F1", CultureInfo.InvariantCulture)}, " +
+                    $"{prop.Angles.Yaw.ToString("F1", CultureInfo.InvariantCulture)}, " +
+                    $"{prop.Angles.Roll.ToString("F1", CultureInfo.InvariantCulture)}) scale " +
+                    prop.Scale.ToString("F2", CultureInfo.InvariantCulture) + " light " +
+                    $"({prop.Lighting.Red.ToString("F0", CultureInfo.InvariantCulture)}, " +
+                    $"{prop.Lighting.Green.ToString("F0", CultureInfo.InvariantCulture)}, " +
+                    $"{prop.Lighting.Blue.ToString("F0", CultureInfo.InvariantCulture)})");
             }
         }
     }
