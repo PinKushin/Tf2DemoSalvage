@@ -68,16 +68,25 @@ public interface IWorldUpload
     /// <param name="props">The detail props, from the <c>dprp</c> game lump.</param>
     /// <param name="rectangles">The sprite dictionary they index.</param>
     /// <param name="sheet">The one material they are all drawn from, or null.</param>
+    /// <param name="controller">
+    /// The map's <c>env_detail_controller</c> distances, or null when it carries none.
+    /// </param>
     /// <remarks>
     /// **Handed over as DATA rather than as geometry**, unlike everything else on this interface. A
     /// detail sprite's quad depends on where the eye is — its alpha is a distance fade and two of
     /// the three orientations turn toward the view — so there is nothing to upload at map load and
     /// the quads are rebuilt when the camera moves.
+    ///
+    /// **The controller rides with them for the reason <see cref="SetSkyCamera"/> rides with
+    /// <see cref="SetWorldCulling"/>**: it is the same map at the same moment, and setting one
+    /// without the other draws the new map's grass at the old map's distance. `null` is the
+    /// engine's <c>else</c> branch — revert to what the config said — and not "leave it alone".
     /// </remarks>
     public void SetDetailProps(
         IReadOnlyList<BspDetailProp> props,
         IReadOnlyList<BspDetailSprite> rectangles,
-        MapTexture? sheet);
+        MapTexture? sheet,
+        (float FadeStart, float FadeEnd)? controller);
 
     /// <summary>Points the world at a camera.</summary>
     /// <param name="matrix">The view-projection, row major, sixteen floats.</param>

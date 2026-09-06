@@ -352,6 +352,118 @@ clamp or a comparison can.
 
 ---
 
+## The map gets a veto, and only a veto
+
+**A map can cut both detail distances and can never raise them.** An `env_detail_controller` in the
+entity lump makes `CDetailObjectSystem::LevelInitPostEntity` write the two cvars itself
+(`detailobjectsystem.cpp:1524`):
+
+```cpp
+if ( GetDetailController() )
+{
+    cl_detailfade.SetValue( MIN( m_flDefaultFadeStart, GetDetailController()->m_flFadeStartDist ) );
+    cl_detaildist.SetValue( MIN( m_flDefaultFadeEnd, GetDetailController()->m_flFadeEndDist ) );
+}
+else
+{
+    // revert to default values if the map doesn't specify
+    cl_detailfade.SetValue( m_flDefaultFadeStart );
+    cl_detaildist.SetValue( m_flDefaultFadeEnd );
+}
+```
+
+**The pair the `MIN` is taken against is captured once, in `Init()`** (`detailobjectsystem.cpp:370`),
+before any map has loaded. That is what makes a config value outlive a map that overrode it, and it
+is why the `else` branch exists at all: without it, one map's veto would follow the player to the
+next.
+
+**Four things in eleven lines that a reimplementation would get wrong**, and none of them is visible
+on a machine running Valve's defaults:
+
+- **`fademindist` becomes a WIDTH.** The key a mapper reads as "the distance at which fading begins"
+  is assigned to `cl_detailfade`, whose own help text is *"Distance across which detail props fade
+  in"*. So `fademindist 700, fademaxdist 1000` does not fade from 700 to 1000; it gives a 1000-unit
+  maximum with a 700-unit band, fully opaque only inside 300. Whether Valve meant this is
+  unanswerable from the source and beside the point — it is what the engine does.
+- **The `MIN` runs one way.** A mapper cannot force grass onto a machine whose owner set
+  `cl_detaildist 0`, and a map asking for *more* than the config gets nothing. On a default config
+  that is indistinguishable from an unconditional assignment.
+- **A key the map omits is zero, not a default.** Valve's entity allocator zeroes the object —
+  `baseentity.cpp:3814`, *"All fields in the object are all initialized to 0"* — and
+  `CEnvDetailController` writes these two fields only from `KeyValue`. A bare controller therefore
+  draws no detail props at all.
+- **The last controller wins.** `s_detailController = this` runs in the constructor with no guard
+  against one already being registered (`env_detail_controller.cpp:36`), so a map carrying two is
+  decided by spawn order.
+
+**Measured: no map TF2 ships carries one — 0 of 234.** The control matters more than the number
+here, because a broken entity reader gives the same answer: `worldspawn` was found in **234 of 234**
+of the same files. The `detail-controller` probe reports both.
+
+**It is not dead code, though.** The class is absent from every FGD TF2 ships — so a mapper cannot
+pick it out of Hammer's list — and the string `env_detail_controller` is present in **both**
+`tf/bin/x64/server.dll` and `tf/bin/x64/client.dll`, with `sky_camera` (server only) and
+`cl_detaildist` (client only) as controls for the search. A community map that places one by hand
+gets the behaviour.
+
+**And the earlier note here was wrong about why it had not been measured.** It said the entity lump
+of `cp_process_f12` was "unmeasurable… compressed". `BspEntities.ReadFrom` goes through
+`BspLumpData`, which decompresses; the census read all 234 maps, process among them. A claim that
+something cannot be read is a claim about the reader, and this one was stale.
+
+*Evidence class: read-from-source for the branch and the zeroing; measured for 0/234, 234/234 and
+the two binaries.*
+
+---
+
+## "All detail prop sprites must lie in the material detail/detailsprites" — and 185 maps do not
+
+**Valve's own comment on the sprite dictionary says there is one sheet, and names it.** It is the
+sentence this project quoted when it hardcoded the material, and it is wrong about the shipped game:
+the NAME is the map's to choose, through `worldspawn`'s `detailmaterial` key
+(`world.cpp:392`), which `CDetailObjectSystem::LevelInitPostEntity` reads before loading anything
+(`detailobjectsystem.cpp:1516`).
+
+```cpp
+const char *pDetailSpriteMaterial = DETAIL_SPRITE_MATERIAL;
+C_World *pWorld = GetClientWorldEntity();
+if ( pWorld && pWorld->GetDetailSpriteMaterial() && *(pWorld->GetDetailSpriteMaterial()) )
+{
+    pDetailSpriteMaterial = pWorld->GetDetailSpriteMaterial();
+}
+```
+
+**Every one of the 234 installed maps sets the key. Forty-nine set it to the default.** TF2 ships at
+least sixteen sheets — `_trainyard` on 42 maps, `_2fort` on 38, `_sawmill` on 32, `_viaduct_event`
+on 20, `_dustbowl` on 18, `_harvest` on 8, and singletons down to
+`hell_of_a_mann/detailsprites_hell`. Seven maps ask for `detailsprites`, which is not in the game's
+content at all.
+
+**The comment survived because the sentence is true per map.** There is exactly one sheet in force
+at a time, the dictionary is sub-rectangles of it, and nothing in the lump names a material — so
+every structural claim the comment makes holds. Only the literal name is wrong, and it is the half
+that got transcribed.
+
+**Both maps this project measures grass on were affected.** `koth_harvest_final` asks for
+`_harvest`, `cp_granary` for `_granary`; only `cp_badlands` asks for the default, and it has no
+detail props. The mean colours differ hard — (221, 165, 97) for the default against (129, 112, 36)
+for `_harvest` — so every grass capture taken before this was the wrong texture, drawn confidently,
+on the map chosen as the reference. **Grass in the wrong palette still looks like grass**, which is
+the whole reason nothing reported it.
+
+**And one more branch came with it, which nothing can demonstrate.** Right after loading the
+material, the engine scales the dictionary's V coordinates by the sheet's aspect ratio
+(`detailobjectsystem.cpp:1481`) — *"adjust for non-square textures (cropped)"* — guarded by
+`flRatio > 1.0`, so a sheet taller than it is wide is left alone. **Every TF2 sheet measured is
+512x512**, so the branch fires on none of them and no capture can show it working. It is
+transcribed anyway, because the material became the map's choice the moment the override was
+implemented, and the asymmetric guard is exactly the kind a reimplementation makes symmetric.
+
+*Evidence class: read-from-source for both branches; measured for the census, the sheet dimensions
+and the mean colours.*
+
+---
+
 ## Still open
 
 - **Detail props that are MODELS** (B363). `DETAIL_PROP_TYPE_MODEL` is a studio model scattered like
@@ -359,11 +471,8 @@ clamp or a comparison can.
   process and both badlands place none.
 - **The FOV factor** is passed as 1. A zoomed sniper's field of view would push the fade range out,
   and nothing wires one in.
-- **`env_detail_controller`**, which lets a map override both distances. Measured absent from
-  `koth_harvest_final` and `cp_granary` with `worldspawn` as the control; unmeasurable on
-  `cp_process_f12`, whose entity lump is compressed.
-- **The shipped quality configs.** `low.cfg` sets `cl_detaildist 0` and `ultra.cfg` sets 8592, so the
-  shipped range of this one setting spans zero to seven times the default. Neither is read.
+- ~~**`env_detail_controller`**~~ and ~~**the shipped quality configs**~~ — both closed; see
+  *The map gets a veto, and only a veto* below.
 - **`dplt` / `dplh`.** The lightstyle lumps are read by nothing. `koth_harvest_event` carries 335 KB
   of them; `koth_harvest_final` declares none.
 - **`cl_detail_multiplier`.** Every detail object is instantiated that many times, the extras

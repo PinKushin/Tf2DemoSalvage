@@ -74,14 +74,82 @@ namespace Tf2DemoSalvage.Scene;
 /// </remarks>
 public static class DetailSprites
 {
-    /// <summary>The one material every detail sprite is drawn with.</summary>
+    /// <summary>The material every detail sprite is drawn with when the map names none.</summary>
     /// <remarks>
     /// <c>#define DETAIL_SPRITE_MATERIAL "detail/detailsprites"</c>
     /// (<c>detailobjectsystem.cpp:44</c>), and Valve's own note on the dictionary says why there is
-    /// only one: *"All detail prop sprites must lie in the material detail/detailsprites"*. The
-    /// dictionary's entries are sub-rectangles of that single sheet.
+    /// only ONE per map: *"All detail prop sprites must lie in the material detail/detailsprites"*.
+    /// The dictionary's entries are sub-rectangles of that single sheet.
+    ///
+    /// **The material's NAME is the map's to choose, though, and that note is out of date** (B364).
+    /// `worldspawn`'s `detailmaterial` replaces it — <see cref="BspEntities.DetailSpriteMaterial"/>
+    /// — and all 234 installed maps set the key, only 49 of them to this. So this is the fallback
+    /// rather than the answer, and it is aliased from the reader that applies it so the two cannot
+    /// drift apart.
     /// </remarks>
-    public const string Material = "detail/detailsprites";
+    public const string Material = BspEntities.DefaultDetailSpriteMaterial;
+
+    /// <summary>Applies Valve's non-square sheet correction to a sprite dictionary.</summary>
+    /// <param name="sprites">The dictionary, as the <c>dprp</c> lump wrote it.</param>
+    /// <param name="ratio">The sheet's width divided by its height.</param>
+    /// <returns>The dictionary, unchanged for a sheet no wider than it is tall.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="sprites"/> is null.</exception>
+    /// <remarks>
+    /// **`CDetailObjectSystem::LevelInitPreEntity`, `detailobjectsystem.cpp:1481`**, which mutates
+    /// the dictionary in place right after loading the material:
+    ///
+    /// <code>
+    ///   float flRatio = (float)( pMat-&gt;GetMappingWidth() ) / pMat-&gt;GetMappingHeight();
+    ///   if ( flRatio &gt; 1.0 )
+    ///   {
+    ///       for( int i = 0; i&lt;m_DetailSpriteDict.Count(); i++ )
+    ///       {
+    ///           m_DetailSpriteDict[i].m_TexUL.y *= flRatio;
+    ///           m_DetailSpriteDict[i].m_TexLR.y *= flRatio;
+    ///           ...
+    ///       }
+    ///   }
+    /// </code>
+    ///
+    /// **The guard is `&gt; 1.0` and not `!= 1.0`, which is Valve's** — a sheet TALLER than it is
+    /// wide is left alone. The symmetric version is what anybody would write, and it would move the
+    /// V coordinates the wrong way on such a sheet.
+    ///
+    /// **Only V, and only the two texture corners.** The comment calls the sheet "cropped": a
+    /// non-square VTF is authored as a square sheet with the bottom cut off, so the dictionary's V
+    /// coordinates — written by `vbsp` against the square — have to be stretched back over what
+    /// survived.
+    ///
+    /// **Every sheet TF2 ships is 512x512, so this fires on none of them** (measured on the default
+    /// and on `_harvest`, `_granary`, `_trainyard`, `_2fort`, `_sawmill`, `_dustbowl` and
+    /// `_viaduct_event`). It is here because the material is the MAP's choice (B364) and a
+    /// community map naming a 512x256 sheet would otherwise draw every sprite from its top half.
+    /// </remarks>
+    public static IReadOnlyList<BspDetailSprite> ScaleForSheet(
+        IReadOnlyList<BspDetailSprite> sprites, float ratio)
+    {
+        ArgumentNullException.ThrowIfNull(sprites);
+
+        if (ratio <= 1f || sprites.Count == 0)
+        {
+            return sprites;
+        }
+
+        BspDetailSprite[] scaled = new BspDetailSprite[sprites.Count];
+
+        for (int index = 0; index < sprites.Count; index++)
+        {
+            BspDetailSprite sprite = sprites[index];
+
+            scaled[index] = sprite with
+            {
+                TextureUpperLeft = (sprite.TextureUpperLeft.X, sprite.TextureUpperLeft.Y * ratio),
+                TextureLowerRight = (sprite.TextureLowerRight.X, sprite.TextureLowerRight.Y * ratio),
+            };
+        }
+
+        return scaled;
+    }
 
     /// <summary>What one view's build produced.</summary>
     /// <param name="Built">Quads emitted — six vertices each.</param>

@@ -1100,3 +1100,68 @@ the material inventory all reported success for a pass that never ran. **A chain
 is not a chain of custody** — nothing measured the last link, which is whether a draw call was
 issued, and the only instrument that could see it was a screenshot at a camera chosen from the
 lump's own coordinates.
+
+## The last unread input to the detail props: the map's own veto
+
+**`cl_detaildist` and `cl_detailfade` have three inputs and this project read one of them.** The
+default was hardcoded; the config's value was ignored (fixed as part of D69); and the MAP's override
+was not read at all. All three are now read, and the third is the interesting one.
+
+`CDetailObjectSystem::LevelInitPostEntity` (`detailobjectsystem.cpp:1524`) writes both cvars at
+level load, from an `env_detail_controller` in the map's entity lump:
+
+```cpp
+cl_detailfade.SetValue( MIN( m_flDefaultFadeStart, GetDetailController()->m_flFadeStartDist ) );
+cl_detaildist.SetValue( MIN( m_flDefaultFadeEnd,   GetDetailController()->m_flFadeEndDist   ) );
+```
+
+**Four branches in eleven lines, and every one of them is invisible on a default config:**
+
+- The `MIN` runs **one way**, so a map may only cut. Against Valve's 1200 a plain assignment reads
+  identically for any map asking for less, which is most of them.
+- The `else` **restores** the config's values, so one map's veto does not follow the player to the
+  next. A reimplementation that only handled the `if` would be correct until the second map.
+- `fademindist` — which a mapper reads as a *distance* — is assigned to `cl_detailfade`, which is a
+  *width*. Transcribed as written.
+- A key the map omits is **zero**, because Valve's entity allocator zeroes the object
+  (`baseentity.cpp:3814`) and only `KeyValue` writes these fields. A bare controller draws nothing.
+
+**Ours:** `DetailFade.ForLevel` (`managed/Tf2DemoSalvage.Scene/DetailFade.cs`) holds the branch;
+`BspEntities.DetailController` reads the entity, last-one-wins as the engine's constructor does;
+`Device3D.LiveDetailFade` applies it, and the config pair it is measured against is kept rather than
+overwritten — which reaches the same numbers as the engine's `Init()` capture without a map load
+being able to destroy what the config said.
+
+**What is visible when it is wrong:** on a map that carries a controller, grass drawn to the wrong
+distance — too far if the `MIN` is skipped, or absent if a bare controller is mistaken for no
+controller. **No map TF2 ships carries one (0 of 234)**, so nothing the owner plays looks different
+today; the class is nonetheless live in TF2's `server.dll` and `client.dll`, and a community map can
+place one.
+
+**Evidence class:** read-from-source for the branch and the zeroing; measured for 0/234 and for the
+control, `worldspawn` in 234 of 234. **Falsified by** finding a shipped map with a controller, which
+would make this user-visible rather than latent.
+
+**What is NOT established:** whether TF2's own `CDetailObjectSystem` — which is engine-side and
+closed — still contains this branch at all. It is read here out of `source-sdk-2013`, and the only
+evidence it survives into the shipped game is the entity's own strings in both game DLLs.
+
+**And the entry that said this was unmeasurable was wrong about the reader, not the file.**
+`docs/RISKS.md` recorded `cp_process_f12`'s entity lump as "unmeasurable… compressed";
+`BspEntities.ReadFrom` decompresses, and the census reads every installed map including that one.
+An absence claim is a claim about the instrument — which is why the probe now reports its own
+control beside the answer.
+
+**And reading the eleven lines above the veto found a bigger one (B364).** `LevelInitPostEntity`
+opens by asking the world entity for a detail sprite material and only falls back to
+`DETAIL_SPRITE_MATERIAL` when it is absent or empty. This project hardcoded the constant, on the
+authority of Valve's own comment on the sprite dictionary — *"All detail prop sprites must lie in
+the material detail/detailsprites"*. **All 234 installed maps set `worldspawn`'s `detailmaterial`
+and 49 set it to that**, so 185 maps were drawn with another map's grass, including both maps this
+project measures grass on. It is the cheapest kind of divergence to miss: the wrong sheet is still a
+sheet of grass.
+
+**The lesson is about where a constant comes from.** The comment is true of every structural claim
+it makes — one material per map, entries are sub-rectangles, the lump names none — and wrong only
+about the literal name, which is the part that became a `const string`. **An SDK comment naming a
+specific value is a lead, not a measurement**; the shipped data answers, and it took one census.

@@ -84,6 +84,8 @@ readers actually use.
 | `DetailPropConformanceTests` | the `dprp` lump: its 52-byte stride, the type at offset **44** rather than 45, the SIGNED lighting exponent, and the flip flag that ALTERNATES rather than being stored | `public/gamebspfile.h`, `detailobjectsystem.cpp:1771` |
 | `DetailSpritesConformanceTests` | one detail sprite's quad: right-and-up rather than forward, the rectangle whose height is negative, the texture swap on the UNflipped ones, the two screen-aligned facings, and back-to-front order | `detailobjectsystem.cpp:1012, 950` |
 | `DetailFadeConformanceTests` | the distance fade: the FOV factor divided at two different points, `MIN(fade, max−1)` making `cl_detaildist 0` draw nothing, and the truncation to a byte | `detailobjectsystem.cpp:2821, 2762` |
+| `DetailSpritesConformanceTests` (sheet half) | the map's own sprite sheet: the non-square correction scaling V only, both corners rather than the size, and the `> 1.0` guard that leaves a tall sheet alone | `detailobjectsystem.cpp:1481, 1516`, `world.cpp:392` |
+| `DetailControllerConformanceTests` | a map's veto over both detail distances: the one-directional `MIN`, the `else` that restores the config, `fademindist` landing in a WIDTH, and a bare controller drawing nothing | `detailobjectsystem.cpp:1524`, `env_detail_controller.cpp:36`, `baseentity.cpp:3814` |
 | `DisplacementConformanceTests` | the terrain record and its neighbour chain | `public/bspfile.h` |
 | `CapacityGuardTests` | no safety cap is stricter than the engine allows | `studio.h`, `bspfile.h` |
 | `WireEncodingConformanceTests` | the 4 coordinate widths, string and flag widths | `coordsize.h`, `dt_common.h` |

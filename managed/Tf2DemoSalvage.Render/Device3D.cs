@@ -1516,6 +1516,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// <param name="props">The detail props, from <see cref="MapAssets.DetailProps"/>.</param>
     /// <param name="rectangles">The sprite dictionary they index.</param>
     /// <param name="sheet">The one material they are all drawn from, or null.</param>
+    /// <param name="controller">
+    /// The map's <c>env_detail_controller</c> distances, or null when it carries none — see
+    /// <see cref="LiveDetailFade"/>.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <exception cref="ObjectDisposedException">The device has been disposed.</exception>
     /// <remarks>
@@ -1531,7 +1535,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     public void SetDetailProps(
         IReadOnlyList<BspDetailProp> props,
         IReadOnlyList<BspDetailSprite> rectangles,
-        MapTexture? sheet)
+        MapTexture? sheet,
+        (float FadeStart, float FadeEnd)? controller)
     {
         ArgumentNullException.ThrowIfNull(props);
         ArgumentNullException.ThrowIfNull(rectangles);
@@ -1542,6 +1547,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
         _detailProps = props;
         _detailRectangles = rectangles;
+
+        // **Set before the early return below, not after it.** A map with no detail props still
+        // has a controller, and the next map's props would otherwise be drawn at this one's
+        // distance — the stale-pairing fault `SetWorldCulling` documents.
+        _detailController = controller;
+
         _detailCorners.Clear();
         _detailBuiltFor = null;
 
@@ -1564,6 +1575,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     private IReadOnlyList<BspDetailSprite> _detailRectangles = [];
     private readonly List<DetailSpriteVertex> _detailCorners = [];
     private (float X, float Y, float Z, float Distance, float Fade)? _detailBuiltFor;
+    private (float FadeStart, float FadeEnd)? _detailController;
 
     /// <summary>Rebuilds the detail sprite quads for an eye that has moved.</summary>
     /// <remarks>
@@ -1583,8 +1595,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         // the camera stands still would otherwise change nothing until it next moved, which reads
         // as the setting being ignored — the shape
         // `docs/memory/a-null-object-default-hides-a-missed-wiring.md` records.
+        (float Distance, float Fade) live = LiveDetailFade;
+
         (float X, float Y, float Z, float Distance, float Fade) key =
-            (eye.X, eye.Y, eye.Z, DetailDistance, DetailFadeWidth);
+            (eye.X, eye.Y, eye.Z, live.Distance, live.Fade);
 
         if (_detailSprites is null || _detailProps.Count == 0 || _detailBuiltFor == key)
         {
@@ -1598,7 +1612,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             _detailProps,
             _detailRectangles,
             eye,
-            DetailFade.For(DetailDistance, DetailFadeWidth),
+            DetailFade.For(live.Distance, live.Fade),
             _detailCorners);
 
         _detailSprites.Upload(_device, _context, _detailCorners);
@@ -1620,18 +1634,33 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// **Zero is a real value here**, not a disabled state to guard against: `DetailFade.For`
     /// reaches "draw nothing" through Valve's own arithmetic rather than through a special case.
     ///
-    /// **Still not read: `env_detail_controller`**, which lets a MAP override both distances.
-    /// Measured absent from `koth_harvest_final` and `cp_granary`, with `worldspawn` as the control,
-    /// and unmeasurable on `cp_process_f12` whose entity lump is compressed.
+    /// **This is the CONFIG's value and not necessarily the one in force**, because a map may cut
+    /// it — see <see cref="LiveDetailFade"/>. It is the engine's `m_flDefaultFadeEnd`, captured in
+    /// `CDetailObjectSystem::Init` (`detailobjectsystem.cpp:371`) before any map loads, which is
+    /// what lets a config value survive a map that overrode it.
     /// </remarks>
     public float DetailDistance { get; set; } = 1200f;
 
     /// <summary><c>cl_detailfade</c> — how wide the band they fade across is.</summary>
     /// <remarks>
     /// <c>ConVar cl_detailfade( "cl_detailfade", "400", 0, "Distance across which detail props fade
-    /// in" );</c> — `detailobjectsystem.cpp:53`.
+    /// in" );</c> — `detailobjectsystem.cpp:53`. The engine's `m_flDefaultFadeStart`; the same
+    /// distinction <see cref="DetailDistance"/> draws applies.
     /// </remarks>
     public float DetailFadeWidth { get; set; } = 400f;
+
+    /// <summary>The two distances actually in force, after the loaded map has had its say.</summary>
+    /// <remarks>
+    /// **`CDetailObjectSystem::LevelInitPostEntity` (`detailobjectsystem.cpp:1524`) writes the
+    /// cvars themselves**; here the config pair is kept and the map's `MIN` is applied on the way
+    /// out, which reaches the same numbers without a map load being able to destroy what the
+    /// config said. `DetailFade.ForLevel` holds the branch and its citation.
+    ///
+    /// **Read by everything that draws or reports**, including the rebuild key — so a map with a
+    /// controller rebuilds its sprites at the map's distance rather than at the config's.
+    /// </remarks>
+    internal (float Distance, float Fade) LiveDetailFade =>
+        DetailFade.ForLevel(DetailDistance, DetailFadeWidth, _detailController);
 
     /// <summary>Gives the device the map's visibility, or takes it away.</summary>
     /// <param name="culling">The map's culling, or null for a map that cannot be culled.</param>
@@ -2179,7 +2208,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         _render.LogDebug(
             "{Message}",
             $"detail sprites: {frame.Built} quads of {_detailProps.Count} props " +
-            $"({frame.Aligned} turned toward the eye, {frame.Faded} beyond {DetailDistance:0}), " +
+            $"({frame.Aligned} turned toward the eye, {frame.Faded} beyond {LiveDetailFade.Distance:0}" +
+            $"{(_detailController is null ? string.Empty : ", the map's own")}), " +
             $"{_detailCorners.Count} corners");
     }
 
