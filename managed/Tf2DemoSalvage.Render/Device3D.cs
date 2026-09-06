@@ -1563,7 +1563,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     private IReadOnlyList<BspDetailProp> _detailProps = [];
     private IReadOnlyList<BspDetailSprite> _detailRectangles = [];
     private readonly List<DetailSpriteVertex> _detailCorners = [];
-    private (float X, float Y, float Z)? _detailBuiltFor;
+    private (float X, float Y, float Z, float Distance, float Fade)? _detailBuiltFor;
 
     /// <summary>Rebuilds the detail sprite quads for an eye that has moved.</summary>
     /// <remarks>
@@ -1579,12 +1579,19 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// </remarks>
     private void RebuildDetailSprites((float X, float Y, float Z) eye)
     {
-        if (_detailSprites is null || _detailProps.Count == 0 || _detailBuiltFor == eye)
+        // **The fade is part of the key, not just the eye.** A config setting `cl_detaildist` while
+        // the camera stands still would otherwise change nothing until it next moved, which reads
+        // as the setting being ignored — the shape
+        // `docs/memory/a-null-object-default-hides-a-missed-wiring.md` records.
+        (float X, float Y, float Z, float Distance, float Fade) key =
+            (eye.X, eye.Y, eye.Z, DetailDistance, DetailFadeWidth);
+
+        if (_detailSprites is null || _detailProps.Count == 0 || _detailBuiltFor == key)
         {
             return;
         }
 
-        _detailBuiltFor = eye;
+        _detailBuiltFor = key;
         _detailCorners.Clear();
 
         DetailSprites.Frame frame = DetailSprites.Build(
@@ -1599,26 +1606,32 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         ReportDetailSprites(frame);
     }
 
-    /// <summary><c>cl_detaildist</c>, Valve's shipped default.</summary>
+    /// <summary><c>cl_detaildist</c> — how far detail props are drawn.</summary>
     /// <remarks>
     /// <c>ConVar cl_detaildist( "cl_detaildist", "1200", 0, "Distance at which detail props are no
     /// longer visible" );</c> — `detailobjectsystem.cpp:52`.
     ///
-    /// **A default, not a constant** (`docs/memory/a-default-is-not-a-constant.md`). The shipped
-    /// quality configs move it a long way: `low.cfg` sets 0, which draws no detail props at all, and
-    /// `ultra.cfg` sets 8592. A map may move it too, through `env_detail_controller` — measured
-    /// absent from `koth_harvest_final` and `cp_granary`, with `worldspawn` as the control, and
-    /// unmeasurable on `cp_process_f12` whose entity lump is compressed. Neither the configs nor the
-    /// entity are read yet.
+    /// **Settable, because it is a default and not a constant**
+    /// (`docs/memory/a-default-is-not-a-constant.md`). The game's own quality configs move it a
+    /// long way: `tf/cfg/low.cfg` sets **0**, which draws no detail props at all, and
+    /// `tf/cfg/ultra.cfg` sets **8592**. A user pasting either in must get what TF2 gives them,
+    /// which is D69.
+    ///
+    /// **Zero is a real value here**, not a disabled state to guard against: `DetailFade.For`
+    /// reaches "draw nothing" through Valve's own arithmetic rather than through a special case.
+    ///
+    /// **Still not read: `env_detail_controller`**, which lets a MAP override both distances.
+    /// Measured absent from `koth_harvest_final` and `cp_granary`, with `worldspawn` as the control,
+    /// and unmeasurable on `cp_process_f12` whose entity lump is compressed.
     /// </remarks>
-    private const float DetailDistance = 1200f;
+    public float DetailDistance { get; set; } = 1200f;
 
-    /// <summary><c>cl_detailfade</c>, Valve's shipped default.</summary>
+    /// <summary><c>cl_detailfade</c> — how wide the band they fade across is.</summary>
     /// <remarks>
     /// <c>ConVar cl_detailfade( "cl_detailfade", "400", 0, "Distance across which detail props fade
     /// in" );</c> — `detailobjectsystem.cpp:53`.
     /// </remarks>
-    private const float DetailFadeWidth = 400f;
+    public float DetailFadeWidth { get; set; } = 400f;
 
     /// <summary>Gives the device the map's visibility, or takes it away.</summary>
     /// <param name="culling">The map's culling, or null for a map that cannot be culled.</param>
