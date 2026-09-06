@@ -1876,3 +1876,108 @@ permutation already known from `constraint_ragdollparams_t`.
 
 *Evidence class: read from the decompiled binary for every expression and every dumped constant;
 NOT ESTABLISHED, and labelled, for the limit comparison and for the third angular axis.*
+
+## The collision hull format, decoded — and checked against real files
+
+**This was the last thing standing between a corpse and the floor.** A hull is Havok/Ipion's
+`IVPS` compact-ledge format, carried inside a model's `.phy` and inside a map's
+`LUMP_PHYSCOLLIDE`, and both readers here previously skipped the bytes.
+
+**The way in was a raw byte scan, not a string table.** `IVPS` is not a Ghidra-defined string — it
+appears as a 32-bit immediate compared inside four functions, which led straight to the deserialiser
+chain `FUN_18000a100` → `FUN_18000c600` → `FUN_18000bcf0` → `FUN_18000c1c0`.
+
+### The container, file-verified
+
+```
+0x00-0x0F  phyheader_t { int size = 16; int id; int solidCount; int32 checksum }
+0x10-0x13  per-solid size prefix (uint32); the solid's data follows at +4
+0x14-0x17  "VPHY"
+0x18-0x19  short type      (0 normal, 1 "Null physics model")
+0x1A-0x1B  reserved        (0 in every sample)
+0x1C-0x1F  int32 dataSize  -- guarded by `if (param_2 < 0x30) Error("Corrupt physics model")`
+0x20-0x2B  three floats    -- structure confirmed, MEANING NOT DECODED
+0x2C-0x2F  0 in every sample
+0x30..     IVP_Compact_Surface, then the plaintext KeyValues tail
+```
+
+### `IVP_Compact_Surface`, 0x30 bytes
+
+| offset | field |
+|---|---|
+| `+0x1C` | packed: **byte size is `value >> 8`**; the low byte is unidentified |
+| `+0x20` | int32 offset from the SURFACE's own base to the ledge-tree root |
+| `+0x2C` | magic: `IVPS`, `SPVI` (byte-swapped), `MOPP` (a different format this reader REFUSES), or `0` (an old `.PHY`, loaded anyway) |
+
+**The `>> 8` is verified three times over:** `barrel01` gives `0x00049cd3 >> 8` = 1180, exactly the
+`VPHY` dataSize; `ladder001` gives 4628; `barrel_flatbed01` gives 2668. Each matches its own file.
+
+### The ledge tree, and the ledge
+
+```
+IVP_Compact_Ledgetree_Node
+  +0x00  offset_right_node    -- 0 means LEAF, else a byte offset to the right child
+  +0x04  offset_compact_ledge -- leaf only, and usually NEGATIVE: ledges precede the tree
+  +0x1C  the LEFT child, inline, after a 28-byte node header
+
+IVP_Compact_Ledge
+  +0x00  c_point_offset  -- ADD to the ledge's own address; a point array can be SHARED
+  +0x04  0 in all eleven samples
+  +0x08  varies; low byte 0x04, upper bytes unresolved
+  +0x0C  low 16 bits = n_triangles
+  +0x10  IVP_Compact_Triangle[n_triangles], sixteen bytes each
+```
+
+**`ladder001` is the specimen that proves the tree is real**: nine internal nodes, ten leaves, all
+ten ledges stepping by exactly 208 bytes (16 header + 12 triangles × 16) with their
+`c_point_offset`s stepping in lockstep onto one **shared** point array.
+
+**A `-0x10` bound in the validator initially suggested the triangles start at `+0x14`, and the file
+said otherwise.** The validator's scan pointer begins one word INTO triangle 0 because it only
+bounds-checks the three edge words and deliberately skips the triangle's own header — so triangles
+start at `+0x10`. **The bytes settled it against a plausible misreading of the code.**
+
+### The edge, and a claim tested with a control
+
+A triangle is a header word — which nothing in the mindist path ever reads — plus three four-byte
+edges. An edge's **low 16 bits are the start point index**. Bits 16–30 are a **15-bit signed field**,
+which is what the decompiled `(V * 2) >> 17` idiom sign-extends while discarding bit 31.
+
+The two offset tables, dumped, four entries each keyed by `address & 0xC`:
+
+```
+DAT_180124fb8   { 0: 0, 4: +4, 8: +4, 12: -8 }     -- walks a triangle's three edges, 4→8→12→4
+DAT_180124fc8   { 0: 0, 4: +8, 8: -4, 12: -4 }     -- used before reading the 15-bit field
+```
+
+**And here is the part that makes this a measurement rather than a story.** The `fc8` link was run
+over all 132 edges of `barrel01`'s ledge:
+
+- **132 of 132** land on another real edge **in the same ledge**.
+- **132 of 132** of those targets share the **same start point index**, in a **different triangle**.
+- The classic half-edge twin — same edge, direction reversed — was tested explicitly and scored
+  **0 of 132**.
+
+So it is a **vertex fan**, not a twin: it enumerates every triangle touching a given point, which is
+exactly what the vertex-vertex and vertex-edge feature tests need. **The control is the 0 of 132**,
+because without it "132 of 132 hit a real edge" would be satisfied by several wrong readings.
+
+### The point array
+
+Sixteen-byte stride at `ledge + c_point_offset`: three little-endian floats and four bytes that were
+**zero in every sampled point**. Indexed by the plain 16-bit start index — confirmed in the reader
+itself, `pfVar13 = (float *)((ulonglong)*param2 * 0x10 + *param4)`.
+
+### Still open, named rather than guessed
+
+- `IVP_Compact_Surface` `+0x00..0x1B` and `+0x24..0x2B` — real data, no consumer traced.
+- Ledgetree node `+0x08..0x1B`, twenty bytes — plausibly a bounding volume, unconfirmed.
+- Ledge `+0x04` (always zero) and `+0x08` (low byte constant, upper bytes unresolved).
+- The triangle's own header word — never read by anything traced.
+- Bit 31 of an edge, deliberately excluded from the fan delta.
+- The three floats at container `+0x20`.
+
+*Evidence class: read from the decompiled binary for every function and both dumped tables;
+**file-verified** against three shipped `.phy` files for the container, the surface header, the tree,
+eleven ledges, the point array and the 132-edge fan test; NOT ESTABLISHED and listed above for the
+unidentified fields.*
