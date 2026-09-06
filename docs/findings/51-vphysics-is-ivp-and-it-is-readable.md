@@ -297,6 +297,41 @@ The published half stays the preferred source where it holds the answer — `rag
 construction, the constraint data and the bone read-back, and none of that needs a decompiler. What
 needed one is everything past `pPhysEnv->`, and that is now navigable rather than closed.
 
+---
+
+## The construction half, measured against real data
+
+The transcribed half — `RagdollCreateObjects` and its two helpers — is exercised on every shipped
+player model by the `ragdoll` probe, and it is the check no unit test can make: the conformance
+suite is synthetic, and what it cannot answer is whether a REAL `.phy` maps onto a REAL skeleton,
+since solids are matched to bones **by name** and one unmatched name refuses the whole body.
+
+**All eighteen player models build** — the nine classes and their HWM variants — with no refusals
+and exactly one root each. **The body count is not uniform**, which is the fact worth having:
+
+| model | bodies | joints |
+|---|---|---|
+| `pyro`, `demo` | 15 | 14 |
+| `heavy` | 16 | 15 |
+| `scout`, `soldier`, `sniper`, `spy` | 17 | 16 |
+| `engineer` | 18 | 17 |
+| `medic` | **24** | **23** |
+
+Generalising "seventeen bodies" from the soldier would have been wrong for five of the nine.
+
+The soldier's topology is anatomically exactly what it should be — pelvis → hips → knees → feet,
+pelvis → spine → upper arms → lower arms → hands, spine → neck → head — and the recorded offsets are
+real limb lengths in inches: hip to knee 16.92, knee to foot 17.96, upper arm to lower arm 14.48,
+lower arm to hand 10.64. Its masses total about 101.
+
+**Linear damping is zero on every element and rotational damping is not**, ranging 4 to 16 per
+joint. A solver that read one and not the other would settle at the wrong rate, which no still
+picture shows.
+
+*Evidence class: measured, through the production reader.*
+
+---
+
 **Still to read, in the order the work needs it:** the time manager's event loop, `IVP_Core`'s
 integration step, the ragdoll constraint's three-axis limit solve, and `ivp_mindist*` for collision
 against the world.
