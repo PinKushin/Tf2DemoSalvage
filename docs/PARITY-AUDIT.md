@@ -1384,6 +1384,56 @@ correctness rule that happens to also be the budget.
 **The other half of `VPhysicsUpdate` is a repair path**: when the constraint group reports
 `IsInErrorState()`, the client calls `RagdollSolveSeparation` rather than letting the solver keep
 trying. That is Valve handling its own solver failing, which is worth knowing exists before a solve
-is written here.
+is written here — and it has a TF2-specific branch, below.
 
 *Evidence class: read from published source, including both constants.*
+
+### 7. The separation repair, and the half of it TF2 compiles OUT
+
+**`RagdollSolveSeparation` (`ragdoll_shared.cpp:625`) is what the engine does when its own solver
+loses a joint.** It walks the elements, marks the ones that have come apart, and for each one snaps
+the body back:
+
+```cpp
+ragdoll.list[element.parentIndex].pObject->LocalToWorld( &target, element.originParentSpace );
+ragdoll.list[element.parentIndex].pObject->GetVelocityAtPoint( target, &velocity );
+element.pObject->GetPositionMatrix( &xform );
+MatrixSetColumn( target, 3, xform );
+element.pObject->SetPositionMatrix( xform, true );
+element.pObject->SetVelocity( &velocity, &vec3_origin );
+```
+
+Position becomes the parent's `originParentSpace` in world terms, linear velocity becomes the
+parent's velocity AT THAT POINT, and **angular velocity is set to zero** — `&vec3_origin`, not
+preserved. If no element needed fixing, the group's error state is cleared instead.
+
+**A parent that was fixed forces its children to be fixed**, checked before anything else and with a
+`continue`, so a repair propagates down a limb in one pass. That works only because elements are
+ordered parent-before-child — the same ordering `RagdollGetBoneMatrix` relies on.
+
+**And here is the branch a straight reading of the SDK gets wrong**:
+
+```cpp
+// this fixes a bug in ep2 with antlion grubs, but causes problems in TF2 - revisit, but disable for TF now
+#if !defined(TF_CLIENT_DLL)
+    float mass = element.pObject->GetMass();
+    float massParent = ragdoll.list[element.parentIndex].pObject->GetMass();
+    if ( mass*2.0f < massParent ) { needsFix[i] = 1; ++fixCount; continue; }
+#endif
+```
+
+**The mass-ratio heuristic is not in TF2.** A body lighter than half its parent and separated is
+snapped back in Episode 2 and left alone here. So the TF2 path keeps only the propagation rule and
+the trace: a separated body is repaired only when it is in contact with something in the direction
+of its target AND a ray from target to start hits solid world.
+
+**This is a D144 entry as well as a parity one** — Valve flagged it themselves, *"revisit, but
+disable for TF now"*, which is an admission that the heuristic is wanted and wrong as written. The
+parity answer here is nevertheless to NOT implement it, because TF2 is the game being reproduced
+and TF2 does not compile it. Fixing Valve's hack would mean fixing it for Episode 2, which is
+nobody's target.
+
+**Ours** has none of this. It costs nothing until a solve exists, and then it is not optional: a
+solver without its author's own repair path produces corpses that come apart and stay apart.
+
+*Evidence class: read from published source, including the preprocessor guard.*

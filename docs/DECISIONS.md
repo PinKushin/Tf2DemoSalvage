@@ -7710,6 +7710,21 @@ second kind.
 files this project actually cites, so the list is ranked by what we have already implemented rather
 than by what exists — the same rule `docs/PARITY-AUDIT.md` opens with.
 
+**A third kind turned up on 2026-09-06 and it is the easiest one to get backwards: a hack Valve
+already switched OFF for TF2.** In `RagdollSolveSeparation` a mass-ratio heuristic that snaps a
+separated light limb back to its parent sits inside `#if !defined(TF_CLIENT_DLL)`, under the
+comment *"this fixes a bug in ep2 with antlion grubs, but causes problems in TF2 - revisit, but
+disable for TF now"* (`ragdoll_shared.cpp:648-663`).
+
+Every marker of a D144 candidate is present — an apologetic comment, a named bug, an explicit
+"revisit". **And the correct action is to implement nothing**, because the decision was already
+made and it was made for this game. Improving that heuristic would be improving Episode 2, which
+is not the target; TF2's separation repair keeps only the parent-propagation rule and the trace.
+
+**So the question to ask of a self-flagged hack is not only "is it observable" but "is it even
+compiled for TF2".** A preprocessor guard is the engine answering the D144 question itself, and it
+outranks the comment sitting above it.
+
 ---
 
 ## D145 — the subagent rule is the MODEL and the review, not the count (2026-09-06)
