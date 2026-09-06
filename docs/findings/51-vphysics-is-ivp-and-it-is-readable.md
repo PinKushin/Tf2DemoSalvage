@@ -372,6 +372,58 @@ picture shows.
 
 ---
 
-**Still to read, in the order the work needs it:** the time manager's event loop, `IVP_Core`'s
-integration step, the ragdoll constraint's three-axis limit solve, and `ivp_mindist*` for collision
-against the world.
+---
+
+## Where the joint object itself lives, and how IVP lays its classes out
+
+`InitRagdoll`'s tail allocates the IVP constraint and stores it on the wrapper. There are **two
+constructors and TF2's corpses take the second**:
+
+```c
+lVar13 = g_pMemAlloc->Alloc(0x177);
+if (bVar3) { plVar10 = FUN_1800368c0(...); plVar10 = FUN_18000cf90(...); }   // breakable
+else       { plVar10 = FUN_1800369e0(...); }                                  // not
+*(longlong **)(param_1 + 0x20) = plVar10;
+*(longlong *)(*(longlong *)(param_1 + 0x20) + 0x28) = param_1;    // back-pointer to the wrapper
+```
+
+`bVar3` is the breakability test from earlier in the same function, and every ragdoll constraint in
+`soldier.phy` fails it — zero force and torque limits, unit mass scales — so `FUN_1800369e0` is the
+one that matters. It is a **0x2E0-byte object whose vtable is at `1800ee9d0`**, and it initialises
+six blocks to identity (`0x3f800000`) before handing the converted limits to `FUN_180037890`.
+
+**IVP lays a constraint class out as an eight-entry vtable immediately followed by its NAME**, which
+is what makes the classes enumerable rather than guessed at. Dumping past the ragdoll's vtable:
+
+```
+SLOT 8   6c6c6f64676172        "ragdoll"
+SLOT 9   ...40c90fdb           6.2831855 — two pi
+SLOT 10  180031aa0             the next class's vtable starts here
+SLOT 18  65676e6968            "hinge"
+```
+
+So the eight slots are the controller interface, and the string after them names the class. The
+ragdoll's:
+
+| slot | address | bytes |
+|---|---|---|
+| 0 | `180031aa0` | shared with other classes — a common base |
+| 1 | `180036b10` | 105 |
+| 2 | `180037870` | small |
+| 3 | **`180038620`** | **1772 — the per-step solve** |
+| 4 | `180038d10` | 637 |
+| 5–7 | `180037860`, `1800346e0`, `180037880` | small |
+
+**Slot 3 is where a corpse's joints are actually resolved**, and it is 1772 bytes of heavily
+vectorised float arithmetic — the constraint's Jacobian built from both bodies' transforms, with the
+per-axis records `InitRagdoll` wrote. That is the next thing to transcribe, and it is a careful job
+rather than a quick one: decompiled SIMD hides which lane is which, and a transcription that is
+wrong in one lane produces a corpse that settles smoothly into the wrong shape.
+
+*Evidence class: read from the decompiled binary; the class names are ASCII in the data section.*
+
+---
+
+**Still to read, in the order the work needs it:** the ragdoll constraint's per-step solve
+(`180038620`), `IVP_Core`'s integration step, the time manager's event loop, and `ivp_mindist*` for
+collision against the world.
