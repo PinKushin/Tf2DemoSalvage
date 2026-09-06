@@ -168,3 +168,4 @@
 - [A lookup is not a loader](a-lookup-is-not-a-loader.md) — MapAssets.Geometry answers from a dictionary built at load.
 - [A TF2 corpse is simulated, not sent](a-tf2-corpse-is-simulated-not-sent.md) — the wire carries a force, not a pose.
 - [Two accumulators cannot see order](two-accumulators-cannot-see-order.md) — the observer must read the observed.
+- [A calling shape is not a purpose](a-calling-shape-is-not-a-purpose.md) — name a function by what it WRITES.

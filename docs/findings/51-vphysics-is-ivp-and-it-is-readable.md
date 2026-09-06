@@ -1100,19 +1100,114 @@ phase → narrow phase → island solve, then a second friction pass and a re-pr
 contact's next check time (which is one of the nine callers of the queue's insert function).
 
 **And the honest part: none of it writes `IVP_Core` directly.** No reference to `core+0x40`,
-`+0x90`, `+0x130` or `+0x140` appears anywhere in that body. The integration is another layer down,
-behind two live leads, neither yet chased:
+`+0x90`, `+0x130` or `+0x140` appears anywhere in that body. The integration is another layer down.
 
-- **The island solve dispatches through yet another vtable** — `(**(code **)(*ev + 8))(ev, this, dt)`
-  inside `FUN_18009a690`/`FUN_18009a4f0`, against a float time budget. Same generic convention, a
-  different family of objects.
-- **`env+0xE0`'s sub-object at `+8`**, dispatched at its vtable `+0x10`, is **NULL in the
-  constructor** (`FUN_18009f490`) and populated at runtime by something not in this trace.
+**Two leads were named here and one of them was WRONG.** Recorded rather than quietly deleted,
+because the shape of the mistake is the useful part:
 
-**So the integrator remains unread, and nothing has been written that assumes its shape.** The
-labels "broad phase" and "narrow phase" above are inference from position and argument shape, not
-measurement, and are marked as such.
+- ~~**The island solve dispatches through yet another vtable**~~ — `(**(code **)(*ev + 8))(ev, this,
+  dt)` inside `FUN_18009a690`/`FUN_18009a4f0`. **That is not an island solve.** Both functions are a
+  **contact-pair re-check scheduler**: `FUN_1800985a0` calls `FUN_180099380`, which computes the
+  relative velocity between two cores and re-queues the next broad-phase check time for the pair.
+  The label came from the SHAPE — a vtable dispatch taking a float time budget, inside the physics
+  step — and that shape is IVP's generic event convention, which is precisely why it says nothing
+  about what the objects are. **A vtable dispatch with a time argument is not evidence of a solver;
+  in this binary it is evidence of the event queue, which is everywhere.**
+- **`env+0xE0`'s sub-object at `+8`**, dispatched at its vtable `+0x10`, is NULL in the constructor
+  (`FUN_18009f490`) and populated at runtime. Still unchased, and no longer needed.
+
+**The integrator is found, and it was not behind either lead.** See the next section.
 
 *Evidence class: read from the decompiled binary for the constructor, the vtable, the fire function
 and the pipeline's call list; the phase LABELS are inferred and flagged; the 1/66 constants are read
-bit patterns.*
+bit patterns; the struck-out island-solve label was inferred, and is now falsified by reading.*
+
+## The integrator, found: `FUN_180099a00`, and it is three functions deep
+
+**The chain from the physics step to a moved body**, each address read rather than inferred:
+
+```
+FUN_18008a020    the PSI event's fire routine        (above)
+  FUN_180082560  the seven-phase pipeline            (above)
+    FUN_180090700    island assembly
+      FUN_1800909d0  integrate every awake core in this island
+        FUN_180099a00  THE per-core integrator
+          FUN_180099fc0  build the step's delta rotation, and free-rotate the angular velocity
+            FUN_180070d60  quaternion product
+            FUN_180070c60  quaternion normalize
+```
+
+**`FUN_180099a00` does three things in order, and the first is the one worth noticing:**
+
+1. **Position integrates against the PREVIOUS step's velocity, not the current one.**
+   `core+0x150/0x158/0x160` (doubles) `+= core+0x170/0x174/0x178 * dt`. That is explicit Euler
+   deliberately lagged by one step — a body's velocity change this step does not move it until next
+   step.
+2. **Then the cache is refreshed**: `+0x170/0x174/0x178 := +0x140/0x144/0x148`, the current linear
+   velocity.
+3. **Orientation is integrated in a working buffer and then committed.** `FUN_180099fc0` overwrites
+   the predicted quaternion at `core+0x1a0..0x1b8` in place (build a delta, multiply through
+   `FUN_180070d60`, normalise through `FUN_180070c60`), and only afterwards is that buffer copied
+   down into the current orientation at `core+0x180..0x198`. **Two quaternions, not one**, which is
+   what lets a reader of the body during the step see the old orientation.
+
+**`FUN_180099fc0` also integrates the angular velocity itself** — Euler's rigid-body equation, with
+cross terms shaped like `(Iy − Iz)/Ix · ωy·ωz` off `core+0x40/0x44/0x48`, and it **sub-steps** when
+`|ω|²·dt²` passes a threshold held at `DAT_1800fdf90`. So a fast-spinning limb is integrated more
+finely than a slow one, inside one PSI. A transcription that stepped rotation once per PSI would
+diverge exactly where a corpse's arm is whipping.
+
+**The quaternion normalise is double precision with a hand-rolled Newton-Raphson reciprocal square
+root** (`FUN_180070c60`), not an `rsqrtss`. Worth stating because it was searched for the other way
+round first: a whole-binary scan found only twelve `RSQRT*` instructions in 2,938 functions and none
+of them is this.
+
+### The `IVP_Core` field map, as far as it is read
+
+| offset | field | how it is known |
+|---|---|---|
+| `+0x40/0x44/0x48` | inertia terms used by the free-rotation cross products | `FUN_180099fc0` |
+| `+0x4c` | inverse mass | `FUN_1800778c0`: `vel += impulseDir * core[+0x4c] * scale` |
+| `+0x130/0x134/0x138` | angular velocity | four independent readers agree |
+| `+0x140/0x144/0x148` | linear velocity | four independent readers agree |
+| `+0x150/0x158/0x160` | position, as DOUBLES | `FUN_180099a00` |
+| `+0x170/0x174/0x178` | previous-step velocity cache | `FUN_180099a00` |
+| `+0x180..0x198` | current world orientation quaternion | `FUN_180099a00` commits here |
+| `+0x1a0..0x1b8` | predicted/working orientation quaternion | integrated in place, then committed |
+| `+0x1d0` | last-synced absolute environment time | `FUN_1800783c0`, `FUN_180099a00` |
+
+### Gravity is written and read; the moment it enters a velocity is still unread
+
+`CPhysicsEnvironment::SetGravity` is `FUN_1800150f0` — vtable slot 3 — and it converts Source's
+vector into IVP's before storing it: scale by `DAT_18011f000`, negate Z by XOR against
+`DAT_1800ea5e0`, and reorder to X, Z, Y. **That is the same axis-and-unit convention already
+recorded for the ragdoll transform**, arrived at independently from a different function, which is
+the first cross-check this project has on it.
+
+It calls `FUN_1800824e0`, which writes `env+0x118/0x120/0x128` as doubles and caches the magnitude at
+`env+0x138` as a float. **The field's identity is confirmed by an unrelated reader** — a
+vehicle-wheel weight-transfer function, `FUN_18008bce0`, dereferences the environment and reads all
+three — so this is not `SetGravity` agreeing with itself.
+
+**What is NOT established: where gravity is added to a core's velocity each step.** A whole-binary
+decompile-and-search over 2,813 non-thunk functions, for anything touching the linear velocity at
+`+0x140/0x144/0x148` together with the absolute clock at `env+0x188`, returned eight functions and
+none of them contains `velocity += gravity * dt`. The nearest candidate is `FUN_180019cc0`, a
+per-core effector dispatcher whose third case adds a **mass-independent, world-space acceleration**
+straight into the velocity using the exact unit scale and sign-flip constants `SetGravity` uses:
+
+```c
+local_a8 = (float)local_c8 * DAT_18011f000;
+local_a4 = (float)((uint)(local_c0 * DAT_18011f000) ^ uVar5);
+*(float *)(lVar1 + 0x140) = local_a8 * fVar14 + *(float *)(lVar1 + 0x140);   // no inverse-mass scale
+```
+
+**Mass-independence is the tell** — every other effector path in that same function multiplies by
+the inverse mass at `core+0x4c` first. But the vector reaching case 3 arrives through a virtual call
+on a per-core controller list, and **that call has not been traced back to a gravity object**, so
+this is INFERRED and is written down as inference. It is equally consistent with a generic
+actuator/spring/wind path with gravity applied somewhere still unfound.
+
+*Evidence class: read from the decompiled binary for the whole chain, the field map, `SetGravity`
+and the gravity field's second reader; INFERRED and flagged for `FUN_180019cc0` being the gravity
+application.*

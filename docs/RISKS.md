@@ -25076,3 +25076,53 @@ solid black rectangles and now show the yard through them, with their frames and
 
 **Evidence class: measured** for the probe's twelve rows and for the two captures;
 **read-from-source** for `CurrentViewOrigin()`.
+
+### B366 FIXED: a corpse inherited no velocity from the animation it died in
+
+**A TF2 ragdoll starts with the motion its animation was carrying, and ours started with none.** The
+client poses the dying player twice — at `curtime - 0.05` and at `curtime` — and hands the
+difference to the solver as each body's linear and angular velocity
+(`GetRagdollInitBoneArrays`, `c_baseanimating.cpp:4775`; `RagdollApplyAnimationAsVelocity`,
+`ragdoll_shared.cpp:458`). None of that chain existed here: no `CalcBoneDerivatives`, no
+`MatrixAngles` on a bone matrix, no `AngleQuaternion` for a `QAngle`, and nothing that poses a
+second time.
+
+**The symptom is the one thing everyone notices about a corpse.** Without it a ragdoll appears at
+the death pose carrying only the kill's force, so a sprinting Scout drops where it stood instead of
+tumbling forward.
+
+**Fixed** by `RagdollVelocity`, over four new `StudioBones` members that are Valve's own mathlib:
+`ToAngles` (the `QAngle` overload of `MatrixAngles`), `FromAngles` (the `QAngle` overload of
+`AngleQuaternion`), `AxisAngle` and `Normalize`.
+
+**Three things in it are behaviours rather than details**, and each was verified by sabotage:
+
+- **A non-positive interval is not an error and not a division.** `float scale = 1.0; if ( dt > 0 )
+  scale = 1.0 / dt;` — the raw offset is reported as a per-second rate.
+- **The angular result is DEGREES per second.** `QuaternionAxisAngle` returns degrees and Valve
+  scales that number straight into the result, because Source's `AngularImpulse` is a
+  degrees-per-second vector. Converting to radians is wrong by 57.3 and reads as limbs that barely
+  turn.
+- **The rotations round-trip through EULER angles.** `CalcBoneDerivatives` calls the `QAngle`
+  overload of `MatrixAngles`, not the `Quaternion` one, and `RotationDeltaAxisAngle` converts back.
+  The trip discards roll wherever a bone points at the sky — `MatrixAngles`' gimbal branch writes a
+  literal zero — so taking the direct matrix-to-quaternion route gives a DIFFERENT answer there,
+  not a better one.
+
+**Also fixed in passing:** `PropPlacement.Angles()` carried its own copy of `MatrixAngles` and now
+calls the one in `StudioBones`. That is a change to what a shared helper MEANS, so the whole gate
+was run rather than a targeted check.
+
+**Verified by sabotage, five times, each reddening exactly one predicted test:** forcing the gimbal
+branch never to be taken; removing the half-turn wrap in `AxisAngle`; swapping pitch and roll in
+`FromAngles`; changing the non-positive-interval scale; and converting the angular result to
+radians.
+
+**What is NOT established:** nothing yet CALLS `RagdollVelocity` — the solver it feeds does not
+exist, so this is an initial condition with nothing to initialise. The remaining absences are filed
+separately in `docs/PARITY-AUDIT.md`: `rotInertiaLimit`, the discarded rotation half of
+`constraintToAttached`, the unparsed `collisionrules` block, and the unparsed `animatedfriction`
+block with the four-state ramp it drives.
+
+**Evidence class: read-from-source** for every line of the transcription; **arithmetic** for the
+predicted test values.

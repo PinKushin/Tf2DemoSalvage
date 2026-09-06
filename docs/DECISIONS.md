@@ -7747,10 +7747,6 @@ has already broken an unrelated build in this project, and with three running th
 Each gets an area nothing else is touching, and the parent does not build or measure while one holds
 a source file.
 
-**Deferred, by him:** a dedicated review subagent that reviews any code anyone writes. *"that can be
-done later and the audits kinda do that."* Recorded so it is not mistaken for something never
-considered — `caveman:cavecrew-reviewer` and the parity audits cover part of it today.
-
 **Haiku is out, and on measured grounds rather than taste** — the owner, minutes later:
 
 > *"i dont really trust haiku, it just seemed horrible compared to sonnet and sonnet 4.6 used less
@@ -7766,3 +7762,35 @@ meaningfully cheaper.
 **Deferred, by him:** a dedicated review subagent that reviews any code anyone writes. *"that can be
 done later and the audits kinda do that."* Recorded so it is not mistaken for something never
 considered — `caveman:cavecrew-reviewer` and the parity audits cover part of it today.
+
+## D146 — physics is finished BEFORE taunts, and "finished" means the whole solver (2026-09-06)
+
+**The owner set the order and the standard in two sentences.** On what to do next: *"i want to
+finish physics first since that gives ragdolls then taunts"*. On how far to take it: *"your goal is
+to finish the physics 100%"*.
+
+**Both halves matter and the second is the unusual one.** The natural reading of "we need ragdolls"
+is that a corpse should fall over convincingly, which a rough solver achieves. That is not what was
+asked for. D89 already says parity is the first principle and a divergence is a defect whatever it
+costs; **D146 is that principle applied to a subsystem Valve did not publish**, so the price is
+reverse-engineering `vphysics.dll` rather than reading the SDK.
+
+**What it rules out**, written down so none of it comes back later as a shortcut:
+
+- **Substituting a physics library.** A third-party solver produces corpses that settle differently,
+  and "close enough" is the thing this project refuses everywhere else.
+- **Stopping at the initial conditions.** The velocity a corpse inherits from its death animation,
+  the joint limits and the force distribution are the published half and were the cheap part. The
+  integrator, the constraint solve and world collision are the subsystem.
+- **Treating an unread mechanism as an absent one.** `rotInertiaLimit` is set to `0.1` by Valve's own
+  ragdoll code and its consumer is closed. That is a question for the decompiler, not a field to
+  drop because the SDK stops there.
+
+**Why physics before taunts, in the owner's own reasoning:** physics *gives ragdolls*, and a corpse
+appears in every demo in every round. A taunt needs `scenes.image`, LZMA and a binary VCD parse
+before one sequence can even be looked up (B351), and it appears when somebody chooses to play one.
+
+**What this decision is NOT:** a promise that the result will be bit-identical to IVP. It will not
+be, and wherever it cannot be, the divergence gets written down beside what was measured — the same
+rule every other transcription here follows. The commitment is to read the engine before writing,
+not to guarantee an outcome that reading has not established yet.

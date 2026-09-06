@@ -1198,3 +1198,192 @@ fade cannot disagree about where the viewer is.
 
 **What is NOT established:** `Device3D.Eye` has no unit test — reaching it needs a real D3D device —
 so sabotaging it to `null` builds clean and reddens nothing. Only a capture catches that one.
+
+## A corpse's initial conditions, audited 2026-09-06 — the published half of ragdoll physics
+
+**The simulation is closed and the setup around it is not.** `src/vphysics` ships no source, so the
+integrator and the constraint solve are read out of `vphysics.dll` (D142, finding 51). But
+everything that DECIDES what the solver starts with — masses, joint limits, which bodies may touch,
+what velocity each one carries, where the kill's force lands — is in the SDK in full. This audit
+read that half end to end. **Five divergences, two non-divergences worth recording, and one fix.**
+
+### 1. The velocity a corpse inherits from its animation was not implemented at all (FIXED)
+
+**The engine** poses the dying player TWICE and hands the solver the difference:
+
+```cpp
+if ( !ForceSetupBonesAtTime( pDeltaBones0, gpGlobals->curtime - boneDt ) ) bSuccess = false;
+if ( !ForceSetupBonesAtTime( pDeltaBones1, gpGlobals->curtime ) )         bSuccess = false;
+```
+
+`c_baseanimating.cpp:4779-4782`, with `const float boneDt = 0.05f` at `c_tf_player.cpp:891`, feeding
+`RagdollApplyAnimationAsVelocity` (`ragdoll_shared.cpp:458`), which runs `CalcBoneDerivatives`
+(`bone_setup.cpp:2521`) per element and adds the result to that body.
+
+**Ours** had none of it — no `CalcBoneDerivatives`, no `MatrixAngles` on a bone matrix, no
+`AngleQuaternion` for a `QAngle`, and nothing that poses the player a second time.
+
+**Visible when wrong:** a corpse appears at the death pose carrying only the kill's force, so a
+sprinting Scout drops straight down instead of tumbling forward. It is the most obvious thing about
+a ragdoll and it comes entirely from here.
+
+**Fixed** — `RagdollVelocity.BoneDerivatives`, with `StudioBones.ToAngles`, `FromAngles`,
+`AxisAngle` and `Normalize` beneath it. Three traps inside it are transcribed rather than
+simplified: a non-positive interval is not a division and not an error (the scale stays 1), the
+angular result is in DEGREES per second because `AngularImpulse` is, and the rotations round-trip
+through EULER angles, which discards roll wherever a bone points at the sky and so gives a DIFFERENT
+answer from the direct matrix-to-quaternion route rather than a worse one.
+
+*Evidence class: read from published source, every line.*
+
+### 2. `rotInertiaLimit` is set by the ragdoll path and we do not carry it
+
+**The engine** overwrites whatever the `.phy` said, unconditionally, for every ragdoll solid:
+
+```cpp
+solid.params.rotInertiaLimit = 0.1;
+```
+
+`ragdoll_shared.cpp:192`, inside `RagdollAddSolid`, next to the `params.fixedConstraints` mass
+override that we DO carry.
+
+**Ours** — `RagdollElement` has `Mass`, `Inertia`, `Damping`, `RotationDamping` and `Volume`, and no
+`rotInertiaLimit`. `objectparams_t` (`vphysics_interface.h:1069`) declares the field; its consumer is
+`CreatePolyObject`, which is closed.
+
+**What is NOT established:** what the value DOES. The name says it bounds rotational inertia, and
+0.1 against a limb's inertia reads as a floor rather than a ceiling — but that is inference, it is
+marked as such, and it is filed for the binary rather than guessed at.
+
+*Evidence class: the assignment is read from source; its meaning is unread.*
+
+### 3. The bone-to-bone transform's rotation half is discarded
+
+**The engine** computes the full transform and hands ALL of it to the solver:
+
+```cpp
+Studio_CalcBoneToBoneTransform( params.pStudioHdr, ragdoll.boneIndex[constraint.childIndex],
+                                ragdoll.boneIndex[constraint.parentIndex],
+                                constraint.constraintToAttached );
+MatrixGetColumn( constraint.constraintToAttached, 3, childElement.originParentSpace );
+```
+
+`ragdoll_shared.cpp:238-240`. The translation is pulled out for `RagdollGetBoneMatrix`'s rigid
+re-attachment; the MATRIX goes on to `CreateRagdollConstraint` as the child's constraint frame.
+
+**Ours** keeps only `OriginParentSpace`, the translation — everything the posing needs and not
+everything the solving needs.
+
+**Visible when wrong:** nothing today, because nothing solves. It becomes a defect the moment a
+constraint solve exists, and would present as joints whose limits are measured about the wrong axes
+— a knee that bends sideways while staying inside its stated range.
+
+**Valve's own note on the rotation, immediately below:** *"UNDONE: We could transform the constraint
+limit axes relative to the bone space using this data. Do we need that feature?"* So the rotation is
+passed but the limit axes are NOT re-expressed in it. That is a self-flagged loose end in the
+engine, and it means the frame reaches the solver while the limits stay in constraint space.
+
+*Evidence class: read from published source; what the closed solver does with the rotation is
+inferred from the call signature and marked.*
+
+### 4. The `.phy`'s `collisionrules` block is not parsed
+
+**The engine** reads a third block out of the same KeyValues text we already parse:
+
+```cpp
+else if ( !strcmpi( pBlock, "collisionrules" ) )
+{
+    IPhysicsCollisionSet *pSet = physics->FindOrCreateCollisionSet( params.modelIndex, ragdoll.listCount );
+    CRagdollCollisionRules rules(pSet);
+    pParse->ParseCustom( (void *)&rules, &rules );
+}
+```
+
+`ragdoll_shared.cpp:296-301`. The handler (`ragdoll_shared.cpp:72`) takes `selfcollisions` — *"keys
+disabled by default"*, so the key's PRESENCE turns self-collision off — and any number of
+`collisionpair` entries naming two solid indices that may touch.
+
+**Ours** reads `solid` and `ragdollconstraint` and skips everything else
+(`PhysicsModel.cs:246-250`).
+
+**Visible when wrong:** with no pair list, either every body collides with every other — a corpse
+that jitters and locks — or none do, and limbs pass through the torso. There is no neutral default;
+the block is the answer.
+
+*Evidence class: read from published source. NOT established: whether TF2's own player models ship
+the block. That is a measurement over the shipped `.phy` files rather than a reading, and it decides
+whether this is urgent or dead.*
+
+### 5. The `animatedfriction` block, and the four-state ramp it drives, are absent
+
+**The engine** ramps joint friction over time after death:
+
+```cpp
+case RAGDOLL_FRICTION_IN:
+    m_iCurrentFriction = RemapValClamped( flDeltaTime, m_flFrictionModTime, 0, m_iMinFriction, m_iMaxFriction );
+...
+for ( int i = 0; i < iBoneCount; i++ )
+    if ( pRagdollT->list[i].pConstraint )
+        pRagdollT->list[i].pConstraint->SetAngularMotor( 0, m_iCurrentFriction );
+```
+
+`c_baseanimating.cpp:435-505`. `NONE` reads the model's own numbers and drops straight to `OFF` when
+both are zero; otherwise `IN` over `animfrictiontimein`, `HOLD` over `animfrictiontimehold`, `OUT`
+over `animfrictiontimeout`, then `OFF`. What is applied is a motor with a target velocity of zero
+and a torque cap — friction expressed as a motor, which is how vphysics spells it.
+
+**Ours** has neither the block (`RagdollSetupAnimatedFriction`, `ragdoll_shared.cpp:147`) nor the
+state machine.
+
+**Visible when wrong:** corpses that settle at the wrong rate — floppier or stiffer than TF2's for
+the first seconds after death, which is exactly the window anyone watching a demo is looking at.
+
+**The gate is `if ( m_iMinFriction != 0 || m_iMaxFriction != 0 )`**, so a model shipping no block
+costs nothing. The same measurement as finding 4 settles it.
+
+*Evidence class: read from published source; whether TF2 models use it is unmeasured.*
+
+### Not divergences, and recorded because that is a different state from unexamined
+
+**`jointFrictionScale` is a no-op in TF2.** `RagdollAddConstraint` multiplies every axis' friction
+torque by it (`ragdoll_shared.cpp:232-237`) and both callers that matter set it to exactly `1.0` —
+`ragdoll.cpp:112` on the client, `physics_prop_ragdoll.cpp:701` on the server. A later reader who
+finds a scale in the engine and none here should not have to re-derive that.
+
+**A ragdoll's constraint group takes the defaults and nothing else.** `group.Defaults()` then
+`CreateConstraintGroup` (`ragdoll_shared.cpp:276-277`), so it runs with **zero** additional solver
+iterations, `minErrorTicks` 15 and `errorTolerance` 3.0 HL units (`constraints.h:24-28`). Those are
+the numbers any solve written here has to match, and no model can change them.
+
+### 6. A corpse is forced to sleep on a rule the client owns, not the solver
+
+**The engine** does not wait for the physics to decide a corpse has stopped. `CRagdoll::VPhysicsUpdate`
+ends with `CheckSettleStationaryRagdoll()` (`ragdoll.cpp:268`), which compares the ROOT body's origin
+against last frame's, component by component:
+
+```cpp
+Vector delta = GetRagdollOrigin() - m_vecLastOrigin;
+m_vecLastOrigin = GetRagdollOrigin();
+for ( int i = 0; i < 3; ++i )
+    if ( fabs( delta[ i ] ) > RAGDOLL_SLEEP_TOLERANCE ) { m_flLastOriginChangeTime = gpGlobals->curtime; return; }
+...
+if ( dt < ragdoll_sleepaftertime.GetFloat() ) return;
+PhysForceRagdollToSleep();
+```
+
+`RAGDOLL_SLEEP_TOLERANCE` is `1.0f` (`ragdoll.cpp:265`) — a whole HL unit per frame, per axis, which
+is generous — and `ragdoll_sleepaftertime` defaults to `5.0` seconds. `PhysForceRagdollToSleep`
+clears every body's velocity outright and sleeps it (`ragdoll.cpp:253`).
+
+**Ours** has no notion of a corpse sleeping.
+
+**Visible when wrong:** a corpse that never stops twitching, and a viewer paying for a solve on
+every settled body in the level for the rest of the round. Both halves matter — this is a
+correctness rule that happens to also be the budget.
+
+**The other half of `VPhysicsUpdate` is a repair path**: when the constraint group reports
+`IsInErrorState()`, the client calls `RagdollSolveSeparation` rather than letting the solver keep
+trying. That is Valve handling its own solver failing, which is worth knowing exists before a solve
+is written here.
+
+*Evidence class: read from published source, including both constants.*
