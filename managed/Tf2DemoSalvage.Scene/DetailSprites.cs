@@ -274,7 +274,13 @@ public static class DetailSprites
     /// handles**, by answering straight up or straight down with no yaw. It arrives here whenever a
     /// player stands in the grass, so it is an ordinary input rather than an edge.
     /// </remarks>
-    private static (float Pitch, float Yaw, float Roll) Facing(
+    /// <remarks>
+    /// **Shared with detail MODELS, because `ComputeAngles` is a method on `CDetailModel` and that
+    /// class is both kinds** (B363). `EnumerateLeaf` calls it without asking what type the object
+    /// is (`detailobjectsystem.cpp:2775`), so a screen-aligned detail MODEL turns to face the eye
+    /// exactly as a sprite does.
+    /// </remarks>
+    public static (float Pitch, float Yaw, float Roll) Facing(
         BspDetailProp prop, (float X, float Y, float Z) eye) =>
         prop.Orientation switch
         {

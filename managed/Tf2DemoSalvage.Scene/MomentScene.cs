@@ -516,7 +516,10 @@ public sealed class MomentScene : IGameSystemPerFrame
     {
         long addedAt = Stopwatch.GetTimestamp();
 
-        bool grew = _models.Add(_drawn);
+        // **`Grown` as well as this call's own answer** (B363). The set can grow outside any call
+        // this class makes — a map packs its detail models at the level boundary — and asking only
+        // "did MY Add add something" left that geometry in the set and off the device.
+        bool grew = _models.Add(_drawn) || _models.Grown;
 
         double addSeconds = (Stopwatch.GetTimestamp() - addedAt) / (double)Stopwatch.Frequency;
 
@@ -579,6 +582,8 @@ public sealed class MomentScene : IGameSystemPerFrame
         long uploadedAt = Stopwatch.GetTimestamp();
 
         upload.UploadModels(_models);
+
+        _models.Uploaded();
 
         double uploadSeconds = (Stopwatch.GetTimestamp() - uploadedAt) / (double)Stopwatch.Frequency;
 

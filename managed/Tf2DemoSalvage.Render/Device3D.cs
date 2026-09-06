@@ -1078,8 +1078,24 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 // **Opaque only.** The translucent pass below must stay back-to-front by distance —
                 // blending is order-dependent, and a size sort there would put a window in front of
                 // what should show through it.
+                // **The map's detail models join the scene's list rather than getting a pass**
+                // (B363), because the engine puts them in the same one:
+                // `CollateRenderablesInLeaf` adds a `CDetailModel` under
+                // `RENDER_GROUP_OPAQUE_ENTITY` or `RENDER_GROUP_TRANSLUCENT_ENTITY` exactly as it
+                // adds a player (`clientleafsystem.cpp:1718`). Drawn beside the list instead, a
+                // detail model could not sort against the entities it stands among.
+                IReadOnlyList<ModelInstance> drawn = models ?? [];
+
+                if (_detailModelInstances.Count > 0)
+                {
+                    _allModels.Clear();
+                    _allModels.AddRange(drawn);
+                    _allModels.AddRange(_detailModelInstances);
+                    drawn = _allModels;
+                }
+
                 IReadOnlyList<ModelInstance> opaque =
-                    OpaqueBuckets.InDrawOrder(models ?? [], _frustum);
+                    OpaqueBuckets.InDrawOrder(drawn, _frustum);
 
                 ReportDrawOrder(models, opaque);
 
@@ -1158,7 +1174,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 // survivors, sorts them the same way, and walks them the same way.
                 _translucentDraw.Clear();
 
-                foreach (ModelInstance instance in models ?? [])
+                // **`drawn`, not `models`** — a detail model mid-fade is a translucent renderable
+                // (`IsTransparent()` is `(m_Alpha < 255) || …`), so the same concatenated list has
+                // to reach this pass or a fading one would simply vanish (B363).
+                foreach (ModelInstance instance in drawn)
                 {
                     // Culled with the same frustum as the opaque pass: the engine culls in the
                     // leaf system before it splits opaque from translucent, so both passes see
@@ -1535,6 +1554,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// The map's <c>env_detail_controller</c> distances, or null when it carries none — see
     /// <see cref="LiveDetailFade"/>.
     /// </param>
+    /// <param name="models">
+    /// The detail model dictionary — one path per entry, indexed by a model-type prop's
+    /// <see cref="BspDetailProp.DetailModel"/> (B363). Empty for a map that scatters only sprites.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <exception cref="ObjectDisposedException">The device has been disposed.</exception>
     /// <remarks>
@@ -1551,10 +1574,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         IReadOnlyList<BspDetailProp> props,
         IReadOnlyList<BspDetailSprite> rectangles,
         MapTexture? sheet,
-        (float FadeStart, float FadeEnd)? controller)
+        (float FadeStart, float FadeEnd)? controller,
+        IReadOnlyList<string> models)
     {
         ArgumentNullException.ThrowIfNull(props);
         ArgumentNullException.ThrowIfNull(rectangles);
+        ArgumentNullException.ThrowIfNull(models);
         ObjectDisposedException.ThrowIf(_disposed, this);
 
         _detailSheet.Dispose();
@@ -1562,6 +1587,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
         _detailProps = props;
         _detailRectangles = rectangles;
+        _detailModelNames = models;
+        _detailModelInstances.Clear();
+        _detailModelsPlaced.Clear();
 
         // **Set before the early return below, not after it.** A map with no detail props still
         // has a controller, and the next map's props would otherwise be drawn at this one's
@@ -1592,6 +1620,30 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     private (float X, float Y, float Z, float Distance, float Fade)? _detailBuiltFor;
     private (float FadeStart, float FadeEnd)? _detailController;
 
+    /// <summary>The map's detail model dictionary — one path per entry (B363).</summary>
+    private IReadOnlyList<string> _detailModelNames = [];
+
+    /// <summary>This view's detail models, rebuilt with the sprites and drawn with the models.</summary>
+    private readonly List<DetailModelInstance> _detailModelsPlaced = [];
+
+    /// <summary>The same, as instances the model pass can draw.</summary>
+    private readonly List<ModelInstance> _detailModelInstances = [];
+
+    /// <summary>Every model this frame draws: the scene's, then the map's detail models.</summary>
+    /// <remarks>
+    /// **One list rather than two passes, because the engine has one.**
+    /// `CClientLeafSystem::CollateRenderablesInLeaf` adds a detail model to the SAME render list as
+    /// an ordinary entity — `RENDER_GROUP_OPAQUE_ENTITY` or `RENDER_GROUP_TRANSLUCENT_ENTITY`, just
+    /// with the sentinel handle `DETAIL_PROP_RENDER_HANDLE` in place of a real one
+    /// (`clientleafsystem.cpp:1718`). So they sort, bucket and depth-test against the scene's models
+    /// rather than being drawn beside them, and a separate pass would put a detail model in front of
+    /// a player it should be behind.
+    ///
+    /// **Refilled rather than reallocated**, and concatenated by hand rather than with LINQ, which
+    /// this project keeps off a hot path (`docs/memory/linq-is-a-test-tool.md`).
+    /// </remarks>
+    private readonly List<ModelInstance> _allModels = [];
+
     /// <summary>Rebuilds the detail sprite quads for an eye that has moved.</summary>
     /// <remarks>
     /// **Gated on the EYE rather than on the frame**, which the engine cannot do and we can. Valve
@@ -1615,24 +1667,149 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         (float X, float Y, float Z, float Distance, float Fade) key =
             (eye.X, eye.Y, eye.Z, live.Distance, live.Fade);
 
-        if (_detailSprites is null || _detailProps.Count == 0 || _detailBuiltFor == key)
+        if (_detailProps.Count == 0 || _detailBuiltFor == key)
         {
             return;
         }
 
         _detailBuiltFor = key;
+
+        DetailFade fade = DetailFade.For(live.Distance, live.Fade);
+
+        // **The models first, and OUTSIDE the sprite renderer's own guard** (B363). A map can carry
+        // detail models and no sprites at all — `SetDetailProps` leaves `_detailSprites` null when
+        // the sheet does not resolve — and gating the models on a sprite sheet would draw none of
+        // them on exactly that map. They are separate populations of one lump.
+        RebuildDetailModels(eye, fade);
+
+        if (_detailSprites is null)
+        {
+            return;
+        }
+
         _detailCorners.Clear();
 
         DetailSprites.Frame frame = DetailSprites.Build(
             _detailProps,
             _detailRectangles,
             eye,
-            DetailFade.For(live.Distance, live.Fade),
+            fade,
             _detailCorners);
 
         _detailSprites.Upload(_device, _context, _detailCorners);
 
         ReportDetailSprites(frame);
+    }
+
+    /// <summary>Rebuilds the detail MODELS for an eye that has moved (B363).</summary>
+    /// <remarks>
+    /// **Beside the sprites and keyed the same way**, because they are the same objects: Valve's
+    /// `EnumerateLeaf` sets a model's alpha and calls its `ComputeAngles` in the same untyped loop
+    /// that serves the sprites (`detailobjectsystem.cpp:2742`). Splitting the two rebuilds would let
+    /// a map's grass and its grass models disagree about where the viewer is.
+    ///
+    /// **The instances are built here rather than in the scene** for the same reason the sprites
+    /// are: the fade is <see cref="LiveDetailFade"/>, which is the config's value after the map's
+    /// `env_detail_controller` has had its say, and that pair lives on this side.
+    /// </remarks>
+    private void RebuildDetailModels((float X, float Y, float Z) eye, DetailFade fade)
+    {
+        if (_detailModelNames.Count == 0 || _detailProps.Count == 0)
+        {
+            return;
+        }
+
+        _detailModelsPlaced.Clear();
+        _detailModelInstances.Clear();
+
+        DetailModels.Frame frame = DetailModels.Build(_detailProps, eye, fade, _detailModelsPlaced);
+
+        foreach (DetailModelInstance placed in _detailModelsPlaced)
+        {
+            if (placed.Model < 0 || placed.Model >= _detailModelNames.Count)
+            {
+                // A dictionary index the lump does not have. Untrusted map data (D32), and the
+                // alternative to skipping is an exception on a frame.
+                continue;
+            }
+
+            _detailModelInstances.Add(new ModelInstance(
+                _detailModelNames[placed.Model],
+                new PropTransform(
+                    placed.Origin.X, placed.Origin.Y, placed.Origin.Z,
+                    placed.Angles.Pitch, placed.Angles.Yaw, placed.Angles.Roll, 1f).ToMatrix(),
+
+                // **The lump's own colour, not a sampled cube.** `UnserializeModelDict` REFUSES a
+                // vertex-lit detail model — *"It must use unlit materials!"* — and substitutes
+                // `models/error.mdl` (`detailobjectsystem.cpp:1587`), so a legitimate detail model
+                // has no vertex lighting to be lit by. What it has is `m_Lighting` out of the lump,
+                // which `CDetailModel::Init` keeps as `m_Color`, and vrad baked per instance.
+                //
+                // **Carried as a cube with all six faces equal**, which is what a single colour
+                // means: the model is lit the same from every direction, exactly as an unlit
+                // material modulated by one colour would be. Drawn without it every detail model
+                // was full-bright white-yellow against grass vrad had shaded.
+                Light: DetailModelLight(placed.Lighting),
+                Sun: null,
+                Alpha: placed.Alpha,
+
+                // The same point the fade measured from, so lighting and reflection would agree
+                // with it if either is added.
+                Origin: placed.Origin));
+        }
+
+        ReportDetailModels(frame);
+    }
+
+    /// <summary>Writes, at most once a second, what the detail models came to.</summary>
+    private void ReportDetailModels(DetailModels.Frame frame)
+    {
+        long now = Stopwatch.GetTimestamp();
+
+        if (_reportedDetailModelsAt != 0 &&
+            now - _reportedDetailModelsAt < Stopwatch.Frequency)
+        {
+            return;
+        }
+
+        _reportedDetailModelsAt = now;
+
+        // **No geometry count here, and the reason is worth keeping.** A `resolved` column was added
+        // asking `_world.ModelBatches(name, 0)` whether each dictionary model had batches — and it
+        // reported `0 of 1` on a frame where the models were plainly on screen. Wrong instruments
+        // outnumber wrong decoders here, and a counter that contradicts the picture is worse than
+        // no counter: it sends the next person looking for a defect that is not there.
+        //
+        // **The failure it was meant to catch is already instrumented, correctly.** A placed
+        // instance whose model packed to nothing produces the renderer's own
+        // *"was posed before its geometry was uploaded"*, once per instance — which is exactly how
+        // the packing order bug behind B363 was found, and how its fix was confirmed.
+        _render.LogDebug(
+            "{Message}",
+            $"detail models: {frame.Built} placed of {_detailProps.Count} detail props " +
+            $"({frame.Faded} beyond {LiveDetailFade.Distance:0}, {frame.Aligned} turned toward the " +
+            $"eye, {frame.Translucent} mid-fade), {_detailModelNames.Count} in the dictionary");
+    }
+
+    private long _reportedDetailModelsAt;
+
+    /// <summary>The lump's per-object colour, as the light a detail model is drawn with.</summary>
+    /// <remarks>
+    /// **Measured rather than assumed, and the first attempt was wrong.** Handing the lump's colour
+    /// to <see cref="AmbientCube"/> unchanged drew every detail model pure white: the cube the model
+    /// shader wants is 0–1, and `ColorRGBExp32` decodes to 0–255. Both readings produce a picture,
+    /// which is why this needed looking at rather than reasoning about.
+    ///
+    /// **All six faces equal**, because one colour lights the model the same from every direction —
+    /// which is what an unlit material modulated by a single colour does, and a detail model is
+    /// required to be unlit (`detailobjectsystem.cpp:1587`).
+    /// </remarks>
+    private static AmbientCube DetailModelLight((float Red, float Green, float Blue) lighting)
+    {
+        (float Red, float Green, float Blue) scaled =
+            (lighting.Red / 255f, lighting.Green / 255f, lighting.Blue / 255f);
+
+        return new AmbientCube(scaled, scaled, scaled, scaled, scaled, scaled);
     }
 
     /// <summary><c>cl_detaildist</c> — how far detail props are drawn.</summary>
