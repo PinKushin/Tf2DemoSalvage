@@ -24633,13 +24633,18 @@ reading it unsigned turns an ordinary sample into a multiplier of 2^200 and the 
 white. Measured samples on harvest run from `(64, 34, 10)` to `(312, 224, 118)`, so both the darkness
 and the over-range clamp are exercised by real data.
 
-**What is drawn: the 20,117 fixed-orientation sprites of 28,699.** The other 8,582 are
-`DETAIL_PROP_ORIENT_SCREEN_ALIGNED_VERTICAL`, whose angles `CDetailModel::ComputeAngles` recomputes
-from `CurrentViewOrigin()` every frame (`detailobjectsystem.cpp:950`); they cannot be baked into
-static geometry, and are not drawn at all rather than drawn facing the wrong way. **That split is
-not the same on every map, and the difference is large: `cp_granary` is 19,189 screen-aligned
-against 324 fixed**, so on granary this change draws 1.7% of the detail props and on harvest 70%.
-B361 carries the rest.
+**What this first version drew: the 20,117 fixed-orientation sprites of 28,699.** The other 8,582
+are `DETAIL_PROP_ORIENT_SCREEN_ALIGNED_VERTICAL`, whose angles `CDetailModel::ComputeAngles`
+recomputes from `CurrentViewOrigin()` every frame (`detailobjectsystem.cpp:950`); they cannot be
+baked into static geometry, and were not drawn at all rather than drawn facing the wrong way.
+**That split is not the same on every map, and the difference is total: every one of `cp_granary`'s
+19,189 sprites is screen-aligned**, so the baked path drew 70% of harvest's grass and NONE of
+granary's. B361 replaced the baked path with a per-view one and closed it.
+
+**Granary's 324 fixed-orientation props are MODELS, not sprites**, and that correction is recorded
+because the first reading of the census made the opposite claim. `DETAIL_PROP_TYPE_MODEL` is a
+studio model — `models/props_foliage/grass_02_detailmodel.mdl` — which neither path draws; it is its
+own gap, and the only map measured that has any.
 
 **Neither shape type is built, and that is not a gap.** `USE_DETAIL_SHAPES` is defined only for Day
 of Defeat and Counter-Strike (`detailobjectsystem.cpp:30`), so `SHAPE_CROSS`, `SHAPE_TRI` and the
@@ -24694,4 +24699,73 @@ and for the before/after frames.
 therefore one run, so they blend against each other in buffer order rather than by depth, where the
 engine rebuilds and sorts its detail sprite mesh every frame. The sheet is close to a cut-out — its
 alpha is mostly 0 or 255 — which is why the artefact is not obvious, and it is the same limitation
-the world's own translucent batches already have.
+the world's own translucent batches already have. **B361 closed this for detail sprites** by giving
+them their own pass, sorted per view.
+
+### B361 FIXED 2026-09-05: detail sprites are built per view, faded and turned toward the eye
+
+**Two things about a detail sprite depend on where the eye is**, and B360 baked them both:
+
+- **its alpha.** `cl_detaildist` (1200) and `cl_detailfade` (400) fade a sprite across the last band
+  of its range and drop it beyond, per view, in `BuildDetailObjectRenderLists`
+  (`detailobjectsystem.cpp:2821`) and `EnumerateLeaf` (`:2762`).
+- **its angles**, for the two screen-aligned orientations, which `CDetailModel::ComputeAngles`
+  (`:950`) recomputes from `CurrentViewOrigin()`.
+
+So the baked path could not draw a screen-aligned sprite at all, and drew every other one at full
+strength however far away it was. **On `cp_granary` that was all of them**: every one of its 19,189
+sprites is screen-aligned, and the baked path drew none.
+
+**The fade arithmetic is transcribed with an asymmetry that looks like a bug and is Valve's.** The
+maximum is squared and THEN divided by the FOV factor; the fade is divided and then squared. At the
+default FOV the factor is 1 and the difference cannot be seen, which is exactly how it would survive
+being tidied into symmetry. `MIN( fade, maximum - 1 )` is what makes `cl_detaildist 0` — which
+`low.cfg` ships — draw nothing rather than divide by zero. `SetAlpha` takes an `unsigned char`, so
+halfway across the band is 127 and not 128.
+
+**`ComputeAngles` case 2 flattens the DIRECTION, not the result.** Zeroing the z of
+`eye − origin` before `VectorAngles` keeps the sprite upright while it turns; clamping the pitch
+afterwards would not, because the yaw of a steeply inclined direction is not the yaw of its
+horizontal part. `VectorAngles` itself came into `AngleVectors` for this, wrap and all: it
+normalises pitch and yaw into [0, 360), so a direction rising at 45 degrees is pitch **315**, and its
+vertical case has no `atan2` in it and answers 270 for straight up.
+
+**Its own pass and its own dynamic buffer**, because the world's static one cannot hold per-view
+geometry and `WorldVertex` has nowhere to put opacity — its `Alpha` is the two-texture blend a
+`WorldVertexTransition` displacement uses, and overloading it would make a displacement's blend fade
+the grass. The shader is the shipped material and nothing else: `UnlitGeneric`, `$translucent`,
+`$nocull`, `$vertexcolor`, `$vertexalpha`, with `$AlphaTest` **commented out** beside its own
+reference value, so there is no cut-out.
+
+**Rebuilt when the EYE moves, not every frame, and that is where this beats the engine.** Valve
+rebuilds its detail mesh per view because it has no cheap way to know the view is unchanged; here the
+geometry is a pure function of the eye, so a still camera rebuilds nothing and a camera turning on
+the spot rebuilds nothing — neither the fade nor `ComputeAngles` reads the angles. Measured on
+`z1800.dem` at the reference camera: 2,050 quads of 28,699 props, 26,649 dropped beyond 1,200 units.
+
+**Evidence class: read-from-source** for the fade, the angles and the material; **measured** for
+every count and for the two captures.
+
+**What is NOT established:** the FOV factor is passed as 1 and nothing wires a zoomed sniper's field
+of view into it — the conformance suite pins the arithmetic, and a zoom would push the range out.
+`env_detail_controller`, which lets a map override both distances, is not read; measured absent from
+`koth_harvest_final` and `cp_granary` with `worldspawn` as the control, and unmeasurable on
+`cp_process_f12` whose entity lump is compressed. The shipped quality configs move `cl_detaildist` a
+long way (`low.cfg` 0, `ultra.cfg` 8592) and neither is read either.
+
+### B363 OPEN: detail props that are MODELS are not drawn
+
+**`DETAIL_PROP_TYPE_MODEL` is a studio model scattered by `vbsp` like a sprite**, and this project
+draws none of them. Found while correcting B360's granary numbers: that map places **324** of
+`models/props_foliage/grass_02_detailmodel.mdl`, and `koth_harvest_final`, `cp_process_f12`,
+`cp_badlands` and `koth_badlands` place none at all.
+
+The engine treats them as ordinary renderables — `CDetailModel::Init` takes a `model_t*` and they go
+through the studio path rather than through `DrawTypeSprite` — so the work is to place them like
+static props with the detail system's own distance fade over the top, rather than anything new.
+
+**Its own entry rather than a line in B360** because it is a different mechanism with a different
+denominator: one map in five, three hundred instances, and a path that already exists for static
+props.
+
+**Evidence class: measured** for the counts; **read-from-source** for the type's meaning.

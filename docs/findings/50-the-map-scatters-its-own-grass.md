@@ -235,14 +235,25 @@ recomputed from `CurrentViewOrigin()` **every frame** (`CDetailModel::ComputeAng
 |---|---|---|
 | `koth_harvest_final` | 20,117 | 8,582 |
 | `cp_process_f12` | 14,506 | 4,335 |
-| `cp_granary` | **324** | **19,189** |
+| `cp_granary` | **0** | **19,189** |
 
 **Granary is the reason to count rather than to sample.** A static implementation draws 70% of
-harvest's detail props and 1.7% of granary's. Reading the split off one map would have ranked the
-per-frame path as a small follow-up and been wrong by a factor of forty on the map that needs it
-most.
+harvest's grass and **none at all** of granary's. Reading the split off one map would have ranked
+the per-view path as a small follow-up and been wrong on the map that needs it most.
 
-*Evidence class: measured.*
+**And the first version of this table was wrong in a way worth keeping.** It read granary as *324
+fixed, 19,189 screen-aligned* — a count of ORIENTATION, taken to be a count of sprites. Granary has
+no fixed-orientation sprite at all: its 324 fixed-orientation objects are
+`DETAIL_PROP_TYPE_MODEL`, `models/props_foliage/grass_02_detailmodel.mdl`, a studio model that
+neither the old path nor the new one draws.
+
+The tell was in the same probe output and was read past: those 324 reported a `m_flScale` of
+−181,657,600 and 0.00. A model does not use `m_flScale` — `CDetailModel::Init` for a model never
+takes it — so the field holds whatever `vbsp` left there. **A nonsense number beside a plausible one
+is the instrument telling you which rows it should not have selected**, and it took a screenshot of
+the wrong hillside to go back and look at it.
+
+*Evidence class: measured, and corrected once.*
 
 ---
 
@@ -296,15 +307,66 @@ sprites. A picture is only evidence if it is pointed at the right place.
 
 ---
 
+---
+
+## The eye is an input, and baking it drew nothing on one map in three
+
+**Two of a detail sprite's properties are functions of the view**, which is what makes this geometry
+per-view rather than static:
+
+```cpp
+// EnumerateLeaf, detailobjectsystem.cpp:2762 — the alpha
+if ( sqDist < m_flCurMaxSqDist )
+    model.SetAlpha( sqDist > m_flCurFadeSqDist
+        ? m_flCurFalloffFactor * ( m_flCurMaxSqDist - sqDist ) : 255 );
+else
+    model.SetAlpha( 0 );
+
+// ComputeAngles, detailobjectsystem.cpp:950 — the facing
+case 2:
+    VectorSubtract( CurrentViewOrigin(), m_Origin, vecDir );
+    vecDir.z = 0.0f;
+    VectorAngles( vecDir, m_Angles );
+```
+
+**Three things in the fade arithmetic are worth carrying verbatim**, and all three look like defects:
+
+- The FOV factor divides the maximum AFTER squaring and the fade BEFORE, so a factor of one half
+  pushes one limit out by two and the other by four. At the default FOV the factor is exactly 1 and
+  the asymmetry is invisible — which is precisely how it would survive being tidied.
+- `MIN( fade, maximum - 1 )` looks like a guard against a degenerate divide and IS the mechanism by
+  which `cl_detaildist 0` draws nothing. `low.cfg` ships that value.
+- `SetAlpha` takes an `unsigned char`, so the fade truncates. Halfway across the band is 127.
+
+**And `ComputeAngles` case 2 flattens the direction rather than the result.** Zeroing z before
+`VectorAngles` keeps the sprite upright while it turns about the vertical; clamping the pitch
+afterwards does not, because the yaw of a steeply inclined direction is not the yaw of its
+horizontal part once the pitch is thrown away.
+
+**`VectorAngles` normalises into [0, 360), which is not the inverse of `AngleVectors` as written.** A
+direction rising at 45 degrees reports pitch **315**, and the vertical case has no `atan2` in it at
+all and answers 270 for straight up. Nothing downstream of `AngleVectors` can tell 315 from −45; a
+clamp or a comparison can.
+
+*Evidence class: read-from-source throughout.*
+
+---
+
 ## Still open
 
-- **The screen-aligned sprites** (B361). 8,582 on harvest, 19,189 on granary. They need geometry
-  rebuilt per frame from the view origin.
-- **Distance fade.** `cl_detaildist` (1200) and `cl_detailfade` (400) fade a sprite as the view
-  leaves it; nothing here implements that, so distant grass draws at full strength where TF2 has
-  faded it out.
+- **Detail props that are MODELS** (B363). `DETAIL_PROP_TYPE_MODEL` is a studio model scattered like
+  a sprite. `cp_granary` places 324 of `models/props_foliage/grass_02_detailmodel.mdl`; harvest,
+  process and both badlands place none.
+- **The FOV factor** is passed as 1. A zoomed sniper's field of view would push the fade range out,
+  and nothing wires one in.
+- **`env_detail_controller`**, which lets a map override both distances. Measured absent from
+  `koth_harvest_final` and `cp_granary` with `worldspawn` as the control; unmeasurable on
+  `cp_process_f12`, whose entity lump is compressed.
+- **The shipped quality configs.** `low.cfg` sets `cl_detaildist 0` and `ultra.cfg` sets 8592, so the
+  shipped range of this one setting spans zero to seven times the default. Neither is read.
 - **`dplt` / `dplh`.** The lightstyle lumps are read by nothing. `koth_harvest_event` carries 335 KB
   of them; `koth_harvest_final` declares none.
-- **Sorting within the batch.** All 20,117 sprites share one material and therefore one run, so they
-  blend in buffer order rather than by depth. The engine rebuilds and sorts its detail mesh every
-  frame. The sheet is close to a cut-out, which is why the artefact is not obvious.
+- **`cl_detail_multiplier`.** Every detail object is instantiated that many times, the extras
+  displaced by `RandomVector( -50, 50 )` (`detailobjectsystem.cpp:1808`). It defaults to 1 and is
+  `FCVAR_CHEAT`, so nothing changes today — but a config setting it would multiply the grass and
+  this reads the lump's count as the answer.

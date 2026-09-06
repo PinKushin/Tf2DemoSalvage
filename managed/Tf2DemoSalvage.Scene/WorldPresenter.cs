@@ -179,6 +179,13 @@ public sealed class WorldPresenter(ILogger render)
             // when any of the six would not resolve, which draws no sky rather than a holed box.
             upload.SetSkyFaces(level.Assets?.SkyFaces ?? []);
 
+            // The grass, handed over as the lump's own data: the quads it becomes depend on where
+            // the eye is, so there is nothing to build here (B361).
+            upload.SetDetailProps(
+                level.Assets?.DetailProps ?? [],
+                level.Assets?.DetailSpriteRectangles ?? [],
+                level.Assets?.DetailSpriteSheet);
+
             render.LogInformation(
                 "{Message}",
                 culling is null

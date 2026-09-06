@@ -93,6 +93,15 @@ public sealed class WorldPresenterTests
         public void SetSkyFaces(IReadOnlyList<MapTexture?> faces) =>
             Calls.Add(faces.Count == 0 ? "no-sky-faces" : "sky-faces");
 
+        // Recorded like the sky's two halves: an empty hand-over and a populated one are different
+        // outcomes, and a fake that conflated them could not tell "the map has no grass" from "the
+        // presenter never passed it on".
+        public void SetDetailProps(
+            IReadOnlyList<Content.Bsp.BspDetailProp> props,
+            IReadOnlyList<Content.Bsp.BspDetailSprite> rectangles,
+            MapTexture? sheet) =>
+            Calls.Add(props.Count == 0 ? "no-detail-props" : "detail-props");
+
         public void SetCamera(float[] matrix, bool surfaceColours = false) =>
             Calls.Add("camera");
 

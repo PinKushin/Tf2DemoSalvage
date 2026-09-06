@@ -165,4 +165,87 @@ public sealed class AngleVectorsTests
 
     private static double Dot((float X, float Y, float Z) first, (float X, float Y, float Z) second)
         => (first.X * second.X) + (first.Y * second.Y) + (first.Z * second.Z);
+
+    /// <remarks>
+    /// **`VectorAngles`, `mathlib_base.cpp:535`, is not the inverse of `Forward` as written**, and
+    /// the difference is the whole reason these cases are here: it normalises both results into
+    /// **[0, 360)** rather than returning a signed angle.
+    ///
+    /// <code>
+    ///   yaw = atan2( forward[1], forward[0] ) * 180 / M_PI;
+    ///   if (yaw &lt; 0) yaw += 360;
+    ///   tmp = sqrt( forward[0]*forward[0] + forward[1]*forward[1] );
+    ///   pitch = atan2( -forward[2], tmp ) * 180 / M_PI;
+    ///   if (pitch &lt; 0) pitch += 360;
+    /// </code>
+    ///
+    /// A basis is the same at 315 and −45, so nothing downstream of `AngleVectors` can tell; a
+    /// CLAMP or a comparison can, which is why the transcription keeps Valve's range.
+    /// </remarks>
+    [Test]
+    public void Angles_ADirectionBelowTheHorizon_IsPositivePitch()
+    {
+        (float Pitch, float Yaw, float Roll) angles = AngleVectors.Angles(1f, 0f, -1f);
+
+        angles.Pitch.ShouldBe(45f, Tolerance);
+        angles.Yaw.ShouldBe(0f, Tolerance);
+        angles.Roll.ShouldBe(0f);
+    }
+
+    /// <remarks>
+    /// **The wrap, which a signed transcription fails.** A direction rising at 45° is pitch −45 in
+    /// signed terms and Valve reports 315.
+    /// </remarks>
+    [Test]
+    public void Angles_ADirectionAboveTheHorizon_WrapsRatherThanGoingNegative()
+    {
+        AngleVectors.Angles(1f, 0f, 1f).Pitch.ShouldBe(315f, Tolerance);
+    }
+
+    /// <remarks>The same wrap on yaw: due south is 270, not −90.</remarks>
+    [Test]
+    public void Angles_ADirectionAlongNegativeY_IsYaw270()
+    {
+        AngleVectors.Angles(0f, -1f, 0f).Yaw.ShouldBe(270f, Tolerance);
+    }
+
+    /// <remarks>
+    /// **Straight up is the branch with no `atan2` in it at all**, and it answers 270 rather than
+    /// −90 — `if (forward[1] == 0 &amp;&amp; forward[0] == 0)`. A transcription that let the general case
+    /// handle it would divide by a zero-length horizontal and produce a NaN yaw.
+    /// </remarks>
+    [Test]
+    public void Angles_StraightUp_Is270WithNoYaw()
+    {
+        (float Pitch, float Yaw, float Roll) angles = AngleVectors.Angles(0f, 0f, 1f);
+
+        angles.Pitch.ShouldBe(270f);
+        angles.Yaw.ShouldBe(0f);
+    }
+
+    /// <remarks>The other half of that branch, and the control for it.</remarks>
+    [Test]
+    public void Angles_StraightDown_Is90WithNoYaw()
+    {
+        AngleVectors.Angles(0f, 0f, -1f).Pitch.ShouldBe(90f);
+    }
+
+    /// <remarks>
+    /// **The round trip, which is what says the two transcriptions describe one convention.**
+    /// `Forward` of `Angles(direction)` is the direction back, normalised — checked on a direction
+    /// with all three components non-zero, since any axis-aligned case would pass on an accident of
+    /// zeros.
+    /// </remarks>
+    [Test]
+    public void Angles_ThenForward_ReturnsTheDirectionItWasGiven()
+    {
+        (float Pitch, float Yaw, float Roll) angles = AngleVectors.Angles(3f, -4f, 12f);
+
+        (float X, float Y, float Z) forward = AngleVectors.Forward(angles.Pitch, angles.Yaw);
+
+        // 3, -4, 12 has length 13.
+        forward.X.ShouldBe(3f / 13f, 1e-5);
+        forward.Y.ShouldBe(-4f / 13f, 1e-5);
+        forward.Z.ShouldBe(12f / 13f, 1e-5);
+    }
 }

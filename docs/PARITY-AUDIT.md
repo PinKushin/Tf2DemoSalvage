@@ -1065,19 +1065,25 @@ mode was not "slightly wrong", it was a Source outdoor map with bare ground.
 
 **How much ground.** Detail props are what `vbsp` scatters from a material's `%detailtype`:
 
-| map | detail props | fixed orientation | screen-aligned |
+| map | sprites, fixed | sprites, screen-aligned | models |
 |---|---|---|---|
-| `koth_harvest_final` | 28,699 | 20,117 | 8,582 |
-| `cp_granary` | 19,513 | **324** | **19,189** |
-| `cp_process_f12` | 18,841 | 14,506 | 4,335 |
-| `cp_badlands`, `koth_badlands` | 0 | — | — |
+| `koth_harvest_final` | 20,117 | 8,582 | 0 |
+| `cp_granary` | **0** | **19,189** | **324** |
+| `cp_process_f12` | 14,506 | 4,335 | 0 |
+| `cp_badlands`, `koth_badlands` | 0 | 0 | 0 |
 
-**That granary row is the finding inside the finding.** The two orientations look like a detail until
-you count them: a screen-aligned sprite has its angles recomputed from `CurrentViewOrigin()` every
-frame (`CDetailModel::ComputeAngles`, `detailobjectsystem.cpp:950`) and cannot be baked into static
-geometry, so B360's static build draws 70% of harvest's and **1.7% of granary's**. Ranking the
-remainder as a small follow-up would have been wrong by a factor of forty on the map that stresses
-it most, and only the census says so.
+**That granary row is the finding inside the finding.** A screen-aligned sprite has its angles
+recomputed from `CurrentViewOrigin()` every frame (`CDetailModel::ComputeAngles`,
+`detailobjectsystem.cpp:950`) and cannot be baked into static geometry, so B360's static build drew
+70% of harvest's grass and **none at all** of granary's. Ranking the remainder as a small follow-up
+would have been wrong on the map that stresses it most, and only the census says so.
+
+**And the census had to be crossed to say it.** Reported as two separate margins — 19,189
+screen-aligned, 324 fixed — granary reads as a map with 324 fixed SPRITES. It has none: its 324
+fixed-orientation props are `DETAIL_PROP_TYPE_MODEL`, a studio model this project does not draw at
+all. The probe printed those as sprites, complete with a `m_flScale` of −181,657,600 that a model
+never uses, until it was made to select on the type. **Two margins of one table are not the table**,
+which is the same shape as `docs/memory/the-denominator-decides-what-can-be-lost.md`.
 
 **And chasing it downstream found a defect in something we HAVE drawn for months.** The sprite
 material is `$translucent 1`; 20,117 quads were built, every counter agreed, and the frame had no

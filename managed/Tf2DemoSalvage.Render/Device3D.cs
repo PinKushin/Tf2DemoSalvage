@@ -1031,6 +1031,20 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
                 _world.Draw(_context);
 
+                // **The grass, after the world and before the models** (B361). The engine draws
+                // detail sprites in the translucent pass, which runs after the world's surfaces
+                // and its opaque renderables; here the models come next and are opaque, so drawing
+                // the sprites first lets the depth buffer they test against contain the ground
+                // they stand on and nothing that has not been drawn yet.
+                //
+                // **They own every piece of state they need** — blend, depth and rasteriser — so
+                // this cannot be the pass that leaks one onto the models below, which is the defect
+                // the long comment beneath is about.
+                if (_detailSprites is not null && _worldCamera is { } grassCamera)
+                {
+                    _detailSprites.Draw(_device, _context, grassCamera.Matrix);
+                }
+
                 // **After the map, and through the depth buffer**, so a model behind a wall is
                 // hidden by it rather than by draw order. The map's own identity matrix is set at
                 // the top of Draw each frame, which is what stops these leaving their transform
@@ -1498,6 +1512,114 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _skyTextures = [];
 
+    /// <summary>Gives the device the map's detail props — the grass (B361).</summary>
+    /// <param name="props">The detail props, from <see cref="MapAssets.DetailProps"/>.</param>
+    /// <param name="rectangles">The sprite dictionary they index.</param>
+    /// <param name="sheet">The one material they are all drawn from, or null.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="ObjectDisposedException">The device has been disposed.</exception>
+    /// <remarks>
+    /// **Held as data rather than uploaded as geometry**, because a detail sprite's quad depends on
+    /// where the eye is: its alpha comes from the distance and two of the three orientations have
+    /// their angles recomputed from the view every frame. The quads are built in
+    /// <see cref="RebuildDetailSprites"/> when the view changes.
+    ///
+    /// **A map with no detail props is ordinary** — `cp_badlands` has none — and so is a machine
+    /// with no TF2 install, where the sheet does not resolve. Both draw no grass rather than
+    /// failing.
+    /// </remarks>
+    public void SetDetailProps(
+        IReadOnlyList<BspDetailProp> props,
+        IReadOnlyList<BspDetailSprite> rectangles,
+        MapTexture? sheet)
+    {
+        ArgumentNullException.ThrowIfNull(props);
+        ArgumentNullException.ThrowIfNull(rectangles);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        _detailSheet.Dispose();
+        _detailSheet = default;
+
+        _detailProps = props;
+        _detailRectangles = rectangles;
+        _detailCorners.Clear();
+        _detailBuiltFor = null;
+
+        if (props.Count == 0 || rectangles.Count == 0 || sheet is null)
+        {
+            _detailSprites?.SetSheet(default);
+            return;
+        }
+
+        _detailSprites ??= DetailSpriteRenderer.Create(_device);
+
+        _detailSheet = WorldRenderer.UploadTexture(_device, _context, sheet);
+
+        _detailSprites.SetSheet(_detailSheet);
+    }
+
+    private DetailSpriteRenderer? _detailSprites;
+    private ComPtr<ID3D11ShaderResourceView> _detailSheet;
+    private IReadOnlyList<BspDetailProp> _detailProps = [];
+    private IReadOnlyList<BspDetailSprite> _detailRectangles = [];
+    private readonly List<DetailSpriteVertex> _detailCorners = [];
+    private (float X, float Y, float Z)? _detailBuiltFor;
+
+    /// <summary>Rebuilds the detail sprite quads for an eye that has moved.</summary>
+    /// <remarks>
+    /// **Gated on the EYE rather than on the frame**, which the engine cannot do and we can. Valve
+    /// rebuilds its detail mesh every frame because it has no cheap way to know the view is
+    /// unchanged; here the geometry is a pure function of the eye, so a still camera rebuilds
+    /// nothing. That is the same trade `SetCamera`'s cull gate already makes — and it is why this
+    /// project is faster than the engine while doing the same thing (D89).
+    ///
+    /// **The angles do not enter it.** Turning on the spot changes which sprites are in frustum and
+    /// nothing about where they are or which way they face: `ComputeAngles` reads
+    /// `CurrentViewOrigin()` and the fade reads a distance, neither of which a turn changes.
+    /// </remarks>
+    private void RebuildDetailSprites((float X, float Y, float Z) eye)
+    {
+        if (_detailSprites is null || _detailProps.Count == 0 || _detailBuiltFor == eye)
+        {
+            return;
+        }
+
+        _detailBuiltFor = eye;
+        _detailCorners.Clear();
+
+        DetailSprites.Frame frame = DetailSprites.Build(
+            _detailProps,
+            _detailRectangles,
+            eye,
+            DetailFade.For(DetailDistance, DetailFadeWidth),
+            _detailCorners);
+
+        _detailSprites.Upload(_device, _context, _detailCorners);
+
+        ReportDetailSprites(frame);
+    }
+
+    /// <summary><c>cl_detaildist</c>, Valve's shipped default.</summary>
+    /// <remarks>
+    /// <c>ConVar cl_detaildist( "cl_detaildist", "1200", 0, "Distance at which detail props are no
+    /// longer visible" );</c> — `detailobjectsystem.cpp:52`.
+    ///
+    /// **A default, not a constant** (`docs/memory/a-default-is-not-a-constant.md`). The shipped
+    /// quality configs move it a long way: `low.cfg` sets 0, which draws no detail props at all, and
+    /// `ultra.cfg` sets 8592. A map may move it too, through `env_detail_controller` — measured
+    /// absent from `koth_harvest_final` and `cp_granary`, with `worldspawn` as the control, and
+    /// unmeasurable on `cp_process_f12` whose entity lump is compressed. Neither the configs nor the
+    /// entity are read yet.
+    /// </remarks>
+    private const float DetailDistance = 1200f;
+
+    /// <summary><c>cl_detailfade</c>, Valve's shipped default.</summary>
+    /// <remarks>
+    /// <c>ConVar cl_detailfade( "cl_detailfade", "400", 0, "Distance across which detail props fade
+    /// in" );</c> — `detailobjectsystem.cpp:53`.
+    /// </remarks>
+    private const float DetailFadeWidth = 400f;
+
     /// <summary>Gives the device the map's visibility, or takes it away.</summary>
     /// <param name="culling">The map's culling, or null for a map that cannot be culled.</param>
     /// <exception cref="ObjectDisposedException">The device has been disposed.</exception>
@@ -1615,6 +1737,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
             ReportWorldCull();
         }
+
+        // **Outside the cull gate, because it turns on a different thing.** The cull is rebuilt
+        // when the whole view changes — origin, angles, lens — and the detail sprites depend only
+        // on where the eye IS. Sharing the gate would rebuild every blade of grass when the camera
+        // turned on the spot, which changes nothing about them.
+        RebuildDetailSprites((camera.Origin.X, camera.Origin.Y, camera.Origin.Z));
     }
 
 
@@ -2006,6 +2134,43 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
     /// <summary>Whether the world cull has said what it kept, for this map.</summary>
     private bool _reportedWorldCull;
+
+    /// <summary>Says what one view's detail sprite build produced, at most once a second.</summary>
+    /// <remarks>
+    /// **Rate limited rather than reported once, because the interesting number MOVES.** A count
+    /// taken at the first view says nothing about the one that matters — how much of the map's
+    /// grass a player standing in a field is looking at — and a line per rebuild would be a line
+    /// per camera movement.
+    ///
+    /// **Reports the value the build RETURNED**, carried here, rather than recomputing anything
+    /// from the vertex list (B243). The corner count is the one derived number and it is stated as
+    /// what it is: six per quad.
+    /// </remarks>
+    private void ReportDetailSprites(DetailSprites.Frame frame)
+    {
+        if (!_render.IsEnabled(LogLevel.Debug))
+        {
+            return;
+        }
+
+        long now = Stopwatch.GetTimestamp();
+
+        if (_reportedDetailAt != 0 &&
+            now - _reportedDetailAt < Stopwatch.Frequency)
+        {
+            return;
+        }
+
+        _reportedDetailAt = now;
+
+        _render.LogDebug(
+            "{Message}",
+            $"detail sprites: {frame.Built} quads of {_detailProps.Count} props " +
+            $"({frame.Aligned} turned toward the eye, {frame.Faded} beyond {DetailDistance:0}), " +
+            $"{_detailCorners.Count} corners");
+    }
+
+    private long _reportedDetailAt;
 
     /// <summary>Writes, once per map, how much of the world this eye can see.</summary>
     /// <remarks>
@@ -2562,6 +2727,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         _hud?.Dispose();
         _points?.Dispose();
         _worldLines?.Dispose();
+        _detailSprites?.Dispose();
+        _detailSheet.Dispose();
         ReleaseDepth();
         _depthOn.Dispose();
         _depthOff.Dispose();

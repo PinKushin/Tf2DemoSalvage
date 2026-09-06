@@ -6,10 +6,10 @@ using Tf2DemoSalvage.Content.Bsp;
 namespace Tf2DemoSalvage.Scene;
 
 /// <summary>
-/// Turns the map's detail props into the quads the engine draws for them (B360).
+/// Turns the map's detail props into the quads the engine draws for them, for one view (B360, B361).
 /// </summary>
 /// <remarks>
-/// **`CDetailModel::DrawTypeSprite`, `detailobjectsystem.cpp:1007`**, transcribed rather than
+/// **`CDetailModel::DrawTypeSprite`, `detailobjectsystem.cpp:1012`**, transcribed rather than
 /// approximated. A detail sprite is one quad standing at the prop's origin, sized by a rectangle
 /// from the sprite dictionary and oriented by the prop's own angles:
 ///
@@ -28,6 +28,10 @@ namespace Tf2DemoSalvage.Scene;
 /// **`AngleVectors( angles, NULL, &amp;dx, &amp;dy )` asks for RIGHT and UP**, not forward — the
 /// three-output form is (forward, right, up) and the first is discarded. Reading it as forward
 /// builds every quad in the wrong plane, which looks like grass lying flat on the ground.
+///
+/// **The rectangle runs the other way vertically**: `ul.y` is the sprite's TOP and `lr.y` is the
+/// ground, so the first corner is displaced upward and `lr.y - ul.y` is negative. Correcting the
+/// sign puts every sprite underground.
 ///
 /// **The texture coordinates are swapped when the sprite is NOT flipped**, which reads backwards
 /// and is Valve's:
@@ -48,21 +52,25 @@ namespace Tf2DemoSalvage.Scene;
 /// `detailobjectsystem.cpp:1621`) and reaches for it under the same `!bFlipped` test, which is why
 /// the two mechanisms look different and are one.
 ///
-/// This was shipped applying the swap unconditionally, which mirrors half a map's grass the wrong
-/// way — an error nothing in a picture would name, since a mirrored blade of grass is a blade of
-/// grass. `BspDetailProp.Flipped` carries it now.
+/// **This is built PER VIEW, not once at load, and that is the engine's arrangement rather than a
+/// choice** (B361). Two things about a detail sprite depend on where the eye is:
 ///
-/// **Only <c>DETAIL_PROP_ORIENT_NORMAL</c> is built.** The two screen-aligned orientations have
-/// their angles recomputed every frame from the view position
-/// (<c>CDetailModel::ComputeAngles</c>, <c>detailobjectsystem.cpp:950</c>), so they cannot be baked
-/// into static geometry the way these are. On `koth_harvest_final` that is 20,117 of 28,699; the
-/// remaining 8,582 are not drawn at all rather than drawn facing the wrong way, and B361 carries
-/// what they need.
+/// - **its alpha**, from <see cref="DetailFade"/> — sprites fade out across the last
+///   `cl_detailfade` units of `cl_detaildist` and are dropped beyond it;
+/// - **its angles**, for the two screen-aligned orientations, which
+///   `CDetailModel::ComputeAngles` (`detailobjectsystem.cpp:950`) recomputes from
+///   `CurrentViewOrigin()`.
+///
+/// Baking them would fix the first at whatever the eye was at load and leave the second facing an
+/// arbitrary direction — which is why the first version of this drew only the fixed-orientation
+/// ones. On `koth_harvest_final` that was 20,117 of 28,699 sprites; **on `cp_granary` it was NONE
+/// of 19,189**, because every sprite that map places is screen-aligned. Its 324 fixed-orientation
+/// detail props are `DETAIL_PROP_TYPE_MODEL`, which this path does not draw either.
 ///
 /// **Neither shape type is built, and that is not a gap.** `USE_DETAIL_SHAPES` is defined only for
 /// Day of Defeat and Counter-Strike (<c>detailobjectsystem.cpp:30</c>), so `SHAPE_CROSS`,
 /// `SHAPE_TRI` and the sway mechanic do not exist in TF2. Every detail prop measured on
-/// `koth_harvest_final` is a plain `SPRITE`, which agrees.
+/// `koth_harvest_final`, `cp_granary` and `cp_process_f12` is a plain `SPRITE`, which agrees.
 /// </remarks>
 public static class DetailSprites
 {
@@ -75,59 +83,149 @@ public static class DetailSprites
     /// </remarks>
     public const string Material = "detail/detailsprites";
 
-    /// <summary>Builds the quads for every fixed-orientation sprite the map places.</summary>
+    /// <summary>What one view's build produced.</summary>
+    /// <param name="Built">Quads emitted — six vertices each.</param>
+    /// <param name="Faded">Sprites the distance fade dropped entirely.</param>
+    /// <param name="Aligned">Of those built, how many were turned to face the eye.</param>
+    public readonly record struct Frame(int Built, int Faded, int Aligned);
+
+    /// <summary>Builds every detail sprite this view can see, farthest first.</summary>
     /// <param name="objects">The detail props, from <see cref="BspDetailProps"/>.</param>
     /// <param name="sprites">The sprite dictionary they index.</param>
-    /// <param name="materialIndex">Where <see cref="Material"/> sits in the shared table.</param>
-    /// <param name="into">The world vertex list to append to.</param>
-    /// <returns>How many sprites were built, and how many were skipped as screen-aligned.</returns>
+    /// <param name="eye">Where the view is, in world units.</param>
+    /// <param name="fade">The distance fade for this view.</param>
+    /// <param name="into">The vertex list to append to.</param>
+    /// <returns>What was built, dropped and turned.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **Two triangles per quad, wound to match the world's own geometry** rather than the engine's
     /// quad primitive: Valve emits four vertices and lets the mesh builder make a quad, and this
     /// path takes triangles, so the four corners are issued as 0-1-2 and 0-2-3.
+    ///
+    /// **Sorted back to front across the whole view, where the engine sorts within a leaf.** Valve
+    /// walks the visible leaves and sorts each leaf's sprites among themselves
+    /// (`SortSpritesBackToFront`, `detailobjectsystem.cpp:2112`), which orders two sprites in
+    /// different leaves by the order their leaves came out of the tree. Sorting the whole set is
+    /// strictly better ordering for the same blend, and it is one sort rather than one per leaf.
+    ///
+    /// **A sprite the fade reduced to zero is not emitted at all**, which is what the engine does
+    /// with it: `SortSpritesBackToFront` skips `GetAlpha() == 0` before it ever reaches a mesh.
     /// </remarks>
-    public static (int Built, int ScreenAligned) Build(
+    public static Frame Build(
         IReadOnlyList<BspDetailProp> objects,
         IReadOnlyList<BspDetailSprite> sprites,
-        int materialIndex,
-        IList<PropVertex> into)
+        (float X, float Y, float Z) eye,
+        DetailFade fade,
+        IList<DetailSpriteVertex> into)
     {
         ArgumentNullException.ThrowIfNull(objects);
         ArgumentNullException.ThrowIfNull(sprites);
         ArgumentNullException.ThrowIfNull(into);
 
-        int built = 0;
-        int screenAligned = 0;
+        // **Gathered before anything is emitted, because the emission order IS the draw order.**
+        // A blended quad is combined with what is already in the frame buffer, so the sort has to
+        // happen between deciding what is visible and writing any vertex.
+        List<(int Index, float Squared, byte Alpha)> visible = [];
 
-        foreach (BspDetailProp prop in objects)
+        int faded = 0;
+
+        for (int index = 0; index < objects.Count; index++)
         {
+            BspDetailProp prop = objects[index];
+
             if (prop.Type != DetailPropType.Sprite ||
                 prop.DetailModel < 0 || prop.DetailModel >= sprites.Count)
             {
                 continue;
             }
 
-            // See the remarks: an orientation above zero is turned toward the camera every frame.
-            if (prop.Orientation != 0)
+            float x = prop.Origin.X - eye.X;
+            float y = prop.Origin.Y - eye.Y;
+            float z = prop.Origin.Z - eye.Z;
+
+            float squared = (x * x) + (y * y) + (z * z);
+
+            byte alpha = fade.Alpha(squared);
+
+            if (alpha == 0)
             {
-                screenAligned++;
+                // **Counted apart from "not a sprite", because they are different events.** A model
+                // detail prop is a thing this path does not draw; a faded one is a sprite the view
+                // put out of range, and only the second number moves when the camera does.
+                faded++;
                 continue;
             }
 
-            Quad(prop, sprites[prop.DetailModel], materialIndex, into);
-
-            built++;
+            visible.Add((index, squared, alpha));
         }
 
-        return (built, screenAligned);
+        visible.Sort(static (first, second) => second.Squared.CompareTo(first.Squared));
+
+        int aligned = 0;
+
+        foreach ((int index, float _, byte alpha) in visible)
+        {
+            BspDetailProp prop = objects[index];
+
+            (float Pitch, float Yaw, float Roll) angles = Facing(prop, eye);
+
+            if (prop.Orientation != 0)
+            {
+                aligned++;
+            }
+
+            Quad(prop, sprites[prop.DetailModel], angles, alpha / 255f, into);
+        }
+
+        return new Frame(visible.Count, faded, aligned);
     }
+
+    /// <summary>Which way a sprite faces this view — <c>CDetailModel::ComputeAngles</c>.</summary>
+    /// <remarks>
+    /// **`detailobjectsystem.cpp:950`**, and it is three cases rather than two:
+    ///
+    /// <code>
+    ///   case 0: break;                                    // keep the angles the lump stored
+    ///   case 1: VectorSubtract( CurrentViewOrigin(), m_Origin, vecDir );
+    ///           VectorAngles( vecDir, m_Angles ); break;
+    ///   case 2: VectorSubtract( CurrentViewOrigin(), m_Origin, vecDir );
+    ///           vecDir.z = 0.0f;
+    ///           VectorAngles( vecDir, m_Angles ); break;
+    /// </code>
+    ///
+    /// **The direction runs from the SPRITE to the EYE**, not the other way, and reversing it turns
+    /// every sprite exactly away from the viewer — where a billboard shows its back, which for a
+    /// two-sided material looks almost right and is mirrored.
+    ///
+    /// **Case 2 flattens the direction rather than the result.** Zeroing `z` before
+    /// `VectorAngles` keeps the sprite upright while it turns about the vertical axis; clamping the
+    /// pitch afterwards would not, because the yaw of a steeply-inclined direction is not the yaw of
+    /// its horizontal part once the pitch is discarded.
+    ///
+    /// **An eye exactly at the sprite's origin is the degenerate case Valve's `VectorAngles` already
+    /// handles**, by answering straight up or straight down with no yaw. It arrives here whenever a
+    /// player stands in the grass, so it is an ordinary input rather than an edge.
+    /// </remarks>
+    private static (float Pitch, float Yaw, float Roll) Facing(
+        BspDetailProp prop, (float X, float Y, float Z) eye) =>
+        prop.Orientation switch
+        {
+            1 => AngleVectors.Angles(
+                eye.X - prop.Origin.X, eye.Y - prop.Origin.Y, eye.Z - prop.Origin.Z),
+            2 => AngleVectors.Angles(
+                eye.X - prop.Origin.X, eye.Y - prop.Origin.Y, 0f),
+            _ => prop.Angles,
+        };
 
     /// <summary>One sprite's four corners, as two triangles.</summary>
     private static void Quad(
-        BspDetailProp prop, BspDetailSprite sprite, int materialIndex, IList<PropVertex> into)
+        BspDetailProp prop,
+        BspDetailSprite sprite,
+        (float Pitch, float Yaw, float Roll) angles,
+        float alpha,
+        IList<DetailSpriteVertex> into)
     {
-        (float pitch, float yaw, float roll) = prop.Angles;
+        (float pitch, float yaw, float roll) = angles;
 
         (float X, float Y, float Z) right = AngleVectors.Right(pitch, yaw, roll);
         (float X, float Y, float Z) up = AngleVectors.Up(pitch, yaw, roll);
@@ -158,21 +256,21 @@ public static class DetailSprites
         float texTop = sprite.TextureUpperLeft.Y;
         float texBottom = sprite.TextureLowerRight.Y;
 
-        PropVertex first = Vertex(corner, texLeft, texTop, prop, materialIndex);
+        DetailSpriteVertex first = Vertex(corner, texLeft, texTop, prop, alpha);
 
-        PropVertex second = Vertex(
+        DetailSpriteVertex second = Vertex(
             (corner.X + alongY.X, corner.Y + alongY.Y, corner.Z + alongY.Z),
-            texLeft, texBottom, prop, materialIndex);
+            texLeft, texBottom, prop, alpha);
 
-        PropVertex third = Vertex(
+        DetailSpriteVertex third = Vertex(
             (corner.X + alongY.X + alongX.X,
                 corner.Y + alongY.Y + alongX.Y,
                 corner.Z + alongY.Z + alongX.Z),
-            texRight, texBottom, prop, materialIndex);
+            texRight, texBottom, prop, alpha);
 
-        PropVertex fourth = Vertex(
+        DetailSpriteVertex fourth = Vertex(
             (corner.X + alongX.X, corner.Y + alongX.Y, corner.Z + alongX.Z),
-            texRight, texTop, prop, materialIndex);
+            texRight, texTop, prop, alpha);
 
         into.Add(first);
         into.Add(second);
@@ -183,29 +281,14 @@ public static class DetailSprites
         into.Add(fourth);
     }
 
-    private static PropVertex Vertex(
-        (float X, float Y, float Z) at, float u, float v, BspDetailProp prop, int materialIndex) =>
+    private static DetailSpriteVertex Vertex(
+        (float X, float Y, float Z) at, float u, float v, BspDetailProp prop, float alpha) =>
         new(
-            at.X, at.Y, at.Z, u, v, materialIndex,
-
-            // **The sprite's own origin rides along, as a static prop's placement does.**
-            // `MapWorld` judges a prop by where it STANDS rather than by its triangles, because a
-            // 3D skybox is made of ordinary triangles at valid positions and only the placement
-            // distinguishes them. Leaving this at zero would put every detail sprite at the map
-            // origin for that test — inside the bounds by accident rather than by measurement,
-            // which is the shape `docs/memory/an-empty-box-must-never-cull.md` records.
-            OriginX: prop.Origin.X,
-            OriginY: prop.Origin.Y,
+            at.X, at.Y, at.Z, u, v,
             Red: Light(prop.Lighting.Red),
             Green: Light(prop.Lighting.Green),
             Blue: Light(prop.Lighting.Blue),
-
-            // **Facing up, because a detail sprite has no meaningful normal.** It is a billboard on
-            // the ground; the engine lights it from the baked colour above rather than from a
-            // normal, so this only has to be something the shader can normalise.
-            NormalX: 0f,
-            NormalY: 0f,
-            NormalZ: 1f);
+            Alpha: alpha);
 
     /// <summary>One baked channel, in the vertex colour's own range.</summary>
     /// <remarks>

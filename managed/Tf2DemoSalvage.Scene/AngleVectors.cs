@@ -148,4 +148,68 @@ public static class AngleVectors
             (cosRoll * sinPitch * sinYaw) + (-sinRoll * cosYaw),
             cosRoll * cosPitch);
     }
+
+    /// <summary>Which angles a direction describes — Valve's <c>VectorAngles</c>.</summary>
+    /// <param name="x">The direction, east-west. Need not be normalised.</param>
+    /// <param name="y">The direction, north-south.</param>
+    /// <param name="z">The direction, vertically.</param>
+    /// <returns>Pitch and yaw in <b>[0, 360)</b>, and a roll of zero.</returns>
+    /// <remarks>
+    /// **`mathlib_base.cpp:535`**, transcribed including the range:
+    ///
+    /// <code>
+    ///   if (forward[1] == 0 &amp;&amp; forward[0] == 0)
+    ///   {
+    ///       yaw = 0;
+    ///       if (forward[2] &gt; 0) pitch = 270; else pitch = 90;
+    ///   }
+    ///   else
+    ///   {
+    ///       yaw = (atan2(forward[1], forward[0]) * 180 / M_PI);
+    ///       if (yaw &lt; 0) yaw += 360;
+    ///       tmp = sqrt (forward[0]*forward[0] + forward[1]*forward[1]);
+    ///       pitch = (atan2(-forward[2], tmp) * 180 / M_PI);
+    ///       if (pitch &lt; 0) pitch += 360;
+    ///   }
+    /// </code>
+    ///
+    /// **Both results are wrapped into [0, 360) rather than left signed**, so a direction rising at
+    /// 45 degrees reports a pitch of 315. Nothing downstream of <see cref="Forward"/> can tell the
+    /// two apart — sine and cosine agree — but a clamp or a comparison can, so the wrap is kept
+    /// rather than tidied away.
+    ///
+    /// **The vertical branch has no `atan2` in it**, and it is not an optimisation: a direction with
+    /// no horizontal component has no yaw to compute, and the general case would take
+    /// <c>atan2(0, 0)</c>. It answers 270 for straight up, which is the same angle as −90 and looks
+    /// like a mistake.
+    ///
+    /// **Pitch is measured from <c>-z</c>**, which is Source's convention throughout: a positive
+    /// pitch looks DOWN.
+    /// </remarks>
+    public static (float Pitch, float Yaw, float Roll) Angles(float x, float y, float z)
+    {
+#pragma warning disable S1244 // Valve's own exact comparison; a direction is vertical or it is not.
+        if (y == 0f && x == 0f)
+#pragma warning restore S1244
+        {
+            return (z > 0f ? 270f : 90f, 0f, 0f);
+        }
+
+        float yaw = MathF.Atan2(y, x) / Radians;
+
+        if (yaw < 0f)
+        {
+            yaw += 360f;
+        }
+
+        float flat = MathF.Sqrt((x * x) + (y * y));
+        float pitch = MathF.Atan2(-z, flat) / Radians;
+
+        if (pitch < 0f)
+        {
+            pitch += 360f;
+        }
+
+        return (pitch, yaw, 0f);
+    }
 }

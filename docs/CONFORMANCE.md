@@ -81,6 +81,9 @@ readers actually use.
 | `NetFieldWidthConformanceTests` | entity, model and class index widths | `public/const.h` |
 | `GameEventConformanceTests` | event id width and the documented field types | `public/igameevents.h` |
 | `StaticPropConformanceTests` | 4 versioned prop lumps | `public/gamebspfile.h` |
+| `DetailPropConformanceTests` | the `dprp` lump: its 52-byte stride, the type at offset **44** rather than 45, the SIGNED lighting exponent, and the flip flag that ALTERNATES rather than being stored | `public/gamebspfile.h`, `detailobjectsystem.cpp:1771` |
+| `DetailSpritesConformanceTests` | one detail sprite's quad: right-and-up rather than forward, the rectangle whose height is negative, the texture swap on the UNflipped ones, the two screen-aligned facings, and back-to-front order | `detailobjectsystem.cpp:1012, 950` |
+| `DetailFadeConformanceTests` | the distance fade: the FOV factor divided at two different points, `MIN(fade, max−1)` making `cl_detaildist 0` draw nothing, and the truncation to a byte | `detailobjectsystem.cpp:2821, 2762` |
 | `DisplacementConformanceTests` | the terrain record and its neighbour chain | `public/bspfile.h` |
 | `CapacityGuardTests` | no safety cap is stricter than the engine allows | `studio.h`, `bspfile.h` |
 | `WireEncodingConformanceTests` | the 4 coordinate widths, string and flag widths | `coordsize.h`, `dt_common.h` |
