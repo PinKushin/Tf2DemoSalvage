@@ -7546,9 +7546,52 @@ end. **Ask what is actually missing before writing down that something is.**
 
 ---
 
-## D142 — the ragdoll SOLVER is the one thing that cannot be transcribed (2026-09-05)
+## D142 — the ragdoll solver is READ OUT OF `vphysics.dll`; nothing here is ours (2026-09-05)
 
-The owner: *"finish implementing physics and the ragdolls"*.
+The owner: *"finish implementing physics and the ragdolls"*, and then, on reading the first version
+of this entry: **"remember you have the decomp so no nothing is ours"**.
+
+**The first version of this entry was wrong and the correction is the entry.** It said the
+integrator "is this project's own, and every place one is written it says so" — reasoning that
+because `src/vphysics` is absent from the SDK, the solver had to be designed rather than
+transcribed. That treats *not in the published source* as *not readable*, and it is exactly the
+mistake `CLAUDE.md` warns against two ways over: the four sources are **a menu, not a ladder**, and
+a decompiler is *"a normal tool — reach for it readily"*, whose only hard rule is where its output
+lives.
+
+**So there is no own-integrator and no place where one is "labelled ours".** `vphysics.dll` ships in
+the game — 1.4 MB at `bin/x64/` — and it is what the decompiler is for. The solver is Valve's,
+read out of the binary, and carried back by hand as constants, field orders and formulae, exactly as
+`engine.dll` already has been for the demo container and the sound mixer.
+
+**This also retires the "approximate the hulls" concession.** The first version said per-element
+collision must be approximated from the solid's `volume` key because a `.phy`'s geometry is Havok's
+compressed format. The format is compressed, not unknowable, and the code that reads it is in the
+same binary.
+
+**What stays true from the first version**, and is the useful half:
+
+- `ragdoll_shared.cpp` IS published in full, so construction, the constraint data and the bone
+  read-back come from source and not from a decompiler. Prefer the published source where it holds
+  the answer — that rule is unchanged.
+- **The data does most of the work.** `models/player/soldier.phy` ships 17 solids and 16 ragdoll
+  constraints with every mass, inertia, damping value, surface property and per-axis limit in
+  degrees.
+- **`RagdollGetBoneMatrix` overwrites every non-root POSITION from its parent**
+  (`ragdoll_shared.cpp:562`), so whatever the solver is, it owes one position and an orientation per
+  element rather than seventeen free bodies.
+- **A subagent reported that every call `RagdollCreate` makes is "declared in the published Source
+  SDK"** and cited `vphysics_interface.h` line numbers. Every citation was correct and the
+  conclusion was wrong: it read DECLARED as IMPLEMENTED. Worth keeping — it is the audit skill's own
+  warning about a report that arrives looking authoritative.
+
+**The old text follows, struck through in substance rather than deleted, because a reversal is the
+entry worth keeping** (`docs/memory/never-revert-without-asking.md` records the same instinct from
+the other side).
+
+---
+
+### The superseded version
 
 **Everything about a TF2 ragdoll except the integrator is published, and this entry exists so nobody
 later mistakes the boundary for a shortcut somebody took.**
@@ -7593,3 +7636,6 @@ the engine's own arrangement rather than a simplification:
 geometry is Havok's compressed format and this project reads the text and not the hulls, so
 per-element collision cannot use the real shape. The solid's `volume` key is shipped and is a real
 number to derive a radius from; that is an approximation and is labelled one wherever it appears.
+
+*(Both of those last two paragraphs are the ones the owner overruled: the solver is not ours to
+write and the hull format is not unknowable. `vphysics.dll` holds both.)*

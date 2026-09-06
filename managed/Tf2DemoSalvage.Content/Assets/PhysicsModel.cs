@@ -114,6 +114,34 @@ public sealed class PhysicsModel
     /// <summary>The source <c>.mdl</c>'s checksum, which ties this file to that model.</summary>
     public int Checksum { get; }
 
+    /// <summary>A physics model assembled from parts rather than read from a file.</summary>
+    /// <param name="solids">The rigid bodies, in the order a <c>.phy</c> would declare them.</param>
+    /// <param name="constraints">The joints between them.</param>
+    /// <param name="declaredSolidCount">What the header would claim; the solid count for a synthetic one.</param>
+    /// <param name="checksum">The <c>.mdl</c> checksum this belongs to, or zero.</param>
+    /// <returns>The model.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **So a ragdoll can be built without a file** (D38). A hand-built two-solid body has ground
+    /// truth — the test chose the masses and the bind positions — where a real `.phy` can only be
+    /// compared against a second reading of itself, and writing a whole Havok section to exercise
+    /// the joint arithmetic would test the reader rather than the ragdoll.
+    ///
+    /// **The reader is not routed through it**, so this cannot become a second parsing path that
+    /// disagrees with <see cref="Read"/>.
+    /// </remarks>
+    public static PhysicsModel From(
+        IReadOnlyList<PhysicsSolid> solids,
+        IReadOnlyList<RagdollConstraint> constraints,
+        int declaredSolidCount,
+        int checksum)
+    {
+        ArgumentNullException.ThrowIfNull(solids);
+        ArgumentNullException.ThrowIfNull(constraints);
+
+        return new PhysicsModel(solids, constraints, declaredSolidCount, checksum);
+    }
+
     private PhysicsModel(
         IReadOnlyList<PhysicsSolid> solids,
         IReadOnlyList<RagdollConstraint> constraints,

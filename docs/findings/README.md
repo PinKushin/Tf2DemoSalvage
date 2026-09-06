@@ -105,6 +105,12 @@ in any public writeup found:
   and all three are Valve's; almost every sprite ROLLS, because a non-upright detail's orientation
   is built from the ground's surface normal. Then six correct counts reported success for a draw
   call that was never issued ([50](50-the-map-scatters-its-own-grass.md)).
+- **Source's physics is IVP, and `vphysics.dll` says which source file every function came from** —
+  the assert strings carry full build paths, so `ivp_intern\ivp_friction.cxx` names a set of
+  addresses. `CPhysicsEnvironment::Simulate` clamps its timestep and simulates NOTHING outside the
+  clamp; `IVP_Environment::simulate_dtime` is one line into the time manager. RTTI is nearly absent
+  and a naive vtable scan finds Control Flow Guard's table instead
+  ([51](51-vphysics-is-ivp-and-it-is-readable.md)).
 
 ## Conventions used throughout
 
