@@ -7543,3 +7543,53 @@ class being unreachable in principle.
 gap, and a gap into a plan — none of which the owner asked for, and the "gap" was already
 implemented. `docs/memory/a-filed-design-choice-may-not-be-one.md` is the same failure from the other
 end. **Ask what is actually missing before writing down that something is.**
+
+---
+
+## D142 — the ragdoll SOLVER is the one thing that cannot be transcribed (2026-09-05)
+
+The owner: *"finish implementing physics and the ragdolls"*.
+
+**Everything about a TF2 ragdoll except the integrator is published, and this entry exists so nobody
+later mistakes the boundary for a shortcut somebody took.**
+
+**What IS published, and is therefore transcribed rather than designed:**
+
+- `ragdoll_shared.cpp` in full — `RagdollCreate`, `RagdollCreateObjects`, `RagdollAddSolid`,
+  `RagdollAddConstraint`, `RagdollSetupCollisions`, `RagdollActivate`,
+  `RagdollApplyAnimationAsVelocity` and `RagdollGetBoneMatrix`.
+- The constraint descriptors — `constraint_ragdollparams_t`, `constraint_axislimit_t`,
+  `constraint_breakableparams_t` — with their `Defaults()`.
+- **The data itself**, which is the largest part. A `.phy` is KeyValues text apart from its hulls, so
+  `models/player/soldier.phy` ships 17 solids and 16 ragdoll constraints with every mass, inertia,
+  damping value, surface property and per-axis limit stated in degrees. None of that is guessed.
+
+**Where the published trail stops: the `IPhysicsEnvironment` interface.** `src/vphysics` is **not in
+the SDK** — only `public/vphysics/*.h`, which are declarations. `CreatePolyObject`,
+`CreateRagdollConstraint`, `CreateConstraintGroup`, `ApplyForceCenter`, `AddVelocity` and the
+simulation behind them live in `vphysics.dll`, which is Havok-derived and closed.
+
+**A subagent reported the opposite** — "None. Every function and interface call made by
+`RagdollCreate` is declared in the published Source SDK" — and cited `vphysics_interface.h` line
+numbers for each. Every citation was correct and the conclusion was wrong: it read DECLARED as
+IMPLEMENTED. Recorded because it is the exact failure the audit skill warns about, a report arriving
+looking authoritative, and because the next person to ask this question will get the same answer from
+the same file.
+
+**So the split is:** construction, the constraint data, and the bone read-back are Valve's, quoted.
+The integrator is this project's own, and every place one is written it says so.
+
+**Two things in the published code make an own-integrator far smaller than it sounds**, and both are
+the engine's own arrangement rather than a simplification:
+
+- **`RagdollGetBoneMatrix` overwrites every non-root POSITION from its parent.** Physics supplies
+  orientation; the position is `originParentSpace` transformed by the parent's bone-to-world, unless
+  `allowStretch`. So the solver owes one position — the root's — and an orientation per element,
+  not seventeen free bodies.
+- **The joints are ball joints with three independent angular limits**, in degrees, with a friction
+  torque per axis. There is no spring, no motor and no soft constraint to reproduce.
+
+**What is NOT available and must be approximated, said out loud:** the collision hulls. A `.phy`'s
+geometry is Havok's compressed format and this project reads the text and not the hulls, so
+per-element collision cannot use the real shape. The solid's `volume` key is shipped and is a real
+number to derive a radius from; that is an approximation and is labelled one wherever it appears.

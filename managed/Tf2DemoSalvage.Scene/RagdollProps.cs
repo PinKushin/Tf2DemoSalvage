@@ -361,7 +361,12 @@ public static class RagdollProps
     private const string WearableClassName = "CTFWearable";
 
     /// <summary>The server class a corpse arrives as.</summary>
-    private const string RagdollClassName = "CTFRagdoll";
+    /// <remarks>
+    /// **Public because the sequence a corpse rests in is decided where models are open**, which is
+    /// `EntityModels.UpdateClientSideAnimations` and not here — and it has to recognise a corpse to
+    /// do it (B316). A second literal there would be a second place to be wrong about the name.
+    /// </remarks>
+    public const string RagdollClassName = "CTFRagdoll";
 
     /// <summary>Where a drawn corpse's entity index starts, above every networked one.</summary>
     /// <remarks>

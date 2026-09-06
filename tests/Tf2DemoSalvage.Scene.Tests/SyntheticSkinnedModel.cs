@@ -51,6 +51,53 @@ internal static class SyntheticSkinnedModel
     public static PropModels.SkinnedModel With(params string[] labels) =>
         WithFlags([.. labels.Select(label => (label, 0))]);
 
+    /// <summary>Builds a model whose labels and activities DIFFER, as a real one's do.</summary>
+    /// <param name="named">Each sequence's label and the activity it answers to.</param>
+    /// <returns>The model.</returns>
+    /// <remarks>
+    /// **<see cref="With"/> sets both to one string, and that makes a whole class of test unable to
+    /// fail.** A lookup by label and a lookup by activity then predict the same observation, so
+    /// swapping one for the other in production is invisible — measured: a corpse-pose test written
+    /// against `With` stayed green with `ForActivity` replaced by `SequenceByLabel`.
+    ///
+    /// **A real model separates them.** All nine TF2 class models carry
+    /// `[0] 'ref', [1] 'ragdoll' act ACT_DIERAGDOLL`: the label is `ragdoll` and the activity is
+    /// `ACT_DIERAGDOLL`, and nothing answers to the activity by name.
+    ///
+    /// An empty activity is a sequence that answers to no activity at all, which is what a label-
+    /// only sequence such as a death animation is.
+    /// </remarks>
+    public static PropModels.SkinnedModel WithActivities(
+        params (string Label, string Activity)[] named)
+    {
+        ArgumentNullException.ThrowIfNull(named);
+
+        List<StudioSequence> sequences =
+        [
+            .. named.Select((sequence, index) => new StudioSequence(
+                Animation: index,
+                Flags: 0,
+                Label: sequence.Label,
+                Blend: null,
+                Activity: sequence.Activity,
+
+                // Zero would make `ForActivity` skip the sequence outright — it refuses a
+                // weightless candidate the way `SelectWeightedSequence` does — so a sequence with
+                // no activity still carries a weight and is excluded by its empty NAME.
+                ActivityWeight: Weight)),
+        ];
+
+        List<(int Group, IReadOnlyList<StudioSequence> Sequences)> groups = [(0, sequences)];
+
+        return new PropModels.SkinnedModel(
+            Bones: [],
+            Models: [[]],
+            Sequences: StudioSequenceTable.Merge(groups),
+            Groups: groups,
+            PoseParameters: [],
+            MasterPose: []);
+    }
+
     /// <summary>The same, with each sequence's <c>mstudioseqdesc_t::flags</c> chosen.</summary>
     /// <param name="labelled">Each sequence's label and its flags.</param>
     /// <returns>The model.</returns>
