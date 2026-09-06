@@ -1390,6 +1390,37 @@ finds a scale in the engine and none here should not have to re-derive that.
 iterations, `minErrorTicks` 15 and `errorTolerance` 3.0 HL units (`constraints.h:24-28`). Those are
 the numbers any solve written here has to match, and no model can change them.
 
+**`g_ragdoll_maxcount` does not apply to TF2 player corpses, and this one was one step from being
+filed as a large divergence.** The engine has an eight-corpse cap — `ConVar g_ragdoll_maxcount(
+"g_ragdoll_maxcount", "8", FCVAR_REPLICATED )`, `ragdoll_shared.cpp:713` — enforced by
+`CRagdollLRURetirement::Update`, whose non-episodic second pass (the one TF2 compiles, since
+`HL2_EPISODIC` is not defined) removes from the head unconditionally until the count is at the cap.
+Against that, `RagdollProps` already records **57 bodies measured on the map at once**, which reads
+like a seven-fold overdraw.
+
+**It is not, because the registration never happens.** A client ragdoll enters the LRU inside
+`C_BaseAnimating::BecomeRagdollOnClient` (`c_baseanimating.cpp:4836`), and TF2 overrides that method
+to nothing at all:
+
+```cpp
+C_BaseAnimating *C_TFPlayer::BecomeRagdollOnClient()
+{
+    // Let the C_TFRagdoll take care of this.
+    return NULL;
+}
+```
+
+`c_tf_player.cpp:7325`. A TF2 corpse is a networked `CTFRagdoll` entity rather than a client-side
+copy of the player, so it never reaches `MoveToTopOfLRU` — `MoveToTopOfLRU` appears nowhere in
+`game/client/tf/`, and the same grep finds it twice elsewhere, so that absence is about the code and
+not about the search. **What removes a TF2 corpse is `StartFadeOut( cl_ragdoll_fade_time )`**, which
+`RagdollFade` already carries.
+
+**Recorded because the failure mode here is expensive in the wrong direction.** Reading only the
+base class gives a cap, a default, a measured 57 against 8, and a confident wrong finding — and
+"fixing" it would delete corpses TF2 keeps. This is `docs/memory/the-base-is-not-the-behaviour.md`
+with a number attached: the override is the behaviour, and it returns NULL.
+
 ### 6. A corpse is forced to sleep on a rule the client owns, not the solver
 
 **The engine** does not wait for the physics to decide a corpse has stopped. `CRagdoll::VPhysicsUpdate`
