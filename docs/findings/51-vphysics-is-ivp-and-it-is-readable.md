@@ -1769,3 +1769,110 @@ across unrelated structures exactly as `0x118` is** — the same trap, twice.
 the application function and the copy chain; the `"m_gravityLength"` and `"sys:gravity"` strings are
 read; INFERRED and flagged for `realobj+0xe8` being `env[0]`; NOT ESTABLISHED for the per-tick call
 site.*
+
+## The constraint solve's arithmetic, and one thing it does NOT do
+
+**The three-axis solve writes ANGULAR velocity only.** That was not expected and is worth stating
+first: `FUN_180036f80` consumes a point-to-point anchor offset — the thing anyone would call the
+translation solve — and every terminal write in it lands on `core+0x130..0x13c`. Linear velocity is
+never touched there. The only place the solve path writes `core+0x140..0x148` is a **separate,
+conditional** block in both dispatchers, gated on `*(char *)(corePair + 0x157) != 0` and reached
+through `FUN_180038070`, which is an anchor-drift correction rather than part of the axis solve.
+
+### The cached geometry, `FUN_180037bd0`
+
+Built once per constraint per tick and reused by every sweep — which is the entire point of the
+slot 3 / slot 4 split:
+
+```c
+r_A = R_bodyA · anchor          → cache[0..3]     // anchor read from constraint+0x110
+r_B = R_bodyB · (−anchor)       → cache[4..7]     // note the negation: equal and opposite
+cache[8..11]  = r_A ⊙ invInertia_A
+cache[12..15] = r_B ⊙ invInertia_B
+```
+
+using each core's own rotation rows at `core+0x90..0xe8`.
+
+**The immovable gate lives HERE, not in the solve.** Each body is included only when
+`(*coreFlags & 0x12) == 0`; a static one gets zeroed cache entries, which is what makes the
+unconditional accumulate later net to zero for it. That is a tidier arrangement than a branch in the
+inner loop and it is worth copying rather than "improving".
+
+**The effective mass, and its reciprocal:**
+
+```c
+K = Σ_bodies ( r_i · (invInertia_i ⊙ r_i) )
+y = rcpps(K); y = y + y − y*y*K;                      // one Newton-Raphson refinement
+cache[0x14..0x17] = (K > FLT_EPSILON) ? y : 0.0;      // zeroed rather than divided by
+```
+
+**A near-degenerate joint yields a zero multiplier rather than an infinity**, which is a behaviour
+and not a guard — every later impulse for that axis multiplies out to nothing.
+
+### The impulse
+
+Both `FUN_180036f80` and `FUN_1800372c0` compute the same shape:
+
+```
+bias    = ( axisSign * 0.8 * error * scale ) − ( torque * relativeVelocity )
+impulse = bias * cache[0x14]                          // × 1/K
+```
+
+then clamp the correction against `1.0` — never apply more than the error itself — and accumulate:
+
+```c
+core.angularVelocity += impulse * (r ⊙ invInertia)    // cache[8..11] / cache[12..15]
+```
+
+**`0.8` is a bias constant at `0x1800ee9b0`, and it is NOT the group's 0.4.** Those are two
+different numbers from two different tables: 0.4 is the per-sweep relaxation weight the group driver
+carries, 0.8 is the error-reduction term inside one axis solve. Reading either as the other would be
+easy and wrong.
+
+**The torque field is a DAMPING COEFFICIENT, not a clamp.** `constraint+0x2d0..0x2dc` is passed
+unmodified into all three inner solves, and its second lane multiplies the relative velocity in the
+expression above. So Valve's `SetAxisFriction( rmin, rmax, friction )` — which leaves the angular
+velocity at zero and puts the number in `torque` — produces a term that resists relative motion
+while the bias drives the error to zero. A transcription treating it as a cap on impulse magnitude
+would be a different joint.
+
+**The running target is warm-started.** Each pass advances a tracked value at `flags+0x18` by a
+fraction of the remaining error rather than recomputing it from a fresh transform, which is what
+makes two sweeps meaningful rather than two identical corrections.
+
+### The state tags, and a degenerate axis
+
+`cache[0x1c]` holds a small integer in a float slot: **1 means the geometry is cached and valid**,
+and **2 means the axis is degenerate and is skipped entirely**. The only place 2 is written is
+inside `FUN_1800372c0`:
+
+```c
+auVar24 = |cross(referenceAxis, axis)|²;
+if (movmskps(auVar24 <= 1.1920929e-7) != 0) { cache[0x1c] = 2; return; }
+```
+
+So a joint whose two axes have gone near-parallel is dropped for that axis rather than solved with a
+near-zero cross product — the gimbal case, handled by refusing.
+
+### Two gaps, named rather than filled
+
+**1. The min/max comparison itself was not found.** The machinery that APPLIES a limit correction is
+read in full, and the flag that enables it (`flags+0x1`) and the target it drives toward (`*param_7`)
+both arrive already resolved. No `angle < minRotation` / `angle > maxRotation` test appears in
+`FUN_180036f80`, `FUN_1800372c0`, `FUN_180036e10`, or either dispatcher. `FUN_180036b80` computes
+`1/max(|a|,|b|)` and `1/sum(a,b)` per lane — the shape of a cheap angle ratio — and writes into a
+DIFFERENT cache field from the one the solves read, but what it produces was not resolved. **Found
+the code that applies a limit; did not find the code that decides one is needed.**
+
+**2. There are only TWO angular solves, not three.** `FUN_180036e10` makes one anchor call and two
+angular calls, with the two differing in their reference vector (`geom+0x140` vs `geom+0x120`) and
+their per-axis flags (`flags+0xe8` vs `flags+0xcc`) while sharing a basis at `geom+0x130`. A ragdoll
+joint declares THREE axis limits. **The twist axis is unaccounted for**, and that is recorded as
+absent rather than assumed to be handled somewhere convenient.
+
+**The relaxation weights are read in a permuted order** — the anchor call takes `geom+0x100`, the
+first angular call `geom+0x108`, the second `geom+0x104` — which is consistent with the axis
+permutation already known from `constraint_ragdollparams_t`.
+
+*Evidence class: read from the decompiled binary for every expression and every dumped constant;
+NOT ESTABLISHED, and labelled, for the limit comparison and for the third angular axis.*

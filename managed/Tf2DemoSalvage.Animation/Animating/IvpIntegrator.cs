@@ -68,6 +68,36 @@ public sealed class IvpRigidBody
 
     /// <summary>When this body was last stepped — <c>core+0x1d0</c>, absolute.</summary>
     public double LastStepped { get; set; }
+
+    /// <summary>Whether gravity passes this body by — bit <c>0x10</c> of <c>core+0x0</c>.</summary>
+    /// <remarks>
+    /// **The whole gravity step is inside `if ((*pbVar4 &amp; 0x10) == 0)`**, so a body carrying this
+    /// bit skips the two helper calls as well as the acceleration.
+    /// </remarks>
+    public bool SkipsGravity { get; set; }
+
+    /// <summary>Whether this body takes the environment's SECOND acceleration — bit <c>0x20</c>.</summary>
+    /// <remarks>
+    /// **IVP holds two gravity vectors and picks between them per body**, at
+    /// `controller+0x10/0x14/0x18` and `controller+0x20/0x24/0x28`. Nothing in TF2 sets it, and it
+    /// is carried anyway because the engine has it — a transcription with one global vector is
+    /// right for this game and wrong for the engine.
+    /// </remarks>
+    public bool UsesAlternateGravity { get; set; }
+
+    /// <summary>Whether this body is immovable — bits <c>0x2</c> and <c>0x10</c> of <c>core+0x0</c>.</summary>
+    /// <remarks>
+    /// **Read from two independent sites that never shared a session**, which is what makes it
+    /// trustworthy: the contact builder zeroes a body's mass and inertia contribution on
+    /// `core+0x0 &amp; 2`, and the island driver skips integrating a core on the same bit. The
+    /// constraint solver's cache builder tests `&amp; 0x12` — two bits — so there is a second bit,
+    /// `0x10`, that stops a body being pushed by a constraint while still letting it integrate.
+    ///
+    /// **This is how STATIC MAP GEOMETRY is represented**: an ordinary body with the bit set, not a
+    /// separate type. `CreatePolyObjectStatic` takes the identical `CPhysCollide *` as the moving
+    /// variant, so there is no separate world path at the API boundary either.
+    /// </remarks>
+    public bool Immovable { get; set; }
 }
 
 /// <summary>
