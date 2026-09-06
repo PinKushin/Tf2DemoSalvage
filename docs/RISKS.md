@@ -23956,6 +23956,52 @@ sabotages:
 
 ### B351 OPEN 2026-09-05: a taunting player plays no taunt
 
+**2026-09-06 — sized, and the archive is already reachable.** The question that decides the cost was
+whether a taunt ever reduces to a plain sequence a viewer could play without a scene system. **It
+does not**, and the evidence is specific:
+
+- **The wire carries only the scene's FILENAME.** `DT_SceneEntity` sends `m_nSceneStringIndex` into
+  the `"Scenes"` network string table (`gameinterface.cpp:1448`); `DT_TFPlayer` adds bookkeeping —
+  `m_iTauntItemDefIndex`, `m_nActiveTauntSlot`, `m_flTauntYaw` — and `TF_COND_TAUNTING` is bit 7 of
+  `m_nPlayerCond`. **No resolved sequence is ever networked.**
+- **The sequence name lives inside the compiled scene.**
+  `C_TFPlayer::StartGestureSceneEvent` does `info->m_nSequence = LookupSequence( event->GetParameters() )`
+  (`c_tf_player.cpp:9456`) — the parameter is a string in the scene's `SEQUENCE`/`GESTURE` event.
+- **And the item alone is not enough**, which kills the obvious shortcut: the server picks the scene
+  at random from the item's list — `int iScene = RandomInt( 0, pTauntData->GetIntroSceneCount( iClass ) - 1 );`
+  (`tf_player.cpp:17391`). Only the transmitted filename says which one was chosen.
+- **TF2 plays the scene on its own clock**, which matters for a viewer driving time itself:
+  `C_SceneEntity::OnResetClientTime` is `#ifndef TF_CLIENT_DLL` around its only statement, with the
+  comment *"In TF2 we ignore this as the scene is played entirely client-side."*
+  (`c_sceneentity.cpp:70`).
+
+**So it needs a `scenes.image` reader and a binary VCD parser — and both are closer than they look.**
+Measured with this project's OWN archive reader (`scene-image` probe), which independently reproduced
+a hand-decode of the VPK directory entry:
+
+```
+scenes/scenes.image: 3,679,138 bytes
+  id 0x46495356 (VSIF, as SceneImageFile.h declares), version 2 (matches SCENE_IMAGE_VERSION)
+  9,939 scenes, 14,880 pooled strings, directory at offset 381,348
+    entry 0: crc 0x0000EB69, data at 675,220, 99 bytes
+```
+
+**The format is published even though the reader is not.** `SceneImageFile.h` declares the magic, the
+version, the header and the CRC-sorted directory; `scenefilecache.dll` parses it at runtime and ships
+no source, which does not matter. The entries come back CRC-ascending exactly as a binary search
+requires, so the directory is where the header says rather than merely parsing.
+
+**No loose `.vcd` ships** — checked across the whole install and inside all nine `*_dir.vpk`, with a
+known-present extension as the control. Everything is in this one file.
+
+**What that leaves:** look up `scenes\<name>.vcd` by CRC, LZMA-decompress the entry — this project
+already does LZMA for BSP lumps — parse the binary VCD far enough to reach the `SEQUENCE`/`GESTURE`
+event's parameter, then `LookupSequence` on the player's model and put it in a gesture slot, which is
+the `AddVCDSequenceToGestureSlot` call this entry was opened about. Bounded, and built on four things
+that already exist.
+
+---
+
 **Found by the uncited sweep** (see `docs/PARITY-AUDIT.md`), which after two hand passes now runs as
 `parity <filter> <class>`. `CMultiPlayerAnimState::AddVCDSequenceToGestureSlot` had no citation
 anywhere in this project, and it is the whole of how a taunt is drawn.
