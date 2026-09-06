@@ -238,6 +238,36 @@ and consistently wrong rather than obviously broken.
 reading is **arithmetic** — it was derived from the twelve assignments and then checked against the
 axis table and the negated joint axis, which were found independently.*
 
+**Two more functions do the same three lines on a bare vector**, which is what raises this from a
+plausible reading of one function to the engine's convention:
+
+```c
+// CPhysicsEnvironment::SetGravity, 1800150f0
+local_58 = (double)(0.0254f * g[0]);
+local_50 = (double)(float)((uint)(0.0254f * g[2]) ^ 0x80000000);
+local_48 = (double)(0.0254f * g[1]);
+```
+
+`CreatePolyObject` (`18001b340`) repeats it for the object's position and again for
+`objectparams_t::massCenterOverride`. **`SetGravity` also settles which constant runs the other
+way**: it converts a tolerance back for its own `DevMsg` with `DAT_18011f004`, the 39.37 dword —
+not a reciprocal of 0.0254, and the two differ by two parts in a million.
+
+**`CreatePolyObject` refuses a non-finite position rather than passing it on**, and the test is on
+the raw bits:
+
+```c
+if (((uint)pos[0] & 0x7f800000) == 0x7f800000 || ... )   // exponent all ones: inf or NaN
+{
+    Warning("Invalid initial position on %s\n", params->pName);
+    pos[0] = pos[1] = pos[2] = 0.0;                       // and the same for the angles
+}
+```
+
+It warns, zeroes, and continues — so a corrupt placement costs one object its position rather than
+taking the simulation down. Worth carrying: this project reads `.phy` files from a stranger (D32),
+and the engine's own answer here is neither a crash nor silence.
+
 ---
 
 ## Two traps met on the way in, both worth writing down
