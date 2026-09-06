@@ -66,3 +66,40 @@ otherwise have shipped as "verified", and the counter audit found `Unjudgeable` 
 every frame plus a stale denominator in a probe written the same hour.
 
 Supersedes [[no-more-subagents-this-session]], which recorded the flat version.
+
+---
+
+**REVERSED on the COUNT, 2026-09-06, and tightened on the model.** The owner, twice in one turn:
+
+> *"ill let 3 agents run at once of the sonnet 4.6 models, and you review their work"*
+
+> *"really idc how many subagents are run because im pretty sure most of the time it wont be more
+> than 3 or 4 anyway, but they need to be cheap sonnet models, and reviewed"*
+
+**So "one at a time" is dead and the count is no longer the rule at all.** The hook's `$Concurrent`
+went 1 → 8, and 8 is a runaway backstop rather than a cap: it sits well above the three or four he
+expects so an unbounded spawn loop trips something, and it is neither a target nor his number.
+
+**The model rule went the other way and is now stricter.** It used to name three cheap-eligible
+agent types and let every other type choose freely; the type list is gone and **every** subagent
+must be `haiku` or `sonnet`. The budget does not care which type spent it.
+
+**Two conditions replace the count, and only one is enforceable.** A hook can check the model. It
+cannot check that anybody read the diff — so *"and reviewed"* lives here and in D145: every
+subagent's output is reviewed before it is believed or committed. This session has the worked
+example, where one returned a confident wrong conclusion (conflating DECLARED with IMPLEMENTED) that
+would have been repeated if taken at face value.
+
+**The concurrency caveat above survives intact and matters more now, not less.** Two agents must
+never share files: one holding a source file mid-sabotage has already broken an unrelated build
+here, and with several running that risk multiplies. Give each a disjoint area, and do not build or
+measure while one holds a file.
+
+See D145.
+
+**And haiku is OUT, same day:** *"i dont really trust haiku, it just seemed horrible compared to
+sonnet and sonnet 4.6 used less tokens than haiku it seemed like, while giving me better code"*.
+The allowed set is `sonnet` alone and the hook refuses haiku as well as opus. **Every
+recommendation above to use haiku for reading, quoting or sabotage is superseded** — they were
+written on the assumption that haiku was meaningfully cheaper, and his measurement is that it was
+not, while being worse.

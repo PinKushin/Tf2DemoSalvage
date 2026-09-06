@@ -7709,3 +7709,60 @@ second kind.
 **Instrument:** the `valve-hacks` probe intersects Valve's self-flagged comments with the engine
 files this project actually cites, so the list is ranked by what we have already implemented rather
 than by what exists — the same rule `docs/PARITY-AUDIT.md` opens with.
+
+---
+
+## D145 — the subagent rule is the MODEL and the review, not the count (2026-09-06)
+
+**The owner, twice, the second correcting the first:**
+
+> *"ill let 3 agents run at once of the sonnet 4.6 models, and you review their work, i should setup
+> a review subagent really and have it review any code anyone writes, but that can be done later and
+> the audits kinda do that."*
+
+> *"really idc how many subagents are run because im pretty sure most of the time it wont be more
+> than 3 or 4 anyway, but they need to be cheap sonnet models, and reviewed"*
+
+**So the count stopped being the policy.** `.claude/hooks/subagent-policy.ps1` had
+`$Concurrent = 1`; it is 8, and that number is a **runaway backstop rather than a cap** — set well
+above the three or four he expects, so an unbounded spawn loop trips something instead of quietly
+running the budget down. It is not a target and it is not his number.
+
+**The model rule got STRICTER while the count got looser, and that is the real change.** The hook
+used to name three cheap-eligible agent types — `engine-reader`, `instrument-auditor`,
+`sabotage-verifier` — and let every other type pick whatever model it liked. That is backwards: the
+budget does not care which type spent it. The type list is gone and **every** subagent must now be
+`haiku` or `sonnet`, which is what *"they need to be cheap sonnet models"* says.
+
+**The condition is the part that matters and the hook cannot enforce it.** *"and you review their
+work"* is a requirement on the parent, not on the spawn: a script can count agents; it cannot check
+that anybody read the diff. So it is written here, and in the refusal message the hook prints, and
+the practice is: **every subagent's output is reviewed before it is believed or committed**, exactly
+as the subagent reports in this session have been — one of them returned a wrong conclusion
+(conflating DECLARED with IMPLEMENTED) that would have been repeated if taken at face value.
+
+**The operational rule that comes with concurrency: disjoint areas.** Two agents editing the same
+file is not a token problem, it is a correctness one — a sabotage-verifier holding a file mid-edit
+has already broken an unrelated build in this project, and with three running that risk triples.
+Each gets an area nothing else is touching, and the parent does not build or measure while one holds
+a source file.
+
+**Deferred, by him:** a dedicated review subagent that reviews any code anyone writes. *"that can be
+done later and the audits kinda do that."* Recorded so it is not mistaken for something never
+considered — `caveman:cavecrew-reviewer` and the parity audits cover part of it today.
+
+**Haiku is out, and on measured grounds rather than taste** — the owner, minutes later:
+
+> *"i dont really trust haiku, it just seemed horrible compared to sonnet and sonnet 4.6 used less
+> tokens than haiku it seemed like, while giving me better code"*
+
+That removes the only argument haiku had. It was in the policy as the cheap tier, and if it is both
+worse and not cheaper there is nothing left to trade — so the allowed set is **`sonnet` alone**, and
+the hook now refuses `haiku` and `opus` alike. Earlier notes in
+`docs/memory/one-subagent-and-prefer-cheap-models.md` recommending haiku for reading, quoting and
+sabotage are superseded by this; they were written when the assumption was that haiku was
+meaningfully cheaper.
+
+**Deferred, by him:** a dedicated review subagent that reviews any code anyone writes. *"that can be
+done later and the audits kinda do that."* Recorded so it is not mistaken for something never
+considered — `caveman:cavecrew-reviewer` and the parity audits cover part of it today.
