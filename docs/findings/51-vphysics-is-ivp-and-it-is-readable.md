@@ -167,9 +167,49 @@ with `1e12` sitting at `1800eb76c`. Zero means "no limit" and so does anything a
 two different spellings of the same thing, and `constraint_breakableparams_t::Defaults()` uses the
 zero one.
 
-*Evidence class: read from the decompiled binary. The `1.0` in the mass-scale test is
-**interpolated**: the constant `DAT_1800ea988` is shared with `Simulate`'s maximum timestep, and 1.0
-is the only value that reads sensibly in both places — it has not been dumped.*
+**Four — `useClockwiseRotations` negates every limit AND exchanges each pair.** The SDK declares it
+with only *"HACKHACK: Did this wrong in version one. Fix in the future."* to explain it. What it
+does, at `constraint_ragdollparams_t` offset `0xB2`:
+
+```c
+if (*(char *)((longlong)param_4 + 0xb2) != '\0') {
+    _local_1e0  = CONCAT44((uint)local_1e0  ^ 0x80000000, uStack_1dc      ^ 0x80000000);
+    local_1d8   = CONCAT44((uint)local_1d8  ^ 0x80000000, local_1d8._4_4_ ^ 0x80000000);
+    uStack_1d0  = CONCAT44((uint)uStack_1d0 ^ 0x80000000, uStack_1d0._4_4_ ^ 0x80000000);
+}
+```
+
+`CONCAT44(hi, lo)` reassembles each pair with the halves **swapped** as well as sign-flipped — so all
+three axes get `[a, b] → [−b, −a]`, the same rule the single per-axis negation follows. A
+transcription that negated without exchanging would invert every limit into an empty range.
+
+**Five — the friction torque is scaled by the reference body's MASS.** Each axis writes a 24-byte
+record, and the value comes from a virtual call on the constraint's reference object:
+
+```c
+fVar14 = (float)(**(code **)(**(longlong **)(param_1 + 0x10) + 0xe8))();
+afStack_124[lVar13 * 6]  = (float)param_4[0x22] * 0.0174533f;      // angularVelocity, deg -> rad
+(&uStack_128)[lVar13 * 6] = (uint)(fVar14 * param_4[0x23]) & 0x7fffffff;   // |mass * torque|
+auStack_137[lVar13 * 0x18] = fVar14 * param_4[0x23] != 0.0;        // enabled at all?
+```
+
+`param_1 + 0x10` is the reference `IPhysicsObject` the constraint stored in its constructor, and
+`0xE8` is slot 29 — **`GetMass`**, counted off the published `IPhysicsObject` and checked by its
+return type being the float this arithmetic needs. `0x7fffffff` is dumped and is an absolute-value
+mask.
+
+So a joint's `xfriction` in the `.phy` is not a torque in any absolute unit: it is a coefficient the
+engine multiplies by the body's mass, takes the magnitude of, and switches the axis's resistance off
+entirely when the product is zero. **Every ragdoll constraint in `soldier.phy` has all three
+frictions at `0.000000`**, so on TF2's own players that switch is off — which is worth knowing
+before building a solver around a term that is always disabled.
+
+`angularVelocity` (`axes[i].angularVelocity`) is converted degrees to radians like the limits.
+
+*Evidence class: read from the decompiled binary, with `0x7fffffff` dumped and `GetMass` counted off
+the published header. The `1.0` in the mass-scale test is **interpolated**: the constant
+`DAT_1800ea988` is shared with `Simulate`'s maximum timestep, and 1.0 is the only value that reads
+sensibly in both places — it has not been dumped.*
 
 ---
 
