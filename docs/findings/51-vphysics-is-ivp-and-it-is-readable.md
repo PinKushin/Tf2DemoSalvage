@@ -948,3 +948,63 @@ is not the frame time.
 
 *Evidence class: read-from-source, and the two load-bearing claims independently confirmed — the
 call site at `c_tf_player.cpp:920` and the send table at `:519`, which agree.*
+
+## Found: the event loop, at `18008a110`
+
+**Pinned by two independent routes that agree, plus Ghidra's own xref table** — not by shape.
+
+- **The vtable.** The object at `timeManager+8` has its vtable at `1800fd498`: three function
+  pointers followed immediately by ASCII, exactly the layout the constraint family uses. Slots 3-4
+  read `6f5f636974617473` / `7463656a62` — **`static_object`**. Slot 1 is `18008a110`, and
+  `WhoPoints` confirms a data reference from `1800fd4a0`, which is that slot's own address.
+- **The constructor chain.** `FUN_180080d90` (environment init) allocates 0x30 bytes, calls
+  `FUN_180089dc0`, and stores the result at `env+8` — the time manager. `FUN_180089dc0` then
+  allocates 0x10, writes `&PTR_FUN_1800fd498` as its vtable, and stores it at `this+8` — which is
+  `timeManager+8`. The destructors mirror it exactly.
+
+The loop itself, verbatim:
+
+```c
+lVar2  = *(longlong *)(param_2 + 0x10);            // the event queue
+fVar3  = *(float *)(lVar2 + 0x10);                 // earliest queued time
+if (fVar3 < (float)(param_4 - *(double *)(param_2 + 0x28))) {   // target, in base-relative float
+  do {
+    plVar1 = *(longlong **)(*(longlong *)(lVar2 + 8) + 0x10 +
+                            (ulonglong)*(uint *)(lVar2 + 0x18) * 0x18);   // pop the earliest
+    FUN_1800ab1b0(lVar2, *(uint *)(plVar1 + 1));   // unlink it
+    *(undefined4 *)(plVar1 + 1) = 0xffff;          // mark "not queued"
+    *(double *)(param_2 + 0x20) = (double)fVar3;   // the manager's own clock
+    FUN_180082460(param_3, (double)fVar3 + *(double *)(param_2 + 0x28));  // env clock := absolute
+    (**(code **)(*plVar1 + 8))(plVar1, param_3);   // FIRE: the event's OWN vtable slot 1
+    if (*(int *)(*(longlong *)(param_2 + 8) + 8) == 1) break;             // stop flag
+    lVar2 = *(longlong *)(param_2 + 0x10);
+    fVar3 = *(float *)(lVar2 + 0x10);
+  } while (fVar3 < (float)(param_4 - *(double *)(param_2 + 0x28)));
+}
+FUN_180082460(param_3, param_4);                   // snap the clock to exactly the target
+```
+
+**So the whole of simulation is a priority queue drained by time**, and each event fires through its
+own vtable slot 1. The physics step is not a special case in this loop — it is an event like any
+other, which is what makes IVP event-driven rather than fixed-stepped internally, even though the
+environment above it is handed a fixed step.
+
+**Three things a transcription would get wrong without this:**
+
+- **The clock is set BEFORE the event fires**, to that event's time, and events therefore observe a
+  clock that walks forward inside one call rather than jumping at the end.
+- **The stop flag is checked AFTER each fire** (`*(tm+8)` field `+8` == 1), so an event can halt the
+  remainder of a step. A loop that only tested the queue would run events the engine skipped.
+- **The clock is snapped to the target afterwards regardless**, so time always ends exactly where
+  the caller asked even if the last event fired earlier.
+
+**It also confirms the time model read independently earlier**, which is now three agreeing
+sightings: `tm+0x28` is the base, event times are floats relative to it, `tm+0x10` is the queue with
+`0x18`-byte entries, and `0xffff` means "not queued".
+
+**What is NOT established:** which event type performs the physics step — that is one of the event
+objects' own slot 1, and finding it means identifying the event the environment schedules per PSI.
+That is now the single remaining link between this loop and the constraint solve already read.
+
+*Evidence class: read from the decompiled binary; vtable slot, xref and both constructor/destructor
+chains independently confirmed.*
