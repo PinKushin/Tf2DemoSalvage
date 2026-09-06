@@ -2051,7 +2051,64 @@ use.
 all.** It is a one-shot correction per geometry rebuild, beside the two-pass relaxation that handles
 the angles.
 
-## An open contradiction, recorded rather than transcribed past
+## RESOLVED: the clamp has no gate at all, and the contradiction was a misreading
+
+**Joint limits run unconditionally — every axis, every call.** The chain below broke at exactly one
+link, and it is worth keeping because the broken link looked completely solid.
+
+**The clamp is not inside the `if` at all.** It sits textually and causally AFTER it:
+
+```c
+fVar29 = DAT_1800ff070;                  // 0.0, dumped
+if (param_7[1] != 0) {
+    …                                     // a separate, earlier computation
+    *(uint *)(param_7 + 0x18) = …;       // the gated block ENDS here
+}
+fVar16 = *(float *)(param_7 + 4);        // lower bound — read unconditionally
+fVar2  = *(float *)(param_7 + 8);        // upper bound — read unconditionally
+auVar15 = minps((fVar34 - fVar16) * fVar23, zero);
+auVar18 = maxps((fVar34 - fVar2 ) * fVar23, zero);
+fVar29 = fVar29 - ((auVar18 + auVar15) & param_2[0x18]);
+```
+
+`FUN_1800372c0` has the identical shape. **The earlier reading attributed the `if` to the wrong
+block** — it wraps a position/spring correction that SEEDS the impulse accumulator, and when the
+gate is false that accumulator is simply `0.0` (the constant is dumped) while the clamp still fires
+and is still applied to both bodies.
+
+**And the byte's source was misattributed too.** It is not `angularVelocity * torque`:
+
+```c
+fVar14 = (float)(**(code **)(**(longlong **)(param_1 + 0x10) + 0xe8))();   // a VIRTUAL CALL
+fVar1  = (float)param_4[0x23];                                            // torque
+auStack_137[lVar13 * 0x18] = fVar14 * fVar1 != 0.0;                       // the +0x1 byte
+```
+
+`angularVelocity` (`param_4[0x22]`) goes somewhere else entirely — scaled by `0.017453292`
+(degrees to radians) into a different field that never reaches this boolean. **Both operands of the
+supposed product were wrong.**
+
+**What the two bytes actually do:**
+
+- **`+0x0`** selects between two 16-byte constant tuples used as a SIMD lane and sign convention —
+  not a run/skip gate. It defaults to 1 for every axis (`FUN_1800393d0` sets it unconditionally) and
+  is cleared by the writer when the range covers 2π.
+- **`+0x1`** gates the spring/friction seed described above, and nothing else.
+
+**The third candidate is also ruled out.** `FUN_1800368c0` and `FUN_1800369e0` — the "driven" and
+"plain" constructors — both end with the same `FUN_180037890(param_1, param_3)` on the same buffer
+and both install the same vtable, so which one a ragdoll takes cannot affect the limit path.
+
+**So `SetAxisFriction` leaving `angularVelocity` at zero has no bearing on whether a limit fires.**
+It only zeroes a friction contribution that defaults cleanly to zero.
+
+**Worth keeping as a lesson about decompiler output:** a gated block and the code after it look
+identical in indentation once a decompiler has finished with them, and "this `if` wraps that
+arithmetic" is a claim about BRACES that is easy to assert and easy to get backwards. The tell was
+that the conclusion implied something observably false about the game — TF2's corpses do have joint
+limits — and that is what sent someone back to re-read rather than transcribe.
+
+## The contradiction as it stood before it was resolved
 
 **The clamp block above is gated by the flag byte at `+0x1`, and that byte is reported as being set
 from `(angularVelocity * torque) != 0`** (`FUN_18000eac0`). For a ragdoll,
