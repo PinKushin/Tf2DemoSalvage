@@ -466,6 +466,26 @@ public readonly record struct TimelineFrame(
 /// <c>models/player/shared/ice_player.vmt</c>. **Tested second in the engine and so wins over gold**
 /// (`c_tf_player.cpp:962-971`).
 /// </param>
+/// <param name="Force">
+/// <c>m_vecForce</c> — the impulse the kill put in, in kg·in/s
+/// (<c>vphysics_interface.h:803</c>). Applied at <paramref name="ForceBone"/>'s body and then
+/// spread over every other by mass share (<c>ragdoll_shared.cpp:661-681</c>). **This is what makes
+/// a rocket death look different from a bullet death**, and without it every corpse falls straight
+/// down however it was killed.
+/// </param>
+/// <param name="Velocity">
+/// <c>m_vecRagdollVelocity</c> — the player's OWN motion at the moment of death, slammed onto the
+/// corpse with <c>SetAbsVelocity( m_vecRagdollVelocity )</c> in both branches of
+/// <c>CreateTFRagdoll</c> (`c_tf_player.cpp:774`, `:800`). Not the same thing as
+/// <c>RagdollApplyAnimationAsVelocity</c>, which gives each LIMB its own velocity from two poses
+/// 0.05 s apart; this gives the whole body the player's.
+/// </param>
+/// <param name="ForceBone">
+/// <c>m_nForceBone</c> — which body took the hit. **An ELEMENT index by the time the solver sees
+/// it**: `ragdoll.list[forceBone]`, guarded by `if ( forceBone &gt;= 0 &amp;&amp; forceBone &lt;
+/// ragdoll.listCount )` (`ragdoll_shared.cpp:660`). Negative is a real value meaning "no bone", and
+/// the centre-of-mass push is simply skipped.
+/// </param>
 /// <remarks>
 /// **The reason corpses are invisible is that they were never DESCRIBED, not that they were lost.**
 /// `DT_TFRagdoll` is `NOBASE`, so it inherits no model index, no skin, no body and no angles; a prop
@@ -493,7 +513,10 @@ public readonly record struct SceneRagdoll(
     IReadOnlyList<SceneWornItem>? Worn = null,
     bool OnGround = false,
     bool Gold = false,
-    bool Ice = false);
+    bool Ice = false,
+    (float X, float Y, float Z)? Force = null,
+    (float X, float Y, float Z)? Velocity = null,
+    int? ForceBone = null);
 
 /// <summary>One thing a corpse was wearing when it died.</summary>
 /// <param name="Model">The model to draw, bone-merged onto the corpse.</param>
@@ -2864,7 +2887,14 @@ public sealed class DemoTimeline
                 entity.EntityIndex, corpse.SerialNumber, playerClass, team, x, y, z,
                 gib, burning, feign, disguised, born, tick, facing, corpse.DamageCustom(),
                 deadIndex ?? facedBefore.PlayerIndex, worn, corpse.RagdollOnGround(),
-                corpse.RagdollGold(), corpse.RagdollIce());
+                corpse.RagdollGold(), corpse.RagdollIce(),
+
+                // **The three initial conditions the simulation needs**, carried as they arrived
+                // rather than combined here: the kill's impulse, the player's own motion, and which
+                // body took the hit. `CreateTFRagdoll` keeps them apart too — the force goes to
+                // `RagdollCreate` and the velocity to `SetAbsVelocity` — and folding them together
+                // would lose the one that scales by mass.
+                corpse.RagdollForce(), corpse.RagdollVelocity(), corpse.RagdollForceBone());
         }
 
         if (entity.UpdateType == EntityUpdateType.Delete)

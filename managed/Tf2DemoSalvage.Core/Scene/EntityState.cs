@@ -2062,22 +2062,89 @@ public sealed class EntityState
     /// falling back to <see cref="Origin"/> for a ragdoll finds nothing and places the corpse at
     /// the world origin, which is the plausible-wrong answer this format specialises in.
     /// </remarks>
-    public (float X, float Y, float Z)? RagdollOrigin()
+    public (float X, float Y, float Z)? RagdollOrigin() => RagdollVector("m_vecRagdollOrigin");
+
+    /// <summary>The impulse the kill put into the corpse — <c>m_vecForce</c>.</summary>
+    /// <returns>The force, or null when this entity sent none.</returns>
+    /// <remarks>
+    /// **One of the three initial conditions a TF2 corpse is simulated from, and the only one that
+    /// makes a death look like the weapon that caused it.** `RagdollCreate` applies it at the bone
+    /// the damage landed on and then spreads it over every other body by mass share
+    /// (`ragdoll_shared.cpp:661-681`):
+    ///
+    /// <code>
+    /// ragdoll.list[forceBone].pObject-&gt;ApplyForceCenter( nudgeForce );
+    /// ragdoll.list[forceBone].pObject-&gt;GetPosition( &amp;forcePosition, NULL );
+    /// …
+    /// float scale = ragdoll.list[i].pObject-&gt;GetMass() / totalMass;
+    /// ragdoll.list[i].pObject-&gt;ApplyForceOffset( scale * nudgeForce, forcePosition );
+    /// </code>
+    ///
+    /// **The header says what the units are**: *"force vector is direction &amp; magnitude of impulse
+    /// kg in / s"* (`vphysics_interface.h:803`), so it is an impulse rather than a force and the
+    /// velocity it produces is it divided by the body's mass.
+    ///
+    /// **It is also multiplied by 100 for a kart death** — `if ( m_iDamageCustom ==
+    /// TF_DMG_CUSTOM_KART ) m_vecForce *= 100.0f;` (`c_tf_player.cpp:873`) — which is applied where
+    /// the corpse is built rather than here, because this returns what the wire carried.
+    /// </remarks>
+    public (float X, float Y, float Z)? RagdollForce() => RagdollVector("m_vecForce");
+
+    /// <summary>How fast the corpse was already travelling — <c>m_vecRagdollVelocity</c>.</summary>
+    /// <returns>The velocity, or null when this entity sent none.</returns>
+    /// <remarks>
+    /// **Separate from the kill's force, and it is the player's own motion.** `CreateTFRagdoll`
+    /// slams it onto the corpse — `SetAbsVelocity( m_vecRagdollVelocity )` (`c_tf_player.cpp:774`
+    /// and `:800`) — in both the local-player branch and the ordinary one, so it applies to every
+    /// corpse in a SourceTV recording.
+    ///
+    /// **This is not the same thing as `RagdollApplyAnimationAsVelocity`**, which derives a
+    /// per-BODY velocity from two poses 0.05 s apart. That one gives a limb its own motion; this
+    /// gives the whole corpse the player's.
+    /// </remarks>
+    public (float X, float Y, float Z)? RagdollVelocity() => RagdollVector("m_vecRagdollVelocity");
+
+    /// <summary>Which body the kill's force landed on — <c>m_nForceBone</c>.</summary>
+    /// <returns>The bone index, or null when this entity sent none.</returns>
+    /// <remarks>
+    /// **It selects an ELEMENT, not a bone, by the time the solver sees it** — `RagdollCreate` uses
+    /// it as `ragdoll.list[forceBone]` and guards with `if ( forceBone &gt;= 0 &amp;&amp; forceBone &lt;
+    /// ragdoll.listCount )` (`ragdoll_shared.cpp:660`). A value outside that range applies the force
+    /// to nobody, and Valve's own `Assert( forceBone &lt; ragdoll.listCount )` above it is compiled
+    /// out of a release build.
+    ///
+    /// **Negative is a real value and means "no bone".** The engine's guard admits it and the
+    /// centre-of-mass push is simply skipped, leaving only the offset spread — which is why this
+    /// returns the number rather than clamping it.
+    /// </remarks>
+    public int? RagdollForceBone() => Integer($"{RagdollTable}.m_nForceBone");
+
+    /// <summary>One of the corpse table's vectors, in whichever shape its era sent.</summary>
+    /// <param name="name">The property name on <c>DT_TFRagdoll</c>.</param>
+    /// <returns>The vector, or null when this entity sent none.</returns>
+    /// <remarks>
+    /// **A whole three-component vector, unlike a player's**, whose horizontal pair and height
+    /// travel separately in the modern shape. `SendPropVector( SENDINFO( m_vecRagdollOrigin ) )` has
+    /// no `[2]` companion, so the split that catches a player reader does not apply — and a reader
+    /// that assumed it did would read a height that was never sent.
+    ///
+    /// **Shared by all three of the corpse's vectors** because they are declared the same way:
+    /// `m_vecRagdollOrigin`, `m_vecForce` and `m_vecRagdollVelocity` are consecutive
+    /// `RecvPropVector` entries in `DT_TFRagdoll` (`c_tf_player.cpp:518-521`), so one of them
+    /// arriving split means all of them do.
+    /// </remarks>
+    private (float X, float Y, float Z)? RagdollVector(string name)
     {
-        if (!_properties.TryGetValue($"{RagdollTable}.m_vecRagdollOrigin", out PropertyValue at))
+        if (!_properties.TryGetValue($"{RagdollTable}.{name}", out PropertyValue at))
         {
             return null;
         }
 
-        // **A whole three-component vector, unlike a player's**, whose horizontal pair and height
-        // travel separately in the modern shape. `SendPropVector( SENDINFO( m_vecRagdollOrigin ) )`
-        // has no `[2]` companion, so the split that catches a player reader does not apply — and a
-        // reader that assumed it did would read a height that was never sent.
         return at.Kind switch
         {
             PropertyValueKind.Vector => at.AsVector,
             PropertyValueKind.VectorXY =>
-                (at.AsVectorXY.X, at.AsVectorXY.Y, Number($"{RagdollTable}.m_vecRagdollOrigin[2]") ?? 0f),
+                (at.AsVectorXY.X, at.AsVectorXY.Y, Number($"{RagdollTable}.{name}[2]") ?? 0f),
             _ => null,
         };
     }

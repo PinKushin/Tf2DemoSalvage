@@ -1324,3 +1324,259 @@ entry stays open rather than being closed with a plausible story.
 *Evidence class: read from the decompiled binary for every body, every offset and both dumped
 constant pairs; INFERRED and flagged for `core+0x40/0x44/0x48` holding reciprocals, and for the
 environment pointer at `core+0x10` being the same object the island driver holds.*
+
+## IVP left its own source file names in the binary
+
+**The assert strings carry `__FILE__`, and they name the modules.** Recovered verbatim, each tied to
+functions by a code cross-reference from the string:
+
+| module | what it owns here |
+|---|---|
+| `ivp_collision\ivp_mindist.cxx` | `FUN_1800975d0`, the `IVP_Mindist` constructor |
+| `ivp_collision\ivp_mindist_event.cxx` | `FUN_1800a3d30`, `FUN_1800a3fe0`, `FUN_1800a4200` |
+| `ivp_collision\ivp_mindist_minimize.cxx` | `FUN_180094ad0`, `FUN_180095ad0`, `FUN_180095cb0`, `FUN_180094e10`, `FUN_180094f80` |
+| `ivp_collision\ivp_mindist_recursive.cxx` | `FUN_1800b2460` |
+| `ivp_collision\ivp_compact_ledge_solver.cxx` | referenced from data only |
+| `ivp_intern\ivp_mindist_friction.cxx` | `FUN_18008d0c0` |
+| `ivp_intern\ivp_friction.cxx` | `FUN_180086a50`, `FUN_180086e80` |
+| `ivp_intern\ivp_object.cxx` | `FUN_180073df0`, `FUN_180072e90` |
+| `ivp_intern\ivp_ball.cxx` | `FUN_18009f0d0/0f0/180/1a0` |
+| `ivp_compact_builder\ivp_object_polygon_tetra.cxx` | `FUN_180055130`, `FUN_180055490` |
+
+Two ordinary strings survive as well: `IVP_SurfaceBuilder_Pointsoup::convert_pointsoup_to_template_polygon`
+and `IVP_SurfaceBuilder_Ledge_Soup::insert_ledge()` — both compact-BUILDER, not runtime.
+
+**This is a navigational win rather than a behavioural one**, and it is worth having for the same
+reason `CL_CopyNewEntity: GetClassBaseline(%d) failed.` was: a string names its own function, so a
+question about friction now starts at a known module instead of at a call graph.
+
+*Evidence class: read, from a string dump with a control — the same search returned 18 unrelated
+source paths, so an empty answer would have been about the subject rather than the instrument.*
+
+## Collision: the mindist family, and what closes the loop
+
+**`IVP_Mindist`'s vtable is at `0x1800fe960`, thirteen slots.** Slot 0 is the destructor
+(`FUN_1800b2250`, recognisable by the MSVC set-vtable-then-hand-off-to-base pattern); **slot 1,
+`FUN_1800992e0`, is the collision event**; slot 8 is `FUN_1800b2460` from
+`ivp_mindist_recursive.cxx`.
+
+```c
+void FUN_1800992e0(longlong *param_1,longlong param_2)
+{
+  (**(code **)(**(longlong **)(param_2 + 0x50) + 8))();
+  FUN_180095cb0(param_1);                       // recompute the minimum distance
+  uVar1 = *(uint *)(param_1 + 4);
+  if ((uVar1 & 0xc000) == 0) {
+    if ((uVar1 & 0xf) == 0) {
+      if ( /* cached distance crossed a per-material margin */ ) {
+        (**(code **)(*param_1 + 0x40))();       // its OWN slot 8 — the recursive refine
+        goto LAB_18009935c;
+      }
+      iVar2 = 2;
+    } else { iVar2 = 1; }
+    FUN_180099380((longlong)param_1,0,iVar2);   // re-queue this pair
+  }
+  ...
+}
+```
+
+**This closes a loop that was open in this document.** `FUN_18009a690`/`FUN_18009a4f0` were
+retracted above from "island solve" to "contact-pair re-check scheduler", and the obvious next
+question was what the scheduler schedules. **It schedules this.** Slot 1 recomputes the pair's
+distance and then either escalates into the recursive refine or re-queues itself for a later check —
+so the whole broad-phase side of IVP is one self-rescheduling event per pair, the same shape as the
+PSI step itself.
+
+The margin is looked up per material: `DAT_18012d548[byte(flags >> 0x16)]`, a 256-entry float table,
+added to `DAT_18012d664`, which dumps as **0.0**.
+
+**The narrow phase is a closest-feature search over half-edges, not a triangle soup.** Four routines
+dispatch by feature kind out of `ivp_mindist_event.cxx` — `FUN_1800a2b30`, `FUN_1800a1ff0`,
+`FUN_1800a1b50`, `FUN_1800a1420` — each walking a compact-ledge half-edge structure with the same
+pointer idiom against the offset tables `DAT_180124fb8`/`DAT_180124fc8`. They share one
+bisection/line-search core, `FUN_1800b6210` with `FUN_1800b6590` for refinement, which is generic
+over feature type because the geometry arrives as a **one-slot evaluator vtable**: `FUN_1800a3470`
+and its neighbours are each a few lines of plane arithmetic, and `FUN_1800a3470` is a Hesse-plane
+point distance. Dumped constants: `DAT_1800fb100` = 1.0E-8, `DAT_1800ea9b8` = 1.0.
+
+*The four routines being the classic vertex-vertex / vertex-edge / edge-edge / vertex-face cases is
+INFERRED from the dispatch shape and the half-edge walk, not from a name.*
+
+## The static world is an ordinary body with one bit set — and two independent readings agree
+
+**This is the answer that decides whether a corpse can be made to land on the floor at all**, and it
+came out of two sessions that were not talking to each other.
+
+Reading the CONTACT builder (`FUN_18008d0c0`, `ivp_mindist_friction.cxx`), each of the two colliding
+objects is tested before it contributes anything:
+
+```c
+pbVar10 = *(byte **)(*(longlong *)(param_1 + 0x20) + 0xe8);   // object -> core
+if ((*pbVar10 & 2) == 0) {
+    /* r x n cross products, and the effective inverse mass from
+       core+0x40/0x44/0x48 and core+0x4c */
+} else {
+    /* zero this object's rotational Jacobian AND its mass term entirely */
+}
+```
+
+Reading the ISLAND DRIVER (`FUN_1800909d0`), reached from an entirely different direction, the same
+bit decides whether a core is integrated at all:
+
+```c
+pbVar2 = *(byte **)(param_1[3] + uVar7 * 8);
+if ((*pbVar2 & 2) == 0) { ... FUN_180099a00(pbVar2, &local_868, ...); ... }
+```
+
+**So bit 1 of the byte at `core+0x0` means: do not integrate me, and contribute no mass or inertia
+to any contact.** That is infinite mass and a fixed transform, which is exactly what static map
+geometry is. Neither site names it, but the two together are stronger than either — one says it does
+not move, the other says nothing can push it.
+
+**And the public headers agree from the third side.** `IPhysicsEnvironment::CreatePolyObjectStatic`
+takes the identical `CPhysCollide*` as `CreatePolyObject` (`vphysics_interface.h:555`), and the map's
+own baked collision is fed through the static variant at level load
+(`physics_shared.cpp:602-667`). **There is no separate static-geometry type at the API boundary**,
+which is what a BSP or mesh path would need.
+
+**What is NOT established:** the code that SETS that bit. Nothing found writes it, so "static objects
+are flagged this way" is read from two consumers and not from the producer.
+
+## Contact response is accumulated, not applied
+
+`FUN_18008d0c0` allocates a ~0x110-byte record per contact from a per-environment pool, caches it at
+`mindist+0x70`, builds an orthonormal contact frame by explicit cross products, and computes the
+per-axis effective inverse mass:
+
+```c
+*(float *)((longlong)pdVar7 + 0x94) =
+     rx*rx * core[+0x44] + ry*ry * core[+0x40] + rz*rz * core[+0x48] + core[+0x4c];
+```
+
+**It writes nothing to `core+0x130..0x148`.** Neither does `FUN_180086a50` (a synapse-identity
+predicate) or `FUN_180086e80` (friction-system split and merge when an object's contact list
+changes). So a contact does not become an impulse where it is found; it becomes a **persistent
+record with its effective-mass terms precomputed**, and something later consumes it.
+
+**That "something later" is the one piece still missing**, and it is the same gap gravity's
+application point is in. Both are downstream of the contact/friction records and upstream of the
+integrator, in the part of `FUN_180082560` that has been read as a call list and not yet as
+behaviour.
+
+*Evidence class: read from the decompiled binary throughout; INFERRED and flagged for the friction
+anchor's drift correction and for the four narrow-phase routines being the V-Clip feature cases.*
+
+## The ragdoll constraint solve, found — and it is sequential impulses
+
+**`CreateRagdollConstraint` is `FUN_180012e10`**, slot 15 of `IPhysicsEnvironment`'s vtable. **The
+base is `0x1800ebbd8`, not `0x1800ebbf0`** — the interface has no base class, so slot 0 is the
+destructor; `0x1800ebbf0` is merely where slot 3's pointer sits. Cross-validated twice over: slot 1
+is the only xref of `"VPhysicsDebugOverlay001"`, and slot 10 the only xref of `"Deleted NULL
+vphysics object"`.
+
+**The parameter block maps onto the published struct byte for byte**, which is the check that says
+the whole slot count is right:
+
+| `constraint_ragdollparams_t` | byte | read at |
+|---|---|---|
+| `constraintToReference` | 0x18 | `FUN_18000ca70((float *)(param_4 + 6), …)` |
+| `constraintToAttached` | 0x48 | `FUN_18000ca70((float *)(param_4 + 0x12), …)` |
+| `axes[3]` | 0x30.. | a permutation loop through `FUN_180002bb0(index)` |
+| `onlyAngularLimits` | 0xB0 | `*(char *)(param_4 + 0x2c) == '\0'` |
+| `isActive` | 0xB1 | `*(char *)((longlong)param_4 + 0xb1) != '\0'` |
+| `useClockwiseRotations` | 0xB2 | `*(char *)((longlong)param_4 + 0xb2) != '\0'` |
+
+**Two things this project already built are confirmed by it.** `useClockwiseRotations` — the field
+Valve's own header calls *"HACKHACK: Did this wrong in version one. Fix in the future."* — drives a
+sign flip through the same `DAT_1800ea5e0` mask used everywhere else, which is what
+`RagdollJointLimits.Convert` reproduces. And the axes are read through a **permutation**, which is
+the axis remap `RagdollJointLimits.Slot` already carries. Both were transcribed from the SDK and the
+`.phy` text months before this function was found; the binary agrees.
+
+**The solver object's vtable is `0x1800ee9d0`, eight slots**, bounded above by the literal
+`"ragdoll"`. Slots 3 and 4 are the solve:
+
+- **`FUN_180038620`** rebuilds each body's rotation matrix, forms a cross-product axis and
+  normalises it with `rsqrtps` — the setup-and-solve pass.
+- **`FUN_180038d10`** skips the rebuild and reuses cached geometry — the cheap re-solve.
+
+**Both end in the same block, and it is the finding:**
+
+```c
+if ((*pbVar1 & 0x12) == 0) {
+  *(uint *)(pbVar1 + 0x130) = (uint)(… + *(float *)(pbVar1 + 0x130)) & MASK;   // angular +=
+  …
+  *(uint *)(pbVar1 + 0x140) = (uint)(… + *(float *)(pbVar1 + 0x140)) & MASK;   // linear  +=
+  …
+}
+if ((*pbVar2 & 0x12) == 0) {                       // the other body, with negated terms
+  *(uint *)(pbVar2 + 0x140) = (uint)((CONST - fVar8) * fVar21 + *(float *)(pbVar2 + 0x140)) & MASK;
+  …
+}
+```
+
+**Accumulate in place, straight into velocity, equal and opposite on the two bodies.** That is a
+**sequential-impulse solver**, not a system-matrix or Jacobian solve — which matters because the two
+are not interchangeable and the matrix version is the one somebody would reach for from a textbook.
+And it explains what the contact records are for: `FUN_18008d0c0` precomputes each contact's
+effective inverse mass and stores it, and a solver of this shape consumes exactly that.
+
+The shared inner routine `FUN_180036e10` does **one translation solve and two independently gated
+per-axis angular solves** per call (`FUN_180036f80` then `FUN_1800372c0` twice), which is the
+box-limit-per-axis shape `constraint_axislimit_t` describes.
+
+**A flag difference worth not smoothing over.** The constraint solve skips a body on
+`(*flags & 0x12) != 0` — two bits. The integrator (`FUN_1800909d0`) and the contact builder
+(`FUN_18008d0c0`) test only `& 2`. So there is a second bit, `0x10`, that stops a body being pushed
+by a constraint while still letting it integrate and take contacts. Its meaning is **not
+established**; recorded as a difference rather than rounded off to "the immovable flag".
+
+**What is NOT established: the iteration count.** Both solve slots are the sole occupants of their
+vtable entries, so static analysis finds no callers — the outer "solve every constraint N times"
+driver was not located, and no number is inferred in its place. A sequential-impulse solver's
+behaviour depends on that count, so this is a real gap rather than a detail.
+
+## Gravity: a named dead end, with the candidate stated as a candidate
+
+**`FUN_180019cc0` is a per-core effector dispatcher with four modes**, decompiled in full:
+
+| mode | what it does |
+|---|---|
+| 1 | local-frame ACCELERATION — rotates through the core's own matrix at `+0x90` first |
+| 2 | local-frame impulse — same rotation, then through `FUN_1800778c0`, so mass-DEPENDENT |
+| 3 | **world-frame acceleration, mass-INDEPENDENT** — added straight into `core+0x140/0x144/0x148` |
+| 4 | world-frame impulse, the mass-dependent twin of 3 |
+
+```c
+local_a8 = (float)local_c8 * DAT_18011f000;
+local_a4 = (float)((uint)(local_c0 * DAT_18011f000) ^ uVar5);          // uVar5 = DAT_1800ea5e0
+*(float *)(lVar1 + 0x140) = local_a8 * fVar14 + *(float *)(lVar1 + 0x140);
+```
+
+**Mass-independence is the tell** — gravity is the one effector that must not scale with mass — and
+the unit-conversion fingerprint is byte-for-byte `SetGravity`'s: same scale `DAT_18011f000`, same
+sign mask `DAT_1800ea5e0`, on the same component.
+
+**And it is still not established, for three reasons that were checked rather than assumed:**
+
+- `FUN_180019cc0` is itself a vtable slot — exactly ONE occurrence of its address exists anywhere in
+  readable memory, at `0x1800ec880` — so it is only ever reached by virtual dispatch and static
+  caller-finding returns nothing.
+- **No code reference to that vtable address exists either**, so the constructor that installs it was
+  not found.
+- The vector reaching case 3 arrives from a virtual call on a different object again, and nothing
+  ties it to `env+0x118/0x120/0x128`.
+
+**So the honest state is: the best candidate, with the right shape, the right units and the right
+mass behaviour, and no chain of custody to gravity's storage.** Writing it up as "gravity is applied
+here" would be the confident-wrong-conclusion this document exists to avoid.
+
+**One thing that IS newly established about gravity's storage:** `FUN_18008bce0` reads all three
+doubles at `env+0x118/0x120/0x128` and feeds them into a friction and weight computation. That is a
+second, independent confirmation of the field's identity — and it is explicitly NOT the integration
+path, noted so it is not mistaken for one later.
+
+*Evidence class: read from the decompiled binary for the constraint chain, the field mapping, the
+solver vtable and both solve slots; read for `FUN_180019cc0`'s four modes; NOT ESTABLISHED, and
+labelled so, for gravity's call site, the effector object, and the constraint solver's iteration
+count.*

@@ -25180,3 +25180,56 @@ in Valve's ragdoll code either and is still skipped here. And nothing yet CALLS 
 because the collision detection it would feed does not exist.
 
 **Evidence class: read-from-source** for both rules; **measured**, 36 of 37, for the prevalence.
+
+### B368 FIXED: three of a corpse's four initial conditions were on the wire and never decoded
+
+**`DT_TFRagdoll` sends initial conditions and nothing else**, because a TF2 corpse is simulated by
+the client — 158 of 159 corpses in a measured match receive exactly one update. This project decoded
+`m_vecRagdollOrigin` and left the other three where they were:
+
+```cpp
+RecvPropVector( RECVINFO(m_vecRagdollOrigin) ),
+RecvPropEHandle( RECVINFO( m_hPlayer ) ),
+RecvPropVector( RECVINFO(m_vecForce) ),
+RecvPropVector( RECVINFO(m_vecRagdollVelocity) ),
+RecvPropInt( RECVINFO( m_nForceBone ) ),
+```
+
+`c_tf_player.cpp:518-521`.
+
+**What each one is, because they are easy to confuse and two of them are adjacent vectors:**
+
+- **`m_vecForce`** is the kill's impulse, in kg·in/s (`vphysics_interface.h:803`). `RagdollCreate`
+  applies it at the force bone's body with `ApplyForceCenter` and then spreads it over every other
+  body by mass share with `ApplyForceOffset` (`ragdoll_shared.cpp:661-681`). **It is what makes a
+  rocket death look unlike a bullet death.**
+- **`m_vecRagdollVelocity`** is the player's OWN motion, slammed on whole with
+  `SetAbsVelocity( m_vecRagdollVelocity )` in both branches of `CreateTFRagdoll`. Not the same thing
+  as `RagdollApplyAnimationAsVelocity`, which gives each LIMB its own velocity from two poses 0.05 s
+  apart.
+- **`m_nForceBone`** is an ELEMENT index by the time the solver reads it — `ragdoll.list[forceBone]`
+  under `if ( forceBone >= 0 && forceBone < ragdoll.listCount )`. **Negative is a real value meaning
+  "no bone"**, and the centre-of-mass push is simply skipped; the `Assert` above that guard is
+  compiled out of a release build.
+
+**Symptom while they were missing:** a finished solver would still drop every corpse straight down,
+identically, however it was killed — because the only thing it had to work from was a resting
+position.
+
+**Fixed** by `EntityState.RagdollForce`, `RagdollVelocity` and `RagdollForceBone`, carried onto
+`SceneRagdoll`. The three vectors share one reader, since `m_vecRagdollOrigin`, `m_vecForce` and
+`m_vecRagdollVelocity` are consecutive `RecvPropVector` entries and one arriving split into a
+horizontal pair plus a `[2]` companion means all of them do.
+
+**Authored rather than measured** (D38): the specimen puts the values on the wire itself and reads
+them back through `DemoTimeline.Build`, so it has ground truth and exercises the whole path — a
+decode that read a property and dropped it between `Ragdoll()` and `SceneRagdoll` fails there and
+would pass a property-level test. The force and velocity values share no component, so a reader that
+crossed the two adjacent vectors fails on every axis rather than on none.
+
+**What is NOT established:** nothing consumes these yet. They are initial conditions for a solver
+that cannot run until gravity's application point, the constraint solve and world collision are
+read.
+
+**Evidence class: read-from-source** for the table and every consumer; **authored specimen** for the
+decode.
