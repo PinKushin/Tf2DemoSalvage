@@ -833,3 +833,67 @@ which is above the constraint entirely — the time manager's event loop, still 
 `ivp_core.cxx` carries no asserts and so names no file in the binary.
 
 *Evidence class: read from the decompiled binary.*
+
+## The time model: a double clock, float events, and a periodic rebase
+
+**Both simulate paths funnel into one dispatcher.** `FUN_180082540` (variable) and `FUN_180082780`
+(fixed step) each call `FUN_180089f30(timeManager, env, targetTime)`, differing only in how they
+compute the target:
+
+```c
+// variable
+FUN_180089f30(*(env + 8), env, *(double *)(env + 0x188) + dtime);
+
+// fixed step
+FUN_180089f30(*(env + 8), env,
+              *(double *)(env + 0x198) + (double)((float)*(double *)(env + 0x108) * count));
+```
+
+so **`env+0x108` is the PSI step** — the same field `CPhysicsEnvironment::Simulate` compares the
+requested delta against before choosing between the two — and the two paths advance from **different
+bases**, `+0x188` and `+0x198`.
+
+**`FUN_18008a020` says why there are two, and it is the most consequential thing in the time model:**
+
+```c
+dVar2       = *(double *)(env + 0x188);          // absolute time, a DOUBLE
+env[0x198]  = dVar2;                             // rebase point
+env[0x190]  = (float)env[0x108] + dVar2;         // next PSI
+
+lVar4 = *(longlong *)(tm + 0x10);                // the event list
+uVar7 = *(uint *)(lVar4 + 0x18);
+while ((int)uVar7 != 0xffff) {                   // 0xffff terminates
+    lVar1  = *(longlong *)(lVar4 + 8) + uVar7 * 0x18;    // 0x18 bytes per event
+    uVar7  = *(ushort *)(... + 4 + uVar7 * 0x18);        // next index, 16-bit
+    *(float *)(lVar1 + 8) -= (float)dVar2;               // event time is a FLOAT
+}
+*(float *)(*(longlong *)(tm + 0x10) + 0x10) -= (float)dVar2;
+*(undefined8 *)(tm + 0x28) = *(undefined8 *)(env + 0x198);
+*(undefined8 *)(tm + 0x20) = 0;
+```
+
+**The absolute clock is a double and every scheduled event's time is a float measured from a base**,
+and this walks the whole list subtracting the current time to move that base forward. It is the
+standard defence against a float clock losing resolution as a session runs — and it is a behaviour
+with consequences rather than an implementation detail: an event's time is only ever precise
+relative to the last rebase, so a transcription that stored absolute float times would drift apart
+from the engine the longer a demo ran, in a way that looks like jitter rather than like a bug.
+
+| field | what it is |
+|---|---|
+| `env+0x108` | the PSI step, a double read as float |
+| `env+0x188` | absolute current time, double |
+| `env+0x190` | the next PSI's time |
+| `env+0x198` | the rebase base the fixed-step path advances from |
+| `tm+0x10` | the event list; entries 0x18 bytes, float time at +8, 16-bit next index at +4, `0xffff` terminates |
+| `tm+0x20`, `tm+0x28` | the list's own counter and base |
+
+**What is still NOT found: the event loop itself.** `FUN_180089f30` reaches it through
+`(**(code **)(**(longlong **)(param_1 + 8) + 8))(…)` — vtable slot 1 of the object at
+`timeManager+8` — and that object's type cannot be resolved statically from here. Two routes remain
+and neither is a guess: find whoever WRITES `timeManager+8` (the environment's constructor), or find
+the vtable by its shape. Searching the neighbouring address range was tried and produced collision
+code, not the loop; `ivp_time_event.hxx`'s only reference is a shared assert thunk with no recorded
+callers, so the string route is exhausted for this one.
+
+*Evidence class: read from the decompiled binary.*
