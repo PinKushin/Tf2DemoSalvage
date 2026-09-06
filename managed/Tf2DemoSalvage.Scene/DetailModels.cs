@@ -12,11 +12,17 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="Alpha">
 /// <c>m_Alpha</c> — the distance fade, 0 to 255. A model at 0 is not drawn at all.
 /// </param>
+/// <param name="Lighting">
+/// The lump's own <c>m_Lighting</c> for this object — <c>CDetailModel::m_Color</c>. A detail model
+/// is required to be UNLIT (`UnserializeModelDict` substitutes `models/error.mdl` for a vertex-lit
+/// one), so this colour is all the light it has.
+/// </param>
 public readonly record struct DetailModelInstance(
     int Model,
     (float X, float Y, float Z) Origin,
     (float Pitch, float Yaw, float Roll) Angles,
-    byte Alpha);
+    byte Alpha,
+    (float Red, float Green, float Blue) Lighting);
 
 /// <summary>
 /// The detail props a map scatters that are MODELS rather than sprites (B363).
@@ -156,7 +162,8 @@ public static class DetailModels
                 translucent++;
             }
 
-            into.Add(new DetailModelInstance(prop.DetailModel, prop.Origin, angles, alpha));
+            into.Add(new DetailModelInstance(
+                prop.DetailModel, prop.Origin, angles, alpha, prop.Lighting));
             built++;
         }
 

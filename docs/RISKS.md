@@ -24763,7 +24763,7 @@ because the second entry was wrong about its own reason:
   the class is live in TF2 (the string is in both `tf/bin/x64/server.dll` and `client.dll`, with
   `sky_camera` and `cl_detaildist` as one-sided controls), so a community map can place one.
 
-### B363 OPEN: detail props that are MODELS are not drawn
+### B363 FIXED: detail props that are MODELS were not drawn
 
 **`DETAIL_PROP_TYPE_MODEL` is a studio model scattered by `vbsp` like a sprite**, and this project
 draws none of them. Found while correcting B360's granary numbers: that map places **324** of
@@ -24815,7 +24815,44 @@ Five things that make it cheaper than it looks, and each is a decision already t
 `docs/memory/an-empty-box-must-never-cull.md` warns about, so the cull must treat it as "always
 visible" rather than as a point at the origin.
 
-**The placement layer is now built and the draw is not** (2026-09-06). `DetailModels.Build` places
+**FIXED 2026-09-06 — they are drawn.** Verified by looking, on `cp_granary` at
+`TF2VIEW_CAMERA="1760 5272 -370 0 180"`: the tall pale grass clumps standing above the sprite grass
+are `grass_02_detailmodel.mdl`, at the lump's own baked colour.
+
+**Three defects were in the way, and none of them was in the placement.** The first was found by a
+counter and the other two by a picture:
+
+- **The model dictionary was read and discarded** — `(_, sprites, objects)` — so a model-type prop's
+  index resolved to nothing.
+- **`MapAssets.Geometry` is a LOOKUP, not a loader.** It answers from a dictionary built at load
+  from the demo's model list, so a model nothing else asked for never existed. The map's detail
+  models now load with the demo's, deduplicated, which is also where the brush entities go.
+- **Two general faults in the packed set, both of which drew nothing silently.** `MomentScene`
+  uploads when its OWN `Add` returns true, so a set grown at the level boundary never triggered an
+  upload — now `EntityModelSet.Grown` says so however it grew, cleared by `Uploaded()`. And `Add`
+  remembers a failed load as an empty entry for ever, which is right per frame and wrong for a
+  deliberate `Precache`: the map's detail models had been packed empty by the DEMO's precache before
+  the map's geometry loader existed, and every later call was skipped. `Precache` now retries an
+  empty entry and leaves a packed one alone.
+
+**And one instrument was removed for lying.** A `resolved` column asking
+`_world.ModelBatches(name, 0)` reported *"0 of 1 dictionary models carry geometry"* on a frame where
+the models were plainly on screen. The failure it was meant to catch is already instrumented
+correctly by the renderer's *"was posed before its geometry was uploaded"*, which is what found the
+packing-order bug and what confirmed its fix. A counter that contradicts the picture is worse than
+no counter.
+
+**The lighting took two attempts and a picture settled it.** A detail model is required to be UNLIT,
+so its only light is the lump's `m_Lighting` — `CDetailModel::m_Color`, baked per instance by vrad.
+Handing that to `AmbientCube` unchanged drew every model pure white, because the cube is 0–1 and
+`ColorRGBExp32` decodes to 0–255. Scaled, they sit in the grass at the map's own colour.
+
+**Still open:** `models/error.mdl` is not substituted for a vertex-lit detail model, which
+`UnserializeModelDict` does with a warning.
+
+---
+
+**The placement layer, from earlier the same day.** `DetailModels.Build` places
 every model-type detail prop for one view — Valve's fade for the alpha, `ComputeAngles` for the
 screen-aligned ones, nothing emitted at alpha zero, one instance per lump entry — with
 `DetailModelConformanceTests` covering all five rules and the two controls that make them

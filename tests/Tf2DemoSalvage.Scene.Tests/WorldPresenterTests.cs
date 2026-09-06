@@ -100,10 +100,12 @@ public sealed class WorldPresenterTests
             IReadOnlyList<Content.Bsp.BspDetailProp> props,
             IReadOnlyList<Content.Bsp.BspDetailSprite> rectangles,
             MapTexture? sheet,
-            (float FadeStart, float FadeEnd)? controller) =>
+            (float FadeStart, float FadeEnd)? controller,
+            IReadOnlyList<string> models) =>
             Calls.Add(
                 (props.Count == 0 ? "no-detail-props" : "detail-props") +
-                (controller is null ? string.Empty : "-controlled"));
+                (controller is null ? string.Empty : "-controlled") +
+                (models.Count == 0 ? string.Empty : "-modelled"));
 
         public void SetCamera(float[] matrix, bool surfaceColours = false) =>
             Calls.Add("camera");

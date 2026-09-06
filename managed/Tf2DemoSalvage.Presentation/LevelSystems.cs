@@ -223,6 +223,16 @@ public sealed class LevelSystems
             ? content.Geometry
             : EntityModelSet.NoGeometry;
 
+        // **The map's detail MODELS, packed here because this is where the loader arrives** (B363).
+        // It is also the engine's own moment — `UnserializeModelDict` runs during level load
+        // (`detailobjectsystem.cpp:1587`) — and it must be BEFORE anything demo-side packs, because
+        // the packer skips a path it has already seen: an entry added while the geometry loader was
+        // still `NoGeometry` stays empty for ever, and a later call cannot fill it in.
+        if (map.Assets is { DetailModelNames.Count: > 0 } detail)
+        {
+            _models.Precache(detail.DetailModelNames);
+        }
+
         // **Beside the geometry, because it arrives with the map for the same reason** (B219).
         // Valve's per-class brush entity colours used to be baked into vertices at load, so the
         // category view could not be switched without rebuilding; they travel per instance now.

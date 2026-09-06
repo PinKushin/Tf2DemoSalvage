@@ -267,6 +267,25 @@ public sealed class GameLumpProbe : IProbe
                     $"{prop.Lighting.Green.ToString("F0", CultureInfo.InvariantCulture)}, " +
                     $"{prop.Lighting.Blue.ToString("F0", CultureInfo.InvariantCulture)})");
             }
+
+            // **The MODELS, which this reported only as a count** (B363). A count says the map has
+            // them; a coordinate is what lets somebody point a camera at one and see whether it
+            // draws — and the two populations are nowhere near each other on `cp_granary`, so the
+            // sprite examples above cannot stand in for them.
+            foreach (BspDetailProp prop in
+                objects.Where(prop => prop.Type == DetailPropType.Model).Take(3))
+            {
+                output.WriteLine(
+                    $"        MODEL {prop.DetailModel.ToString(CultureInfo.InvariantCulture)} " +
+                    $"'{(prop.DetailModel >= 0 && prop.DetailModel < models.Count ? models[prop.DetailModel] : "OUT OF RANGE")}' at " +
+                    $"({prop.Origin.X.ToString("F0", CultureInfo.InvariantCulture)}, " +
+                    $"{prop.Origin.Y.ToString("F0", CultureInfo.InvariantCulture)}, " +
+                    $"{prop.Origin.Z.ToString("F0", CultureInfo.InvariantCulture)}) angles " +
+                    $"({prop.Angles.Pitch.ToString("F1", CultureInfo.InvariantCulture)}, " +
+                    $"{prop.Angles.Yaw.ToString("F1", CultureInfo.InvariantCulture)}, " +
+                    $"{prop.Angles.Roll.ToString("F1", CultureInfo.InvariantCulture)}) orientation " +
+                    prop.Orientation.ToString(CultureInfo.InvariantCulture));
+            }
         }
     }
 }

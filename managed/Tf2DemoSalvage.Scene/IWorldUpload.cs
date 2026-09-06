@@ -71,6 +71,10 @@ public interface IWorldUpload
     /// <param name="controller">
     /// The map's <c>env_detail_controller</c> distances, or null when it carries none.
     /// </param>
+    /// <param name="models">
+    /// The detail model dictionary, one path per entry (B363). Empty for a map whose detail props
+    /// are all sprites, which is most of them.
+    /// </param>
     /// <remarks>
     /// **Handed over as DATA rather than as geometry**, unlike everything else on this interface. A
     /// detail sprite's quad depends on where the eye is — its alpha is a distance fade and two of
@@ -86,7 +90,8 @@ public interface IWorldUpload
         IReadOnlyList<BspDetailProp> props,
         IReadOnlyList<BspDetailSprite> rectangles,
         MapTexture? sheet,
-        (float FadeStart, float FadeEnd)? controller);
+        (float FadeStart, float FadeEnd)? controller,
+        IReadOnlyList<string> models);
 
     /// <summary>Points the world at a camera.</summary>
     /// <param name="matrix">The view-projection, row major, sixteen floats.</param>

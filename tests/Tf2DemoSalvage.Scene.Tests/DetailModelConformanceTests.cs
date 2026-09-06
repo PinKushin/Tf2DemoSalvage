@@ -165,6 +165,35 @@ public sealed class DetailModelConformanceTests
         placed.Count.ShouldBe(1);
     }
 
+    /// <remarks>
+    /// **Every other fixture here puts the eye at the origin, and that made the Z term untestable.**
+    /// Found by sabotage: changing `prop.Origin.Z - eye.Z` to `+ eye.Z` reddened NOTHING, because
+    /// `eye.Z` was always zero and the two expressions are then identical. That is the "wrong
+    /// condition" case — an input for which correct and broken predict the same observation — so the
+    /// fix is the input rather than a stronger assertion
+    /// (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md`).
+    ///
+    /// **A model directly below an eye 1,000 units up is 1,000 away, not 2,000.** Under the sign
+    /// error it would be 2,000 — past the 1,200 maximum — and drawn as nothing at all, which is what
+    /// this measures: the same prop, placed from a raised eye, must still be visible.
+    /// </remarks>
+    [Test]
+    public void Build_WithTheEyeAboveTheModel_MeasuresTheDifferenceRatherThanTheSum()
+    {
+        List<DetailModelInstance> placed = [];
+        DetailFade fade = DetailFade.For(1200f, 400f);
+
+        DetailModels.Frame frame = DetailModels.Build(
+            [Prop(DetailPropType.Model, x: 0f)], (0f, 0f, 1000f), fade, placed);
+
+        frame.Built.ShouldBe(1, "a thousand units below the eye is inside a maximum of 1,200");
+        placed[0].Alpha.ShouldBe(fade.Alpha(1000f * 1000f));
+
+        // The control that gives the assertion its teeth: summing instead would be 2,000, which the
+        // fade drops entirely.
+        fade.Alpha(2000f * 2000f).ShouldBe((byte)0);
+    }
+
     /// <summary>The eye, at the world origin, so a distance is the model's own X.</summary>
     private static readonly (float X, float Y, float Z) Eye = (0f, 0f, 0f);
 

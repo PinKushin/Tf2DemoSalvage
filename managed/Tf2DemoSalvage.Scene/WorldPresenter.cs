@@ -185,7 +185,8 @@ public sealed class WorldPresenter(ILogger render)
                 level.Assets?.DetailProps ?? [],
                 level.Assets?.DetailSpriteRectangles ?? [],
                 level.Assets?.DetailSpriteSheet,
-                BspEntities.DetailController(level.Level.Entities));
+                BspEntities.DetailController(level.Level.Entities),
+                level.Assets?.DetailModelNames ?? []);
 
             render.LogInformation(
                 "{Message}",

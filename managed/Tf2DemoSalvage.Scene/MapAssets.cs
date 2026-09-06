@@ -525,7 +525,7 @@ public sealed class MapAssets
     /// which is a needless disturbance of an order that is load-bearing everywhere else.
     /// </remarks>
     private static (IReadOnlyList<BspDetailProp> Props, IReadOnlyList<BspDetailSprite> Rectangles,
-        MapTexture? Sheet) LoadDetailSprites(
+        MapTexture? Sheet, IReadOnlyList<string> Models) LoadDetailSprites(
         ILogger assets,
         ReadOnlyMemory<byte> map,
         IReadOnlyList<BspEntity> entities,
@@ -536,9 +536,13 @@ public sealed class MapAssets
         IReadOnlyList<BspDetailProp> objects;
         IReadOnlyList<BspDetailSprite> sprites;
 
+        // **The model dictionary, which this discarded until B363.** It is the first of the lump's
+        // three arrays and the only thing that can turn a model-type prop's index into a path.
+        IReadOnlyList<string> models;
+
         try
         {
-            (_, sprites, objects) = BspDetailProps.Read(map);
+            (models, sprites, objects) = BspDetailProps.Read(map);
         }
         catch (InvalidDataException failure)
         {
@@ -546,12 +550,12 @@ public sealed class MapAssets
             // map drawn without its grass, and that is a difference somebody would report as
             // "the ground looks bare" with nothing in the log to point at.
             assets.LogWarning(failure, "reading the map's detail props");
-            return ([], [], null);
+            return ([], [], null, []);
         }
 
         if (objects.Count == 0)
         {
-            return ([], [], null);
+            return ([], [], null, []);
         }
 
         // **The map picks the sheet, and nearly every map picks a different one** (B364). All 234
@@ -574,7 +578,11 @@ public sealed class MapAssets
                 $"{objects.Count} detail props will not be drawn: " +
                 $"{name} resolved to no texture");
 
-            return ([], [], null);
+            // **The MODELS survive a missing sprite sheet** (B363). They are drawn through the
+            // studio path with their own materials and owe nothing to `detail/detailsprites`, so
+            // dropping them here would lose granary's 324 grass models because a texture the
+            // sprites need did not resolve.
+            return (objects, [], null, models);
         }
 
         // **Valve's correction for a non-square sheet, `detailobjectsystem.cpp:1481`.** The engine
@@ -602,7 +610,7 @@ public sealed class MapAssets
             $"PRODUCED nothing yet — the quads are built per view; " +
             $"MISSING nothing at load");
 
-        return (objects, sprites, sheet);
+        return (objects, sprites, sheet, models);
     }
 
 
@@ -783,6 +791,18 @@ public sealed class MapAssets
     /// of magenta quads is worse than bare ground.
     /// </remarks>
     public MapTexture? DetailSpriteSheet { get; private init; }
+
+    /// <summary>The map's detail model dictionary — one path per entry (B363).</summary>
+    /// <remarks>
+    /// **Read and discarded until 2026-09-06.** `BspDetailProps.Read` has always returned it as the
+    /// first of three lists and this loader took `(_, sprites, objects)`, so a map's detail MODELS
+    /// had nowhere to resolve their paths from. `cp_granary` names one — 324 instances of
+    /// `models/props_foliage/grass_02_detailmodel.mdl`.
+    ///
+    /// **Empty is the common answer.** Most maps scatter only sprites, and a map with no `dprp`
+    /// lump at all has neither.
+    /// </remarks>
+    public IReadOnlyList<string> DetailModelNames { get; private init; } = [];
 
     /// <summary>Valve's measurement grid, drawn under the category colours, or null.</summary>
     public MapTexture? DevGrid { get; private init; }
@@ -1167,7 +1187,7 @@ public sealed class MapAssets
         IReadOnlyList<BspEntity> entities = BspEntities.ReadFrom(map);
 
         (IReadOnlyList<BspDetailProp> detailProps, IReadOnlyList<BspDetailSprite> detailRectangles,
-            MapTexture? detailSheet) =
+            MapTexture? detailSheet, IReadOnlyList<string> detailModelNames) =
             LoadDetailSprites(assets, map, entities, pak, archives, maximumTextureSize);
 
         propTiming.Dispose();
@@ -1204,7 +1224,30 @@ public sealed class MapAssets
                 $"{brushes.Count} brush entities built from the map's models lump");
         }
 
-        if (entityModels is { Count: > 0 })
+        // **The map's own detail MODELS are loaded with the demo's** (B363). `MapAssets.Geometry` is
+        // a LOOKUP in this dictionary rather than an on-demand loader, so a model nothing else asked
+        // for is not merely slow to appear — it never appears at all, and the renderer says only
+        // *"was posed before its geometry was uploaded"*. They belong here for the same reason the
+        // brush entities above do: they are the MAP's models, and the engine reads them at level
+        // load in `UnserializeModelDict`.
+        //
+        // **Deduplicated against the demo's list**, because granary names one its static props also
+        // use, and loading it twice would read the file twice for one entry.
+        IReadOnlyCollection<string>? toLoad = entityModels;
+
+        if (detailModelNames.Count > 0)
+        {
+            HashSet<string> combined = new(entityModels ?? [], StringComparer.OrdinalIgnoreCase);
+
+            foreach (string name in detailModelNames)
+            {
+                combined.Add(name);
+            }
+
+            toLoad = combined;
+        }
+
+        if (toLoad is { Count: > 0 })
         {
             using IDisposable modelTiming = assets.Time("loading entity models");
 
@@ -1216,7 +1259,7 @@ public sealed class MapAssets
             PropModels.ModelFrames? error = null;
             bool triedError = false;
 
-            foreach (string path in entityModels)
+            foreach (string path in toLoad)
             {
                 PropModels.ModelFrames? frames = PropModels.LoadFrames(
                     factory.CreateLogger("props"),
@@ -1281,10 +1324,11 @@ public sealed class MapAssets
             // or a weapon that simply is not drawn, which looks like the demo not containing one.
             assets.LogInformation(
                 "{Message}",
-                $"ASKED FOR {entityModels.Count} entity models; HAVE {loaded}; " +
-                $"MISSING {entityModels.Count - loaded}");
+                $"ASKED FOR {toLoad.Count} entity models " +
+                $"({detailModelNames.Count} of them the map's own detail models); HAVE {loaded}; " +
+                $"MISSING {toLoad.Count - loaded}");
 
-            foreach (string absent in entityModels.Where(path => !models.ContainsKey(path)))
+            foreach (string absent in toLoad.Where(path => !models.ContainsKey(path)))
             {
                 assets.LogInformation("entity model not loaded: {Model}", absent);
             }
@@ -1465,6 +1509,7 @@ public sealed class MapAssets
             DetailProps = detailProps,
             DetailSpriteRectangles = detailRectangles,
             DetailSpriteSheet = detailSheet,
+            DetailModelNames = detailModelNames,
             EntityModels = models,
             UnimplementedParameters = census,
             UnimplementedShaders = shaderCensus,

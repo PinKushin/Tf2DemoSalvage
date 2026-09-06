@@ -165,3 +165,4 @@
 - [A Valve comment can be stale](a-valve-comment-can-be-stale.md) — 234 maps override the material it names.
 - [The view origin is the camera, not a player](the-view-origin-is-the-camera-not-a-player.md) — first-person-only killed every distance fade.
 - [Baking yields to parity](baking-yields-to-parity.md) — D143; ours, so it changes when the engine will not fit.
+- [A lookup is not a loader](a-lookup-is-not-a-loader.md) — MapAssets.Geometry answers from a dictionary built at load.

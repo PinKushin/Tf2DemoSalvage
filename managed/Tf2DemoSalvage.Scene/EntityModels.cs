@@ -4052,6 +4052,7 @@ public sealed class EntityModelSet : IModelBodygroups
 
             _byModel[prop.ModelPath] = frames;
             added = true;
+            Grown = true;
 
             if (load(prop.ModelPath) is not { Geometry.Count: > 0 } model)
             {
@@ -4262,11 +4263,45 @@ public sealed class EntityModelSet : IModelBodygroups
 
         foreach (string path in paths)
         {
+            // **An EMPTY entry is dropped so this can pack it, and that is what makes a precache
+            // deliberate** (B363). `Add` remembers a failed load as an empty entry and skips the
+            // path for ever after, which is right for the per-frame path — the loader must not be
+            // re-asked sixty times a second for a model that is not there. But it is wrong for a
+            // considered request: the map's detail models were packed empty by the DEMO's precache,
+            // before the map's geometry loader existed, and every later call was skipped. The
+            // geometry then loaded correctly and reached nothing, and the only symptom was the
+            // renderer's *"posed before its geometry was uploaded"*.
+            //
+            // **Only the empty ones.** A path that packed real geometry is left alone, so this
+            // cannot throw away work or re-read a file that succeeded.
+            if (_byModel.TryGetValue(path, out List<List<WorldBatch>>? packed) && packed.Count == 0)
+            {
+                _byModel.Remove(path);
+            }
+
             synthetic.Add(new SceneProp(0, path, ScenePropTrack.Classify(path), default));
         }
 
         return Add(synthetic);
     }
+
+    /// <summary>Whether the set has grown since the last upload, however it grew.</summary>
+    /// <remarks>
+    /// **Because "did it grow" was only ever asked of the CALL, and packing does not always happen
+    /// in a call the uploader makes** (B363). `MomentScene` uploads when its own `Add` returns true;
+    /// a map that packs its detail models at the level boundary grows the set outside that call
+    /// entirely, so the geometry sat in this object and never reached the device — and the symptom
+    /// was the renderer's own *"was posed before its geometry was uploaded"*, once per instance, on
+    /// a model that had packed perfectly.
+    ///
+    /// **Cleared by <see cref="Uploaded"/> rather than by the getter**, so a reader cannot consume
+    /// it by accident. It is the same shape as `HasModels` on the other side of the seam: a fact
+    /// about this object, asked rather than remembered by anybody else.
+    /// </remarks>
+    public bool Grown { get; private set; }
+
+    /// <summary>Notes that the current contents have reached the device.</summary>
+    public void Uploaded() => Grown = false;
 
     /// <summary>Where each model stands at this moment.</summary>
     /// <param name="props">What exists at this tick.</param>

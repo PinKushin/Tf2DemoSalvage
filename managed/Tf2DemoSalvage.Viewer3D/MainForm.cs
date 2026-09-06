@@ -1485,6 +1485,10 @@ internal class MainForm : Form, IFrameSteps
             // so the camera passed straight through every hillside in the game.
             _spectator.World = (from, to, extent) => map.Level.Sweep(from, to, extent);
 
+            // **The map's detail models are packed inside `LevelSystems.Load`** (B363), beside the
+            // geometry loader that reads them — a call here instead ran after something else had
+            // already added the path with no geometry, and the packer skips a path it has seen.
+
             ProjectMap();
             return !map.Outline.IsEmpty;
         }
