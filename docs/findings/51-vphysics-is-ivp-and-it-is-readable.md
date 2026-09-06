@@ -173,6 +173,73 @@ is the only value that reads sensibly in both places — it has not been dumped.
 
 ---
 
+## The whole Source↔IVP convention, in one function
+
+`FUN_180002cc0` converts a Source `matrix3x4_t` into IVP's form, and it is the single most important
+function in the binary for a port: **every position, every rotation and every axis index crosses
+here.**
+
+```c
+*param_2  = (double)*param_1;                                   // +m00
+param_2[1] = (double)(float)((uint)param_1[2]  ^ 0x80000000);   // -m02
+param_2[2] = (double)param_1[1];                                // +m01
+param_2[4] = (double)(float)((uint)param_1[8]  ^ 0x80000000);   // -m20
+param_2[5] = (double)param_1[10];                               // +m22
+param_2[6] = (double)(float)((uint)param_1[9]  ^ 0x80000000);   // -m21
+param_2[8] = (double)param_1[4];                                // +m10
+param_2[9] = (double)(float)((uint)param_1[6]  ^ 0x80000000);   // -m12
+param_2[10] = (double)param_1[5];                               // +m11
+param_2[0xc] = (double)(0.0254f * param_1[3]);                  // + tx
+param_2[0xd] = (double)(float)((uint)(0.0254f * param_1[0xb]) ^ 0x80000000);   // - tz
+param_2[0xe] = (double)(0.0254f * param_1[7]);                  // + ty
+```
+
+Both constants are dumped, not inferred: `1800ea5e0` is `0x8000000080000000` — the **sign bit**, so
+every XOR above is a negation — and `18011f000` is `0x3cd013a9` = **0.0254**, metres per inch, with
+`39.37` sitting in the adjacent dword.
+
+**The rule is `Source (x, y, z) → IVP (x, −z, y)`**, applied as a similarity transform `M' = P M Pᵀ`
+with
+
+```
+P = [ 1  0  0 ]
+    [ 0  0 -1 ]
+    [ 0  1  0 ]
+```
+
+which is what produces that sign pattern: a minus appears exactly where one of the row or column
+index passes through the negated axis and the other does not. **Source is Z-up and IVP is Y-up**, and
+IVP works in metres where Source works in inches.
+
+**It cross-checks against the two facts found separately**, which is what makes it trustworthy
+rather than a plausible reading:
+
+- The axis remap table is `00 02 01 03` — Source 1→2, 2→1. `P` sends Source Y to IVP +Z and Source Z
+  to IVP −Y: the same permutation.
+- Exactly one joint axis is negated in `InitRagdoll`, and it is the branch for **Source axis 2**. `P`
+  gives Source Z a minus sign and Source Y none. The same axis.
+
+**`FUN_18000ca70` then transposes it.** It writes the three converted rows into the *columns* of a
+4×4 and puts the translation in the last ROW:
+
+```c
+param_2[0] = r0.x;  param_2[4] = r0.y;  param_2[8]  = r0.z;   // columns, not rows
+param_2[12] = t.x;  param_2[13] = t.y;  param_2[14] = t.z;    // translation in the last row
+param_2[3] = param_2[7] = param_2[0xb] = 0.0;  param_2[0xf] = 1.0;
+```
+
+So a transform crossing into IVP changes **three** things at once — handedness of the axis triple,
+units, and matrix storage order. `docs/memory/two-matrix-conventions-on-purpose.md` records that this
+project deliberately keeps two conventions and crosses between them once; IVP is a third, and it is
+the one where getting any single part right while missing another produces a ragdoll that is subtly
+and consistently wrong rather than obviously broken.
+
+*Evidence class: read from the decompiled binary, with both constants dumped. The similarity-transform
+reading is **arithmetic** — it was derived from the twelve assignments and then checked against the
+axis table and the negated joint axis, which were found independently.*
+
+---
+
 ## Two traps met on the way in, both worth writing down
 
 **RTTI is nearly absent, so class names cannot be recovered from it.** Searching for MSVC type
