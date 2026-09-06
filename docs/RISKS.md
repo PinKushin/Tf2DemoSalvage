@@ -25233,3 +25233,53 @@ read.
 
 **Evidence class: read-from-source** for the table and every consumer; **authored specimen** for the
 decode.
+
+### B369 OPEN: the map's own physics collision is not read, and it is what a corpse lands on
+
+**A TF2 corpse is simulated against the map's baked collision, and this project reads 34 of the 64
+BSP lumps without that one.** `LUMP_PHYSCOLLIDE` is lump 29 (`bspfile.h:310`); the engine hands its
+contents to `CreatePolyObjectStatic` at level load (`physics_shared.cpp:602-667`). Without it there
+is no floor, and every other piece of the ragdoll work has nothing to rest on.
+
+**The layout is fully specified by Valve's own loader** (`bsplib.cpp:1577-1625`), terminator
+included — which is the part a guess gets wrong:
+
+```cpp
+// physics data is variable length.  The last physmodel is a NULL pointer
+// with modelIndex -1, dataSize -1
+struct dphysmodel_t { int modelIndex; int dataSize; int keydataSize; int solidCount; };
+```
+
+Each entry is one brush model — index 0 the world, the rest `func_` brush entities — then
+`dataSize` bytes of length-prefixed solids, then `keydataSize` bytes of KeyValues text.
+
+**MEASURED with the new `map-collision` probe, and the route is better than expected.** On
+`koth_harvest_final`: **40 physics models, 41 solids, 3,876 bytes of KeyValues text**, and the text
+is plainly readable:
+
+```
+staticsolid { "index" "0"  "contents" "33570827" }
+staticsolid { "index" "1"  "contents" "65536" }
+virtualterrain {}
+materialtable { "default_silent" "1"  "default" "2"  "wood" "3"  "metal" "4"  "glass" "5" … }
+```
+
+**234 of 234 installed maps yielded at least one physics model** — the probe's control, and it must
+equal the map count because every compiled map has a world brush model with collision. It does.
+
+**So the map's collision splits exactly the way a `.phy` does**, and that is the finding worth
+having: the hulls are the same closed `IVPS` format this project already skips in a model's `.phy`,
+and beside them is plain KeyValues carrying contents flags and a surface-material table. **One
+closed format, needed in two places** — so understanding it once unlocks both a corpse's own shape
+and the world it falls onto.
+
+**What is NOT established:** the hull format itself. The compact-ledge half-edge structure was read
+in the binary (finding 51 — the narrow phase walks it with the offset tables `DAT_180124fb8` /
+`DAT_180124fc8`, and IVP's own `ivp_compact_ledge_solver.cxx` is named in the assert strings), but
+nothing has been decoded from a file.
+
+**Also not established:** what `virtualterrain` means, and whether displacements carry collision
+separately — `LUMP_PHYSDISP` is lump 28 and is likewise unread.
+
+**Evidence class: read-from-source** for the layout; **measured** over 234 maps, with a control, for
+the contents.
