@@ -58,6 +58,71 @@ public sealed class AnimatingEntityTests
         pose.Builds.ShouldBe(2);
     }
 
+    /// <remarks>
+    /// **`if ( LastBoneChangedTime() >= m_flLastBoneSetupTime )`, `c_baseanimating.cpp:2878`** — the
+    /// third guard, and the one this project was missing. A new frame is not enough to invalidate a
+    /// pose; the entity's bones must also have CHANGED since it was last set up.
+    ///
+    /// **The base returns `FLT_MAX`, so for an ordinary entity it always invalidates** and the test
+    /// above still reads 2. What overrides it is a ragdoll:
+    /// `C_ClientRagdoll::LastBoneChangedTime()` returns
+    /// `m_pRagdoll->GetLastVPhysicsUpdateTime()` (`c_baseanimating.cpp:587`), which
+    /// `CRagdoll::VPhysicsUpdate` advances only while the body is awake (`ragdoll.cpp:191-193`).
+    ///
+    /// **So this is the mechanism that makes a settled corpse free**, and it is the last link of a
+    /// chain that is entirely Valve's: `CheckSettleStationaryRagdoll` sleeps a body after five
+    /// seconds stationary, sleeping stops `VPhysicsUpdate` advancing `m_lastUpdate`, that freezes
+    /// `LastBoneChangedTime`, and this guard then stops the pose being invalidated at all — after
+    /// which the readable-bones test short-circuits and the corpse is never posed again.
+    ///
+    /// The entity below stands for a corpse whose physics has stopped: its bones last changed
+    /// before it was ever set up, so it poses once and then costs nothing however many frames pass.
+    /// </remarks>
+    [Test]
+    public void SetupBones_WhenItsBonesHaveNotChangedSinceTheLastSetup_DoesNotBuildAgain()
+    {
+        CountingPose pose = new();
+        BoneFrameCounter clock = new();
+
+        AnimatingEntity entity = new(pose, clock) { LastBoneChangedTime = -1d };
+
+        entity.SetupBones(Vertices, 0d);
+        clock.Advance();
+        entity.SetupBones(Vertices, 0.015d);
+        clock.Advance();
+        entity.SetupBones(Vertices, 0.030d);
+
+        pose.Builds.ShouldBe(1, "three frames, and only the first one costs anything");
+    }
+
+    /// <remarks>
+    /// **And it wakes up, which is the control on the test above.** A guard that never invalidated
+    /// would satisfy "builds once" perfectly and freeze a corpse that is still falling. Something
+    /// touching the body — the solver waking it, an impact — moves `LastBoneChangedTime` past the
+    /// last setup, and the very next frame rebuilds.
+    /// </remarks>
+    [Test]
+    public void SetupBones_WhenItsBonesChangeAfterASettledFrame_BuildsAgain()
+    {
+        CountingPose pose = new();
+        BoneFrameCounter clock = new();
+
+        AnimatingEntity entity = new(pose, clock) { LastBoneChangedTime = -1d };
+
+        entity.SetupBones(Vertices, 0d);
+        clock.Advance();
+        entity.SetupBones(Vertices, 0.015d);
+
+        pose.Builds.ShouldBe(1, "still settled");
+
+        entity.LastBoneChangedTime = 0.020d;
+
+        clock.Advance();
+        entity.SetupBones(Vertices, 0.030d);
+
+        pose.Builds.ShouldBe(2, "the body moved, so the pose is rebuilt");
+    }
+
     [Test]
     public void SetupBones_ForAMaskAlreadyCovered_DoesNotBuildAgain()
     {

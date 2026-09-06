@@ -74,6 +74,9 @@ public readonly record struct PoseLayer(
 public sealed class SkeletonPose : IBonePose
 {
     private readonly IReadOnlyList<StudioBone> _bones;
+
+    /// <summary>The same bones as an array, so the pose loop can read them by reference.</summary>
+    private readonly StudioBone[] _boneArray;
     private readonly Func<int, int, float, IReadOnlyList<float>, IReadOnlyList<StudioBonePose>>
         _animation;
 
@@ -93,6 +96,18 @@ public sealed class SkeletonPose : IBonePose
         ArgumentNullException.ThrowIfNull(animation);
 
         _bones = bones;
+
+        // **An array once, so the per-bone loop can index it by REF rather than by copy.**
+        // `StudioBone` is a record struct of about 136 bytes behind an `IReadOnlyList<T>`, so every
+        // index in `Build` was an interface dispatch and a full struct copy — and `Build` runs per
+        // bone, per posed entity, per frame. `ref readonly` over an array removes the copy
+        // altogether rather than reducing it, and needs no `unsafe`: the struct holds a `string` and
+        // two `ReadOnlyMemory<T>`, so it is a MANAGED type and cannot be pinned or pointed at.
+        //
+        // Materialised rather than cast, because the caller may hand over any list; a model's bones
+        // do not change after it is read, so the one copy here is paid once per skeleton.
+        _boneArray = bones as StudioBone[] ?? [.. bones];
+
         _animation = animation;
         _local = new float[bones.Count][];
         _layered = new StudioBonePose[bones.Count];
@@ -320,14 +335,38 @@ public sealed class SkeletonPose : IBonePose
             }
         }
 
+        // **Asked once per pose rather than twice per BONE.** Both diagnostics below are guarded on
+        // the same level, and `IsEnabled` is a virtual call that walks every registered provider —
+        // at ninety-odd posed entities times eighty bones that was about fifteen thousand of them a
+        // frame, paid in full on a build where Debug is off and neither block can ever run.
+        //
+        // The blocks themselves are unchanged and still cost nothing when the level is off; what
+        // moved is only where the question is asked.
+        ILogger? verbose = Log is { } sink && sink.IsEnabled(LogLevel.Debug) ? Log : null;
+
         for (int bone = 0; bone < _bones.Count; bone++)
         {
-            if (alreadyWritten.IsMarked(bone) || (_bones[bone].Flags & boneMask) == 0)
+            // **One copy of the bone, not two, and the order preserves the short-circuit.**
+            // `StudioBone` is a record struct of about 136 bytes — a name, four tuples, two
+            // `ReadOnlyMemory<T>` and five ints — held behind `IReadOnlyList<T>`, so every index is
+            // an interface dispatch AND a full struct copy. Reading `_bones[bone].Flags` to test
+            // the mask and then indexing again for the bone itself paid that twice per bone: at
+            // eighty bones times the eighty-odd entities a busy frame poses, roughly 1.7 MB of
+            // memcpy a frame to look at one `int`.
+            //
+            // **The `IsMarked` test stays first** so a bone the merge already wrote is skipped
+            // without touching the list at all, which is what the original order bought.
+            if (alreadyWritten.IsMarked(bone))
             {
                 continue;
             }
 
-            StudioBone rest = _bones[bone];
+            ref readonly StudioBone rest = ref _boneArray[bone];
+
+            if ((rest.Flags & boneMask) == 0)
+            {
+                continue;
+            }
 
             (float X, float Y, float Z, float W) rotation = rest.Rotation;
             (float X, float Y, float Z) position = rest.Position;
@@ -345,7 +384,7 @@ public sealed class SkeletonPose : IBonePose
                 // Reported against the bone's OWN rest position, so the number is the displacement
                 // the animation claims rather than a distance between two bones, which is what
                 // makes it attributable to one track.
-                if (Log is { } moved_log && moved_log.IsEnabled(LogLevel.Debug))
+                if (verbose is { } moved_log)
                 {
                     float dx = moved.Position.X - rest.Position.X;
                     float dy = moved.Position.Y - rest.Position.Y;
@@ -387,9 +426,9 @@ public sealed class SkeletonPose : IBonePose
                 // Reported rather than repaired here, because the fix is a question about the MASK
                 // — Valve's studiomdl marks a parent as used by whatever uses its children, and if
                 // ours does not see that, the mask is what needs widening, not this concatenate.
-                if ((_bones[rest.Parent].Flags & boneMask) == 0 &&
-                    !alreadyWritten.IsMarked(rest.Parent) &&
-                    Log is { } log && log.IsEnabled(LogLevel.Debug))
+                if (verbose is { } log &&
+                    (_bones[rest.Parent].Flags & boneMask) == 0 &&
+                    !alreadyWritten.IsMarked(rest.Parent))
                 {
                     log.LogDebug(
                         "{Message}",

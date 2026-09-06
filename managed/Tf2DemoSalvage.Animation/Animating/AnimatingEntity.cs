@@ -131,6 +131,33 @@ public sealed class AnimatingEntity
     public bool SetupBones(int boneMask, double currentTime) =>
         SetupBones(boneMask, currentTime, MaximumFollowDepth);
 
+    /// <summary>When this entity's bones last changed — <c>LastBoneChangedTime</c>.</summary>
+    /// <remarks>
+    /// **The default is "always", which is the base class's answer** —
+    /// `virtual float LastBoneChangedTime() { return FLT_MAX; }` (`c_baseanimating.h:475`). An
+    /// ordinary entity is animated off a clock, so its bones are assumed to have moved and its pose
+    /// is rebuilt every frame.
+    ///
+    /// **What overrides it is a RAGDOLL**, and that is the whole value of the field:
+    /// `C_ClientRagdoll::LastBoneChangedTime()` returns `m_pRagdoll->GetLastVPhysicsUpdateTime()`
+    /// (`c_baseanimating.cpp:587`), which `CRagdoll::VPhysicsUpdate` advances only while the body is
+    /// awake (`ragdoll.cpp:191-193`).
+    ///
+    /// **So a settled corpse costs nothing**, by a chain that is entirely the engine's:
+    /// `CheckSettleStationaryRagdoll` forces a stationary body to sleep after five seconds
+    /// (`ragdoll.cpp:268`), sleeping stops `m_lastUpdate` advancing, that freezes this value in the
+    /// past, and the guard in <see cref="SetupBones(int, double)"/> then declines to invalidate the
+    /// pose at all — after which the readable-bones test short-circuits and the body is never posed
+    /// again. **That is how the engine draws a pile of corpses for free.**
+    ///
+    /// **Settable rather than virtual**, because this project has one animating-entity type where
+    /// the engine has a hierarchy; whatever drives a body writes the time it last moved it.
+    /// </remarks>
+    public double LastBoneChangedTime { get; set; } = double.MaxValue;
+
+    /// <summary>When this entity's bones were last built — <c>m_flLastBoneSetupTime</c>.</summary>
+    private double _lastBoneSetupTime;
+
     /// <summary>Which frame this entity's cached bones belong to.</summary>
     /// <remarks><c>m_iMostRecentModelBoneCounter</c>. Zero is never a valid frame, so a fresh
     /// entity always misses.</remarks>
@@ -173,11 +200,23 @@ public sealed class AnimatingEntity
         if (_builtOn != _clock.Frame)
         {
             _builtOn = _clock.Frame;
+
+            // **A new frame is NOT enough to invalidate a pose** — c_baseanimating.cpp:2878. The
+            // bones must also have CHANGED since they were last built, and for anything driven by
+            // something other than an animation clock they usually have not.
+            if (LastBoneChangedTime >= _lastBoneSetupTime)
+            {
+                _accessor.ReadableBones = 0;
+                _accessor.WritableBones = 0;
+
+                _lastBoneSetupTime = currentTime;
+            }
+
+            // **Outside the test, as the engine has it.** The mask bookkeeping happens on every
+            // first-touch-this-frame whether or not the cache was dropped, because it describes
+            // what was ASKED FOR rather than what was built.
             _previousMask = _accumulatedMask;
             _accumulatedMask = 0;
-
-            _accessor.ReadableBones = 0;
-            _accessor.WritableBones = 0;
         }
 
         _accumulatedMask |= boneMask;

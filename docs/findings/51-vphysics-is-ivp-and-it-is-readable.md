@@ -1553,9 +1553,8 @@ local_a4 = (float)((uint)(local_c0 * DAT_18011f000) ^ uVar5);          // uVar5 
 *(float *)(lVar1 + 0x140) = local_a8 * fVar14 + *(float *)(lVar1 + 0x140);
 ```
 
-**Mass-independence is the tell** — gravity is the one effector that must not scale with mass — and
-the unit-conversion fingerprint is byte-for-byte `SetGravity`'s: same scale `DAT_18011f000`, same
-sign mask `DAT_1800ea5e0`, on the same component.
+**~~Mass-independence is the tell~~ — and the fingerprint argument below was WRONG.** See the
+correction that follows; the constants are general, and this dispatcher is not gravity.
 
 **And it is still not established, for three reasons that were checked rather than assumed:**
 
@@ -1580,3 +1579,193 @@ path, noted so it is not mistaken for one later.
 solver vtable and both solve slots; read for `FUN_180019cc0`'s four modes; NOT ESTABLISHED, and
 labelled so, for gravity's call site, the effector object, and the constraint solver's iteration
 count.*
+
+## Correction: `FUN_180019cc0` is the MOTION CONTROLLER, and my evidence for gravity was bad
+
+**The candidate above is dead, and the way it died is the useful part.** The argument for it was
+that its unit-conversion fingerprint was "byte-for-byte `SetGravity`'s" — the same scale
+`DAT_18011f000` and the same sign mask `DAT_1800ea5e0`. **That is not evidence of anything.** Those
+constants are dumped as **0.0254** (inches to metres, exactly) and **0x80000000** (the IEEE sign
+bit), and they have now been found in three unrelated places: `SetGravity`, the constraint group's
+`errorTolerance` conversion, and this dispatcher. **Every vector crossing the Source-to-IVP boundary
+needs them.** A fingerprint shared by everything identifies nothing — the same mistake as reading a
+vtable dispatch as a solver, one layer down.
+
+**What it actually is, established from a published enum.** `FUN_180019cc0` switches on a callback's
+return code taking values 1 to 4, and `vphysics_interface.h:464` declares:
+
+```cpp
+enum simresult_e { SIM_NOTHING = 0, SIM_LOCAL_ACCELERATION, SIM_LOCAL_FORCE,
+                   SIM_GLOBAL_ACCELERATION, SIM_GLOBAL_FORCE };
+```
+
+Every branch matches: 1 rotates into world space and skips the mass divide (local acceleration), 2
+rotates and divides (local force), 3 neither rotates nor divides (global acceleration — the
+"candidate"), 4 divides only (global force). And the call feeding it has the exact shape of
+`IMotionEvent::Simulate( IPhysicsMotionController *, IPhysicsObject *, float, Vector &, AngularImpulse & )`.
+
+**So this is `IPhysicsMotionController`** — the generic machinery that lets GAME code register an
+`IMotionEvent` and have its returned force applied per tick. It is not gravity and never was.
+
+**What was eliminated, and how**, because a negative result is only worth having with its method:
+
+- **Zero `LEA` installs of the vtable `0x1800ec880`**, across 221,934 instructions and 13,374 `LEA`s.
+  The search needed a purpose-built instrument, since a `LEA` encodes a RIP-relative displacement
+  rather than the absolute address — and the first version of that instrument was silently wrong
+  (`getOpObjects` returns a `Scalar`, not an `Address`) and was caught against a known control
+  before being trusted.
+- **Zero occurrences of the vtable's address** anywhere in aligned readable memory, with the same
+  instrument correctly finding slot 0's function address in `.rdata` as its control.
+- **The environment constructor `FUN_180080d90`, decompiled in full** — about fifteen sub-objects,
+  and it installs this vtable on none of them.
+
+**Gravity's integration site was still unfound at this point.** It is found now — see below — and it
+turned out to be behind a dispatcher after all, just not that one.
+
+## The constraint solver runs exactly TWO iterations
+
+**Established by an exact inverse pair, which is as good as this gets without a symbol.** The group
+constructor stores the count with a bias and the getter removes it:
+
+```c
+*(int *)(param_1 + 4) = *(int *)(param_3 + 8) + 2;   // FUN_18003c330: additionalIterations + 2
+param_2[2] = *(int *)(param_1 + 0x20) + -2;          // FUN_18003d240: the exact inverse
+```
+
+**So the base is 2 and `additionalIterations` adds to it one for one, unscaled.** A ragdoll is built
+with `group.Defaults()`, which sets `additionalIterations = 0` (`ragdoll_shared.cpp:274-276`), so
+**a TF2 corpse's joints are solved with exactly two sweeps per step.**
+
+`CreateConstraintGroup` is slot 23, a thunk at `0x180012a40` that loads `environment+0x8` and
+tail-jumps to `FUN_18000d330`. The solve driver is slot 8 of a **different** vtable from the
+per-constraint one — `0x1800eeb10`, twelve slots — at `FUN_18003c780`:
+
+```c
+if (0 < *(int *)(param_1 + 0x20)) {
+    do {
+      fVar23 = *(float *)((longlong)&uStack_269f0 + uVar22);   // per-pass weight
+      if (fVar23 == 0.0) break;
+      // each attached constraint's slot 4 (the cheap re-solve), once descending then once ascending
+      uVar22 = uVar22 + 4;
+    } while ((int)uVar21 < *(int *)(param_1 + 0x20));
+}
+```
+
+**Each pass walks the constraint list forwards and then backwards** — a symmetric Gauss-Seidel
+sweep, which is what stops a chain of joints biasing toward whichever end is solved first. And each
+pass carries a **relaxation weight from a hardcoded table** at `0x1800eeb70`, dumped as
+`0.4, 0.4, 0.4, 0.4, 1.0, 1.0, 0.8, 0.6, 0.8, 0.8, 0.8, 0.8, …`. At the stock two iterations, both
+weights are **0.4**.
+
+**`errorTolerance` and `minErrorTicks` do NOT gate the loop**, which is the thing a reader would
+assume. They drive a counter AFTER it, and that counter is what `IsInErrorState` reports — the same
+call `CRagdoll::VPhysicsUpdate` makes before running `RagdollSolveSeparation`:
+
+```
+MOV EAX,[RDX+0x48]      ; minErrorTicks
+CMP [RDX+0x4c],EAX      ; errorTickCounter >= minErrorTicks
+SETGE AL
+```
+
+**And in this build that counter can never accumulate.** The value it is compared against is copied
+from `_DAT_1800ff070`, dumped as **0.0**, refreshed unconditionally at the top of every call — so
+`0.0 <= errorTolerance²` always holds and the counter resets each time. *INFERRED, and flagged: a
+`RefsTo` on that global found readers only and no writer, which is consistent with a compiled-in
+constant but does not exhaustively rule out an unresolved indirect write.*
+
+*Evidence class: read for the slot derivation, the thunk, the constructor/getter inverse pair, the
+loop and the weight table, all with dumped constants; INFERRED and flagged for the error counter
+being unreachable in this build.*
+
+## FOUND: gravity is a controller object, and `FUN_180074c80` is where it enters velocity
+
+**The way in was a published method name, for the third time on this binary.**
+`IPhysicsObject::EnableGravity( bool )` exists in the header, so a per-object gravity flag must
+exist, and whatever reads it must be the application site. Both halves paid out.
+
+**`EnableGravity` is `FUN_18001ba30`**, slot 13, and it does not set a flag at all — it adds the
+object to or removes it from a LIST:
+
+```c
+cVar2 = (**(code **)(*param_1 + 8))();               // IsStatic()
+if (cVar2 == '\0') {
+  cVar2 = (**(code **)(*param_1 + 0x38))(param_1);   // IsGravityEnabled()
+  if (param_2 != cVar2) {
+    lVar1 = *(longlong *)(param_1[2] + 0xe8);        // the gravity controller
+    if (param_2 != '\0') { FUN_1800748b0(lVar1, …); return; }
+    FUN_180074fb0(lVar1, …);
+  }
+}
+```
+
+**So gravity is not a per-core field — it is membership of a set.** A static object is refused
+outright, which is consistent with the `core+0x0 & 2` immovable bit found from the collision side.
+
+**The controller is a per-environment singleton at `env+0x0`**, a 0x30-byte object whose vtable is
+`0x1800ea728` — eight slots, and the bound is a good one: slot 8 would land on the string
+`"sys:gravity"` at `0x1800ea768`. **Slot 4 is `FUN_180074c80`, and it is the answer:**
+
+```c
+void FUN_180074c80(longlong param_1, float *param_2, longlong param_3)
+{
+  uVar5 = count - 1;                          // param_3+2 == controller+0x1e2
+  while (uVar5-- >= 0) {
+    pbVar4 = array[uVar5];                    // param_3+8 == controller+0x1e8, an IVP_Core*
+    if ((*pbVar4 & 0x10) == 0) {
+      FUN_180078250((longlong)pbVar4, (double)*param_2);
+      FUN_180077950((longlong)pbVar4);
+      fVar1 = *param_2;                       // dt
+      if ((*pbVar4 & 0x20) == 0) {
+        fVar2 = *(float *)(param_1 + 0x14); fVar3 = *(float *)(param_1 + 0x18);
+        fVar6 = *(float *)(param_1 + 0x10);
+      } else {
+        fVar2 = *(float *)(param_1 + 0x24); fVar3 = *(float *)(param_1 + 0x28);
+        fVar6 = *(float *)(param_1 + 0x20);
+      }
+      *(float *)(pbVar4 + 0x140) = fVar6 * fVar1 + *(float *)(pbVar4 + 0x140);
+      *(float *)(pbVar4 + 0x148) = fVar3 * fVar1 + *(float *)(pbVar4 + 0x148);
+      *(float *)(pbVar4 + 0x144) = fVar2 * fVar1 + *(float *)(pbVar4 + 0x144);
+    }
+  }
+}
+```
+
+**`v += g * dt`, on the established linear-velocity fields, with no mass term** — which is what
+gravity is and what drag is not, since nothing here is velocity-dependent.
+
+**Two per-core bits that were not in the field map:**
+
+- **`0x10` skips gravity entirely** for that core.
+- **`0x20` selects a SECOND gravity vector**, held at `controller+0x20/0x24/0x28` beside the default
+  at `+0x10/0x14/0x18`. So IVP supports per-object gravity, and a transcription with one global
+  vector would be right for TF2 and wrong for the engine.
+
+**The vector reaches the controller by a copy, which is why nothing in the pipeline reads
+`env+0x118`.** `SetGravity` converts to IVP units and calls `FUN_1800824e0`, which stores the
+doubles at `env+0x118/0x120/0x128`, caches the magnitude at `env+0x138` — and then calls
+`FUN_180075320(*env, g)`, which writes the same vector as **floats** into the controller at
+`+0x10/0x14/0x18`. The environment constructor does the same thing at startup, which is what proves
+`env[0]` is this object.
+
+**`env+0x138` is confirmed by name.** The string `"m_gravityLength"` is in `.rdata` at `0x1800eda70`.
+
+**What is NOT established, and it is the last thread:** the per-tick CALL to slot 4. The dispatch
+`(**(code **)(*env[0] + 0x20))(env[0], &dt, env[0]+0x1e0)` was not located — `FUN_18008a020`,
+`FUN_180082560`, `FUN_1800909d0`, `FUN_180090700`, `FUN_18009a690`, `FUN_1800983e0`,
+`FUN_1800985a0` and `FUN_180075a90` were each read in full and none contains it, and the address
+appears nowhere as a literal. So gravity is applied once per step from a site still unfound.
+
+**Also inferred rather than read:** that `EnableGravity`'s `realobj+0xe8` is literally `env[0]`. The
+structural match is strong — both are the same `+0x1e0`/`+0x1e2`/`+0x1e8` list shape, manipulated by
+the same add/remove pair, and slot 4's own list argument has that shape — but the assignment that
+populates `realobj+0xe8` was not found.
+
+**Two leads were chased and eliminated**, recorded so they are not re-run: `FUN_180089660` reads a
+`+0x118` on an unrelated drag structure rather than on the environment, and `FUN_180090700`'s
+`realobj+0xe8` reads turn out to be an `IVP_Core*` rather than a controller. **`0xe8` is reused
+across unrelated structures exactly as `0x118` is** — the same trap, twice.
+
+*Evidence class: read from the decompiled binary for `EnableGravity`, the controller, its vtable,
+the application function and the copy chain; the `"m_gravityLength"` and `"sys:gravity"` strings are
+read; INFERRED and flagged for `realobj+0xe8` being `env[0]`; NOT ESTABLISHED for the per-tick call
+site.*
