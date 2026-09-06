@@ -21327,6 +21327,31 @@ and the gold, ice and zombie overrides.
 
 ### B316 OPEN 2026-09-04: a corpse stands upright, and `RagdollSpawn` is the wrong branch to fix it with
 
+**2026-09-06 — what this entry actually requires is now settled, and the current fix cannot be
+finished into correctness.** A TF2 corpse is **simulated by the client**, so the demo carries no pose
+for it at any tick after the first.
+
+`C_TFRagdoll::CreateTFRagdoll` calls `InitAsClientRagdoll` (`c_tf_player.cpp:920`) — the ordinary
+client ragdoll path, into the client's own `IPhysicsEnvironment` — and `DT_TFRagdoll` sends
+**initial conditions only**: `m_vecRagdollOrigin`, `m_vecForce`, `m_vecRagdollVelocity`,
+`m_nForceBone`, plus appearance flags (`c_tf_player.cpp:519`). The OTHER ragdoll family,
+`C_ServerRagdoll`/`DT_Ragdoll`, is the one that networks per-element `m_ragPos`/`m_ragAngles`
+(`ragdoll.cpp:423`) and owns no physics objects at all — and TF2's death ragdoll is not in it.
+
+**So resting the corpse in `ACT_DIERAGDOLL` is a stopgap and always was.** It puts a body on the
+ground instead of standing to attention, which is better, and it is not what the engine draws: every
+pose after the first frame is something the client computed from a force and a bone delta. Closing
+this properly needs the simulation, which is B58's work (`docs/findings/51`), and the two numbers the
+client sets its environment up with are ones this project already has — gravity is `sv_gravity`, and
+the step is **the demo's own `interval_per_tick`** rather than the frame time, deliberately, per
+Valve's comment *"Always run client physics at this rate - helps keep ragdolls stable"*
+(`physics.cpp:177-180`).
+
+**Evidence class: read-from-source**, with the two load-bearing claims confirmed independently — the
+call site and the send table, which agree.
+
+---
+
 **A corpse is drawn at sequence 0 and so stands to attention where a body should be lying down.**
 Visible in the first screenshot taken of B315's work: corpse 752 on `cp_sunshine`, right model, right
 BLU skin, right resting position, standing up straight on a balcony.

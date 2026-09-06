@@ -897,3 +897,54 @@ code, not the loop; `ivp_time_event.hxx`'s only reference is a shared assert thu
 callers, so the string route is exhausted for this one.
 
 *Evidence class: read from the decompiled binary.*
+
+## The decisive one: a TF2 corpse is SIMULATED BY THE CLIENT, so a demo carries no pose for it
+
+**This settles what B316 actually requires, and it is not what the entry assumed.**
+
+`C_TFRagdoll::CreateTFRagdoll` calls the ordinary client ragdoll path —
+`InitAsClientRagdoll( boneDelta0, boneDelta1, currentBones, boneDt, m_bFixedConstraints )`
+(`c_tf_player.cpp:920`) — which is `C_BaseAnimating`'s, the same one `C_ClientRagdoll` uses. From
+there: `CRagdoll::Init` → `RagdollCreate` → bodies and constraints in the **client's own**
+`IPhysicsEnvironment`.
+
+**And the send table proves the wire carries no pose.** `DT_TFRagdoll` sends
+
+```cpp
+RecvPropVector( RECVINFO(m_vecRagdollOrigin) ),
+RecvPropEHandle( RECVINFO( m_hPlayer ) ),
+RecvPropVector( RECVINFO(m_vecForce) ),
+RecvPropVector( RECVINFO(m_vecRagdollVelocity) ),
+RecvPropInt( RECVINFO( m_nForceBone ) ),
+RecvPropBool( RECVINFO( m_bGib ) ),      // and the rest of the appearance flags
+```
+
+— `c_tf_player.cpp:519`. **Initial conditions and nothing else.** Compare the OTHER ragdoll family,
+`C_ServerRagdoll` / `DT_Ragdoll`, which networks `m_ragPos` and `m_ragAngles` as per-element arrays
+(`ragdoll.cpp:423`) and whose `GetElement` returns `NULL` unconditionally because it owns no physics
+objects at all (`ragdoll.cpp:646`). That is the read-the-positions family. **TF2's death ragdoll is
+not in it.**
+
+**So there is no shortcut, and the physics work is not optional.** A demo hands us a position, a
+force, a velocity and a force bone; every pose after the first frame is something the client
+computed. A viewer that wants a corpse to lie correctly has to run the simulation the client ran —
+which is why B316's current behaviour (resting the corpse in `ACT_DIERAGDOLL`) is a stopgap and
+cannot be finished into correctness.
+
+**Two numbers the client's environment is set up with, and we have both:**
+
+```cpp
+physenv->SetGravity( Vector(0, 0, -GetCurrentGravity() ) );
+// 15 ms per tick
+// NOTE: Always run client physics at this rate - helps keep ragdolls stable
+physenv->SetSimulationTimestep( IsXbox() ? DEFAULT_XBOX_CLIENT_VPHYSICS_TICK
+                                         : gpGlobals->interval_per_tick );
+```
+
+`physics.cpp:177-180`. The step is **the demo's own tick interval**, which this project already
+decodes rather than assuming, and the gravity is `sv_gravity`. Valve's comment is worth keeping:
+running client physics at a fixed rate is deliberate, *"helps keep ragdolls stable"* — so the step
+is not the frame time.
+
+*Evidence class: read-from-source, and the two load-bearing claims independently confirmed — the
+call site at `c_tf_player.cpp:920` and the send table at `:519`, which agree.*
