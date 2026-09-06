@@ -69,11 +69,17 @@ public sealed class RagdollBody
     public const float StatueMass = 1000f;
 
     private RagdollBody(
-        IReadOnlyList<RagdollElement> elements, IReadOnlyList<RagdollConstraint> constraints)
+        IReadOnlyList<RagdollElement> elements,
+        IReadOnlyList<RagdollConstraint> constraints,
+        PhysicsCollisionRules? collisionRules)
     {
         Elements = elements;
         Constraints = constraints;
+        _collisionRules = collisionRules;
     }
+
+    /// <summary>The model's own collision rules, or null when it declares none.</summary>
+    private readonly PhysicsCollisionRules? _collisionRules;
 
     /// <summary>The rigid bodies, in the order the <c>.phy</c> declares its solids.</summary>
     /// <remarks>
@@ -84,6 +90,78 @@ public sealed class RagdollBody
 
     /// <summary>The joints, as the file states them.</summary>
     public IReadOnlyList<RagdollConstraint> Constraints { get; }
+
+    /// <summary>Whether two of this ragdoll's own bodies collide with each other.</summary>
+    /// <param name="first">One element index.</param>
+    /// <param name="second">The other.</param>
+    /// <returns>Whether they collide.</returns>
+    /// <remarks>
+    /// **`RagdollSetupCollisions`, `ragdoll_shared.cpp:315`, and it is TWO rules rather than one.**
+    /// A model that declares a `collisionrules` block gets exactly the pairs it names; one that does
+    /// not gets Valve's fallback, written out in full:
+    ///
+    /// <code>
+    /// if ( !bFoundRules )
+    /// {
+    ///     // these are the default rules - each piece collides with everything
+    ///     // except immediate parent/constrained object.
+    ///     for ( i = 0; i &lt; ragdoll.listCount; i++ )
+    ///         for ( int j = i+1; j &lt; ragdoll.listCount; j++ )
+    ///             pSet-&gt;EnableCollisions( i, j );
+    ///     for ( i = 0; i &lt; ragdoll.listCount; i++ )
+    ///     {
+    ///         int parent = ragdoll.list[i].parentIndex;
+    ///         if ( parent &gt;= 0 ) pSet-&gt;DisableCollisions( i, parent );
+    ///     }
+    /// }
+    /// </code>
+    ///
+    /// **The fallback is what proves an untouched set collides with NOTHING**, which is the fact the
+    /// declared path depends on: enabling every pair explicitly before disabling the joint ones is
+    /// wasted work unless the starting state is empty. So a declared block REPLACES the default
+    /// rather than adding to it, and a pair it omits does not collide even if the fallback would
+    /// have enabled it.
+    ///
+    /// **Measured: 36 of the 37 shipped models with joints declare a block** (the exception being a
+    /// hinged door), so for a corpse the declared path is the normal one and the fallback is rare.
+    ///
+    /// **Why it matters that both exist:** with no rules at all a corpse's limbs pass through its
+    /// own torso, and with the joint pairs left enabled every constrained pair pushes itself apart
+    /// while its joint pulls it together — the classic jittering ragdoll.
+    /// </remarks>
+    public bool ShouldCollide(int first, int second)
+    {
+        if (first == second ||
+            first < 0 || first >= Elements.Count ||
+            second < 0 || second >= Elements.Count)
+        {
+            return false;
+        }
+
+        if (_collisionRules is { } rules)
+        {
+            // **`SelfCollisions` is deliberately NOT tested here, and a sabotage is why.** The
+            // obvious reading — "the flag is off, so nothing collides" — is wrong about the one
+            // input that separates it: a block writing `collisionpair` BEFORE `selfcollisions`
+            // already called `EnableCollisions` for that pair, and nothing ever disables it again.
+            // The flag gates the parser, which is where it is applied; by the time the list exists
+            // it has already decided what is in it, and testing it twice would drop pairs the
+            // engine keeps.
+            foreach (PhysicsCollisionPair pair in rules.Pairs)
+            {
+                if ((pair.First == first && pair.Second == second) ||
+                    (pair.First == second && pair.Second == first))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        // The fallback: everything collides except a body and its own parent element.
+        return Elements[first].ParentIndex != second && Elements[second].ParentIndex != first;
+    }
 
     /// <summary>Builds a ragdoll from a model's physics and its skeleton.</summary>
     /// <param name="physics">The model's <c>.phy</c>.</param>
@@ -165,7 +243,7 @@ public sealed class RagdollBody
             };
         }
 
-        return new RagdollBody(elements, physics.Constraints);
+        return new RagdollBody(elements, physics.Constraints, physics.CollisionRules);
     }
 
     /// <summary>Turns one simulated state into bone-to-world matrices.</summary>

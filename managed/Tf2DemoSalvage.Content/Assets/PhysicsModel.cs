@@ -51,6 +51,39 @@ public readonly record struct RagdollConstraint(
 /// </param>
 public readonly record struct ConstraintAxis(float Minimum, float Maximum, float Friction);
 
+/// <summary>Two of a ragdoll's own solids that are allowed to collide with each other.</summary>
+/// <param name="First">One solid index.</param>
+/// <param name="Second">The other.</param>
+public readonly record struct PhysicsCollisionPair(int First, int Second);
+
+/// <summary>
+/// A <c>.phy</c>'s <c>collisionrules</c> block — which of a ragdoll's bodies may touch (B58).
+/// </summary>
+/// <param name="SelfCollisions">
+/// Whether the ragdoll's own parts collide at all. **True unless the file says otherwise, and the
+/// key's VALUE is never read**: `CRagdollCollisionRules` starts it true in its constructor and any
+/// `selfcollisions` key sets it false, the value reaching only an `Assert( atoi(pValue) == 0 )`
+/// that a release build compiles away (`ragdoll_shared.cpp:82-87`).
+/// </param>
+/// <param name="Pairs">
+/// The pairs the file enables, in file order. **Only those declared while
+/// <paramref name="SelfCollisions"/> was still true**, because the engine's handler is a stream and
+/// tests the flag as each pair arrives.
+/// </param>
+/// <remarks>
+/// **Absent is not the same as empty**, and the caller has to branch on which it got. With no block
+/// at all `RagdollSetupCollisions` builds Valve's own fallback — *"these are the default rules -
+/// each piece collides with everything except immediate parent/constrained object"*
+/// (`ragdoll_shared.cpp:348-369`) — so treating a missing block as an empty rule set selects
+/// "nothing collides", the opposite of what the engine does.
+///
+/// **That fallback is also what proves the underlying set starts EMPTY.** It enables every pair
+/// explicitly before disabling the parent ones, which would be pointless if an untouched set already
+/// collided with everything.
+/// </remarks>
+public sealed record PhysicsCollisionRules(
+    bool SelfCollisions, IReadOnlyList<PhysicsCollisionPair> Pairs);
+
 /// <summary>
 /// A model's <c>.phy</c>: its rigid bodies and the joints between them (B58).
 /// </summary>
@@ -114,6 +147,18 @@ public sealed class PhysicsModel
     /// <summary>The source <c>.mdl</c>'s checksum, which ties this file to that model.</summary>
     public int Checksum { get; }
 
+    /// <summary>The <c>collisionrules</c> block, or null when the file declares none.</summary>
+    /// <remarks>
+    /// **Null and empty mean opposite things here** — see <see cref="PhysicsCollisionRules"/>. A
+    /// model with no block gets Valve's default rules, which collide everything except each
+    /// parent/child pair; a model with an empty block has asked for nothing to collide.
+    ///
+    /// **Measured over every `.phy` in `tf2_misc_dir.vpk`: 36 of the 37 models that carry ragdoll
+    /// joints declare this block**, the exception being a hinged door. So for every corpse TF2
+    /// draws, this is not null.
+    /// </remarks>
+    public PhysicsCollisionRules? CollisionRules { get; }
+
     /// <summary>A physics model assembled from parts rather than read from a file.</summary>
     /// <param name="solids">The rigid bodies, in the order a <c>.phy</c> would declare them.</param>
     /// <param name="constraints">The joints between them.</param>
@@ -134,24 +179,43 @@ public sealed class PhysicsModel
         IReadOnlyList<PhysicsSolid> solids,
         IReadOnlyList<RagdollConstraint> constraints,
         int declaredSolidCount,
-        int checksum)
+        int checksum) =>
+        From(solids, constraints, declaredSolidCount, checksum, null);
+
+    /// <summary>A physics model assembled from parts, with collision rules.</summary>
+    /// <param name="solids">The rigid bodies, in the order a <c>.phy</c> would declare them.</param>
+    /// <param name="constraints">The joints between them.</param>
+    /// <param name="declaredSolidCount">What the header would claim.</param>
+    /// <param name="checksum">The <c>.mdl</c> checksum this belongs to, or zero.</param>
+    /// <param name="collisionRules">The rules, or null for a model that declares none.</param>
+    /// <returns>The model.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public static PhysicsModel From(
+        IReadOnlyList<PhysicsSolid> solids,
+        IReadOnlyList<RagdollConstraint> constraints,
+        int declaredSolidCount,
+        int checksum,
+        PhysicsCollisionRules? collisionRules)
     {
         ArgumentNullException.ThrowIfNull(solids);
         ArgumentNullException.ThrowIfNull(constraints);
 
-        return new PhysicsModel(solids, constraints, declaredSolidCount, checksum);
+        return new PhysicsModel(
+            solids, constraints, declaredSolidCount, checksum, collisionRules);
     }
 
     private PhysicsModel(
         IReadOnlyList<PhysicsSolid> solids,
         IReadOnlyList<RagdollConstraint> constraints,
         int declaredSolidCount,
-        int checksum)
+        int checksum,
+        PhysicsCollisionRules? collisionRules)
     {
         Solids = solids;
         Constraints = constraints;
         DeclaredSolidCount = declaredSolidCount;
         Checksum = checksum;
+        CollisionRules = collisionRules;
     }
 
     /// <summary>Reads a <c>.phy</c>.</summary>
@@ -192,7 +256,7 @@ public sealed class PhysicsModel
 
         if (text < 0)
         {
-            return new PhysicsModel([], [], solidCount, checksum);
+            return new PhysicsModel([], [], solidCount, checksum, null);
         }
 
         return Parse(file[text..], solidCount, checksum);
@@ -206,15 +270,26 @@ public sealed class PhysicsModel
     /// </remarks>
     private static int FindText(ReadOnlySpan<byte> bytes)
     {
-        int solid = IndexOf(bytes, "solid"u8);
-        int joint = IndexOf(bytes, "ragdollconstraint"u8);
+        int earliest = -1;
 
-        if (solid < 0)
+        // **Every block name this reader understands, because any of them can come first.** Valve's
+        // own files put `solid` first and `collisionrules` near the end, so on shipped content this
+        // is the same answer as looking for two names — but the format does not require that order,
+        // and an authored specimen carrying only rules has to be findable.
+        foreach (int at in (ReadOnlySpan<int>)
+            [
+                IndexOf(bytes, "solid"u8),
+                IndexOf(bytes, "ragdollconstraint"u8),
+                IndexOf(bytes, "collisionrules"u8),
+            ])
         {
-            return joint;
+            if (at >= 0 && (earliest < 0 || at < earliest))
+            {
+                earliest = at;
+            }
         }
 
-        return joint < 0 ? solid : Math.Min(solid, joint);
+        return earliest;
     }
 
     private static int IndexOf(ReadOnlySpan<byte> bytes, ReadOnlySpan<byte> marker)
@@ -235,11 +310,19 @@ public sealed class PhysicsModel
     {
         List<PhysicsSolid> solids = [];
         List<RagdollConstraint> constraints = [];
+        PhysicsCollisionRules? rules = null;
 
         // The block being read, and the keys gathered for it so far. A block's fields are flat, so
         // one dictionary per block is the whole state.
         string block = string.Empty;
         Dictionary<string, string> fields = new(StringComparer.OrdinalIgnoreCase);
+
+        // **`collisionrules` needs the keys IN ORDER and needs the repeats**, which the dictionary
+        // above cannot supply: `collisionpair` appears many times in one block and a last-wins map
+        // keeps one of them, while `selfcollisions` changes the meaning of every pair that follows
+        // it. Kept alongside rather than instead, because `solid` and `ragdollconstraint` genuinely
+        // are last-wins — that is what `ParseSolid` does with a repeated key.
+        List<(string Key, string Value)> ordered = [];
 
         void Close()
         {
@@ -251,9 +334,14 @@ public sealed class PhysicsModel
             {
                 constraints.Add(ConstraintFrom(fields));
             }
+            else if (block.Equals("collisionrules", StringComparison.OrdinalIgnoreCase))
+            {
+                rules = RulesFrom(ordered);
+            }
 
             block = string.Empty;
             fields.Clear();
+            ordered.Clear();
         }
 
         KeyValuesReader.Read(text.Span, (key, value, depth) =>
@@ -268,6 +356,7 @@ public sealed class PhysicsModel
             else if (depth > 0)
             {
                 fields[key] = value;
+                ordered.Add((key, value));
             }
 
             return true;
@@ -282,7 +371,99 @@ public sealed class PhysicsModel
         // (`docs/memory/author-the-specimen-the-corpus-lacks.md`).
         Close();
 
-        return new PhysicsModel(solids, constraints, solidCount, checksum);
+        return new PhysicsModel(solids, constraints, solidCount, checksum, rules);
+    }
+
+    /// <summary>Replays a <c>collisionrules</c> block the way the engine's handler consumes it.</summary>
+    /// <param name="keys">Every key and value of the block, in file order, repeats included.</param>
+    /// <returns>The rules.</returns>
+    /// <remarks>
+    /// **A STREAM, not a record**, and that is the whole of why this exists. `CRagdollCollisionRules`
+    /// is an `IVPhysicsKeyHandler` fed one key at a time, so the flag it holds changes the meaning of
+    /// every later key:
+    ///
+    /// <code>
+    /// if ( !strcmpi( pKey, "selfcollisions" ) )
+    /// {
+    ///     Assert( atoi(pValue) == 0 );      // compiled out of a release build
+    ///     m_bSelfCollisions = false;        // unconditional
+    /// }
+    /// else if ( !strcmpi( pKey, "collisionpair" ) )
+    /// {
+    ///     if ( m_bSelfCollisions ) { … m_pSet-&gt;EnableCollisions( index0, index1 ); }
+    /// }
+    /// </code>
+    ///
+    /// **Two traps in eight lines.** The `selfcollisions` VALUE is never read — the assert is the
+    /// only thing that looks at it, and a release build removes it — so a file saying `"1"` turns
+    /// self-collisions OFF. And a pair is kept or dropped by whether it arrives BEFORE that key, so
+    /// gathering the block and deciding afterwards gives a different answer.
+    /// </remarks>
+    private static PhysicsCollisionRules RulesFrom(List<(string Key, string Value)> keys)
+    {
+        // `CRagdollCollisionRules( IPhysicsCollisionSet *pSet ) { … m_bSelfCollisions = true; }`
+        bool selfCollisions = true;
+        List<PhysicsCollisionPair> pairs = [];
+
+        foreach ((string key, string value) in keys)
+        {
+            if (key.Equals("selfcollisions", StringComparison.OrdinalIgnoreCase))
+            {
+                selfCollisions = false;
+            }
+            else if (key.Equals("collisionpair", StringComparison.OrdinalIgnoreCase) &&
+                     selfCollisions &&
+                     Pair(value) is { } pair)
+            {
+                pairs.Add(pair);
+            }
+        }
+
+        return new PhysicsCollisionRules(selfCollisions, pairs);
+    }
+
+    /// <summary>Splits a <c>collisionpair</c> value into its two solid indices.</summary>
+    /// <param name="value">The value, two integers separated by a comma.</param>
+    /// <returns>The pair, or null when it does not hold two.</returns>
+    /// <remarks>
+    /// **`nexttoken( szToken, pValue, ',' )` then `atoi`**, twice. `atoi` skips leading whitespace,
+    /// which is why `"4, 11"` is an ordinary value rather than a malformed one, and returns zero for
+    /// anything unparseable — but a value carrying no comma at all yields one token, and the engine
+    /// then reads an index out of an untouched buffer. That is undefined rather than a behaviour, so
+    /// it is refused here instead of reproduced.
+    /// </remarks>
+    private static PhysicsCollisionPair? Pair(string value)
+    {
+        int comma = value.IndexOf(',', StringComparison.Ordinal);
+
+        return comma < 0
+            ? null
+            : new PhysicsCollisionPair(Atoi(value.AsSpan(0, comma)), Atoi(value.AsSpan(comma + 1)));
+    }
+
+    /// <summary>C's <c>atoi</c>: leading space, optional sign, digits, and zero for the rest.</summary>
+    /// <param name="text">The token.</param>
+    /// <returns>The value, or zero.</returns>
+    private static int Atoi(ReadOnlySpan<char> text)
+    {
+        ReadOnlySpan<char> trimmed = text.Trim();
+
+        int end = 0;
+
+        if (end < trimmed.Length && (trimmed[end] == '-' || trimmed[end] == '+'))
+        {
+            end++;
+        }
+
+        while (end < trimmed.Length && char.IsAsciiDigit(trimmed[end]))
+        {
+            end++;
+        }
+
+        return int.TryParse(
+            trimmed[..end], NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed)
+            ? parsed
+            : 0;
     }
 
     private static PhysicsSolid SolidFrom(Dictionary<string, string> fields) =>

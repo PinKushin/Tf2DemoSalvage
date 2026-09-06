@@ -25134,3 +25134,49 @@ that have joints declare it, and the one that does not is a hinged door.
 
 **Evidence class: read-from-source** for every line of the transcription; **arithmetic** for the
 predicted test values.
+
+### B367 FIXED: a ragdoll's own bodies had no rule about which of them may touch
+
+**Every corpse TF2 draws carries a `collisionrules` block and we read straight past it.** Measured
+over every `.phy` in `tf2_misc_dir.vpk`: 36 of the 37 models with ragdoll joints declare one, the
+exception being a hinged door. The block names the pairs of a ragdoll's own solids that are allowed
+to collide, and `RagdollSetupCollisions` (`ragdoll_shared.cpp:315`) is where the engine reads it.
+
+**There are TWO rules and only one of them is the block.** With no block, Valve builds a fallback in
+full — *"these are the default rules - each piece collides with everything except immediate
+parent/constrained object"* — enabling every distinct pair and then disabling each body against its
+own parent element. **That fallback is also the proof that an untouched collision set collides with
+NOTHING**, because enabling every pair explicitly would be wasted work otherwise. So a declared
+block REPLACES the default rather than adding to it.
+
+**Symptom of each half being wrong:** with no rules at all, a corpse's limbs pass through its own
+torso; with the joint pairs left enabled, every constrained pair pushes itself apart while its joint
+pulls it together — the classic jittering ragdoll that never settles.
+
+**Fixed** by `PhysicsModel.CollisionRules` and `RagdollBody.ShouldCollide`. Three behaviours are
+transcribed rather than summarised:
+
+- **The `selfcollisions` value is never read.** `Assert( atoi(pValue) == 0 )` is the only thing that
+  looks at it and a release build removes the assert, so a file saying `"1"` turns self-collisions
+  OFF. A reader that parsed the value would be more careful and wrong.
+- **The handler is a STREAM**, so a `collisionpair` is kept or dropped by whether it arrives before
+  the `selfcollisions` key. Gathering the block into a map and deciding afterwards gives a different
+  answer — and a map loses the repeats as well, since `collisionpair` appears many times.
+- **Nothing ever calls `DisableCollisions`**, so a pair enabled before the flag went off stays
+  enabled. This one was found by a sabotage that reddened nothing, in code already written: testing
+  the flag a second time inside `ShouldCollide` reads as obviously right and drops pairs the engine
+  keeps.
+
+**Verified by sabotage, seven times.** Five on the parse — reading the `selfcollisions` value,
+dropping the stream ordering, returning empty rules for an absent block, removing `atoi`'s
+whitespace skip, and corrupting the pair indices — and two on the rules, the parent exclusion and
+the pair lookup's symmetry. **Two sabotages reddened nothing on the first attempt and both were my
+own error**: one test compared a pair that is a joint (where the fallback and a declared block agree)
+and one used an empty pair list (where the flag's two readings agree). Both inputs were replaced with
+ones that separate them.
+
+**What is NOT established:** the `editparams` block, present in all 4,755 files, is read by nothing
+in Valve's ragdoll code either and is still skipped here. And nothing yet CALLS `ShouldCollide`,
+because the collision detection it would feed does not exist.
+
+**Evidence class: read-from-source** for both rules; **measured**, 36 of 37, for the prevalence.
