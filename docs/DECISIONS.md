@@ -7639,3 +7639,35 @@ number to derive a radius from; that is an approximation and is labelled one whe
 
 *(Both of those last two paragraphs are the ones the owner overruled: the solver is not ours to
 write and the hull format is not unknowable. `vphysics.dll` holds both.)*
+
+---
+
+## D143 — baking is ours and it yields to parity, not the other way round (2026-09-06)
+
+**The owner, unprompted, while B363 was being designed:**
+
+> *"valve doesnt have baking, soo, their version isnt going to bake, and we might have to change our
+> baking if valve does something that is imcompatable"*
+
+**What prompted it.** Detail props of type `DETAIL_PROP_TYPE_MODEL` are studio models the map
+scatters, and `CDetailModel::GetFxBlend` returns `m_Alpha` — the same per-view distance fade the
+detail sprites use (`detailobjectsystem.cpp:694`). This project bakes static props into the world
+vertex buffer as geometry with no per-instance alpha, so a detail model does not fit that path:
+its alpha changes with the camera and a baked vertex buffer's cannot. The question raised was which
+side gives.
+
+**The answer is that the baking gives.** It is an optimisation this project invented; Valve has no
+equivalent, so no engine behaviour depends on it, and nothing about parity may be traded for it.
+That is D89 applied to a structure rather than to a branch — *"performance never buys a departure
+from it"* — and it is worth writing down separately because a baked buffer feels like architecture
+rather than like an optimisation, which is exactly how it would come to constrain a decision it has
+no right to.
+
+**What this does NOT say.** It does not say the baking is wrong or should go. It stays wherever it
+reproduces what the engine draws — which is most of the map, since a static prop's appearance
+genuinely does not depend on the view. The rule is only about precedence when the two conflict:
+**the engine's behaviour is the specification and the baking is an implementation detail of ours.**
+
+**Related:** [[an-optimisation-is-not-a-skippable-departure]] states the same precedence from the
+other side — Valve's own optimisations earn their place and are not skippable. Ours have to earn
+theirs against the engine's output, every time they meet it.

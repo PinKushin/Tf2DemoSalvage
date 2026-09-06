@@ -24815,6 +24815,33 @@ Five things that make it cheaper than it looks, and each is a decision already t
 `docs/memory/an-empty-box-must-never-cull.md` warns about, so the cull must treat it as "always
 visible" rather than as a point at the origin.
 
+**The placement layer is now built and the draw is not** (2026-09-06). `DetailModels.Build` places
+every model-type detail prop for one view — Valve's fade for the alpha, `ComputeAngles` for the
+screen-aligned ones, nothing emitted at alpha zero, one instance per lump entry — with
+`DetailModelConformanceTests` covering all five rules and the two controls that make them
+falsifiable. What remains is the renderer: the model dictionary is read and discarded by
+`MapAssets.LoadDetailSprites` (`(_, sprites, objects) = …`), and nothing packs or draws the models.
+
+**Four things the engine read settled that would otherwise have been guessed:**
+
+- **`cl_detail_multiplier` does not apply to models.** The sprite branches loop `SPRITE_MULTIPLIER`
+  times and jitter each copy by `RandomVector( -50, 50 )`; the model branch adds exactly one object
+  and never reads the macro. The setting is `FCVAR_CHEAT` and defaults to 1, so getting this wrong
+  would look right until somebody changed it.
+- **Alpha comes from `EnumerateLeaf`, which does not check the type**, so models and sprites fade on
+  one curve computed in one place — and `ComputeAngles` is called there too, so a screen-aligned
+  detail MODEL turns to face the eye.
+- **`RenderOpaqueDetailObjects` is `// FIXME: Implement!` with an empty body and no call site
+  anywhere in the tree.** Opaque detail models are drawn by the ordinary entity pass, not by the
+  detail system — so there is no separate opaque path to reproduce.
+- **Opaque or translucent is decided per INSTANCE**: `IsTransparent()` is
+  `(m_Alpha < 255) || modelinfo->IsTranslucent(m_pModel)`, so one of these joins the translucent
+  pass only while it is mid-fade.
+
+**And one branch to carry when the models are loaded**: `UnserializeModelDict` refuses a vertex-lit
+detail model outright — *"Detail prop model %s is using vertex-lit materials! It must use unlit
+materials!"* — and substitutes `models/error.mdl` (`detailobjectsystem.cpp:1587`).
+
 **Evidence class: measured** for the counts; **read-from-source** for the type's meaning and for the
 whole draw path.
 
