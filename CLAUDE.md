@@ -287,6 +287,7 @@ Thirty-four of them. The ones worth knowing before writing a thirty-fifth:
 | `corpses <demo>` | what each `CTFRagdoll` says about itself, and how many are drawn at a tick |
 | `autoplay <demo>` | which models animate themselves off the clock — `STUDIO_AUTOPLAY` |
 | `bodygroups <demo> <tick>` | what each player's items hide on them, call by call, with a control |
+| `ragdoll <model path>` | the bodies and joints a `.phy` and a skeleton build between them — solids are matched to bones BY NAME, so this is the only thing that says a real pair fits |
 
 **Probes run the PRODUCTION path or they are worthless.** `DemoCorpus` lives here and
 `Corpus.Tests` references the tool rather than the reverse, so the probe and the test cannot disagree
