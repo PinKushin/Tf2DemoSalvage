@@ -1290,7 +1290,7 @@ engine, and it means the frame reaches the solver while the limits stay in const
 *Evidence class: read from published source; what the closed solver does with the rotation is
 inferred from the call signature and marked.*
 
-### 4. The `.phy`'s `collisionrules` block is not parsed
+### 4. FIXED — the `.phy`'s `collisionrules` block was not parsed
 
 **The engine** reads a third block out of the same KeyValues text we already parse:
 
@@ -1336,6 +1336,23 @@ reporting zero for `animatedfriction` cannot be a broken search.
 
 **`editparams` is a sixth block, in all 4,755 files, that nothing in Valve's ragdoll code reads
 either.** It is authoring data left in by the compiler. Noted so nobody files it as a gap.
+
+**Fixed** — `PhysicsModel.CollisionRules` parses the block and `RagdollBody.ShouldCollide` applies
+both rules: the pairs a file names, or Valve's fallback when it names none. **Two traps in eight
+lines of engine code**, both transcribed and both proved by sabotage:
+
+- **The `selfcollisions` VALUE is never read.** `Assert( atoi(pValue) == 0 )` is the only thing that
+  looks at it and a release build removes the assert, so a file saying `"1"` turns self-collisions
+  OFF.
+- **The handler is a stream**, so a `collisionpair` is kept or dropped by whether it arrives before
+  the `selfcollisions` key. Gathering the block and deciding afterwards gives a different answer.
+
+**And a third that only sabotage found, in code I had already written.** Testing the flag again
+inside `ShouldCollide` reads as obviously right — "self-collisions are off, so nothing collides" —
+and it is wrong: nothing ever calls `DisableCollisions`, so a pair enabled BEFORE the flag went off
+stays enabled for the ragdoll's life. Removing that test reddened nothing, because the only case
+exercised had an empty pair list, where both readings agree. The test now carries the case that
+separates them.
 
 *Evidence class: read from published source for the behaviour; MEASURED over 4,755 shipped files for
 the prevalence, with a control.*

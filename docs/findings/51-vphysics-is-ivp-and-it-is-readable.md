@@ -1145,11 +1145,10 @@ FUN_18008a020    the PSI event's fire routine        (above)
    step.
 2. **Then the cache is refreshed**: `+0x170/0x174/0x178 := +0x140/0x144/0x148`, the current linear
    velocity.
-3. **Orientation is integrated in a working buffer and then committed.** `FUN_180099fc0` overwrites
-   the predicted quaternion at `core+0x1a0..0x1b8` in place (build a delta, multiply through
-   `FUN_180070d60`, normalise through `FUN_180070c60`), and only afterwards is that buffer copied
-   down into the current orientation at `core+0x180..0x198`. **Two quaternions, not one**, which is
-   what lets a reader of the body during the step see the old orientation.
+3. **Orientation is COMMITTED first and integrated afterwards**, which is the opposite of what a
+   first reading of this suggested and is corrected below. `core+0x180..0x198` (current) is
+   overwritten from `core+0x1a0..0x1b8` (predicted) BEFORE `FUN_180070d60`/`FUN_180070c60` advance
+   the predicted one. **Two quaternions, and the visible one is deliberately a step behind.**
 
 **`FUN_180099fc0` also integrates the angular velocity itself** — Euler's rigid-body equation, with
 cross terms shaped like `(Iy − Iz)/Ix · ωy·ωz` off `core+0x40/0x44/0x48`, and it **sub-steps** when
@@ -1211,3 +1210,117 @@ actuator/spring/wind path with gravity applied somewhere still unfound.
 *Evidence class: read from the decompiled binary for the whole chain, the field map, `SetGravity`
 and the gravity field's second reader; INFERRED and flagged for `FUN_180019cc0` being the gravity
 application.*
+
+## The integrator, read line by line — and everything in it lags by one step
+
+**The summary above was written from a description; this is written from the decompiled bodies**, and
+one thing in it was backwards. Both halves of the state a viewer reads are **deliberately one step
+old**, and they are old in the same way:
+
+```c
+// FUN_180099a00, verbatim, in execution order
+dVar9 = *(double *)(*(longlong *)(param_1 + 0x10) + 0x188);   // env.now
+dVar2 = *(double *)(param_1 + 0x1d0);                          // core.lastSynced
+*(undefined8 *)(param_1 + 0x1d0) = *(undefined8 *)(*(longlong *)(param_1 + 0x10) + 0x188);
+dVar9 = (double)(float)(dVar9 - dVar2);                        // dt for POSITION
+
+*(double *)(param_1 + 0x150) = (double)*(float *)(param_1 + 0x170) * dVar9 + *(double *)(param_1 + 0x150);
+*(double *)(param_1 + 0x160) = (double)*(float *)(param_1 + 0x178) * dVar9 + *(double *)(param_1 + 0x160);
+*(double *)(param_1 + 0x158) = (double)*(float *)(param_1 + 0x174) * dVar9 + *(double *)(param_1 + 0x158);
+
+*(undefined4 *)(param_1 + 0x170) = *(undefined4 *)(param_1 + 0x140);   // cache := current velocity
+*(undefined4 *)(param_1 + 0x174) = *(undefined4 *)(param_1 + 0x144);
+*(undefined4 *)(param_1 + 0x178) = *(undefined4 *)(param_1 + 0x148);
+
+*(undefined8 *)(param_1 + 0x180) = *(undefined8 *)(param_1 + 0x1a0);   // current := predicted
+*(undefined8 *)(param_1 + 0x188) = *(undefined8 *)(param_1 + 0x1a8);
+*(undefined8 *)(param_1 + 400)   = *(undefined8 *)(param_1 + 0x1b0);
+*(undefined8 *)(param_1 + 0x198) = *(undefined8 *)(param_1 + 0x1b8);
+
+FUN_180070d60((double *)(param_1 + 0x1a0),(double *)(param_1 + 0x1a0),local_48);  // predicted *= delta
+FUN_180070c60((double *)(param_1 + 0x1a0));                                       // normalise
+```
+
+- **Position uses the PREVIOUS step's velocity** and only then refreshes the cache, so a body does
+  not move on the step its velocity was first set — it moves on the next one.
+- **The visible orientation is the PREVIOUS step's predicted one.** The copy down happens before the
+  multiply, not after. **The earlier note in this document had that the other way round**, which
+  would put the drawn corpse a step ahead of the engine rather than level with it.
+
+**The two clocks are different, and that is not a tidiness detail.** The orientation's `dt` is a
+PARAMETER, computed once per island in `FUN_1800909d0` as `env[0x190] − env[0x188]` — target minus
+now — and handed to every core in that island. The position's `dt` is computed per core, inside
+`FUN_180099a00`, as `env[0x188] − core[0x1d0]`. **A core that has been asleep therefore catches its
+POSITION up in one long step while its ORIENTATION advances by one nominal step.** A transcription
+using one `dt` for both is right for a body that never sleeps and wrong for every corpse that
+settles and is nudged again.
+
+### The rotation integrator, `FUN_180099fc0`, and its two constants
+
+```c
+fVar9  = (*(float *)(param_1 + 0x24) - *(float *)(param_1 + 0x28)) * *(float *)(param_1 + 0x40);
+fVar16 = (*(float *)(param_1 + 0x28) - *(float *)(param_1 + 0x20)) * *(float *)(param_1 + 0x44);
+fVar15 = (*(float *)(param_1 + 0x20) - *(float *)(param_1 + 0x24)) * *(float *)(param_1 + 0x48);
+
+dVar10 = (double)(wy*wy + wx*wx + wz*wz) * dVar11 * dVar11;      // |w|^2 * dt^2
+if (_DAT_1800fdf90 < dVar10) {
+    auVar13 = sqrtpd(dVar10 * _DAT_1800fdfa0, ...);
+    iVar6   = (int)auVar13._0_8_ + 1;                            // sub-step count
+    dVar11  = dVar11 / (double)iVar6;
+}
+```
+
+**Both constants were dumped rather than guessed.** `DAT_1800fdf90` is **0.027777777777777776**,
+which is 1/36, and `DAT_1800fdfa0` is **144.0**, which is 12². So the test is `|ω|·dt > 1/6` radian
+— about 9.55 degrees of turn in one step — and the count is `floor( 12·|ω|·dt ) + 1`. **A
+transcription that stepped rotation once per PSI is right for a settling corpse and wrong for a limb
+that is whipping**, which is exactly the frame anybody looking at a demo is looking at.
+
+**The Euler free-rotation terms are `Δωx = (Iy − Iz)·(1/Ix)·ωy·ωz·dt`** and its two rotations, with
+`Ix,Iy,Iz` at `core+0x20/0x24/0x28` and the reciprocals at `core+0x40/0x44/0x48`. *The reciprocal
+reading is INFERRED* — it is what makes the expression equal to the classical torque-free equation,
+and it matches the inverse mass living at `+0x4c` in the same block, but the division that produces
+it was not found.
+
+### The delta quaternion is a per-axis Taylor half-angle, not a first-order update
+
+`FUN_180071680` builds each sub-step's rotation:
+
+```c
+dVar2 = param_3 * DAT_1800ee388;                                  // dt/2, DAT_1800ee388 = 0.5
+fVar4 = (float)((double)*param_2 * dVar2);                        // theta_x = wx * dt/2
+dVar6 = (double)(fVar4 - fVar4*fVar4*fVar4*DAT_1800eb148);        // sin(theta) ~ theta - theta^3/6
+*param_1 = dVar6;                                                 // ... same for y and z
+auVar3._0_8_ = DAT_1800ea9b8 - (dVar5*dVar5 + dVar6*dVar6 + dVar2*dVar2);
+param_1[3] = sqrtpd(auVar3, auVar3)._0_8_;                        // w = sqrt(1 - |xyz|^2)
+```
+
+`DAT_1800eb148` is 0.16666667 as a **float** — a third-order sine series, not a library call — and
+the real part is recovered from the unit-length identity rather than from a cosine. **Each axis gets
+its own half-angle independently**, which is not the same rotation as one half-angle about the
+combined axis; it is IVP's approximation and it is what has to be reproduced.
+
+**The quaternion is laid out (x, y, z, w), index 3 being the real part**, established from
+`FUN_180070d60`'s own arithmetic rather than from Source's `Quaternion` struct — every one of its
+four output expressions matches the Hamilton product only under that assignment.
+
+**The normalise is not a normalise unless it has to be** (`FUN_180070c60`): it computes
+`1 − |q|²`, and only if that exceeds a tolerance does it run a Newton-Raphson reciprocal square root
+to convergence. A quaternion already close to unit length is left untouched.
+
+### Two clamps found on the way, and one field still unread
+
+`FUN_18001c9d0`, which `CreatePolyObject` reaches, clamps what a `.phy` declares:
+
+- **mass into `[0.1, 50000]`** — `if ( mass <= 0.1 ) mass = 0.1; if ( 50000.0 <= mass ) mass = 50000.0;`
+- **inertia into a constant-pool pair**, then written to three fields, which is an isotropic seed.
+
+**`rotInertiaLimit` is copied through untouched** into the build parameters at offset `0x40` of that
+struct, and **nothing that was read dereferences it**. It survives four more calls without being
+looked at; the next candidate is a mass-matrix builder reached from `FUN_180072c70`, undecompiled.
+So the answer to "what does `rotInertiaLimit = 0.1` do" is still **not established**, and the audit
+entry stays open rather than being closed with a plausible story.
+
+*Evidence class: read from the decompiled binary for every body, every offset and both dumped
+constant pairs; INFERRED and flagged for `core+0x40/0x44/0x48` holding reciprocals, and for the
+environment pointer at `core+0x10` being the same object the island driver holds.*
