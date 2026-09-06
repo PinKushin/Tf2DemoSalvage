@@ -52,6 +52,9 @@ public sealed class MomentCostLog
     private long _setup;
     private long _skin;
     private long _animation;
+
+    /// <summary>Skeletons actually rebuilt, against the entities posed.</summary>
+    private long _poseBuilds;
     private long _report;
     private long _drawn;
     private long _selected;
@@ -99,6 +102,7 @@ public sealed class MomentCostLog
         _setup += phases.Counters.Setup;
         _skin += phases.Counters.Skin;
         _animation += phases.Counters.Animation;
+        _poseBuilds += phases.Counters.PoseBuilds;
         _report += phases.Counters.Report;
 
         // **How many of the posed props survive to be drawn.** The engine never poses the others:
@@ -137,6 +141,11 @@ public sealed class MomentCostLog
             + $", skin {Mean(_skin, over):0.#}"
             + $", anim {Mean(_animation, over):0.#}"
             + $", rest {Mean(Rest(), over):0.#}"
+            // **Builds against posed is the number that says WHICH fps problem this is.** Roughly
+            // equal means the readable-bone cache works and the cost is bone math; builds far above
+            // posed means mask thrash, where a wearable asking for bones its owner has not built
+            // forces the owner to rebuild, repeatedly, inside one frame.
+            + $"; built {_poseBuilds / (double)over:0.#}"
             + $"; posed {_drawn / (double)over:0.#} of {_selected / (double)over:0.#} selected"
             + $", {_hidden / (double)over:0.#} hidden by pvs"
             + $", {_unjudged / (double)over:0.#} unjudgeable");
@@ -155,6 +164,7 @@ public sealed class MomentCostLog
         _setup = 0;
         _skin = 0;
         _animation = 0;
+        _poseBuilds = 0;
         _report = 0;
         _drawn = 0;
         _selected = 0;

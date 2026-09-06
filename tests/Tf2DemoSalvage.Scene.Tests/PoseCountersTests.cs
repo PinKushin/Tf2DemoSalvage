@@ -29,7 +29,8 @@ public sealed class PoseCountersTests
             Skin: 700,
             Animation: 800,
             AnimationCalls: 900,
-            Built: 1000);
+            Built: 1000,
+            PoseBuilds: 1100);
 
         EntityModelSet.PoseCounters now = new(
             Lighting: 101,
@@ -41,7 +42,8 @@ public sealed class PoseCountersTests
             Skin: 707,
             Animation: 808,
             AnimationCalls: 909,
-            Built: 1010);
+            Built: 1010,
+            PoseBuilds: 1111);
 
         EntityModelSet.PoseCounters moment = now.Since(before);
 
@@ -55,6 +57,7 @@ public sealed class PoseCountersTests
         moment.Animation.ShouldBe(8);
         moment.AnimationCalls.ShouldBe(9);
         moment.Built.ShouldBe(10);
+        moment.PoseBuilds.ShouldBe(11);
     }
 
     [Test]
@@ -62,7 +65,7 @@ public sealed class PoseCountersTests
     {
         // A moment in which nothing happened — a paused viewer reprojecting the same tick — must
         // read as zero rather than as the totals since the demo opened.
-        EntityModelSet.PoseCounters counters = new(1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
+        EntityModelSet.PoseCounters counters = new(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11);
 
         counters.Since(counters).ShouldBe(default(EntityModelSet.PoseCounters));
     }

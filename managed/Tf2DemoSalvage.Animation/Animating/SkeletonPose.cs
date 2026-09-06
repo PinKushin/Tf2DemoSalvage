@@ -135,6 +135,25 @@ public sealed class SkeletonPose : IBonePose
     /// <summary>Diagnostic: how many times the animation callback has been asked for a pose.</summary>
     public static int AnimationCalls { get; set; }
 
+    /// <summary>Diagnostic: how many times a skeleton has actually been rebuilt.</summary>
+    /// <remarks>
+    /// **The number that separates two completely different FPS problems**, and neither could be
+    /// told from the other without it. `SetupBones` is called once per drawn entity, but it only
+    /// reaches here when the readable-bone cache misses — so:
+    ///
+    /// - **builds ≈ calls** means the cache is working and the cost is bone MATH.
+    /// - **builds ≫ calls** means mask thrash: a wearable asking for bones its owner has not built
+    ///   yet forces the OWNER to rebuild, and with several wearables a player can be rebuilt
+    ///   repeatedly inside one frame. `_previousMask` exists to damp exactly that
+    ///   (`c_baseanimating.cpp:2827`) and has never been checked against real data.
+    ///
+    /// The two want opposite fixes, which is why this is measured rather than guessed at.
+    ///
+    /// **Static, matching <see cref="AnimationCalls"/> and carrying the same caveat**: read as a
+    /// delta either side of a call, single-threaded today.
+    /// </remarks>
+    public static int PoseBuilds { get; set; }
+
     /// <summary>Which entry of the animation overrides each bone, or −1.</summary>
     /// <remarks>
     /// Allocated once per entity and refilled per build, per D87: the size is known when the model
@@ -289,6 +308,10 @@ public sealed class SkeletonPose : IBonePose
     {
         ArgumentNullException.ThrowIfNull(into);
         ArgumentNullException.ThrowIfNull(alreadyWritten);
+
+        // Counted HERE rather than at `SetupBones`, because the whole question is how often the
+        // readable-bone cache misses and lets a call through to actual work.
+        PoseBuilds++;
 
         long animatedAt = System.Diagnostics.Stopwatch.GetTimestamp();
 

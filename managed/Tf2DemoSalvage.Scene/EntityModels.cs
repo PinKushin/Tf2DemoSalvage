@@ -358,7 +358,8 @@ public sealed class EntityModelSet : IModelBodygroups
         long Skin,
         long Animation,
         int AnimationCalls,
-        int Built)
+        int Built,
+        int PoseBuilds)
     {
         /// <summary>What happened between an earlier snapshot and this one.</summary>
         /// <param name="before">The earlier snapshot.</param>
@@ -374,7 +375,8 @@ public sealed class EntityModelSet : IModelBodygroups
                 Skin - before.Skin,
                 Animation - before.Animation,
                 AnimationCalls - before.AnimationCalls,
-                Built - before.Built);
+                Built - before.Built,
+                PoseBuilds - before.PoseBuilds);
     }
 
     /// <summary>Every pose-phase counter as it stands now.</summary>
@@ -388,7 +390,8 @@ public sealed class EntityModelSet : IModelBodygroups
         SkinTicks,
         SkeletonPose.AnimationTicks,
         SkeletonPose.AnimationCalls,
-        EntitiesBuilt);
+        EntitiesBuilt,
+        SkeletonPose.PoseBuilds);
 
     /// <summary>What per-prop reporting has cost, ever.</summary>
     public long ReportTicks { get; set; }
