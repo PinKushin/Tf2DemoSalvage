@@ -687,3 +687,49 @@ Two facts fall out, and both are structural rather than numeric:
   make a joint push both halves the same way — a corpse that drifts.
 
 *Evidence class: read from the decompiled binary.*
+
+## The effective mass, and the core's data model
+
+The second half of `FUN_180037bd0` is the constraint's denominator — `Jᵀ M⁻¹ J` — and reading it
+names four fields of `IVP_Core` at once:
+
+```c
+if ((*param_3 & 0x12) == 0) {                        // body A participates
+    fVar27 = *(float *)(param_3 + 0x40);             // inverse inertia, x
+    fVar28 = *(float *)(param_3 + 0x44);             //                  y
+    fVar17 = *(float *)(param_3 + 0x48);             //                  z
+    param_1[8]  = fVar29 * fVar27;                   // M⁻¹J, cached for the impulse
+    param_1[9]  = fVar30 * fVar28;
+    param_1[10] = fVar31 * fVar17;
+
+    fVar24 = fVar30 * fVar28 * fVar30                // Σ aᵢ² · invInertiaᵢ
+           + fVar29 * fVar27 * fVar29
+           + fVar31 * fVar17 * fVar31;
+
+    fVar32 = fVar30 * *(float *)(param_3 + 0x134)    // a · ω, the current rate
+           + fVar29 * *(float *)(param_3 + 0x130)
+           + fVar31 * *(float *)(param_3 + 0x138);
+}
+```
+
+| offset in `IVP_Core` | what it is | how it was identified |
+|---|---|---|
+| `+0x00` | flags; **bits `0x12` mean "does not participate"** | the guard above, and the same test in the outer solve |
+| `+0x40` | **inverse inertia**, three floats and a fourth lane | multiplied into the axis and summed as squares — that is only ever `M⁻¹` |
+| `+0x90` | the 4×4 **transform, in doubles** | read by `FUN_180037620` and again here |
+| `+0x130` | **angular velocity** | dotted with the axis to get the rate, and written back by the solve |
+| `+0x140` | the second accumulator, linear | written beside `+0x130` in the outer solve's `+0x157` branch |
+
+**`M⁻¹J` is cached beside the row rather than recomputed**, which is what makes the memo at
+`param_1[0x1c]` worth having: three axes share one scratch block, and the first of them pays for the
+transform, the inverse-inertia product and the effective mass together.
+
+**The inverse inertia is a DIAGONAL**, not a matrix. IVP keeps the body in its own principal frame,
+which is why the axis has to be rotated into that frame first — the two matrix multiplies at the top
+of this function — rather than the tensor being rotated into the world.
+
+**What is NOT established:** the constant `+0x50` region the outer solve reads for its second body,
+and whether `+0x40`'s fourth lane is the inverse MASS or padding. The arithmetic here only ever uses
+three of the four, so the fourth is unconstrained by anything read so far.
+
+*Evidence class: read from the decompiled binary.*
