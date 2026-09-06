@@ -140,6 +140,106 @@ public sealed class BspEntitiesTests
             "{\n\"classname\" \"sky_camera\"\n\"origin\" \"a b c\"\n}")).ShouldBeNull();
     }
 
+    [Test]
+    public void DetailController_WithBothKeys_ReadsThemInTheOrderTheEngineUsesThem()
+    {
+        // `fademindist` is the one the engine hands to `cl_detailfade` and `fademaxdist` the one it
+        // hands to `cl_detaildist` (`detailobjectsystem.cpp:1526`). The two numbers differ so a
+        // swap is a failure rather than a coincidence.
+        BspEntities.DetailController(Parse(
+                "{\n\"classname\" \"env_detail_controller\"\n" +
+                "\"fademindist\" \"700\"\n\"fademaxdist\" \"1000\"\n}"))
+            .ShouldBe((700f, 1000f));
+    }
+
+    [Test]
+    public void DetailController_WithNoSuchEntity_IsNull()
+    {
+        // The normal case — measured 234 of 234 installed maps — and it must be distinguishable
+        // from a controller stating zero, which draws no detail props at all.
+        BspEntities.DetailController(Parse(
+            "{\n\"classname\" \"worldspawn\"\n\"skyname\" \"sky_upward\"\n}")).ShouldBeNull();
+    }
+
+    [Test]
+    public void DetailController_WithNoKeys_IsZeroRatherThanAbsent()
+    {
+        // **Valve's entity allocator zeroes the object** — `baseentity.cpp:3814`, "All fields in
+        // the object are all initialized to 0" — and `CEnvDetailController` assigns these two only
+        // from `KeyValue`. So a bare controller is a real instruction to draw nothing, and a reader
+        // that treated a missing key as "no controller" would draw the map's grass instead.
+        BspEntities.DetailController(Parse(
+            "{\n\"classname\" \"env_detail_controller\"\n}")).ShouldBe((0f, 0f));
+    }
+
+    [Test]
+    public void DetailController_WithTwoControllers_TakesTheLast()
+    {
+        // `s_detailController = this` in the constructor, with no guard against one already being
+        // registered (`env_detail_controller.cpp:36`), so the last one spawned wins — and spawn
+        // order follows lump order. The first entity here is the control: taking it would report
+        // 1 and 2.
+        BspEntities.DetailController(Parse(
+                "{\n\"classname\" \"env_detail_controller\"\n" +
+                "\"fademindist\" \"1\"\n\"fademaxdist\" \"2\"\n}" +
+                "{\n\"classname\" \"env_detail_controller\"\n" +
+                "\"fademindist\" \"3\"\n\"fademaxdist\" \"4\"\n}"))
+            .ShouldBe((3f, 4f));
+    }
+
+    [Test]
+    public void DetailController_WithANonNumericDistance_IsZero()
+    {
+        // Untrusted text, and `atof` is what the engine calls: a value it cannot read is 0, not a
+        // default and not a refusal.
+        BspEntities.DetailController(Parse(
+                "{\n\"classname\" \"env_detail_controller\"\n" +
+                "\"fademindist\" \"soon\"\n\"fademaxdist\" \"1000\"\n}"))
+            .ShouldBe((0f, 1000f));
+    }
+
+    [Test]
+    public void DetailSpriteMaterial_WithTheMapsOwnSheet_TakesIt()
+    {
+        // **`koth_harvest_final` ships exactly this**, and it is not the default: measured, all 234
+        // installed maps set the key and only 49 set it to `detail/detailsprites`.
+        BspEntities.DetailSpriteMaterial(Parse(
+                "{\n\"classname\" \"worldspawn\"\n" +
+                "\"detailmaterial\" \"detail/detailsprites_harvest\"\n}"))
+            .ShouldBe("detail/detailsprites_harvest");
+    }
+
+    [Test]
+    public void DetailSpriteMaterial_WithNoKey_IsValvesDefault()
+    {
+        BspEntities.DetailSpriteMaterial(Parse("{\n\"classname\" \"worldspawn\"\n}"))
+            .ShouldBe("detail/detailsprites");
+    }
+
+    [Test]
+    public void DetailSpriteMaterial_WithAnEmptyKey_IsValvesDefault()
+    {
+        // The engine tests the pointer AND its first character —
+        // `if ( pWorld && pWorld->GetDetailSpriteMaterial() && *(pWorld->GetDetailSpriteMaterial()) )`
+        // — so an empty string is "states none", not "a material with no name".
+        BspEntities.DetailSpriteMaterial(Parse(
+                "{\n\"classname\" \"worldspawn\"\n\"detailmaterial\" \"\"\n}"))
+            .ShouldBe("detail/detailsprites");
+    }
+
+    [Test]
+    public void DetailSpriteMaterial_WithAnOverlongName_IsCutWhereTheClientsBufferEnds()
+    {
+        // `char m_iszDetailSpriteMaterial[MAX_DETAIL_SPRITE_MATERIAL_NAME_LENGTH]`, 256 with the
+        // terminator (`c_world.h:47`). A hostile map's 300-character name reaches a real client cut
+        // off, so reading the whole thing would resolve a material no player would ever see.
+        string material = BspEntities.DetailSpriteMaterial(Parse(
+            "{\n\"classname\" \"worldspawn\"\n\"detailmaterial\" \"" + new string('a', 300) + "\"\n}"));
+
+        material.Length.ShouldBe(255);
+        material.ShouldBe(new string('a', 255));
+    }
+
     private static IReadOnlyList<BspEntity> Parse(string text) =>
         BspEntities.Parse(Encoding.UTF8.GetBytes(text));
 }

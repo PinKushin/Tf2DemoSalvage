@@ -503,6 +503,7 @@ public sealed class MapAssets
     /// <summary>Reads the map's detail props and the one sheet they are drawn from (B360, B361).</summary>
     /// <param name="assets">Where the counts and any refusal are reported.</param>
     /// <param name="map">The map's bytes, which carry the <c>dprp</c> game lump.</param>
+    /// <param name="entities">The map's entity lump, which names the sheet they are cut from.</param>
     /// <param name="pak">The map's own pakfile, searched before the game's archives.</param>
     /// <param name="archives">The game's archives.</param>
     /// <param name="maximumTextureSize">The upload limit, as for every other material.</param>
@@ -527,6 +528,7 @@ public sealed class MapAssets
         MapTexture? Sheet) LoadDetailSprites(
         ILogger assets,
         ReadOnlyMemory<byte> map,
+        IReadOnlyList<BspEntity> entities,
         PakFile pak,
         GameArchives archives,
         int maximumTextureSize)
@@ -552,20 +554,42 @@ public sealed class MapAssets
             return ([], [], null);
         }
 
-        ResolvedMaterial material = Resolve(
-            assets, DetailSprites.Material, pak, archives, maximumTextureSize);
+        // **The map picks the sheet, and nearly every map picks a different one** (B364). All 234
+        // installed maps set `worldspawn`'s `detailmaterial`; only 49 set it to the default. Using
+        // the default regardless drew `_2fort`'s desert grass on `koth_harvest_final`, whose own
+        // sheet is a different colour entirely.
+        string name = BspEntities.DetailSpriteMaterial(entities);
+
+        ResolvedMaterial material = Resolve(assets, name, pak, archives, maximumTextureSize);
 
         if (material.Texture is not { } sheet)
         {
             // The machine without TF2 reaches this on every map (`docs/memory/ci-is-the-machine-
             // without-tf2.md`), so it is a warning about the install rather than about the map.
+            // **A map naming a sheet that does not exist reaches it too** — `tow_dynamite` asks for
+            // `detailsprites`, which is not in the game's content — and that is a fault in the map
+            // rather than in the install, so the name is reported either way.
             assets.LogWarning(
                 "{Message}",
                 $"{objects.Count} detail props will not be drawn: " +
-                $"{DetailSprites.Material} resolved to no texture");
+                $"{name} resolved to no texture");
 
             return ([], [], null);
         }
+
+        // **Valve's correction for a non-square sheet, `detailobjectsystem.cpp:1481`.** The engine
+        // scales the dictionary's V coordinates by the material's aspect ratio when it is wider
+        // than it is tall:
+        //
+        //   float flRatio = (float)( pMat->GetMappingWidth() ) / pMat->GetMappingHeight();
+        //   if ( flRatio > 1.0 ) { ... m_TexUL.y *= flRatio; m_TexLR.y *= flRatio; ... }
+        //
+        // **Every sheet TF2 ships is 512x512, so this fires on none of them** — measured on the
+        // default and on `_harvest`, `_granary`, `_trainyard`, `_2fort`, `_sawmill`, `_dustbowl`
+        // and `_viaduct_event`. It is transcribed because the material is the MAP's choice: a
+        // community map naming a 512x256 sheet would otherwise draw every sprite from the top half
+        // of its own texture.
+        sprites = DetailSprites.ScaleForSheet(sprites, (float)sheet.Width / sheet.Height);
 
         // ASKED FOR / HAVE / PRODUCED / MISSING, as every other stage of the load reports. What is
         // PRODUCED here is the input to a per-view build rather than geometry, so the count of
@@ -573,12 +597,14 @@ public sealed class MapAssets
         assets.LogInformation(
             "{Message}",
             $"ASKED FOR {objects.Count} detail props across {sprites.Count} sprite rectangles; " +
-            $"HAVE the {DetailSprites.Material} sheet at {sheet.Width}x{sheet.Height}; " +
+            $"HAVE the {name} sheet at {sheet.Width}x{sheet.Height}" +
+            $"{(name == BspEntities.DefaultDetailSpriteMaterial ? " (the default; this map names none)" : " (the map's own)")}; " +
             $"PRODUCED nothing yet — the quads are built per view; " +
             $"MISSING nothing at load");
 
         return (objects, sprites, sheet);
     }
+
 
     /// <summary>Appends the whole-model override materials to the table, if the install has them.</summary>
     /// <param name="assets">Where resolution is reported.</param>
@@ -1134,9 +1160,15 @@ public sealed class MapAssets
             refusedLighting,
             lightAt);
 
+        // **Read once and shared, because two consumers ask the same lump different questions.**
+        // The 2D sky wants `worldspawn`'s `skyname` and the grass wants its `detailmaterial`;
+        // parsing the lump twice would let one of them be given a different map's answer after a
+        // future edit, which is the shape B196 has already cost once.
+        IReadOnlyList<BspEntity> entities = BspEntities.ReadFrom(map);
+
         (IReadOnlyList<BspDetailProp> detailProps, IReadOnlyList<BspDetailSprite> detailRectangles,
             MapTexture? detailSheet) =
-            LoadDetailSprites(assets, map, pak, archives, maximumTextureSize);
+            LoadDetailSprites(assets, map, entities, pak, archives, maximumTextureSize);
 
         propTiming.Dispose();
 
@@ -1457,7 +1489,7 @@ public sealed class MapAssets
                 archives,
                 pak,
                 maximumTextureSize,
-                BspEntities.SkyName(BspEntities.ReadFrom(map))),
+                BspEntities.SkyName(entities)),
 
             // Valve's own luxel grid, for mat_luxels. Same loader, different candidates — it ships
             // only in the Half-Life 2 archives, which TF2's gameinfo.txt mounts after its own.

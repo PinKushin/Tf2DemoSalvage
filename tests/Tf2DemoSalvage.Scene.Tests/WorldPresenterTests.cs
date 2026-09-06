@@ -99,8 +99,11 @@ public sealed class WorldPresenterTests
         public void SetDetailProps(
             IReadOnlyList<Content.Bsp.BspDetailProp> props,
             IReadOnlyList<Content.Bsp.BspDetailSprite> rectangles,
-            MapTexture? sheet) =>
-            Calls.Add(props.Count == 0 ? "no-detail-props" : "detail-props");
+            MapTexture? sheet,
+            (float FadeStart, float FadeEnd)? controller) =>
+            Calls.Add(
+                (props.Count == 0 ? "no-detail-props" : "detail-props") +
+                (controller is null ? string.Empty : "-controlled"));
 
         public void SetCamera(float[] matrix, bool surfaceColours = false) =>
             Calls.Add("camera");

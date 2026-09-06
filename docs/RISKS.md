@@ -24748,10 +24748,20 @@ every count and for the two captures.
 
 **What is NOT established:** the FOV factor is passed as 1 and nothing wires a zoomed sniper's field
 of view into it — the conformance suite pins the arithmetic, and a zoom would push the range out.
-`env_detail_controller`, which lets a map override both distances, is not read; measured absent from
-`koth_harvest_final` and `cp_granary` with `worldspawn` as the control, and unmeasurable on
-`cp_process_f12` whose entity lump is compressed. The shipped quality configs move `cl_detaildist` a
-long way (`low.cfg` 0, `ultra.cfg` 8592) and neither is read either.
+
+**Two things listed here as open have since been closed**, and both are worth keeping visible
+because the second entry was wrong about its own reason:
+
+- **The shipped quality configs** (`low.cfg` 0, `ultra.cfg` 8592) are read. `cl_detaildist` and
+  `cl_detailfade` are `ViewerSettings` entries, applied at device creation and round-tripped by
+  `Write()` — `DetailDistanceCvarConformanceTests`.
+- **`env_detail_controller`** is read, out of the map's entity lump, and applied as Valve's
+  one-directional `MIN` at level load — `DetailControllerConformanceTests`, and *The map gets a veto,
+  and only a veto* in `docs/findings/50`. The claim above that `cp_process_f12` was "unmeasurable…
+  compressed" was false: `BspEntities.ReadFrom` decompresses, and the census reads all 234 installed
+  maps. **0 of 234 carry a controller, with `worldspawn` found in 234 of 234 as the control** — but
+  the class is live in TF2 (the string is in both `tf/bin/x64/server.dll` and `client.dll`, with
+  `sky_camera` and `cl_detaildist` as one-sided controls), so a community map can place one.
 
 ### B363 OPEN: detail props that are MODELS are not drawn
 
@@ -24769,3 +24779,65 @@ denominator: one map in five, three hundred instances, and a path that already e
 props.
 
 **Evidence class: measured** for the counts; **read-from-source** for the type's meaning.
+
+### B364 FIXED: every map picks its own grass texture and we drew one map's on all of them
+
+**All 234 installed maps set `worldspawn`'s `detailmaterial`, and only 49 set it to the default.**
+`CDetailObjectSystem::LevelInitPostEntity` opens with the override
+(`detailobjectsystem.cpp:1516`):
+
+```cpp
+const char *pDetailSpriteMaterial = DETAIL_SPRITE_MATERIAL;
+C_World *pWorld = GetClientWorldEntity();
+if ( pWorld && pWorld->GetDetailSpriteMaterial() && *(pWorld->GetDetailSpriteMaterial()) )
+{
+    pDetailSpriteMaterial = pWorld->GetDetailSpriteMaterial();
+}
+m_DetailSpriteMaterial.Init( pDetailSpriteMaterial, TEXTURE_GROUP_OTHER );
+```
+
+and the string is the map's `detailmaterial` key (`world.cpp:392`). This project hardcoded
+`detail/detailsprites` — reasonably, because the SDK's own comment on the sprite dictionary says
+*"All detail prop sprites must lie in the material detail/detailsprites"*. **That comment is wrong
+about the shipped game**, and believing it drew desert grass on every map with grass of its own.
+
+TF2 ships at least sixteen sheets. The census:
+
+| sheet | maps |
+|---|---|
+| `detail/detailsprites` | 49 |
+| `detail/detailsprites_trainyard` | 42 |
+| `detail/detailsprites_2fort` | 38 |
+| `detail/detailsprites_sawmill` | 32 |
+| `detail/detailsprites_viaduct_event` | 20 |
+| `detail/detailsprites_dustbowl` | 18 |
+| `detail/detailsprites_harvest` | 8 |
+| `detailsprites` (resolves to nothing) | 7 |
+| nine others | 20 |
+
+**Both reference maps are affected.** `koth_harvest_final` asks for `_harvest`, `cp_granary` for
+`_granary`, `cp_process_final` for `_trainyard`; only `cp_badlands` asks for the default. The mean
+colours are nothing like each other — the default is (221, 165, 97) and `_harvest` (129, 112, 36) —
+so the fault was a visible one on the map used for every grass capture taken so far, and nothing
+said so, because grass in a desert-coloured map still looks like grass.
+
+**Fixed:** `BspEntities.DetailSpriteMaterial` reads the key with the engine's own non-empty test and
+the 255-character truncation its network buffer imposes (`c_world.h:47`); `MapAssets.LoadDetailSprites`
+resolves that name and reports it in the ASKED FOR / HAVE line. Verified on `z1800.dem` at tick
+30000: *"HAVE the detail/detailsprites_harvest sheet at 512x512 (the map's own)"*, with the capture
+showing pale wheat stalks and yellow flowers rather than the default's dry scrub.
+
+**Valve's non-square correction came with it** (`detailobjectsystem.cpp:1481`): the sprite
+dictionary's V coordinates are scaled by the material's aspect ratio when it is wider than tall.
+**Every sheet TF2 ships is 512x512**, so it fires on none of them and no capture can show it —
+transcribed because the material is now the map's choice and a community map may ship a cropped one.
+`DetailSprites.ScaleForSheet`, with the guard kept as Valve's `> 1.0` rather than the symmetric
+version.
+
+**Still open, and it is a real difference:** a map naming a sheet that does not exist. Seven maps ask
+for `detailsprites`, which is not in the game's content; the engine's `Init` gives them the
+missing-material chequer and this viewer draws no grass at all. Neither is silent — the load logs
+the name — but the engine's answer is louder and matching it would be the parity move.
+
+**Evidence class: read-from-source** for the branch and the correction; **measured** for the census,
+for the sheet dimensions and for the mean colours.

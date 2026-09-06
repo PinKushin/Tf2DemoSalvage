@@ -268,7 +268,8 @@ dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -- <name> [args]
 dotnet run --project tools/Tf2DemoSalvage.Probe -c Release --                # lists them
 ```
 
-Thirty-four of them. The ones worth knowing before writing a thirty-fifth:
+Forty-three of them, counted rather than remembered (`ls tools/Tf2DemoSalvage.Probe/Probes/*.cs |
+wc -l`). The ones worth knowing before writing a forty-fourth:
 
 | probe | answers |
 |---|---|
@@ -288,6 +289,7 @@ Thirty-four of them. The ones worth knowing before writing a thirty-fifth:
 | `autoplay <demo>` | which models animate themselves off the clock — `STUDIO_AUTOPLAY` |
 | `bodygroups <demo> <tick>` | what each player's items hide on them, call by call, with a control |
 | `ragdoll <model path>` | the bodies and joints a `.phy` and a skeleton build between them — solids are matched to bones BY NAME, so this is the only thing that says a real pair fits |
+| `detail-controller [map]` | which maps veto `cl_detaildist` — a census over every installed map that reports its own control (`worldspawn`) beside the answer, because the expected result is zero |
 
 **Probes run the PRODUCTION path or they are worthless.** `DemoCorpus` lives here and
 `Corpus.Tests` references the tool rather than the reverse, so the probe and the test cannot disagree

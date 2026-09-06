@@ -308,6 +308,150 @@ public static class BspEntities
     /// <summary>`sv_skyname`'s default — <c>movevars_shared.cpp:105</c>.</summary>
     public const string DefaultSkyName = "sky_urb01";
 
+    /// <summary>Classname of the entity by which a map overrides the detail prop distances.</summary>
+    public const string DetailControllerClass = "env_detail_controller";
+
+    /// <summary>The one material every detail sprite is cut from, when a map names none.</summary>
+    /// <remarks>
+    /// <c>#define DETAIL_SPRITE_MATERIAL "detail/detailsprites"</c> — `detailobjectsystem.cpp:44`.
+    /// </remarks>
+    public const string DefaultDetailSpriteMaterial = "detail/detailsprites";
+
+    /// <summary>The sheet this map's detail sprites are cut from.</summary>
+    /// <param name="entities">Entities from <see cref="Parse"/>.</param>
+    /// <returns>
+    /// <c>worldspawn</c>'s <c>detailmaterial</c>, or <see cref="DefaultDetailSpriteMaterial"/> when
+    /// the map states none.
+    /// </returns>
+    /// <exception cref="ArgumentNullException"><paramref name="entities"/> is null.</exception>
+    /// <remarks>
+    /// **`CDetailObjectSystem::LevelInitPostEntity` opens with this**
+    /// (<c>detailobjectsystem.cpp:1516</c>):
+    ///
+    /// <code>
+    ///   const char *pDetailSpriteMaterial = DETAIL_SPRITE_MATERIAL;
+    ///   C_World *pWorld = GetClientWorldEntity();
+    ///   if ( pWorld &amp;&amp; pWorld->GetDetailSpriteMaterial() &amp;&amp; *(pWorld->GetDetailSpriteMaterial()) )
+    ///   {
+    ///       pDetailSpriteMaterial = pWorld->GetDetailSpriteMaterial();
+    ///   }
+    /// </code>
+    ///
+    /// and the string is `worldspawn`'s `detailmaterial` key — `DEFINE_KEYFIELD(
+    /// m_iszDetailSpriteMaterial, FIELD_STRING, "detailmaterial" )`, <c>world.cpp:392</c>, sent to
+    /// the client as `m_iszDetailSpriteMaterial`.
+    ///
+    /// **The struct comment saying every sprite lies in `detail/detailsprites` is out of date, and
+    /// measurably so.** All 234 installed maps set the key; only 49 of them set it to that. TF2
+    /// ships at least sixteen sheets — `_trainyard` on 42 maps, `_2fort` on 38, `_sawmill` on 32 —
+    /// and their mean colours are nothing like each other, so a viewer that hardcoded the default
+    /// drew desert grass on `koth_harvest_final` (`_harvest`) and on `cp_granary` (`_granary`).
+    ///
+    /// **The empty check is not redundant.** The engine tests the pointer AND its first character,
+    /// so a map setting `detailmaterial` to an empty string gets the default rather than a material
+    /// with no name — and `worldspawn` always carries the field once it is networked.
+    ///
+    /// **Truncated to 255 characters**, because the field it travels through is
+    /// <c>char m_iszDetailSpriteMaterial[MAX_DETAIL_SPRITE_MATERIAL_NAME_LENGTH]</c> with that
+    /// length being 256 (`c_world.h:47`). A longer key in an untrusted map reaches the client cut
+    /// off, so cutting it here is what the client would have seen.
+    /// </remarks>
+    public static string DetailSpriteMaterial(IReadOnlyList<BspEntity> entities)
+    {
+        ArgumentNullException.ThrowIfNull(entities);
+
+        foreach (BspEntity entity in entities)
+        {
+            if (entity.TryGetValue("classname", out string? classname) &&
+                string.Equals(classname, "worldspawn", StringComparison.OrdinalIgnoreCase) &&
+                entity.TryGetValue("detailmaterial", out string? material) &&
+                material.Length > 0)
+            {
+                return material.Length > DetailSpriteMaterialLength - 1
+                    ? material[..(DetailSpriteMaterialLength - 1)]
+                    : material;
+            }
+        }
+
+        return DefaultDetailSpriteMaterial;
+    }
+
+    /// <summary>`MAX_DETAIL_SPRITE_MATERIAL_NAME_LENGTH` — `c_world.h:47`.</summary>
+    private const int DetailSpriteMaterialLength = 256;
+
+    /// <summary>The map's detail prop fade override, if it states one.</summary>
+    /// <param name="entities">Entities from <see cref="Parse"/>.</param>
+    /// <returns>
+    /// The controller's <c>fademindist</c> and <c>fademaxdist</c>, or null when the map has no
+    /// <c>env_detail_controller</c>.
+    /// </returns>
+    /// <exception cref="ArgumentNullException"><paramref name="entities"/> is null.</exception>
+    /// <remarks>
+    /// **A map can lower `cl_detaildist` and `cl_detailfade`, and only lower them.**
+    /// `CDetailObjectSystem::LevelInitPostEntity` (<c>detailobjectsystem.cpp:1524</c>) writes the
+    /// two cvars itself:
+    ///
+    /// <code>
+    ///   if ( GetDetailController() )
+    ///   {
+    ///       cl_detailfade.SetValue( MIN( m_flDefaultFadeStart, GetDetailController()->m_flFadeStartDist ) );
+    ///       cl_detaildist.SetValue( MIN( m_flDefaultFadeEnd, GetDetailController()->m_flFadeEndDist ) );
+    ///   }
+    ///   else
+    ///   {
+    ///       // revert to default values if the map doesn't specify
+    ///       cl_detailfade.SetValue( m_flDefaultFadeStart );
+    ///       cl_detaildist.SetValue( m_flDefaultFadeEnd );
+    ///   }
+    /// </code>
+    ///
+    /// **`MIN` is the whole mechanism and it is one-directional.** A map may cut a player's detail
+    /// distance and can never raise it, so a mapper cannot force grass onto a machine whose owner
+    /// turned it off. The pair the `MIN` is taken against is captured once in `Init()`
+    /// (<c>detailobjectsystem.cpp:370</c>) — before any map loads — which is what makes a config
+    /// value survive a map that overrides it.
+    ///
+    /// **The keys go in crossed, and that is Valve's, not a transcription slip.** `fademindist` —
+    /// which a mapper reads as "the distance where fading begins" — is assigned to `cl_detailfade`,
+    /// whose own help text is "Distance across which detail props fade in": a WIDTH. So a
+    /// controller saying <c>fademindist 700, fademaxdist 1000</c> does not fade from 700 to 1000;
+    /// it produces a 1000-unit maximum with a 700-unit fade band, which begins at 300.
+    ///
+    /// **A key the map omits is zero, not a default**, because Valve's entity allocator zeroes the
+    /// object — <c>baseentity.cpp:3814</c>, *"All fields in the object are all initialized to 0."*
+    /// `CEnvDetailController` has a `KeyValue` override and no constructor assignment, so a
+    /// controller with neither key drives both cvars to zero and draws no detail props at all.
+    ///
+    /// **The LAST controller in the lump wins.** The class registers itself from its constructor —
+    /// <c>s_detailController = this</c> (<c>env_detail_controller.cpp:36</c>) — with no guard
+    /// against there already being one, so a map carrying two is decided by spawn order.
+    /// </remarks>
+    public static (float FadeStart, float FadeEnd)? DetailController(IReadOnlyList<BspEntity> entities)
+    {
+        ArgumentNullException.ThrowIfNull(entities);
+
+        (float, float)? found = null;
+
+        foreach (BspEntity entity in entities)
+        {
+            if (!entity.TryGetValue("classname", out string? classname) ||
+                !string.Equals(classname, DetailControllerClass, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            found = (ReadDistance(entity, "fademindist"), ReadDistance(entity, "fademaxdist"));
+        }
+
+        return found;
+    }
+
+    private static float ReadDistance(BspEntity entity, string key) =>
+        entity.TryGetValue(key, out string? stated) &&
+        float.TryParse(stated, NumberStyles.Float, CultureInfo.InvariantCulture, out float distance)
+            ? distance
+            : 0f;
+
     /// <summary>The six sky faces, in CUBE FACE order.</summary>
     /// <returns>The material names, relative to <c>materials/</c>, without extension.</returns>
     /// <param name="skyName">The map's <c>skyname</c>.</param>

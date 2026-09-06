@@ -58,6 +58,56 @@ public readonly record struct DetailFade(
             maximumSquared, fadeSquared, 255f / (maximumSquared - fadeSquared));
     }
 
+    /// <summary>What the two detail cvars become when a level loads.</summary>
+    /// <param name="distance">The config's <c>cl_detaildist</c>, captured before any map loaded.</param>
+    /// <param name="fade">The config's <c>cl_detailfade</c>, captured with it.</param>
+    /// <param name="controller">
+    /// The map's <c>env_detail_controller</c> — its <c>fademindist</c> and <c>fademaxdist</c> — or
+    /// null when the map carries none.
+    /// </param>
+    /// <returns>The pair to draw this level with.</returns>
+    /// <remarks>
+    /// **`CDetailObjectSystem::LevelInitPostEntity`, `detailobjectsystem.cpp:1524`.** The engine
+    /// writes the two cvars itself at level load:
+    ///
+    /// <code>
+    ///   if ( GetDetailController() )
+    ///   {
+    ///       cl_detailfade.SetValue( MIN( m_flDefaultFadeStart, GetDetailController()-&gt;m_flFadeStartDist ) );
+    ///       cl_detaildist.SetValue( MIN( m_flDefaultFadeEnd, GetDetailController()-&gt;m_flFadeEndDist ) );
+    ///   }
+    ///   else
+    ///   {
+    ///       // revert to default values if the map doesn't specify
+    ///       cl_detailfade.SetValue( m_flDefaultFadeStart );
+    ///       cl_detaildist.SetValue( m_flDefaultFadeEnd );
+    ///   }
+    /// </code>
+    ///
+    /// **`MIN` runs one way only.** A map can cut a player's detail distance and can never raise
+    /// it, so a mapper cannot force grass onto a machine whose owner set `cl_detaildist 0`. The
+    /// pair it is taken against is captured once in `Init()` (`detailobjectsystem.cpp:370`) —
+    /// before any map loads — which is what makes a config value survive a map that overrode it and
+    /// what the <c>else</c> branch above restores.
+    ///
+    /// **`fademindist` becomes a WIDTH, and that is Valve's rather than a transcription slip.** A
+    /// mapper reads the key as "the distance at which fading begins"; it is assigned to
+    /// `cl_detailfade`, whose own help text is *"Distance across which detail props fade in"*. So a
+    /// controller saying <c>fademindist 700, fademaxdist 1000</c> does not fade from 700 to 1000 —
+    /// it gives a 1000-unit maximum with a 700-unit band, which starts at 300. Transcribed as
+    /// written, because a "fix" here would disagree with the engine about every map that has one.
+    ///
+    /// **Measured: no map TF2 ships uses this** — 0 of 234, with `worldspawn` found in 234 of 234
+    /// as the control (`detail-controller` probe). It is still live in the game: the string
+    /// `env_detail_controller` is in both `tf/bin/x64/server.dll` and `client.dll`, so a community
+    /// map that places one by hand gets the behaviour even though no FGD TF2 ships lists the class.
+    /// </remarks>
+    public static (float Distance, float Fade) ForLevel(
+        float distance, float fade, (float FadeStart, float FadeEnd)? controller) =>
+        controller is { } map
+            ? (MathF.Min(distance, map.FadeEnd), MathF.Min(fade, map.FadeStart))
+            : (distance, fade);
+
     /// <summary>How opaque a sprite at this squared distance is.</summary>
     /// <param name="squaredDistance">From the eye to the sprite's origin.</param>
     /// <returns>0 for a sprite too far to draw, 255 for one inside the fade start.</returns>

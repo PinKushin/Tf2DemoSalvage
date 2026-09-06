@@ -353,6 +353,61 @@ public sealed class DetailSpritesConformanceTests
     }
 
     /// <summary>A 16×16 rectangle whose upper-left is left of the origin, on a quarter of the sheet.</summary>
+    /// <remarks>
+    /// **`detailobjectsystem.cpp:1481`, and only V moves.** A sheet twice as wide as it is tall has
+    /// its dictionary's V coordinates doubled, because the VTF is a square sheet with the bottom
+    /// cropped away and `vbsp` wrote the coordinates against the square. U is untouched: a sprite
+    /// stretched horizontally instead would be the same fault mirrored, and both readings agree on
+    /// a square sheet.
+    /// </remarks>
+    [Test]
+    public void ScaleForSheet_WithASheetTwiceAsWideAsItIsTall_DoublesOnlyV()
+    {
+        IReadOnlyList<BspDetailSprite> scaled = DetailSprites.ScaleForSheet([Sprite()], 2f);
+
+        scaled[0].TextureLowerRight.ShouldBe((0.5f, 0.5f));
+        scaled[0].TextureUpperLeft.ShouldBe((0f, 0f));
+
+        // The corners of the QUAD are not texture coordinates and must not move with them.
+        scaled[0].UpperLeft.ShouldBe((-8f, 0f));
+        scaled[0].LowerRight.ShouldBe((8f, 16f));
+    }
+
+    /// <remarks>
+    /// **A non-zero upper-left is the case a "scale the height" reading gets wrong**: Valve scales
+    /// both corners rather than the distance between them, so the whole rectangle slides down the
+    /// sheet as well as growing.
+    /// </remarks>
+    [Test]
+    public void ScaleForSheet_WithARectangleAwayFromTheTop_MovesBothCorners()
+    {
+        BspDetailSprite offset = new((-8f, 0f), (8f, 16f), (0.25f, 0.25f), (0.5f, 0.5f));
+
+        IReadOnlyList<BspDetailSprite> scaled = DetailSprites.ScaleForSheet([offset], 2f);
+
+        scaled[0].TextureUpperLeft.ShouldBe((0.25f, 0.5f));
+        scaled[0].TextureLowerRight.ShouldBe((0.5f, 1f));
+    }
+
+    /// <remarks>
+    /// **Valve's guard is `&gt; 1.0`, so a TALLER sheet is left alone** — the symmetric `!= 1`
+    /// anybody would write instead would shrink the V coordinates of one, and every sheet TF2 ships
+    /// is square so nothing would ever say so.
+    /// </remarks>
+    [Test]
+    public void ScaleForSheet_WithASheetTallerThanItIsWide_ChangesNothing()
+    {
+        DetailSprites.ScaleForSheet([Sprite()], 0.5f)[0].ShouldBe(Sprite());
+    }
+
+    [Test]
+    public void ScaleForSheet_WithASquareSheet_ChangesNothing()
+    {
+        // Every sheet TF2 ships takes this path — measured 512x512 on the default and on
+        // `_harvest`, `_granary`, `_trainyard`, `_2fort`, `_sawmill`, `_dustbowl`, `_viaduct_event`.
+        DetailSprites.ScaleForSheet([Sprite()], 1f)[0].ShouldBe(Sprite());
+    }
+
     private static BspDetailSprite Sprite() =>
         new((-8f, 0f), (8f, 16f), (0f, 0f), (0.5f, 0.25f));
 
