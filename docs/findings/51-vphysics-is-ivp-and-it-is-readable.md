@@ -1619,10 +1619,8 @@ rotates and divides (local force), 3 neither rotates nor divides (global acceler
 - **The environment constructor `FUN_180080d90`, decompiled in full** — about fifteen sub-objects,
   and it installs this vtable on none of them.
 
-**Gravity's integration site is therefore still unfound, and is now known NOT to be behind a generic
-dispatcher.** A grep for readers of `env+0x118` across ~2,800 decompiled functions returns 39 hits,
-none of them in the established pipeline stages. It is evidently inline in the per-core accumulation
-rather than dispatched, which is a narrower place to look than before.
+**Gravity's integration site was still unfound at this point.** It is found now — see below — and it
+turned out to be behind a dispatcher after all, just not that one.
 
 ## The constraint solver runs exactly TWO iterations
 
@@ -1678,3 +1676,96 @@ constant but does not exhaustively rule out an unresolved indirect write.*
 *Evidence class: read for the slot derivation, the thunk, the constructor/getter inverse pair, the
 loop and the weight table, all with dumped constants; INFERRED and flagged for the error counter
 being unreachable in this build.*
+
+## FOUND: gravity is a controller object, and `FUN_180074c80` is where it enters velocity
+
+**The way in was a published method name, for the third time on this binary.**
+`IPhysicsObject::EnableGravity( bool )` exists in the header, so a per-object gravity flag must
+exist, and whatever reads it must be the application site. Both halves paid out.
+
+**`EnableGravity` is `FUN_18001ba30`**, slot 13, and it does not set a flag at all — it adds the
+object to or removes it from a LIST:
+
+```c
+cVar2 = (**(code **)(*param_1 + 8))();               // IsStatic()
+if (cVar2 == '\0') {
+  cVar2 = (**(code **)(*param_1 + 0x38))(param_1);   // IsGravityEnabled()
+  if (param_2 != cVar2) {
+    lVar1 = *(longlong *)(param_1[2] + 0xe8);        // the gravity controller
+    if (param_2 != '\0') { FUN_1800748b0(lVar1, …); return; }
+    FUN_180074fb0(lVar1, …);
+  }
+}
+```
+
+**So gravity is not a per-core field — it is membership of a set.** A static object is refused
+outright, which is consistent with the `core+0x0 & 2` immovable bit found from the collision side.
+
+**The controller is a per-environment singleton at `env+0x0`**, a 0x30-byte object whose vtable is
+`0x1800ea728` — eight slots, and the bound is a good one: slot 8 would land on the string
+`"sys:gravity"` at `0x1800ea768`. **Slot 4 is `FUN_180074c80`, and it is the answer:**
+
+```c
+void FUN_180074c80(longlong param_1, float *param_2, longlong param_3)
+{
+  uVar5 = count - 1;                          // param_3+2 == controller+0x1e2
+  while (uVar5-- >= 0) {
+    pbVar4 = array[uVar5];                    // param_3+8 == controller+0x1e8, an IVP_Core*
+    if ((*pbVar4 & 0x10) == 0) {
+      FUN_180078250((longlong)pbVar4, (double)*param_2);
+      FUN_180077950((longlong)pbVar4);
+      fVar1 = *param_2;                       // dt
+      if ((*pbVar4 & 0x20) == 0) {
+        fVar2 = *(float *)(param_1 + 0x14); fVar3 = *(float *)(param_1 + 0x18);
+        fVar6 = *(float *)(param_1 + 0x10);
+      } else {
+        fVar2 = *(float *)(param_1 + 0x24); fVar3 = *(float *)(param_1 + 0x28);
+        fVar6 = *(float *)(param_1 + 0x20);
+      }
+      *(float *)(pbVar4 + 0x140) = fVar6 * fVar1 + *(float *)(pbVar4 + 0x140);
+      *(float *)(pbVar4 + 0x148) = fVar3 * fVar1 + *(float *)(pbVar4 + 0x148);
+      *(float *)(pbVar4 + 0x144) = fVar2 * fVar1 + *(float *)(pbVar4 + 0x144);
+    }
+  }
+}
+```
+
+**`v += g * dt`, on the established linear-velocity fields, with no mass term** — which is what
+gravity is and what drag is not, since nothing here is velocity-dependent.
+
+**Two per-core bits that were not in the field map:**
+
+- **`0x10` skips gravity entirely** for that core.
+- **`0x20` selects a SECOND gravity vector**, held at `controller+0x20/0x24/0x28` beside the default
+  at `+0x10/0x14/0x18`. So IVP supports per-object gravity, and a transcription with one global
+  vector would be right for TF2 and wrong for the engine.
+
+**The vector reaches the controller by a copy, which is why nothing in the pipeline reads
+`env+0x118`.** `SetGravity` converts to IVP units and calls `FUN_1800824e0`, which stores the
+doubles at `env+0x118/0x120/0x128`, caches the magnitude at `env+0x138` — and then calls
+`FUN_180075320(*env, g)`, which writes the same vector as **floats** into the controller at
+`+0x10/0x14/0x18`. The environment constructor does the same thing at startup, which is what proves
+`env[0]` is this object.
+
+**`env+0x138` is confirmed by name.** The string `"m_gravityLength"` is in `.rdata` at `0x1800eda70`.
+
+**What is NOT established, and it is the last thread:** the per-tick CALL to slot 4. The dispatch
+`(**(code **)(*env[0] + 0x20))(env[0], &dt, env[0]+0x1e0)` was not located — `FUN_18008a020`,
+`FUN_180082560`, `FUN_1800909d0`, `FUN_180090700`, `FUN_18009a690`, `FUN_1800983e0`,
+`FUN_1800985a0` and `FUN_180075a90` were each read in full and none contains it, and the address
+appears nowhere as a literal. So gravity is applied once per step from a site still unfound.
+
+**Also inferred rather than read:** that `EnableGravity`'s `realobj+0xe8` is literally `env[0]`. The
+structural match is strong — both are the same `+0x1e0`/`+0x1e2`/`+0x1e8` list shape, manipulated by
+the same add/remove pair, and slot 4's own list argument has that shape — but the assignment that
+populates `realobj+0xe8` was not found.
+
+**Two leads were chased and eliminated**, recorded so they are not re-run: `FUN_180089660` reads a
+`+0x118` on an unrelated drag structure rather than on the environment, and `FUN_180090700`'s
+`realobj+0xe8` reads turn out to be an `IVP_Core*` rather than a controller. **`0xe8` is reused
+across unrelated structures exactly as `0x118` is** — the same trap, twice.
+
+*Evidence class: read from the decompiled binary for `EnableGravity`, the controller, its vtable,
+the application function and the copy chain; the `"m_gravityLength"` and `"sys:gravity"` strings are
+read; INFERRED and flagged for `realobj+0xe8` being `env[0]`; NOT ESTABLISHED for the per-tick call
+site.*
