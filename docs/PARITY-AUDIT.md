@@ -1165,3 +1165,36 @@ sheet of grass.
 it makes — one material per map, entries are sub-rectangles, the lump names none — and wrong only
 about the literal name, which is the part that became a `const string`. **An SDK comment naming a
 specific value is a lead, not a measurement**; the shipped data answers, and it took one census.
+
+## The view origin, and a branch the engine does not have (B365)
+
+**`CurrentViewOrigin()` is the render view's origin, whatever is driving it.** No engine function
+that measures a distance from the viewer asks whose eyes they are —
+`C_FuncAreaPortalWindow::GetDistanceBlend` (`c_func_areaportalwindow.cpp:131`) and
+`UTIL_ComputeEntityFade` both simply take it. A demo viewer is a spectator; the question "is there a
+player whose eyes these are" is one the engine never poses.
+
+**Ours asked it, in the window rather than in the scene.** `MomentView.Eye` was
+`_firstPerson ? FirstPersonCamera() : null`, so `MomentScene.Pose` set `ViewOrigin` to null for a
+free or chase camera, and two implemented mechanisms did nothing at all: the areaportal window's
+distance blend fell back to the brush's renderamt — a solid black panel, B358's picture again — and
+the entity distance fade drew everything at full alpha.
+
+**This is the shape the audit keeps finding, from a new direction.** Usually a divergence hides
+because the picture looks fine. Here the picture was WRONG for a month with fourteen green tests,
+because every one of them set `ViewOrigin` by hand: they tested the arithmetic below the defect, and
+nothing tested how a frame supplies it. **A value the tests inject is a value the wiring is never
+asked about** — the same lesson as `docs/memory/output-level-assertion-or-it-is-not-done.md`, one
+layer higher.
+
+**And the owner diagnosed it from the symptom, again.** *"this is a stv demo, pvs should update
+based on the camera, not a player themselves"*, then *"that is basically guaranteed to be how valve
+does it"* — both before anything was read. Worth recording next to B358, where the same thing
+happened and the investigation argued with him twice.
+
+**Fixed** by taking the eye from the device that built the frustum (`Device3D.Eye`, the field the
+cull and the 2D sky already read) and handing it to `Pose` beside that frustum, so the cull and the
+fade cannot disagree about where the viewer is.
+
+**What is NOT established:** `Device3D.Eye` has no unit test — reaching it needs a real D3D device —
+so sabotaging it to `null` builds clean and reddens nothing. Only a capture catches that one.

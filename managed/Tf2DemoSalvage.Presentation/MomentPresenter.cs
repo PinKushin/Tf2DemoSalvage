@@ -232,7 +232,16 @@ public sealed class MomentPresenter
     /// of a repaint: a paused viewer draws repeatedly off one moment, and posing again per draw is
     /// exactly the per-frame cost this change exists to remove.
     /// </remarks>
-    public void PoseNow(ViewFrustum frustum = default, ReadOnlySpan<bool> visibleByLeaf = default)
+    /// <param name="eye">
+    /// <c>CurrentViewOrigin()</c> — where this frame is drawn from, in EVERY camera mode (B365).
+    /// It arrives here rather than in <see cref="MomentInfo"/> because the view does not exist when
+    /// the moment is built, and it comes from the device so that it is the same origin the frustum
+    /// beside it was built from.
+    /// </param>
+    public void PoseNow(
+        ViewFrustum frustum = default,
+        ReadOnlySpan<bool> visibleByLeaf = default,
+        (float X, float Y, float Z)? eye = null)
     {
         if (_builtFor is not { } info || _posed)
         {
@@ -242,7 +251,7 @@ public sealed class MomentPresenter
         _posed = true;
         _rebuilt = true;
 
-        MomentPhases posing = _moment.Pose(info, frustum, visibleByLeaf);
+        MomentPhases posing = _moment.Pose(info, frustum, visibleByLeaf, eye);
 
         // **One line per rebuild, not two.** The two halves are measured apart and read together;
         // reporting each on its own would put `advance`'s parts in separate lines that a reader has

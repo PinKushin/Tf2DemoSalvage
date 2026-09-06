@@ -163,3 +163,4 @@
 - [Absent from the SDK is not unreadable](absent-from-the-sdk-is-not-unreadable.md) — ask which binary ships it.
 - [IVP is a third convention](ivp-is-a-third-convention.md) — axes, units and transpose, all at once.
 - [A Valve comment can be stale](a-valve-comment-can-be-stale.md) — 234 maps override the material it names.
+- [The view origin is the camera, not a player](the-view-origin-is-the-camera-not-a-player.md) — first-person-only killed every distance fade.

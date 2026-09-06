@@ -46,6 +46,14 @@ internal sealed partial class ViewerSession
     public static ViewerApplication App => _viewer ?? throw new InvalidOperationException(
         "The viewer is not running; ViewerSession did not complete its setup.");
 
+    /// <summary>The running viewer, or null before setup and after teardown.</summary>
+    /// <remarks>
+    /// **For callers whose work is optional**, which is the difference from <see cref="App"/>: a
+    /// test that needs the viewer should fail loudly without one, and <see cref="TestNameInTitleAttribute"/>
+    /// — which only writes a caption — must not turn "no window yet" into a failed test.
+    /// </remarks>
+    public static ViewerApplication? Launched => _viewer;
+
     /// <summary>Skips the caller unless Team Fortress 2 is installed on this machine.</summary>
     /// <remarks>
     /// **The UI suite never had this gate and CI has been red because of it.** A test that waits
