@@ -95,5 +95,30 @@ demo was simply one the owner had never examined — and one the live TF2 client
 - **Before reporting a regression from an unfamiliar demo, run the OLD build on the same file.** One
   launch would have ended that evening at the start.
 
+## `z1800.dem` is DAYTIME harvest, and that is why it is the founding specimen
+
+**2026-09-05.** Verifying detail props (grass), I reached for
+`demostf-koth_harvest_event-1491260.dem` because the map name matched, and spent four captures on a
+Halloween night map where nothing on the ground is legible. The owner:
+
+> "idk why you were not using the z1800 demo, its daytime harvest, but granary, and process_f12 is
+> good too, since it stresses different than the harvest which is mostly static according to you"
+
+Three things in that, all worth keeping:
+
+- **`tools/corpus/demos/z1800.dem` is harvest in daylight.** For anything that has to be SEEN on
+  harvest, it is the file — the event map is the same geometry under a night sky and a purple fog.
+- **Pick the map by what it stresses, using the census you just took.** Harvest is 20,117 fixed
+  detail sprites against 8,582 screen-aligned; `cp_granary` is 324 against 19,189. Those exercise
+  opposite halves of the same feature, and the owner reached for that split from a number I had
+  reported to him a moment earlier. When a measurement says two maps differ in kind, verify on both.
+- **Say what the map is "mostly" from the data**, not from an impression — he quoted my own figure
+  back ("according to you"), which only works because the figure was in the message.
+
+**And wait for the viewer.** It takes 20-30 seconds to boot and load a map, so an `ls` issued right
+after launching reports the capture missing and reads exactly like a crash. Wait on the FILE
+(`until [ -f … ]`), never on a listing. See [[point-the-camera-from-the-data]].
+
 Related: [[ask-which-input-differs-before-bisecting]], [[a-picture-is-assertable]],
-[[record-both-points-of-view]], [[author-the-specimen-the-corpus-lacks]].
+[[record-both-points-of-view]], [[author-the-specimen-the-corpus-lacks]],
+[[point-the-camera-from-the-data]].

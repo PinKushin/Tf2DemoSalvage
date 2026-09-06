@@ -500,6 +500,103 @@ public sealed class MapAssets
     private static TextureTransform? Transform(string? text) =>
         text is null ? null : MaterialProxies.TextureTransformFrom(text);
 
+    /// <summary>Appends the map's detail sprites to the world geometry (B360).</summary>
+    /// <param name="assets">Where the counts and any refusal are reported.</param>
+    /// <param name="props">The static props already built, which this returns extended.</param>
+    /// <param name="map">The map's bytes, which carry the <c>dprp</c> game lump.</param>
+    /// <param name="pak">The map's own pakfile, searched before the game's archives.</param>
+    /// <param name="archives">The game's archives.</param>
+    /// <param name="table">The material table, which gains one entry when there are sprites.</param>
+    /// <param name="maximumTextureSize">The upload limit, as for every other material.</param>
+    /// <returns>The props with the sprites appended, or the props unchanged.</returns>
+    /// <remarks>
+    /// **The grass, and it is why a Source outdoor map reads as ground rather than as a texture.**
+    /// `vbsp` scatters thousands of these from a material's `%detailtype`; `koth_harvest_final`
+    /// carries 28,699 and this project drew none of them until B360.
+    ///
+    /// **They join the WORLD geometry rather than becoming placements**, which is what the engine
+    /// does too: a detail sprite is a bare quad with no model, no bones and no per-entity state, and
+    /// `CDetailObjectSystem` batches them into one mesh. Here that means one material, one batch,
+    /// and the translucent pass the material's own `$translucent` already routes it to.
+    ///
+    /// **One material for all of them**, because the engine has exactly one:
+    /// <c>#define DETAIL_SPRITE_MATERIAL "detail/detailsprites"</c>
+    /// (<c>detailobjectsystem.cpp:44</c>). The dictionary's entries are sub-rectangles of that
+    /// single sheet, so nothing here resolves a material per sprite.
+    ///
+    /// **Appended after the props and before the entity models**, which is only safe because
+    /// nothing has cached an index yet: <see cref="PropModels.Load"/> has already handed out its
+    /// own, and the entity models below take whatever comes next. The order is load-bearing for
+    /// everything that indexes the table, which is why this is stated rather than assumed.
+    /// </remarks>
+    private static IReadOnlyList<PropVertex> AddDetailSprites(
+        ILogger assets,
+        IReadOnlyList<PropVertex> props,
+        ReadOnlyMemory<byte> map,
+        PakFile pak,
+        GameArchives archives,
+        MaterialTable table,
+        int maximumTextureSize)
+    {
+        IReadOnlyList<BspDetailProp> objects;
+        IReadOnlyList<BspDetailSprite> sprites;
+
+        try
+        {
+            (_, sprites, objects) = BspDetailProps.Read(map);
+        }
+        catch (InvalidDataException failure)
+        {
+            // Named rather than swallowed: a map whose detail lump this reader cannot walk is a
+            // map drawn without its grass, and that is a difference somebody would report as
+            // "the ground looks bare" with nothing in the log to point at.
+            assets.LogWarning(failure, "reading the map's detail props");
+            return props;
+        }
+
+        if (objects.Count == 0)
+        {
+            return props;
+        }
+
+        ResolvedMaterial material = Resolve(
+            assets, DetailSprites.Material, pak, archives, maximumTextureSize);
+
+        if (material.Texture is not { } sheet)
+        {
+            // The machine without TF2 reaches this on every map (`docs/memory/ci-is-the-machine-
+            // without-tf2.md`), so it is a warning about the install rather than about the map.
+            assets.LogWarning(
+                "{Message}",
+                $"{objects.Count} detail props will not be drawn: " +
+                $"{DetailSprites.Material} resolved to no texture");
+
+            return props;
+        }
+
+        int index = table.Add(
+            new BspMaterial(DetailSprites.Material, (0f, 0f, 0f), sheet.Width, sheet.Height),
+            material);
+
+        List<PropVertex> world = [.. props];
+
+        (int built, int screenAligned) = DetailSprites.Build(objects, sprites, index, world);
+
+        // ASKED FOR / HAVE / PRODUCED / MISSING, as every other stage of the load reports. The
+        // screen-aligned figure is the one that matters: those are not a failure, they are B361 —
+        // `CDetailModel::ComputeAngles` turns them toward the view every frame, so no static
+        // geometry can hold them.
+        assets.LogInformation(
+            "{Message}",
+            $"ASKED FOR {objects.Count} detail props across {sprites.Count} sprite rectangles; " +
+            $"HAVE the {DetailSprites.Material} sheet at material {index}; " +
+            $"PRODUCED {built} quads; " +
+            $"MISSING {screenAligned} that face the camera and need per-frame geometry, " +
+            $"{objects.Count - built - screenAligned} that are not sprites at all");
+
+        return world;
+    }
+
     /// <summary>Appends the whole-model override materials to the table, if the install has them.</summary>
     /// <param name="assets">Where resolution is reported.</param>
     /// <param name="table">The material table every face and every model already indexes into.</param>
@@ -1030,6 +1127,8 @@ public sealed class MapAssets
             ResolveProp,
             refusedLighting,
             lightAt);
+
+        props = AddDetailSprites(assets, props, map, pak, archives, table, maximumTextureSize);
 
         propTiming.Dispose();
 

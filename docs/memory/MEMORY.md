@@ -156,3 +156,5 @@
 - [Prove the equivalence before building it](prove-the-equivalence-before-building-it.md) — measure what the difference needs to be visible.
 - [A schema key nobody reads is a lead](a-schema-key-nobody-reads-is-a-lead.md) — 747 on the left, zero on the right.
 - [A duplicated guard cannot be tested](a-duplicated-guard-cannot-be-tested.md) — fix the input, not the assertion.
+- [Correct counts are not a chain of custody](correct-counts-are-not-a-chain-of-custody.md) — six green, nothing drawn.
+- [Point the camera from the data](point-the-camera-from-the-data.md) — eight guessed cameras hit walls.

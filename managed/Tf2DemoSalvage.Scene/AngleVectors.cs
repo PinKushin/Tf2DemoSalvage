@@ -68,18 +68,41 @@ public static class AngleVectors
     /// <remarks>
     /// **Valve's `right` reduced at roll zero, which is exact rather than approximate.** With
     /// `sr = 0` and `cr = 1` the published formula collapses to `(sy, -cy, 0)`: **pitch drops out
-    /// entirely**, because `sp` appears only multiplied by `sr`. Ignoring pitch here is therefore
-    /// correct and not a simplification.
+    /// entirely**, because `sp` appears only multiplied by `sr`. Passing pitch zero below is
+    /// therefore lossless and not a simplification — the value cannot reach the result.
     ///
-    /// **Nothing in this viewer rolls** — the free camera clamps pitch and never rolls, and a
-    /// recorded view's roll is not read. If one ever is, the full three-line form above is what
-    /// replaces this, and it needs a `roll` parameter rather than a correction.
+    /// **Nothing the CAMERA does rolls** — the free camera clamps pitch and never rolls, and a
+    /// recorded view's roll is not read. Detail props do (B360), which is why the three-argument
+    /// form beneath this exists and why this one now delegates to it rather than carrying a second
+    /// copy of the arithmetic.
     /// </remarks>
-    public static (float X, float Y, float Z) Right(float yaw)
-    {
-        (float sinYaw, float cosYaw) = MathF.SinCos(yaw * Radians);
+    public static (float X, float Y, float Z) Right(float yaw) => Right(0f, yaw, 0f);
 
-        return (sinYaw, -cosYaw, 0f);
+    /// <summary>Which way is right, for a basis that may be rolled.</summary>
+    /// <param name="pitch">Pitch in degrees.</param>
+    /// <param name="yaw">Yaw in degrees.</param>
+    /// <param name="roll">Roll in degrees.</param>
+    /// <returns>The basis's right vector.</returns>
+    /// <remarks>
+    /// **`mathlib_base.cpp:938`, transcribed** — the three lines quoted on the type, with no
+    /// rearrangement. `-1*cr*-sy` is Valve's own double negation and is left as it is written.
+    ///
+    /// **This exists because detail props roll and the camera does not.** `vbsp` builds a
+    /// non-upright detail's orientation from the ground's surface normal — an arbitrary
+    /// perpendicular basis, then a random spin about it (<c>detailobjects.cpp:568-600</c>) — so
+    /// pitch and roll are both filled in for anything standing on a slope. Measured on
+    /// `koth_harvest_final`: 27,686 of 28,699 detail props carry both.
+    /// </remarks>
+    public static (float X, float Y, float Z) Right(float pitch, float yaw, float roll)
+    {
+        (float sinPitch, float cosPitch) = MathF.SinCos(pitch * Radians);
+        (float sinYaw, float cosYaw) = MathF.SinCos(yaw * Radians);
+        (float sinRoll, float cosRoll) = MathF.SinCos(roll * Radians);
+
+        return (
+            (-1f * sinRoll * sinPitch * cosYaw) + (-1f * cosRoll * -sinYaw),
+            (-1f * sinRoll * sinPitch * sinYaw) + (-1f * cosRoll * cosYaw),
+            -1f * sinRoll * cosPitch);
     }
 
     /// <summary>The UP vector of an angle pair — <c>AngleVectors</c>' third output.</summary>
@@ -96,18 +119,33 @@ public static class AngleVectors
     /// </code>
     ///
     /// **With <c>sr = 0</c> and <c>cr = 1</c> that collapses to <c>(sp·cy, sp·sy, cp)</c>** — and
-    /// unlike <see cref="Right"/>, PITCH does not drop out: it is the whole of the first two
+    /// unlike <see cref="Right(float)"/>, PITCH does not drop out: it is the whole of the first two
     /// components. So this needs both angles where that one needs only yaw, which is the reason the
     /// two have different signatures rather than an oversight.
     ///
-    /// Nothing in this viewer rolls, as recorded on <see cref="Right"/>. If one ever does, the
-    /// three-line form above is what replaces this.
+    /// The camera does not roll, as recorded on <see cref="Right(float)"/>; detail props do, so this
+    /// delegates to the three-argument form rather than keeping a second copy of the arithmetic.
     /// </remarks>
-    public static (float X, float Y, float Z) Up(float pitch, float yaw)
+    public static (float X, float Y, float Z) Up(float pitch, float yaw) => Up(pitch, yaw, 0f);
+
+    /// <summary>The UP vector of a basis that may be rolled.</summary>
+    /// <param name="pitch">Pitch in degrees.</param>
+    /// <param name="yaw">Yaw in degrees.</param>
+    /// <param name="roll">Roll in degrees.</param>
+    /// <returns>The basis's up vector.</returns>
+    /// <remarks>
+    /// **`mathlib_base.cpp:944`, transcribed.** See <see cref="Right(float, float, float)"/> for why
+    /// a rolled basis is needed at all.
+    /// </remarks>
+    public static (float X, float Y, float Z) Up(float pitch, float yaw, float roll)
     {
         (float sinPitch, float cosPitch) = MathF.SinCos(pitch * Radians);
         (float sinYaw, float cosYaw) = MathF.SinCos(yaw * Radians);
+        (float sinRoll, float cosRoll) = MathF.SinCos(roll * Radians);
 
-        return (sinPitch * cosYaw, sinPitch * sinYaw, cosPitch);
+        return (
+            (cosRoll * sinPitch * cosYaw) + (-sinRoll * -sinYaw),
+            (cosRoll * sinPitch * sinYaw) + (-sinRoll * cosYaw),
+            cosRoll * cosPitch);
     }
 }

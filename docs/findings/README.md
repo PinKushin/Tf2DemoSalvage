@@ -99,6 +99,12 @@ in any public writeup found:
   hat serves nine class models with different parts. Adding each item's contribution is correct until
   two items name the same part, which 457 of them do; then the digit overruns and a *different*
   piece vanishes ([49](49-a-hat-removes-the-head-it-replaces.md)).
+- **The map scatters its own grass, and it is nearly thirty times the size of the prop lump** —
+  `dprp` holds 28,699 objects on harvest against about a thousand static placements, compiled by
+  `vbsp` from a `%detailtype` key rather than placed by anyone. Its quad reads backwards three ways
+  and all three are Valve's; almost every sprite ROLLS, because a non-upright detail's orientation
+  is built from the ground's surface normal. Then six correct counts reported success for a draw
+  call that was never issued ([50](50-the-map-scatters-its-own-grass.md)).
 
 ## Conventions used throughout
 
