@@ -427,3 +427,263 @@ wrong in one lane produces a corpse that settles smoothly into the wrong shape.
 **Still to read, in the order the work needs it:** the ragdoll constraint's per-step solve
 (`180038620`), `IVP_Core`'s integration step, the time manager's event loop, and `ivp_mindist*` for
 collision against the world.
+
+---
+
+## Reading the solve: the constant pool first, because the lanes are unreadable without it
+
+**The per-step solve (`180038620`) is unreadable as decompiled, and the way in is not the code.**
+Nearly every line of it is a mask — `(uint)x & _DAT_1800ff0f0`, `~uVar6 & (uint)a | (uint)b & uVar6`
+— and a mask whose value you do not know is a line you cannot read. Dumping the constant pool it
+draws from turns the whole function over at once:
+
+| address | value | what it is |
+|---|---|---|
+| `1800ff070` | `{0, 0, 0, 0}` | zero; `DAT_1800ff070 - x` in the code is **negate** |
+| `1800ff080` | `{1, 1, 1, 1}` | one |
+| `1800ff090` | `{3, 3, 3, 3}` | the 3 of the `rsqrtps` Newton step |
+| `1800ff0b0` | `{0.5, …}` | its half |
+| `1800ff0c0` | `{1.1920929e-7, …}` | `FLT_EPSILON` — the guard on a squared length |
+| `1800ff0d0` | `{0x7fffffff, …}` | **absolute value** mask |
+| `1800ff0e0` | `{0x80000000, …}` | the sign bit; `~mask & x` is also `fabs` |
+| `1800ff0f0` | `{~0, ~0, ~0, 0}` | **keep xyz, clear w** |
+| `1800ff100` / `110` / `120` / `130` | one lane each | select lane 0 / 1 / 2 / 3 |
+
+**One of those corrected a reading that was already written down.** `1800ff0f0` was read as the
+absolute-value mask on first pass — `(uint)x & _DAT_1800ff0f0` looks exactly like one — and it is
+`{~0, ~0, ~0, 0}`: a W-clear, not an ABS. Every `fabs` inferred from it was wrong, and the two masks
+sit thirty-two bytes apart. **This is precisely the failure the last section warned about**, caught
+by dumping rather than by reading more carefully.
+
+So `(float)(*(uint *)(param_1 + 0x30) & _DAT_1800ff0f0)` is not `fabs(axis.x)`; it is the axis
+vector with its fourth lane zeroed, three of these lines together forming a 3-vector out of a
+16-byte load. And `param_3[0x40..0x43]` is not four related values — it is four scalars gathered one
+lane at a time through `1800ff100`–`130`, which is a horizontal shuffle the decompiler cannot name.
+
+## IVP keeps its transforms in DOUBLES
+
+`FUN_180037620`, called on each body at the top of the solve, is the body-to-world matrix fetch:
+
+```c
+lVar15 = *(longlong *)(param_1 + 0xe8);          // the body's core
+dVar1 = *(double *)(lVar15 + 0x90);  ...          // a 4x4 of DOUBLES at +0x90
+*(float *)*param_2        = (float)dVar1;         // row 0 = source COLUMN 0
+*(float *)(*param_2 + 4)  = (float)dVar3;         // (+0xb0)
+*(float *)(*param_2 + 8)  = (float)dVar4;         // (+0xd0)
+```
+
+Three facts, and each is a thing a transcription would otherwise guess:
+
+- **The core's matrix is `double`, at core+0x90, rows 32 bytes apart** (0x90, 0xb0, 0xd0, 0xf0).
+  Source's own `matrix3x4_t` is float; IVP's `IVP_U_Matrix` is not, and the narrowing happens here,
+  at the boundary into the solver.
+- **It transposes on the way out** — destination row 0 is source column 0 — which is the transpose
+  `docs/memory/ivp-is-a-third-convention.md` already records, now seen at the exact line that does
+  it rather than inferred from the convention.
+- **A guarded shift by a local anchor.** `if ((*(uint *)(param_1 + 0x78) & 0x800) == 0)` the
+  translation is offset by the vector at body+0x60 rotated into world. Bit 0x800 means "no shift" —
+  a flag whose absence changes the matrix, so a reader who skipped the `if` would place every joint
+  by the body's origin instead of by its anchor.
+
+## `FUN_180036b80` is an angle, computed the SIMD way
+
+The solve builds two broadcast scalars — a dot product and a triple product, the cosine-like and
+sine-like halves of a joint's current angle — and hands both to `FUN_180036b80`, which does:
+
+```c
+a = fabs(param_1[i]);  b = fabs(param_2[i]);          // via the 0x80000000 mask
+rcpps( max(a, b) );
+rcpps( a + b );
+```
+
+`min/max` of the two magnitudes followed by a reciprocal is the opening of the standard fast
+`atan2`, so this is the joint's angle rather than anything about forces.
+
+**The decompilation dropped both returns and one guess off it was wrong, so the disassembly
+settles it.** `RCPPS` alone is the ~12-bit approximate reciprocal, and the first reading here was
+that Valve takes it raw. It does not — each `RCPPS` is followed immediately by a Newton–Raphson
+step, `r' = 2r − r²x`, spelled out in four instructions:
+
+```asm
+180036bdb  RCPPS XMM5,XMM1        ; r ≈ 1/max
+180036be2  MOVAPS XMM0,XMM5
+180036be5  MULPS XMM0,XMM5        ; r²
+180036be8  ADDPS XMM5,XMM5        ; 2r
+180036beb  MULPS XMM0,XMM1        ; r²x
+180036bf4  SUBPS XMM5,XMM0        ; 2r − r²x
+180036bde  CMPLTPS XMM4,XMM1      ; and FLT_EPSILON < max …
+180036c13  ANDPS XMM5,XMM4        ; … or the answer is zeroed
+```
+
+So a plain `1.0f / x` IS the faithful transcription of the reciprocal, and the epsilon mask beside
+it is the divide-by-zero guard. **The wrong version is kept here because it is the exact shape this
+document warns about**: a claim about precision, inferred from an instruction name, that would have
+been transcribed as a deliberate approximation nobody could later justify.
+
+**The whole of `FUN_180036b80` is a four-lane `atan2`**, and these are its coefficients — read out
+of `180124f10` onward, each broadcast across all four lanes:
+
+| address | value | role |
+|---|---|---|
+| `180124f10` | `0.16591105` | z⁴ coefficient |
+| `180124f20` | `-0.33080792` | z² coefficient |
+| `180124f30` | `0.9999531` | z coefficient |
+| `180124f40` | `3.1415927` | π, the `x < 0` fix-up |
+| `180124f50` | `1.5707964` | π/2, for the swapped octant |
+| `180124f60` | `0.7853982` | π/4, for the other branch |
+
+```
+atan(z) ≈ z * (0.9999531 + z² * (-0.33080792 + z² * 0.16591105))
+```
+
+with `z` selected per lane as `min(|x|,|y|)/max(|x|,|y|)` or `(|x|−|y|)/(|x|+|y|)`, whichever is
+smaller in magnitude, then `π/2 −` it for the swapped case, the sign of `y` XOR'd back in, and `π`
+added where `x < 0`. `CMPLTPS XMM10, [1800ff070]` is that last test — a comparison against the zero
+vector, which the constant table above is what makes readable.
+
+**This is a joint angle, computed to about seven digits**, and it is the number every limit in
+`InitRagdoll`'s per-axis records is compared against.
+
+*Evidence class: read from the decompiled binary, its disassembly and its data section; the two
+constant tables are verbatim dumps of `1800ff070`–`1800ff13c` and `180124f10`–`180124f60`.*
+
+## The joint is solved as ONE axis plus TWO, not as three
+
+`FUN_180036e10`, called from the solve once the Jacobian rows are written, is short and its shape is
+the finding:
+
+```c
+FUN_180036f80( ..., param_3 + 0x150, ..., (byte *)(param_1 + 0xb0), ... );   // axis 1
+FUN_1800372c0( ..., param_3 + 0x1d0, ..., (byte *)(param_1 + 0xe8), ... );   // axis 2
+FUN_1800372c0( ..., param_3 + 0x250, ..., (byte *)(param_1 + 0xcc), ... );   // axis 3
+```
+
+**Three per-axis records at constraint+0xb0, +0xcc and +0xe8** — 0x1c apart, so 28 bytes each,
+which is the stride `InitRagdoll` writes. **The first axis goes through a different routine from
+the other two**, and the second and third are solved in the order 0xe8 then 0xcc rather than in
+address order.
+
+**One axis is solved by a different routine from the other two**, which is the shape of a ragdoll
+joint — a twist and two swings — but which of the three is the twist is NOT established by this and
+must not be assumed. A transcription that treated the three symmetrically would produce a corpse
+whose limbs settle plausibly and whose shoulders rotate about the wrong one: the expensive kind of
+failure, because it looks like physics rather than like a bug.
+
+Each is given a scalar of its own from `param_3 + 0x100`, `+0x104`, `+0x108`, broadcast to four
+lanes before the call.
+
+**What is NOT established:** what the two routines do differently, and which of the three axes is
+the twist. The records' 28-byte layout is also unread — `InitRagdoll` writes it and this reads it,
+so the two together will name the fields, and that is the next thing to do.
+
+*Evidence class: read from the decompiled binary.*
+
+## It is sequential impulses, and the accumulator lives in the constraint
+
+`FUN_180036f80` — the single-axis routine — reads its 28-byte record as bytes and floats, and one
+of them it WRITES BACK:
+
+```c
+fVar16 = *(float *)(param_7 + 0x10);
+fVar2  = *(float *)(param_7 + 0x14);
+fVar24 = *(float *)(param_7 + 0x18);
+...
+*(uint *)(param_7 + 0x18) = ...;      // stored again at the end of the step
+```
+
+**A value read at the top of a solve, used, and written back at the bottom is an accumulated
+impulse**, which makes this a sequential-impulse solver rather than a one-shot Jacobian solve. That
+matters for a transcription more than any single formula: the constraint carries state ACROSS steps,
+so a corpse's joints converge over several frames and a reimplementation that recomputed from
+scratch each step would be soft where the engine is stiff.
+
+The record's shape falls out of the same function — and 0x18 + 4 = **0x1c**, the stride
+`FUN_180036e10` uses between the three axes, so the layout is complete:
+
+| offset | use |
+|---|---|
+| +0x00 | flags; **bit 0 selects a 16-byte offset** into the scratch block (`(*param_7 & 1) * 0x10`) |
+| +0x01 | a second flag, gating the whole limit branch |
+| +0x04, +0x08, +0x0c | floats, used against the caller's per-axis scalar |
+| +0x10, +0x14 | floats, used on the limit path |
+| +0x18 | **the accumulated impulse — read and stored** |
+
+**And the two bodies' accumulators are at body+0x130 and body+0x140**, the same offsets the outer
+solve wrote to under its `+0x157` branch. Both are written back through the `{~0,~0,~0,0}` mask, so
+the fourth lane is deliberately discarded — these are 3-vectors in 16-byte slots, a linear pair and
+an angular pair.
+
+**Both routines are scalar, and an argument to the contrary was wrong — kept because it is the
+exact trap this document is about.** Three of every four lanes in `FUN_180036f80` are multiplied by
+a literal `0.0`:
+
+```c
+fVar28 = fVar24 * param_8[1] * param_2[0x15] * 0.0;
+fVar30 = fVar24 * param_8[2] * param_2[0x16] * 0.0;
+```
+
+— the compiler vectorised a scalar and left the dead lanes in. That was read here as independent
+confirmation that this routine solves ONE axis while `FUN_1800372c0`, called twice, solves the other
+two together. **It is not: `FUN_1800372c0` has the same dead lanes.** Both are one-axis-per-call, and
+the structure is one call plus two calls, not one axis plus a pair.
+
+The lesson is the one the constant table already taught, in a second form: **a dead lane says the
+compiler vectorised a scalar, and nothing whatever about how many axes the algorithm has.** Reading
+it as evidence produced a confident architectural claim from a code-generation artefact, and the
+only thing that killed it was decompiling the sibling and looking for the same pattern — the control
+this project's own rules ask for before believing any absence or any difference.
+
+**Part of what differs is now read.** `FUN_1800372c0` takes nine arguments to the other's eight — a
+matrix and an extra vector — and multiplies its error term by a constant the first never touches:
+
+```c
+auVar32._0_4_ = (*param_9 * _DAT_1800ee9b0 * fVar23 * fVar26 - fVar31 * fVar30) * param_2[0x14];
+```
+
+`1800ee9b0` is **`{0.8, 0.8, 0.8, 0.8}`**, with `{0.1, …}` immediately after it at `1800ee9c0`. A
+factor under one applied to a positional error is a relaxation term — the fraction of the error a
+step is allowed to correct — so **two of the three axes are relaxed at 0.8 and the third is not**.
+That is a number a reimplementation would never guess and would never miss either, because at 1.0 a
+joint overshoots and jitters rather than failing outright.
+
+Both routines share `FUN_180037bd0` and the same integer state check.
+
+**One decompiler artefact worth naming**, because it reads as nonsense otherwise:
+`if (param_2[0x1c] == 1.4013e-45)` is not a float comparison. `1.4013e-45` is the smallest denormal,
+bit pattern `0x00000001`, and `2.8026e-45` is `0x00000002` — this is an INTEGER state field the
+decompiler typed as float. The constraint has a small state machine at `+0x70` of its scratch block,
+and reading those constants as floats would put a wildly implausible threshold into the
+transcription.
+
+*Evidence class: read from the decompiled binary.*
+
+## `FUN_180037bd0` is the cached Jacobian row, and the state field is a memo
+
+The helper both axis routines call opens by writing the state field the callers test:
+
+```c
+param_1[0x1c] = 1.4013e-45;     // = 0x00000001
+```
+
+So `if (state == 1)` in the callers is *"this row has already been built this step"*, and the
+`== 2` inside it is a second stage. **The state machine is a memo, not a mode** — three axes share
+one scratch block, and only the first of them pays for the transform.
+
+What it builds is the axis expressed in each body's frame:
+
+```c
+fVar29 = a.y * core3[0xb0] + a.z * core3[0xd0] + a.x * core3[0x90];   // body A
+...
+fVar24 = 0 - a.x;  fVar26 = 0 - a.y;  fVar27 = 0 - a.z;               // negated for body B
+```
+
+Two facts fall out, and both are structural rather than numeric:
+
+- **`param_3` and `param_4` are the CORES, not the objects** — the doubles are at +0x90 again, the
+  same matrix `FUN_180037620` reads through `body+0xe8`. Three independent sightings of that offset
+  now.
+- **The second body gets the negated axis**, which is Newton's third law written as a sign flip
+  rather than as a subtraction later. A transcription that applied the same row to both bodies would
+  make a joint push both halves the same way — a corpse that drifts.
+
+*Evidence class: read from the decompiled binary.*

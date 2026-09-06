@@ -8,3 +8,8 @@
 // pay the startup cost every time and is what InstancePerTestCase would force.
 [assembly: NonParallelizable]
 [assembly: LevelOfParallelism(1)]
+
+// **The window says which test is driving it.** Thirty-one tests share one viewer, so somebody
+// watching a defect appear on screen cannot tell which test produced it. Asked for by the owner
+// while watching this suite; see TestNameInTitleAttribute.
+[assembly: Tf2DemoSalvage.Viewer3D.UiTests.TestNameInTitle]

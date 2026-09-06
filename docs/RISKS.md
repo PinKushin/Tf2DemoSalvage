@@ -24778,7 +24778,45 @@ static props with the detail system's own distance fade over the top, rather tha
 denominator: one map in five, three hundred instances, and a path that already exists for static
 props.
 
-**Evidence class: measured** for the counts; **read-from-source** for the type's meaning.
+**The draw is now read in full, so the work is specified rather than estimated**
+(`detailobjectsystem.cpp:694`):
+
+```cpp
+int CDetailModel::DrawModel( int flags )
+{
+    if ((m_Alpha == 0) || (!m_pModel))
+        return 0;
+
+    return modelrender->DrawModel( flags, this,
+        MODEL_INSTANCE_INVALID,
+        -1,          // no entity index
+        m_pModel, m_Origin, m_Angles,
+        0,           // skin
+        0,           // body
+        0 );         // hitboxset
+}
+```
+
+Five things that make it cheaper than it looks, and each is a decision already taken by Valve:
+
+- **Skin 0, body 0, hitboxset 0.** A detail model has no variation at all, so none of the econ,
+  bodygroup or skin resolution any other model needs applies.
+- **Entity index −1.** No per-entity material proxies, which is what makes them batchable.
+- **`m_Alpha` IS the sprite fade.** `ComputeFxBlend` is *"Do nothing, it's already calculate in our
+  m_Alpha"* and `GetFxBlend` returns it — the same `DetailFade` this project already computes per
+  view for the sprites, applied to a studio model.
+- **Alpha 0 draws nothing**, checked before the model pointer.
+- **`IsTransparent()` is `(m_Alpha < 255) || modelinfo->IsTranslucent(m_pModel)`** — so a fully
+  faded-in detail model is opaque unless its own material says otherwise, and it only joins the
+  translucent pass while it is fading.
+
+`GetRenderBounds` asks `modelinfo` for the model's own bounds when it is `mod_studio` or
+`mod_brush`, and answers a zero box otherwise — the empty-box case
+`docs/memory/an-empty-box-must-never-cull.md` warns about, so the cull must treat it as "always
+visible" rather than as a point at the origin.
+
+**Evidence class: measured** for the counts; **read-from-source** for the type's meaning and for the
+whole draw path.
 
 ### B364 FIXED: every map picks its own grass texture and we drew one map's on all of them
 
@@ -24841,3 +24879,65 @@ the name — but the engine's answer is louder and matching it would be the pari
 
 **Evidence class: read-from-source** for the branch and the correction; **measured** for the census,
 for the sheet dimensions and for the mean colours.
+
+### B365 FIXED: the view origin existed only in first person, so a free camera measured no distances
+
+**The owner's report: black windows in RED spawn, seen while the UI suite was running**, on the map
+and demo the suite drives — `koth_harvest_final`, `z1800.dem`. It is B358's exact picture, in the
+other spawn, four weeks after B358 was fixed.
+
+**The blend was never wrong. The eye was missing.** The `portal-windows` probe, from a camera
+standing in RED spawn:
+
+```
+z1800.dem tick 300: 12 areaportal windows of 152 props, eye (-416 -2300 130)
+  entity 266 model '*27' ... fade 1200..1500 limit 0  distance-to-ORIGIN 439 blend 0 (0 of 255)
+  entity 267 model '*31' ... fade 1200..1500 limit 0  distance-to-ORIGIN 402 blend 0 (0 of 255)
+  entity 268 model '*30' ... fade 1200..1500 limit 0  distance-to-ORIGIN 402 blend 0 (0 of 255)
+12 of 12 carry their fade distances.
+```
+
+All twelve carry their knots and the three the camera stands among compute **0 of 255** — fully
+clear. They drew black anyway, because the frame never told the scene where the camera was:
+
+```csharp
+_firstPerson ? FirstPersonCamera() : null,     // MainForm, MomentView.Eye
+_models.ViewOrigin = info.EyeCamera?.Origin;   // MomentScene.Pose
+```
+
+`MomentInfo.EyeCamera` is documented as *"Where that eye is, or null when there is none to draw
+from"*, and it is filled in **only in first person**. So in a free or chase camera `ViewOrigin` was
+null, and every mechanism that measures a distance from the viewer silently did nothing:
+
+- **the areaportal window's distance blend** — fell through to the brush's own renderamt, which for
+  harvest's `TOOLS/TOOLSBLACK` windows is 255: a solid black panel, B358 again;
+- **`UTIL_ComputeEntityFade`** (B268) — every entity drawn at full alpha however far away it was.
+
+**Valve has no such branch, and the owner said so before it was measured:** *"this is a stv demo,
+pvs should update based on the camera, not a player themselves"*, and *"that is basically guaranteed
+to be how valve does it"*. It is: `C_FuncAreaPortalWindow::GetDistanceBlend` asks
+`CurrentViewOrigin()` (`c_func_areaportalwindow.cpp:131`), which is the render view's origin whatever
+is driving it — a player's eyes, a SourceTV camera, a spectator's free look.
+
+**Fixed at the layer that knows.** `Device3D.Eye` exposes `_eye` — the field the frustum, the world
+cull and the 2D skybox already read, set in `SetCamera` from whichever camera
+`ViewCamera.Active(mode, firstPerson, chase, freeLook)` returned — and `MomentScene.Pose` now takes
+it beside the frustum it was built from. One camera, so the cull and the fade cannot disagree
+(`docs/memory/one-camera-or-the-cull-lies.md`). `info.EyeCamera` stays as the fallback for callers
+with no device.
+
+**Why fourteen green tests could not see it.** Every test in `AreaPortalWindowWiringTests` sets
+`EntityModelSet.ViewOrigin` by hand, so all of them test the arithmetic below the defect and none of
+them test how a frame supplies it. The two added go through `MomentScene.Pose`, which is the only
+layer at which the bug existed — with a no-eye control beside them, so "the blend ran" and "the
+blend always runs" cannot read the same.
+
+**What is NOT established, and it is a real gap:** `Device3D.Eye` itself has no unit test, because
+reaching it needs a real D3D device. Sabotaging it to `null` builds clean and reddens nothing in
+`Rendering.Tests`; only the picture catches it.
+
+**Looked at**: the same camera in RED spawn, `z1800` tick 300, before and after. Both windows were
+solid black rectangles and now show the yard through them, with their frames and panes.
+
+**Evidence class: measured** for the probe's twelve rows and for the two captures;
+**read-from-source** for `CurrentViewOrigin()`.

@@ -1454,6 +1454,21 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// <summary>Where the camera stands, for the sky box that is centred on it.</summary>
     private (float X, float Y, float Z) _eye;
 
+    /// <summary>Whether a camera has been uploaded, so <see cref="Eye"/> means something.</summary>
+    private bool _placed;
+
+    /// <summary><c>CurrentViewOrigin()</c> — where this frame is being drawn from.</summary>
+    /// <remarks>
+    /// **The same field the frustum, the world cull and the 2D sky already read**, exposed rather
+    /// than recomputed, because everything that measures a distance from the viewer has to agree
+    /// with the cull about where the viewer is (`docs/memory/one-camera-or-the-cull-lies.md`).
+    ///
+    /// **Null until a camera has been uploaded**, which is a real state — a device exists before
+    /// the first frame is placed — and not the map origin. A consumer that read `(0, 0, 0)` there
+    /// would measure every distance from the corner of the world.
+    /// </remarks>
+    public (float X, float Y, float Z)? Eye => _placed ? _eye : null;
+
     /// <summary>How far from the eye the sky box sits.</summary>
     /// <remarks>
     /// **Any distance inside the far plane draws the same picture**, because the sky writes no
@@ -1760,6 +1775,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             // The 2D box is centred here. Kept from the same camera the cull used, so the sky and
             // the world cannot disagree about where the viewer is standing.
             _eye = (camera.Origin.X, camera.Origin.Y, camera.Origin.Z);
+            _placed = true;
 
             if (_skyRoom is { } room && _culling is { } cull &&
                 SkyboxView.Draws(Draw3dSky, _skyVisible, cull.SkyArea))

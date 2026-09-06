@@ -408,6 +408,10 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// <param name="info">The moment, whose camera this call needs and <see cref="Build"/> does not.</param>
     /// <param name="frustum">The view being drawn, for the cull that precedes the pose (B254).</param>
     /// <param name="visibleByLeaf">The world cull's visible-leaf set, for the visibility half.</param>
+    /// <param name="eye">
+    /// <c>CurrentViewOrigin()</c> — where the frame is drawn from, whatever camera is driving it
+    /// (B365). Null falls back to <see cref="MomentInfo.EyeCamera"/>, which is first person only.
+    /// </param>
     /// <returns>The phases this half measured, to be added to <see cref="Build"/>'s.</returns>
     /// <remarks>
     /// **Apart from <see cref="Build"/> because the engine's order is view, then visibility, then
@@ -424,17 +428,36 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// bug B203 fixed.
     /// </remarks>
     public MomentPhases Pose(
-        MomentInfo info, ViewFrustum frustum = default, ReadOnlySpan<bool> visibleByLeaf = default)
+        MomentInfo info,
+        ViewFrustum frustum = default,
+        ReadOnlySpan<bool> visibleByLeaf = default,
+        (float X, float Y, float Z)? eye = null)
     {
         long posingAt = Stopwatch.GetTimestamp();
 
         EntityModelSet.PoseCounters before = _models.Counters;
 
-        // **The view's own position, for the distance fade** (B268). It comes from `info` rather
-        // than from a second reading of the camera, so the fade measures from exactly where the
-        // frustum beside it was built — one camera, or the cull and the fade disagree about how
-        // far away a prop is (`docs/memory/one-camera-or-the-cull-lies.md`).
-        _models.ViewOrigin = info.EyeCamera?.Origin;
+        // **The view's own position, for the distance fade** (B268). It comes from the device that
+        // built the frustum beside it rather than from a second reading of the camera, so the fade
+        // measures from exactly where the cull did — one camera, or the two disagree about how far
+        // away a prop is (`docs/memory/one-camera-or-the-cull-lies.md`).
+        //
+        // **In EVERY camera mode, which is B365.** This read `info.EyeCamera?.Origin`, and that is
+        // null unless the viewer is in first person — so a free or chase camera measured no
+        // distances at all. Two mechanisms went quiet with it: `UTIL_ComputeEntityFade`, which drew
+        // every entity at full alpha however far away it was, and the areaportal window's distance
+        // blend, which fell back to the brush's own renderamt and put a solid black `TOOLSBLACK`
+        // panel in every window of the spawn the camera was standing in.
+        //
+        // **Valve has no such branch.** `CurrentViewOrigin()` is the render view's origin whatever
+        // is driving it — `C_FuncAreaPortalWindow::GetDistanceBlend` (`c_func_areaportalwindow.cpp:131`)
+        // and `UTIL_ComputeEntityFade` both just ask for it. The owner said so before it was
+        // measured: *"this is a stv demo, pvs should update based on the camera, not a player
+        // themselves"*.
+        //
+        // **`info.EyeCamera` remains the fallback** for callers with no device — the scene tests,
+        // and any frame posed before a camera has been uploaded.
+        _models.ViewOrigin = eye ?? info.EyeCamera?.Origin;
 
         _models.Instances(
             _drawn, _instances, Lighting.LightingAt, Lighting.SunAt, info.Seconds, frustum,

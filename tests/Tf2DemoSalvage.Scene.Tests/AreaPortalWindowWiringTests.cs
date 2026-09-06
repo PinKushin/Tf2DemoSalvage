@@ -1,5 +1,7 @@
 using System.Collections.Generic;
 
+using Microsoft.Extensions.Logging.Abstractions;
+
 using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Scene.Tests;
@@ -145,6 +147,78 @@ public sealed class AreaPortalWindowWiringTests
 
         instances[0].Alpha.ShouldBe(255);
         models.PortalWindowsFaded.ShouldBe(0, "nothing was blended, so nothing is counted");
+    }
+
+    /// <remarks>
+    /// **B365: the eye reaches the blend in EVERY camera mode, not only first person.** Every test
+    /// above sets <c>ViewOrigin</c> on the model set by hand, so none of them can see how a frame
+    /// actually supplies it — and for months a frame supplied it only in first person, because
+    /// `MomentView.Eye` was `_firstPerson ? FirstPersonCamera() : null`. The symptom was the exact
+    /// picture B358 fixed: a solid `TOOLSBLACK` panel in every window of the spawn a free camera
+    /// was standing in, with all fourteen tests here green.
+    ///
+    /// **Valve has no such branch.** `GetDistanceBlend` asks `CurrentViewOrigin()`
+    /// (<c>c_func_areaportalwindow.cpp:131</c>), which is the render view's origin whatever is
+    /// driving it. The owner said it before it was measured: *"this is a stv demo, pvs should
+    /// update based on the camera, not a player themselves"*.
+    ///
+    /// **So this test goes through `MomentScene.Pose`**, one layer up, where the frame hands the
+    /// view origin over — the only layer at which the defect existed.
+    /// </remarks>
+    [Test]
+    public void Pose_WithAFreeCameraAndNoFirstPersonEye_StillBlendsTheWindow()
+    {
+        EntityModelSet models = new();
+        MomentScene scene = new(models, new ViewmodelScene(), NullLogger.Instance);
+
+        models.Add([Window(x: 300f, limit: 0f)], OneTriangle);
+
+        // `EyeCamera` is null, as it is for every camera mode but first person.
+        MomentInfo free = new(
+            Tick: 1d,
+            CurrentTick: 1,
+            FirstPerson: false,
+            Followed: null,
+            EyeCamera: null,
+            IntervalPerTick: 0.015f,
+            ViewmodelFieldOfView: 54f);
+
+        scene.Build([], [Window(x: 300f, limit: 0f)], free);
+        scene.Pose(free, eye: (0f, 0f, 0f));
+
+        scene.Instances.Count.ShouldBe(1);
+        scene.Instances[0].Alpha.ShouldBe(
+            0, "the free camera is 300 units away, inside a fade that starts at 1200");
+        models.PortalWindowsFaded.ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **The control, and it is what makes the test above about the CAMERA rather than about the
+    /// arithmetic.** The same moment posed with no eye at all leaves the panel opaque — so "the
+    /// blend ran" and "the blend always runs" cannot produce the same reading.
+    /// </remarks>
+    [Test]
+    public void Pose_WithNoEyeAtAll_LeavesTheWindowOpaque()
+    {
+        EntityModelSet models = new();
+        MomentScene scene = new(models, new ViewmodelScene(), NullLogger.Instance);
+
+        models.Add([Window(x: 300f, limit: 0f)], OneTriangle);
+
+        MomentInfo blind = new(
+            Tick: 1d,
+            CurrentTick: 1,
+            FirstPerson: false,
+            Followed: null,
+            EyeCamera: null,
+            IntervalPerTick: 0.015f,
+            ViewmodelFieldOfView: 54f);
+
+        scene.Build([], [Window(x: 300f, limit: 0f)], blind);
+        scene.Pose(blind);
+
+        scene.Instances[0].Alpha.ShouldBe(255);
+        models.PortalWindowsFaded.ShouldBe(0);
     }
 
     /// <summary>A brush entity carrying the three floats only this class sends.</summary>

@@ -268,7 +268,7 @@ dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -- <name> [args]
 dotnet run --project tools/Tf2DemoSalvage.Probe -c Release --                # lists them
 ```
 
-Forty-three of them, counted rather than remembered (`ls tools/Tf2DemoSalvage.Probe/Probes/*.cs |
+Forty-four of them, counted rather than remembered (`ls tools/Tf2DemoSalvage.Probe/Probes/*.cs |
 wc -l`). The ones worth knowing before writing a forty-fourth:
 
 | probe | answers |
@@ -290,6 +290,7 @@ wc -l`). The ones worth knowing before writing a forty-fourth:
 | `bodygroups <demo> <tick>` | what each player's items hide on them, call by call, with a control |
 | `ragdoll <model path>` | the bodies and joints a `.phy` and a skeleton build between them — solids are matched to bones BY NAME, so this is the only thing that says a real pair fits |
 | `detail-controller [map]` | which maps veto `cl_detaildist` — a census over every installed map that reports its own control (`worldspawn`) beside the answer, because the expected result is zero |
+| `portal-windows <demo> <tick> [x y z]` | why a window is a black rectangle: each `func_areaportalwindow`'s fade knots, and the blend they come to from an eye you give it — "no knots" and "knots that are zero" both draw black and only this says which |
 
 **Probes run the PRODUCTION path or they are worthless.** `DemoCorpus` lives here and
 `Corpus.Tests` references the tool rather than the reverse, so the probe and the test cannot disagree
