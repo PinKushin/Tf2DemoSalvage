@@ -687,3 +687,108 @@ Two facts fall out, and both are structural rather than numeric:
   make a joint push both halves the same way — a corpse that drifts.
 
 *Evidence class: read from the decompiled binary.*
+
+## The effective mass, and the core's data model
+
+The second half of `FUN_180037bd0` is the constraint's denominator — `Jᵀ M⁻¹ J` — and reading it
+names four fields of `IVP_Core` at once:
+
+```c
+if ((*param_3 & 0x12) == 0) {                        // body A participates
+    fVar27 = *(float *)(param_3 + 0x40);             // inverse inertia, x
+    fVar28 = *(float *)(param_3 + 0x44);             //                  y
+    fVar17 = *(float *)(param_3 + 0x48);             //                  z
+    param_1[8]  = fVar29 * fVar27;                   // M⁻¹J, cached for the impulse
+    param_1[9]  = fVar30 * fVar28;
+    param_1[10] = fVar31 * fVar17;
+
+    fVar24 = fVar30 * fVar28 * fVar30                // Σ aᵢ² · invInertiaᵢ
+           + fVar29 * fVar27 * fVar29
+           + fVar31 * fVar17 * fVar31;
+
+    fVar32 = fVar30 * *(float *)(param_3 + 0x134)    // a · ω, the current rate
+           + fVar29 * *(float *)(param_3 + 0x130)
+           + fVar31 * *(float *)(param_3 + 0x138);
+}
+```
+
+| offset in `IVP_Core` | what it is | how it was identified |
+|---|---|---|
+| `+0x00` | flags; **bits `0x12` mean "does not participate"** | the guard above, and the same test in the outer solve |
+| `+0x40` | **inverse inertia**, three floats and a fourth lane | multiplied into the axis and summed as squares — that is only ever `M⁻¹` |
+| `+0x90` | the 4×4 **transform, in doubles** | read by `FUN_180037620` and again here |
+| `+0x130` | **angular velocity** | dotted with the axis to get the rate, and written back by the solve |
+| `+0x140` | the second accumulator, linear | written beside `+0x130` in the outer solve's `+0x157` branch |
+
+**`M⁻¹J` is cached beside the row rather than recomputed**, which is what makes the memo at
+`param_1[0x1c]` worth having: three axes share one scratch block, and the first of them pays for the
+transform, the inverse-inertia product and the effective mass together.
+
+**The inverse inertia is a DIAGONAL**, not a matrix. IVP keeps the body in its own principal frame,
+which is why the axis has to be rotated into that frame first — the two matrix multiplies at the top
+of this function — rather than the tensor being rotated into the world.
+
+**What is NOT established:** the constant `+0x50` region the outer solve reads for its second body,
+and whether `+0x40`'s fourth lane is the inverse MASS or padding. The arithmetic here only ever uses
+three of the four, so the fourth is unconstrained by anything read so far.
+
+*Evidence class: read from the decompiled binary.*
+
+## The impulse, and the thing that is not a clamp
+
+`FUN_180036f80`'s middle section reads as a clamp against two magic constants, and dumping them
+turns it into something else entirely:
+
+| address | value |
+|---|---|
+| `1800ee990` | **3.1415927** — π |
+| `1800ee9a0` | **6.2831855** — 2π |
+
+It is **angle unwrapping**, not clamping:
+
+```c
+d = accumulated - current;                       // param_5 is the joint's running angle
+correction = (d >  π) ?  2π
+           : (d < -π) ? -2π
+           :             0;
+d          -= correction;
+*param_5   += correction;                        // the running angle keeps the wrap
+```
+
+**So the solver tracks a CONTINUOUS joint angle rather than one that jumps at ±π.** Without it a
+joint passing the wrap point receives an error of nearly 2π in one step and snaps — the corpse's
+elbow spinning once round for no reason. The whole thing is written branchlessly with compare masks,
+which is why it reads as arithmetic; `π` and `2π` are the only things in it that say what it is.
+
+**And the impulse itself is one line:**
+
+```c
+fVar29 = *param_8 * _DAT_1800ee9b0;                          // gain × 0.8
+...
+fVar29 = (fVar29 * fVar25 * fVar23 - fVar33 * fVar34) * param_2[0x14];
+//        └ bias × error × k ┘   └ damping × rate ┘     └ 1 / effective mass ┘
+```
+
+with `fVar34` the rate — computed at the top of the function as
+`ωA · J_A + ωB · J_B`, straight off `core+0x130` for both bodies — and `param_2[0x14]` the inverse
+effective mass the Jacobian helper cached. That is a sequential impulse with a Baumgarte bias:
+**correct a fraction of the position error, oppose the current rate, divide by the effective mass,
+accumulate.**
+
+**The state field is a three-way memo, and one of its states is "skip".** `param_2[0x1c]` reads 1
+when the row is already built for this step — in which case only the rate is recomputed, from the
+velocities that other axes have since changed — and **2 means return immediately**. So an axis can
+retire for the remainder of a step, which a transcription that treated the field as a bool would
+lose.
+
+**`1800ee970` and `1800ee980` are `{0,0,0,0}` and `{~0,~0,~0,~0}`**, selected by `flags & 1` and
+stored into `param_2[0x18..0x1b]`: a mask pair meaning "this axis is limited" or "free", kept for
+branchless selection later rather than tested.
+
+**What is NOT established:** what `param_8`'s four gains are and where they come from — they arrive
+from `FUN_180036e10`'s caller as a scratch value derived from the timestep — and whether the 0.8 is
+a fixed bias or a per-step factor. Both are needed before this becomes code, and neither is
+guessable from this function alone.
+
+*Evidence class: read from the decompiled binary; the constant table is a verbatim dump of
+`1800ee970`–`1800ee9ac`.*

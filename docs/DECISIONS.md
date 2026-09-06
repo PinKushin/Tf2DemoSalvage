@@ -7671,3 +7671,41 @@ genuinely does not depend on the view. The rule is only about precedence when th
 **Related:** [[an-optimisation-is-not-a-skippable-departure]] states the same precedence from the
 other side — Valve's own optimisations earn their place and are not skippable. Ours have to earn
 theirs against the engine's output, every time they meet it.
+
+---
+
+## D144 — Valve's own "this is a hack" comments are a work list (2026-09-06)
+
+**The owner, unprompted:**
+
+> *"btw we should note if valve notes that something they did is a hack, or not optimal, and see if
+> we can fix those and still have parity, those are places valve itself says we should change the
+> code if we can basically, because its places valve would do stuff differently if they could
+> redo it."*
+
+**What it adds to D89.** Parity is still the first principle and nothing here relaxes it. What this
+says is that a comment like *"HACKHACK: Did this wrong in version one. Fix in the future."* is
+**evidence about intent**: Valve is telling us the shape of the code is not the shape they wanted,
+and that the constraint was history rather than design. Where the better version is
+indistinguishable in behaviour, taking it is not a departure from the engine — it is the engine's
+own stated preference, and it is where D89's *"the target is BETTER than TF2, not equal"* has room
+to operate without costing anything.
+
+**The test is OBSERVABILITY, and it splits these into two kinds.** A self-flagged hack is a
+candidate, not a licence:
+
+- **Internal** — the output is identical whichever way it is written. A duplicated computation, a
+  loop that rebuilds what it could keep, a magic constant with a comment apologising for it. Take
+  the better version freely; the engine cannot tell and neither can a frame.
+- **Observable** — the hack IS the behaviour, and content depends on it.
+  `useClockwiseRotations` is the worked example: Valve calls it a HACKHACK and it decides which way
+  a joint's limits point, so "fixing" it would mean choosing the meaning of somebody's `.phy`. It
+  stays, transcribed exactly, however apologetic the comment is.
+
+**The distinction has to be made per case and written down**, because the temptation runs one way:
+a comment saying "this is wrong" reads like permission, and most of the interesting ones are the
+second kind.
+
+**Instrument:** the `valve-hacks` probe intersects Valve's self-flagged comments with the engine
+files this project actually cites, so the list is ranked by what we have already implemented rather
+than by what exists — the same rule `docs/PARITY-AUDIT.md` opens with.
