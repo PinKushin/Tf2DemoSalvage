@@ -166,7 +166,12 @@ public sealed class IvpEnvironmentConformanceTests
         {
             BodyA = a,
             BodyB = b,
-            Constraint = IvpRagdollConstraint.FromDegrees((-30f, 15f), (-25f, 25f), (-79f, 57f)),
+            Constraint = IvpRagdollConstraint.FromDegrees(
+                (-30f, 15f),
+                (-25f, 25f),
+                (-79f, 57f),
+                IvpConstraintFrame.Identity,
+                IvpConstraintFrame.Identity),
         });
 
         environment.Simulate();

@@ -133,19 +133,23 @@ public sealed class IvpRagdollConstraint
     /// | cone | `range × ∓0.5` of the WIDER swing, re-centred because the frame carries the offset |
     /// | swing | `lo`, `hi` of the NARROWER swing, straight through |
     ///
-    /// **The frames are the identity here**, which is what a TF2 ragdoll's reference frame actually
-    /// is (`ragdoll_shared.cpp:245`); a real joint replaces the attached frame with the bone-to-bone
-    /// transform.
+    /// **Both frames are passed in rather than defaulted, and that is deliberate.** A TF2 ragdoll's
+    /// `constraintToReference` genuinely is the identity (`ragdoll_shared.cpp:245`) while its
+    /// `constraintToAttached` is the bone-to-bone transform — so a default would be right for one
+    /// side and silently wrong for the other, in a way that reads as a rest pose and cannot be
+    /// seen in the resulting corpse.
     /// </remarks>
     public static IvpRagdollConstraint FromDegrees(
         (float Minimum, float Maximum) primary,
         (float Minimum, float Maximum) narrower,
-        (float Minimum, float Maximum) wider)
+        (float Minimum, float Maximum) wider,
+        IvpConstraintFrame reference,
+        IvpConstraintFrame attached)
     {
         IvpRagdollConstraint joint = new()
         {
-            FrameA = IvpConstraintFrame.Identity,
-            FrameB = IvpConstraintFrame.Identity,
+            FrameA = reference,
+            FrameB = attached,
         };
 
         Bound(joint.Twist, -primary.Maximum * DegreesToRadians, -primary.Minimum * DegreesToRadians);

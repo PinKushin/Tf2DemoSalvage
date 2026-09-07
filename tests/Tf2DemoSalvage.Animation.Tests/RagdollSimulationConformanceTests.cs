@@ -185,6 +185,28 @@ public sealed class RagdollSimulationConformanceTests
         joint.Constraint.Cone.Angle.ShouldBe(1f, Tolerance, "and the cone is a cosine, so it is one");
     }
 
+    /// <remarks>
+    /// **A constraint joining a body to itself makes no joint at all.** `RagdollAddConstraint`
+    /// nulls BOTH indices on it — *"Bogus constraint on ragdoll %s"*, `ragdoll_shared.cpp:217` —
+    /// so the `childIndex >= 0 &amp;&amp; parentIndex >= 0` gate below never opens and
+    /// `CreateRagdollConstraint` is never reached.
+    ///
+    /// **The bodies are still built**, which is the half that separates "dropped the constraint"
+    /// from "refused the file": `RagdollAddSolid` ran before any constraint was looked at, and a
+    /// `.phy` is a stranger's file (D32) rather than something to reject wholesale.
+    /// </remarks>
+    [Test]
+    public void Create_WithAConstraintJoiningABodyToItself_MakesTheBodiesAndNoJoint()
+    {
+        RagdollConstraint bogus = new(1, 1, Axis, Axis, Axis);
+
+        RagdollSimulation simulation = RagdollSimulation.Create(
+            RagdollBody.Build(PhysicsWith(bogus), Skeleton())!, Step, Start());
+
+        simulation.Environment.Bodies.Count.ShouldBe(2);
+        simulation.Environment.Constraints.Joints.Count.ShouldBe(0);
+    }
+
     /// <summary>The turned skeleton, with each body started at the orientation it binds in.</summary>
     /// <remarks>
     /// **The starting state is the bind pose, which is the whole point.** A body's orientation is
