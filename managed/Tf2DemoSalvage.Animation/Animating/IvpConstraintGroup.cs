@@ -167,6 +167,15 @@ public sealed class IvpConstraintGroup
     /// <summary>How many relaxation iterations run.</summary>
     public int Iterations => AdditionalIterations + BaseIterations;
 
+    /// <summary>The weight a warm-started solve carries its previous answer forward with.</summary>
+    /// <remarks>
+    /// **The first entry of the dumped table**, which is what a two-iteration group uses for both
+    /// of its passes. The friction solve reads the same kind of weight — `param_2[1]` in
+    /// `FUN_1800857c0`, multiplying the stored tangential impulse — so it is taken from here rather
+    /// than given a second constant of its own.
+    /// </remarks>
+    public static float Relaxation => Weight(0);
+
     /// <summary>Rebuilds every joint's rows and runs the relaxation.</summary>
     /// <remarks>
     /// **The rebuild happens once, before any sweep**, and the driver passes it a weight of `1.0`

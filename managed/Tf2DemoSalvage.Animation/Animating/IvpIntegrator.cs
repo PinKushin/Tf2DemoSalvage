@@ -161,7 +161,44 @@ public sealed class IvpRigidBody
     /// `PhysicsHull` — converted at the seam, because this simulation runs in Source units where
     /// IVP's own runs in metres.
     /// </remarks>
-    public IReadOnlyList<(float X, float Y, float Z)> Hull { get; set; } = [];
+    public IReadOnlyList<(float X, float Y, float Z)> Hull
+    {
+        get => _hull;
+
+        set
+        {
+            _hull = value ?? [];
+
+            // **The friction store is sized with the hull it is keyed by**, here rather than at
+            // every use, so a caller cannot set one without the other and no contact has to guard
+            // against an index its own hull produced.
+            Sliding = new (float, float)[_hull.Count];
+        }
+    }
+
+    /// <summary>Each hull point's tangential friction impulse, carried between steps.</summary>
+    /// <remarks>
+    /// **A friction contact in IVP SURVIVES between PSIs, and this is what that survival needs.**
+    /// `FUN_1800857c0` builds its right-hand side as `weight × stored − current velocity`, reading
+    /// the tangential pair at `contact+0x68`/`+0x6c` that its own previous solve wrote back. The
+    /// contact object is persistent — cached on the mindist, split and merged by `FUN_180086e80` as
+    /// an object's contact list changes — so friction converges across steps instead of being
+    /// rediscovered from nothing in each one.
+    ///
+    /// **Warm starting is not an optimisation here; it is where a resting body's holding force
+    /// comes from.** A stateless pass measured worse than no friction at all: a sliding body went
+    /// from twelve units a second to 17.8, because a single-step solve can only ever react to the
+    /// slide it can already see.
+    ///
+    /// **Indexed by hull point, which is this project's stand-in for the mindist's identity.** IVP
+    /// keys on the closest-feature pair; a point index is stable for as long as the same vertex
+    /// keeps touching, and goes stale when the body rolls onto another — a difference that matters
+    /// and is stated rather than hidden.
+    /// </remarks>
+    public IList<(float First, float Second)> Sliding { get; private set; } =
+        Array.Empty<(float, float)>();
+
+    private IReadOnlyList<(float X, float Y, float Z)> _hull = [];
 
     /// <summary>When this body was last stepped — <c>core+0x1d0</c>, absolute.</summary>
     public double LastStepped { get; set; }

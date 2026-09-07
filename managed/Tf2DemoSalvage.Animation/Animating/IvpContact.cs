@@ -58,6 +58,10 @@ public sealed class IvpContact
     /// <summary>How far inside it is.</summary>
     public required float Depth { get; init; }
 
+    /// <summary>Which hull point raised it — the key its stored friction is filed under.</summary>
+    /// <remarks>See <see cref="IvpRigidBody.Sliding"/> for why a contact needs an identity.</remarks>
+    public required int Point { get; init; }
+
     /// <summary>The impulse applied so far, accumulated across iterations.</summary>
     public float Accumulated { get; private set; }
 
@@ -271,51 +275,108 @@ public sealed class IvpContact
     /// applied, applied once. The SHARED budget is the part still missing, and with it the
     /// clamping would be a system property rather than a per-contact one.
     /// </remarks>
-    public void Rub()
+    public void Rub(float weight)
     {
-        if (Accumulated <= 0f || Body.Friction <= 0f)
+        if (Body.Friction <= 0f || Body.Sliding.Count <= Point)
         {
             return;
         }
+
+        (float X, float Y, float Z) first = Tangent(Normal);
+        (float X, float Y, float Z) second = Cross(Normal, first);
 
         (float X, float Y, float Z) spin = Cross(Body.AngularVelocity, Arm);
 
         (float X, float Y, float Z) moving = (
             Body.Velocity.X + spin.X, Body.Velocity.Y + spin.Y, Body.Velocity.Z + spin.Z);
 
-        float into = (moving.X * Normal.X) + (moving.Y * Normal.Y) + (moving.Z * Normal.Z);
+        (float A, float B) stored = Body.Sliding[Point];
 
-        (float X, float Y, float Z) sliding = (
-            moving.X - (Normal.X * into),
-            moving.Y - (Normal.Y * into),
-            moving.Z - (Normal.Z * into));
+        // **The right-hand side is `weight × stored − current`, which is the warm start.** The
+        // engine writes it exactly so — `param_2[1] * f(contact + 0x6c) - local_64` — so the solve
+        // aims at the impulse it settled on last step rather than at zero, and a resting body keeps
+        // the force that is holding it instead of rediscovering it from nothing every step.
+        float wantFirst = (weight * stored.A) - Dot(moving, first);
+        float wantSecond = (weight * stored.B) - Dot(moving, second);
 
-        float speed = MathF.Sqrt(
-            (sliding.X * sliding.X) + (sliding.Y * sliding.Y) + (sliding.Z * sliding.Z));
+        // The symmetric 2x2 effective mass across the two tangents — `FUN_1800868d0` is handed
+        // `a, b, b, d`, the same value twice, which is what makes it symmetric.
+        float a = InverseMassAlong(first);
+        float d = InverseMassAlong(second);
+        float b = Coupling(first, second);
 
-        if (speed <= FloatEpsilon)
+        float determinant = (a * d) - (b * b);
+
+        if (MathF.Abs(determinant) <= FloatEpsilon)
         {
             return;
         }
 
-        (float X, float Y, float Z) against = (
-            -sliding.X / speed, -sliding.Y / speed, -sliding.Z / speed);
+        float inverse = 1f / determinant;
 
-        float along = InverseMassAlong(against);
+        float impulseFirst = ((d * wantFirst) - (b * wantSecond)) * inverse;
+        float impulseSecond = ((a * wantSecond) - (b * wantFirst)) * inverse;
 
-        if (along <= FloatEpsilon)
+        // **The cone clamps the PAIR after the solve**, scaling both, which is not the same as
+        // limiting a single magnitude before it.
+        float limit = Body.Friction * Accumulated;
+        float size = MathF.Sqrt((impulseFirst * impulseFirst) + (impulseSecond * impulseSecond));
+
+        if (size > limit && size > FloatEpsilon)
         {
-            return;
+            impulseFirst = impulseFirst / size * limit;
+            impulseSecond = impulseSecond / size * limit;
         }
 
-        // **Coulomb: enough to stop the slide, or as much as the normal impulse allows.** The
-        // engine forms the same product — `f(record+0x88) * f(record+0x78) * dt` in
-        // `FUN_1800857c0`, a friction coefficient times a normal term — and clamps the tangential
-        // pair to it.
-        float wanted = MathF.Min(speed / along, Body.Friction * Accumulated);
+        Body.Sliding[Point] = (impulseFirst, impulseSecond);
 
-        Push((against.X * wanted, against.Y * wanted, against.Z * wanted));
+        Push((
+            (first.X * impulseFirst) + (second.X * impulseSecond),
+            (first.Y * impulseFirst) + (second.Y * impulseSecond),
+            (first.Z * impulseFirst) + (second.Z * impulseSecond)));
     }
+
+    /// <summary>A tangent to the normal, chosen the same way every step.</summary>
+    /// <remarks>
+    /// **Deterministic, because a warm start is meaningless in a basis that moves.** The stored
+    /// pair means nothing unless the two directions it is expressed in are the same next step, and
+    /// IVP keeps its own pair on the mindist for exactly that reason. Picking the axis the normal
+    /// leans on least gives a basis that is stable while the normal is.
+    /// </remarks>
+    private static (float X, float Y, float Z) Tangent((float X, float Y, float Z) normal)
+    {
+        (float X, float Y, float Z) axis = MathF.Abs(normal.Z) < 0.7f
+            ? (0f, 0f, 1f)
+            : (1f, 0f, 0f);
+
+        (float X, float Y, float Z) tangent = Cross(normal, axis);
+
+        float length = MathF.Sqrt(
+            (tangent.X * tangent.X) + (tangent.Y * tangent.Y) + (tangent.Z * tangent.Z));
+
+        return length <= FloatEpsilon
+            ? (1f, 0f, 0f)
+            : (tangent.X / length, tangent.Y / length, tangent.Z / length);
+    }
+
+    /// <summary>The off-diagonal of the tangential effective-mass matrix.</summary>
+    private float Coupling(
+        (float X, float Y, float Z) first, (float X, float Y, float Z) second)
+    {
+        (float X, float Y, float Z) turn = Cross(Arm, second);
+
+        (float X, float Y, float Z) twist = Cross(
+            (turn.X * Body.InverseInertia.X,
+             turn.Y * Body.InverseInertia.Y,
+             turn.Z * Body.InverseInertia.Z),
+            Arm);
+
+        return Dot(first, twist);
+    }
+
+    private static float Dot(
+        (float X, float Y, float Z) left, (float X, float Y, float Z) right) =>
+        (left.X * right.X) + (left.Y * right.Y) + (left.Z * right.Z);
 
     /// <summary>The contact point's speed along the normal — negative while approaching.</summary>
     private float Closing()
@@ -471,10 +532,6 @@ public sealed class IvpContact
         // **A flag and three fields rather than a nullable tuple**, per
         // `docs/memory/nullable-pattern-on-a-struct-is-dead-code.md` — CA1508 rejects the nullable
         // form here outright, reporting the null test as always true.
-        bool touching = false;
-        Vector3 deepestArm = default;
-        Vector3 deepestNormal = default;
-        float deepestDepth = 0f;
 
         for (int index = 0; index < body.Hull.Count; index++)
         {
@@ -573,46 +630,20 @@ public sealed class IvpContact
                 continue;
             }
 
-            // **The DEEPEST point wins, and only it becomes a contact** — see the remarks on the
-            // mindist below.
+            // **Every touching point raises a contact, and ONE PER BODY was tried instead.** IVP
+            // holds a single mindist per pair of objects, so a cube on a floor is one closest
+            // feature where this is eight — a real divergence, and reproducing the count alone
+            // measured worse: penetration went from 7 to 27 and corpses began leaving the world
+            // with zero contacts. Our hull is a point cloud where IVP's features are faces and
+            // edges, so one vertex cannot hold a resting box the way one face-face pair does.
+            // Closing this properly means the feature-based narrow phase, not a smaller list.
             into.Add(new IvpContact
             {
                 Body = body,
                 Arm = (arm.X, arm.Y, arm.Z),
                 Normal = (found.Normal.X, found.Normal.Y, found.Normal.Z),
                 Depth = found.Depth,
-            });
-        }
-
-        // **ONE contact per body, because IVP has one MINDIST per pair and this project had one per
-        // hull point.** A cube resting on a floor put eight contacts in the list where the engine
-        // tracks a single closest-feature pair, and every one of them independently applied the
-        // impact solver's `0.2 · m · v₀` — so the body took eight times the impulse it should, and
-        // then the joint faithfully redistributed the surplus to its neighbour.
-        //
-        // **Measured on a two-body ragdoll dropped onto a floor**: eleven steps of clean free fall,
-        // eight contacts at the moment of touchdown, two hundred and seven impulse passes on the
-        // step after, and the child flung to the two-thousand-unit velocity clamp on the step after
-        // that. With one contact per body the same drop settles.
-        //
-        // **This is the scope error one level below the loop bound**, and it is the same mistake:
-        // the engine's quantity was right and the SET it was applied over was ours. `FUN_18008e290`
-        // solves one mindist; `FUN_180099380` schedules one mindist; the narrow phase walks a
-        // closest feature. Nothing in IVP holds a contact per vertex.
-        //
-        // **What this does NOT reproduce is the engine's persistence.** IVP keeps the mindist and
-        // its closest-feature pair between steps, which is how it never has to guess which face a
-        // body entered through; this re-picks the deepest point every step. That remains the open
-        // divergence, and it is why `IvpWorldCollision.Penetration` still documents a failed guess
-        // where the memory should be.
-        if (touching)
-        {
-            into.Add(new IvpContact
-            {
-                Body = body,
-                Arm = (deepestArm.X, deepestArm.Y, deepestArm.Z),
-                Normal = (deepestNormal.X, deepestNormal.Y, deepestNormal.Z),
-                Depth = deepestDepth,
+                Point = index,
             });
         }
 

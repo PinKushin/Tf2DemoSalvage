@@ -2189,6 +2189,56 @@ friction-system driver is read from its own structure — a loop over `param_1+0
 count at `+0x6a`, calling the per-contact solve already traced — and from `ivp_friction.cxx` being
 the only IVP source file named by the two functions beside it.*
 
+## Friction is a WARM-STARTED 2×2 SOLVE, not an impulse opposing the slide
+
+**Read after a per-contact Coulomb pass measured worse**, which is what sent me back to the
+function rather than to another adjustment. `FUN_1800857c0` solves one resting contact and its
+shape is nothing like "push back along the slide":
+
+```c
+FUN_18009ca70(local_1b8, coreA, coreB, mindist, mindist + 0x16, mindist + 0x18, 0);
+dVar6 = param_2[1] * f(contact + 0x6c) - local_64;      // TARGET, from the STORED impulse
+dVar5 = param_2[1] * f(contact + 0xd)  - local_68;
+bVar7 = FUN_1800868d0(local_c8, local_c0, local_c0, local_a0, …);   // invert a 2x2
+local_1e8 = local_1d0 * dVar6 + local_1d8 * dVar5;      // the pair of magnitudes
+local_1e4 = local_1c0 * dVar6 + local_1c8 * dVar5;
+if (dVar4 * dVar4 < local_1e4*local_1e4 + local_1e8*local_1e8) { … scale both to dVar4 … }
+FUN_18009c620(local_1b8, coreA, coreB, &local_1e8);     // apply BOTH at once
+```
+
+**Four things, and each one is a departure from what this project does:**
+
+- **Two tangent directions solved TOGETHER**, through a symmetric 2×2 effective-mass matrix
+  inverted by `FUN_1800868d0` (its arguments are `a, b, b, d` — the same value twice, which is what
+  makes it symmetric). A single impulse along the slide direction is a different operator, and it
+  is what measured worse: a sliding body went from twelve units a second to 17.8.
+- **The target is warm-started from a STORED impulse.** `contact+0x68` and `+0x6c` hold the
+  tangential pair from the previous solve, and the right-hand side is
+  `weight × stored − current velocity`. So friction converges across steps rather than being
+  rediscovered each one, which is exactly what a resting body needs and what a stateless contact
+  cannot do.
+- **The cone clamp is on the PAIR**, after the solve, scaling both components to the limit
+  `f(+0x78) · f(+0x88) · dt` rather than clamping a single magnitude.
+- **The clamp in the driver is a SUM, and it is a ceiling rather than a division.**
+  `FUN_1800836b0` accumulates `Σ contact[0x88]·contact[0x78]·contact[0x60]` over the whole friction
+  system, squares the step into it, and caps each contact's stored pair against that total. A system
+  with more contacts has a LARGER ceiling — this bounds runaway accumulation, it does not share a
+  fixed budget out.
+
+**So the missing structure is persistence, and that is the honest size of it.** A friction contact
+in IVP survives between PSIs carrying its tangential impulse; ours is rebuilt from scratch every
+slice. Warm starting is not an optimisation here, it is where the resting force comes from, and a
+stateless transcription of the surrounding arithmetic cannot stand in for it.
+
+**What is NOT established:** the identity of `contact+0x60`, `+0x78` and `+0x88` individually — only
+that `+0x78 · +0x88` forms the Coulomb limit, because the pair is used together and never apart.
+`param_2[0]` and `param_2[1]` are the step and the relaxation weight by their use and not by a
+producer. `FUN_18009ca70` builds the two tangent Jacobians and has not been read.
+
+*Evidence class: read from the decompiled binary. The symmetry of `FUN_1800868d0`'s matrix is read
+from its duplicated argument; the warm start is read from the right-hand side referencing the same
+fields the solve writes back.*
+
 ## The impact solver, found — and it is a fixed sub-impulse in a friction cone
 
 **`FUN_18008e290` is the consumer of the contact record**, reached from the mindist event through

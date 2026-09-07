@@ -464,17 +464,27 @@ public sealed class IvpEnvironment
             _contacts[index].Separate(slice);
         }
 
-        // **A per-contact friction pass belongs here and is NOT called, because the per-contact
-        // form measured worse.** `IvpContact.Rub` is written and unused: clamping each contact
-        // against its own normal impulse took a sliding body from 12 units a second to 17.8 and
-        // sank a resting ragdoll to −4.6.
+        // **Friction belongs here and is NOT called, because both forms of it measured worse than
+        // none.** A resting contact takes nothing from `Oppose` — the engine's own approach gate
+        // sends it elsewhere — so a landed corpse currently has nothing opposing a slide, and one
+        // was measured sliding at a steady twelve units a second for six seconds. That is a real
+        // missing feature and `Simulate_WithATerrainSlope_StopsOnTheSurfaceBeneathIt` is red for it.
         //
-        // **That is evidence for the shared budget rather than against friction.** `FUN_1800836b0`
-        // sums a scalar across every contact of a friction system BEFORE applying anything and
-        // clamps each contact against that, so the system's capacity is divided rather than granted
-        // to each contact in turn. Ours has no notion of the system, and granting each contact a
-        // full budget is what the measurement rejected. Left wired out rather than deleted, since
-        // the missing half is identified.
+        // **Two attempts, both reverted, both by measurement.** A per-contact Coulomb impulse
+        // clamped by that contact's own normal impulse took the slide to 17.8 and sank a resting
+        // ragdoll to −4.6. Replacing it with the engine's shape — a warm-started 2×2 solve over two
+        // tangents, `IvpContact.Rub` — took it to 15.8 and sank it to −4.2.
+        //
+        // **The warm start is where the second one is wrong, and the reason is an unread field.**
+        // `FUN_1800857c0` forms its right-hand side as `param_2[1] * f(contact + 0x6c) - local_64`,
+        // and `IvpContact.Rub` reads that stored term as an IMPULSE while `local_64` is a velocity.
+        // Those units only reconcile if `contact+0x6c` is velocity-like, and what that field holds
+        // is listed as not established in `docs/findings/51` — along with `+0x60`, `+0x78` and
+        // `+0x88`, whose product forms the cone limit. Adding a scaled impulse to a velocity target
+        // injects energy, which is exactly what the measurement shows.
+        //
+        // **So this waits on reading those fields, not on another adjustment.** The code stays,
+        // wired out, because the shape is transcribed and only the units are unresolved.
     }
 
     /// <summary>Integrates every body over one slice of the step.</summary>
