@@ -75,6 +75,34 @@ public sealed class CorpsePhysics
     /// <summary>How many sub-intervals the last corpse's steps were walked in.</summary>
     public long Slices { get; private set; }
 
+    /// <summary>
+    /// **A corpse is only simulated while it is DRAWN, and that is a divergence** (B58).
+    /// </summary>
+    /// <remarks>
+    /// **The engine keeps a ragdoll in the physics environment whether or not the view can see
+    /// it.** `cl_ragdoll_physics_enable` decides whether one exists at all; after that it is
+    /// `physenv`'s, and visibility governs drawing alone. Here the advance happens inside the loop
+    /// over DRAWN props, so a corpse behind the camera stops dead and resumes when it comes back
+    /// into view.
+    ///
+    /// **It was found by the instrument disagreeing with itself.** The same tick, from two
+    /// cameras: from one, three corpses reported leaving the world; from a wider one that did not
+    /// draw them, none did — because none of them had been stepped at all.
+    ///
+    /// **Fixing it is not a line.** This project's animation is draw-driven end to end — an
+    /// `AnimatingEntity` exists because something posed it — so simulating an unseen corpse means
+    /// giving it an entity nothing is drawing. Written down here rather than left as a surprise.
+    /// </remarks>
+    public static bool SimulatesOnlyWhatIsDrawn => true;
+
+    /// <summary>For each corpse that left the world, the tick it did and its contacts then.</summary>
+    public IReadOnlyDictionary<int, (int Tick, int Contacts)> Fell => _fell;
+
+    private readonly Dictionary<int, (int Tick, int Contacts)> _fell = [];
+
+    /// <summary>Below this a body has left the playable world rather than sunk into a floor.</summary>
+    private const double FallenThrough = -50d;
+
     /// <summary>The same, in seconds.</summary>
     public double SteppingSeconds =>
         SteppingTicks / (double)System.Diagnostics.Stopwatch.Frequency;
@@ -220,6 +248,19 @@ public sealed class CorpsePhysics
             live.Simulation.Step();
             live.SteppedTo++;
             Steps++;
+
+            // **The tick a corpse first drops out of the world, caught as it happens** (B58). The
+            // resting place says only where it stopped; three corpses on `z1800` end at the same
+            // three depths through every change, and what separates "it started there" from "it
+            // fell through on the way" is WHEN — with the contact count at that moment beside it,
+            // because a body falling with contacts is one the solve failed to hold and a body
+            // falling without any is one nothing ever saw.
+            if (!_fell.ContainsKey(entityIndex) &&
+                live.Simulation.Environment.Bodies.Count > 0 &&
+                live.Simulation.Environment.Bodies[0].Position.Z < FallenThrough)
+            {
+                _fell[entityIndex] = (live.SteppedTo, live.Simulation.Environment.Contacts);
+            }
         }
 
         // **Timed because catching a corpse up is the one unbounded thing here** (B58). A seek to a

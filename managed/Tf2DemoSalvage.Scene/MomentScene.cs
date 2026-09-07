@@ -484,6 +484,15 @@ public sealed class MomentScene : IGameSystemPerFrame
         // **Where the SOLVER put each corpse, which is the only thing that can aim a camera at
         // one** (B58). A corpse's wire position is where it died; after physics it is somewhere
         // else, and that is the feature. Debug level, so it costs nothing when nobody is looking.
+        foreach ((int entity, (int tick, int contacts)) in _models.Corpses.Fell)
+        {
+            _render.LogWarning(
+                "corpse {Entity} left the world at tick {Tick} with {Contacts} contacts",
+                entity,
+                tick,
+                contacts);
+        }
+
         if (_models.Corpses.Count > 0 && _render.IsEnabled(LogLevel.Debug))
         {
             _render.LogDebug(
