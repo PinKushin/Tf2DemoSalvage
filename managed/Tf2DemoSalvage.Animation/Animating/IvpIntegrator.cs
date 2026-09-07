@@ -189,7 +189,12 @@ public sealed class IvpRigidBody
     /// **Warm starting is not an optimisation here; it is where a resting body's holding force
     /// comes from** — a stateless pass can only react to the slide it can already see.
     /// </remarks>
-    public IList<(int Face, float Holding, float First, float Second)> Sliding { get; } = [];
+    public IList<(
+        int Face,
+        float Holding,
+        float First,
+        float Second,
+        (float X, float Y, float Z) Local)> Sliding { get; } = [];
 
     private IReadOnlyList<(float X, float Y, float Z)> _hull = [];
 

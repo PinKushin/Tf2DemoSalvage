@@ -170,9 +170,12 @@ public sealed class CorpseDropProbe : IProbe
 
             if (Trace && tick % 33 == 0)
             {
+                (float oppose, float separate, float rub) = simulation.Environment.Split;
+
                 output.WriteLine(
-                    $"    tick {tick,3} speed {speed,8:0.##} rootZ {simulation.Environment.Bodies[0].Position.Z,8:0.##} " +
-                    $"contacts {simulation.Environment.Contacts,3} slices {simulation.Environment.Slices,4}");
+                    $"    tick {tick,3} speed {speed,7:0.#} " +
+                    $"contacts {simulation.Environment.Contacts,3} " +
+                    $"oppose {oppose,11:0.#} separate {separate,11:0.#} rub {rub,11:0.#}");
             }
         }
 

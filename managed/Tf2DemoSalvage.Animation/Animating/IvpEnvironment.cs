@@ -246,11 +246,15 @@ public sealed class IvpEnvironment
         // Damping runs BEFORE the flush, so an impulse staged last step is not damped on the step
         // it lands; and gravity runs after both, so the step's own acceleration is never damped
         // either. Reordering any pair changes a corpse's launch.
+        float before = Energy();
+
         IvpDamping.Apply(_bodies, Step);
 
         IvpPush.Flush(_bodies);
 
         IvpGravity.Apply(_bodies, Gravity, Step, AlternateGravity);
+
+        float afterGravity = Energy();
 
         // **Contacts are found against the CURRENT positions and solved beside the joints**, which
         // is the order the engine runs: the mindist system re-checks its pairs, the contact records
@@ -258,6 +262,10 @@ public sealed class IvpEnvironment
         // after integration instead would resolve last step's penetration one step late, and a
         // corpse would sink a little further into the floor every step before being pushed back.
         Constraints.Solve();
+
+        float afterJoints = Energy();
+
+        Gained = (afterGravity - before, afterJoints - afterGravity, afterJoints);
 
         // **The step is SUBDIVIDED at each collision, which is the engine's own shape and was the
         // last thing making a thrown corpse leave the map.** `FUN_180099380` gates a pair on
@@ -315,7 +323,56 @@ public sealed class IvpEnvironment
         {
             Move(remaining);
         }
+
+        Gained = (Gained.Gravity, Gained.Joints, Energy() - Gained.Contacts);
     }
+
+    /// <summary>Kinetic energy added by each stage of the last step — gravity, joints, contacts.</summary>
+    /// <remarks>
+    /// **Written because disabling passes one at a time stopped answering.** Turning a stage off
+    /// says whether the system is stable without it, which is not the same question as which stage
+    /// puts energy in — a stage can be indispensable AND be the pump, and the contact solve is
+    /// exactly that: without it a corpse falls through the map, with it a corpse never stops
+    /// moving. This measures the thing directly.
+    ///
+    /// **Carried out of the stages that ran, not recomputed afterwards** (B243).
+    /// </remarks>
+    public (float Gravity, float Joints, float Contacts) Gained { get; private set; }
+
+    /// <summary>And the contact solve's own three passes, split the same way.</summary>
+    public (float Oppose, float Separate, float Rub) Split { get; private set; }
+
+    /// <summary>Total kinetic energy of every body, linear and angular.</summary>
+    private float Energy()
+    {
+        float total = 0f;
+
+        for (int index = 0; index < _bodies.Count; index++)
+        {
+            IvpRigidBody body = _bodies[index];
+
+            if (body.InverseMass <= 0f)
+            {
+                continue;
+            }
+
+            float mass = 1f / body.InverseMass;
+
+            total += 0.5f * mass * (
+                (body.Velocity.X * body.Velocity.X) +
+                (body.Velocity.Y * body.Velocity.Y) +
+                (body.Velocity.Z * body.Velocity.Z));
+
+            total += 0.5f * (
+                (body.AngularVelocity.X * body.AngularVelocity.X / Spin(body.InverseInertia.X)) +
+                (body.AngularVelocity.Y * body.AngularVelocity.Y / Spin(body.InverseInertia.Y)) +
+                (body.AngularVelocity.Z * body.AngularVelocity.Z / Spin(body.InverseInertia.Z)));
+        }
+
+        return total;
+    }
+
+    private static float Spin(float inverse) => inverse > 0f ? inverse : 1f;
 
     /// <summary>How many sub-intervals the steps so far have been walked in.</summary>
     /// <remarks>
@@ -467,6 +524,7 @@ public sealed class IvpEnvironment
         _slice = slice;
 
         Passes = 0;
+        Split = (0f, 0f, 0f);
 
         Rub();
     }
@@ -530,8 +588,12 @@ public sealed class IvpEnvironment
 
             contact.Rubbed = true;
 
-            (float X, float Y, float Z) arm = (
-                centre.X / count, centre.Y / count, centre.Z / count);
+            // **Held steady between steps, because the set this averages reshuffles.** A vertex
+            // inside last step can be outside this one, so a freshly measured centroid jumps and
+            // the retained impulse would be applied somewhere new every tick. See
+            // `IvpContact.Steady` — this is the body half of the closest-feature pair.
+            (float X, float Y, float Z) arm = contact.Steady(
+                (centre.X / count, centre.Y / count, centre.Z / count));
 
             // **The whole solve for this feature, in the engine's order and once each.** The
             // arrival impulse, then the separation, then friction — `FUN_18008e290` for a pair that
@@ -539,7 +601,11 @@ public sealed class IvpEnvironment
             // either way.
             contact.Begin();
 
+            float start = Energy();
+
             Passes += contact.Oppose(arm);
+
+            float opposed = Energy();
 
             // **This is the ONLY thing holding a resting corpse up, and that is the divergence.**
             // Switching it off drops the same ragdoll straight through the map to −1267 at five to
@@ -558,7 +624,14 @@ public sealed class IvpEnvironment
             // start built for the tangential pair is the same structure the normal needs.
             contact.Separate(_slice, arm, deepest);
 
+            float separated = Energy();
+
             contact.Rub(IvpConstraintGroup.Relaxation, arm, contact.Accumulated);
+
+            Split = (
+                Split.Oppose + (opposed - start),
+                Split.Separate + (separated - opposed),
+                Split.Rub + (Energy() - separated));
         }
     }
 

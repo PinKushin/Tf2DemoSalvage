@@ -78,6 +78,67 @@ public sealed class IvpContact
     /// <summary>The id a contact that has not happened yet is filed under.</summary>
     private const int Speculative = -1;
 
+    /// <summary>The point this feature's contact acts at, held steady between steps.</summary>
+    /// <param name="fresh">The manifold's centroid as measured this step, in world directions.</param>
+    /// <returns>The retained point if there is one, else <paramref name="fresh"/>.</returns>
+    /// <remarks>
+    /// **This is the BODY half of a closest-feature pair, and without it the world half is not
+    /// worth much.** A mindist names a feature on each side and keeps both; naming only the world
+    /// face leaves the retained impulse applying at whatever point this step's contact set happens
+    /// to average to, and that set reshuffles — a vertex that was inside last step is outside this
+    /// one, the centroid jumps, and a force that is supposed to be holding a body steady moves
+    /// under it every tick.
+    ///
+    /// **Stored in the body's own space**, so it turns with the body rather than having to be
+    /// re-measured, which is what makes it the same point and not merely a similar one.
+    ///
+    /// **It follows the fresh measurement slowly rather than being frozen**, because a body really
+    /// does roll onto a different part of itself and a point locked for ever would be a different
+    /// bug — the same one that made locking to a hull vertex measure worse than not locking at all.
+    /// The weight is the constraint group's relaxation, which is the rate everything else in this
+    /// solver carries state forward at.
+    /// </remarks>
+    public (float X, float Y, float Z) Steady((float X, float Y, float Z) fresh)
+    {
+        if (Feature == Speculative)
+        {
+            return fresh;
+        }
+
+        // The inverse rotation, which for a unit quaternion is its conjugate.
+        (float X, float Y, float Z, float W) back = (
+            -Body.Orientation.X, -Body.Orientation.Y, -Body.Orientation.Z, Body.Orientation.W);
+
+        (float X, float Y, float Z) local = IvpQuaternion.Rotate(back, fresh);
+
+        int slot = Remembered();
+
+        if (slot < 0)
+        {
+            Body.Sliding.Add((Feature, 0f, 0f, 0f, local));
+
+            return fresh;
+        }
+
+        (float X, float Y, float Z) kept = Body.Sliding[slot].Local;
+
+        float weight = IvpConstraintGroup.Relaxation;
+
+        (float X, float Y, float Z) blended = (
+            kept.X + ((local.X - kept.X) * weight),
+            kept.Y + ((local.Y - kept.Y) * weight),
+            kept.Z + ((local.Z - kept.Z) * weight));
+
+        Body.Sliding[slot] = (
+            Feature,
+            Body.Sliding[slot].Holding,
+            Body.Sliding[slot].First,
+            Body.Sliding[slot].Second,
+            blended);
+
+        return IvpQuaternion.Rotate(Body.Orientation, blended);
+    }
+
     /// <summary>Whether this contact's manifold has already been rubbed this slice.</summary>
     /// <remarks>
     /// **The manifold is found by walking, so its members have to be marked.** Every contact of a
@@ -339,7 +400,29 @@ public sealed class IvpContact
             ? MathF.Min(Recovery * (depth - Slop) / step, MaximumRecovery)
             : 0f;
 
-        float wanted = (closing < 0f ? -closing : 0f) + bias;
+        // **The depth is corrected in POSITION, not in velocity, and that is what stops the pump.**
+        // Measured directly: with the solve's energy split three ways per tick, `Oppose` and `Rub`
+        // both REMOVE kinetic energy and this term added between 28,000 and 46,000 — against
+        // gravity's 7,500 — every tick, for ever. That is not a tuning error. Giving a body
+        // velocity to fix a position error leaves the velocity behind once the error is gone, so
+        // the body arrives back at the surface with speed it did not have before, and the cycle
+        // pays for itself.
+        //
+        // **The engine has no such term at all**, because its mindist scheduler re-checks a pair
+        // before the two reach each other and a body never carries an overlap. Ours exists only to
+        // compensate for not having that, and the honest form of a compensator for a POSITION error
+        // is a position correction: the body is moved out of what it is inside and gains nothing.
+        if (bias > 0f)
+        {
+            float shift = MathF.Min(depth - Slop, bias * step);
+
+            Body.Position = (
+                Body.Position.X + (Normal.X * shift),
+                Body.Position.Y + (Normal.Y * shift),
+                Body.Position.Z + (Normal.Z * shift));
+        }
+
+        float wanted = closing < 0f ? -closing : 0f;
 
         float extra = wanted / effective;
 
@@ -363,12 +446,16 @@ public sealed class IvpContact
 
         if (slot < 0)
         {
-            Body.Sliding.Add((Feature, total, 0f, 0f));
+            Body.Sliding.Add((Feature, total, 0f, 0f, arm));
         }
         else
         {
             Body.Sliding[slot] = (
-                Feature, total, Body.Sliding[slot].First, Body.Sliding[slot].Second);
+                Feature,
+                total,
+                Body.Sliding[slot].First,
+                Body.Sliding[slot].Second,
+                Body.Sliding[slot].Local);
         }
 
     }
@@ -516,12 +603,16 @@ public sealed class IvpContact
 
         if (slot < 0)
         {
-            Body.Sliding.Add((Feature, 0f, Dot(settled, first), Dot(settled, second)));
+            Body.Sliding.Add((Feature, 0f, Dot(settled, first), Dot(settled, second), arm));
         }
         else
         {
             Body.Sliding[slot] = (
-                Feature, Body.Sliding[slot].Holding, Dot(settled, first), Dot(settled, second));
+                Feature,
+                Body.Sliding[slot].Holding,
+                Dot(settled, first),
+                Dot(settled, second),
+                Body.Sliding[slot].Local);
         }
     }
 
