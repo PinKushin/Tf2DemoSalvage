@@ -197,6 +197,24 @@ public sealed class RagdollConstraintProbe : IProbe
                 $"text at {(text < 0 ? "NOT FOUND" : text.ToString(CultureInfo.InvariantCulture))}, " +
                 $"{solidBlocks} solid blocks, {joints} ragdoll constraints"));
 
+            // **The hull, per solid, because the ledge TREE is what a single total cannot show.**
+            // `ladder001` is the specimen that proves the walk: ten leaves off nine internal nodes,
+            // where a reader that took the root for a leaf would report one
+            // (`docs/findings/51`, *The collision hull format*).
+            for (int solid = 0; solid < physics.Hulls.Count; solid++)
+            {
+                int triangles = 0;
+
+                foreach (PhysicsLedge ledge in physics.Hulls[solid])
+                {
+                    triangles += ledge.Triangles.Count;
+                }
+
+                output.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"    hull {solid}: {physics.Hulls[solid].Count} ledges, {triangles} triangles"));
+            }
+
             if (shown < 1 && text >= 0)
             {
                 shown++;

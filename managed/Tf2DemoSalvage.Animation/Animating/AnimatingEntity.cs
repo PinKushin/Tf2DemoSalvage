@@ -147,6 +147,34 @@ public sealed class AnimatingEntity
     public bool SetupBones(int boneMask, double currentTime) =>
         SetupBones(boneMask, currentTime, MaximumFollowDepth);
 
+    /// <summary>Throws away the cached pose so the next request rebuilds — <c>InvalidateBoneCache</c>.</summary>
+    /// <remarks>
+    /// **Both lines of the engine's, and both are load-bearing** (<c>c_baseanimating.cpp:3066</c>):
+    ///
+    /// <code>
+    /// void C_BaseAnimating::InvalidateBoneCache()
+    /// {
+    ///     m_iMostRecentModelBoneCounter = g_iModelBoneCounter - 1;
+    ///     m_flLastBoneSetupTime = -FLT_MAX;
+    /// }
+    /// </code>
+    ///
+    /// The counter is set BEHIND the current frame rather than cleared, which is what makes the
+    /// next <see cref="SetupBones(int, double)"/> take the first-touch-this-frame branch even
+    /// though the frame has not advanced; the time is set to negative infinity so the
+    /// bones-have-changed test inside that branch cannot decline.
+    ///
+    /// **This exists for one caller: seeding a ragdoll.** `ForceSetupBonesAtTime` opens with it —
+    /// `// blow the cached prev bones` (<c>c_baseanimating.cpp:4763</c>) — because posing an entity
+    /// out of band otherwise leaves the frame marked built, and the DRAW that follows is then a
+    /// cache hit that never runs the ragdoll hook.
+    /// </remarks>
+    public void InvalidateBoneCache()
+    {
+        _builtOn = _clock.Frame - 1;
+        _lastBoneSetupTime = double.MinValue;
+    }
+
     /// <summary>When this entity's bones last changed — <c>LastBoneChangedTime</c>.</summary>
     /// <remarks>
     /// **The default is "always", which is the base class's answer** —

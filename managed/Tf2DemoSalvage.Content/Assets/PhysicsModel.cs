@@ -147,6 +147,18 @@ public sealed class PhysicsModel
     /// <summary>The source <c>.mdl</c>'s checksum, which ties this file to that model.</summary>
     public int Checksum { get; }
 
+    /// <summary>Each solid's collision hull, in file order — empty for a model built by hand.</summary>
+    /// <remarks>
+    /// **The binary section this reader used to skip entirely** (B58). See <see cref="PhysicsHull"/>
+    /// for the format and the evidence; what matters here is that a hull is indexed by the SAME
+    /// position as its <see cref="PhysicsSolid"/>, because the text block and the binary blob are
+    /// two halves of one solid and nothing in the file cross-references them.
+    ///
+    /// **Empty rather than null when the section will not read**, so a caller collides against
+    /// nothing instead of branching — which is also what happens for a `MOPP` surface.
+    /// </remarks>
+    public IReadOnlyList<IReadOnlyList<PhysicsLedge>> Hulls { get; }
+
     /// <summary>The <c>collisionrules</c> block, or null when the file declares none.</summary>
     /// <remarks>
     /// **Null and empty mean opposite things here** — see <see cref="PhysicsCollisionRules"/>. A
@@ -209,13 +221,56 @@ public sealed class PhysicsModel
         IReadOnlyList<RagdollConstraint> constraints,
         int declaredSolidCount,
         int checksum,
-        PhysicsCollisionRules? collisionRules)
+        PhysicsCollisionRules? collisionRules,
+        IReadOnlyList<IReadOnlyList<PhysicsLedge>>? hulls = null)
     {
         Solids = solids;
         Constraints = constraints;
         DeclaredSolidCount = declaredSolidCount;
         Checksum = checksum;
         CollisionRules = collisionRules;
+        Hulls = hulls ?? [];
+    }
+
+    /// <summary>Every solid's hull, walked out of the binary section.</summary>
+    /// <param name="bytes">The whole file.</param>
+    /// <param name="solidCount">What the header declares.</param>
+    /// <remarks>
+    /// **The section is a chain of length-prefixed blobs and cannot be indexed**, so this walks it:
+    /// a `uint32` size, then that many bytes starting at the `VPHY` tag, `solidCount` times. That is
+    /// the same walk the text scan deliberately avoids — see <see cref="Read"/>, where the reason
+    /// was that nothing needed to understand these bytes. Something does now.
+    ///
+    /// **A blob whose size runs past the file ends the walk rather than throwing.** A `.phy` is a
+    /// stranger's file (D32), and a truncated one should collide against the solids it does carry.
+    /// </remarks>
+    private static List<IReadOnlyList<PhysicsLedge>> Hull(
+        ReadOnlySpan<byte> bytes, int solidCount)
+    {
+        List<IReadOnlyList<PhysicsLedge>> hulls = [];
+
+        int at = HeaderSize;
+
+        for (int solid = 0; solid < solidCount; solid++)
+        {
+            if (at + 4 > bytes.Length)
+            {
+                break;
+            }
+
+            int size = BitConverter.ToInt32(bytes[at..]);
+
+            if (size <= 0 || at + 4 + size > bytes.Length)
+            {
+                break;
+            }
+
+            hulls.Add(PhysicsHull.Read(bytes.Slice(at + 4, size)));
+
+            at += 4 + size;
+        }
+
+        return hulls;
     }
 
     /// <summary>Reads a <c>.phy</c>.</summary>
@@ -254,12 +309,14 @@ public sealed class PhysicsModel
 
         int text = FindText(bytes);
 
+        IReadOnlyList<IReadOnlyList<PhysicsLedge>> hulls = Hull(bytes, solidCount);
+
         if (text < 0)
         {
-            return new PhysicsModel([], [], solidCount, checksum, null);
+            return new PhysicsModel([], [], solidCount, checksum, null, hulls);
         }
 
-        return Parse(file[text..], solidCount, checksum);
+        return Parse(file[text..], solidCount, checksum, hulls);
     }
 
     /// <summary>Where the KeyValues section starts, or -1.</summary>
@@ -306,7 +363,11 @@ public sealed class PhysicsModel
     }
 
     /// <summary>Reads the KeyValues half.</summary>
-    private static PhysicsModel Parse(ReadOnlyMemory<byte> text, int solidCount, int checksum)
+    private static PhysicsModel Parse(
+        ReadOnlyMemory<byte> text,
+        int solidCount,
+        int checksum,
+        IReadOnlyList<IReadOnlyList<PhysicsLedge>> hulls)
     {
         List<PhysicsSolid> solids = [];
         List<RagdollConstraint> constraints = [];
@@ -371,7 +432,7 @@ public sealed class PhysicsModel
         // (`docs/memory/author-the-specimen-the-corpus-lacks.md`).
         Close();
 
-        return new PhysicsModel(solids, constraints, solidCount, checksum, rules);
+        return new PhysicsModel(solids, constraints, solidCount, checksum, rules, hulls);
     }
 
     /// <summary>Replays a <c>collisionrules</c> block the way the engine's handler consumes it.</summary>

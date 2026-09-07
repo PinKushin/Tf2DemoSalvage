@@ -139,6 +139,25 @@ public sealed class RagdollProbe : IProbe
             $"{model}: {body.Elements.Count} bodies, {body.Constraints.Count} joints, " +
             $"{bones.Count} bones");
 
+        // **The hulls, because a body with no hull cannot land on anything** (B58). Printed per
+        // solid rather than totalled: a reader that finds the tree but walks one branch reports a
+        // plausible total, and only the per-solid column shows the shape of the failure.
+        for (int solid = 0; solid < physics.Hulls.Count; solid++)
+        {
+            int ledges = physics.Hulls[solid].Count;
+            int triangles = 0;
+            int points = 0;
+
+            foreach (PhysicsLedge ledge in physics.Hulls[solid])
+            {
+                triangles += ledge.Triangles.Count;
+                points += ledge.Points.Count;
+            }
+
+            output.WriteLine(
+                $"    hull {solid}: {ledges} ledges, {triangles} triangles, {points} points");
+        }
+
         foreach (RagdollElement element in body.Elements)
         {
             string bone = element.BoneIndex >= 0 && element.BoneIndex < bones.Count

@@ -59,6 +59,38 @@ public sealed class AnimatingEntityTests
     }
 
     /// <remarks>
+    /// **`InvalidateBoneCache`, `c_baseanimating.cpp:3066`, and it is what makes an out-of-band pose
+    /// safe.** A corpse is seeded by posing the entity with no ragdoll attached and reading the
+    /// result — `ForceSetupBonesAtTime` does the same thing in the engine and opens with
+    /// `InvalidateBoneCache(); // blow the cached prev bones` (`c_baseanimating.cpp:4763`).
+    ///
+    /// **Without it the seed POISONS the frame.** The seeding call marks the frame built, so the
+    /// draw's own `SetupBones` — issued microseconds later with the ragdoll now attached — is a
+    /// cache hit and the ragdoll hook never runs. Measured on screen: a corpse at
+    /// `z1800.dem:14270` drew standing upright in its death animation, with a green suite, because
+    /// every part of the physics path worked and none of it was ever asked to.
+    /// </remarks>
+    [Test]
+    public void SetupBones_AfterInvalidateBoneCacheWithinOneFrame_BuildsAgain()
+    {
+        CountingPose pose = new();
+        BoneFrameCounter clock = new();
+        AnimatingEntity entity = new(pose, clock);
+
+        entity.SetupBones(Vertices, 0d);
+
+        pose.Builds.ShouldBe(1, "the control: the seeding pose really was built");
+
+        entity.InvalidateBoneCache();
+
+        entity.SetupBones(Vertices, 0d);
+
+        // Same frame, same time, same mask. Only the invalidation separates this from the
+        // cache-hit test at the top of this file, which predicts 1 for the very same calls.
+        pose.Builds.ShouldBe(2);
+    }
+
+    /// <remarks>
     /// **`if ( LastBoneChangedTime() >= m_flLastBoneSetupTime )`, `c_baseanimating.cpp:2878`** — the
     /// third guard, and the one this project was missing. A new frame is not enough to invalidate a
     /// pose; the entity's bones must also have CHANGED since it was last set up.

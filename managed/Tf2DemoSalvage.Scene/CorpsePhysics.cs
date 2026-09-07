@@ -78,8 +78,12 @@ public sealed class CorpsePhysics
         ArgumentNullException.ThrowIfNull(ragdoll);
         ArgumentNullException.ThrowIfNull(entity);
 
+        bool seeded = false;
+
         if (!_running.TryGetValue(entityIndex, out Running? live) || tick < live.BornAt)
         {
+            seeded = true;
+
             // **A tick before this corpse existed cannot be reached by stepping forward**, so the
             // simulation is discarded rather than run backwards. The same branch covers a seek to
             // a different part of the demo entirely.
@@ -93,6 +97,8 @@ public sealed class CorpsePhysics
 
         // Behind the requested tick: catch up. Ahead of it — a backward seek within this corpse's
         // life — is handled above by rebuilding, so this only ever counts forward.
+        bool stepped = live.SteppedTo < tick;
+
         while (live.SteppedTo < tick)
         {
             live.Simulation.Step();
@@ -101,6 +107,27 @@ public sealed class CorpsePhysics
         }
 
         entity.Ragdoll = live.Write;
+
+        // **`C_ClientRagdoll::LastBoneChangedTime()` returns the physics update time**
+        // (`c_baseanimating.cpp:587`), which `CRagdoll::VPhysicsUpdate` advances only while the
+        // body is awake (`ragdoll.cpp:191-193`). So a corpse that stepped has changed and its pose
+        // must be rebuilt; a corpse asked for the same tick again has not, and
+        // `SetupBones`' own guard then declines to invalidate it. **That is how the engine draws a
+        // pile of settled corpses for free**, and it is why this is a time rather than a flag.
+        if (stepped)
+        {
+            entity.LastBoneChangedTime = seconds;
+        }
+
+        // **Seeding is the case the time cannot cover.** It poses the entity out of band with the
+        // ragdoll DETACHED, which marks the frame built — so the draw's own `SetupBones`, same
+        // frame and same time, would be a cache hit and the hook just attached would never run.
+        // Measured: a corpse drew standing in its death animation while every part of the physics
+        // path passed its own tests.
+        if (seeded)
+        {
+            entity.InvalidateBoneCache();
+        }
 
         return true;
     }
@@ -120,6 +147,13 @@ public sealed class CorpsePhysics
         double seconds)
     {
         entity.Ragdoll = null;
+
+        // **`ForceSetupBonesAtTime` opens exactly this way** — `InvalidateBoneCache(); // blow the
+        // cached prev bones` (`c_baseanimating.cpp:4763`), the routine the engine uses to pose an
+        // entity out of band, and `GetRagdollInitBoneArrays` right beneath it is what seeds a
+        // ragdoll from those bones. Without it the seed reads whatever this frame already built,
+        // which for a corpse rebuilt after a seek is its own previous output.
+        entity.InvalidateBoneCache();
 
         if (!entity.SetupBones(StudioBoneFlags.UsedByAnything, seconds))
         {
