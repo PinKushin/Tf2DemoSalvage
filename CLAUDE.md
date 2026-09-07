@@ -465,6 +465,21 @@ address, find callers of an address, find the function holding a string, list fu
 `CL_CopyNewEntity: GetClassBaseline(%d) failed.` names its own function and finding it is one script
 run.
 
+**Identity comes from the disassembly, shape from the decompiler — and `DisasmWithData.java` is what
+makes that cheap.** It prints each instruction with every memory operand resolved to its four lanes
+inline, so a constant's value sits on the line that reads it:
+
+```
+1800386df  MOVAPS XMM4,xmmword ptr [0x1800ff130]   ; 1800ff130 = {0.0, 0.0, 0.0, ffffffff}
+```
+
+**Two wrong conclusions in one session came from settling a constant in decompiled C instead**
+(`docs/memory/settle-a-constant-in-the-disassembly.md`): `DAT_1800eea1c` taken for π because its
+neighbour is genuinely 2π — it is `1e-16` — and `uVar6` read as a dumped mask in one expression and
+a comparison result three lines later, because Ghidra reuses a local name for unrelated values. The
+tell to run this script is a sentence naming a `DAT_`/`_UNK_` symbol, or reaching for a value
+because it is ADJACENT to a known one.
+
 **A zero exit means nothing here.** `analyzeHeadless.bat` exits 0 on a Java stack trace, so grep the
 output for `ERROR` rather than trusting the status — the first attempt "succeeded" while having done
 nothing at all.
