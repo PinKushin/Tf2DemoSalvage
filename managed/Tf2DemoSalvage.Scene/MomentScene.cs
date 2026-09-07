@@ -489,7 +489,7 @@ public sealed class MomentScene : IGameSystemPerFrame
             foreach ((int entity, System.Numerics.Vector3 root) in _models.Corpses.Roots)
             {
                 _render.LogDebug(
-                    "corpse {Entity} settled at {X} {Y} {Z} contacts {Contacts} deepest {Deepest} born {Born} seeded {Seeded}",
+                    "corpse {Entity} settled at {X} {Y} {Z} contacts {Contacts} deepest {Deepest} born {Born} seeded {Seeded} blow {Blow}",
                     entity,
                     root.X.ToString("0.#", CultureInfo.InvariantCulture),
                     root.Y.ToString("0.#", CultureInfo.InvariantCulture),
@@ -499,6 +499,9 @@ public sealed class MomentScene : IGameSystemPerFrame
                     _models.Corpses.Born.TryGetValue(entity, out int born) ? born : -1,
                     _models.Corpses.Seeded.TryGetValue(entity, out System.Numerics.Vector3 seed)
                         ? $"{seed.X:0.#} {seed.Y:0.#} {seed.Z:0.#}"
+                        : "none",
+                    _models.Corpses.Blows.TryGetValue(entity, out float blow)
+                        ? blow.ToString("0", CultureInfo.InvariantCulture)
                         : "none");
             }
         }

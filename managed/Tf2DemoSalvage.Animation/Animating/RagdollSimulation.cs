@@ -186,6 +186,108 @@ public sealed class RagdollSimulation
         return new RagdollSimulation(ragdoll, environment, bodies);
     }
 
+    /// <summary>Applies the killing blow, as <c>RagdollCreate</c> does (B58).</summary>
+    /// <param name="force">The wire's <c>m_vecForce</c>, an impulse in kg·in/s.</param>
+    /// <param name="forceBone">The wire's <c>m_nForceBone</c>, or negative for none.</param>
+    /// <remarks>
+    /// **This is why a TF2 corpse flies and ours only fell.** `m_vecForce`, `m_vecRagdollVelocity`
+    /// and `m_nForceBone` are decoded, carried into `SceneRagdoll`, and were read by nothing —
+    /// three more fields with no consumer, and between them the wire's entire account of how a
+    /// body left its feet ([[a-tf2-corpse-is-simulated-not-sent]]).
+    ///
+    /// **`RagdollCreate`, `ragdoll_shared.cpp:405`, and every line of it matters:**
+    ///
+    /// <code>
+    /// totalMass = MAX( sum of masses, 1 );
+    /// if ( forceBone >= 0 &amp;&amp; forceBone &lt; ragdoll.listCount ) {
+    ///     ragdoll.list[forceBone].pObject-&gt;ApplyForceCenter( nudgeForce );
+    ///     ragdoll.list[forceBone].pObject-&gt;GetPosition( &amp;forcePosition, NULL );
+    /// }
+    /// if ( forcePosition != vec3_origin ) {
+    ///     for ( i … ) if ( forceBone != i ) {
+    ///         float scale = ragdoll.list[i].pObject-&gt;GetMass() / totalMass;
+    ///         ragdoll.list[i].pObject-&gt;ApplyForceOffset( scale * nudgeForce, forcePosition );
+    ///     }
+    /// }
+    /// </code>
+    ///
+    /// - **The struck bone takes the WHOLE force through its centre**, so it gains speed and no
+    ///   spin of its own.
+    /// - **Every other body takes a share by MASS, at the struck bone's position** — an offset
+    ///   push, so the rest of the body swings about the hit. That is the difference between a
+    ///   corpse that tumbles away from a rocket and one that slides.
+    /// - **`forcePosition` gates the second loop**, and with no force bone it stays whatever the
+    ///   caller passed. A corpse whose killer sent neither is pushed not at all, which is correct:
+    ///   `m_vecForce` is zeroed for a death animation (`c_tf_player.cpp:847`).
+    ///
+    /// **The scale divides by the TOTAL mass, not by the body's own**, so the shares sum to less
+    /// than one force — Valve's own comment beside it reads *"UNDONE: Test scaling the force by
+    /// total mass on all bones"*, so this is deliberate and unfinished in the engine too.
+    /// </remarks>
+    public void Kill((float X, float Y, float Z) force, int forceBone)
+    {
+        float total = 0f;
+
+        foreach (IvpRigidBody body in _bodies)
+        {
+            total += body.InverseMass > 0f ? 1f / body.InverseMass : 0f;
+        }
+
+        total = MathF.Max(total, 1f);
+
+        if (forceBone < 0 || forceBone >= _bodies.Length)
+        {
+            // No struck bone means no `forcePosition`, and the engine's second loop is gated on it.
+            return;
+        }
+
+        IvpPush.ApplyForceCenter(_bodies[forceBone], force);
+
+        (float X, float Y, float Z) at = (
+            (float)_bodies[forceBone].Position.X,
+            (float)_bodies[forceBone].Position.Y,
+            (float)_bodies[forceBone].Position.Z);
+
+        for (int index = 0; index < _bodies.Length; index++)
+        {
+            if (index == forceBone)
+            {
+                continue;
+            }
+
+            float share = (_bodies[index].InverseMass > 0f ? 1f / _bodies[index].InverseMass : 0f)
+                / total;
+
+            IvpPush.ApplyForceOffset(
+                _bodies[index],
+                (force.X * share, force.Y * share, force.Z * share),
+                at);
+        }
+    }
+
+    /// <summary>Gives every body the velocity the corpse inherited — <c>AddVelocity</c>.</summary>
+    /// <param name="velocity">The wire's <c>m_vecRagdollVelocity</c>.</param>
+    /// <remarks>
+    /// **The engine gets this from the animation rather than the wire, and cannot here.**
+    /// `RagdollApplyAnimationAsVelocity` (`ragdoll_shared.cpp:458`) derives a per-body velocity from
+    /// TWO bone snapshots `boneDt` apart — `GetRagdollInitBoneArrays` with `boneDt = 0.05f`
+    /// (`c_tf_player.cpp:890`) — so each limb inherits its own motion, an outflung arm keeping more
+    /// than the hip.
+    ///
+    /// **A demo carries `m_vecRagdollVelocity` and not those two snapshots**, and this project
+    /// seeds a corpse from one pose. So every body gets the entity's single velocity: the corpse
+    /// travels correctly and its limbs do not lead or trail. **A stated departure**, and the thing
+    /// that would close it is a second seed pose one `boneDt` earlier, which the timeline can
+    /// produce.
+    /// </remarks>
+    public void Inherit((float X, float Y, float Z) velocity)
+    {
+        foreach (IvpRigidBody body in _bodies)
+        {
+            IvpPush.AddVelocity(body, velocity, (0f, 0f, 0f));
+        }
+    }
+
     /// <summary>Advances the simulation by one step.</summary>
     public void Step() => Environment.Simulate();
 

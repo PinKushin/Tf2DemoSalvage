@@ -543,6 +543,14 @@ public readonly record struct ScenePose
 /// never runs into opening a demo directly at a certain tick"*.
 /// </para>
 /// </param>
+/// <param name="Force">
+/// The killing blow's impulse — <c>m_vecForce</c>, in kg·in/s (B58). Null for anything that is not
+/// a corpse, and for a corpse the engine gave a death animation instead.
+/// </param>
+/// <param name="ForceBone">Which body it landed on — <c>m_nForceBone</c>, negative for none.</param>
+/// <param name="RagdollVelocity">
+/// What the corpse was already travelling at — <c>m_vecRagdollVelocity</c>.
+/// </param>
 /// <param name="AttachmentPoint">
 /// Which of that entity's named attachment points it hangs from, one-based, or <c>null</c> when it
 /// is bone-merged instead.
@@ -669,7 +677,20 @@ public sealed record SceneProp(
     // creates a ragdoll at the moment of death and simulates it forward from there, and a demo is
     // only ever played forwards past it. TF2's own demo seeking is poor for exactly this family of
     // reasons — the owner, on why parity has nothing to say here.
-    int? FirstTick = null);
+    int? FirstTick = null,
+
+    // **The killing blow, as the wire sent it** (B58). `m_vecForce` is an impulse in kg·in/s
+    // (`vphysics_interface.h:803`), `m_nForceBone` is which body it landed on, and
+    // `m_vecRagdollVelocity` is what the corpse was already carrying. `RagdollCreate` puts the
+    // whole force through the struck bone and a mass-weighted share through every other, at the
+    // struck bone's position.
+    //
+    // **Null everywhere but a corpse**, and null on a corpse whose killer sent none — which the
+    // engine does deliberately for a death animation, zeroing `m_vecForce` at
+    // `c_tf_player.cpp:847`.
+    (float X, float Y, float Z)? Force = null,
+    int? ForceBone = null,
+    (float X, float Y, float Z)? RagdollVelocity = null);
 
 /// <summary>
 /// One entity's pose over the whole demo, stored as the moments it changed.

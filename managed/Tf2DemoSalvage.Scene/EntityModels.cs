@@ -4583,7 +4583,10 @@ public sealed class EntityModelSet : IModelBodygroups
                         (int)CurrentTick,
                         IntervalPerTick,
                         seconds,
-                        prop.FirstTick);
+                        prop.FirstTick,
+                        prop.Force,
+                        prop.ForceBone,
+                        prop.RagdollVelocity);
                 }
 
                 long setupAt = System.Diagnostics.Stopwatch.GetTimestamp();

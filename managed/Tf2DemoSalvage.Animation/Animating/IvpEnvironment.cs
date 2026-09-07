@@ -86,6 +86,28 @@ public sealed class IvpEnvironment
     /// </remarks>
     public IvpConstraintGroup Constraints { get; } = new();
 
+    /// <summary>The fastest a body may travel — <c>k_flMaxVelocity</c>, in units per second.</summary>
+    /// <remarks>
+    /// **Valve's own number, published**: `const float k_flMaxVelocity = 2000.0f;`
+    /// (`public/vphysics/performance.h:14`), set into every environment by
+    /// `physics_performanceparams_t::Defaults()` and applied through
+    /// `physenv->SetPerformanceSettings( &amp;params )` (`physics.cpp:226`). The field's own comment
+    /// is *"limit world space linear velocity to this (in / s)"*.
+    ///
+    /// **It matters for a corpse specifically.** A killing blow of 24,000 through a ten-kilo bone
+    /// is 2,400 units a second, and this project had no clamp at all — measured on `z1800`, where
+    /// four of eight corpses left the map entirely once the death force was applied.
+    /// </remarks>
+    public float MaximumVelocity { get; set; } = 2000f;
+
+    /// <summary>And the fastest it may spin — <c>k_flMaxAngularVelocity</c>, in radians.</summary>
+    /// <remarks>
+    /// **`360.0f * 10.0f` DEGREES per second** (`performance.h:15`), which is 3,600°/s or about
+    /// 62.83 rad/s. The engine states it in degrees because that is what the field says; this
+    /// simulation carries angular velocity in radians, so the conversion happens once, here.
+    /// </remarks>
+    public float MaximumAngularVelocity { get; set; } = 3600f * (MathF.PI / 180f);
+
     /// <summary>The static world these bodies collide with, or null when there is none.</summary>
     /// <remarks>
     /// **Null is a legitimate state and not a missing input.** Every test of the solve that predates
@@ -166,11 +188,19 @@ public sealed class IvpEnvironment
     /// </remarks>
     public void Simulate()
     {
-        // **Damping first, then gravity, because that is the order the engine calls them in.**
-        // `FUN_180074c80` makes its two helper calls — of which `FUN_180078250` is this — and only
-        // then adds `g * dt`. Damping the velocity gravity has already contributed this step would
-        // scale the step's own acceleration, which the engine does not do.
+        // **Damping, then the staged pushes, then gravity — the order `FUN_180074c80` calls them
+        // in**, and each position in it is load-bearing:
+        //
+        //     FUN_180078250(core, dt);   // damping        — IvpDamping
+        //     FUN_180077950(core);       // flush the push — IvpPush.Flush
+        //     … v += g * dt …            // gravity        — IvpGravity
+        //
+        // Damping runs BEFORE the flush, so an impulse staged last step is not damped on the step
+        // it lands; and gravity runs after both, so the step's own acceleration is never damped
+        // either. Reordering any pair changes a corpse's launch.
         IvpDamping.Apply(_bodies, Step);
+
+        IvpPush.Flush(_bodies);
 
         IvpGravity.Apply(_bodies, Gravity, Step, AlternateGravity);
 
@@ -212,7 +242,50 @@ public sealed class IvpEnvironment
 
             IvpIntegrator.Step(body, Now - body.LastStepped, Step);
 
+            // **The environment's own speed limits, which are Valve's published numbers.** See
+            // `MaximumVelocity`. **Where in the step the engine clamps is INFERRED** — the
+            // parameters and their meaning are published, the site is not — so it is done after
+            // integration, which is the last moment a velocity can be wrong before it is read.
+            Limit(body);
+
             body.LastStepped = Now;
+        }
+    }
+
+    /// <summary>Holds one body inside the environment's speed limits.</summary>
+    /// <remarks>
+    /// **Scaled, not clipped per axis.** A per-component clamp would turn a fast diagonal into a
+    /// slower one pointing somewhere else, and the field's comment says *"limit world space linear
+    /// velocity"* — a magnitude.
+    /// </remarks>
+    private void Limit(IvpRigidBody body)
+    {
+        float speed = MathF.Sqrt(
+            (body.Velocity.X * body.Velocity.X) +
+            (body.Velocity.Y * body.Velocity.Y) +
+            (body.Velocity.Z * body.Velocity.Z));
+
+        if (speed > MaximumVelocity && speed > 0f)
+        {
+            float scale = MaximumVelocity / speed;
+
+            body.Velocity = (
+                body.Velocity.X * scale, body.Velocity.Y * scale, body.Velocity.Z * scale);
+        }
+
+        float spin = MathF.Sqrt(
+            (body.AngularVelocity.X * body.AngularVelocity.X) +
+            (body.AngularVelocity.Y * body.AngularVelocity.Y) +
+            (body.AngularVelocity.Z * body.AngularVelocity.Z));
+
+        if (spin > MaximumAngularVelocity && spin > 0f)
+        {
+            float scale = MaximumAngularVelocity / spin;
+
+            body.AngularVelocity = (
+                body.AngularVelocity.X * scale,
+                body.AngularVelocity.Y * scale,
+                body.AngularVelocity.Z * scale);
         }
     }
 }

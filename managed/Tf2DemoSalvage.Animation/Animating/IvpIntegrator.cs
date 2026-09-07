@@ -83,6 +83,29 @@ public sealed class IvpRigidBody
     /// </remarks>
     public float InverseMass { get; set; } = 1f;
 
+    /// <summary>Velocity waiting to be added at the next step — <c>core+0x120/0x124/0x128</c>.</summary>
+    /// <remarks>
+    /// **A push does not reach a body's velocity where it is applied; it is STAGED.**
+    /// `FUN_180077950` drains this pair into the real velocities and zeroes it, once per body per
+    /// step, from inside the same gate as gravity:
+    ///
+    /// <code>
+    /// *(float *)(core + 0x130) = *(float *)(core + 0x110) + *(float *)(core + 0x130);
+    /// *(float *)(core + 0x140) = *(float *)(core + 0x120) + *(float *)(core + 0x140);
+    /// ...
+    /// *(undefined8 *)(core + 0x124) = 0;   *(undefined4 *)(core + 0x120) = 0;
+    /// *(undefined8 *)(core + 0x114) = 0;   *(undefined4 *)(core + 0x110) = 0;
+    /// </code>
+    ///
+    /// **So an impulse applied between steps lands on the NEXT one**, which is the same one-step
+    /// lag the integrator has by moving on the previous velocity. A ragdoll's creation force is
+    /// applied through exactly this — `ApplyForceCenter` and `AddVelocity` stage, they do not set.
+    /// </remarks>
+    public (float X, float Y, float Z) PendingVelocity { get; set; }
+
+    /// <summary>Angular velocity waiting the same way — <c>core+0x110/0x114/0x118</c>.</summary>
+    public (float X, float Y, float Z) PendingAngularVelocity { get; set; }
+
     /// <summary>How fast this body loses speed — <c>core+0x50</c>, the <c>.phy</c>'s <c>damping</c>.</summary>
     /// <remarks>
     /// **Zero on every element of every TF2 ragdoll**, measured — so this is the term that does

@@ -173,7 +173,13 @@ public static class RagdollProps
                 MaterialOverride: look.Material,
 
                 // **When it died, which is when its physics starts** (B58). See `SceneProp`.
-                FirstTick: corpse.FirstTick));
+                FirstTick: corpse.FirstTick,
+
+                // **And how it died, which is what makes it fly** (B58). Decoded since the corpse
+                // reader was written and read by nothing until the simulation existed to want it.
+                Force: corpse.Force,
+                ForceBone: corpse.ForceBone,
+                RagdollVelocity: corpse.Velocity));
 
             drawn++;
 

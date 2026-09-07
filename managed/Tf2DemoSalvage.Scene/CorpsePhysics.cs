@@ -106,6 +106,16 @@ public sealed class CorpsePhysics
 
     private readonly Dictionary<int, Vector3> _seeded = [];
 
+    /// <summary>How hard each corpse was hit — the magnitude of <c>m_vecForce</c>.</summary>
+    /// <remarks>
+    /// **Carried out of the seed that used it** (B243). A corpse that flies too far has two causes
+    /// that look identical from outside — the wire's force being larger than expected, and this
+    /// project applying it wrongly — and only the number the code actually used separates them.
+    /// </remarks>
+    public IReadOnlyDictionary<int, float> Blows => _blows;
+
+    private readonly Dictionary<int, float> _blows = [];
+
     /// <summary>Forgets every simulation — a new demo, or a map change.</summary>
     public void Clear()
     {
@@ -124,6 +134,9 @@ public sealed class CorpsePhysics
     /// The tick this corpse died, so a seek simulates it forward from there rather than seeding it
     /// standing at whatever tick it was first drawn at. Null falls back to that drawn tick.
     /// </param>
+    /// <param name="force">The killing blow — <c>m_vecForce</c>, an impulse in kg·in/s.</param>
+    /// <param name="forceBone">Which body it landed on — <c>m_nForceBone</c>.</param>
+    /// <param name="velocity">What the corpse was already carrying — <c>m_vecRagdollVelocity</c>.</param>
     /// <returns><c>true</c> when the entity now has a simulation attached.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
@@ -140,7 +153,10 @@ public sealed class CorpsePhysics
         int tick,
         float interval,
         double seconds,
-        int? bornAt = null)
+        int? bornAt = null,
+        (float X, float Y, float Z)? force = null,
+        int? forceBone = null,
+        (float X, float Y, float Z)? velocity = null)
     {
         ArgumentNullException.ThrowIfNull(ragdoll);
         ArgumentNullException.ThrowIfNull(entity);
@@ -162,7 +178,15 @@ public sealed class CorpsePhysics
             int birth = bornAt is { } known && known <= tick ? known : tick;
 
             live = Seed(
-                entityIndex, ragdoll, entity, birth, interval, seconds - ((tick - birth) * interval));
+                force,
+                forceBone,
+                velocity,
+                entityIndex,
+                ragdoll,
+                entity,
+                birth,
+                interval,
+                seconds - ((tick - birth) * interval));
 
             if (live is null)
             {
@@ -225,6 +249,9 @@ public sealed class CorpsePhysics
     /// would drift a little further from the animation every time it was rebuilt.
     /// </remarks>
     private Running? Seed(
+        (float X, float Y, float Z)? force,
+        int? forceBone,
+        (float X, float Y, float Z)? velocity,
         int entityIndex,
         RagdollBody ragdoll,
         AnimatingEntity entity,
@@ -273,6 +300,22 @@ public sealed class CorpsePhysics
             ragdoll, interval, start, Surfaces);
 
         simulation.Environment.World = World;
+
+        // **The killing blow, applied at creation exactly as `RagdollCreate` does** (B58). It is
+        // staged rather than set, so it lands on this corpse's first step — the engine's own
+        // one-step lag, not a delay invented here.
+        if (velocity is { } inherited)
+        {
+            simulation.Inherit(inherited);
+        }
+
+        if (force is { } blow)
+        {
+            simulation.Kill(blow, forceBone ?? -1);
+
+            _blows[entityIndex] =
+                MathF.Sqrt((blow.X * blow.X) + (blow.Y * blow.Y) + (blow.Z * blow.Z));
+        }
 
         Running live = new(simulation, tick, tick);
 

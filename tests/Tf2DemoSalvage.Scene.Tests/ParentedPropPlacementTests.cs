@@ -177,6 +177,15 @@ public sealed class ParentedPropPlacementTests
                 // the engine** — Valve creates a ragdoll at death and never seeks back to before
                 // it, so the question does not arise there.
                 nameof(SceneProp.FirstTick),
+
+                // **The killing blow — `m_vecForce`, `m_nForceBone` and `m_vecRagdollVelocity`**
+                // (B58). Null on everything but a corpse, and null on a corpse whose killer sent
+                // none, which the engine does deliberately for a death animation. Every other
+                // construction site is answering "this thing was not killed", which is the right
+                // answer for a health pack and a viewmodel alike.
+                nameof(SceneProp.Force),
+                nameof(SceneProp.ForceBone),
+                nameof(SceneProp.RagdollVelocity),
             ],
             ignoreOrder: true,
             "a defaulted field on SceneProp is a claim every construction site makes silently. "
