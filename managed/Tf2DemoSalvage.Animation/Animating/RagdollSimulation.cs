@@ -180,6 +180,16 @@ public sealed class RagdollSimulation
     /// <returns>One 3×4 matrix per bone.</returns>
     public float[][] Pose(int boneCount) => _ragdoll.Pose(State(), boneCount);
 
+    /// <summary>Writes this ragdoll's current bones into an accessor, marking what it drove.</summary>
+    /// <param name="into">The accessor to write through.</param>
+    /// <param name="written">Marked for every bone the ragdoll drove.</param>
+    /// <remarks>
+    /// **The shape `AnimatingEntity.Ragdoll` wants**, so a caller hands over a method group rather
+    /// than a closure that rebuilds the state array every frame.
+    /// </remarks>
+    public void PoseIntoAccessor(BoneAccessor into, BoneBitList written) =>
+        _ragdoll.PoseInto(State(), into, written);
+
     /// <summary>Turns a <c>.phy</c> constraint into a solvable joint.</summary>
     /// <remarks>
     /// **The engine picks which axis is the twist by MECHANICS, not by index** — `FUN_1800393d0`

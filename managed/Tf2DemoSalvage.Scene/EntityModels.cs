@@ -4306,6 +4306,27 @@ public sealed class EntityModelSet : IModelBodygroups
     /// <summary>Notes that the current contents have reached the device.</summary>
     public void Uploaded() => Grown = false;
 
+    /// <summary>The running simulation behind every corpse being drawn.</summary>
+    /// <remarks>
+    /// **Public so a probe or a test can ask what it did** — how many corpses are live, how many
+    /// steps have run, and how many rebuilds a seek cost. Those are the only numbers that say the
+    /// physics is running at all, because a corpse that is simulating and one that is not both draw.
+    /// </remarks>
+    public CorpsePhysics Corpses { get; } = new();
+
+    /// <summary>Seconds per demo tick, which is the physics timestep.</summary>
+    /// <remarks>
+    /// **`PhysicsLevelInit` sets the solver's step to `gpGlobals-&gt;interval_per_tick`** under
+    /// Valve's own comment — *"Always run client physics at this rate - helps keep ragdolls
+    /// stable"* (`physics.cpp:177-180`). A viewer drawing at three hundred frames a second must not
+    /// step physics three hundred times a second, so the corpse clock is derived from this and
+    /// never from how often a frame was built.
+    ///
+    /// **Default 1/66 is TF2's**, and a demo carrying a different rate should set it — a wrong
+    /// value does not fail, it makes corpses fall at the wrong speed.
+    /// </remarks>
+    public float IntervalPerTick { get; set; } = 1f / 66f;
+
     /// <summary>Where each model stands at this moment.</summary>
     /// <param name="props">What exists at this tick.</param>
     /// <param name="into">Filled with one entry per drawable entity; cleared first.</param>
@@ -4527,6 +4548,29 @@ public sealed class EntityModelSet : IModelBodygroups
                 // BONE_USED_BY_ANYTHING because this project draws one level of detail and asks for
                 // everything; a narrower mask is the optimisation the accessor exists to allow and
                 // is not worth guessing at before something measures it.
+                // **A corpse's bones come from physics, and this is where the simulation is brought
+                // up to the tick being drawn.** Before `SetupBones`, because it attaches the hook
+                // that call then runs — the engine's order too, where `m_pRagdoll` is already set
+                // by the time `BuildTransformations` tests it.
+                //
+                // **Only a corpse, and only a model that declares joints.** `entry.Ragdoll` is null
+                // for all but 37 of the game's models, so this is a null check for everything else
+                // being drawn.
+                if (entry.Ragdoll is { } corpse && prop.ClassName == RagdollProps.RagdollClassName)
+                {
+                    // **The tick is derived from playback time, not counted.** `seconds` is the
+                    // demo clock this draw is at, so dividing by the tick interval gives the tick
+                    // the corpse must be simulated to — and a frame drawn twice at the same time
+                    // asks for the same tick and steps nothing.
+                    Corpses.Advance(
+                        prop.EntityIndex,
+                        corpse,
+                        animating,
+                        (int)(seconds / IntervalPerTick),
+                        IntervalPerTick,
+                        seconds);
+                }
+
                 long setupAt = System.Diagnostics.Stopwatch.GetTimestamp();
 
                 bool setUp = animating.SetupBones(StudioBoneFlags.UsedByAnything, seconds);
