@@ -204,6 +204,10 @@ public sealed class IvpContact
     /// The timestep, so a point about to cross a surface raises its contact before it does. Zero
     /// disables that and tests the current position alone.
     /// </param>
+    /// <param name="lookAhead">
+    /// How far ahead to predict, in seconds — the environment's <c>lookAheadTimeObjectsVsWorld</c>,
+    /// which Valve defaults to a full second.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **A body's hull points are tested, not its triangles.** That is the vertex-face case, and it
@@ -214,7 +218,11 @@ public sealed class IvpContact
     /// one either.
     /// </remarks>
     public static void Find(
-        IvpRigidBody body, IvpWorldCollision? world, ICollection<IvpContact> into, float step = 0f)
+        IvpRigidBody body,
+        IvpWorldCollision? world,
+        ICollection<IvpContact> into,
+        float step = 0f,
+        float lookAhead = 0f)
     {
         ArgumentNullException.ThrowIfNull(body);
         ArgumentNullException.ThrowIfNull(into);
@@ -253,21 +261,48 @@ public sealed class IvpContact
                 // be after this step is tested, and a contact is raised now with zero depth — no
                 // penetration to recover, only a closing velocity to cancel, which is exactly what
                 // a contact that has not happened yet should do.
-                // **Two steps, and the reason is the integrator's one-step lag.** `IvpIntegrator`
-                // moves a body by its PREVIOUS velocity — `core[0x150] += core[0x170] * dt`, and
-                // only then `core[0x170] = core[0x140]` — so this step's motion is already decided
-                // before any impulse is applied, and an impulse raised now takes effect on the step
-                // after. Predicting with the current velocity alone therefore raises the contact
-                // exactly one step too late, which is what left a body 2,775 units under a
-                // sixteen-unit floor while reporting contacts the whole way down.
-                Vector3 ahead = centre + arm + new Vector3(
-                    (body.PreviousVelocity.X + body.Velocity.X) * step,
-                    (body.PreviousVelocity.Y + body.Velocity.Y) * step,
-                    (body.PreviousVelocity.Z + body.Velocity.Z) * step);
+                // **The engine predicts a collision by TIME, not by a step** —
+                // `lookAheadTimeObjectsVsWorld = 1.0f`, *"predict collisions this far (seconds)
+                // into the future"* (`performance.h:37`). A second, where this looked ahead one
+                // step: at the speed clamp that is sixty units against two thousand.
+                //
+                // **The integrator's one-step lag is still in it.** A body moves by its PREVIOUS
+                // velocity, so the travel predicted here starts from the motion already decided and
+                // continues at the current one — which is why both appear.
+                Vector3 now = centre + arm;
 
-                if (world.Entry(centre + arm, ahead) is { } soon)
+                // **This step's motion is already decided** — the integrator moves by the PREVIOUS
+                // velocity — and the prediction continues from there at the current one.
+                Vector3 moving = new(
+                    body.PreviousVelocity.X * step,
+                    body.PreviousVelocity.Y * step,
+                    body.PreviousVelocity.Z * step);
+
+                Vector3 predicted = new(
+                    body.Velocity.X * lookAhead,
+                    body.Velocity.Y * lookAhead,
+                    body.Velocity.Z * lookAhead);
+
+                if (world.Sweep(now, now + moving + predicted) is { } soon)
                 {
-                    hit = (soon, 0f);
+                    // **The lookahead decides WHEN A PAIR IS LOOKED AT, not when it is pushed.**
+                    // `docs/findings/51` reads the scheduler as recomputing a pair's distance and
+                    // either escalating into the refine or RE-QUEUEING itself for a later check —
+                    // so a surface a second away is watched, not resisted. Turning the whole
+                    // prediction into an impulse stops a falling body dead in mid-air, measured at
+                    // sixty-six units above a floor it should have landed on.
+                    // **The window is TWO steps, and that is the integrator's lag rather than a
+                    // margin.** A body moves by its previous velocity, so this step's travel is
+                    // already committed and an impulse raised now first bites on the step after —
+                    // a contact accepted only for the committed step arrives too late to stop
+                    // anything, measured as a body 2,775 units under a sixteen-unit floor.
+                    float reachable = moving.Length() +
+                        (new Vector3(body.Velocity.X, body.Velocity.Y, body.Velocity.Z).Length() * step);
+
+                    if (soon.Fraction * (moving + predicted).Length() <= reachable)
+                    {
+                        hit = (soon.Normal, 0f);
+                    }
                 }
             }
 

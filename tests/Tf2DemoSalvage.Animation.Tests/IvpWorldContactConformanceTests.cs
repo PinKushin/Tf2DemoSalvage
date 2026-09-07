@@ -183,9 +183,14 @@ public sealed class IvpWorldContactConformanceTests
         // this test pins is that the body is ON the surface, which is what collision owes it.
         double surface = (body.Position.X / 10d) + 1d;
 
-        body.Position.Z.ShouldBe(surface, 1d, "resting on the slope, wherever it slid to");
+        body.Position.Z.ShouldBe(surface, 1d, "resting on the slope, wherever it ended up");
 
-        body.Position.X.ShouldBeLessThan(250d, "the control: with no friction it really did slide");
+        // **It stays put, and that is a corrected expectation rather than a loosened one.** This
+        // line first asserted the body slid, which was right when nothing applied friction — it
+        // ran 127 units downhill. With the game's own surface table a `flesh` body has a
+        // coefficient of 1, and a slope of one in ten needs only 0.1 to hold, so a body that
+        // stayed where it landed is the physics working rather than a contact failing to bite.
+        body.Position.X.ShouldBe(250d, 20d, "held by friction on a slope far shallower than it");
     }
 
     /// <remarks>

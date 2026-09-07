@@ -108,6 +108,45 @@ public sealed class IvpEnvironment
     /// </remarks>
     public float MaximumAngularVelocity { get; set; } = 3600f * (MathF.PI / 180f);
 
+    /// <summary>How far ahead a collision with the world is predicted, in seconds.</summary>
+    /// <remarks>
+    /// **`lookAheadTimeObjectsVsWorld = 1.0f`, and its own comment is "predict collisions this far
+    /// (seconds) into the future"** (`public/vphysics/performance.h:37`). A full second, where this
+    /// project looked ahead by a single step — about thirty milliseconds, or sixty units at the
+    /// speed clamp, which a thrown corpse crosses a wall inside of.
+    ///
+    /// **A TIME and not a distance**, which is the part that makes it work at any speed: the
+    /// faster a body travels the further ahead it looks, automatically.
+    /// </remarks>
+    public float LookAheadWorld { get; set; } = 1f;
+
+    /// <summary>And against another object — <c>lookAheadTimeObjectsVsObject = 0.5f</c>.</summary>
+    /// <remarks>
+    /// **Carried because the engine has it, and unused because this project collides a corpse only
+    /// with the world.** Body-against-body contact is not implemented; a corpse passes through
+    /// another corpse. Stated here rather than left as a silent absence.
+    /// </remarks>
+    public float LookAheadObject { get; set; } = 0.5f;
+
+    /// <summary>How many collisions one body may take in a step before the engine freezes it.</summary>
+    /// <remarks>
+    /// **The game raises Valve's own default from 6 to 10** — `params.maxCollisionsPerObjectPerTimestep
+    /// = 10` immediately after `params.Defaults()` (`physics.cpp:224`), which is the value TF2
+    /// actually runs. The field's comment: *"object will be frozen after this many collisions
+    /// (visual hitching vs. CPU cost)"*.
+    ///
+    /// **Carried and not yet enforced**, so a body here is never frozen for taking too many.
+    /// </remarks>
+    public int MaximumCollisionsPerBody { get; set; } = 10;
+
+    /// <summary>And the whole step's budget — <c>maxCollisionChecksPerTimestep = 250</c>.</summary>
+    /// <remarks>
+    /// *"objects may penetrate after this many collision checks"* — so the engine's own answer to
+    /// running out of budget is to let a body through, which is worth knowing when one does.
+    /// Carried and not yet enforced.
+    /// </remarks>
+    public int MaximumCollisionChecks { get; set; } = 250;
+
     /// <summary>The static world these bodies collide with, or null when there is none.</summary>
     /// <remarks>
     /// **Null is a legitimate state and not a missing input.** Every test of the solve that predates
@@ -213,7 +252,7 @@ public sealed class IvpEnvironment
 
         for (int index = 0; index < _bodies.Count; index++)
         {
-            IvpContact.Find(_bodies[index], World, _contacts, Step);
+            IvpContact.Find(_bodies[index], World, _contacts, Step, LookAheadWorld);
         }
 
         Constraints.Solve();

@@ -396,7 +396,17 @@ public sealed class IvpWorldCollision
     /// planes, which is the standard slab clip and gives the entry face directly; a terrain
     /// triangle is a plane crossing plus the same containment test its point case uses.
     /// </remarks>
-    public Vector3? Entry(Vector3 from, Vector3 to)
+    public Vector3? Entry(Vector3 from, Vector3 to) => Sweep(from, to)?.Normal;
+
+    /// <summary>Where a moving point first enters the world, and how far along it got.</summary>
+    /// <param name="from">Where the point is now.</param>
+    /// <param name="to">Where it would be after this move.</param>
+    /// <returns>The surface it enters and the fraction of the way, or null when the path is clear.</returns>
+    /// <remarks>
+    /// **The fraction is what lets a caller stop a body AT the surface** rather than after it. A
+    /// discrete solver that only learns "something was crossed" has already crossed it.
+    /// </remarks>
+    public (Vector3 Normal, float Fraction)? Sweep(Vector3 from, Vector3 to)
     {
         Vector3 travel = to - from;
 
@@ -444,7 +454,7 @@ public sealed class IvpWorldCollision
             normal = triangle.Normal;
         }
 
-        return normal;
+        return normal is { } face ? (face, nearest) : null;
     }
 
     /// <summary>Clips a segment by one convex ledge, giving the face it enters through.</summary>
