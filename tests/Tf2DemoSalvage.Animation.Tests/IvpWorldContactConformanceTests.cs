@@ -104,14 +104,16 @@ public sealed class IvpWorldContactConformanceTests
 
         List<IvpContact> contacts = [];
 
-        IvpContact.Find(body, Floor(), contacts);
+        int checks = 0;
+
+        IvpContact.Find(body, Floor(), contacts, Step, lookAhead: 0f, ref checks);
 
         contacts.ShouldBeEmpty();
 
         // The control: the same body, movable, is deep inside the floor and must report contacts.
         body.Immovable = false;
 
-        IvpContact.Find(body, Floor(), contacts);
+        IvpContact.Find(body, Floor(), contacts, Step, lookAhead: 0f, ref checks);
 
         contacts.ShouldNotBeEmpty();
     }

@@ -248,27 +248,96 @@ public sealed class IvpEnvironment
         // exist before the solve, and the integrator reads whatever the solve left. Finding them
         // after integration instead would resolve last step's penetration one step late, and a
         // corpse would sink a little further into the floor every step before being pushed back.
+        Constraints.Solve();
+
+        // **The step is SUBDIVIDED at each collision, which is the engine's own shape and was the
+        // last thing making a thrown corpse leave the map.** `FUN_180099380` gates a pair on
+        //
+        //     (float)(env[0x190] - env[0x188]) * closingSpeed + margin <= distance   →   ignore
+        //
+        // where `env+0x188` is the CURRENT time and `env+0x190` the end of this PSI. The engine
+        // asks about the time REMAINING, which only means anything if the current time advances
+        // inside the step — so IVP walks the interval event by event, advancing to each impact and
+        // resolving it there rather than integrating the whole step and correcting afterwards.
+        //
+        // **The margin in that gate is zero.** `DAT_18012d548` reads `0.0` for these materials and
+        // its base `DAT_18012d664` dumps `0.0` too, so nothing is added; the epsilon in the speed
+        // bound beside it is `DAT_1800ea938`, `1.0E-10`.
+        //
+        // **`maxCollisionChecksPerTimestep` bounds the walk**, and the engine's own comment says
+        // what running out costs: *"objects may penetrate after this many collision checks"*.
+        float remaining = Step;
+        int checks = 0;
+
+        while (remaining > TimeEpsilon && checks < MaximumCollisionChecks)
+        {
+            float slice = Advance(remaining, ref checks);
+
+            remaining -= slice;
+        }
+
+        // Whatever is left after the budget runs out is taken in one piece, which is the engine's
+        // own answer: the pair stops being checked and the bodies are allowed to interpenetrate.
+        if (remaining > TimeEpsilon)
+        {
+            Move(remaining);
+        }
+    }
+
+    /// <summary>Finds the next impact, moves to it and resolves it; returns the time consumed.</summary>
+    /// <remarks>
+    /// **One event, which is what makes the remaining-time gate mean something.** A contact found
+    /// at a fraction of the interval is resolved AT that fraction, so a body travelling faster than
+    /// a wall is thick still meets the wall.
+    /// </remarks>
+    private float Advance(float remaining, ref int checks)
+    {
         _contacts.Clear();
+
+        float soonest = remaining;
 
         for (int index = 0; index < _bodies.Count; index++)
         {
-            IvpContact.Find(_bodies[index], World, _contacts, Step, LookAheadWorld);
+            float when = IvpContact.Find(
+                _bodies[index], World, _contacts, remaining, LookAheadWorld, ref checks);
+
+            if (when < soonest)
+            {
+                soonest = when;
+            }
         }
 
-        Constraints.Solve();
+        // **Nothing to hit in the rest of the interval: take it whole.** The contacts found above
+        // are still solved, because a body already resting on a surface has a contact at zero
+        // distance and no impact time at all.
+        Resolve(soonest);
 
-        // **The same iteration count the joints get.** A contact and a joint limit are the same
-        // kind of unilateral constraint, and splitting them across two loops with different counts
-        // would let one win every argument with the other.
+        Move(soonest);
+
+        return MathF.Max(soonest, TimeEpsilon);
+    }
+
+    /// <summary>Solves this slice's contacts beside the joints.</summary>
+    /// <remarks>
+    /// **The same iteration count the joints get.** A contact and a joint limit are the same kind
+    /// of unilateral constraint, and splitting them across two loops with different counts would
+    /// let one win every argument with the other.
+    /// </remarks>
+    private void Resolve(float slice)
+    {
         for (int pass = 0; pass < Constraints.Iterations; pass++)
         {
             for (int index = 0; index < _contacts.Count; index++)
             {
-                _contacts[index].Solve(Step);
+                _contacts[index].Solve(slice);
             }
         }
+    }
 
-        Now += Step;
+    /// <summary>Integrates every body over one slice of the step.</summary>
+    private void Move(float slice)
+    {
+        Now += slice;
 
         for (int index = 0; index < _bodies.Count; index++)
         {
@@ -279,7 +348,7 @@ public sealed class IvpEnvironment
                 continue;
             }
 
-            IvpIntegrator.Step(body, Now - body.LastStepped, Step);
+            IvpIntegrator.Step(body, Now - body.LastStepped, slice);
 
             // **The environment's own speed limits, which are Valve's published numbers.** See
             // `MaximumVelocity`. **Where in the step the engine clamps is INFERRED** — the
@@ -290,6 +359,9 @@ public sealed class IvpEnvironment
             body.LastStepped = Now;
         }
     }
+
+    /// <summary>Below this a slice is not worth taking, and the walk would not terminate.</summary>
+    private const float TimeEpsilon = 1e-6f;
 
     /// <summary>Holds one body inside the environment's speed limits.</summary>
     /// <remarks>

@@ -486,6 +486,15 @@ public sealed class MomentScene : IGameSystemPerFrame
         // else, and that is the feature. Debug level, so it costs nothing when nobody is looking.
         if (_models.Corpses.Count > 0 && _render.IsEnabled(LogLevel.Debug))
         {
+            _render.LogDebug(
+                "corpses stepped {Steps} ticks in {Seconds} ms, world examined {Examined} " +
+                "candidates, {Oversized} oversized of {Ledges}",
+                _models.Corpses.Steps,
+                (_models.Corpses.SteppingSeconds * 1000d).ToString("0", CultureInfo.InvariantCulture),
+                _models.Corpses.World?.Examined ?? 0,
+                _models.Corpses.World?.OversizedCount ?? 0,
+                _models.Corpses.World?.Ledges.Count ?? 0);
+
             foreach ((int entity, System.Numerics.Vector3 root) in _models.Corpses.Roots)
             {
                 _render.LogDebug(

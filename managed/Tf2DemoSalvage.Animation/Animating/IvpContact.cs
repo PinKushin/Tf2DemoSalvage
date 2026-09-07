@@ -208,6 +208,11 @@ public sealed class IvpContact
     /// How far ahead to predict, in seconds — the environment's <c>lookAheadTimeObjectsVsWorld</c>,
     /// which Valve defaults to a full second.
     /// </param>
+    /// <param name="checks">
+    /// The step's running collision-check count — <c>maxCollisionChecksPerTimestep</c> counts pair
+    /// tests, not sub-steps, and every sweep here is one.
+    /// </param>
+    /// <returns>When within the step this body first meets the world, or the whole step.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **A body's hull points are tested, not its triangles.** That is the vertex-face case, and it
@@ -217,25 +222,37 @@ public sealed class IvpContact
     /// **An immovable body generates none**, matching the island driver, which does not integrate
     /// one either.
     /// </remarks>
-    public static void Find(
+    public static float Find(
         IvpRigidBody body,
         IvpWorldCollision? world,
         ICollection<IvpContact> into,
-        float step = 0f,
-        float lookAhead = 0f)
+        float step,
+        float lookAhead,
+        ref int checks)
     {
         ArgumentNullException.ThrowIfNull(body);
         ArgumentNullException.ThrowIfNull(into);
 
+        float impact = step;
+
         if (world is null || body.Immovable || body.Hull.Count == 0)
         {
-            return;
+            return impact;
         }
 
         Quaternion orientation = new(
             body.Orientation.X, body.Orientation.Y, body.Orientation.Z, body.Orientation.W);
 
         Vector3 centre = new((float)body.Position.X, (float)body.Position.Y, (float)body.Position.Z);
+
+        // **This step's committed motion, hoisted out of the loop.** It is the same for every hull
+        // point of a body, and the time of impact is measured along it.
+        Vector3 committed = new(
+            body.PreviousVelocity.X * step,
+            body.PreviousVelocity.Y * step,
+            body.PreviousVelocity.Z * step);
+
+        float committedLength = committed.Length();
 
         for (int index = 0; index < body.Hull.Count; index++)
         {
@@ -271,20 +288,29 @@ public sealed class IvpContact
                 // continues at the current one — which is why both appear.
                 Vector3 now = centre + arm;
 
-                // **This step's motion is already decided** — the integrator moves by the PREVIOUS
-                // velocity — and the prediction continues from there at the current one.
-                Vector3 moving = new(
-                    body.PreviousVelocity.X * step,
-                    body.PreviousVelocity.Y * step,
-                    body.PreviousVelocity.Z * step);
-
                 Vector3 predicted = new(
                     body.Velocity.X * lookAhead,
                     body.Velocity.Y * lookAhead,
                     body.Velocity.Z * lookAhead);
 
-                if (world.Sweep(now, now + moving + predicted) is { } soon)
+                // **One sweep answers both questions.** It used to be swept twice per hull point
+                // per sub-step — once to raise the contact and once for the time of impact — which
+                // is the same segment against the same world for the same answer.
+                checks++;
+
+                if (world.Sweep(now, now + committed + predicted) is { } soon)
                 {
+                    float reach = (committed + predicted).Length();
+
+                    float when = reach > FloatEpsilon
+                        ? soon.Fraction * reach / MathF.Max(committedLength / step, FloatEpsilon)
+                        : step;
+
+                    if (when > FloatEpsilon && when < impact)
+                    {
+                        impact = when;
+                    }
+
                     // **The lookahead decides WHEN A PAIR IS LOOKED AT, not when it is pushed.**
                     // `docs/findings/51` reads the scheduler as recomputing a pair's distance and
                     // either escalating into the refine or RE-QUEUEING itself for a later check —
@@ -296,10 +322,10 @@ public sealed class IvpContact
                     // already committed and an impulse raised now first bites on the step after —
                     // a contact accepted only for the committed step arrives too late to stop
                     // anything, measured as a body 2,775 units under a sixteen-unit floor.
-                    float reachable = moving.Length() +
+                    float reachable = committedLength +
                         (new Vector3(body.Velocity.X, body.Velocity.Y, body.Velocity.Z).Length() * step);
 
-                    if (soon.Fraction * (moving + predicted).Length() <= reachable)
+                    if (soon.Fraction * (committed + predicted).Length() <= reachable)
                     {
                         hit = (soon.Normal, 0f);
                     }
@@ -319,6 +345,80 @@ public sealed class IvpContact
                 Depth = found.Depth,
             });
         }
+
+        return impact;
+    }
+
+    /// <summary>When this body's hull first meets the world within an interval, or the interval.</summary>
+    /// <param name="body">The body to sweep.</param>
+    /// <param name="world">The static world, or null when there is none.</param>
+    /// <param name="remaining">How much of the step is left.</param>
+    /// <param name="checks">
+    /// The step's running collision-check count, which every sweep here adds to —
+    /// <c>maxCollisionChecksPerTimestep</c> counts pair tests, not sub-steps.
+    /// </param>
+    /// <returns>The time of the first impact, or <paramref name="remaining"/> when there is none.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="body"/> is null.</exception>
+    /// <remarks>
+    /// **This is what lets the step be subdivided at the impact rather than past it.**
+    /// `FUN_180099380` gates a pair on the time REMAINING in the PSI — `env+0x190` less
+    /// `env+0x188` — which only means anything if the current time advances inside the step.
+    ///
+    /// **Swept along the body's own motion**, which is its PREVIOUS velocity: that is what the
+    /// integrator will move it by, so it is what decides where it can reach.
+    ///
+    /// **A point already touching returns no impact.** It has nothing left to cross, and a zero
+    /// time here would stall the walk; a resting body is held by the contact found beside this,
+    /// not by an event.
+    /// </remarks>
+    public static float TimeOfImpact(
+        IvpRigidBody body, IvpWorldCollision? world, float remaining, ref int checks)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+
+        if (world is null || body.Immovable || body.Hull.Count == 0 || remaining <= 0f)
+        {
+            return remaining;
+        }
+
+        Quaternion orientation = new(
+            body.Orientation.X, body.Orientation.Y, body.Orientation.Z, body.Orientation.W);
+
+        Vector3 centre = new((float)body.Position.X, (float)body.Position.Y, (float)body.Position.Z);
+
+        Vector3 travel = new(
+            body.PreviousVelocity.X * remaining,
+            body.PreviousVelocity.Y * remaining,
+            body.PreviousVelocity.Z * remaining);
+
+        float soonest = remaining;
+
+        for (int index = 0; index < body.Hull.Count; index++)
+        {
+            // **Every sweep is one collision CHECK against the step's budget**, which is what
+            // `maxCollisionChecksPerTimestep` counts — pair tests, not sub-steps. Counting
+            // sub-steps instead let one tick run 250 of them, each sweeping every point of every
+            // body, and a corpse caught up over six hundred ticks took minutes.
+            checks++;
+
+            (float x, float y, float z) = body.Hull[index];
+
+            Vector3 at = centre + Vector3.Transform(new Vector3(x, y, z), orientation);
+
+            if (world.Sweep(at, at + travel) is not { } hit)
+            {
+                continue;
+            }
+
+            float when = hit.Fraction * remaining;
+
+            if (when > FloatEpsilon && when < soonest)
+            {
+                soonest = when;
+            }
+        }
+
+        return soonest;
     }
 
     private static (float X, float Y, float Z) Cross(

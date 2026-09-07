@@ -88,8 +88,8 @@ public sealed class IvpWorldCollision
     /// <summary>Ledge indices by grid cell — the broadphase.</summary>
     private readonly Dictionary<(int X, int Y, int Z), List<int>> _grid = [];
 
-    /// <summary>Ledges too large to file, tested against everything.</summary>
-    private readonly List<int> _oversized = [];
+    /// <summary>Ledges too large for the fine grid, filed in a coarser one.</summary>
+    private readonly Dictionary<(int X, int Y, int Z), List<int>> _coarse = [];
 
     /// <summary>Terrain triangles, and their own index.</summary>
     private readonly List<IvpWorldTriangle> _triangles = [];
@@ -98,6 +98,18 @@ public sealed class IvpWorldCollision
 
     /// <summary>Every convex piece of the world.</summary>
     public IReadOnlyList<IvpWorldLedge> Ledges => _ledges;
+
+    /// <summary>How many ledges are too large to file and so are tested against everything.</summary>
+    /// <remarks>
+    /// **The number that decides whether the broadphase is one**, because an oversized ledge is
+    /// examined by every sweep of every hull point of every body. A handful is the cost of a
+    /// skybox shell; a thousand is a linear scan wearing a grid.
+    /// </remarks>
+    public int OversizedCount => _coarse.Count;
+
+    /// <summary>How many candidate ledges and triangles the sweeps have examined.</summary>
+    /// <remarks>Carried out of the loop that examined them, never recounted (B243).</remarks>
+    public long Examined { get; private set; }
 
     /// <summary>How many terrain triangles this world holds.</summary>
     /// <remarks>
@@ -222,9 +234,14 @@ public sealed class IvpWorldCollision
             (maximumY - minimumY + 1) *
             (maximumZ - minimumZ + 1);
 
+        // **A ledge too big for the fine grid gets a COARSE one, not a list tested every time.**
+        // Ninety of `koth_harvest_final`'s 3,030 ledges are that big — a skybox shell, a whole
+        // floor slab — and testing all ninety on every sweep of every hull point was 69,000 of the
+        // 75,000 candidates a single tick examined. A second tier at sixteen times the cell size
+        // files them in a handful of cells each and a sweep touches only the ones it passes.
         if (cells > MaximumCells)
         {
-            _oversized.Add(at);
+            File(_coarse, at, CoarseCellSize, ledge);
             return;
         }
 
@@ -240,6 +257,40 @@ public sealed class IvpWorldCollision
                     {
                         bucket = [];
                         _grid[key] = bucket;
+                    }
+
+                    bucket.Add(at);
+                }
+            }
+        }
+    }
+
+    /// <summary>Files one ledge into a grid of the given cell size, by its bounding sphere.</summary>
+    private static void File(
+        Dictionary<(int X, int Y, int Z), List<int>> grid,
+        int at,
+        float size,
+        IvpWorldLedge ledge)
+    {
+        int minimumX = (int)MathF.Floor((ledge.Center.X - ledge.Radius) / size);
+        int maximumX = (int)MathF.Floor((ledge.Center.X + ledge.Radius) / size);
+        int minimumY = (int)MathF.Floor((ledge.Center.Y - ledge.Radius) / size);
+        int maximumY = (int)MathF.Floor((ledge.Center.Y + ledge.Radius) / size);
+        int minimumZ = (int)MathF.Floor((ledge.Center.Z - ledge.Radius) / size);
+        int maximumZ = (int)MathF.Floor((ledge.Center.Z + ledge.Radius) / size);
+
+        for (int x = minimumX; x <= maximumX; x++)
+        {
+            for (int y = minimumY; y <= maximumY; y++)
+            {
+                for (int z = minimumZ; z <= maximumZ; z++)
+                {
+                    (int, int, int) key = (x, y, z);
+
+                    if (!grid.TryGetValue(key, out List<int>? bucket))
+                    {
+                        bucket = [];
+                        grid[key] = bucket;
                     }
 
                     bucket.Add(at);
@@ -329,17 +380,12 @@ public sealed class IvpWorldCollision
     {
         (Vector3 Normal, float Depth)? best = null;
 
-        _grid.TryGetValue((Cell(point.X), Cell(point.Y), Cell(point.Z)), out List<int>? nearby);
+        // Both tiers, at the point itself — a degenerate segment, so the same gather serves.
+        List<int> candidates = Candidates(point, point);
 
-        int candidates = (nearby?.Count ?? 0) + _oversized.Count;
-
-        for (int candidate = 0; candidate < candidates; candidate++)
+        for (int candidate = 0; candidate < candidates.Count; candidate++)
         {
-            int index = nearby is not null && candidate < nearby.Count
-                ? nearby[candidate]
-                : _oversized[candidate - (nearby?.Count ?? 0)];
-
-            IvpWorldLedge ledge = _ledges[index];
+            IvpWorldLedge ledge = _ledges[candidates[candidate]];
 
             if ((point - ledge.Center).LengthSquared() > ledge.Radius * ledge.Radius)
             {
@@ -420,7 +466,14 @@ public sealed class IvpWorldCollision
 
         foreach (int index in Candidates(from, to))
         {
-            if (Clip(_ledges[index], from, travel) is not { } clipped ||
+            Examined++;
+
+            // **The ledge's own bounding sphere, tested before its planes.** This is the sphere
+            // the ledge tree already carries, so it costs nothing to keep and it is what makes the
+            // oversized list affordable: those are examined by every sweep of every hull point,
+            // and on `koth_harvest_final` there are ninety of them.
+            if (!Reaches(_ledges[index], from, travel) ||
+                Clip(_ledges[index], from, travel) is not { } clipped ||
                 clipped.Fraction >= nearest)
             {
                 continue;
@@ -455,6 +508,29 @@ public sealed class IvpWorldCollision
         }
 
         return normal is { } face ? (face, nearest) : null;
+    }
+
+    /// <summary>Whether a segment comes within a ledge's own bounding sphere at all.</summary>
+    /// <remarks>
+    /// **The cheap half of the sweep, and it decides whether the expensive half runs.** The
+    /// distance from the sphere's centre to the segment is compared against the radius; a ledge the
+    /// path never approaches is rejected in a handful of multiplies instead of a loop over every
+    /// one of its planes.
+    /// </remarks>
+    private static bool Reaches(IvpWorldLedge ledge, Vector3 from, Vector3 travel)
+    {
+        Vector3 toCentre = ledge.Center - from;
+
+        float length = travel.LengthSquared();
+
+        // Where along the segment the centre projects, clamped to its ends.
+        float along = length > 0f
+            ? Math.Clamp(Vector3.Dot(toCentre, travel) / length, 0f, 1f)
+            : 0f;
+
+        Vector3 nearest = from + (travel * along);
+
+        return (ledge.Center - nearest).LengthSquared() <= ledge.Radius * ledge.Radius;
     }
 
     /// <summary>Clips a segment by one convex ledge, giving the face it enters through.</summary>
@@ -578,49 +654,46 @@ public sealed class IvpWorldCollision
     /// the point starts and ends would miss a wall standing between them, which is the same class
     /// of mistake as sampling the far end of the move.
     /// </remarks>
-    private IEnumerable<int> Candidates(Vector3 from, Vector3 to)
+    private List<int> Candidates(Vector3 from, Vector3 to)
     {
-        foreach ((int, int, int) key in Cells(from, to))
-        {
-            if (_grid.TryGetValue(key, out List<int>? bucket))
-            {
-                foreach (int index in bucket)
-                {
-                    yield return index;
-                }
-            }
-        }
+        Gather(_grid, from, to, CellSize, _candidates);
 
-        foreach (int index in _oversized)
-        {
-            yield return index;
-        }
+        Gather(_coarse, from, to, CoarseCellSize, _coarseCandidates);
+
+        _candidates.AddRange(_coarseCandidates);
+
+        return _candidates;
     }
 
     /// <summary>The same, for terrain triangles.</summary>
-    private IEnumerable<int> TriangleCandidates(Vector3 from, Vector3 to)
+    private List<int> TriangleCandidates(Vector3 from, Vector3 to)
     {
-        foreach ((int, int, int) key in Cells(from, to))
-        {
-            if (_triangleGrid.TryGetValue(key, out List<int>? bucket))
-            {
-                foreach (int index in bucket)
-                {
-                    yield return index;
-                }
-            }
-        }
+        Gather(_triangleGrid, from, to, CellSize, _triangleCandidates);
+
+        return _triangleCandidates;
     }
 
-    /// <summary>Every grid cell the segment's own box covers.</summary>
-    private static IEnumerable<(int X, int Y, int Z)> Cells(Vector3 from, Vector3 to)
+    /// <summary>Fills a reused buffer with everything filed in the cells the segment's box covers.</summary>
+    /// <remarks>
+    /// **A reused list rather than an iterator, and that is not a micro-optimisation here.** These
+    /// run once per hull point per sub-step per body — hundreds of thousands of times to catch one
+    /// corpse up — and a `yield return` walk allocates an enumerator on every one of them.
+    /// </remarks>
+    private static void Gather(
+        Dictionary<(int X, int Y, int Z), List<int>> grid,
+        Vector3 from,
+        Vector3 to,
+        float size,
+        List<int> into)
     {
-        int minimumX = Cell(MathF.Min(from.X, to.X));
-        int maximumX = Cell(MathF.Max(from.X, to.X));
-        int minimumY = Cell(MathF.Min(from.Y, to.Y));
-        int maximumY = Cell(MathF.Max(from.Y, to.Y));
-        int minimumZ = Cell(MathF.Min(from.Z, to.Z));
-        int maximumZ = Cell(MathF.Max(from.Z, to.Z));
+        into.Clear();
+
+        int minimumX = (int)MathF.Floor(MathF.Min(from.X, to.X) / size);
+        int maximumX = (int)MathF.Floor(MathF.Max(from.X, to.X) / size);
+        int minimumY = (int)MathF.Floor(MathF.Min(from.Y, to.Y) / size);
+        int maximumY = (int)MathF.Floor(MathF.Max(from.Y, to.Y) / size);
+        int minimumZ = (int)MathF.Floor(MathF.Min(from.Z, to.Z) / size);
+        int maximumZ = (int)MathF.Floor(MathF.Max(from.Z, to.Z) / size);
 
         for (int x = minimumX; x <= maximumX; x++)
         {
@@ -628,11 +701,20 @@ public sealed class IvpWorldCollision
             {
                 for (int z = minimumZ; z <= maximumZ; z++)
                 {
-                    yield return (x, y, z);
+                    if (grid.TryGetValue((x, y, z), out List<int>? bucket))
+                    {
+                        into.AddRange(bucket);
+                    }
                 }
             }
         }
     }
+
+    private readonly List<int> _candidates = [];
+
+    private readonly List<int> _triangleCandidates = [];
+
+    private readonly List<int> _coarseCandidates = [];
 
     /// <summary>Whether a plane is already held, up to the angle and offset IVP treats as the same.</summary>
     private static bool Duplicate(
@@ -659,6 +741,13 @@ public sealed class IvpWorldCollision
 
     /// <summary>How many cells one ledge may be filed into before it is called oversized.</summary>
     private const int MaximumCells = 512;
+
+    /// <summary>The coarse tier's cell size, for ledges too big for the fine one.</summary>
+    /// <remarks>
+    /// **Sixteen times the fine cell**, so a ledge that would have needed thousands of fine cells
+    /// needs a handful of these. The alternative it replaced was a list every sweep tested in full.
+    /// </remarks>
+    private const float CoarseCellSize = CellSize * 16f;
 
     /// <summary>How far behind a terrain triangle still counts as touching it, in Source units.</summary>
     /// <remarks>

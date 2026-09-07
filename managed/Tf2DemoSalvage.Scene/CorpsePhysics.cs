@@ -64,6 +64,18 @@ public sealed class CorpsePhysics
     /// <summary>How many steps have been run, across all corpses.</summary>
     public int Steps { get; private set; }
 
+    /// <summary>Stopwatch ticks spent stepping corpses forward.</summary>
+    /// <remarks>
+    /// **The one unbounded cost in this type**, and the only number that separates "a corpse is
+    /// expensive" from "seeking is expensive": a seek replays every tick since a death, so the same
+    /// per-tick cost that vanishes in a frame is minutes when six hundred run at once.
+    /// </remarks>
+    public long SteppingTicks { get; private set; }
+
+    /// <summary>The same, in seconds.</summary>
+    public double SteppingSeconds =>
+        SteppingTicks / (double)System.Diagnostics.Stopwatch.Frequency;
+
     /// <summary>Where the simulation has put each corpse's root body, by entity index.</summary>
     /// <remarks>
     /// **Carried out of the solver rather than recomputed** (B243). A corpse's simulated position is
@@ -198,12 +210,20 @@ public sealed class CorpsePhysics
         // life — is handled above by rebuilding, so this only ever counts forward.
         bool stepped = live.SteppedTo < tick;
 
+        long steppingFrom = System.Diagnostics.Stopwatch.GetTimestamp();
+
         while (live.SteppedTo < tick)
         {
             live.Simulation.Step();
             live.SteppedTo++;
             Steps++;
         }
+
+        // **Timed because catching a corpse up is the one unbounded thing here** (B58). A seek to a
+        // tick long after a death replays every tick between, and a cost per tick that looks
+        // trivial in a frame is minutes when six hundred of them run at once — which is what the
+        // owner saw as a hang on seeking.
+        SteppingTicks += System.Diagnostics.Stopwatch.GetTimestamp() - steppingFrom;
 
         entity.Ragdoll = live.Write;
 
