@@ -292,12 +292,22 @@ public sealed class IvpContact
 
         (float A, float B) stored = Body.Sliding[Point];
 
-        // **The right-hand side is `weight × stored − current`, which is the warm start.** The
-        // engine writes it exactly so — `param_2[1] * f(contact + 0x6c) - local_64` — so the solve
-        // aims at the impulse it settled on last step rather than at zero, and a resting body keeps
-        // the force that is holding it instead of rediscovering it from nothing every step.
-        float wantFirst = (weight * stored.A) - Dot(moving, first);
-        float wantSecond = (weight * stored.B) - Dot(moving, second);
+        float slipFirst = Dot(moving, first);
+        float slipSecond = Dot(moving, second);
+
+        // **The stored pair is a SLIP VELOCITY, not an impulse, and getting that wrong injected
+        // energy.** `FUN_1800857c0` forms `param_2[1] * f(contact + 0x6c) - local_64`, and
+        // `local_64` is an output of `FUN_18009ca70`, which builds each core's Jacobian through
+        // `FUN_18009d010` — so it is a relative velocity along that tangent. The term subtracted
+        // from it must carry the same units, so `contact+0x6c` is velocity-like too.
+        //
+        // **Read that way the warm start is a DECAY, which is what makes it friction.** The target
+        // is a fraction of last step's slip, so a sliding contact is asked to keep 40% of what it
+        // had and loses the rest every step; a resting one is asked for zero and stays there. Read
+        // as an accumulated impulse instead — which is what this did first — the right-hand side
+        // adds an impulse to a velocity, and a sliding body sped up from 12 units a second to 15.8.
+        float wantFirst = (weight * stored.A) - slipFirst;
+        float wantSecond = (weight * stored.B) - slipSecond;
 
         // The symmetric 2x2 effective mass across the two tangents — `FUN_1800868d0` is handed
         // `a, b, b, d`, the same value twice, which is what makes it symmetric.
@@ -328,12 +338,20 @@ public sealed class IvpContact
             impulseSecond = impulseSecond / size * limit;
         }
 
-        Body.Sliding[Point] = (impulseFirst, impulseSecond);
-
         Push((
             (first.X * impulseFirst) + (second.X * impulseSecond),
             (first.Y * impulseFirst) + (second.Y * impulseSecond),
             (first.Z * impulseFirst) + (second.Z * impulseSecond)));
+
+        // **The slip that RESULTED is what next step warms from**, measured after the impulse
+        // rather than predicted from it, so a clamped solve stores the slip it actually left
+        // behind and not the one it was aiming for.
+        (float X, float Y, float Z) after = Cross(Body.AngularVelocity, Arm);
+
+        (float X, float Y, float Z) settled = (
+            Body.Velocity.X + after.X, Body.Velocity.Y + after.Y, Body.Velocity.Z + after.Z);
+
+        Body.Sliding[Point] = (Dot(settled, first), Dot(settled, second));
     }
 
     /// <summary>A tangent to the normal, chosen the same way every step.</summary>

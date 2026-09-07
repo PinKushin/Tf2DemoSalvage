@@ -464,27 +464,36 @@ public sealed class IvpEnvironment
             _contacts[index].Separate(slice);
         }
 
-        // **Friction belongs here and is NOT called, because both forms of it measured worse than
-        // none.** A resting contact takes nothing from `Oppose` — the engine's own approach gate
-        // sends it elsewhere — so a landed corpse currently has nothing opposing a slide, and one
-        // was measured sliding at a steady twelve units a second for six seconds. That is a real
-        // missing feature and `Simulate_WithATerrainSlope_StopsOnTheSurfaceBeneathIt` is red for it.
+        // **Friction belongs here, is written, and is NOT called — and the reason is now known.**
+        // A resting contact takes nothing from `Oppose`, because the engine's approach gate sends
+        // it down the other path entirely, so a landed corpse has nothing opposing a slide: one was
+        // measured sliding at a steady twelve units a second for six seconds. That is a real
+        // missing feature, and `Simulate_WithATerrainSlope_StopsOnTheSurfaceBeneathIt` is red for
+        // it rather than being quietly relaxed.
         //
-        // **Two attempts, both reverted, both by measurement.** A per-contact Coulomb impulse
-        // clamped by that contact's own normal impulse took the slide to 17.8 and sank a resting
-        // ragdoll to −4.6. Replacing it with the engine's shape — a warm-started 2×2 solve over two
-        // tangents, `IvpContact.Rub` — took it to 15.8 and sank it to −4.2.
+        // **Three forms were tried and every one made the slide FASTER**, which is the finding:
         //
-        // **The warm start is where the second one is wrong, and the reason is an unread field.**
-        // `FUN_1800857c0` forms its right-hand side as `param_2[1] * f(contact + 0x6c) - local_64`,
-        // and `IvpContact.Rub` reads that stored term as an IMPULSE while `local_64` is a velocity.
-        // Those units only reconcile if `contact+0x6c` is velocity-like, and what that field holds
-        // is listed as not established in `docs/findings/51` — along with `+0x60`, `+0x78` and
-        // `+0x88`, whose product forms the cone limit. Adding a scaled impulse to a velocity target
-        // injects energy, which is exactly what the measurement shows.
+        // | form | slide | resting ragdoll |
+        // |---|---|---|
+        // | none | 11.98 | rests |
+        // | per-contact Coulomb, clamped by its own normal impulse | 17.8 | sinks to −4.6 |
+        // | warm-started 2×2, stored pair read as an impulse | 15.8 | sinks to −4.2 |
+        // | warm-started 2×2, stored pair read as a slip velocity | 33.5 | sinks to −4.3 |
+        // | the same 2×2 with NO warm start — pure slip cancellation | 21.3 | sinks to −4.2 |
         //
-        // **So this waits on reading those fields, not on another adjustment.** The code stays,
-        // wired out, because the shape is transcribed and only the units are unresolved.
+        // **That last row is the one that settles it.** Driving each contact's slip to zero cannot
+        // make a body slide faster; friction is a dissipative operator and there is no arrangement
+        // of the arithmetic in which it adds energy. So the fault is not in the friction formula —
+        // it is in the SET the formula is applied over. Eight vertex contacts each cancelling their
+        // own slip in sequence is not one friction system solved once: each cancellation retunes
+        // the body's spin, and the next contact then measures and cancels a slip the previous one
+        // created.
+        //
+        // **Which is the same divergence three separate measurements have now pointed at** — the
+        // contact set is ours and not the engine's, and the fix is the feature-based narrow phase
+        // and real friction systems, not another pass at this arithmetic. `IvpContact.Rub` stays,
+        // wired out, because its shape is transcribed and correct; what it needs is the right
+        // contacts to run over.
     }
 
     /// <summary>Integrates every body over one slice of the step.</summary>
