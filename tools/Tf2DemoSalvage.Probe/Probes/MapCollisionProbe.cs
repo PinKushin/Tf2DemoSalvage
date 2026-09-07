@@ -189,6 +189,43 @@ public sealed class MapCollisionProbe : IProbe
             // **Split into its two halves, because "the camera stops here" does not say WHICH
             // geometry stopped it** — and the whole question is which of the two the physics world
             // is missing.
+            // **The denominator, because a count with nothing to compare it against says nothing.**
+            // The lump declares how many displacements the map HAS; `Displacements.Count` says how
+            // many this project built a collision surface for. A gap between them is the whole
+            // question when a corpse falls through ground the camera is stopped by.
+            // **Per model, because the world is model 0 and everything else is an entity.** A total
+            // hides which model owns what, and the world's own hull is the one a corpse stands on.
+            foreach (MapPhysicsModel model in
+                BspPhysicsCollision.Read(BspLumpData.Read(file, header.Lump(PhysCollideLump))))
+            {
+                int ledges = 0;
+                int triangles = 0;
+
+                foreach (IReadOnlyList<PhysicsLedge> hull in model.Hulls)
+                {
+                    ledges += hull.Count;
+
+                    foreach (PhysicsLedge ledge in hull)
+                    {
+                        triangles += ledge.Triangles.Count;
+                    }
+                }
+
+                if (model.ModelIndex == 0 || ledges > 100)
+                {
+                    output.WriteLine(string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"  model {model.ModelIndex}: declares {model.SolidCount} solids, " +
+                        $"read {model.Solids.Count}, {ledges} ledges, {triangles} triangles"));
+                }
+            }
+
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  displacements: {level.Terrain?.Count ?? 0} declared by the lump, " +
+                $"{level.Displacements.Count} built, " +
+                $"{level.Displacements.TriangleCount} triangles"));
+
             float terrain = level.Displacements.Sweep(
                 spot.X, spot.Y, spot.Z, spot.X, spot.Y, spot.Z - 512f, halfExtent: 1f);
 
@@ -203,6 +240,85 @@ public sealed class MapCollisionProbe : IProbe
                 $"within 512 units down; the camera's own sweep stops at " +
                 $"{swept.ToString("0.###", CultureInfo.InvariantCulture)} of the way " +
                 $"(terrain alone {terrain.ToString("0.###", CultureInfo.InvariantCulture)})"));
+
+            // **The census, because one point has no denominator.** A single spot where a corpse
+            // falls through says nothing about whether this project's physics world is broadly
+            // right or broadly wrong. Dropping a ray at every node of a grid and comparing what the
+            // physics world finds against what the CAMERA's own sweep finds does — and the camera's
+            // world is built from entirely different lumps, so it is a real control rather than a
+            // second reading of the same bytes.
+            int both = 0;
+            int cameraOnly = 0;
+            int physicsOnly = 0;
+            int neither = 0;
+
+            for (int gx = -16; gx <= 16; gx++)
+            {
+                for (int gy = -16; gy <= 16; gy++)
+                {
+                    float px = spot.X + (gx * 64f);
+                    float py = spot.Y + (gy * 64f);
+
+                    System.Numerics.Vector3 high = new(px, py, spot.Z + 256f);
+                    System.Numerics.Vector3 low = new(px, py, spot.Z - 1024f);
+
+                    bool physics = world.Entry(high, low) is not null;
+                    bool camera = level.Sweep(
+                        (px, py, spot.Z + 256f), (px, py, spot.Z - 1024f), halfExtent: 1f) < 1f;
+
+                    if (physics && camera)
+                    {
+                        both++;
+                    }
+                    else if (camera)
+                    {
+                        cameraOnly++;
+                    }
+                    else if (physics)
+                    {
+                        physicsOnly++;
+                    }
+                    else
+                    {
+                        neither++;
+                    }
+                }
+            }
+
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  census of 1089 drops around the point: {both} both, {cameraOnly} camera only, " +
+                $"{physicsOnly} physics only, {neither} neither"));
+
+            // **The static props near the point, because their collision is in NEITHER lump.** A
+            // `prop_static` is a model placed by the map, and the engine builds a physics object
+            // for it out of that model's own `.phy` at level load — nothing about it appears in
+            // `LUMP_PHYSCOLLIDE`, which holds brushes. A corpse resting on a wooden platform that
+            // is a prop has nothing under it in a world built from brushes and terrain alone.
+            foreach (BspStaticProp prop in BspStaticProps.Read(file))
+            {
+                float away = MathF.Sqrt(
+                    ((prop.X - spot.X) * (prop.X - spot.X)) +
+                    ((prop.Y - spot.Y) * (prop.Y - spot.Y)) +
+                    ((prop.Z - spot.Z) * (prop.Z - spot.Z)));
+
+                if (away < 200f)
+                {
+                    output.WriteLine(string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"  static prop {away.ToString("0", CultureInfo.InvariantCulture)} units away: " +
+                        $"{prop.Model} at {prop.X:0} {prop.Y:0} {prop.Z:0}"));
+                }
+            }
+
+            // **And whether the point is already INSIDE something, which `Entry` cannot say.** A
+            // segment that begins inside a convex piece never crosses into it, so the sweep reports
+            // clear — the same answer it gives for empty space. Asking both is what separates "no
+            // geometry here" from "the corpse is standing in it".
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  at the point itself: " +
+                $"{(world.Penetration(from) is { } deep ? $"INSIDE by {deep.Depth:0.##}, normal {deep.Normal.X:0.##} {deep.Normal.Y:0.##} {deep.Normal.Z:0.##}" : "outside everything")}"));
         }
 
         return walked;

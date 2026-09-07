@@ -103,7 +103,29 @@ public sealed class IvpWorldCollision
         IReadOnlyList<Vector3> points,
         IReadOnlyList<(int A, int B, int C)> triangles,
         Vector3 center,
-        float radius)
+        float radius) =>
+        Add(points, triangles, center, radius, Vector3.Zero);
+
+    /// <summary>Adds one ledge, converting it and placing it at an entity's origin.</summary>
+    /// <param name="points">The ledge's points, in metres.</param>
+    /// <param name="triangles">Its triangles, indexing those points.</param>
+    /// <param name="center">Its node's bounding-sphere centre, in metres.</param>
+    /// <param name="radius">That sphere's radius, in metres.</param>
+    /// <param name="origin">Where the model this ledge belongs to stands, in SOURCE units.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **A brush ENTITY's hull is in its own model space and the entity places it.** The world is
+    /// model 0 and stands at the map origin; a `func_door` or `func_brush` is model `*N` with its
+    /// own `origin` key, and its collide is stored relative to that. Adding one without the offset
+    /// puts a door at the map origin — geometry missing where the door is and phantom geometry
+    /// where it is not.
+    /// </remarks>
+    public void Add(
+        IReadOnlyList<Vector3> points,
+        IReadOnlyList<(int A, int B, int C)> triangles,
+        Vector3 center,
+        float radius,
+        Vector3 origin)
     {
         ArgumentNullException.ThrowIfNull(points);
         ArgumentNullException.ThrowIfNull(triangles);
@@ -118,9 +140,9 @@ public sealed class IvpWorldCollision
                 continue;
             }
 
-            Vector3 first = points[a] * SourceUnitsPerMetre;
-            Vector3 second = points[b] * SourceUnitsPerMetre;
-            Vector3 third = points[c] * SourceUnitsPerMetre;
+            Vector3 first = (points[a] * SourceUnitsPerMetre) + origin;
+            Vector3 second = (points[b] * SourceUnitsPerMetre) + origin;
+            Vector3 third = (points[c] * SourceUnitsPerMetre) + origin;
 
             Vector3 normal = Vector3.Cross(second - first, third - first);
 
@@ -146,7 +168,7 @@ public sealed class IvpWorldCollision
         }
 
         IvpWorldLedge ledge = new(
-            center * SourceUnitsPerMetre, radius * SourceUnitsPerMetre, planes);
+            (center * SourceUnitsPerMetre) + origin, radius * SourceUnitsPerMetre, planes);
 
         _ledges.Add(ledge);
 
