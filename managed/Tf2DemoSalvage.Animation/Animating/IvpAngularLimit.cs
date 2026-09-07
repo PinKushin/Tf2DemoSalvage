@@ -249,12 +249,16 @@ public readonly struct IvpJacobian : IEquatable<IvpJacobian>
 /// `physics_prop_ragdoll.cpp:1525` ships `SetAxisFriction( -2, 2, 20 )`, so a ragdoll from another
 /// game would need the branch transcribed before it simulated correctly.
 ///
-/// **The two engine routines have opposite sign conventions and they cancel.** One builds
-/// `θ = rate·gain + angle` and subtracts the overshoot; the other builds `θ = angle − rate·gain` and
-/// adds it. Same physics, measured in opposite directions. Copying one routine's signs onto the
-/// other's angle would give a joint that drives itself further out of its limit the harder it is
-/// pushed in, so only one convention is transcribed and the caller supplies the axis direction that
-/// makes it right.
+/// **The two engine routines have opposite sign conventions and they do NOT cancel**, which took a
+/// sabotage to establish. `FUN_180036f80` builds `θ = rate·gain + angle` and SUBTRACTS the
+/// overshoot; `FUN_1800372c0` builds `θ = angle − rate·gain` and ADDS it. An earlier version of
+/// this file recorded those as cancelling and transcribed one routine — but the two differences
+/// cancel only while the rate term is non-zero and equal, and the rate gain's provenance is not
+/// read, so it is currently zero. With it zero the two `θ` are identical and only the impulse sign
+/// differs, which is a joint driven the wrong way.
+///
+/// **So the routine is named at every call site** rather than defaulted. A default is exactly how
+/// the wrong one gets chosen silently, and nothing about a corpse's pose reports it.
 ///
 /// **Two sweeps, forwards then backwards, at 0.4 each.** The group runs
 /// `additionalIterations + 2` iterations and `ragdoll_shared.cpp:274-276` leaves that at zero, so a
@@ -263,6 +267,21 @@ public readonly struct IvpJacobian : IEquatable<IvpJacobian>
 /// </remarks>
 public static class IvpAngularLimit
 {
+    /// <summary>Which of the engine's two axis routines solves an axis.</summary>
+    /// <remarks>
+    /// **They differ in three ways, not one**, which is why a flag on a shared routine is honest
+    /// and a silent default is not: the sign of the rate term, the sign of the impulse, and — not
+    /// modelled here — whether the gains arrive scaled by the constraint descriptor's fourth lane.
+    /// </remarks>
+    public enum Routine
+    {
+        /// <summary><c>FUN_180036f80</c> — the twist, solved about the bisector.</summary>
+        Bisector,
+
+        /// <summary><c>FUN_1800372c0</c> — the two swings, each about a cross product.</summary>
+        Swing,
+    }
+
     /// <summary>The relaxation weight both of a ragdoll's sweeps carry.</summary>
     /// <remarks>
     /// **Dumped from the table at `0x1800eeb70`** — `0.4, 0.4, 0.4, 0.4, 1.0, 1.0, 0.8, 0.6, …` —
@@ -298,6 +317,11 @@ public static class IvpAngularLimit
     /// The constraint descriptor's first lane — <c>constraint+0x2d0</c>, which
     /// <c>SetAxisFriction</c>'s <c>torque</c> feeds. The twist axis receives it scaled by the
     /// descriptor's own fourth lane and the two swing axes receive it unscaled.
+    /// </param>
+    /// <param name="routine">
+    /// Which of the engine's two axis routines solves this axis. **Required rather than defaulted**
+    /// — the two differ by the sign of the impulse, and with <paramref name="rateGain"/> at zero
+    /// that is the ONLY difference, so a default drives two of a joint's three axes backwards.
     /// </param>
     /// <exception cref="ArgumentNullException">Any argument is null.</exception>
     /// <remarks>
@@ -337,13 +361,16 @@ public static class IvpAngularLimit
         in IvpJacobian jacobian,
         float rateGain,
         float impulseGain,
-        float damping)
+        float damping,
+        Routine routine)
     {
         ArgumentNullException.ThrowIfNull(a);
         ArgumentNullException.ThrowIfNull(b);
         ArgumentNullException.ThrowIfNull(axis);
 
-        float predicted = (jacobian.Rate(a, b) * rateGain) + axis.Angle;
+        float rate = jacobian.Rate(a, b) * rateGain;
+
+        float predicted = routine == Routine.Bisector ? rate + axis.Angle : axis.Angle - rate;
 
         float scale = axis.Scale * damping * impulseGain * jacobian.InverseEffectiveMass;
 
@@ -353,7 +380,9 @@ public static class IvpAngularLimit
 
         // The enable is a mask against a dumped all-zero or all-ones tuple rather than a test, so an
         // unlimited axis reaches this line and multiplies out to nothing.
-        float impulse = axis.Limited ? -overshoot : 0f;
+        float signed = routine == Routine.Bisector ? -overshoot : overshoot;
+
+        float impulse = axis.Limited ? signed : 0f;
 
         a.AngularVelocity = (
             a.AngularVelocity.X + (impulse * jacobian.ResponseA.X),

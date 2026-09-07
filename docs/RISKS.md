@@ -3340,7 +3340,35 @@ replay, and `CTFPlayerAnimState` has to be emulated rather than read. So even wi
 right sequence is a separate emulation problem. Ordered: reach the data, skin on the GPU, then
 emulate the choice.
 
-## B58 — jiggle bones and ragdolls, neither of which is rigid-body physics — HALF DONE (jiggle), ragdolls OPEN
+## B58 — jiggle bones and ragdolls, neither of which is rigid-body physics — jiggle DONE, the ragdoll SOLVER done, nothing DRAWS with it
+
+**Update 2026-09-07: the ragdoll half is no longer "open", it is transcribed and running — and it is
+still invisible.** A TF2 corpse's physics is read end to end out of `vphysics.dll` and implemented
+with tests: integration, gravity, the environment's step order, the angular limit solve, all three
+joint deflections, the two-iteration relaxation driver, and a `RagdollSimulation` that turns a
+model's `.phy` into running bodies and joints. The animation suite went 111 → 210 over it.
+
+**What is still true of this entry is the last mile.** `RagdollBody.Build`, `RagdollBody.Pose` and
+`RagdollSimulation` have **no production caller** — corpses are posed by a death sequence through
+`RagdollProps`. Until that is wired, every line above is a component with a green suite and no
+output, which is the exact shape this project has shipped three no-ops in.
+
+**The finding worth carrying out of the reverse engineering**, because it is not what anyone would
+design: a joint's three limits measure three *different kinds of quantity*. The twist is an angle
+(`−atan2` about the bisector of the two bodies' primary axes); one swing is a **sine**; the third is
+a **cosine**, making it a cone. And each block takes its bounds from a different axis than the one
+it measures. `docs/findings/51-vphysics-is-ivp-and-it-is-readable.md` carries the whole account,
+including three wrong turns kept on purpose.
+
+**Named gaps, each documented at its site rather than hidden:** the bind-pose rotation
+(`RagdollBody` keeps only `Studio_CalcBoneToBoneTransform`'s translation, so joints measure from an
+identity rest pose — the largest one), isotropic inertia, the axis permutation by declared range
+rather than by anchor coupling, a zero rate gain, and the environment running in Source units where
+`SetGravity` converts to IVP's. `docs/HANDOFF.md` orders them.
+
+---
+
+**The original entry, unchanged below.**
 
 **The jiggle half is implemented and this entry no longer describes the code.** `JiggleBones` and
 `StudioJiggleBones` exist, `SkeletonPose` runs the simulation inside its bone loop, and the

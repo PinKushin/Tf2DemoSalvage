@@ -137,6 +137,44 @@ public sealed class IvpEnvironmentConformanceTests
     }
 
     /// <remarks>
+    /// **The wiring assertion, and it is the only test here that can catch it.** Every part of the
+    /// constraint solve is covered by its own suite, and all of them pass whether or not
+    /// `Simulate` ever calls the group — which is the shape that has shipped three no-ops in this
+    /// project with a green suite (`docs/memory/output-level-assertion-or-it-is-not-done.md`).
+    ///
+    /// **The joint below is swung 40° against a 25° limit**, so a solve that runs must change the
+    /// angular velocity and a solve that does not must leave it at zero. Gravity is off so the only
+    /// thing that can move it is the constraint.
+    /// </remarks>
+    [Test]
+    public void Simulate_WithAJointPastItsLimit_RunsTheConstraintSolve()
+    {
+        IvpEnvironment environment = new(1f / 66f);
+
+        IvpRigidBody a = new() { SkipsGravity = true };
+
+        IvpRigidBody b = new()
+        {
+            SkipsGravity = true,
+            Orientation = (0f, 0.34202015f, 0f, 0.9396926f),
+        };
+
+        environment.Add(a);
+        environment.Add(b);
+
+        environment.Constraints.Joints.Add(new IvpRagdollJoint
+        {
+            BodyA = a,
+            BodyB = b,
+            Constraint = IvpRagdollConstraint.FromDegrees((-30f, 15f), (-25f, 25f), (-79f, 57f)),
+        });
+
+        environment.Simulate();
+
+        a.AngularVelocity.ShouldNotBe((0f, 0f, 0f), "the environment ran the solve");
+    }
+
+    /// <remarks>
     /// **Gravity is opt-out per body**, because in the engine it is membership of the controller's
     /// list rather than a property of the body — `EnableGravity` adds and removes.
     /// </remarks>

@@ -22,6 +22,14 @@ public sealed class IvpAngularLimitConformanceTests
 {
     private const float Close = 1e-5f;
 
+    /// <summary>The routine these tests exercise — <c>FUN_180036f80</c>, the twist.</summary>
+    /// <remarks>
+    /// **Named at every call rather than defaulted.** The engine's other routine adds the overshoot
+    /// where this one subtracts it, and with the rate gain at zero that is the ONLY difference — so
+    /// a default would silently drive two of a joint's three axes the wrong way.
+    /// </remarks>
+    private const IvpAngularLimit.Routine Bisector = IvpAngularLimit.Routine.Bisector;
+
     /// <summary>A joint whose axis is X, limited to a tenth of a radian either side.</summary>
     private static IvpJointAxis Axis() => new()
     {
@@ -48,7 +56,7 @@ public sealed class IvpAngularLimitConformanceTests
         IvpJointAxis axis = Axis();
         axis.Angle = 0.02f;
 
-        IvpAngularLimit.Solve(a, b, axis, IvpJacobian.Build(a, b, axis.Direction), 0f, 1f, 1f);
+        IvpAngularLimit.Solve(a, b, axis, IvpJacobian.Build(a, b, axis.Direction), 0f, 1f, 1f, Bisector);
 
         a.AngularVelocity.X.ShouldBe(0.5f, Close, "the angle is inside, so no correction");
         b.AngularVelocity.X.ShouldBe(0f, Close);
@@ -70,7 +78,7 @@ public sealed class IvpAngularLimitConformanceTests
         IvpJointAxis axis = Axis();
         axis.Angle = 0.3f;
 
-        IvpAngularLimit.Solve(a, b, axis, IvpJacobian.Build(a, b, axis.Direction), 0f, 1f, 1f);
+        IvpAngularLimit.Solve(a, b, axis, IvpJacobian.Build(a, b, axis.Direction), 0f, 1f, 1f, Bisector);
 
         a.AngularVelocity.X.ShouldBe(-0.1f, Close);
         b.AngularVelocity.X.ShouldBe(0.1f, Close, "equal and opposite, from the negated row");
@@ -88,7 +96,7 @@ public sealed class IvpAngularLimitConformanceTests
         IvpJointAxis axis = Axis();
         axis.Angle = -0.3f;
 
-        IvpAngularLimit.Solve(a, b, axis, IvpJacobian.Build(a, b, axis.Direction), 0f, 1f, 1f);
+        IvpAngularLimit.Solve(a, b, axis, IvpJacobian.Build(a, b, axis.Direction), 0f, 1f, 1f, Bisector);
 
         a.AngularVelocity.X.ShouldBe(0.1f, Close);
         b.AngularVelocity.X.ShouldBe(-0.1f, Close);
@@ -113,7 +121,7 @@ public sealed class IvpAngularLimitConformanceTests
         axis.Angle = 3f;
         axis.Limited = false;
 
-        IvpAngularLimit.Solve(a, b, axis, IvpJacobian.Build(a, b, axis.Direction), 0f, 1f, 1f);
+        IvpAngularLimit.Solve(a, b, axis, IvpJacobian.Build(a, b, axis.Direction), 0f, 1f, 1f, Bisector);
 
         a.AngularVelocity.X.ShouldBe(0f, Close);
         b.AngularVelocity.X.ShouldBe(0f, Close);
@@ -139,7 +147,8 @@ public sealed class IvpAngularLimitConformanceTests
         axis.Angle = 0.3f;
 
         IvpAngularLimit.Solve(
-            a, b, axis, IvpJacobian.Build(a, b, axis.Direction), 0f, IvpAngularLimit.StockPassWeight, 1f);
+            a, b, axis, IvpJacobian.Build(a, b, axis.Direction),
+            0f, IvpAngularLimit.StockPassWeight, 1f, Bisector);
 
         a.AngularVelocity.X.ShouldBe(-0.04f, Close);
         b.AngularVelocity.X.ShouldBe(0.04f, Close);
@@ -165,7 +174,8 @@ public sealed class IvpAngularLimitConformanceTests
         IvpJointAxis axis = Axis();
         axis.Angle = 0.05f;
 
-        IvpAngularLimit.Solve(a, b, axis, IvpJacobian.Build(a, b, axis.Direction), 0.5f, 1f, 1f);
+        IvpAngularLimit.Solve(
+            a, b, axis, IvpJacobian.Build(a, b, axis.Direction), 0.5f, 1f, 1f, Bisector);
 
         // rate 1 × gain 0.5 + 0.05 = 0.55; overshoot (0.55 − 0.1) × 0.5 = 0.225.
         a.AngularVelocity.X.ShouldBe(1f - 0.225f, Close);
@@ -192,7 +202,7 @@ public sealed class IvpAngularLimitConformanceTests
         IvpJointAxis axis = Axis();
         axis.Angle = 0.3f;
 
-        IvpAngularLimit.Solve(a, b, axis, IvpJacobian.Build(a, b, axis.Direction), 0f, 1f, 1f);
+        IvpAngularLimit.Solve(a, b, axis, IvpJacobian.Build(a, b, axis.Direction), 0f, 1f, 1f, Bisector);
 
         a.AngularVelocity.X.ShouldBe(-0.2f, Close, "1/K is 1 rather than 0.5");
         b.AngularVelocity.ShouldBe((0f, 0f, 0f), "and the static body is never pushed");
@@ -223,7 +233,7 @@ public sealed class IvpAngularLimitConformanceTests
         IvpJointAxis axis = Axis();
         axis.Angle = 3f;
 
-        IvpAngularLimit.Solve(a, b, axis, jacobian, 0f, 1f, 1f);
+        IvpAngularLimit.Solve(a, b, axis, jacobian, 0f, 1f, 1f, Bisector);
 
         a.AngularVelocity.ShouldBe((0f, 0f, 0f));
         b.AngularVelocity.ShouldBe((0f, 0f, 0f));
