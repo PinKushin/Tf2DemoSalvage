@@ -2464,9 +2464,75 @@ rows at `0x40`, `0x50`, `0x60` — and `FUN_180037890` copies those to constrain
 - `fVar21` dots **two different axis indices**, one from each frame.
 
 **Two different axes of an orthonormal frame are perpendicular, so the second dot is a SINE**; the
-same axis from two frames is a cosine unless the frames are built a quarter turn apart. That is the
-whole remaining question, and it is now a small one: what `FUN_180032740` and `FUN_180033720` put in
-`local_2d8` and `local_2a8`.
+same axis from two frames is a cosine unless the frames are built a quarter turn apart.
+
+**`FUN_180032740` and `FUN_180033720` turned out not to be the frame builders.** The second is a
+plain point-by-4×4 transform — three rows of four floats with the translation at `[0xc]`, `[0xd]`,
+`[0xe]` — and the pair is used on descriptor `+0x30` and `+0x70`, which are therefore the two
+ANCHORS rather than axes. That fixes the descriptor layout:
+
+| descriptor | holds |
+|---|---|
+| `0x00`, `0x10`, `0x20` | frame A's three axes, in the joint's axis permutation |
+| `0x30` | anchor A |
+| `0x40`, `0x50`, `0x60` | frame B's three axes |
+| `0x70` | anchor B |
+
+**So the frames ARE built a quarter turn apart, deliberately, and the function that does it is the
+one thing left to read.** `FUN_180037890` ends by rotating the frame at `+0x30` about axis 2 by the
+midpoint of that axis's range:
+
+```c
+fVar5 = (*(float *)((longlong)param_2 + 0x9c) + *(float *)(param_2 + 0x14)) * DAT_1800ea984;
+if (DAT_1800ea944 < (float)((uint)fVar5 & uVar3)) {
+    FUN_18003dde0((float *)(param_1 + 0x30), 2, (uint)fVar5);
+}
+```
+
+and `FUN_1800393d0` calls the same `FUN_18003dde0(&frame, axis, midpoint)` on its own copy. That is
+why the second block's bounds are re-centred to `±range/2`: the offset has been moved into the
+frame.
+
+**`FUN_18003dde0` read: it is an ordinary axis rotation, and it does NOT make the two dots the same
+kind of quantity.** It builds an identity, fills the two off-axis diagonal entries with the cosine
+and the off-diagonal pair with `±sin`, pins the rotation axis's own entry to 1, and multiplies the
+frame by it:
+
+```c
+iVar1 = (param_2 + 1) % 3;  iVar2 = (iVar1 + 1) % 3;
+uVar3 = FUN_1800bc110(param_3);                       // sincos, packed
+M[iVar1][iVar1] = cos;  M[iVar2][iVar2] = cos;
+M[iVar1][iVar2] = sin;  M[iVar2][iVar1] = -sin;
+M[param_2][param_2] = 1.0;
+```
+
+A rotation about an axis leaves that axis fixed and turns the other two within their plane, so it
+cannot convert a same-index dot into a different-index one.
+
+### Where this stands, stated as a contradiction rather than a conclusion
+
+Pinning the permutation makes the three deflections explicit. `FUN_1800393d0` writes frame A's rows
+for `iVar9`, `iVar19`, `iVar16` and frame B's SAME three rows, so:
+
+| block | deflection | at the rest pose |
+|---|---|---|
+| `flags+0xb0` | `0 − atan2(…)`, bounds `−hi`, `−lo` | consistent — both negated |
+| `flags+0xe8` | `B[iVar9] · A[iVar16]`, different indices | a SINE, ≈ 0 |
+| `flags+0xcc` | `B[iVar9] · A[iVar9]`, same index | a COSINE, ≈ 1 |
+
+**The last row does not fit its bounds and that is the open problem.** Its bounds are `range × ±0.5`
+in radians: for the demoman's widest joint that is `±1.187`, which a cosine can never leave, so the
+limit never fires; for his narrowest it is `±0.393`, which a cosine at rest already exceeds, so the
+limit fires permanently and hard. Neither is a working joint, and TF2's corpses visibly are.
+
+**So one input is still wrong, exactly as it was when the threshold was assumed to be π.** The
+candidate is the construction of `local_2d8` and `local_2a8` in `FUN_1800393d0` — read as "the two
+bodies' constraint frames" from the shape of the code around them, never actually read. That
+assumption is doing the same work `DAT_1800eea1c` was, and it is the next thing to open.
+
+**Recorded as a contradiction on purpose.** Everything above it is measured or quoted; the
+resolution is not, and a plausible-sounding reconciliation written now would read afterwards like a
+finding.
 
 **It matters because the two answers are visibly different.** A sine compared against a radian bound
 tightens the limit as the angle grows — four per cent at 25°, twenty-nine at 79° — which is a corpse
@@ -2475,5 +2541,6 @@ is a corpse locked rigid. The bounds are the same either way, so nothing in the 
 them except how the body looks.
 
 *Evidence class: read from the decompiled binary for the rotation sites, the cache offsets, the two
-dot products and the descriptor-to-constraint copy; what the two FRAMES are is the one unread step,
-and whether each dot is a sine or a cosine follows from it.*
+dot products, the descriptor-to-constraint copy and the descriptor layout; `FUN_18003dde0` — the
+frame rotation by the range midpoint — is the one unread step, and whether each dot is a sine or a
+cosine follows from it.*
