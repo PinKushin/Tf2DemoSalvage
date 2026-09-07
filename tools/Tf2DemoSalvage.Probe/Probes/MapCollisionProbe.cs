@@ -217,6 +217,37 @@ public sealed class MapCollisionProbe : IProbe
                         CultureInfo.InvariantCulture,
                         $"  model {model.ModelIndex}: declares {model.SolidCount} solids, " +
                         $"read {model.Solids.Count}, {ledges} ledges, {triangles} triangles"));
+
+                    // **Per SOLID, with its extent.** A solid whose ledges all sit near the origin
+                    // while its sibling spans the map is one that needs placing, and a total cannot
+                    // show that.
+                    for (int solid = 0; solid < model.Hulls.Count; solid++)
+                    {
+                        float lowX = float.MaxValue, lowY = float.MaxValue, lowZ = float.MaxValue;
+                        float highX = float.MinValue, highY = float.MinValue, highZ = float.MinValue;
+
+                        foreach (PhysicsLedge ledge in model.Hulls[solid])
+                        {
+                            foreach (System.Numerics.Vector3 point in ledge.Points)
+                            {
+                                // Through the production conversion, so this reports the space the
+                                // world is actually built in rather than a second reading of it.
+                                System.Numerics.Vector3 at = IvpWorldCollision.ToSource(point);
+
+                                lowX = MathF.Min(lowX, at.X);
+                                lowY = MathF.Min(lowY, at.Y);
+                                lowZ = MathF.Min(lowZ, at.Z);
+                                highX = MathF.Max(highX, at.X);
+                                highY = MathF.Max(highY, at.Y);
+                                highZ = MathF.Max(highZ, at.Z);
+                            }
+                        }
+
+                        output.WriteLine(string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"    solid {solid}: {model.Hulls[solid].Count} ledges, " +
+                            $"x {lowX:0}..{highX:0}, y {lowY:0}..{highY:0}, z {lowZ:0}..{highZ:0}"));
+                    }
                 }
             }
 
@@ -252,6 +283,8 @@ public sealed class MapCollisionProbe : IProbe
             int physicsOnly = 0;
             int neither = 0;
 
+            int[] deepest = new int[10];
+
             for (int gx = -16; gx <= 16; gx++)
             {
                 for (int gy = -16; gy <= 16; gy++)
@@ -263,8 +296,19 @@ public sealed class MapCollisionProbe : IProbe
                     System.Numerics.Vector3 low = new(px, py, spot.Z - 1024f);
 
                     bool physics = world.Entry(high, low) is not null;
-                    bool camera = level.Sweep(
-                        (px, py, spot.Z + 256f), (px, py, spot.Z - 1024f), halfExtent: 1f) < 1f;
+                    float stopped = level.Sweep(
+                        (px, py, spot.Z + 256f), (px, py, spot.Z - 1024f), halfExtent: 1f);
+
+                    bool camera = stopped < 1f;
+
+                    // **Where the camera stopped, on the nodes the two worlds disagree about.** A
+                    // leaf-contents test stops on the void outside the map as readily as on a
+                    // floor, so a drop that misses real ground and leaves the map counts as a hit —
+                    // and that confound is worth exactly as much as this histogram says it is.
+                    if (camera && !physics)
+                    {
+                        deepest[Math.Min(9, (int)(stopped * 10f))]++;
+                    }
 
                     if (physics && camera)
                     {
@@ -289,6 +333,11 @@ public sealed class MapCollisionProbe : IProbe
                 CultureInfo.InvariantCulture,
                 $"  census of 1089 drops around the point: {both} both, {cameraOnly} camera only, " +
                 $"{physicsOnly} physics only, {neither} neither"));
+
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  where the camera stopped on the {cameraOnly} it found alone, by tenth of the " +
+                $"drop: {string.Join(' ', deepest)}"));
 
             // **The static props near the point, because their collision is in NEITHER lump.** A
             // `prop_static` is a model placed by the map, and the engine builds a physics object

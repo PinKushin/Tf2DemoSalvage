@@ -246,17 +246,18 @@ public sealed class IvpWorldContactConformanceTests
     /// </remarks>
     private static IvpWorldCollision Floor(float depth = 100f)
     {
-        const float Metre = 0.0254f;
+        const float Wide = 1000f;
 
-        float wide = 1000f * Metre;
-        float deep = depth * Metre;
-
+        // **Authored in SOURCE units and axes, then stored the way a real file stores it.** A `.phy`
+        // and a map's collision lump hold points in IVP's own convention — metres, and Y up where
+        // Source has Z up — so a fixture written directly in Source axes describes a file that does
+        // not exist, and it passed while the reader converted nothing but the units.
         List<Vector3> points =
         [
-            new(-wide, -wide, -deep), new(wide, -wide, -deep),
-            new(wide, wide, -deep), new(-wide, wide, -deep),
-            new(-wide, -wide, 0f), new(wide, -wide, 0f),
-            new(wide, wide, 0f), new(-wide, wide, 0f),
+            Ivp(-Wide, -Wide, -depth), Ivp(Wide, -Wide, -depth),
+            Ivp(Wide, Wide, -depth), Ivp(-Wide, Wide, -depth),
+            Ivp(-Wide, -Wide, 0f), Ivp(Wide, -Wide, 0f),
+            Ivp(Wide, Wide, 0f), Ivp(-Wide, Wide, 0f),
         ];
 
         // Wound so every normal points OUT of the slab, which is what makes "behind every plane"
@@ -273,8 +274,20 @@ public sealed class IvpWorldContactConformanceTests
 
         IvpWorldCollision world = new();
 
-        world.Add(points, triangles, new Vector3(0f, 0f, -deep / 2f), wide * 2f);
+        world.Add(points, triangles, Ivp(0f, 0f, -depth / 2f), Wide * 2f * Metre);
 
         return world;
     }
+
+    /// <summary>A point in Source units, as an <c>IVPS</c> section would store it.</summary>
+    /// <remarks>
+    /// **The inverse of <see cref="IvpWorldCollision.ToSource"/>, written out rather than called**,
+    /// so this fixture cannot agree with a wrong reader by sharing its arithmetic. Metres, Y up,
+    /// and the handedness flip on the remaining axis.
+    /// </remarks>
+    private static Vector3 Ivp(float x, float y, float z) =>
+        new(x * Metre, z * Metre, -y * Metre);
+
+    /// <summary>Metres per Source unit — <c>METERS_PER_INCH</c>.</summary>
+    private const float Metre = 0.0254f;
 }
