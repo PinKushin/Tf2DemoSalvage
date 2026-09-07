@@ -541,6 +541,21 @@ public sealed class IvpEnvironment
 
             Passes += contact.Oppose(arm);
 
+            // **This is the ONLY thing holding a resting corpse up, and that is the divergence.**
+            // Switching it off drops the same ragdoll straight through the map to −1267 at five to
+            // eight hundred units a second, with contacts found the whole way: `Oppose` fires only
+            // for a contact that is APPROACHING — the engine's own `fVar17 <= _DAT_1800ee398` gate
+            // — so nothing else in this solve supports a body that has already landed.
+            //
+            // **The engine holds it with a persistent contact instead.** A friction-system contact
+            // carries its normal term between PSIs (`contact+0x78`, half of the Coulomb product
+            // `FUN_1800857c0` clamps against), so a resting body is held continuously. Ours is
+            // ejected whenever it is found inside something, which is a different mechanism with a
+            // characteristic signature: sink, shove, fly, fall, sink — the limit cycle traced at
+            // 77 to 262 units a second that never decays.
+            //
+            // **So the remaining energy is not a term to tune, it is a missing state.** The warm
+            // start built for the tangential pair is the same structure the normal needs.
             contact.Separate(_slice, arm, deepest);
 
             contact.Rub(IvpConstraintGroup.Relaxation, arm, contact.Accumulated);

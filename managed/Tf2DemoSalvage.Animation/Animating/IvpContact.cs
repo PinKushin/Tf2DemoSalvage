@@ -211,6 +211,27 @@ public sealed class IvpContact
             // the mass it is divided by follows the direction.
             float applied = -PassFraction * Approach / along;
 
+            // **Never past zero, which is the engine's calibrated final impulse in the form this
+            // solver can use.** `FUN_18008e290` does not simply stop when the approach is gone: it
+            // applies a UNIT impulse, remeasures what that did, subtracts its own accumulated
+            // deltas back out of both bodies and reapplies the exact multiple the measurement calls
+            // for — `if ((0.0 < dVar18) && (iVar15 != 100))`, then `dVar18 / dVar24`. The point of
+            // that step is that the last impulse lands exactly rather than overshooting.
+            //
+            // **Skipping it left a permanent 20% restitution.** Each pass adds a fifth of the
+            // ORIGINAL approach and the loop exits on the first pass past zero, so a landing could
+            // end up to a fifth of its impact speed travelling upward — measured as a corpse
+            // bouncing between z 7.6 and z 17 for ever, at 62 to 280 units a second, never
+            // decaying. Clamping the last pass to what is actually left is the same landing the
+            // calibration produces, without the unit-impulse probe our single-body case does not
+            // need.
+            float exact = -Closing(arm) / along;
+
+            if (exact > 0f && applied > exact)
+            {
+                applied = exact;
+            }
+
             Accumulated += applied;
 
             Push((direction.X * applied, direction.Y * applied, direction.Z * applied), arm);
@@ -253,45 +274,72 @@ public sealed class IvpContact
     {
         float effective = InverseMassAlong(Normal, arm);
 
-        if (effective <= FloatEpsilon || step <= 0f || depth <= Slop)
+        if (effective <= FloatEpsilon || step <= 0f)
         {
             return;
         }
 
-        // **The cap is the ENGINE'S separation speed, and swapping ours for it is what stopped a
-        // ragdoll tearing itself apart.** `FUN_18008e290`'s post-loop term adds
-        // `sqrt(impacts) * DAT_1800eb150` with that constant dumping as `0.01` — a hundredth of a
-        // metre per second, and SUB-LINEAR in the number of impacts. This used to cap at sixty
-        // units per second per contact, so a body with a dozen contacts could be handed seven
-        // hundred units per second of outward velocity in one slice.
+        int slot = Remembered();
+
+        float held = slot < 0 ? 0f : Body.Sliding[slot].Holding;
+
+        // **The stored normal impulse is carried forward, and that is what HOLDS a resting body.**
+        // Without it nothing in this solve supports a corpse that has landed: `Oppose` fires only
+        // while a contact is approaching — the engine's `fVar17 <= _DAT_1800ee398` gate — so the
+        // only support was a shove applied whenever the body was found inside something. Measured,
+        // that is a limit cycle: sink, shove, fly, fall, sink, at 77 to 262 units a second for ten
+        // seconds without decaying. Switching the shove off dropped the same ragdoll through the
+        // map at five to eight hundred.
         //
-        // **On its own that only looked like a stiff floor; with a joint attached it was an
-        // explosion.** Measured on a two-body ragdoll resting on a floor: the ball-and-socket alone
-        // is exactly stable — the bodies stay 3, 4, 0 apart through two hundred steps of free fall
-        // — and the contact impulse loop alone is stable, and the two together threw them two and a
-        // half thousand units apart. The joint was faithfully redistributing energy this term was
-        // inventing.
-        //
-        // **Why this is a parity fix and not a tuning one:** the engine has no penetration recovery
-        // at all, because its mindist scheduler re-checks a pair before the two ever reach each
-        // other. Ours exists only to compensate for not having that, and the honest form for a
-        // compensator is the engine's own separation speed rather than a number chosen to clear an
-        // overlap quickly. Deep penetration now clears slowly, which is the real divergence
-        // showing through instead of being papered over.
-        // **The engine's own separation speed was tried here and DOES NOT TRANSFER.**
-        // `FUN_18008e290` adds `sqrt(impacts) * DAT_1800eb150`, and that constant dumps as `0.01` —
-        // a hundredth of a metre per second, about four tenths of a unit. Using it measured a body
-        // sinking to −40 through a floor it should rest 3 above, because the engine's number only
-        // makes sense beside the engine's mindist scheduler: IVP never carries an overlap to
-        // remove, so its separation term is about bounce and not about depth. Taking half of that
-        // design without the other half is worse than either, so this stays ours and says so.
-        float bias = MathF.Min(Recovery * (depth - Slop) / step, MaximumRecovery);
+        // **The engine's contact is persistent** — a friction-system contact carries its normal
+        // term between PSIs (`contact+0x78`, half the Coulomb product `FUN_1800857c0` clamps
+        // against) — so a body is held continuously rather than ejected repeatedly. This is that
+        // state, warm-started by the same relaxation weight the tangential pair uses.
+        float carried = held * IvpConstraintGroup.Relaxation;
 
-        float applied = bias / effective;
+        if (carried > 0f)
+        {
+            Push((Normal.X * carried, Normal.Y * carried, Normal.Z * carried), arm);
+            Accumulated += carried;
+        }
 
-        Accumulated += applied;
+        // **Stop it sinking first, THEN remove any overlap.** The first term is what a resting
+        // contact is for and the second is this project's own, needed only because there is no
+        // mindist scheduler to stop an overlap forming — see the remarks.
+        float closing = Closing(arm);
 
-        Push((Normal.X * applied, Normal.Y * applied, Normal.Z * applied), arm);
+        float bias = depth > Slop
+            ? MathF.Min(Recovery * (depth - Slop) / step, MaximumRecovery)
+            : 0f;
+
+        float wanted = (closing < 0f ? -closing : 0f) + bias;
+
+        float extra = wanted / effective;
+
+        // **The TOTAL is clamped non-negative, not the increment**, which is what lets a later
+        // slice pull back an earlier one's over-correction while never letting a contact suck a
+        // body down.
+        float total = MathF.Max(0f, carried + extra);
+
+        float applied = total - carried;
+
+        if (applied != 0f)
+        {
+            Push((Normal.X * applied, Normal.Y * applied, Normal.Z * applied), arm);
+            Accumulated += applied;
+        }
+
+        (float X, float Y, float Z) face = Normal;
+
+        if (slot < 0)
+        {
+            Body.Sliding.Add((face, total, 0f, 0f));
+        }
+        else
+        {
+            Body.Sliding[slot] = (face, total, Body.Sliding[slot].First, Body.Sliding[slot].Second);
+        }
+
     }
 
     /// <summary>Opposes sliding at a contact that is resting rather than arriving.</summary>
@@ -435,11 +483,12 @@ public sealed class IvpContact
 
         if (slot < 0)
         {
-            Body.Sliding.Add((kept, Dot(settled, first), Dot(settled, second)));
+            Body.Sliding.Add((kept, 0f, Dot(settled, first), Dot(settled, second)));
         }
         else
         {
-            Body.Sliding[slot] = (kept, Dot(settled, first), Dot(settled, second));
+            Body.Sliding[slot] = (
+                kept, Body.Sliding[slot].Holding, Dot(settled, first), Dot(settled, second));
         }
     }
 
