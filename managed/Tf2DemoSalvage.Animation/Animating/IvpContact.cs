@@ -124,6 +124,76 @@ public sealed class IvpContact
             Body.AngularVelocity.X + (torque.X * Body.InverseInertia.X),
             Body.AngularVelocity.Y + (torque.Y * Body.InverseInertia.Y),
             Body.AngularVelocity.Z + (torque.Z * Body.InverseInertia.Z));
+
+        Rub(effective);
+    }
+
+    /// <summary>Opposes sliding, up to what the normal impulse allows.</summary>
+    /// <remarks>
+    /// **Coulomb, and the coefficient is the game's own shipped number.** A surface's friction is
+    /// `surfacephysicsparams_t::friction` out of `scripts/surfaceproperties*.txt`
+    /// (`vphysics_interface.h:882`), which the engine looks up per solid —
+    /// `physprops-&gt;GetSurfaceIndex( solid.surfaceprop )`, `ragdoll_shared.cpp:194` — and hands to
+    /// `CreatePolyObject` beside the hull.
+    ///
+    /// **Without this a corpse never stops.** Two of the eight measured on `koth_harvest_final` had
+    /// slid hundreds of units off the map, one of them to 23,832 units below it, because a body
+    /// resting on any slope with no tangential force keeps accelerating down it.
+    ///
+    /// **The world's own material is NOT read yet, and that is a stated gap.** The map's collision
+    /// text carries a per-hull material table — `MapSurfaceTable.Materials` — and this uses only the
+    /// body's coefficient, so a corpse slides the same on ice as on wood. The table is read and
+    /// unused rather than absent, which is the difference between a gap and a guess.
+    /// </remarks>
+    private void Rub(float effective)
+    {
+        if (Accumulated <= 0f || Body.Friction <= 0f)
+        {
+            return;
+        }
+
+        (float X, float Y, float Z) spin = Cross(Body.AngularVelocity, Arm);
+
+        (float X, float Y, float Z) moving = (
+            Body.Velocity.X + spin.X, Body.Velocity.Y + spin.Y, Body.Velocity.Z + spin.Z);
+
+        // The part of that motion along the surface, which is what friction opposes.
+        float into = (moving.X * Normal.X) + (moving.Y * Normal.Y) + (moving.Z * Normal.Z);
+
+        (float X, float Y, float Z) sliding = (
+            moving.X - (Normal.X * into),
+            moving.Y - (Normal.Y * into),
+            moving.Z - (Normal.Z * into));
+
+        float speed = MathF.Sqrt(
+            (sliding.X * sliding.X) + (sliding.Y * sliding.Y) + (sliding.Z * sliding.Z));
+
+        if (speed <= FloatEpsilon)
+        {
+            return;
+        }
+
+        // **Clamped by the normal impulse, which is what makes it Coulomb rather than a drag.** A
+        // body pressed hard into a surface resists sliding more; one barely touching does not, and
+        // one in the air is not slowed at all.
+        float wanted = MathF.Min(speed / effective, Body.Friction * Accumulated);
+
+        float scale = wanted / speed;
+
+        (float X, float Y, float Z) impulse = (
+            -sliding.X * scale, -sliding.Y * scale, -sliding.Z * scale);
+
+        Body.Velocity = (
+            Body.Velocity.X + (impulse.X * Body.InverseMass),
+            Body.Velocity.Y + (impulse.Y * Body.InverseMass),
+            Body.Velocity.Z + (impulse.Z * Body.InverseMass));
+
+        (float X, float Y, float Z) twist = Cross(Arm, impulse);
+
+        Body.AngularVelocity = (
+            Body.AngularVelocity.X + (twist.X * Body.InverseInertia.X),
+            Body.AngularVelocity.Y + (twist.Y * Body.InverseInertia.Y),
+            Body.AngularVelocity.Z + (twist.Z * Body.InverseInertia.Z));
     }
 
     /// <summary>Every contact one body's hull makes with the world this step.</summary>

@@ -352,6 +352,21 @@ public sealed record MapLevel(
             foreach (MapPhysicsModel model in
                 BspPhysicsCollision.Read(BspLumpData.Read(bytes, header.Lump(PhysCollideLump))))
             {
+                // **Only the WORLD, and that is the engine's own split.** `PhysCreateWorld` builds
+                // model 0 as the static world (`physics_shared.cpp:602-667`); every other entry is
+                // a `func_` brush ENTITY, whose hull is stored in its own model space and placed by
+                // that entity's origin. Adding those here put each of them at the map origin —
+                // geometry missing where the door actually is and phantom geometry where it is not,
+                // which is how a corpse collected contacts thirty-nine thousand units below the map.
+                //
+                // **So a corpse does not yet rest on a door or a moving platform**, stated rather
+                // than left to look deliberate: that needs the entity lump's origin for each `*N`
+                // model, which `BrushModelClasses` already joins for drawing.
+                if (model.ModelIndex != 0)
+                {
+                    continue;
+                }
+
                 foreach (IReadOnlyList<PhysicsLedge> hull in model.Hulls)
                 {
                     foreach (PhysicsLedge ledge in hull)

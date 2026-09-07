@@ -44,6 +44,14 @@ public sealed class CorpsePhysics
     /// </remarks>
     public IvpWorldCollision? World { get; set; }
 
+    /// <summary>The game's surface table, for the friction that stops a corpse sliding.</summary>
+    /// <remarks>
+    /// **Empty is a working state and not a missing input**, which is what makes the game folder
+    /// optional here: every surface then falls back to `g_PhysDefaultObjectParams`' friction of 1,
+    /// which is the engine's own answer for an unknown surface.
+    /// </remarks>
+    public SurfaceTable Surfaces { get; set; } = SurfaceTable.Empty;
+
     /// <summary>How many were rebuilt from death because the tick could not be reached forwards.</summary>
     /// <remarks>
     /// **Counted because a seek is the expensive case and nothing else would say it happened.**
@@ -82,6 +90,21 @@ public sealed class CorpsePhysics
     private readonly Dictionary<int, int> _contacts = [];
 
     private readonly Dictionary<int, int> _deepest = [];
+
+    /// <summary>The tick each corpse was seeded at — its death, when the timeline records one.</summary>
+    public IReadOnlyDictionary<int, int> Born => _born;
+
+    private readonly Dictionary<int, int> _born = [];
+
+    /// <summary>Where each corpse's root body was placed when it was seeded.</summary>
+    /// <remarks>
+    /// **The seed and the settled position answer different questions.** A body that ends up far
+    /// below the map either started somewhere wrong or fell from somewhere right, and only the pair
+    /// tells those apart.
+    /// </remarks>
+    public IReadOnlyDictionary<int, Vector3> Seeded => _seeded;
+
+    private readonly Dictionary<int, Vector3> _seeded = [];
 
     /// <summary>Forgets every simulation — a new demo, or a map change.</summary>
     public void Clear()
@@ -168,6 +191,7 @@ public sealed class CorpsePhysics
 
             _contacts[entityIndex] = live.Simulation.Environment.Contacts;
             _deepest[entityIndex] = (int)live.Simulation.Environment.DeepestContact;
+            _born[entityIndex] = live.BornAt;
         }
 
         // **`C_ClientRagdoll::LastBoneChangedTime()` returns the physics update time**
@@ -245,11 +269,14 @@ public sealed class CorpsePhysics
                 new Vector3(matrix[3], matrix[7], matrix[11]), new Quaternion(x, y, z, w));
         }
 
-        RagdollSimulation simulation = RagdollSimulation.Create(ragdoll, interval, start);
+        RagdollSimulation simulation = RagdollSimulation.Create(
+            ragdoll, interval, start, Surfaces);
 
         simulation.Environment.World = World;
 
         Running live = new(simulation, tick, tick);
+
+        _seeded[entityIndex] = start.Length > 0 ? start[0].Position : Vector3.Zero;
 
         _running[entityIndex] = live;
         Rebuilds++;

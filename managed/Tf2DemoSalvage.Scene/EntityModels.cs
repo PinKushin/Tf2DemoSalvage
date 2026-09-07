@@ -4327,6 +4327,20 @@ public sealed class EntityModelSet : IModelBodygroups
     /// </remarks>
     public float IntervalPerTick { get; set; } = 1f / 66f;
 
+    /// <summary>The DEMO's tick being drawn — absolute, not an offset into playback.</summary>
+    /// <remarks>
+    /// **The distinction is load-bearing and it cost two wrong corpses.** A demo's ticks do not
+    /// start at zero (`docs/memory/demo-ticks-do-not-start-at-zero.md`), so `seconds / interval` is
+    /// how far into PLAYBACK a frame is, while a corpse's `FirstTick` is an absolute tick from the
+    /// file. Comparing the two froze every corpse whose death tick was numerically past the offset
+    /// — it seeded at the drawn tick and stepped nothing — and made every earlier one simulate
+    /// hundreds of ticks that never happened.
+    ///
+    /// **Set by the caller each frame** rather than derived here, because only the caller knows
+    /// which tick it asked the timeline for.
+    /// </remarks>
+    public double CurrentTick { get; set; }
+
     /// <summary>Where each model stands at this moment.</summary>
     /// <param name="props">What exists at this tick.</param>
     /// <param name="into">Filled with one entry per drawable entity; cleared first.</param>
@@ -4566,7 +4580,7 @@ public sealed class EntityModelSet : IModelBodygroups
                         prop.EntityIndex,
                         corpse,
                         animating,
-                        (int)(seconds / IntervalPerTick),
+                        (int)CurrentTick,
                         IntervalPerTick,
                         seconds,
                         prop.FirstTick);

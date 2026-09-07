@@ -77,6 +77,12 @@ public readonly record struct RagdollAxes(Vector3 X, Vector3 Y, Vector3 Z)
 /// Empty when the `.phy` carries no readable hull for this solid, which makes a body that cannot
 /// collide rather than one that collides wrongly.
 /// </param>
+/// <param name="SurfaceProp">
+/// **What this body is made of, by name** — `flesh` for every element of a player. The engine
+/// resolves it through `physprops-&gt;GetSurfaceIndex( solid.surfaceprop )` and hands the index to
+/// `CreatePolyObject` (`ragdoll_shared.cpp:194`); here it is looked up in
+/// <see cref="SurfaceTable"/> for the friction a contact needs.
+/// </param>
 public readonly record struct RagdollElement(
     int BoneIndex,
     int ParentIndex,
@@ -87,7 +93,8 @@ public readonly record struct RagdollElement(
     float Damping,
     float RotationDamping,
     float Volume,
-    IReadOnlyList<Vector3> Hull);
+    IReadOnlyList<Vector3> Hull,
+    string SurfaceProp);
 
 /// <summary>
 /// A model's ragdoll: the rigid bodies its <c>.phy</c> declares and the joints between them (B58).
@@ -278,7 +285,8 @@ public sealed class RagdollBody
                 solid.Damping,
                 solid.RotationDamping,
                 solid.Volume,
-                HullInBoneSpace(physics, index));
+                HullInBoneSpace(physics, index),
+                solid.SurfaceProperty);
         }
 
         foreach (RagdollConstraint constraint in physics.Constraints)

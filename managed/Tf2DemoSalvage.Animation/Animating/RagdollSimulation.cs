@@ -76,8 +76,24 @@ public sealed class RagdollSimulation
     public static RagdollSimulation Create(
         RagdollBody ragdoll,
         float step,
-        IReadOnlyList<(Vector3 Position, Quaternion Orientation)> start)
+        IReadOnlyList<(Vector3 Position, Quaternion Orientation)> start) =>
+        Create(ragdoll, step, start, SurfaceTable.Empty);
+
+    /// <summary>Builds a running simulation, resolving each body's surface.</summary>
+    /// <param name="ragdoll">The bodies and joints the <c>.phy</c> declares.</param>
+    /// <param name="step">The simulation timestep — the demo's tick interval.</param>
+    /// <param name="start">Each element's starting position and orientation, in Source space.</param>
+    /// <param name="surfaces">The game's surface table, for the friction a contact needs.</param>
+    /// <returns>The simulation.</returns>
+    /// <exception cref="ArgumentNullException">Any argument is null.</exception>
+    /// <exception cref="ArgumentException">The starting state does not match the element count.</exception>
+    public static RagdollSimulation Create(
+        RagdollBody ragdoll,
+        float step,
+        IReadOnlyList<(Vector3 Position, Quaternion Orientation)> start,
+        SurfaceTable surfaces)
     {
+        ArgumentNullException.ThrowIfNull(surfaces);
         ArgumentNullException.ThrowIfNull(ragdoll);
         ArgumentNullException.ThrowIfNull(start);
 
@@ -119,6 +135,10 @@ public sealed class RagdollSimulation
                 InverseMass = element.Mass > MinimumInertia ? 1f / element.Mass : 0f,
 
                 Hull = Points(element.Hull),
+
+                // **The game's own number for what this body is made of.** Every player element
+                // says `flesh`; a prop says whatever its `.phy` declares.
+                Friction = surfaces.FrictionOf(element.SurfaceProp),
             };
 
             environment.Add(bodies[index]);

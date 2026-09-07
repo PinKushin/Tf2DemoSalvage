@@ -44,10 +44,17 @@ public sealed class CorpsePhysicsWiringTests
 
         models.Add(drawn, _ => Frames());
 
+        // **The DEMO's tick, set beside the seconds and not derived from them.** A demo's ticks do
+        // not start at zero, so the two are different numbers — see `EntityModelSet.CurrentTick`,
+        // which is the property this pair of calls exists to exercise.
+        models.CurrentTick = 66d;
+
         models.Instances(drawn, [], seconds: 1d);
 
         models.Corpses.Count.ShouldBe(1, "the corpse got a simulation");
         models.Corpses.Steps.ShouldBe(0, "seeded at the tick asked for, so nothing to step yet");
+
+        models.CurrentTick = 132d;
 
         models.Instances(drawn, [], seconds: 2d);
 
@@ -88,7 +95,10 @@ public sealed class CorpsePhysicsWiringTests
         // Seed, then advance a second so the counter is NON-ZERO before the repeat. Comparing two
         // zeroes would pass against a wiring that never steps at all, which is the exact thing the
         // suite is here to catch.
+        models.CurrentTick = 66d;
         models.Instances(drawn, [], seconds: 1d);
+
+        models.CurrentTick = 132d;
         models.Instances(drawn, [], seconds: 2d);
 
         int after = models.Corpses.Steps;

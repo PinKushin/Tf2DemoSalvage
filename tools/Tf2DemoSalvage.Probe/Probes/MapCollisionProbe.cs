@@ -6,6 +6,9 @@ using System.IO;
 using System.Linq;
 using System.Text;
 
+using Microsoft.Extensions.Logging.Abstractions;
+
+using Tf2DemoSalvage.Animation.Animating;
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Presentation;
@@ -75,7 +78,16 @@ public sealed class MapCollisionProbe : IProbe
                 return;
             }
 
-            Report(output, named, verbose: true);
+            // **`map-collision <map> x y z` asks what is under one point**, which is the question a
+            // corpse that free-falls while its neighbours land is really asking.
+            (float X, float Y, float Z)? spot = arguments.Count >= 4 &&
+                float.TryParse(arguments[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float x) &&
+                float.TryParse(arguments[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float y) &&
+                float.TryParse(arguments[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float z)
+                ? (x, y, z)
+                : null;
+
+            Report(output, named, verbose: true, spot);
             return;
         }
 
@@ -115,8 +127,10 @@ public sealed class MapCollisionProbe : IProbe
     /// <param name="output">Where to report.</param>
     /// <param name="path">The map file.</param>
     /// <param name="verbose">Whether to print the per-map detail.</param>
+    /// <param name="under">A point to ask what is beneath, or null to skip that.</param>
     /// <returns>How many models and solids were found.</returns>
-    private static (int Models, int Solids) Report(TextWriter output, string path, bool verbose)
+    private static (int Models, int Solids) Report(
+        TextWriter output, string path, bool verbose, (float X, float Y, float Z)? under = null)
     {
         ReadOnlyMemory<byte> file;
 
@@ -154,7 +168,44 @@ public sealed class MapCollisionProbe : IProbe
             return (0, 0);
         }
 
-        return Walk(output, Path.GetFileName(path), lump.Span, verbose);
+        (int Models, int Solids) walked = Walk(output, Path.GetFileName(path), lump.Span, verbose);
+
+        // **What is UNDER a point, through the PRODUCTION world.** A corpse that free-falls while
+        // its neighbours land is asking exactly this, and asking it of a brush-only world answers a
+        // different question — which it did: a corpse that lands and one that does not both
+        // reported "nothing", because the ground under both is terrain.
+        if (under is { } spot)
+        {
+            MapLevel level = MapLevel.Read(file, NullLogger.Instance);
+            IvpWorldCollision world = level.Physics;
+
+            // **The CAMERA's world, as the control.** `MapLevel.Sweep` answers the same "is there
+            // ground here" question through an entirely different route — the BSP tree's brushes
+            // and the displacement collision — so a point where the camera is stopped and a corpse
+            // is not localises the gap to this project's physics world rather than to the map.
+            float swept = level.Sweep(
+                (spot.X, spot.Y, spot.Z), (spot.X, spot.Y, spot.Z - 512f), halfExtent: 1f);
+
+            // **Split into its two halves, because "the camera stops here" does not say WHICH
+            // geometry stopped it** — and the whole question is which of the two the physics world
+            // is missing.
+            float terrain = level.Displacements.Sweep(
+                spot.X, spot.Y, spot.Z, spot.X, spot.Y, spot.Z - 512f, halfExtent: 1f);
+
+            System.Numerics.Vector3 from = new(spot.X, spot.Y, spot.Z);
+            System.Numerics.Vector3 to = new(spot.X, spot.Y, spot.Z - 512f);
+
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  under ({spot.X}, {spot.Y}, {spot.Z}): " +
+                $"{world.Ledges.Count} ledges and {world.TriangleCount} triangles in the world; " +
+                $"{(world.Entry(from, to) is { } face ? $"HIT, normal {face.X:0.##} {face.Y:0.##} {face.Z:0.##}" : "NOTHING")} " +
+                $"within 512 units down; the camera's own sweep stops at " +
+                $"{swept.ToString("0.###", CultureInfo.InvariantCulture)} of the way " +
+                $"(terrain alone {terrain.ToString("0.###", CultureInfo.InvariantCulture)})"));
+        }
+
+        return walked;
     }
 
     /// <summary>Walks the lump's chain of models.</summary>
@@ -170,7 +221,10 @@ public sealed class MapCollisionProbe : IProbe
     /// allocate-before-validate defects already fixed elsewhere here.
     /// </remarks>
     private static (int Models, int Solids) Walk(
-        TextWriter output, string name, ReadOnlySpan<byte> lump, bool verbose)
+        TextWriter output,
+        string name,
+        ReadOnlySpan<byte> lump,
+        bool verbose)
     {
         int at = 0;
         int models = 0;
@@ -285,6 +339,11 @@ public sealed class MapCollisionProbe : IProbe
                 $"  node spheres: {inside.ToString("N0", CultureInfo.InvariantCulture)} points inside, " +
                 $"{outside.ToString("N0", CultureInfo.InvariantCulture)} outside, " +
                 $"worst overshoot {worst.ToString("0.######", CultureInfo.InvariantCulture)}"));
+
+            // **What is UNDER a given point, which is the question a corpse asks.** A body that
+            // free-falls from its death position while its neighbours land is either standing where
+            // this project's world has nothing, or standing on something it cannot see — and those
+            // two are indistinguishable from the corpse's own behaviour.
 
             if (firstText.Length > 0)
             {

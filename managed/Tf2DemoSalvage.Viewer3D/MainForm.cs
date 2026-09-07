@@ -1494,6 +1494,11 @@ internal class MainForm : Form, IFrameSteps
             _models.Corpses.Clear();
             _models.Corpses.World = map.Level.Physics;
 
+            // **And the game's surface table, which is what stops a corpse sliding.** Read from the
+            // install rather than assumed — a viewer with no game folder falls back to the engine's
+            // own default friction of 1 for every surface.
+            _models.Corpses.Surfaces = _game?.Surfaces ?? SurfaceTable.Empty;
+
             // **The control on the world a corpse is given.** Both halves come from different lumps
             // by different mechanisms, and either can be empty while the other is fine — which is
             // exactly the state that makes "the corpse fell through" unreadable.

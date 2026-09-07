@@ -83,6 +83,16 @@ public sealed class IvpRigidBody
     /// </remarks>
     public float InverseMass { get; set; } = 1f;
 
+    /// <summary>This body's coefficient of friction — its surface's, from the game's own table.</summary>
+    /// <remarks>
+    /// **`surfacephysicsparams_t::friction`**, looked up by the `surfaceprop` its `.phy` solid
+    /// names (`ragdoll_shared.cpp:194`). One rather than zero by default, which is
+    /// `g_PhysDefaultObjectParams` — a zero default would make every body frictionless the moment
+    /// somebody forgot to set one, and that failure looks like working physics until a corpse
+    /// slides off the map.
+    /// </remarks>
+    public float Friction { get; set; } = 1f;
+
     /// <summary>The hull this body collides with, in its own space and in SOURCE units.</summary>
     /// <remarks>
     /// **Empty for a body that is not collided**, which is every body this project had until

@@ -66,6 +66,17 @@ public sealed class GameContent
     /// <remarks>A real resolver that answers nothing when there is no install, never null (D83).</remarks>
     public WeaponModels Weapons { get; }
 
+    /// <summary>What each surface is like to touch, from the game's own tables (B58).</summary>
+    /// <remarks>
+    /// **The friction a corpse settles with**, out of `scripts/surfaceproperties*.txt` — shipped
+    /// data rather than code, and the engine reads exactly the same files through
+    /// `IPhysicsSurfaceProps::ParseSurfaceData`.
+    ///
+    /// **Empty when there is no install**, like everything else here: a viewer with no game folder
+    /// falls back to `g_PhysDefaultObjectParams`' friction of 1 rather than failing (D83).
+    /// </remarks>
+    public SurfaceTable Surfaces { get; init; } = SurfaceTable.Empty;
+
     // **The soundscape catalog is NOT here, deliberately.** It reads from these same archives, so it
     // looks like it belongs — but it lives in the Audio project, and putting it here would mean
     // Scene referencing Audio: a sideways model-to-model edge that forbids nothing, which is the
@@ -109,7 +120,53 @@ public sealed class GameContent
             classes,
             archives.IsEmpty
                 ? WeaponModels.None(render)
-                : new WeaponModels(archives.Read, render));
+                : new WeaponModels(archives.Read, render))
+        {
+            Surfaces = ReadSurfaces(archives, assets),
+        };
+    }
+
+    /// <summary>Reads the surface tables, base file first so a mod's overrides win.</summary>
+    /// <remarks>
+    /// **The order is the engine's.** `surfaceproperties.txt` is parsed and then every
+    /// `surfaceproperties_*.txt` the mod ships, each entry replacing what came before — which is
+    /// how TF2 changes a surface without editing HL2's copy.
+    ///
+    /// **Reported rather than silent, because an empty table is indistinguishable from a working
+    /// one** until a corpse slides: every surface would fall back to friction 1 and nothing would
+    /// say so.
+    /// </remarks>
+    private static SurfaceTable ReadSurfaces(GameArchives archives, ILogger assets)
+    {
+        if (archives.IsEmpty)
+        {
+            return SurfaceTable.Empty;
+        }
+
+        SurfaceTable surfaces = new();
+
+        foreach (string path in archives.Paths())
+        {
+            if (!path.StartsWith("scripts/surfaceproperties", StringComparison.OrdinalIgnoreCase) ||
+                !path.EndsWith(".txt", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (archives.Read(path) is { Length: > 0 } text)
+            {
+                surfaces.Read(text);
+            }
+        }
+
+        assets.LogInformation(
+            "{Message}",
+            $"surface properties: {surfaces.Count.ToString(CultureInfo.InvariantCulture)} surfaces, "
+            + $"flesh {surfaces.FrictionOf("flesh").ToString("0.##", CultureInfo.InvariantCulture)}, "
+            + $"concrete {surfaces.FrictionOf("concrete").ToString("0.##", CultureInfo.InvariantCulture)}, "
+            + $"ice {surfaces.FrictionOf("ice").ToString("0.##", CultureInfo.InvariantCulture)}");
+
+        return surfaces;
     }
 
     /// <summary>The model every playable class wears.</summary>
