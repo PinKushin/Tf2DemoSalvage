@@ -165,18 +165,10 @@ public sealed class IvpRigidBody
     {
         get => _hull;
 
-        set
-        {
-            _hull = value ?? [];
-
-            // **The friction store is sized with the hull it is keyed by**, here rather than at
-            // every use, so a caller cannot set one without the other and no contact has to guard
-            // against an index its own hull produced.
-            Sliding = new (float, float)[_hull.Count];
-        }
+        set => _hull = value ?? [];
     }
 
-    /// <summary>Each hull point's tangential friction impulse, carried between steps.</summary>
+    /// <summary>Each contact FEATURE's tangential slip, carried between steps, keyed by normal.</summary>
     /// <remarks>
     /// **A friction contact in IVP SURVIVES between PSIs, and this is what that survival needs.**
     /// `FUN_1800857c0` builds its right-hand side as `weight × stored − current velocity`, reading
@@ -185,18 +177,20 @@ public sealed class IvpRigidBody
     /// an object's contact list changes — so friction converges across steps instead of being
     /// rediscovered from nothing in each one.
     ///
-    /// **Warm starting is not an optimisation here; it is where a resting body's holding force
-    /// comes from.** A stateless pass measured worse than no friction at all: a sliding body went
-    /// from twelve units a second to 17.8, because a single-step solve can only ever react to the
-    /// slide it can already see.
+    /// **Keyed by the manifold's NORMAL, and the key is the whole of it.** This was keyed by hull
+    /// point first, which looks equivalent and is not: a manifold's representative is whichever of
+    /// its vertices comes first in the contact list, and that changes as a body rocks — so each
+    /// step's warm start read a slot the previous step had not written. Measured, the difference is
+    /// total. Keyed by point, a body on a one-in-ten slope ACCELERATED, 8.2 units a second at six
+    /// seconds and 18.5 at twelve. With the warm start switched off entirely it came to rest.
+    /// A normal is stable for exactly as long as the feature is, which is what the mindist's own
+    /// identity means.
     ///
-    /// **Indexed by hull point, which is this project's stand-in for the mindist's identity.** IVP
-    /// keys on the closest-feature pair; a point index is stable for as long as the same vertex
-    /// keeps touching, and goes stale when the body rolls onto another — a difference that matters
-    /// and is stated rather than hidden.
+    /// **Warm starting is not an optimisation here; it is where a resting body's holding force
+    /// comes from** — a stateless pass can only react to the slide it can already see.
     /// </remarks>
-    public IList<(float First, float Second)> Sliding { get; private set; } =
-        Array.Empty<(float, float)>();
+    public IList<((float X, float Y, float Z) Normal, float First, float Second)> Sliding { get; } =
+        [];
 
     private IReadOnlyList<(float X, float Y, float Z)> _hull = [];
 

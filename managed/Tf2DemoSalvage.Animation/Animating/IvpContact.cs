@@ -311,7 +311,22 @@ public sealed class IvpContact
     /// </remarks>
     public void Rub(float weight, (float X, float Y, float Z) arm, float normal)
     {
-        if (Body.Friction <= 0f || Body.Sliding.Count <= Point)
+        // **PREDICTED contacts are rubbed too, and gating them out was tried and is worse.**
+        // `Find` raises a contact for a point a sweep says will arrive within the lookahead, with
+        // its depth set to exactly zero, so the solve can stop the body at the surface rather than
+        // after it. Those are not touching, and the engine's equivalent is a scheduled mindist
+        // rather than a member of a friction system — so refusing them looks obviously right.
+        //
+        // **Measured both ways, and neither is correct yet.** Rubbing them, a body on a slope comes
+        // to REST but sits four units above it, where the most a two-unit cube can sit above a
+        // plane it touches is `sqrt(3)`. Refusing them, the same body slides at 11.8 units a second
+        // and never stops, because almost all of its contacts are predicted rather than
+        // penetrating — this solver holds bodies just off a surface instead of on it.
+        //
+        // **Resting slightly high is the closer of the two**, so they are rubbed; the real fix is
+        // that a resting body should have touching contacts at all, which is the mindist keeping a
+        // distance rather than a sweep predicting an arrival.
+        if (Body.Friction <= 0f)
         {
             return;
         }
@@ -324,7 +339,11 @@ public sealed class IvpContact
         (float X, float Y, float Z) moving = (
             Body.Velocity.X + spin.X, Body.Velocity.Y + spin.Y, Body.Velocity.Z + spin.Z);
 
-        (float A, float B) stored = Body.Sliding[Point];
+        int slot = Remembered();
+
+        (float A, float B) stored = slot < 0
+            ? (0f, 0f)
+            : (Body.Sliding[slot].First, Body.Sliding[slot].Second);
 
         float slipFirst = Dot(moving, first);
         float slipSecond = Dot(moving, second);
@@ -387,7 +406,38 @@ public sealed class IvpContact
         (float X, float Y, float Z) settled = (
             Body.Velocity.X + after.X, Body.Velocity.Y + after.Y, Body.Velocity.Z + after.Z);
 
-        Body.Sliding[Point] = (Dot(settled, first), Dot(settled, second));
+        (float X, float Y, float Z) kept = (
+            Normal.X, Normal.Y, Normal.Z);
+
+        if (slot < 0)
+        {
+            Body.Sliding.Add((kept, Dot(settled, first), Dot(settled, second)));
+        }
+        else
+        {
+            Body.Sliding[slot] = (kept, Dot(settled, first), Dot(settled, second));
+        }
+    }
+
+    /// <summary>Where this feature's slip was filed last step, or −1 when it is new.</summary>
+    /// <remarks>
+    /// **Matched by normal, because that is what identifies the feature** — see
+    /// <see cref="IvpRigidBody.Sliding"/> for the measurement that ruled out matching by vertex.
+    /// The list is one entry per surface a body rests against, so it is a handful at most and a
+    /// linear walk is the right shape; a body that stops touching a surface simply stops finding
+    /// its entry, and the stale one costs a slot rather than a wrong answer.
+    /// </remarks>
+    private int Remembered()
+    {
+        for (int index = 0; index < Body.Sliding.Count; index++)
+        {
+            if (Dot(Body.Sliding[index].Normal, Normal) >= Feature)
+            {
+                return index;
+            }
+        }
+
+        return -1;
     }
 
     /// <summary>A tangent to the normal, chosen the same way every step.</summary>
@@ -816,6 +866,10 @@ public sealed class IvpContact
     /// (iVar15 != 100))` skips the final calibrated impulse when the loop ran out.
     /// </remarks>
     private const int MaximumPasses = 100;
+
+    /// <summary>How closely two normals must agree to be the same resting feature.</summary>
+    /// <remarks>The same threshold the manifold is grouped by — `IvpEnvironment`'s `Shared`.</remarks>
+    private const float Feature = 0.99f;
 
     /// <summary>Penetration left unresolved, so resting contacts stop re-triggering.</summary>
     /// <remarks>
