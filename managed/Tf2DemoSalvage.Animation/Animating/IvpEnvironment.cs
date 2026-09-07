@@ -266,14 +266,31 @@ public sealed class IvpEnvironment
         //
         // **`maxCollisionChecksPerTimestep` bounds the walk**, and the engine's own comment says
         // what running out costs: *"objects may penetrate after this many collision checks"*.
+        // **The collision count is per STEP**, so it is cleared here and not inside the walk.
+        for (int index = 0; index < _bodies.Count; index++)
+        {
+            _bodies[index].Collisions = 0;
+            _bodies[index].Frozen = false;
+        }
+
         float remaining = Step;
         int checks = 0;
 
         while (remaining > TimeEpsilon)
         {
             remaining -= Advance(remaining, ref checks);
+
+            Slices++;
         }
     }
+
+    /// <summary>How many sub-intervals the steps so far have been walked in.</summary>
+    /// <remarks>
+    /// **One slice per step means the walk is not walking**, which is a state this has been in
+    /// twice: a resting point reporting an impact at nearly zero collapsed every step to a single
+    /// move, and the collision limit above never fired because nothing was being sliced.
+    /// </remarks>
+    public long Slices { get; private set; }
 
     /// <summary>Finds the next impact, moves to it and resolves it; returns the time consumed.</summary>
     /// <remarks>
@@ -289,8 +306,32 @@ public sealed class IvpEnvironment
 
         for (int index = 0; index < _bodies.Count; index++)
         {
+            IvpRigidBody body = _bodies[index];
+
+            int before = _contacts.Count;
+
             float when = IvpContact.Find(
-                _bodies[index], World, _contacts, remaining, LookAheadWorld, ref checks);
+                body, World, _contacts, remaining, LookAheadWorld, ref checks);
+
+            // **One collision for a body that found any contact this slice**, which is what the
+            // engine counts: an object's collisions in a timestep, not a contact per point.
+            if (_contacts.Count > before)
+            {
+                body.Collisions++;
+            }
+
+            // **Frozen at the limit, which is the engine's own word and its own number.** A body
+            // thrown hard enough to collide ten times inside one step is one that would otherwise
+            // grind through the surface it keeps hitting — measured on `z1800`, where corpses
+            // launched by a rocket ended below a floor that has a hull and a normal of `0 0 1`.
+            if (body.Collisions >= MaximumCollisionsPerBody)
+            {
+                body.Frozen = true;
+
+                body.Velocity = (0f, 0f, 0f);
+                body.PreviousVelocity = (0f, 0f, 0f);
+                body.AngularVelocity = (0f, 0f, 0f);
+            }
 
             if (when < soonest)
             {

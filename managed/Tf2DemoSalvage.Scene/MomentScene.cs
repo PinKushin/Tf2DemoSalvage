@@ -487,10 +487,11 @@ public sealed class MomentScene : IGameSystemPerFrame
         if (_models.Corpses.Count > 0 && _render.IsEnabled(LogLevel.Debug))
         {
             _render.LogDebug(
-                "corpses stepped {Steps} ticks in {Seconds} ms, world examined {Examined} " +
-                "candidates, {Oversized} oversized of {Ledges}",
+                "corpses stepped {Steps} ticks in {Seconds} ms, {Slices} slices, world examined " +
+                "{Examined} candidates, {Oversized} oversized of {Ledges}",
                 _models.Corpses.Steps,
                 (_models.Corpses.SteppingSeconds * 1000d).ToString("0", CultureInfo.InvariantCulture),
+                _models.Corpses.Slices,
                 _models.Corpses.World?.Examined ?? 0,
                 _models.Corpses.World?.OversizedCount ?? 0,
                 _models.Corpses.World?.Ledges.Count ?? 0);

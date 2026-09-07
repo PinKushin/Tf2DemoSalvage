@@ -72,6 +72,9 @@ public sealed class CorpsePhysics
     /// </remarks>
     public long SteppingTicks { get; private set; }
 
+    /// <summary>How many sub-intervals the last corpse's steps were walked in.</summary>
+    public long Slices { get; private set; }
+
     /// <summary>The same, in seconds.</summary>
     public double SteppingSeconds =>
         SteppingTicks / (double)System.Diagnostics.Stopwatch.Frequency;
@@ -224,6 +227,8 @@ public sealed class CorpsePhysics
         // trivial in a frame is minutes when six hundred of them run at once — which is what the
         // owner saw as a hang on seeking.
         SteppingTicks += System.Diagnostics.Stopwatch.GetTimestamp() - steppingFrom;
+
+        Slices = live.Simulation.Environment.Slices;
 
         entity.Ragdoll = live.Write;
 

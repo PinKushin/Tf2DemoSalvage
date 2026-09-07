@@ -302,13 +302,27 @@ public sealed class IvpContact
                 {
                     float reach = (committed + predicted).Length();
 
-                    float when = reach > FloatEpsilon
-                        ? soon.Fraction * reach / MathF.Max(committedLength / step, FloatEpsilon)
-                        : step;
+                    float distance = soon.Fraction * reach;
 
-                    if (when > FloatEpsilon && when < impact)
+                    // **A resting point must not report an IMPACT, and this is what made the walk
+                    // useless.** A corpse lying on the floor has points sitting on the surface, so
+                    // their sweep crosses at a fraction of nearly zero — and the step's slice is
+                    // the minimum over every point of every body, so one resting limb dragged the
+                    // whole system down to a hair and the interval was then taken in one move.
+                    // Measured: the freeze limit below never once fired, because the bodies going
+                    // through floors were not colliding repeatedly — they were never being sliced
+                    // at all.
+                    //
+                    // **The slop is the same distance the contact solve leaves unresolved**, so a
+                    // point within it is resting rather than arriving.
+                    if (distance > Slop)
                     {
-                        impact = when;
+                        float when = distance / MathF.Max(committedLength / step, FloatEpsilon);
+
+                        if (when > FloatEpsilon && when < impact)
+                        {
+                            impact = when;
+                        }
                     }
 
                     // **The lookahead decides WHEN A PAIR IS LOOKED AT, not when it is pushed.**

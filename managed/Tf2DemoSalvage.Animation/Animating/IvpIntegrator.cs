@@ -122,6 +122,27 @@ public sealed class IvpRigidBody
     /// </remarks>
     public float RotationDamping { get; set; }
 
+    /// <summary>How many collisions this body has taken in the current step.</summary>
+    /// <remarks>
+    /// **`maxCollisionsPerObjectPerTimestep`, whose own comment says what happens at the limit** —
+    /// *"object will be frozen after this many collisions (visual hitching vs. CPU cost)"*
+    /// (`performance.h:21`). TF2 sets it to 10, raising Valve's default of 6 immediately after
+    /// `Defaults()` (`physics.cpp:224`).
+    ///
+    /// **It is the engine's safety net for exactly the body this project could not hold**: one
+    /// thrown hard enough to collide again and again inside a single step, which without a limit
+    /// grinds its way through the surface it is hitting.
+    /// </remarks>
+    public int Collisions { get; set; }
+
+    /// <summary>Whether this body has been frozen for the rest of the step.</summary>
+    /// <remarks>
+    /// **Frozen, not asleep.** It lasts until the step ends and the count is cleared; the engine's
+    /// word for it is the same one its comment uses, and the cost it trades against is *"visual
+    /// hitching"*.
+    /// </remarks>
+    public bool Frozen { get; set; }
+
     /// <summary>This body's coefficient of friction — its surface's, from the game's own table.</summary>
     /// <remarks>
     /// **`surfacephysicsparams_t::friction`**, looked up by the `surfaceprop` its `.phy` solid
