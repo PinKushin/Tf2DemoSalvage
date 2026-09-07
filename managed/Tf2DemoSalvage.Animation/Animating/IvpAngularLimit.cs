@@ -42,10 +42,12 @@ public sealed class IvpJointAxis
     /// are compared against projections rather than radians.
     ///
     /// **Which is why this is named for the measure and not for an angle.** The bound and the
-    /// deflection have to be in the same units, and how the degree bounds in
-    /// `constraint_ragdollparams_t::axes[]` are converted for the two projection axes is NOT
-    /// established — that is the next thing to read, and guessing it would give two joints that
-    /// clamp at the wrong place with nothing to say so.
+    /// deflection have to be in the same units, and the bounds are established: all six reach the
+    /// constraint as RADIANS, converted once by `FUN_18000eac0` and redistributed across the three
+    /// blocks by `FUN_1800393d0`. A dot product can only be compared against those if it is a SINE,
+    /// which is a named hypothesis rather than a reading — so what the two dotted vectors are is
+    /// the next thing to read, and guessing it would give two joints that clamp at the wrong place
+    /// with nothing to say so.
     /// </remarks>
     public float Angle { get; set; }
 
