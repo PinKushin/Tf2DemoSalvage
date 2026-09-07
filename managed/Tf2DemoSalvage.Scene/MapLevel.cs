@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Numerics;
 
 using Microsoft.Extensions.Logging;
 
@@ -99,6 +100,29 @@ public sealed record MapLevel(
     /// map instead of the viewer branching at every step.
     /// </remarks>
     public IvpWorldCollision Physics { get; init; } = new();
+
+    /// <summary>Adds this map's terrain to its physics world.</summary>
+    /// <remarks>
+    /// **Separate from <see cref="PhysicsWorld"/> because it comes from a different lump and a
+    /// different mechanism.** The brush hulls are baked; the terrain is not in
+    /// `LUMP_PHYSCOLLIDE` at all and the engine rebuilds it at load from the displacement lump —
+    /// `PhysCreateVirtualTerrain` runs only when the collision text declares a `virtualterrain`
+    /// block (`physics_shared.cpp:682`), and it feeds vphysics a triangle soup through
+    /// `CDispCollTree::GetVirtualMeshList`.
+    ///
+    /// **Built from <see cref="Displacements"/>, which already exists for the chase camera**, so
+    /// the corpse and the camera cannot disagree about where a hillside is.
+    /// </remarks>
+    private void AddTerrain()
+    {
+        foreach (DisplacementTriangle triangle in Displacements.Triangles())
+        {
+            Physics.AddTriangle(
+                new Vector3(triangle.A.X, triangle.A.Y, triangle.A.Z),
+                new Vector3(triangle.B.X, triangle.B.Y, triangle.B.Z),
+                new Vector3(triangle.C.X, triangle.C.Y, triangle.C.Z));
+        }
+    }
 
     /// <summary>How far a box may travel through this map before something solid stops it.</summary>
     /// <param name="from">Where the box's centre starts.</param>
@@ -277,7 +301,7 @@ public sealed record MapLevel(
         // cp_process.
         IReadOnlyList<BspWorldLight> lights = BspWorldLights.Read(bytes);
 
-        return new MapLevel(
+        MapLevel level = new(
             terrain,
             overlays,
             brushModels,
@@ -298,6 +322,12 @@ public sealed record MapLevel(
         {
             Physics = PhysicsWorld(bytes, assets),
         };
+
+        // **After construction, because the terrain comes from `Displacements`**, which the record
+        // builds from its own `Surfaces` and `Terrain` and so does not exist until it does.
+        level.AddTerrain();
+
+        return level;
     }
 
     /// <summary>Turns the map's baked collision into ledges the simulation can collide with.</summary>

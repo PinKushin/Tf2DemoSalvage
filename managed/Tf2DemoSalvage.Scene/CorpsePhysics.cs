@@ -67,6 +67,22 @@ public sealed class CorpsePhysics
 
     private readonly Dictionary<int, Vector3> _roots = [];
 
+    /// <summary>How many contacts each corpse's last step found, by entity index.</summary>
+    /// <remarks>
+    /// **"Still falling" has two causes that look the same from outside** — no contact found, or
+    /// one found that did not hold — and only this separates them. Beside it, the root body's hull
+    /// point count, because a body with no hull cannot generate a contact at all and that is the
+    /// third cause.
+    /// </remarks>
+    public IReadOnlyDictionary<int, int> Contacts => _contacts;
+
+    /// <summary>How many hull points each corpse's root body carries.</summary>
+    public IReadOnlyDictionary<int, int> Hulls => _hulls;
+
+    private readonly Dictionary<int, int> _contacts = [];
+
+    private readonly Dictionary<int, int> _hulls = [];
+
     /// <summary>Forgets every simulation — a new demo, or a map change.</summary>
     public void Clear()
     {
@@ -149,6 +165,9 @@ public sealed class CorpsePhysics
             (double x, double y, double z) = live.Simulation.Environment.Bodies[0].Position;
 
             _roots[entityIndex] = new Vector3((float)x, (float)y, (float)z);
+
+            _contacts[entityIndex] = live.Simulation.Environment.Contacts;
+            _hulls[entityIndex] = live.Simulation.Environment.Bodies[0].Hull.Count;
         }
 
         // **`C_ClientRagdoll::LastBoneChangedTime()` returns the physics update time**

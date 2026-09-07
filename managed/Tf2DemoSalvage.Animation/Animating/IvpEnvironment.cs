@@ -103,6 +103,14 @@ public sealed class IvpEnvironment
     /// </remarks>
     private readonly List<IvpContact> _contacts = [];
 
+    /// <summary>How many contacts the last step found.</summary>
+    /// <remarks>
+    /// **Carried out of the step that used them, never recounted** (B243). "The corpse is still
+    /// falling" has two causes that look identical from outside — no contact was found, or one was
+    /// found and did not hold — and only this number separates them.
+    /// </remarks>
+    public int Contacts => _contacts.Count;
+
     /// <summary>Adds a body, starting its clock at the current time.</summary>
     /// <param name="body">The body.</param>
     /// <exception cref="ArgumentNullException"><paramref name="body"/> is null.</exception>

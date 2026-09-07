@@ -17,6 +17,15 @@ namespace Tf2DemoSalvage.Animation.Animating;
 public readonly record struct IvpWorldLedge(
     Vector3 Center, float Radius, IReadOnlyList<(Vector3 Normal, float Distance)> Planes);
 
+/// <summary>One triangle of terrain, with its own plane.</summary>
+/// <param name="A">First vertex, in Source units.</param>
+/// <param name="B">Second.</param>
+/// <param name="C">Third.</param>
+/// <param name="Normal">Its outward normal.</param>
+/// <param name="Distance">Its plane's offset along that normal.</param>
+public readonly record struct IvpWorldTriangle(
+    Vector3 A, Vector3 B, Vector3 C, Vector3 Normal, float Distance);
+
 /// <summary>
 /// The static map, as the thing a corpse lands on (B58).
 /// </summary>
@@ -61,6 +70,11 @@ public sealed class IvpWorldCollision
 
     /// <summary>Ledges too large to file, tested against everything.</summary>
     private readonly List<int> _oversized = [];
+
+    /// <summary>Terrain triangles, and their own index.</summary>
+    private readonly List<IvpWorldTriangle> _triangles = [];
+
+    private readonly Dictionary<(int X, int Y, int Z), List<int>> _triangleGrid = [];
 
     /// <summary>Every convex piece of the world.</summary>
     public IReadOnlyList<IvpWorldLedge> Ledges => _ledges;
@@ -186,6 +200,68 @@ public sealed class IvpWorldCollision
     /// <summary>Which grid cell a coordinate falls in.</summary>
     private static int Cell(float along) => (int)MathF.Floor(along / CellSize);
 
+    /// <summary>Adds one triangle of terrain, already in Source units.</summary>
+    /// <param name="a">First vertex.</param>
+    /// <param name="b">Second.</param>
+    /// <param name="c">Third.</param>
+    /// <remarks>
+    /// **Terrain is a TRIANGLE SOUP and not a convex piece, which is the engine's own shape.**
+    /// `CDispCollTree::GetVirtualMeshList` fills a `virtualmeshlist_t` of verts and indices
+    /// (`dispcoll_common.cpp:1472`), and vphysics is handed that rather than a `CPhysCollide` built
+    /// from brushes — which is why displacements are absent from `LUMP_PHYSCOLLIDE` entirely and
+    /// why a map with perfect brush hulls still has no ground under a corpse.
+    ///
+    /// **Already in Source units**, unlike a hull: these come from the BSP's displacement lump,
+    /// which the compiler writes in world coordinates, not from IVP.
+    /// </remarks>
+    public void AddTriangle(Vector3 a, Vector3 b, Vector3 c)
+    {
+        Vector3 normal = Vector3.Cross(b - a, c - a);
+
+        if (normal.LengthSquared() <= DegenerateArea)
+        {
+            return;
+        }
+
+        normal = Vector3.Normalize(normal);
+
+        IvpWorldTriangle triangle = new(a, b, c, normal, Vector3.Dot(normal, a));
+
+        _triangles.Add(triangle);
+
+        int at = _triangles.Count - 1;
+
+        int minimumX = Cell(MathF.Min(a.X, MathF.Min(b.X, c.X)));
+        int maximumX = Cell(MathF.Max(a.X, MathF.Max(b.X, c.X)));
+        int minimumY = Cell(MathF.Min(a.Y, MathF.Min(b.Y, c.Y)));
+        int maximumY = Cell(MathF.Max(a.Y, MathF.Max(b.Y, c.Y)));
+
+        // **Filed by X and Y only, over the whole Z column its slab reaches.** A point resting on
+        // terrain is directly above a triangle and a little below it; cells stacked in Z would put
+        // the point and the triangle it stands on in different buckets on every slope.
+        int minimumZ = Cell(MathF.Min(a.Z, MathF.Min(b.Z, c.Z)) - TerrainDepth);
+        int maximumZ = Cell(MathF.Max(a.Z, MathF.Max(b.Z, c.Z)));
+
+        for (int x = minimumX; x <= maximumX; x++)
+        {
+            for (int y = minimumY; y <= maximumY; y++)
+            {
+                for (int z = minimumZ; z <= maximumZ; z++)
+                {
+                    (int, int, int) key = (x, y, z);
+
+                    if (!_triangleGrid.TryGetValue(key, out List<int>? bucket))
+                    {
+                        bucket = [];
+                        _triangleGrid[key] = bucket;
+                    }
+
+                    bucket.Add(at);
+                }
+            }
+        }
+    }
+
     /// <summary>How deep a point is inside the world, and along which normal.</summary>
     /// <param name="point">Where to test, in Source units.</param>
     /// <returns>The outward normal and the depth, or null when the point is outside everything.</returns>
@@ -247,8 +323,65 @@ public sealed class IvpWorldCollision
             }
         }
 
+        return Terrain(point, best);
+    }
+
+    /// <summary>The terrain half of the same question, taking the shallower answer of the two.</summary>
+    /// <remarks>
+    /// **A triangle is a surface and not a solid, so "inside" has to be given a thickness.** A point
+    /// is in contact when it sits behind a triangle's plane, within the triangle's own edges, and no
+    /// further behind than a slab — deeper than that it has fallen through and there is nothing
+    /// honest to push it back to. The engine avoids the question by building an outer hull around
+    /// the virtual mesh (`virtualmeshparams_t::buildOuterHull`); this is the slab that stands in for
+    /// one, and it is a stated departure.
+    ///
+    /// **The SHALLOWEST contact wins across both halves**, brush and terrain alike, so a corpse in a
+    /// corner where a brush meets a hillside is pushed out the short way.
+    /// </remarks>
+    private (Vector3 Normal, float Depth)? Terrain(
+        Vector3 point, (Vector3 Normal, float Depth)? best)
+    {
+        if (!_triangleGrid.TryGetValue(
+            (Cell(point.X), Cell(point.Y), Cell(point.Z)), out List<int>? nearby))
+        {
+            return best;
+        }
+
+        for (int candidate = 0; candidate < nearby.Count; candidate++)
+        {
+            IvpWorldTriangle triangle = _triangles[nearby[candidate]];
+
+            float outside = Vector3.Dot(triangle.Normal, point) - triangle.Distance;
+
+            if (outside > 0f || outside < -TerrainDepth)
+            {
+                continue;
+            }
+
+            if (!Within(triangle, point))
+            {
+                continue;
+            }
+
+            if (best is null || -outside < best.Value.Depth)
+            {
+                best = (triangle.Normal, -outside);
+            }
+        }
+
         return best;
     }
+
+    /// <summary>Whether a point projects inside a triangle, by the sign of its three edge tests.</summary>
+    /// <remarks>
+    /// **Projected along the triangle's own normal rather than dropped onto a plane**, so a vertical
+    /// cliff face works exactly like a floor. All three cross products must agree in sign, which is
+    /// the standard containment test and needs no barycentric division.
+    /// </remarks>
+    private static bool Within(IvpWorldTriangle triangle, Vector3 point) =>
+        Vector3.Dot(Vector3.Cross(triangle.B - triangle.A, point - triangle.A), triangle.Normal) >= 0f &&
+        Vector3.Dot(Vector3.Cross(triangle.C - triangle.B, point - triangle.B), triangle.Normal) >= 0f &&
+        Vector3.Dot(Vector3.Cross(triangle.A - triangle.C, point - triangle.C), triangle.Normal) >= 0f;
 
     /// <summary>Whether a plane is already held, up to the angle and offset IVP treats as the same.</summary>
     private static bool Duplicate(
@@ -275,6 +408,16 @@ public sealed class IvpWorldCollision
 
     /// <summary>How many cells one ledge may be filed into before it is called oversized.</summary>
     private const int MaximumCells = 512;
+
+    /// <summary>How far behind a terrain triangle still counts as touching it, in Source units.</summary>
+    /// <remarks>
+    /// **The slab that stands in for the engine's outer hull.** `virtualmeshparams_t` carries a
+    /// `buildOuterHull` flag and vphysics closes the mesh with one; a bare triangle soup has no
+    /// inside, so contact needs a thickness. Sixty-four units is half a player and several times
+    /// the twelve a body falls in one tick at terminal velocity, so nothing that should have landed
+    /// slips past it.
+    /// </remarks>
+    private const float TerrainDepth = 64f;
 
     /// <summary>Below this squared cross-product length a triangle has no usable normal.</summary>
     private const float DegenerateArea = 1e-12f;

@@ -131,6 +131,63 @@ public sealed class IvpWorldContactConformanceTests
         hit.Value.Depth.ShouldBe(1f, 1e-3f);
     }
 
+    /// <remarks>
+    /// **Terrain is a triangle soup and stops a body exactly as a brush does.** This is the case
+    /// the whole map failed on: `koth_harvest_final`'s brush hulls read perfectly — 3,030 ledges,
+    /// none of them empty — and its corpses still fell to −24,000, because its ground is
+    /// displacement terrain and the compiler puts none of that in `LUMP_PHYSCOLLIDE`.
+    ///
+    /// **The control is the tilt.** A flat triangle at z = 0 would be satisfied by a reader that
+    /// ignored the plane and used the vertices' height; this one slopes, so the body must stop at
+    /// the height of the surface UNDER it and not at the mesh's average or its lowest corner.
+    /// </remarks>
+    [Test]
+    public void Simulate_WithATerrainSlope_StopsOnTheSurfaceBeneathIt()
+    {
+        IvpWorldCollision world = new();
+
+        // A single slope rising one unit in ten across x, over the region the body falls through.
+        world.AddTriangle(
+            new Vector3(-500f, -500f, -50f),
+            new Vector3(500f, -500f, 50f),
+            new Vector3(500f, 500f, 50f));
+
+        world.AddTriangle(
+            new Vector3(-500f, -500f, -50f),
+            new Vector3(500f, 500f, 50f),
+            new Vector3(-500f, 500f, -50f));
+
+        IvpEnvironment environment = new(Step) { World = world };
+
+        // Dropped over x = 250, where the slope's own height is 25.
+        IvpRigidBody body = Body(200f);
+
+        body.Position = (250d, 0d, 200d);
+
+        environment.Add(body);
+
+        for (int step = 0; step < 132; step++)
+        {
+            environment.Simulate();
+        }
+
+        // **Asserted against the surface UNDER it rather than against a predicted spot, and that is
+        // a correction the first version of this test earned.** It predicted the body would rest
+        // near x = 250 where the slope is 25 high, and measured 12.3 — because nothing here applies
+        // surface friction, so a body on a slope slides down it and comes to rest lower. The code
+        // was right and the prediction was wrong.
+        //
+        // **The missing friction is a real divergence and it is filed, not hidden by this
+        // assertion**: `objectparams_t` carries a surface property per solid and the map's own
+        // collision text carries a material table for exactly this, and neither is read yet. What
+        // this test pins is that the body is ON the surface, which is what collision owes it.
+        double surface = (body.Position.X / 10d) + 1d;
+
+        body.Position.Z.ShouldBe(surface, 1d, "resting on the slope, wherever it slid to");
+
+        body.Position.X.ShouldBeLessThan(250d, "the control: with no friction it really did slide");
+    }
+
     /// <summary>A body with a two-unit cube for a hull, at a height.</summary>
     private static IvpRigidBody Body(float height) =>
         new()
