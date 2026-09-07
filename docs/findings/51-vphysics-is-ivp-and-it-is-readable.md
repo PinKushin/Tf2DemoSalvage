@@ -1962,6 +1962,34 @@ So it is a **vertex fan**, not a twin: it enumerates every triangle touching a g
 exactly what the vertex-vertex and vertex-edge feature tests need. **The control is the 0 of 132**,
 because without it "132 of 132 hit a real edge" would be satisfied by several wrong readings.
 
+### The ledgetree node's twenty unidentified bytes are a TIGHT bounding sphere
+
+**Filed above as "plausibly a bounding volume, unconfirmed", and the files settled it without a
+decompiler.** The node's centre is at `+0x08` as three floats and its radius at `+0x14`, which makes
+the 28-byte node header `offset_right_node`, `offset_compact_ledge`, centre, radius and four bytes
+still unaccounted for.
+
+Every point of every leaf ledge on `koth_harvest_final` — 41 solids, 3,030 ledges, 24,050 points —
+measured against its own node's sphere:
+
+| reading | points inside | outside | worst overshoot |
+|---|---|---|---|
+| centre `+0x08`, radius `+0x14` | 17,063 | 6,987 | **0.000008** |
+| the same, shifted one float | 70 | 23,980 | **447.9985** |
+
+**The 6,987 "outside" are the finding, not a failure.** A worst overshoot of eight millionths of a
+metre across twenty-four thousand points means the points lie exactly ON the sphere and fall either
+side of float rounding — so it is the MINIMAL enclosing sphere, not a loose bound. A bound with any
+slack would have put every point strictly inside.
+
+**The shifted control is what makes this a measurement.** Reading the centre one float late gives
+overshoots of 448 metres, so "the numbers look plausible" was never available as an explanation.
+
+*Evidence class: measured, over one full map, with a deliberate wrong-offset control. NOT
+ESTABLISHED: the four bytes at `+0x18`, and whether internal (non-leaf) nodes carry a sphere
+enclosing their whole subtree — only leaves were tested, because only leaves have a ledge to test
+against.*
+
 ### The point array
 
 Sixteen-byte stride at `ledge + c_point_offset`: three little-endian floats and four bytes that were
@@ -1971,7 +1999,7 @@ itself, `pfVar13 = (float *)((ulonglong)*param2 * 0x10 + *param4)`.
 ### Still open, named rather than guessed
 
 - `IVP_Compact_Surface` `+0x00..0x1B` and `+0x24..0x2B` — real data, no consumer traced.
-- Ledgetree node `+0x08..0x1B`, twenty bytes — plausibly a bounding volume, unconfirmed.
+- Ledgetree node `+0x18..0x1B`, four bytes — see the sphere below; still unidentified.
 - Ledge `+0x04` (always zero) and `+0x08` (low byte constant, upper bytes unresolved).
 - The triangle's own header word — never read by anything traced.
 - Bit 31 of an edge, deliberately excluded from the fan delta.

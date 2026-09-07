@@ -13,9 +13,13 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// of `ladder001`'s ten ledges indexes the same array. They are kept separate here because the
 /// collision test is per convex piece.
 /// </remarks>
+/// <param name="Center">The centre of the bounding sphere its tree node carries.</param>
+/// <param name="Radius">That sphere's radius, in the same IVP metres as the points.</param>
 public readonly record struct PhysicsLedge(
     IReadOnlyList<Vector3> Points,
-    IReadOnlyList<(int A, int B, int C)> Triangles);
+    IReadOnlyList<(int A, int B, int C)> Triangles,
+    Vector3 Center,
+    float Radius);
 
 /// <summary>
 /// The collision hull inside a <c>.phy</c> solid or a map's <c>LUMP_PHYSCOLLIDE</c> entry (B58).
@@ -165,7 +169,17 @@ public static class PhysicsHull
         {
             int ledge = node + BitConverter.ToInt32(solid[(node + 4)..]);
 
-            if (ReadLedge(solid, ledge) is { } read)
+            // **The node's own bounding sphere, at `+0x08` centre and `+0x14` radius.** Twenty of
+            // these bytes were filed as "plausibly a bounding volume, unconfirmed"; the files
+            // settled it — see `docs/findings/51`, where the containment census is recorded.
+            Vector3 centre = new(
+                BitConverter.ToSingle(solid[(node + 0x08)..]),
+                BitConverter.ToSingle(solid[(node + 0x0C)..]),
+                BitConverter.ToSingle(solid[(node + 0x10)..]));
+
+            float radius = BitConverter.ToSingle(solid[(node + 0x14)..]);
+
+            if (ReadLedge(solid, ledge, centre, radius) is { } read)
             {
                 into.Add(read);
             }
@@ -183,7 +197,8 @@ public static class PhysicsHull
     /// is shared between siblings, so carrying it whole would hand every ledge of `ladder001` the
     /// same several hundred points and make a convex test over one of them wrong as well as slow.
     /// </remarks>
-    private static PhysicsLedge? ReadLedge(ReadOnlySpan<byte> solid, int ledge)
+    private static PhysicsLedge? ReadLedge(
+        ReadOnlySpan<byte> solid, int ledge, Vector3 centre, float radius)
     {
         if (ledge < 0 || ledge + LedgeHeaderSize > solid.Length)
         {
@@ -221,7 +236,7 @@ public static class PhysicsHull
             triangles.Add((a, b, c));
         }
 
-        return new PhysicsLedge(kept, triangles);
+        return new PhysicsLedge(kept, triangles, centre, radius);
     }
 
     /// <summary>One point, read and renumbered, or -1 when it lies outside the blob.</summary>

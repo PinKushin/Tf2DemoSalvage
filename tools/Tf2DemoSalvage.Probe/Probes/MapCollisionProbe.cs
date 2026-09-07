@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Presentation;
 using Tf2DemoSalvage.Scene;
@@ -222,6 +223,68 @@ public sealed class MapCollisionProbe : IProbe
                 CultureInfo.InvariantCulture,
                 $"{name}: {models} physics models, {solids} solids, " +
                 $"{textBytes.ToString("N0", CultureInfo.InvariantCulture)} bytes of KeyValues text"));
+
+            // **The hulls, through the PRODUCTION reader rather than this probe's own walk.** The
+            // walk above answers "is the lump shaped the way Valve's loader says"; this answers
+            // "does the thing the viewer will collide against read", and a probe that reimplemented
+            // the second would only ever agree with itself.
+            int ledges = 0;
+            int triangles = 0;
+            int empty = 0;
+
+            // **Does every ledge's own point lie inside the sphere its tree node carries?** That is
+            // the test that decides whether `node+0x08` is a centre and `node+0x14` a radius, or
+            // twenty bytes read as a plausible number. A broadphase built on a wrong reading would
+            // reject real contacts, and nothing on screen would say so — a corpse would fall through
+            // the floor in some places and not others.
+            int inside = 0;
+            int outside = 0;
+            float worst = 0f;
+
+            foreach (MapPhysicsModel model in BspPhysicsCollision.Read(lump.ToArray()))
+            {
+                foreach (IReadOnlyList<PhysicsLedge> hull in model.Hulls)
+                {
+                    if (hull.Count == 0)
+                    {
+                        empty++;
+                    }
+
+                    ledges += hull.Count;
+
+                    foreach (PhysicsLedge ledge in hull)
+                    {
+                        triangles += ledge.Triangles.Count;
+
+                        foreach (System.Numerics.Vector3 point in ledge.Points)
+                        {
+                            float distance = (point - ledge.Center).Length();
+
+                            if (distance <= ledge.Radius)
+                            {
+                                inside++;
+                            }
+                            else
+                            {
+                                outside++;
+                                worst = Math.Max(worst, distance - ledge.Radius);
+                            }
+                        }
+                    }
+                }
+            }
+
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  hulls: {ledges.ToString("N0", CultureInfo.InvariantCulture)} ledges, " +
+                $"{triangles.ToString("N0", CultureInfo.InvariantCulture)} triangles, " +
+                $"{empty} solids that read as nothing"));
+
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  node spheres: {inside.ToString("N0", CultureInfo.InvariantCulture)} points inside, " +
+                $"{outside.ToString("N0", CultureInfo.InvariantCulture)} outside, " +
+                $"worst overshoot {worst.ToString("0.######", CultureInfo.InvariantCulture)}"));
 
             if (firstText.Length > 0)
             {

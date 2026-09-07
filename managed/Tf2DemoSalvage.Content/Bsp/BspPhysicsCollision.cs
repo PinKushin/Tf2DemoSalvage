@@ -12,10 +12,10 @@ namespace Tf2DemoSalvage.Content.Bsp;
 /// <param name="Offset">Its first byte, from the start of the lump.</param>
 /// <param name="Length">How many bytes it occupies, excluding its own length prefix.</param>
 /// <remarks>
-/// **An extent rather than the bytes, because the bytes are not readable yet.** A hull is Havok's
-/// closed `IVPS` compact-ledge format — the same one a model's `.phy` carries and this project
-/// already skips. Recording where each one sits costs nothing and is what a later reader will need;
-/// copying them would be pretending to understand them.
+/// **An extent rather than the bytes, and it is now the address a reader uses.** A hull is Ipion's
+/// `IVPS` compact-ledge format — the same one a model's `.phy` carries — and this recorded where
+/// each one sat while nothing here could read them. <see cref="PhysicsHull"/> can, so the extent
+/// is what <see cref="MapPhysicsModel.Hulls"/> is decoded from.
 /// </remarks>
 public readonly record struct PhysicsBrushSolid(int Offset, int Length);
 
@@ -27,11 +27,21 @@ public readonly record struct PhysicsBrushSolid(int Offset, int Length);
 /// <param name="SolidCount">How many hulls the header declares.</param>
 /// <param name="Solids">Where each of those hulls sits in the lump.</param>
 /// <param name="Text">The KeyValues half, which is plain ASCII and fully readable.</param>
+/// <param name="Hulls">
+/// **The decoded geometry of each of those hulls, indexed the same way as <paramref name="Solids"/>.**
+/// This is the surface a corpse actually lands on — the engine hands the identical bytes to
+/// `CreatePolyObjectStatic` (`physics_shared.cpp:602-667`). Empty for a solid whose surface will not
+/// read, so a caller collides against nothing rather than branching.
+///
+/// **In IVP metres, unconverted**, like every other hull this project reads — see
+/// <see cref="PhysicsHull"/>.
+/// </param>
 public sealed record MapPhysicsModel(
     int ModelIndex,
     int SolidCount,
     IReadOnlyList<PhysicsBrushSolid> Solids,
-    string Text);
+    string Text,
+    IReadOnlyList<IReadOnlyList<PhysicsLedge>> Hulls);
 
 /// <summary>
 /// The map's baked physics collision — <c>LUMP_PHYSCOLLIDE</c> (B58, B369).
@@ -119,11 +129,21 @@ public static class BspPhysicsCollision
                 break;
             }
 
+            List<PhysicsBrushSolid> solids = Hulls(bytes, at, dataSize, solidCount);
+
+            List<IReadOnlyList<PhysicsLedge>> ledges = new(solids.Count);
+
+            foreach (PhysicsBrushSolid solid in solids)
+            {
+                ledges.Add(PhysicsHull.Read(bytes.Slice(solid.Offset, solid.Length)));
+            }
+
             models.Add(new MapPhysicsModel(
                 modelIndex,
                 solidCount,
-                Hulls(bytes, at, dataSize, solidCount),
-                Encoding.ASCII.GetString(bytes.Slice(at + dataSize, keydataSize))));
+                solids,
+                Encoding.ASCII.GetString(bytes.Slice(at + dataSize, keydataSize)),
+                ledges));
 
             at += dataSize + keydataSize;
         }
