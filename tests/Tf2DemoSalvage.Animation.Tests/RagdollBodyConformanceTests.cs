@@ -42,6 +42,62 @@ public sealed class RagdollBodyConformanceTests
     private const double Tolerance = 1e-5;
 
     /// <remarks>
+    /// **A solid's hull is in its own BODY's space, not the model's, and this is the input that
+    /// tells those apart.** The child bone is bound at `(4, 6, 3)`, so a hull authored at the origin
+    /// stays at the origin under the right reading and moves to the bind offset under the wrong
+    /// one. A skeleton bound at the origin would predict the same thing either way, which is the
+    /// condition that let this ship.
+    ///
+    /// **The engine says so twice.** `CreatePolyObject( params.pCollide-&gt;solids[solid.index],
+    /// surfaceData, vec3_origin, vec3_angle, &amp;solid.params )` (`ragdoll_shared.cpp:200`) creates
+    /// every solid at the origin with no rotation and only then places the body at its bone — a
+    /// model-space hull would put every limb at the model origin.
+    ///
+    /// **And the files say so.** A medic's twenty-four hulls have bounding-sphere centres within
+    /// ten units of zero; in model space a head's would sit some seventy units up.
+    ///
+    /// **What the wrong reading looked like**: corpses on `koth_harvest_final` reporting contacts
+    /// nineteen thousand units below the floor, because every limb's collision was displaced by its
+    /// own bone's bind offset and hit geometry that was not there.
+    /// </remarks>
+    [Test]
+    public void Build_WithABoneBoundAwayFromTheOrigin_LeavesTheHullInBodySpace()
+    {
+        PhysicsLedge ledge = new(
+            [new Vector3(0f, 0f, 0f), new Vector3(0.1f, 0f, 0f), new Vector3(0f, 0.1f, 0f)],
+            [(0, 1, 2)],
+            Vector3.Zero,
+            0.1f);
+
+        PhysicsModel physics = PhysicsModel.From(
+            [
+                new PhysicsSolid(0, "bip_root", "", "flesh", 10f, 1f, 0f, 0f, 100f, 0f),
+                new PhysicsSolid(1, "bip_child", "bip_root", "flesh", 2f, 1f, 0f, 0f, 20f, 0f),
+            ],
+            [],
+            2,
+            checksum: 0,
+            collisionRules: null,
+            hulls: [[ledge], [ledge]]);
+
+        RagdollBody body = RagdollBody.Build(physics, Skeleton())!;
+
+        // The child's hull, whose bone is bound at (4, 6, 3). Its first point was authored at the
+        // origin, so under the right reading it is still there — converted from metres and nothing
+        // else. Under the wrong one it sits at the bind offset instead.
+        Vector3 first = body.Elements[1].Hull[0];
+
+        first.X.ShouldBe(0f, 1e-3f);
+        first.Y.ShouldBe(0f, 1e-3f);
+        first.Z.ShouldBe(0f, 1e-3f);
+
+        // The control: the hull is really being read and converted, so a zero here is not the
+        // answer an empty hull would also give.
+        body.Elements[1].Hull.Count.ShouldBe(3);
+        body.Elements[1].Hull[1].X.ShouldBe(0.1f / 0.0254f, 1e-2f, "metres became Source units");
+    }
+
+    /// <remarks>
     /// **Solids map to bones by NAME, and the element order is the file's order.** A `.phy`'s
     /// constraints reference solids by index, so an element list in any other order silently
     /// rewires the skeleton.

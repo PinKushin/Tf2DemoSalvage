@@ -1485,6 +1485,28 @@ internal class MainForm : Form, IFrameSteps
             // so the camera passed straight through every hillside in the game.
             _spectator.World = (from, to, extent) => map.Level.Sweep(from, to, extent);
 
+            // **And the corpses get the map's BAKED physics collision, which is a different thing**
+            // (B58). `Sweep` above answers a camera's question about brush faces; this is
+            // `LUMP_PHYSCOLLIDE`, the hulls the compiler baked and the engine feeds to
+            // `CreatePolyObjectStatic`. Set before any corpse is seeded — a simulation created
+            // without a world falls through the map for its whole life, and `Clear` on a map change
+            // is what stops one outliving its geometry.
+            _models.Corpses.Clear();
+            _models.Corpses.World = map.Level.Physics;
+
+            // **And the game's surface table, which is what stops a corpse sliding.** Read from the
+            // install rather than assumed — a viewer with no game folder falls back to the engine's
+            // own default friction of 1 for every surface.
+            _models.Corpses.Surfaces = _game?.Surfaces ?? SurfaceTable.Empty;
+
+            // **The control on the world a corpse is given.** Both halves come from different lumps
+            // by different mechanisms, and either can be empty while the other is fine — which is
+            // exactly the state that makes "the corpse fell through" unreadable.
+            _mapLog.LogInformation(
+                "physics world: {Ledges} brush ledges, {Triangles} terrain triangles",
+                map.Level.Physics.Ledges.Count,
+                map.Level.Physics.TriangleCount);
+
             // **The map's detail models are packed inside `LevelSystems.Load`** (B363), beside the
             // geometry loader that reads them — a call here instead ran after something else had
             // already added the path with no geometry, and the packer skips a path it has seen.

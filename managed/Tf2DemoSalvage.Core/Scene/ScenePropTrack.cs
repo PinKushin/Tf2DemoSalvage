@@ -528,6 +528,21 @@ public readonly record struct ScenePose
 /// renderable rather than per entity — sets it again on each of that corpse's worn items.
 /// </para>
 /// </param>
+/// <param name="FirstTick">
+/// The tick this entity first existed, carried for corpses and null everywhere else (B58).
+/// <para>
+/// **A ragdoll is the one drawn thing whose pose depends on its own past**, so a viewer that opens
+/// a demo at tick N cannot ask where a corpse is — only where a corpse that died at tick M ends up
+/// after N − M ticks of physics. Without this the simulation seeds at whatever tick it was first
+/// DRAWN at, which after a seek is a corpse standing upright in its death pose.
+/// </para>
+/// <para>
+/// **Valve has no equivalent and could not**, which is why this is one of the few places the engine
+/// has nothing to say: it creates a ragdoll at the moment of death and only ever plays forward past
+/// it. The owner, on why: *"thats not a valve parity thing since valve doesnt have good seeking, so
+/// never runs into opening a demo directly at a certain tick"*.
+/// </para>
+/// </param>
 /// <param name="AttachmentPoint">
 /// Which of that entity's named attachment points it hangs from, one-based, or <c>null</c> when it
 /// is bone-merged instead.
@@ -640,7 +655,21 @@ public sealed record SceneProp(
     // **One material replacing all of the model's own, by VMT path** — `ForcedMaterialOverride`.
     // A gold or iced corpse, and each item it wears, because the engine's override is per
     // renderable rather than per entity. Null everywhere else, which is nearly everywhere.
-    string? MaterialOverride = null);
+    string? MaterialOverride = null,
+
+    // **The tick this entity first existed, carried only for corpses** (B58).
+    //
+    // **A ragdoll is the one drawn thing whose pose depends on its own past**, so a viewer that
+    // opens a demo at tick N cannot ask "where is this corpse" — it has to ask "where does a corpse
+    // that died at tick M end up after N − M ticks of physics". Without this the simulation is
+    // seeded at whatever tick it was first DRAWN at, which for a seek is a corpse standing upright
+    // in its death pose.
+    //
+    // **Valve has no equivalent and cannot**, which is why this is ours to decide: the engine
+    // creates a ragdoll at the moment of death and simulates it forward from there, and a demo is
+    // only ever played forwards past it. TF2's own demo seeking is poor for exactly this family of
+    // reasons — the owner, on why parity has nothing to say here.
+    int? FirstTick = null);
 
 /// <summary>
 /// One entity's pose over the whole demo, stored as the moments it changed.

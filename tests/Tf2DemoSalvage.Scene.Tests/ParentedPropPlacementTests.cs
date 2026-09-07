@@ -169,6 +169,14 @@ public sealed class ParentedPropPlacementTests
                 // and the synthetic load-set prop all draw with the model's own materials, which is
                 // what null means.
                 nameof(SceneProp.MaterialOverride),
+
+                // **`FirstTick`, when a corpse died** (B58). Null everywhere but `RagdollProps`,
+                // and the null is what every other site should say: a prop that is not simulated
+                // has no past its pose depends on, so there is no tick to seed anything from.
+                // **The only field here whose default is decided by this project rather than by
+                // the engine** — Valve creates a ragdoll at death and never seeks back to before
+                // it, so the question does not arise there.
+                nameof(SceneProp.FirstTick),
             ],
             ignoreOrder: true,
             "a defaulted field on SceneProp is a claim every construction site makes silently. "

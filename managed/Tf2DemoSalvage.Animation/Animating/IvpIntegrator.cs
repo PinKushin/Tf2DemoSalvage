@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Tf2DemoSalvage.Animation.Animating;
 
@@ -65,6 +66,41 @@ public sealed class IvpRigidBody
     /// `+0x4c` in the same block — but the division that produces them was not found in the binary.
     /// </remarks>
     public (float X, float Y, float Z) InverseInertia { get; set; } = (1f, 1f, 1f);
+
+    /// <summary>The reciprocal of this body's mass — <c>core+0x4c</c>.</summary>
+    /// <remarks>
+    /// **Named by the contact builder, which is the only traced site that reads it.**
+    /// `FUN_18008d0c0` computes a contact's effective inverse mass as
+    /// `rx*rx*core[+0x44] + ry*ry*core[+0x40] + rz*rz*core[+0x48] + core[+0x4c]` — three rotational
+    /// terms and one that carries no lever arm, which is what a linear inverse mass is.
+    ///
+    /// **Zero for an immovable body**, because the same builder zeroes the whole term rather than
+    /// dividing: static map geometry has infinite mass by having none to contribute.
+    ///
+    /// **The default is 1 rather than 0** so a body built without one is light rather than
+    /// immovable — a zero default would make every un-massed body silently unpushable, which is the
+    /// failure that looks like working collision.
+    /// </remarks>
+    public float InverseMass { get; set; } = 1f;
+
+    /// <summary>This body's coefficient of friction — its surface's, from the game's own table.</summary>
+    /// <remarks>
+    /// **`surfacephysicsparams_t::friction`**, looked up by the `surfaceprop` its `.phy` solid
+    /// names (`ragdoll_shared.cpp:194`). One rather than zero by default, which is
+    /// `g_PhysDefaultObjectParams` — a zero default would make every body frictionless the moment
+    /// somebody forgot to set one, and that failure looks like working physics until a corpse
+    /// slides off the map.
+    /// </remarks>
+    public float Friction { get; set; } = 1f;
+
+    /// <summary>The hull this body collides with, in its own space and in SOURCE units.</summary>
+    /// <remarks>
+    /// **Empty for a body that is not collided**, which is every body this project had until
+    /// contacts existed. The points are the ledge geometry read out of the model's `.phy` — see
+    /// `PhysicsHull` — converted at the seam, because this simulation runs in Source units where
+    /// IVP's own runs in metres.
+    /// </remarks>
+    public IReadOnlyList<(float X, float Y, float Z)> Hull { get; set; } = [];
 
     /// <summary>When this body was last stepped — <c>core+0x1d0</c>, absolute.</summary>
     public double LastStepped { get; set; }

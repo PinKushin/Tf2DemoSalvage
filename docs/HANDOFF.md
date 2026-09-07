@@ -3,9 +3,40 @@
 Written 2026-09-07, superseding the handoff of 2026-09-01 (launch options, the chase camera, the
 frame floor — all merged and done).
 
-`feat/ragdoll-constraint-group` is merged: the gate was run in both phases first — twelve assemblies
-all at or above floor with **animation 210 against a floor of 111**, and UI 31/31 under the
-machine-wide lock. The bind-pose frames of §2 below are on `feat/ragdoll-bind-pose-frames`.
+`feat/ragdoll-constraint-group` AND `feat/ragdoll-bind-pose-frames` are both merged to `main` and
+pushed. Gate green both times, both phases: twelve assemblies at or above floor (animation
+111 → 210 → 215), UI 31/31 under the machine-wide lock each time.
+
+**In progress, on `refactor/corpus-tests-that-measure-tf2`, uncommitted:** a probe,
+`tools/Tf2DemoSalvage.Probe/Probes/TimelineCostProbe.cs`, written but not yet run or built. It prints
+`DemoTimeline.Build`'s own `TimelinePhases` (carried, not recomputed — B243) per demo, because the
+fast gate's cost is lopsided and nobody had the breakdown: `Tf2DemoSalvage.Corpus.Tests` takes 142 s
+under `TF2DEMOSALVAGE_GCOR_ONLY=1`, and one test alone that asks for `z1800`'s timeline (8.96 MB, 4×
+any other gcor demo) takes 68 s by itself. Twelve of the slowest-reporting tests all key off
+`Corpus.Demo("z1800")` and block on the SAME shared `TimelineCache` entry — they are not twelve
+redundant decodes, they are twelve waiters on one, so cutting test COUNT there saves nothing.
+
+**Next step, not yet done:** build the probe (`dotnet build tools/Tf2DemoSalvage.Probe`), run
+`timeline-cost z1800` plus a couple of the small gcor demos as controls, and read which column —
+commands, schema, messages, entities, sampling, viewmodels, or the unnamed "rest" — actually holds
+the 68 s before touching anything. Do not assume it is decode size scaling linearly; z1800 is ~4×
+the largest other gcor demo by bytes but was taking ~34× as long per-test before this was measured,
+which is disproportionate enough to be a real finding rather than noise.
+
+**Separately, real D38 violations were found and are NOT yet converted:** at least
+`PlayersAt_OnARealMatch_ProducesAReloadGesture`, `..._LeavesSomePlayersWithNoGesture`,
+`..._ReportsGesturesFromTheTempEntityStream`, `AttachmentPoint_AcrossTheCorpus_IsUsedByRealItems`,
+`PropsAt_OnARealMatch_CarriesWireLayersOnBuildingsAndNoneOnPlayers`, and
+`OffHandViewmodelAt_AcrossARealMatch_OffersOnlyModelsThatAreOnScreen` assert what a REAL demo
+contains — a claim about TF2, not about this parser (the same mistake `CorpusObserverModeTests` and
+`CorpusRenderModeTests` were converted for). These should become synthetic tests in `Core.Tests` with
+a `[Explicit]` census diagnostic left for the real-demo half, same pattern as those two conversions.
+Not started — the timeline-cost measurement above was judged more likely to explain the wall-clock
+number and was done first.
+
+**The original next item, still not started:** handoff item 1 below, wiring `RagdollSimulation` into
+`RagdollProps` so a corpse actually simulates instead of playing a death sequence. Owner is stepping
+away for token reasons and will resume from Claude Desktop once the session's limit resets.
 
 **Read `docs/findings/51-vphysics-is-ivp-and-it-is-readable.md` before touching any of this.** It is
 the reverse-engineering account, it is long, and it carries three wrong turns kept on purpose. The

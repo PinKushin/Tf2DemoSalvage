@@ -3,6 +3,8 @@ using System;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
+using Tf2DemoSalvage.Content.Assets;
+
 namespace Tf2DemoSalvage.Animation.Animating;
 
 /// <summary>
@@ -38,6 +40,20 @@ public sealed class AnimatingEntity
     private readonly BoneAccessor _accessor;
     private readonly BoneBitList _written;
     private readonly ILogger _log;
+
+    /// <summary>What drives this entity's bones from physics, or null when nothing does.</summary>
+    /// <remarks>
+    /// **The engine's `m_pRagdoll`, and the null check is the same guard**: `if ( m_pRagdoll )` at
+    /// `c_baseanimating.cpp:1473`. Almost nothing has one — a corpse does, a living player does
+    /// not — so the common path is one reference test.
+    ///
+    /// **A delegate rather than a `RagdollSimulation`, because this assembly's bone layer must not
+    /// know what a corpse is.** `AnimatingEntity` knows about accessors and masks; whoever owns the
+    /// simulation knows about `.phy` files and elements, and hands in a closure over
+    /// <see cref="RagdollBody.PoseInto"/>. That keeps the seam one line and the dependency pointing
+    /// the way it already does.
+    /// </remarks>
+    public Action<BoneAccessor, BoneBitList>? Ragdoll { get; set; }
 
     /// <summary>Creates an entity over a model's pose source.</summary>
     /// <param name="pose">What knows how to blend and transform this model's bones.</param>
@@ -130,6 +146,34 @@ public sealed class AnimatingEntity
     /// </remarks>
     public bool SetupBones(int boneMask, double currentTime) =>
         SetupBones(boneMask, currentTime, MaximumFollowDepth);
+
+    /// <summary>Throws away the cached pose so the next request rebuilds — <c>InvalidateBoneCache</c>.</summary>
+    /// <remarks>
+    /// **Both lines of the engine's, and both are load-bearing** (<c>c_baseanimating.cpp:3066</c>):
+    ///
+    /// <code>
+    /// void C_BaseAnimating::InvalidateBoneCache()
+    /// {
+    ///     m_iMostRecentModelBoneCounter = g_iModelBoneCounter - 1;
+    ///     m_flLastBoneSetupTime = -FLT_MAX;
+    /// }
+    /// </code>
+    ///
+    /// The counter is set BEHIND the current frame rather than cleared, which is what makes the
+    /// next <see cref="SetupBones(int, double)"/> take the first-touch-this-frame branch even
+    /// though the frame has not advanced; the time is set to negative infinity so the
+    /// bones-have-changed test inside that branch cannot decline.
+    ///
+    /// **This exists for one caller: seeding a ragdoll.** `ForceSetupBonesAtTime` opens with it —
+    /// `// blow the cached prev bones` (<c>c_baseanimating.cpp:4763</c>) — because posing an entity
+    /// out of band otherwise leaves the frame marked built, and the DRAW that follows is then a
+    /// cache hit that never runs the ragdoll hook.
+    /// </remarks>
+    public void InvalidateBoneCache()
+    {
+        _builtOn = _clock.Frame - 1;
+        _lastBoneSetupTime = double.MinValue;
+    }
 
     /// <summary>When this entity's bones last changed — <c>LastBoneChangedTime</c>.</summary>
     /// <remarks>
@@ -249,6 +293,36 @@ public sealed class AnimatingEntity
         // That ordering is not a detail: it is what makes a bone whose parent was merged ride the
         // merged position, with nothing written to make it happen. B180 was the consequence of
         // doing it the other way round.
+        // **The ragdoll runs FIRST, before the merge and before the transform stage** — the order in
+        // BuildTransformations, where `if ( m_pRagdoll )` sits at :1473 and the merge only begins at
+        // :1494. Into the same accessor, marking what it drove, so neither later stage recomputes a
+        // simulated bone.
+        //
+        // **Both masks are widened around it and restored after**, which is Valve's own arrangement
+        // and not a convenience: a ragdoll drives bones outside whatever mask the draw asked for,
+        // and the accessor's guards would otherwise refuse those writes.
+        //
+        //   int oldWritableBones = m_BoneAccessor.GetWritableBones();
+        //   int oldReadableBones = m_BoneAccessor.GetReadableBones();
+        //   m_BoneAccessor.SetWritableBones( BONE_USED_BY_ANYTHING );
+        //   m_BoneAccessor.SetReadableBones( BONE_USED_BY_ANYTHING );
+        //   m_pRagdoll->RagdollBone( … );
+        //   m_BoneAccessor.SetWritableBones( oldWritableBones );
+        //   m_BoneAccessor.SetReadableBones( oldReadableBones );
+        if (Ragdoll is { } corpse)
+        {
+            int writable = _accessor.WritableBones;
+            int readable = _accessor.ReadableBones;
+
+            _accessor.WritableBones = StudioBoneFlags.UsedByAnything;
+            _accessor.ReadableBones = StudioBoneFlags.UsedByAnything;
+
+            corpse(_accessor, _written);
+
+            _accessor.WritableBones = writable;
+            _accessor.ReadableBones = readable;
+        }
+
         if (Follows is { } parent)
         {
             if (_merge is null)

@@ -459,6 +459,13 @@ public sealed class MomentScene : IGameSystemPerFrame
         // and any frame posed before a camera has been uploaded.
         _models.ViewOrigin = eye ?? info.EyeCamera?.Origin;
 
+        // **The corpses need the DEMO's tick, not one derived from playback seconds** (B58). A
+        // demo's ticks do not start at zero (`docs/memory/demo-ticks-do-not-start-at-zero.md`), so
+        // `seconds / interval` is an offset into playback while a corpse's own `FirstTick` is
+        // absolute. Comparing the two froze every corpse whose death tick was numerically past the
+        // offset and made every other one simulate hundreds of ticks too many.
+        _models.CurrentTick = info.Tick;
+
         _models.Instances(
             _drawn, _instances, Lighting.LightingAt, Lighting.SunAt, info.Seconds, frustum,
             visibleByLeaf);
@@ -473,6 +480,28 @@ public sealed class MomentScene : IGameSystemPerFrame
         int hidden = _models.CulledByVisibility;
         int unjudged = _models.Unjudgeable;
         int posed = _models.Posed;
+
+        // **Where the SOLVER put each corpse, which is the only thing that can aim a camera at
+        // one** (B58). A corpse's wire position is where it died; after physics it is somewhere
+        // else, and that is the feature. Debug level, so it costs nothing when nobody is looking.
+        if (_models.Corpses.Count > 0 && _render.IsEnabled(LogLevel.Debug))
+        {
+            foreach ((int entity, System.Numerics.Vector3 root) in _models.Corpses.Roots)
+            {
+                _render.LogDebug(
+                    "corpse {Entity} settled at {X} {Y} {Z} contacts {Contacts} deepest {Deepest} born {Born} seeded {Seeded}",
+                    entity,
+                    root.X.ToString("0.#", CultureInfo.InvariantCulture),
+                    root.Y.ToString("0.#", CultureInfo.InvariantCulture),
+                    root.Z.ToString("0.#", CultureInfo.InvariantCulture),
+                    _models.Corpses.Contacts.TryGetValue(entity, out int touching) ? touching : -1,
+                    _models.Corpses.Deepest.TryGetValue(entity, out int depth) ? depth : -1,
+                    _models.Corpses.Born.TryGetValue(entity, out int born) ? born : -1,
+                    _models.Corpses.Seeded.TryGetValue(entity, out System.Numerics.Vector3 seed)
+                        ? $"{seed.X:0.#} {seed.Y:0.#} {seed.Z:0.#}"
+                        : "none");
+            }
+        }
 
         // **Timed apart from the counters above, because the pose phase spans this too.** They are
         // read across `Instances` alone, so every millisecond spent building the viewmodel scene was

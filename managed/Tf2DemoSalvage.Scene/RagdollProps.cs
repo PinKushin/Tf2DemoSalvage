@@ -170,7 +170,10 @@ public static class RagdollProps
                 //
                 // `c_tf_player.cpp:980`. Null for every corpse in this corpus — 0 of 566 measured —
                 // which is why the decode was authored a specimen rather than tested on a demo.
-                MaterialOverride: look.Material));
+                MaterialOverride: look.Material,
+
+                // **When it died, which is when its physics starts** (B58). See `SceneProp`.
+                FirstTick: corpse.FirstTick));
 
             drawn++;
 

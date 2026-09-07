@@ -142,6 +142,43 @@ public sealed class DisplacementCollision
         return built.Count == 0 ? Empty : new DisplacementCollision([.. built]);
     }
 
+    /// <summary>Every triangle of every displacement, for a caller that needs the mesh itself.</summary>
+    /// <returns>The triangles, in displacement order.</returns>
+    /// <remarks>
+    /// **This is `CDispCollTree::GetVirtualMeshList` and it is why displacement terrain can be
+    /// collided against at all** (B58). The engine does not hand vphysics a displacement — it hands
+    /// it a TRIANGLE SOUP:
+    ///
+    /// <code>
+    /// void CDispCollTree::GetVirtualMeshList( virtualmeshlist_t *pList )
+    /// {
+    ///     pList-&gt;triangleCount = GetTriSize();
+    ///     pList-&gt;pVerts = m_aVerts.Base();
+    ///     ...
+    /// }
+    /// </code>
+    ///
+    /// `dispcoll_common.cpp:1472`, filling the `virtualmeshlist_t` of
+    /// `public/vphysics/virtualmesh.h`, which is created only when the map's own collision text
+    /// declares a `virtualterrain` block (`physics_shared.cpp:682`) — and `koth_harvest_final`
+    /// does.
+    ///
+    /// **So terrain is not in `LUMP_PHYSCOLLIDE` and never was**: the compiler bakes brushes there
+    /// and leaves displacements to be rebuilt at load. A corpse falling through the ground of a map
+    /// whose brush hulls read perfectly is that gap, measured.
+    /// </remarks>
+    public IReadOnlyList<DisplacementTriangle> Triangles()
+    {
+        List<DisplacementTriangle> triangles = new(TriangleCount);
+
+        foreach (Displacement displacement in _displacements)
+        {
+            triangles.AddRange(displacement.Triangles);
+        }
+
+        return triangles;
+    }
+
     /// <summary>Sweeps a box through the terrain and says how far it got.</summary>
     /// <param name="fromX">Where the box's centre starts.</param>
     /// <param name="fromY">Where the box's centre starts.</param>

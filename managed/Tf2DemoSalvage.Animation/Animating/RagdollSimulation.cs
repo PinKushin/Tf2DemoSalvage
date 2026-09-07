@@ -76,8 +76,24 @@ public sealed class RagdollSimulation
     public static RagdollSimulation Create(
         RagdollBody ragdoll,
         float step,
-        IReadOnlyList<(Vector3 Position, Quaternion Orientation)> start)
+        IReadOnlyList<(Vector3 Position, Quaternion Orientation)> start) =>
+        Create(ragdoll, step, start, SurfaceTable.Empty);
+
+    /// <summary>Builds a running simulation, resolving each body's surface.</summary>
+    /// <param name="ragdoll">The bodies and joints the <c>.phy</c> declares.</param>
+    /// <param name="step">The simulation timestep — the demo's tick interval.</param>
+    /// <param name="start">Each element's starting position and orientation, in Source space.</param>
+    /// <param name="surfaces">The game's surface table, for the friction a contact needs.</param>
+    /// <returns>The simulation.</returns>
+    /// <exception cref="ArgumentNullException">Any argument is null.</exception>
+    /// <exception cref="ArgumentException">The starting state does not match the element count.</exception>
+    public static RagdollSimulation Create(
+        RagdollBody ragdoll,
+        float step,
+        IReadOnlyList<(Vector3 Position, Quaternion Orientation)> start,
+        SurfaceTable surfaces)
     {
+        ArgumentNullException.ThrowIfNull(surfaces);
         ArgumentNullException.ThrowIfNull(ragdoll);
         ArgumentNullException.ThrowIfNull(start);
 
@@ -111,6 +127,18 @@ public sealed class RagdollSimulation
                 WorkingOrientation = (orientation.X, orientation.Y, orientation.Z, orientation.W),
                 Inertia = (inertia, inertia, inertia),
                 InverseInertia = (1f / inertia, 1f / inertia, 1f / inertia),
+
+                // **`objectparams_t::mass`, and it only starts mattering once something is
+                // touched.** The constraint solve is entirely angular, so a body's mass was
+                // unobservable until contacts arrived — which is why it is added here rather than
+                // having been carried all along.
+                InverseMass = element.Mass > MinimumInertia ? 1f / element.Mass : 0f,
+
+                Hull = Points(element.Hull),
+
+                // **The game's own number for what this body is made of.** Every player element
+                // says `flesh`; a prop says whatever its `.phy` declares.
+                Friction = surfaces.FrictionOf(element.SurfaceProp),
             };
 
             environment.Add(bodies[index]);
@@ -155,6 +183,19 @@ public sealed class RagdollSimulation
     /// <summary>Advances the simulation by one step.</summary>
     public void Step() => Environment.Simulate();
 
+    /// <summary>A hull in the tuple shape the body holds it in.</summary>
+    private static (float X, float Y, float Z)[] Points(IReadOnlyList<Vector3> hull)
+    {
+        (float X, float Y, float Z)[] points = new (float, float, float)[hull.Count];
+
+        for (int index = 0; index < hull.Count; index++)
+        {
+            points[index] = (hull[index].X, hull[index].Y, hull[index].Z);
+        }
+
+        return points;
+    }
+
     /// <summary>Every element's current position and orientation, in Source space.</summary>
     /// <returns>One entry per element, ready for <c>RagdollBody.Pose</c>.</returns>
     public (Vector3 Position, Quaternion Orientation)[] State()
@@ -179,6 +220,16 @@ public sealed class RagdollSimulation
     /// <param name="boneCount">How many bones the model has.</param>
     /// <returns>One 3×4 matrix per bone.</returns>
     public float[][] Pose(int boneCount) => _ragdoll.Pose(State(), boneCount);
+
+    /// <summary>Writes this ragdoll's current bones into an accessor, marking what it drove.</summary>
+    /// <param name="into">The accessor to write through.</param>
+    /// <param name="written">Marked for every bone the ragdoll drove.</param>
+    /// <remarks>
+    /// **The shape `AnimatingEntity.Ragdoll` wants**, so a caller hands over a method group rather
+    /// than a closure that rebuilds the state array every frame.
+    /// </remarks>
+    public void PoseIntoAccessor(BoneAccessor into, BoneBitList written) =>
+        _ragdoll.PoseInto(State(), into, written);
 
     /// <summary>Turns a <c>.phy</c> constraint into a solvable joint.</summary>
     /// <remarks>
