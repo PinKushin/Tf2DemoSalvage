@@ -85,11 +85,28 @@ public sealed class CorpseDropProbe : IProbe
             return;
         }
 
-        MapLevel level = MapLevel.Read(File.ReadAllBytes(mapPath), NullLogger.Instance);
+        byte[] map = File.ReadAllBytes(mapPath);
+
+        MapLevel level = MapLevel.Read(map, NullLogger.Instance);
+
+        // **The static props go in here too, or this instrument lies.** `MapLevel.Read` builds
+        // brushes and terrain; the props need a `.phy` each, which needs the pakfile and the
+        // archives, so `LoadedMap` adds them and this used to skip them. That cost a wrong answer:
+        // a corpse seeded at (−972.6, −1400.3, 77.5) fell to −4359 here and rests at z 4.8 in the
+        // viewer, because the mining crates it lands on were absent. An instrument that disagrees
+        // with the thing it is standing in for is worth less than no instrument.
+        PakFile pak = PakFile.ReadFrom(map);
+
+        (int placed, int solid) = MapPropCollision.Add(
+            level.Physics,
+            map,
+            file => Read(pak, game.Archives, file),
+            NullLogger.Instance);
 
         output.WriteLine(
-            $"{mapName}: {level.Physics.Ledges.Count} ledges, {level.Physics.TriangleCount} " +
-            $"terrain triangles; {model} has {ragdoll.Elements.Count} bodies");
+            $"{mapName}: {level.Physics.Ledges.Count} ledges ({placed} of {solid} solid props), " +
+            $"{level.Physics.TriangleCount} terrain triangles; " +
+            $"{model} has {ragdoll.Elements.Count} bodies");
 
         foreach ((float X, float Y, float Z) at in Places(arguments))
         {
@@ -136,15 +153,26 @@ public sealed class CorpseDropProbe : IProbe
         SurfaceTable surfaces,
         (float X, float Y, float Z) at)
     {
+        // **The pose is CHAINED down the hierarchy, and getting that wrong made this instrument
+        // lie.** `OriginParentSpace` is where an element sits in its PARENT's space, so adding it
+        // to the drop point puts every body a single offset from one spot — a ragdoll whose joints
+        // are all violated before the first step, which then tears itself apart and falls through
+        // the map. Measured: one drop reported LEFT THE WORLD here while the same corpse rests at
+        // z 4.8 in the viewer.
+        //
+        // **Each element is placed relative to its own parent instead**, walking the list in order,
+        // which is safe because `RagdollBody.Build` emits parents before children.
         (Vector3, Quaternion)[] start = new (Vector3, Quaternion)[ragdoll.Elements.Count];
 
         for (int index = 0; index < start.Length; index++)
         {
-            Vector3 offset = ragdoll.Elements[index].OriginParentSpace;
+            RagdollElement element = ragdoll.Elements[index];
 
-            start[index] = (
-                new Vector3(at.X + offset.X, at.Y + offset.Y, at.Z + offset.Z),
-                Quaternion.Identity);
+            Vector3 origin = element.ParentIndex >= 0 && element.ParentIndex < index
+                ? start[element.ParentIndex].Item1 + element.OriginParentSpace
+                : new Vector3(at.X, at.Y, at.Z);
+
+            start[index] = (origin, Quaternion.Identity);
         }
 
         RagdollSimulation simulation = RagdollSimulation.Create(ragdoll, Step, start, surfaces);
@@ -196,6 +224,19 @@ public sealed class CorpseDropProbe : IProbe
                 (body.Velocity.X * body.Velocity.X) +
                 (body.Velocity.Y * body.Velocity.Y) +
                 (body.Velocity.Z * body.Velocity.Z)));
+
+    /// <summary>Reads a game file, the map's own pakfile first — as the asset path does.</summary>
+    private static byte[]? Read(PakFile pak, GameArchives archives, string file)
+    {
+        try
+        {
+            return pak.ReadFile(file) ?? archives.Read(file);
+        }
+        catch (Exception failure) when (failure is IOException or InvalidDataException)
+        {
+            return null;
+        }
+    }
 
     private static RagdollBody? RagdollFor(GameContent game, string model)
     {
