@@ -226,8 +226,105 @@ public sealed class RagdollSimulationConformanceTests
     private static RagdollSimulation Simulation() =>
         RagdollSimulation.Create(RagdollBody.Build(Physics(), Skeleton())!, Step, Start());
 
+    /// <remarks>
+    /// **A joint pulls its bodies TOGETHER, and the sign is the whole of it.** A ball-and-socket
+    /// with the two halves swapped drives them apart instead, and the error grows every sweep — so
+    /// this is not a refinement of the position, it is the difference between a ragdoll and an
+    /// explosion. It was measured as one: a corpse pass that took fifteen seconds took past twenty
+    /// minutes, because bodies flung across the map make the collision broadphase examine
+    /// everything.
+    ///
+    /// **The condition is a joint pulled apart along its own axis** — the child moved a further
+    /// four units from where its bind pose puts it — and the measurement is the separation after a
+    /// step, which must be SMALLER. A test that only asserted the bodies moved would pass either
+    /// way, which is the whole failure this predicts against.
+    ///
+    /// **Gravity needs no switching off, because the measurement is RELATIVE**: it pulls both
+    /// bodies equally, so it cancels out of the separation and only the joint can change it.
+    /// </remarks>
+    [Test]
+    public void Step_WithAJointPulledApart_BringsTheBodiesCloserTogether()
+    {
+        RagdollSimulation simulation = RagdollSimulation.Create(
+            RagdollBody.Build(Physics(), Skeleton())!,
+            Step,
+            [
+                (Vector3.Zero, Quaternion.Identity),
+                (new Vector3(7f, 4f, 0f), Quaternion.Identity),
+            ]);
+
+        // Bound at (3, 4, 0) and started at (7, 4, 0), so the joint is four units open.
+        float before = Separation(simulation);
+
+        before.ShouldBe(4f, Tolerance, "the fixture opens the joint by exactly four units");
+
+        simulation.Step();
+        simulation.Step();
+
+        Separation(simulation).ShouldBeLessThan(
+            before, "a ball-and-socket closes its error rather than growing it");
+    }
+
+    [Test]
+    public void Scratch_JointedSliceCount()
+    {
+        RagdollSimulation simulation = Simulation();
+
+        simulation.Environment.World = FlatFloor();
+
+        for (int step = 0; step < 200; step++)
+        {
+            simulation.Step();
+        }
+
+        TestContext.Out.WriteLine(
+            $"slices {simulation.Environment.Slices} contacts {simulation.Environment.Contacts} " +
+            $"root {simulation.State()[0].Position} child {simulation.State()[1].Position}");
+
+        simulation.Environment.Slices.ShouldBeLessThan(200000);
+    }
+
+    private static IvpWorldCollision FlatFloor()
+    {
+        IvpWorldCollision world = new();
+
+        world.AddTriangle(
+            new Vector3(-500f, -500f, 0f),
+            new Vector3(500f, -500f, 0f),
+            new Vector3(500f, 500f, 0f));
+
+        world.AddTriangle(
+            new Vector3(-500f, -500f, 0f),
+            new Vector3(500f, 500f, 0f),
+            new Vector3(-500f, 500f, 0f));
+
+        return world;
+    }
+
+    /// <summary>How far the child is from where its joint says it should be.</summary>
+    private static float Separation(RagdollSimulation simulation)
+    {
+        (Vector3 Position, Quaternion Orientation)[] state = simulation.State();
+
+        return (state[1].Position - (state[0].Position + new Vector3(3f, 4f, 0f))).Length();
+    }
+
+    /// <summary>The two bodies where their bind pose puts them, a joint's length apart.</summary>
+    /// <remarks>
+    /// **Both used to start at the origin, and that describes a ragdoll that cannot exist.**
+    /// `RagdollSkeletons.Straight` binds the child at `(3, 4, 0)` from its parent, so two bodies
+    /// stacked on the same point are already a joint's length out of place before the first step.
+    /// Nothing noticed while the joints were angular only — an angular constraint cannot see where
+    /// a body IS — and the moment the ball-and-socket arrived it correctly hauled them together,
+    /// which read as the root drifting sideways by 0.045 units.
+    ///
+    /// **The code was right and the fixture was wrong**, so the fixture moved. Every prediction
+    /// these tests make is about the ROOT, which still starts at the origin, so none of them
+    /// changes meaning — and `Step_TwiceUnderGravity_MovesTheRootDownInSourceSpace` now measures a
+    /// root that is not being pulled by a joint error the test never meant to create.
+    /// </remarks>
     private static (Vector3, Quaternion)[] Start() =>
-        [(Vector3.Zero, Quaternion.Identity), (Vector3.Zero, Quaternion.Identity)];
+        [(Vector3.Zero, Quaternion.Identity), (new Vector3(3f, 4f, 0f), Quaternion.Identity)];
 
     private static readonly ConstraintAxis Axis = new(-30f, 30f, 0f);
 

@@ -180,6 +180,16 @@ public sealed class RagdollSimulation
                 BodyA = bodies[constraint.Child],
                 BodyB = bodies[constraint.Parent],
                 Constraint = Joint(constraint, ragdoll.Elements[constraint.Child].AxesParentSpace),
+
+                // **The same point from each end**, which is what a ball-and-socket is. The
+                // reference body is the child and its frame is centred on itself, so its anchor is
+                // the origin; the parent's is where the child stands in the parent's space, which
+                // is the offset the `.phy` already carries.
+                AnchorA = (0f, 0f, 0f),
+                AnchorB = (
+                    ragdoll.Elements[constraint.Child].OriginParentSpace.X,
+                    ragdoll.Elements[constraint.Child].OriginParentSpace.Y,
+                    ragdoll.Elements[constraint.Child].OriginParentSpace.Z),
             });
         }
 

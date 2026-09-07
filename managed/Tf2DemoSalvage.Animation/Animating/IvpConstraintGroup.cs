@@ -23,6 +23,23 @@ public sealed class IvpRagdollJoint
     /// <summary>The joint's frames and its three limits.</summary>
     public required IvpRagdollConstraint Constraint { get; init; }
 
+    /// <summary>Where the joint sits in <see cref="BodyA"/>'s own space.</summary>
+    /// <remarks>
+    /// **The origin, because the reference body IS the child and the constraint is built at its
+    /// own position.** `CreateRagdollConstraint( childElement.pObject, ragdoll.list[parentIndex]
+    /// .pObject, … )` (`ragdoll_shared.cpp:253`) makes the child the reference, and a child's
+    /// frame is centred on itself.
+    /// </remarks>
+    public (float X, float Y, float Z) AnchorA { get; init; }
+
+    /// <summary>And where it sits in <see cref="BodyB"/>'s.</summary>
+    /// <remarks>
+    /// **`RagdollElement.OriginParentSpace`** — the child's origin expressed in the parent's space,
+    /// which is the same point from the other end. A scout's knee sits 20.52 units along its hip's
+    /// own X.
+    /// </remarks>
+    public (float X, float Y, float Z) AnchorB { get; init; }
+
     /// <summary>Called once per sweep, for tests that need to observe the ORDER.</summary>
     /// <remarks>
     /// **This exists because the sweep order is a finding, not an implementation detail.** Two
@@ -81,6 +98,12 @@ public sealed class IvpRagdollJoint
         IvpAngularLimit.Solve(
             BodyA, BodyB, Constraint.Swing, _swing,
             RateGain, weight, AxisScale, IvpAngularLimit.Routine.Swing);
+
+        // **And then the translation, which is what holds the two bodies together.** The engine
+        // does it here, in the same order — `FUN_180036e10` dispatches the three axes and returns,
+        // and `FUN_180038620` runs the ball-and-socket immediately after, behind a flag its own
+        // template sets. See `IvpBallSocket`.
+        IvpBallSocket.Solve(BodyA, BodyB, AnchorA, AnchorB, weight);
 
         Solved?.Invoke();
     }

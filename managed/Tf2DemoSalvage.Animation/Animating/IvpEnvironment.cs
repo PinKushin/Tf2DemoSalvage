@@ -284,12 +284,36 @@ public sealed class IvpEnvironment
 
         float remaining = Step;
         int checks = 0;
+        int walked = 0;
 
-        while (remaining > TimeEpsilon)
+        // **The walk is bounded by the number of SLICES as well as by the check count, and that
+        // second bound is not a belt-and-braces addition — without it this loop does not
+        // terminate.** `checks` counts sweeps, and a sweep only happens for a body that is not
+        // already touching something; a body resting in contact raises its contacts through
+        // `Penetration` and spends no budget at all. So a step in which every body is already
+        // touching can hand back an impact time that is small, positive, and never large enough to
+        // finish the interval, and the loop spins on it forever with the budget untouched.
+        //
+        // **Measured, and by the owner rather than by a test**: *"it hung"* — six ticks of a single
+        // corpse ran past four hundred seconds once the ball-and-socket started holding bodies
+        // against surfaces they were resting on. The loop was already unbounded before that; what
+        // changed was that something finally produced the input.
+        //
+        // **The bound is `MaximumCollisionChecks` because that is the engine's answer to the same
+        // question** — *"objects may penetrate after this many collision checks"* — and running out
+        // costs exactly what running out of checks costs: the rest of the interval is taken in one
+        // move, with this slice's contacts already solved.
+        while (remaining > TimeEpsilon && walked < MaximumCollisionChecks)
         {
             remaining -= Advance(remaining, ref checks);
 
             Slices++;
+            walked++;
+        }
+
+        if (remaining > TimeEpsilon)
+        {
+            Move(remaining);
         }
     }
 
