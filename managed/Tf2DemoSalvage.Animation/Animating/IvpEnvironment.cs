@@ -29,15 +29,15 @@ namespace Tf2DemoSalvage.Animation.Animating;
 /// second; getting that wrong does not fail, it produces a corpse that settles differently at every
 /// frame rate.
 ///
-/// **What is NOT here yet:** the constraint solve is not DRIVEN from here, though it is now
-/// transcribed — see <see cref="IvpAngularLimit"/>, whose gating contradiction is resolved and
-/// whose arithmetic is tested. What is missing is its input: two of a joint's three limits are
-/// compared against dot products rather than radians, and how the degree bounds in
-/// `constraint_ragdollparams_t::axes[]` are converted for those two is not read
-/// (`docs/findings/51`). Wiring it up on a guess would give a corpse whose swing joints clamp at
-/// the wrong deflection with nothing in the output to say so, so until then a body's angular
-/// motion is unconstrained and the rigid re-attachment in `RagdollBody.Pose` is what holds a corpse
-/// together.
+/// **The constraint solve runs between gravity and integration**, as
+/// <see cref="IvpConstraintGroup"/> — two relaxation sweeps per step, each walking the joint list
+/// descending then ascending. It corrects the velocity gravity just changed, and the integrator
+/// reads the result, which is why the order in <see cref="Simulate"/> is not rearrangeable.
+///
+/// **One term in it is still zero for want of a reading**: the rate gain, which would let a limit
+/// clamp the PREDICTED deflection rather than the current one. At zero a joint resists a limit it
+/// has already broken instead of stopping short of it — a real difference, and a smaller one than
+/// inventing the number would be. `docs/findings/51` names where it arrives.
 /// </remarks>
 public sealed class IvpEnvironment
 {
@@ -77,6 +77,15 @@ public sealed class IvpEnvironment
     /// <summary>The bodies this environment steps.</summary>
     public IReadOnlyList<IvpRigidBody> Bodies => _bodies;
 
+    /// <summary>The joints solved between gravity and integration.</summary>
+    /// <remarks>
+    /// **One group per environment, which is what the engine has.** `CreateConstraintGroup` is a
+    /// slot on the environment (23, a thunk at `0x180012a40` loading `environment+0x8`), and a
+    /// ragdoll's joints all go into one — so a corpse's limbs relax against each other in the same
+    /// sweep rather than in separate passes.
+    /// </remarks>
+    public IvpConstraintGroup Constraints { get; } = new();
+
     /// <summary>Adds a body, starting its clock at the current time.</summary>
     /// <param name="body">The body.</param>
     /// <exception cref="ArgumentNullException"><paramref name="body"/> is null.</exception>
@@ -112,10 +121,7 @@ public sealed class IvpEnvironment
     {
         IvpGravity.Apply(_bodies, Gravity, Step, AlternateGravity);
 
-        // The constraint solve belongs here — two relaxation sweeps at 0.4, forwards then backwards
-        // over the group's constraints, each axis through IvpAngularLimit.Solve. It is not driven
-        // yet because the deflection measure the two swing axes are limited against has not been
-        // read; see the remarks above.
+        Constraints.Solve();
 
         Now += Step;
 
