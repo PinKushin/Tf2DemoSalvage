@@ -78,6 +78,56 @@ public sealed class RagdollBodyConformanceTests
     }
 
     /// <remarks>
+    /// **The engine keeps the whole matrix, and the ROTATION is the half this used to throw away.**
+    /// `RagdollAddConstraint` takes only the translation column into `originParentSpace`, but
+    /// `constraint.constraintToAttached` — the matrix itself — is handed to
+    /// `CreateRagdollConstraint` and becomes the attached body's constraint frame
+    /// (`vphysics_interface.h:572`, *"Create a constraint in the space of pReferenceObject"*).
+    /// Discarding it makes every joint measure its deflection from an IDENTITY rest pose instead of
+    /// its bind pose, biasing each limit by the bind offset.
+    ///
+    /// **The turned fixture is what makes the rotation visible at all.** With both bones unrotated
+    /// the answer is the identity, which is also what a transcription that kept nothing returns —
+    /// the condition for which correct and broken predict the same observation. So the child is
+    /// turned a quarter turn about Z: its own X axis then points along the parent's `+Y` and its Y
+    /// axis along the parent's `−X`, and the columns of `constraintToAttached` are exactly those
+    /// images.
+    /// </remarks>
+    [Test]
+    public void Build_AConstraintWithATurnedChild_KeepsTheBoneToBoneRotation()
+    {
+        RagdollBody body = RagdollBody.Build(Physics(), TurnedSkeleton())!;
+
+        RagdollAxes axes = body.Elements[1].AxesParentSpace;
+
+        axes.X.X.ShouldBe(0f, Tolerance);
+        axes.X.Y.ShouldBe(1f, Tolerance, "the child's own X points along its parent's +Y");
+        axes.X.Z.ShouldBe(0f, Tolerance);
+
+        axes.Y.X.ShouldBe(-1f, Tolerance, "and its Y along the parent's −X");
+        axes.Y.Y.ShouldBe(0f, Tolerance);
+        axes.Y.Z.ShouldBe(0f, Tolerance);
+
+        axes.Z.Z.ShouldBe(1f, Tolerance, "the axis it was turned about is unmoved");
+    }
+
+    /// <remarks>
+    /// **The control for the test above**, and it is the reason the turned fixture exists: an
+    /// element with no constraint never reaches `Studio_CalcBoneToBoneTransform` at all, so its
+    /// frame is the identity — the same answer a discarded rotation gives. The two together
+    /// separate "kept the rotation" from "returned the identity twice".
+    /// </remarks>
+    [Test]
+    public void Build_TheRootElement_KeepsTheIdentityRotation()
+    {
+        RagdollAxes axes = RagdollBody.Build(Physics(), TurnedSkeleton())!.Elements[0].AxesParentSpace;
+
+        axes.X.ShouldBe(Vector3.UnitX);
+        axes.Y.ShouldBe(Vector3.UnitY);
+        axes.Z.ShouldBe(Vector3.UnitZ);
+    }
+
+    /// <remarks>
     /// The root has no constraint and therefore no parent — `ragdollelement_t::parentIndex` is left
     /// at the −1 `RagdollAddSolid` writes, and only `RagdollAddConstraint` ever changes it.
     /// </remarks>
@@ -247,31 +297,9 @@ public sealed class RagdollBodyConformanceTests
         IReadOnlyList<PhysicsSolid> solids, params RagdollConstraint[] constraints) =>
         PhysicsModel.From(solids, constraints, solids.Count, checksum: 0);
 
-    /// <summary>
-    /// Two bones at chosen bind positions, so the offset between them is predictable.
-    /// </summary>
-    /// <remarks>
-    /// **`poseToBone` is the WORLD-to-bone matrix**, so a bone standing at `p` with no rotation
-    /// carries a translation of `−p`. The root is at `(1, 2, 3)` and the child at `(4, 6, 3)`:
-    /// asymmetric, and non-zero in two axes, so a transcription that swapped the two bones or
-    /// transposed the multiply cannot land on the same answer.
-    /// </remarks>
-    private static IReadOnlyList<StudioBone> Skeleton() =>
-        [
-            Bone("bip_root", -1, 1f, 2f, 3f),
-            Bone("bip_child", 0, 4f, 6f, 3f),
-        ];
+    /// <summary>Two bones at chosen bind positions — <see cref="RagdollSkeletons.Straight"/>.</summary>
+    private static IReadOnlyList<StudioBone> Skeleton() => RagdollSkeletons.Straight();
 
-    private static StudioBone Bone(string name, int parent, float x, float y, float z) =>
-        new(
-            name,
-            parent,
-            (x, y, z),
-            (0f, 0f, 0f, 1f),
-            new float[]
-            {
-                1f, 0f, 0f, -x,
-                0f, 1f, 0f, -y,
-                0f, 0f, 1f, -z,
-            });
+    /// <summary>The same pair with the child turned — <see cref="RagdollSkeletons.Turned"/>.</summary>
+    private static IReadOnlyList<StudioBone> TurnedSkeleton() => RagdollSkeletons.Turned();
 }

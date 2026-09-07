@@ -117,7 +117,12 @@ public sealed class IvpRagdollConstraint
     /// <param name="primary">The primary axis's minimum and maximum, in degrees.</param>
     /// <param name="narrower">The narrower swing's.</param>
     /// <param name="wider">The wider swing's.</param>
-    /// <returns>A joint with identity frames and the three blocks bounded as the engine bounds them.</returns>
+    /// <param name="reference">
+    /// The reference body's frame — <c>constraintToReference</c>, already in the same permutation
+    /// as the three ranges.
+    /// </param>
+    /// <param name="attached">The attached body's — <c>constraintToAttached</c>.</param>
+    /// <returns>A joint with those frames and the three blocks bounded as the engine bounds them.</returns>
     /// <remarks>
     /// **Each block takes its bounds from a DIFFERENT axis than the one it measures**, which reads
     /// like a bug and is what `FUN_1800393d0` does:

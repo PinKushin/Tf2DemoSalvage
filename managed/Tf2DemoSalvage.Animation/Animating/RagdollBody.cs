@@ -6,6 +6,45 @@ using Tf2DemoSalvage.Content.Assets;
 
 namespace Tf2DemoSalvage.Animation.Animating;
 
+/// <summary>
+/// One bone's three axes expressed in another bone's space — the rotation half of
+/// <c>constraintToAttached</c> (B58).
+/// </summary>
+/// <remarks>
+/// **These are the COLUMNS of `Studio_CalcBoneToBoneTransform`'s matrix, and columns is not an
+/// arbitrary choice.** A constraint frame is used as `frame · e_k`, and `matrix3x4_t` is row-major
+/// with `VectorTransform` dotting each row against the input — so `matrix · e_k` is the k-th
+/// column, which is the image of that axis. Taking the rows instead gives the TRANSPOSE, which is
+/// the inverse rotation: a frame that is orthonormal, plausible, and wrong in exactly the way
+/// nothing in a corpse's pose reports.
+/// </remarks>
+/// <param name="X">Where the bone's own X axis points, in the other bone's space.</param>
+/// <param name="Y">Its Y axis.</param>
+/// <param name="Z">Its Z axis.</param>
+public readonly record struct RagdollAxes(Vector3 X, Vector3 Y, Vector3 Z)
+{
+    /// <summary>The frame a bone has in its own space, and what an unconstrained element keeps.</summary>
+    public static RagdollAxes Identity => new(Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ);
+
+    /// <summary>One axis, by the index a <c>.phy</c>'s constraint declares it under.</summary>
+    /// <param name="axis">0, 1 or 2 — the Source X, Y and Z of the joint's own limits.</param>
+    /// <returns>That axis.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The index names no axis.</exception>
+    /// <remarks>
+    /// **Indexed because the joint's axes are PERMUTED before they are used.** The engine picks
+    /// which of the three is the twist mechanically and orders the other two by declared range
+    /// (`FUN_1800393d0`), and the same index has to select the same axis on both frames — so the
+    /// selection is by index rather than by name, exactly as the engine's `iVar9` is.
+    /// </remarks>
+    public Vector3 this[int axis] => axis switch
+    {
+        0 => X,
+        1 => Y,
+        2 => Z,
+        _ => throw new ArgumentOutOfRangeException(nameof(axis)),
+    };
+}
+
 /// <summary>One rigid body of a ragdoll — Valve's <c>ragdollelement_t</c>.</summary>
 /// <param name="BoneIndex">Which bone of the model it drives.</param>
 /// <param name="ParentIndex">
@@ -17,6 +56,11 @@ namespace Tf2DemoSalvage.Animation.Animating;
 /// Where this element's bone sits in its parent element's space, in the bind pose. It is what makes
 /// the ragdoll rigid: <see cref="RagdollBody.Pose"/> rebuilds every non-root POSITION from it.
 /// </param>
+/// <param name="AxesParentSpace">
+/// The rotation half of the same transform — where this element's bone points, in its parent
+/// element's space, in the bind pose. It is <c>constraintToAttached</c>'s rotation, and it is what
+/// makes a joint measure its deflection from the BIND pose rather than from the identity.
+/// </param>
 /// <param name="Mass">From the <c>.phy</c>, or a tonne for a fixed-constraint statue.</param>
 /// <param name="Inertia">The solid's rotational inertia scale.</param>
 /// <param name="Damping">Linear damping.</param>
@@ -26,6 +70,7 @@ public readonly record struct RagdollElement(
     int BoneIndex,
     int ParentIndex,
     Vector3 OriginParentSpace,
+    RagdollAxes AxesParentSpace,
     float Mass,
     float Inertia,
     float Damping,
@@ -215,6 +260,7 @@ public sealed class RagdollBody
                 // `RagdollAddSolid` writes −1 here and only `RagdollAddConstraint` changes it.
                 ParentIndex: -1,
                 OriginParentSpace: Vector3.Zero,
+                AxesParentSpace: RagdollAxes.Identity,
                 fixedConstraints ? StatueMass : solid.Mass,
                 solid.Inertia,
                 solid.Damping,
@@ -233,13 +279,16 @@ public sealed class RagdollBody
                 continue;
             }
 
+            (Vector3 origin, RagdollAxes axes) = BoneToBoneTransform(
+                bones,
+                elements[constraint.Child].BoneIndex,
+                elements[constraint.Parent].BoneIndex);
+
             elements[constraint.Child] = elements[constraint.Child] with
             {
                 ParentIndex = constraint.Parent,
-                OriginParentSpace = OriginInParentSpace(
-                    bones,
-                    elements[constraint.Child].BoneIndex,
-                    elements[constraint.Parent].BoneIndex),
+                OriginParentSpace = origin,
+                AxesParentSpace = axes,
             };
         }
 
@@ -384,8 +433,14 @@ public sealed class RagdollBody
         return -1;
     }
 
-    /// <summary>The child bone's origin in its parent's space, in the bind pose.</summary>
+    /// <summary>The child bone's origin AND axes in its parent's space, in the bind pose.</summary>
     /// <remarks>
+    /// **Both halves of one matrix, and the engine keeps both.** `RagdollAddConstraint` takes only
+    /// the translation into `originParentSpace`, but the matrix it took it from is
+    /// `constraint.constraintToAttached` — which is handed straight to `CreateRagdollConstraint` and
+    /// becomes the attached body's constraint frame. Reading the translation and dropping the
+    /// rotation gives a rigid ragdoll whose every joint measures deflection from the identity.
+    ///
     /// **`Studio_CalcBoneToBoneTransform( hdr, child, parent, out )`, `bone_setup.cpp:1770`:**
     ///
     /// <code>
@@ -401,13 +456,13 @@ public sealed class RagdollBody
     /// assembled inside out — the failure this project keeps meeting, and why the conformance test
     /// picks bind positions that differ in two axes.
     /// </remarks>
-    private static Vector3 OriginInParentSpace(
+    private static (Vector3 Origin, RagdollAxes Axes) BoneToBoneTransform(
         IReadOnlyList<StudioBone> bones, int childBone, int parentBone)
     {
         if (childBone < 0 || childBone >= bones.Count ||
             parentBone < 0 || parentBone >= bones.Count)
         {
-            return Vector3.Zero;
+            return (Vector3.Zero, RagdollAxes.Identity);
         }
 
         Span<float> childToPose = stackalloc float[12];
@@ -418,6 +473,14 @@ public sealed class RagdollBody
 
         StudioBones.Concatenate(bones[parentBone].PoseToBone.Span, childToPose, childToParent);
 
-        return new Vector3(childToParent[3], childToParent[7], childToParent[11]);
+        return (
+            new Vector3(childToParent[3], childToParent[7], childToParent[11]),
+
+            // The COLUMNS, which is `matrix · e_k` for a row-major `matrix3x4_t` — see the remarks
+            // on `RagdollAxes`. The rows would be the transpose, and orthonormal either way.
+            new RagdollAxes(
+                new Vector3(childToParent[0], childToParent[4], childToParent[8]),
+                new Vector3(childToParent[1], childToParent[5], childToParent[9]),
+                new Vector3(childToParent[2], childToParent[6], childToParent[10])));
     }
 }
