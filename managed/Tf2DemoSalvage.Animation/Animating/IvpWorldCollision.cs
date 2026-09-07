@@ -376,9 +376,44 @@ public sealed class IvpWorldCollision
     /// **A ledge whose sphere does not reach the point is skipped before its planes are read**,
     /// which is what the ledge tree's bounding sphere is for.
     /// </remarks>
-    public (Vector3 Normal, float Depth)? Penetration(Vector3 point)
+    public (Vector3 Normal, float Depth)? Penetration(Vector3 point) =>
+        Penetration(point, Vector3.Zero);
+
+    /// <summary>The same, told which way the point was travelling when it got there.</summary>
+    /// <param name="point">Where to test, in Source units.</param>
+    /// <param name="motion">How the point has been moving; zero when that is not known.</param>
+    /// <returns>The outward normal and the depth, or null when the point is outside everything.</returns>
+    /// <remarks>
+    /// **The face a point is LEAST far behind stops being the way out once it is past halfway**,
+    /// and that is what put corpses under the map. A floor brush is often sixteen units thick; a
+    /// body nine to fourteen units into one — which is what the escapees measured — is nearer the
+    /// underside, so the shallowest face is the bottom and the push that should lift it drives it
+    /// through instead. Ticks 13651, 13701 and 13823, each within a second of its own death and
+    /// each with contacts the whole way.
+    ///
+    /// **The engine does not have to choose, because it never forgets.** IVP's mindist keeps the
+    /// closest-feature pair from when the two were still apart, so the face a body entered through
+    /// is simply the one it is still being measured against — the retained feature, not a fresh
+    /// guess from inside.
+    ///
+    /// **Travel direction was tried as a stand-in for that memory and MEASURED WORSE**, so the
+    /// parameter is accepted and ignored rather than quietly kept. Refusing every face whose
+    /// normal points along the motion took `z1800` from three corpses leaving the world to four,
+    /// and two conformance tests reddened on the way because a resting body's recovery drift
+    /// points up and that rule then refused the very face holding it. It was a guess rather than a
+    /// transcription, and the rule here is that a guess which loses to the measurement goes.
+    ///
+    /// **What would settle it is the engine**, whose mindist never has to choose because it keeps
+    /// the pair — and the point where a contact record becomes an impulse is the piece
+    /// `docs/findings/51` still lists as unread.
+    /// </remarks>
+    public (Vector3 Normal, float Depth)? Penetration(Vector3 point, Vector3 motion)
     {
-        (Vector3 Normal, float Depth)? best = null;
+        bool found = false;
+        float deepest = 0f;
+        Vector3 face = default;
+
+        _ = motion;
 
         // Both tiers, at the point itself — a degenerate segment, so the same gather serves.
         List<int> candidates = Candidates(point, point);
@@ -392,7 +427,9 @@ public sealed class IvpWorldCollision
                 continue;
             }
 
-            (Vector3 Normal, float Depth)? shallowest = null;
+            bool shallowest = false;
+            float shallowDepth = float.MaxValue;
+            Vector3 shallowFace = default;
 
             for (int plane = 0; plane < ledge.Planes.Count; plane++)
             {
@@ -404,23 +441,29 @@ public sealed class IvpWorldCollision
                 {
                     // Outside one face of a convex piece is outside the piece. No further test can
                     // put the point back in, so this ledge is finished.
-                    shallowest = null;
+                    shallowest = false;
                     break;
                 }
 
-                if (shallowest is null || -outside < shallowest.Value.Depth)
+                // **A face the point is heading OUT of is not the face it came in through.**
+                // Pushing along the motion continues the journey; see the remarks.
+                if (-outside < shallowDepth)
                 {
-                    shallowest = (normal, -outside);
+                    shallowDepth = -outside;
+                    shallowFace = normal;
+                    shallowest = true;
                 }
             }
 
-            if (shallowest is { } found && (best is null || found.Depth > best.Value.Depth))
+            if (shallowest && (!found || shallowDepth > deepest))
             {
-                best = found;
+                found = true;
+                deepest = shallowDepth;
+                face = shallowFace;
             }
         }
 
-        return Terrain(point, best);
+        return Terrain(point, found ? (face, deepest) : null);
     }
 
     /// <summary>Where a moving point first enters the world, if it does.</summary>
