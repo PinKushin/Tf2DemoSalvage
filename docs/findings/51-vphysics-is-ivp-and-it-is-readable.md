@@ -2238,6 +2238,61 @@ itself, `pfVar13 = (float *)((ulonglong)*param2 * 0x10 + *param4)`.
 eleven ledges, the point array and the 132-edge fan test; NOT ESTABLISHED and listed above for the
 unidentified fields.*
 
+## The ball-and-socket, found — and it is what holds a ragdoll together
+
+**The correction below is right about `FUN_180036f80` and was read as saying more than it does.**
+All three axes `FUN_180036e10` dispatches ARE angular; the conclusion drawn from that — that the
+ragdoll constraint has no translation solve at all — does not follow, because the translation solve
+is not in the dispatcher. It is in the dispatcher's CALLER, `FUN_180038620`, immediately after it
+returns, behind a flag:
+
+```c
+FUN_180036e10(param_1, param_2, (longlong)param_3);       // the three angular axes
+if (*(char *)(param_1 + 0x157) != '\0') {
+    // each body's anchor, carried into world space by its own rotation
+    fVar39 = az * Rz + origin + ay * Ry + ax * Rx;                    // body A
+    fVar22 = bz * Rz + origin + by * Ry + bx * Rx;                    // body B
+    *param_3     = fVar22 - fVar39;                                   // THE POSITION ERROR
+    …
+    FUN_180038070(param_3 + 4, &local_b8, coreA, coreB, &armA, &armB);  // the 3x3 K matrix
+    fVar17 = *(float *)(param_1 + 0x14c);                              // gain on the velocity
+    fVar22 = *(float *)(param_1 + 0x150) * fVar51 * param_2[1];        // gain on the error
+    fVar21 = (0.0 - fVar17 * fVar52 * local_b8) + fVar22 * fVar21;     // per axis
+    …                                                                  // times K inverse
+    if ((*pbVar3 & 0x12) == 0) { core[0x130] += …;  core[0x140] += …; }   // BOTH bodies,
+    if ((*pbVar4 & 0x12) == 0) { core[0x130] += …;  core[0x140] += …; }   // equal and opposite
+}
+```
+
+**Two things make this the missing piece.** It is the only place in the constraint path that writes
+LINEAR velocity — the three angular axes never touch `+0x140` — and it is the only term anywhere
+that reads a POSITION rather than a velocity. A solver made only of velocity constraints has no way
+to notice that two bodies have drifted apart; this is the term that pulls them back.
+
+`FUN_180038070` builds the standard ball-socket effective-mass matrix, reading each core's inverse
+inertia at `+0x40..0x48` and inverse mass at `+0x4c` and forming the cross-product terms — the same
+quantities the contact record precomputes, as a full 3×3 rather than one scalar.
+
+**This project implements the three angular axes and nothing else**, so its ragdolls are seventeen
+bodies that fall independently and stay together only because they started together. It is what the
+measurement had been pointing at without naming: on `z1800` the escaping corpses' ROOT body sits
+outside all geometry at z −50 while the corpse still reports six to eleven contacts — the limbs are
+resting on a floor the pelvis has already gone through, which is a ragdoll coming apart rather than
+a body sinking.
+
+**What is NOT established: the two gains and the flag's value for a ragdoll.** The constraint's
+default descriptor zeroes both (`FUN_1800368c0` writes `qword [RDI + 0xc4] = 0` and
+`word [RDI + 0xcc] = 0`, and `+0xd3` — which `FUN_180037890` copies to `+0x157` — lands in the
+zeroed `qword [RDI + 0xd0]`), so translation is OFF by default and `CreateRagdollConstraint` must
+turn it on and set the gains. Where it does that has not been found; a search for the three offsets
+across all 2,813 functions returns nothing, so they are written through a helper or as a struct
+copy. **No number is inferred in their place** — a ball-socket's behaviour is entirely those two
+gains, and guessing them would be the same mistake as the exit-face rule.
+
+*Evidence class: read from the decompiled binary for the solve and the default descriptor; the
+identification of `FUN_180038070` as the ball-socket K matrix is ARITHMETIC — matched to the
+standard form from the fields it reads — rather than read from a name.*
+
 ## Correction: there is no anchor axis — all THREE constraint axes are angular
 
 **`FUN_180036f80` was written up above as the anchor or translation solve, and that was wrong.**
