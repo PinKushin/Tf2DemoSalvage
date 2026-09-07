@@ -4,6 +4,7 @@ using System.IO;
 
 using Microsoft.Extensions.Logging;
 
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Logging;
@@ -179,6 +180,29 @@ public sealed class LoadedMap
                     loggers);
             }
 
+            // **The static props go into the physics world here, and this is the only place they
+            // can.** `MapLevel.Read` has the map's bytes and nothing else — a prop's hull lives in
+            // its own `.phy`, which needs the pakfile and the game archives, and those exist only
+            // once the assets are open. The engine has the same ordering for the same reason:
+            // `PhysicsLevelInit` builds the world and then calls
+            // `staticpropmgr->CreateVPhysicsRepresentations` (`game/client/physics.cpp:184-186`),
+            // after the prop manager has its models.
+            using (assetLog.Time("adding static prop collision"))
+            {
+                PakFile propPak = PakFile.ReadFrom(bytes);
+
+                (int placed, int solid) = MapPropCollision.Add(
+                    level.Physics,
+                    bytes,
+                    file => Read(propPak, game.Archives, file),
+                    assetLog);
+
+                assetLog.LogDebug(
+                    "static prop collision: {Placed} of {Solid} solid placements have a hull",
+                    placed,
+                    solid);
+            }
+
             Report(level, assets, textureQuality, assetLog);
 
             return new LoadedMap(outline, level, assets, lighting, game, null);
@@ -334,5 +358,26 @@ public sealed class LoadedMap
                 $"VTF decode so far: {seconds:F2}s CPU over {count} textures " +
                 $"(decoded in parallel, so wall clock is less); " +
                 $"baking {PropModels.BakeSeconds:F2}s"));
+    }
+
+    /// <summary>Reads a game file, the map's own pakfile first.</summary>
+    /// <remarks>
+    /// **The same order the asset path uses**, because a map that ships its own copy of a model
+    /// means the copy it shipped: a prop whose collision came from the game's version and whose
+    /// mesh came from the map's would be solid in the wrong shape.
+    ///
+    /// **Returns null rather than throwing**, since a missing `.phy` is the normal case and a
+    /// malformed archive entry must cost one prop its collision rather than the map its load.
+    /// </remarks>
+    private static byte[]? Read(PakFile pak, GameArchives archives, string file)
+    {
+        try
+        {
+            return pak.ReadFile(file) ?? archives.Read(file);
+        }
+        catch (Exception failure) when (failure is IOException or InvalidDataException)
+        {
+            return null;
+        }
     }
 }

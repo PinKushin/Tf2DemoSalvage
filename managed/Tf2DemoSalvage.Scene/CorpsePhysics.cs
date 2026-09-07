@@ -95,10 +95,21 @@ public sealed class CorpsePhysics
     /// </remarks>
     public static bool SimulatesOnlyWhatIsDrawn => true;
 
-    /// <summary>For each corpse that left the world, the tick it did and its contacts then.</summary>
-    public IReadOnlyDictionary<int, (int Tick, int Contacts)> Fell => _fell;
+    /// <summary>For each corpse that left the world, when, where, and its contacts then.</summary>
+    /// <remarks>
+    /// **The position is the point of the record.** The tick says a corpse sank rather than
+    /// started below; only the place says WHERE the world let it through, and the resting place
+    /// cannot stand in for it — three corpses measured on `z1800` slid between three hundred and
+    /// eight hundred units after crossing, so probing where they stopped asks about the wrong
+    /// geometry.
+    /// </remarks>
+    public IReadOnlyDictionary<int, (int Tick, int Contacts, (double X, double Y, double Z) At)>
+        Fell => _fell;
 
-    private readonly Dictionary<int, (int Tick, int Contacts)> _fell = [];
+    private readonly Dictionary<int, (int Tick, int Contacts, (double X, double Y, double Z) At)>
+        _fell = [];
+
+    private readonly Dictionary<int, (double X, double Y, double Z)> _touched = [];
 
     /// <summary>Below this a body has left the playable world rather than sunk into a floor.</summary>
     private const double FallenThrough = -50d;
@@ -255,11 +266,31 @@ public sealed class CorpsePhysics
             // fell through on the way" is WHEN — with the contact count at that moment beside it,
             // because a body falling with contacts is one the solve failed to hold and a body
             // falling without any is one nothing ever saw.
-            if (!_fell.ContainsKey(entityIndex) &&
-                live.Simulation.Environment.Bodies.Count > 0 &&
-                live.Simulation.Environment.Bodies[0].Position.Z < FallenThrough)
+            if (live.Simulation.Environment.Bodies.Count == 0)
             {
-                _fell[entityIndex] = (live.SteppedTo, live.Simulation.Environment.Contacts);
+                continue;
+            }
+
+            (double X, double Y, double Z) at = live.Simulation.Environment.Bodies[0].Position;
+
+            // **Where it last touched anything, kept whether or not it ever falls.** The threshold
+            // below fires long after the event — a corpse crossing a floor at z 200 is recorded at
+            // −50, three hundred units and a second of sideways travel later, and probing THAT spot
+            // asks about the wrong geometry. Two probes were spent on the wrong answer before this
+            // existed. The last contact is the lip of the hole.
+            if (live.Simulation.Environment.Contacts > 0)
+            {
+                _touched[entityIndex] = at;
+            }
+
+            if (!_fell.ContainsKey(entityIndex) && at.Z < FallenThrough)
+            {
+                _fell[entityIndex] = (
+                    live.SteppedTo,
+                    live.Simulation.Environment.Contacts,
+                    _touched.TryGetValue(entityIndex, out (double X, double Y, double Z) last)
+                        ? last
+                        : at);
             }
         }
 

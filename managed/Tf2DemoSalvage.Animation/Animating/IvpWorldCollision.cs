@@ -14,8 +14,21 @@ namespace Tf2DemoSalvage.Animation.Animating;
 /// is walking is a convex polyhedron, and a convex polyhedron is the intersection of its face
 /// half-spaces. Deriving the planes once at load turns every later test into dot products.
 /// </remarks>
+/// <param name="Contents">
+/// What this ledge is made of, as the <c>CONTENTS_*</c> mask the map declares for its solid.
+///
+/// **The engine sets exactly this on every world solid it creates** —
+/// `pObject-&gt;SetContents( g_SolidSetup.GetContentsMask() )` (`game/shared/physics_shared.cpp:648`)
+/// — and then refuses any pair the two masks do not share:
+/// `if ( !(pObj0-&gt;GetContents() &amp; pEntity1-&gt;PhysicsSolidMaskForEntity()) || ... ) return 0;`
+/// (`game/client/physics.cpp:249`). Without it a corpse collides with every brush in the map
+/// including the ones written to stop players and nothing else.
+/// </param>
 public readonly record struct IvpWorldLedge(
-    Vector3 Center, float Radius, IReadOnlyList<(Vector3 Normal, float Distance)> Planes);
+    Vector3 Center,
+    float Radius,
+    IReadOnlyList<(Vector3 Normal, float Distance)> Planes,
+    int Contents);
 
 /// <summary>One triangle of terrain, with its own plane.</summary>
 /// <param name="A">First vertex, in Source units.</param>
@@ -120,6 +133,49 @@ public sealed class IvpWorldCollision
     /// </remarks>
     public int TriangleCount => _triangles.Count;
 
+    /// <summary><c>CONTENTS_SOLID</c>, what ordinary brushwork and every prop is made of.</summary>
+    /// <remarks><c>public/bspflags.h:22</c>. The default for anything that does not say.</remarks>
+    public const int ContentsSolid = 0x1;
+
+    /// <summary><c>MASK_SOLID</c> — what a RAGDOLL collides with, and the whole rule.</summary>
+    /// <remarks>
+    /// **A ragdoll uses `MASK_SOLID`, and the SDK says why in a comment above the override**:
+    ///
+    /// <code>
+    /// // Makes ragdolls ignore npcclip brushes
+    /// unsigned int C_AI_BaseNPC::PhysicsSolidMaskForEntity( void ) const
+    /// {
+    ///     // This allows ragdolls to move through npcclip brushes
+    ///     if ( !IsRagdoll() ) { return MASK_NPCSOLID; }
+    ///     return MASK_SOLID;
+    /// }
+    /// </code>
+    ///
+    /// `game/client/c_ai_basenpc.cpp:53-62`, and the base is the same value —
+    /// `CBaseEntity::PhysicsSolidMaskForEntity` returns `MASK_SOLID` outright
+    /// (`game/shared/physics_main_shared.cpp:1107-1110`). So a corpse collides with
+    /// `CONTENTS_SOLID | CONTENTS_MOVEABLE | CONTENTS_WINDOW | CONTENTS_MONSTER | CONTENTS_GRATE`
+    /// (`public/bspflags.h:106`) — and **not** with `CONTENTS_PLAYERCLIP`, which
+    /// `MASK_PLAYERSOLID` has and this does not.
+    ///
+    /// **That absence is what put three corpses under `koth_harvest_final`.** Its solid 1 declares
+    /// `"contents" "65536"` — playerclip alone — and spans x ±1600, y ±2376, z −800..16: a box over
+    /// the whole middle of the map. A corpse that dropped below z 16 was inside it, in contact with
+    /// its interior the entire way down, and slid to rest on its floor at −755. Every escapee
+    /// measured had ten or more contacts at the moment it passed −50, which is what "sinking while
+    /// touching" had been describing all along.
+    /// </remarks>
+    public const int MaskSolid = 0x1 | 0x4000 | 0x2 | 0x2000000 | 0x8;
+
+    /// <summary>What this world's queries collide with, defaulting to a ragdoll's mask.</summary>
+    /// <remarks>
+    /// **Settable because the mask is a property of the ASKER, not of the world.** The engine reads
+    /// it off the entity at every pair test — `pEntity1-&gt;PhysicsSolidMaskForEntity()` — so a world
+    /// that hard-coded one would be answering a different question for a player than for a corpse.
+    /// Nothing but a corpse asks this world anything yet, which is why the default is theirs.
+    /// </remarks>
+    public int Mask { get; set; } = MaskSolid;
+
     /// <summary>Adds one ledge, converting it from IVP metres into Source units.</summary>
     /// <param name="points">The ledge's points, in metres.</param>
     /// <param name="triangles">Its triangles, indexing those points.</param>
@@ -136,7 +192,7 @@ public sealed class IvpWorldCollision
         IReadOnlyList<(int A, int B, int C)> triangles,
         Vector3 center,
         float radius) =>
-        Add(points, triangles, center, radius, Vector3.Zero);
+        Add(points, triangles, center, radius, Vector3.Zero, ContentsSolid);
 
     /// <summary>Adds one ledge, converting it and placing it at an entity's origin.</summary>
     /// <param name="points">The ledge's points, in metres.</param>
@@ -157,7 +213,67 @@ public sealed class IvpWorldCollision
         IReadOnlyList<(int A, int B, int C)> triangles,
         Vector3 center,
         float radius,
-        Vector3 origin)
+        Vector3 origin) =>
+        Add(points, triangles, center, radius, origin, ContentsSolid);
+
+    /// <summary>Adds one ledge at an entity's origin, with the contents its solid declares.</summary>
+    /// <param name="points">The ledge's points, in metres.</param>
+    /// <param name="triangles">Its triangles, indexing those points.</param>
+    /// <param name="center">Its node's bounding-sphere centre, in metres.</param>
+    /// <param name="radius">That sphere's radius, in metres.</param>
+    /// <param name="origin">Where the model this ledge belongs to stands, in SOURCE units.</param>
+    /// <param name="contents">The <c>CONTENTS_*</c> mask — see <see cref="IvpWorldLedge"/>.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public void Add(
+        IReadOnlyList<Vector3> points,
+        IReadOnlyList<(int A, int B, int C)> triangles,
+        Vector3 center,
+        float radius,
+        Vector3 origin,
+        int contents) =>
+        Add(
+            points, triangles, center, radius, Matrix4x4.CreateTranslation(origin), contents);
+
+    /// <summary>Adds one ledge, converting it and placing it by a full transform.</summary>
+    /// <param name="points">The ledge's points, in metres.</param>
+    /// <param name="triangles">Its triangles, indexing those points.</param>
+    /// <param name="center">Its node's bounding-sphere centre, in metres.</param>
+    /// <param name="radius">That sphere's radius, in metres.</param>
+    /// <param name="placement">Where the model stands and how it is turned, in SOURCE units.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **A static prop is ROTATED where a brush entity is only moved**, which is why this exists
+    /// beside the origin overload. The engine places one through the same call it places any other
+    /// static object — an origin and a `QAngle` — so a prop lying on its side or a fence turned to
+    /// face a path is a different hull in the world, not the same hull shifted.
+    ///
+    /// **Uniform scale belongs in here too**, since the placement carries it and a scaled prop's
+    /// collision scales with it. The radius is taken from the transform's own scale rather than
+    /// assumed to be one, so a bounding sphere still contains what it claims to.
+    /// </remarks>
+    public void Add(
+        IReadOnlyList<Vector3> points,
+        IReadOnlyList<(int A, int B, int C)> triangles,
+        Vector3 center,
+        float radius,
+        Matrix4x4 placement) =>
+        Add(points, triangles, center, radius, placement, ContentsSolid);
+
+    /// <summary>Adds one ledge by a full transform, with the contents its solid declares.</summary>
+    /// <param name="points">The ledge's points, in metres.</param>
+    /// <param name="triangles">Its triangles, indexing those points.</param>
+    /// <param name="center">Its node's bounding-sphere centre, in metres.</param>
+    /// <param name="radius">That sphere's radius, in metres.</param>
+    /// <param name="placement">Where the model stands and how it is turned, in SOURCE units.</param>
+    /// <param name="contents">The <c>CONTENTS_*</c> mask — see <see cref="IvpWorldLedge"/>.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public void Add(
+        IReadOnlyList<Vector3> points,
+        IReadOnlyList<(int A, int B, int C)> triangles,
+        Vector3 center,
+        float radius,
+        Matrix4x4 placement,
+        int contents)
     {
         ArgumentNullException.ThrowIfNull(points);
         ArgumentNullException.ThrowIfNull(triangles);
@@ -172,9 +288,9 @@ public sealed class IvpWorldCollision
                 continue;
             }
 
-            Vector3 first = ToSource(points[a]) + origin;
-            Vector3 second = ToSource(points[b]) + origin;
-            Vector3 third = ToSource(points[c]) + origin;
+            Vector3 first = Vector3.Transform(ToSource(points[a]), placement);
+            Vector3 second = Vector3.Transform(ToSource(points[b]), placement);
+            Vector3 third = Vector3.Transform(ToSource(points[c]), placement);
 
             Vector3 normal = Vector3.Cross(second - first, third - first);
 
@@ -199,8 +315,21 @@ public sealed class IvpWorldCollision
             return;
         }
 
+        // **The radius has to grow with the placement's scale or the sphere stops containing the
+        // hull**, and a sphere that under-reports is a ledge the broadphase skips for a point that
+        // is actually inside it. Taken from the transform rather than from a separate argument, so
+        // the two cannot disagree.
+        float scale = MathF.Sqrt(MathF.Max(
+            MathF.Max(
+                new Vector3(placement.M11, placement.M12, placement.M13).LengthSquared(),
+                new Vector3(placement.M21, placement.M22, placement.M23).LengthSquared()),
+            new Vector3(placement.M31, placement.M32, placement.M33).LengthSquared()));
+
         IvpWorldLedge ledge = new(
-            ToSource(center) + origin, radius * SourceUnitsPerMetre, planes);
+            Vector3.Transform(ToSource(center), placement),
+            radius * SourceUnitsPerMetre * scale,
+            planes,
+            contents);
 
         _ledges.Add(ledge);
 
@@ -422,7 +551,8 @@ public sealed class IvpWorldCollision
         {
             IvpWorldLedge ledge = _ledges[candidates[candidate]];
 
-            if ((point - ledge.Center).LengthSquared() > ledge.Radius * ledge.Radius)
+            if ((ledge.Contents & Mask) == 0 ||
+                (point - ledge.Center).LengthSquared() > ledge.Radius * ledge.Radius)
             {
                 continue;
             }
@@ -515,7 +645,8 @@ public sealed class IvpWorldCollision
             // the ledge tree already carries, so it costs nothing to keep and it is what makes the
             // oversized list affordable: those are examined by every sweep of every hull point,
             // and on `koth_harvest_final` there are ninety of them.
-            if (!Reaches(_ledges[index], from, travel) ||
+            if ((_ledges[index].Contents & Mask) == 0 ||
+                !Reaches(_ledges[index], from, travel) ||
                 Clip(_ledges[index], from, travel) is not { } clipped ||
                 clipped.Fraction >= nearest)
             {

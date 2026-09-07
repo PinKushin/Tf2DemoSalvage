@@ -112,6 +112,53 @@ public sealed class IvpWorldContactConformanceTests
     }
 
     /// <remarks>
+    /// **A ragdoll passes through a player clip, and the SDK states it as the purpose of the
+    /// override**: *"This allows ragdolls to move through npcclip brushes"*, above
+    /// `C_AI_BaseNPC::PhysicsSolidMaskForEntity` returning `MASK_SOLID` for a ragdoll where a live
+    /// NPC gets `MASK_NPCSOLID` (`game/client/c_ai_basenpc.cpp:53-62`). `MASK_SOLID` omits
+    /// `CONTENTS_PLAYERCLIP`, and the engine refuses any pair the two masks do not share
+    /// (`game/client/physics.cpp:249`).
+    ///
+    /// **The control is the same floor made of `CONTENTS_SOLID`**, which must still stop the body.
+    /// Without it "the body fell through" is satisfied by a world that lost its geometry
+    /// altogether, which is the exact failure this suite was written for.
+    ///
+    /// **The condition is a whole second of falling**, because a body one tick into a clip brush
+    /// has not yet been pushed anywhere either way. After sixty-six ticks a floor that collides
+    /// holds it near zero and one that does not has let it past −250.
+    /// </remarks>
+    [Test]
+    public void Simulate_WithAPlayerClipFloor_FallsStraightThroughIt()
+    {
+        const int PlayerClip = 0x10000;
+
+        IvpEnvironment through = new(Step) { World = Floor(contents: PlayerClip) };
+
+        IvpRigidBody falls = Body(100f);
+
+        through.Add(falls);
+
+        IvpEnvironment onto = new(Step) { World = Floor() };
+
+        IvpRigidBody rests = Body(100f);
+
+        onto.Add(rests);
+
+        for (int step = 0; step < 66; step++)
+        {
+            through.Simulate();
+            onto.Simulate();
+        }
+
+        falls.Position.Z.ShouldBeLessThan(
+            -250d, "a ragdoll's MASK_SOLID does not contain CONTENTS_PLAYERCLIP");
+
+        // The control: the identical floor, made of CONTENTS_SOLID, still holds it.
+        rests.Position.Z.ShouldBeGreaterThan(0d);
+        rests.Position.Z.ShouldBeLessThan(4d);
+    }
+
+    /// <remarks>
     /// **A body already at rest must not be pushed UP**, which is the failure a penetration bias
     /// produces when it converts depth into velocity with no slop: the corpse climbs, slowly and
     /// convincingly, and looks like buoyancy.
@@ -294,7 +341,8 @@ public sealed class IvpWorldContactConformanceTests
     /// that arrived already converted would pass every test while the real one was 39 times too
     /// small.
     /// </remarks>
-    private static IvpWorldCollision Floor(float depth = 100f)
+    private static IvpWorldCollision Floor(
+        float depth = 100f, int contents = IvpWorldCollision.ContentsSolid)
     {
         const float Wide = 1000f;
 
@@ -324,7 +372,13 @@ public sealed class IvpWorldContactConformanceTests
 
         IvpWorldCollision world = new();
 
-        world.Add(points, triangles, Ivp(0f, 0f, -depth / 2f), Wide * 2f * Metre);
+        world.Add(
+            points,
+            triangles,
+            Ivp(0f, 0f, -depth / 2f),
+            Wide * 2f * Metre,
+            Vector3.Zero,
+            contents);
 
         return world;
     }

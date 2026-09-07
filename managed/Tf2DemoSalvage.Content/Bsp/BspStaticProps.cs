@@ -22,9 +22,21 @@ namespace Tf2DemoSalvage.Content.Bsp;
 /// when this is ignored, which is not an error and reads as the map's own art.
 /// <c>cap_point_base.mdl</c> has three.
 /// </param>
+/// <param name="Solid">
+/// How the prop collides, <c>StaticPropLump_t.m_Solid</c> — the mapper's own <c>solid</c> key,
+/// copied straight through by <c>vbsp</c> (`utils/vbsp/staticprop.cpp:603`), so its values are the
+/// <c>SolidType_t</c> enum: <c>SOLID_NONE</c> is 0 and <c>SOLID_VPHYSICS</c> is 6
+/// (`public/const.h:238-244`).
+///
+/// **It is here because the engine's physics world contains these props and this project's did
+/// not.** `PhysicsLevelInit` builds the world and then immediately calls
+/// `staticpropmgr-&gt;CreateVPhysicsRepresentations( physenv, &amp;g_SolidSetup, NULL )` — two lines
+/// apart, on the CLIENT (`game/client/physics.cpp:184-186`), which is the environment a ragdoll
+/// lives in.
+/// </param>
 public readonly record struct BspStaticProp(
     string Model, float X, float Y, float Z, float Pitch, float Yaw, float Roll, float Scale,
-    int Skin = 0);
+    int Skin = 0, int Solid = 0);
 
 /// <summary>
 /// The models a map places itself: rocks, crates, fences, foliage.
@@ -93,10 +105,15 @@ public static class BspStaticProps
 
     /// <summary>Offset of <c>StaticPropLump_t.m_Skin</c>, in every declared version.</summary>
     /// <remarks>
-    /// **Thirty-two rather than thirty-one, because of padding.** The members before it are
-    /// <c>m_PropType</c>, <c>m_FirstLeaf</c> and <c>m_LeafCount</c> (three <c>unsigned short</c>,
-    /// ending at 30) then <c>m_Solid</c>, one byte. The next member is an <c>int</c>, which the
-    /// compiler aligns to four — so byte 31 is padding and the skin begins at 32.
+    /// **Thirty-two rather than thirty-one, and the byte between is a FIELD.** The members before
+    /// it are <c>m_PropType</c>, <c>m_FirstLeaf</c> and <c>m_LeafCount</c> (three
+    /// <c>unsigned short</c>, ending at 30), then <c>m_Solid</c> and <c>m_Flags</c>, one byte each
+    /// — so the skin begins at 32 with nothing padded away.
+    ///
+    /// **This said "byte 31 is padding" until 2026-09-07 and that was wrong**, which mattered the
+    /// moment <see cref="SolidOffset"/> was needed: a reader that believes two bytes are padding
+    /// does not go looking in them. `StaticPropLumpV4_t` declares both
+    /// (`public/gamebspfile.h:158-160`).
     ///
     /// Derived independently by <c>StaticPropConformanceTests</c> from the declaration itself, so
     /// this constant is checked rather than asserted.
@@ -106,6 +123,29 @@ public static class BspStaticProps
     /// claims can actually happen — which is the whole conformance sweep in one example.
     /// </remarks>
     internal const int SkinOffset = 32;
+
+    /// <summary>Offset of <c>StaticPropLump_t.m_Solid</c>, in every declared version.</summary>
+    /// <remarks>
+    /// **Thirty, immediately after the three <c>unsigned short</c> that precede it** —
+    /// `public/gamebspfile.h:155-159`. Every version from V4 up declares the same prefix, which is
+    /// why this reader's measured stride is enough and the version is not consulted.
+    /// </remarks>
+    internal const int SolidOffset = 30;
+
+    /// <summary><c>SOLID_NONE</c> — the one value that means the prop is not collided.</summary>
+    /// <remarks>
+    /// **A prop's <c>m_Solid</c> is whatever the mapper typed**, copied through unexamined by
+    /// `vbsp` — `build.m_Solid = IntForKey( &amp;entities[i], "solid" )`
+    /// (`utils/vbsp/staticprop.cpp:603`) — so the test is against this and not against a list of
+    /// the values that ARE collidable. `SOLID_VPHYSICS` (6) is the usual one and `SOLID_BBOX` (2)
+    /// appears too; both collide, and so does anything else a map happens to carry.
+    ///
+    /// **`FSOLID_NOT_SOLID` does NOT apply here.** It is an entity solid FLAG
+    /// (`public/const.h:252`), tested beside a solid type by `IsSolid`, and a static prop lump
+    /// carries no flags word of that kind — its `m_Flags` is the `STATIC_PROP_*` set, which is
+    /// shadows and lighting. So the whole rule is this one comparison.
+    /// </remarks>
+    public const int SolidNone = 0;
 
     /// <summary>Reads every static prop a map places.</summary>
     /// <param name="file">The map's bytes.</param>
@@ -203,7 +243,8 @@ public static class BspStaticProps
                 BinaryPrimitives.ReadSingleLittleEndian(prop[(AnglesOffset + 4)..]),
                 BinaryPrimitives.ReadSingleLittleEndian(prop[(AnglesOffset + 8)..]),
                 ReadScale(prop, version, stride),
-                ReadSkin(prop, stride)));
+                ReadSkin(prop, stride),
+                prop[SolidOffset]));
         }
 
         return placements;
