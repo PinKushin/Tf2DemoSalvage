@@ -349,29 +349,35 @@ public sealed record MapLevel(
         {
             BspHeader header = BspHeader.Parse(bytes.Span);
 
+            // **Where each brush model stands**, joined the way the drawing side already joins it:
+            // an entity names its geometry `*N` and carries the `origin` that places it. Most brush
+            // entities leave it at zero — their brushes are compiled in world coordinates — and the
+            // ones that do not are exactly the doors and platforms that would otherwise land at the
+            // map origin.
+            Dictionary<int, Vector3> origins = BrushModelOrigins(BspEntities.ReadFrom(bytes));
+
             foreach (MapPhysicsModel model in
                 BspPhysicsCollision.Read(BspLumpData.Read(bytes, header.Lump(PhysCollideLump))))
             {
-                // **Only the WORLD, and that is the engine's own split.** `PhysCreateWorld` builds
-                // model 0 as the static world (`physics_shared.cpp:602-667`); every other entry is
-                // a `func_` brush ENTITY, whose hull is stored in its own model space and placed by
-                // that entity's origin. Adding those here put each of them at the map origin —
-                // geometry missing where the door actually is and phantom geometry where it is not,
-                // which is how a corpse collected contacts thirty-nine thousand units below the map.
+                // **Model 0 is the world; every other entry is a brush ENTITY placed by its own
+                // origin.** `PhysCreateWorld` builds the world (`physics_shared.cpp:602-667`) and a
+                // `func_` brush gets its collide through its entity, whose `origin` key says where
+                // that geometry stands. Adding one without the offset puts a door at the map origin
+                // — geometry missing where the door is and phantom geometry where it is not.
                 //
-                // **So a corpse does not yet rest on a door or a moving platform**, stated rather
-                // than left to look deliberate: that needs the entity lump's origin for each `*N`
-                // model, which `BrushModelClasses` already joins for drawing.
-                if (model.ModelIndex != 0)
-                {
-                    continue;
-                }
+                // **A door is included and treated as static**, which is right while it is shut and
+                // wrong while it moves; this project does not simulate a moving brush entity, and
+                // that is stated rather than left to look deliberate.
+                Vector3 origin = origins.TryGetValue(model.ModelIndex, out Vector3 placed)
+                    ? placed
+                    : Vector3.Zero;
 
                 foreach (IReadOnlyList<PhysicsLedge> hull in model.Hulls)
                 {
                     foreach (PhysicsLedge ledge in hull)
                     {
-                        world.Add(ledge.Points, ledge.Triangles, ledge.Center, ledge.Radius);
+                        world.Add(
+                            ledge.Points, ledge.Triangles, ledge.Center, ledge.Radius, origin);
                     }
                 }
             }
@@ -382,6 +388,50 @@ public sealed record MapLevel(
         }
 
         return world;
+    }
+
+    /// <summary>Each brush model's placement, by submodel index.</summary>
+    /// <remarks>
+    /// **Absent means the origin, and that is the common case rather than a fallback.** A brush
+    /// entity's geometry is compiled in world coordinates unless the mapper gave it an `origin`
+    /// brush, so most `func_` entities correctly offset by nothing at all.
+    /// </remarks>
+    private static Dictionary<int, Vector3> BrushModelOrigins(IReadOnlyList<BspEntity> entities)
+    {
+        Dictionary<int, Vector3> origins = [];
+
+        foreach (BspEntity entity in entities)
+        {
+            if (!entity.TryGetValue("model", out string name) ||
+                name.Length < 2 ||
+                name[0] != Tf2DemoSalvage.Scene.BrushModels.SubmodelPrefix ||
+                !int.TryParse(
+                    name[1..], NumberStyles.Integer, CultureInfo.InvariantCulture, out int model))
+            {
+                continue;
+            }
+
+            if (entity.TryGetValue("origin", out string origin) &&
+                Vector(origin) is { } placed)
+            {
+                origins[model] = placed;
+            }
+        }
+
+        return origins;
+    }
+
+    /// <summary>Three space-separated floats, or null when the value is not one.</summary>
+    private static Vector3? Vector(string value)
+    {
+        string[] parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+        return parts.Length == 3 &&
+            float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float x) &&
+            float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float y) &&
+            float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float z)
+            ? new Vector3(x, y, z)
+            : null;
     }
 
     /// <summary><c>LUMP_PHYSCOLLIDE</c>, <c>bspfile.h:310</c>.</summary>

@@ -512,7 +512,7 @@ public sealed class RagdollBody
         {
             foreach (Vector3 point in ledge.Points)
             {
-                hull.Add(point * IvpWorldCollision.SourceUnitsPerMetre);
+                hull.Add(IvpWorldCollision.ToSource(point));
             }
         }
 

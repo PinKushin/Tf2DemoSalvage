@@ -63,6 +63,26 @@ public sealed class IvpWorldCollision
     /// </remarks>
     public const float SourceUnitsPerMetre = 1f / 0.0254f;
 
+    /// <summary>One point, out of IVP's convention and into Source's.</summary>
+    /// <param name="point">A point as the <c>IVPS</c> section stores it.</param>
+    /// <returns>The same point in Source units and Source axes.</returns>
+    /// <remarks>
+    /// **Units are only one third of the conversion, and this project already knew that** —
+    /// [[ivp-is-a-third-convention]] says "axes, units and transpose, all at once", and the first
+    /// version of this reader did the units alone. **IVP is Y-up where Source is Z-up**, so a
+    /// height arrives in the Y slot: `koth_harvest_final`'s world hull read as `y -1184..160` and
+    /// `z -10016..3040`, which is a map lying on its side.
+    ///
+    /// **`hl.y = −ivp.z` and not `+`**, because the swap also changes handedness. Reading it
+    /// without the sign mirrors the map — every wall in the right place along one axis and the
+    /// wrong side along another, which looks like a subtly wrong map rather than a broken one.
+    /// </remarks>
+    public static Vector3 ToSource(Vector3 point) =>
+        new(
+            point.X * SourceUnitsPerMetre,
+            -point.Z * SourceUnitsPerMetre,
+            point.Y * SourceUnitsPerMetre);
+
     private readonly List<IvpWorldLedge> _ledges = [];
 
     /// <summary>Ledge indices by grid cell — the broadphase.</summary>
@@ -103,7 +123,29 @@ public sealed class IvpWorldCollision
         IReadOnlyList<Vector3> points,
         IReadOnlyList<(int A, int B, int C)> triangles,
         Vector3 center,
-        float radius)
+        float radius) =>
+        Add(points, triangles, center, radius, Vector3.Zero);
+
+    /// <summary>Adds one ledge, converting it and placing it at an entity's origin.</summary>
+    /// <param name="points">The ledge's points, in metres.</param>
+    /// <param name="triangles">Its triangles, indexing those points.</param>
+    /// <param name="center">Its node's bounding-sphere centre, in metres.</param>
+    /// <param name="radius">That sphere's radius, in metres.</param>
+    /// <param name="origin">Where the model this ledge belongs to stands, in SOURCE units.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **A brush ENTITY's hull is in its own model space and the entity places it.** The world is
+    /// model 0 and stands at the map origin; a `func_door` or `func_brush` is model `*N` with its
+    /// own `origin` key, and its collide is stored relative to that. Adding one without the offset
+    /// puts a door at the map origin — geometry missing where the door is and phantom geometry
+    /// where it is not.
+    /// </remarks>
+    public void Add(
+        IReadOnlyList<Vector3> points,
+        IReadOnlyList<(int A, int B, int C)> triangles,
+        Vector3 center,
+        float radius,
+        Vector3 origin)
     {
         ArgumentNullException.ThrowIfNull(points);
         ArgumentNullException.ThrowIfNull(triangles);
@@ -118,9 +160,9 @@ public sealed class IvpWorldCollision
                 continue;
             }
 
-            Vector3 first = points[a] * SourceUnitsPerMetre;
-            Vector3 second = points[b] * SourceUnitsPerMetre;
-            Vector3 third = points[c] * SourceUnitsPerMetre;
+            Vector3 first = ToSource(points[a]) + origin;
+            Vector3 second = ToSource(points[b]) + origin;
+            Vector3 third = ToSource(points[c]) + origin;
 
             Vector3 normal = Vector3.Cross(second - first, third - first);
 
@@ -146,7 +188,7 @@ public sealed class IvpWorldCollision
         }
 
         IvpWorldLedge ledge = new(
-            center * SourceUnitsPerMetre, radius * SourceUnitsPerMetre, planes);
+            ToSource(center) + origin, radius * SourceUnitsPerMetre, planes);
 
         _ledges.Add(ledge);
 

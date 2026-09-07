@@ -1990,6 +1990,35 @@ ESTABLISHED: the four bytes at `+0x18`, and whether internal (non-leaf) nodes ca
 enclosing their whole subtree — only leaves were tested, because only leaves have a ledge to test
 against.*
 
+### What a corpse still falls through, and everything ruled out
+
+**One of eight corpses on `z1800` at tick 14270 free-falls where the other seven settle**, and the
+cause is a hole in this project's physics world rather than in the simulation. What has been
+eliminated, each by measurement:
+
+| ruled out | how |
+|---|---|
+| terrain is incomplete | 533 of 533 displacements built; per-displacement triangle count is `(2^power)² × 2`, which is Valve's own `GetTriSize()` (`dispcoll_common.h:192`) — 496 power-2 and 37 power-3 account for all 20,608 |
+| the world's hull is partly read | model 0 declares **2** solids and both read: 2,983 ledges, 35,400 triangles, none empty |
+| the ledge-tree walk stops early | depth budget raised 64 → 4096, identical 3,030 ledges |
+| brush entities are missing | all 39 accounted for by class — 12 `func_brush`, 8 `func_door`, and the rest triggers and visualizers; including them changes nothing at the spot |
+| the corpse rests on a static prop | nearest static prop is 119 units away |
+| the corpse starts inside geometry | `Penetration` at the point says outside everything |
+
+**What is left is that the camera's own sweep is stopped at `z ≈ 33` where the physics world holds
+nothing**, and the drawn scene there is a building's wooden interior floor.
+
+**A census gives it a denominator — and a confound.** Dropping a ray at each of 1,089 grid nodes
+around that spot: **777 found ground in both worlds, 312 in the camera's alone, 0 in the physics
+world alone.** The physics world is a strict SUBSET of the camera's, which is the shape of a missing
+category rather than a stray hole. **But the camera's test is leaf-contents based, and every leaf
+outside the map is `CONTENTS_SOLID`** — so a drop that misses real ground and leaves the map is
+counted as a camera hit. How much of the 312 is that is NOT established, and it is the next thing to
+measure.
+
+*Evidence class: measured, with the camera's independently-built world as the control and its own
+confound stated.*
+
 ### The point array
 
 Sixteen-byte stride at `ledge + c_point_offset`: three little-endian floats and four bytes that were
