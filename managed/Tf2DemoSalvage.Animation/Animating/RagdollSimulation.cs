@@ -312,8 +312,97 @@ public sealed class RagdollSimulation
         }
     }
 
-    /// <summary>Advances the simulation by one step.</summary>
-    public void Step() => Environment.Simulate();
+    /// <summary>Whether this corpse has settled and been put to sleep.</summary>
+    /// <remarks>
+    /// **A TF2 ragdoll that stops moving is FORCED to sleep, and this project had no such thing.**
+    /// `CRagdoll::CheckSettleStationaryRagdoll` runs every frame
+    /// (`game/client/ragdoll.cpp:268-297`) and it is published, not decompiled.
+    /// </remarks>
+    public bool Asleep { get; private set; }
+
+    /// <summary>Advances the simulation by one step, unless it has settled.</summary>
+    /// <remarks>
+    /// **The settle check is the engine's, constant for constant:**
+    ///
+    /// <code>
+    /// #define RAGDOLL_SLEEP_TOLERANCE 1.0f
+    /// static ConVar ragdoll_sleepaftertime( "ragdoll_sleepaftertime", "5.0f", 0,
+    ///     "After this many seconds of being basically stationary, the ragdoll will go to sleep." );
+    ///
+    /// Vector delta = GetRagdollOrigin() - m_vecLastOrigin;
+    /// m_vecLastOrigin = GetRagdollOrigin();
+    /// for ( int i = 0; i &lt; 3; ++i )
+    ///     if ( fabs( delta[ i ] ) &gt; RAGDOLL_SLEEP_TOLERANCE )
+    ///     { m_flLastOriginChangeTime = gpGlobals-&gt;curtime; return; }
+    /// if ( dt &lt; ragdoll_sleepaftertime.GetFloat() ) return;
+    /// PhysForceRagdollToSleep();
+    /// </code>
+    ///
+    /// **Per AXIS and not by distance**, which is the engine's own test and a looser one — a body
+    /// creeping 0.9 units along each of three axes is stationary by this rule.
+    /// `PhysForceRagdollToSleep` then does two things and both matter:
+    /// `PhysForceClearVelocity` ZEROES each body's linear and angular velocity
+    /// (`physics_shared.cpp:917`), and `Sleep()` stops it being integrated.
+    ///
+    /// **This is what stops a corpse wandering off, and its absence was measured.** Dropped on
+    /// `koth_harvest_final`, five real scout ragdolls all reported NEVER SETTLED after ten seconds
+    /// — still moving faster than a unit a second — because nothing here ever brought one to a
+    /// stop. A body that never stops has the rest of the demo to drift, and on `z1800` some of them
+    /// used it to leave the map.
+    /// </remarks>
+    public void Step()
+    {
+        if (Asleep)
+        {
+            return;
+        }
+
+        Environment.Simulate();
+
+        _since += Environment.Step;
+
+        (double X, double Y, double Z) origin = Environment.Bodies.Count > 0
+            ? Environment.Bodies[0].Position
+            : default;
+
+        (double X, double Y, double Z) moved = (
+            origin.X - _origin.X, origin.Y - _origin.Y, origin.Z - _origin.Z);
+
+        _origin = origin;
+
+        if (Math.Abs(moved.X) > SleepTolerance ||
+            Math.Abs(moved.Y) > SleepTolerance ||
+            Math.Abs(moved.Z) > SleepTolerance)
+        {
+            _since = 0f;
+            return;
+        }
+
+        if (_since < SleepAfterTime)
+        {
+            return;
+        }
+
+        Asleep = true;
+
+        for (int index = 0; index < Environment.Bodies.Count; index++)
+        {
+            IvpRigidBody body = Environment.Bodies[index];
+
+            body.Velocity = (0f, 0f, 0f);
+            body.PreviousVelocity = (0f, 0f, 0f);
+            body.AngularVelocity = (0f, 0f, 0f);
+        }
+    }
+
+    /// <summary><c>RAGDOLL_SLEEP_TOLERANCE</c>, `game/client/ragdoll.cpp:265`.</summary>
+    private const double SleepTolerance = 1.0;
+
+    /// <summary><c>ragdoll_sleepaftertime</c>, whose default the same line declares as 5.</summary>
+    private const float SleepAfterTime = 5f;
+
+    private (double X, double Y, double Z) _origin;
+    private float _since;
 
     /// <summary>A hull in the tuple shape the body holds it in.</summary>
     private static (float X, float Y, float Z)[] Points(IReadOnlyList<Vector3> hull)

@@ -440,63 +440,38 @@ public sealed class IvpEnvironment
     /// were touching.
     ///
     /// **The separation term is outside it**, because the engine's post-loop addition is applied
-    /// once — see <see cref="IvpContact.Separate"/>, which is this project's and not Valve's.
+    /// once — see `IvpContact.Separate`, which is this project's and not Valve's.
     /// </remarks>
     private void Resolve(float slice)
     {
-        for (int index = 0; index < _contacts.Count; index++)
-        {
-            _contacts[index].Begin();
-        }
+        // **The whole solve runs once per contact MANIFOLD, not once per touching vertex**, which
+        // is the divergence four separate measurements pointed at before it was fixed.
+        //
+        // **A face resting on a face is ONE contact to IVP.** Its narrow phase returns a
+        // closest-feature pair, so a body lying on the ground is a single mindist carrying a single
+        // arrival impulse, a single separation and a single friction solve. This project tests hull
+        // VERTICES, so the same body arrived as sixteen to thirty-six contacts and every pass ran
+        // that many times — sixteen arrivals, sixteen separations at up to
+        // `IvpContact.MaximumRecovery` each, sixteen friction solves each retuning the spin the
+        // next one measures.
+        //
+        // **Traced on a real scout ragdoll dropped on `koth_harvest_final`** — the `corpse-drop`
+        // probe, which runs this path with no viewer in the way — it produced a permanent limit
+        // cycle: 200 to 350 units a second for ten seconds, the root bouncing between z 2 and z 12,
+        // never decaying and never settling. Not a blow-up, which would have been obvious; a
+        // corpse vibrating on the floor for ever.
+        //
+        // **The three earlier symptoms were all this.** Friction that made a slide FASTER, a
+        // hundred-pass loop that hung the viewer, and one-contact-per-body making penetration
+        // worse: the quantities were the engine's and the set they ran over was ours.
+        _slice = slice;
 
-        // **One pass over the contacts, each running its OWN loop to convergence.** The engine's
-        // hundred-pass bound lives inside a single mindist and this used to wrap it around the
-        // whole set instead — see the remarks.
         Passes = 0;
 
-        for (int index = 0; index < _contacts.Count; index++)
-        {
-            Passes += _contacts[index].Oppose();
-        }
-
-        for (int index = 0; index < _contacts.Count; index++)
-        {
-            _contacts[index].Separate(slice);
-        }
-
         Rub();
-
-        // **Friction belongs here, is written, and is NOT called — and the reason is now known.**
-        // A resting contact takes nothing from `Oppose`, because the engine's approach gate sends
-        // it down the other path entirely, so a landed corpse has nothing opposing a slide: one was
-        // measured sliding at a steady twelve units a second for six seconds. That is a real
-        // missing feature, and `Simulate_WithATerrainSlope_StopsOnTheSurfaceBeneathIt` is red for
-        // it rather than being quietly relaxed.
-        //
-        // **Three forms were tried and every one made the slide FASTER**, which is the finding:
-        //
-        // | form | slide | resting ragdoll |
-        // |---|---|---|
-        // | none | 11.98 | rests |
-        // | per-contact Coulomb, clamped by its own normal impulse | 17.8 | sinks to −4.6 |
-        // | warm-started 2×2, stored pair read as an impulse | 15.8 | sinks to −4.2 |
-        // | warm-started 2×2, stored pair read as a slip velocity | 33.5 | sinks to −4.3 |
-        // | the same 2×2 with NO warm start — pure slip cancellation | 21.3 | sinks to −4.2 |
-        //
-        // **That last row is the one that settles it.** Driving each contact's slip to zero cannot
-        // make a body slide faster; friction is a dissipative operator and there is no arrangement
-        // of the arithmetic in which it adds energy. So the fault is not in the friction formula —
-        // it is in the SET the formula is applied over. Eight vertex contacts each cancelling their
-        // own slip in sequence is not one friction system solved once: each cancellation retunes
-        // the body's spin, and the next contact then measures and cancels a slip the previous one
-        // created.
-        //
-        // **Which is the same divergence three separate measurements have now pointed at** — the
-        // contact set is ours and not the engine's, and the fix is the feature-based narrow phase
-        // and real friction systems, not another pass at this arithmetic. `IvpContact.Rub` stays,
-        // wired out, because its shape is transcribed and correct; what it needs is the right
-        // contacts to run over.
     }
+
+    private float _slice;
 
     /// <summary>Solves friction once per contact MANIFOLD rather than once per hull point.</summary>
     /// <remarks>
@@ -533,8 +508,8 @@ public sealed class IvpEnvironment
                 continue;
             }
 
-            float impulse = contact.Accumulated;
             (float X, float Y, float Z) centre = contact.Arm;
+            float deepest = contact.Depth;
             int count = 1;
 
             for (int other = index + 1; other < _contacts.Count; other++)
@@ -548,17 +523,27 @@ public sealed class IvpEnvironment
                 }
 
                 beside.Rubbed = true;
-                impulse += beside.Accumulated;
+                deepest = MathF.Max(deepest, beside.Depth);
                 centre = (centre.X + beside.Arm.X, centre.Y + beside.Arm.Y, centre.Z + beside.Arm.Z);
                 count++;
             }
 
             contact.Rubbed = true;
 
-            contact.Rub(
-                IvpConstraintGroup.Relaxation,
-                (centre.X / count, centre.Y / count, centre.Z / count),
-                impulse);
+            (float X, float Y, float Z) arm = (
+                centre.X / count, centre.Y / count, centre.Z / count);
+
+            // **The whole solve for this feature, in the engine's order and once each.** The
+            // arrival impulse, then the separation, then friction — `FUN_18008e290` for a pair that
+            // is closing, `FUN_1800857c0` for one that is resting, and one contact per feature
+            // either way.
+            contact.Begin();
+
+            Passes += contact.Oppose(arm);
+
+            contact.Separate(_slice, arm, deepest);
+
+            contact.Rub(IvpConstraintGroup.Relaxation, arm, contact.Accumulated);
         }
     }
 

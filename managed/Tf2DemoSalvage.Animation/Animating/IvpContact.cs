@@ -173,26 +173,33 @@ public sealed class IvpContact
     /// engine runs a server full of ragdolls at sixty-six ticks a second; a transcription that
     /// cannot is not a transcription.
     /// </remarks>
-    public int Oppose()
-    {
-        float effective = EffectiveInverseMass;
+    public int Oppose() => Oppose(Arm);
 
-        if (effective <= FloatEpsilon || Approach > Approaching)
+    /// <summary>The same, run once for a MANIFOLD at its centroid.</summary>
+    /// <param name="arm">The manifold's centroid rather than this point's own arm.</param>
+    /// <remarks>
+    /// **One arrival is one impulse.** Running the loop per touching vertex gives a body as many
+    /// arrival impulses as it has corners on the floor, which is the same over-application the
+    /// friction and separation passes had — see <see cref="Separate(float, ValueTuple{float, float, float}, float)"/>.
+    /// </remarks>
+    public int Oppose((float X, float Y, float Z) arm)
+    {
+        if (InverseMassAlong(Normal, arm) <= FloatEpsilon || Approach > Approaching)
         {
             return 0;
         }
 
         int passes = 0;
 
-        while (passes < MaximumPasses && Closing() < 0f)
+        while (passes < MaximumPasses && Closing(arm) < 0f)
         {
-            (float X, float Y, float Z) direction = Direction();
+            (float X, float Y, float Z) direction = Direction(arm);
 
             // **Priced along the direction it is about to push**, not along the normal. The engine
             // does the same — `FUN_1800770f0` is called AFTER `FUN_180090240` has chosen the
             // direction, so `dVar18`/`dVar19` are the masses along that direction and not along the
             // surface. Using the normal's value here is what made a pass cost less than it charged.
-            float along = InverseMassAlong(direction);
+            float along = InverseMassAlong(direction, arm);
 
             if (along <= FloatEpsilon)
             {
@@ -206,7 +213,7 @@ public sealed class IvpContact
 
             Accumulated += applied;
 
-            Push((direction.X * applied, direction.Y * applied, direction.Z * applied));
+            Push((direction.X * applied, direction.Y * applied, direction.Z * applied), arm);
 
             passes++;
         }
@@ -225,11 +232,28 @@ public sealed class IvpContact
     /// leaks a fraction of the remaining depth back as velocity, once per slice rather than once
     /// per pass — inside the loop it would be multiplied by the pass count.
     /// </remarks>
-    public void Separate(float step)
-    {
-        float effective = EffectiveInverseMass;
+    public void Separate(float step) => Separate(step, Arm, Depth);
 
-        if (effective <= FloatEpsilon || step <= 0f || Depth <= Slop)
+    /// <summary>Pushes a MANIFOLD back out, once, at its centroid.</summary>
+    /// <param name="step">The timestep the depth is spread over.</param>
+    /// <param name="arm">The manifold's centroid, not this point's own arm.</param>
+    /// <param name="depth">The deepest penetration anywhere in the manifold.</param>
+    /// <remarks>
+    /// **Per contact this was the largest energy source in the solve.** Every touching vertex
+    /// pushed independently at up to <see cref="MaximumRecovery"/>, and a corpse lying on the
+    /// ground has sixteen to thirty-six of them — so one slice could hand a body a thousand units
+    /// a second of outward velocity. Traced on a real scout ragdoll dropped on
+    /// `koth_harvest_final`, it produced a permanent limit cycle: 200 to 350 units a second for ten
+    /// seconds, the root bouncing between z 2 and z 12, never decaying and never settling.
+    ///
+    /// **A face resting on a face is ONE contact to IVP**, so one push, and this takes the
+    /// manifold's deepest point because that is the overlap that has to clear.
+    /// </remarks>
+    public void Separate(float step, (float X, float Y, float Z) arm, float depth)
+    {
+        float effective = InverseMassAlong(Normal, arm);
+
+        if (effective <= FloatEpsilon || step <= 0f || depth <= Slop)
         {
             return;
         }
@@ -261,13 +285,13 @@ public sealed class IvpContact
         // makes sense beside the engine's mindist scheduler: IVP never carries an overlap to
         // remove, so its separation term is about bounce and not about depth. Taking half of that
         // design without the other half is worse than either, so this stays ours and says so.
-        float bias = MathF.Min(Recovery * (Depth - Slop) / step, MaximumRecovery);
+        float bias = MathF.Min(Recovery * (depth - Slop) / step, MaximumRecovery);
 
         float applied = bias / effective;
 
         Accumulated += applied;
 
-        Push((Normal.X * applied, Normal.Y * applied, Normal.Z * applied));
+        Push((Normal.X * applied, Normal.Y * applied, Normal.Z * applied), arm);
     }
 
     /// <summary>Opposes sliding at a contact that is resting rather than arriving.</summary>
@@ -485,9 +509,12 @@ public sealed class IvpContact
         (left.X * right.X) + (left.Y * right.Y) + (left.Z * right.Z);
 
     /// <summary>The contact point's speed along the normal — negative while approaching.</summary>
-    private float Closing()
+    private float Closing() => Closing(Arm);
+
+    /// <summary>The same, about a given arm.</summary>
+    private float Closing((float X, float Y, float Z) arm)
     {
-        (float X, float Y, float Z) spin = Cross(Body.AngularVelocity, Arm);
+        (float X, float Y, float Z) spin = Cross(Body.AngularVelocity, arm);
 
         return ((Body.Velocity.X + spin.X) * Normal.X) +
                ((Body.Velocity.Y + spin.Y) * Normal.Y) +
@@ -511,9 +538,9 @@ public sealed class IvpContact
     /// table — `MapSurfaceTable.Materials` — and this uses the body's coefficient, so a corpse
     /// slides the same on ice as on wood.
     /// </remarks>
-    private (float X, float Y, float Z) Direction()
+    private (float X, float Y, float Z) Direction((float X, float Y, float Z) arm)
     {
-        (float X, float Y, float Z) spin = Cross(Body.AngularVelocity, Arm);
+        (float X, float Y, float Z) spin = Cross(Body.AngularVelocity, arm);
 
         (float X, float Y, float Z) moving = (
             Body.Velocity.X + spin.X, Body.Velocity.Y + spin.Y, Body.Velocity.Z + spin.Z);
@@ -562,9 +589,6 @@ public sealed class IvpContact
     }
 
     /// <summary>Adds one impulse's linear and angular halves to the body.</summary>
-    private void Push((float X, float Y, float Z) impulse) => Push(impulse, Arm);
-
-    /// <summary>The same, about a given arm.</summary>
     private void Push((float X, float Y, float Z) impulse, (float X, float Y, float Z) arm)
     {
         Body.Velocity = (
