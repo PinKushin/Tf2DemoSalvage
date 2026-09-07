@@ -331,7 +331,49 @@ public sealed class RagdollBody
     public float[][] Pose(
         IReadOnlyList<(Vector3 Position, Quaternion Orientation)> state, int boneCount)
     {
+        BoneAccessor into = new(Math.Max(boneCount, 0)) { WritableBones = -1, ReadableBones = -1 };
+
+        PoseInto(state, into, new BoneBitList(Math.Max(boneCount, 0)));
+
+        return [.. into.Bones];
+    }
+
+    /// <summary>Writes this ragdoll's bones into an accessor, marking each one it drives.</summary>
+    /// <param name="state">Each element's position and orientation, in element order.</param>
+    /// <param name="into">The accessor to write through.</param>
+    /// <param name="written">Marked for every bone the ragdoll drove.</param>
+    /// <exception cref="ArgumentNullException">Any argument is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="state"/> is not one entry per element.</exception>
+    /// <remarks>
+    /// **`CRagdoll::RagdollBone`, `ragdoll.cpp:166`**, which is four lines and a mark:
+    ///
+    /// <code>
+    /// for ( int i = 0; i &lt; m_ragdoll.listCount; i++ )
+    ///     if ( RagdollGetBoneMatrix( m_ragdoll, pBoneToWorld, i ) )
+    ///         boneSimulated[m_ragdoll.boneIndex[i]] = true;
+    /// </code>
+    ///
+    /// **The mark is the whole mechanism.** `BuildTransformations` runs this BEFORE the bone merge
+    /// and before the per-bone animation loop, into the same array, and the loop skips a bone
+    /// already marked (`c_baseanimating.cpp:1473-1519`). So a simulated bone is never computed from
+    /// an animation and then overwritten — it is simply not computed.
+    ///
+    /// **The caller must widen the accessor first.** The engine sets both masks to
+    /// `BONE_USED_BY_ANYTHING` around this call and restores them after, because a ragdoll drives
+    /// bones outside whatever mask the draw asked for.
+    ///
+    /// **A bone marked here is marked even when its matrix could not be written** — an element
+    /// naming a bone the model does not have. That matches `RagdollGetBoneMatrix` returning false
+    /// and the mark being skipped, so the animation still fills it.
+    /// </remarks>
+    public void PoseInto(
+        IReadOnlyList<(Vector3 Position, Quaternion Orientation)> state,
+        BoneAccessor into,
+        BoneBitList written)
+    {
         ArgumentNullException.ThrowIfNull(state);
+        ArgumentNullException.ThrowIfNull(into);
+        ArgumentNullException.ThrowIfNull(written);
 
         if (state.Count != Elements.Count)
         {
@@ -339,28 +381,20 @@ public sealed class RagdollBody
                 "A ragdoll is posed with one state per element.", nameof(state));
         }
 
-        float[][] bones = new float[Math.Max(boneCount, 0)][];
-
-        for (int bone = 0; bone < bones.Length; bone++)
-        {
-            bones[bone] = [1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f];
-        }
-
         bool[] done = new bool[Elements.Count];
 
         for (int element = 0; element < Elements.Count; element++)
         {
-            Fill(element, state, bones, done);
+            Fill(element, state, into, done, written);
         }
-
-        return bones;
     }
 
     private void Fill(
         int element,
         IReadOnlyList<(Vector3 Position, Quaternion Orientation)> state,
-        float[][] bones,
-        bool[] done)
+        BoneAccessor bones,
+        bool[] done,
+        BoneBitList written)
     {
         if (done[element])
         {
@@ -373,7 +407,7 @@ public sealed class RagdollBody
 
         RagdollElement body = Elements[element];
 
-        if (body.BoneIndex < 0 || body.BoneIndex >= bones.Length)
+        if (body.BoneIndex < 0 || body.BoneIndex >= bones.Count)
         {
             return;
         }
@@ -383,34 +417,40 @@ public sealed class RagdollBody
         StudioBones.FromQuaternion(
             (orientation.X, orientation.Y, orientation.Z, orientation.W),
             (position.X, position.Y, position.Z),
-            bones[body.BoneIndex]);
+            bones.BoneForWrite(body.BoneIndex));
+
+        // `boneSimulated[m_ragdoll.boneIndex[i]] = true` — marked once the matrix is written, so a
+        // bone the ragdoll could not place is left for the animation rather than claimed and left
+        // at identity.
+        written.Mark(body.BoneIndex);
 
         if (body.ParentIndex < 0 || body.ParentIndex >= Elements.Count)
         {
             return;
         }
 
-        Fill(body.ParentIndex, state, bones, done);
+        Fill(body.ParentIndex, state, bones, done, written);
 
         int parentBone = Elements[body.ParentIndex].BoneIndex;
 
-        if (parentBone < 0 || parentBone >= bones.Length)
+        if (parentBone < 0 || parentBone >= bones.Count)
         {
             return;
         }
 
         // `VectorTransform( element.originParentSpace, parentBoneToWorld, out )` — the whole
         // matrix, so a rotated parent carries its child around with it.
-        float[] parent = bones[parentBone];
+        float[] parent = bones.BoneForWrite(parentBone);
+        float[] child = bones.BoneForWrite(body.BoneIndex);
         Vector3 offset = body.OriginParentSpace;
 
-        bones[body.BoneIndex][3] =
+        child[3] =
             (parent[0] * offset.X) + (parent[1] * offset.Y) + (parent[2] * offset.Z) + parent[3];
 
-        bones[body.BoneIndex][7] =
+        child[7] =
             (parent[4] * offset.X) + (parent[5] * offset.Y) + (parent[6] * offset.Z) + parent[7];
 
-        bones[body.BoneIndex][11] =
+        child[11] =
             (parent[8] * offset.X) + (parent[9] * offset.Y) + (parent[10] * offset.Z) + parent[11];
     }
 
