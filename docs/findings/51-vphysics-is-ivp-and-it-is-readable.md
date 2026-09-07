@@ -2435,3 +2435,45 @@ the one case where the habit of dumping feels redundant.
 *Evidence class: read from the decompiled binary for the conversion constants, the three bound
 treatments, the movable-axis count and the hinge fork, with every constant in them dumped this time;
 the joint ranges are MEASURED off the shipped `.phy` files.*
+
+## The two swing deflections, traced to the vectors they dot
+
+`FUN_180038620` takes each body's rotation rows (`FUN_180037620`, one call per body) and rotates
+three stored constraint axes through them:
+
+| constraint field | rotated by | cached at | used by |
+|---|---|---|---|
+| `+0x30` | body A | `geom+0x120` | the `flags+0xcc` axis |
+| `+0x50` | body A | `geom+0x140` | the `flags+0xe8` axis |
+| `+0x70` | body B | `geom+0x130` | the shared basis for both |
+
+and the two deflections are dots against that shared body-B vector:
+
+```c
+fVar17 = fVar44 * fVar48 + fVar43 * fVar47 + fVar45 * fVar49;   // B[+0x70] · A[+0x30]
+fVar21 = fVar44 * fVar41 + fVar43 * fVar40 + fVar45 * fVar42;   // B[+0x70] · A[+0x50]
+```
+
+**Where those three fields come from settles what kind of quantity each dot is.**
+`FUN_1800393d0` writes the descriptor's two frames row by row under the axis permutation — frame A's
+rows for `uVar20`, `iVar19`, `iVar16` at descriptor `0x00`, `0x10`, `0x20`, and frame B's same three
+rows at `0x40`, `0x50`, `0x60` — and `FUN_180037890` copies those to constraint `+0x30`, `+0x40`,
+`+0x50` and `+0x70`, `+0x80`, `+0x90`. So:
+
+- `fVar17` dots **the same axis index taken from the two different frames**, and
+- `fVar21` dots **two different axis indices**, one from each frame.
+
+**Two different axes of an orthonormal frame are perpendicular, so the second dot is a SINE**; the
+same axis from two frames is a cosine unless the frames are built a quarter turn apart. That is the
+whole remaining question, and it is now a small one: what `FUN_180032740` and `FUN_180033720` put in
+`local_2d8` and `local_2a8`.
+
+**It matters because the two answers are visibly different.** A sine compared against a radian bound
+tightens the limit as the angle grows — four per cent at 25°, twenty-nine at 79° — which is a corpse
+whose big joints stop short. A cosine compared against a radian bound would clamp constantly, which
+is a corpse locked rigid. The bounds are the same either way, so nothing in the output distinguishes
+them except how the body looks.
+
+*Evidence class: read from the decompiled binary for the rotation sites, the cache offsets, the two
+dot products and the descriptor-to-constraint copy; what the two FRAMES are is the one unread step,
+and whether each dot is a sine or a cosine follows from it.*
