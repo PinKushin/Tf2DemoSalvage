@@ -294,6 +294,9 @@ public sealed class IvpEnvironment
         int checks = 0;
         int walked = 0;
 
+        Passes = 0;
+        Split = (0f, 0f, 0f);
+
         // **The walk is bounded by the number of SLICES as well as by the check count, and that
         // second bound is not a belt-and-braces addition — without it this loop does not
         // terminate.** `checks` counts sweeps, and a sweep only happens for a body that is not
@@ -323,6 +326,19 @@ public sealed class IvpEnvironment
         {
             Move(remaining);
         }
+
+        // **The friction system is solved ONCE per PSI**, after the interval has been walked —
+        // `FUN_1800836b0` walks each system exactly once, where `FUN_18008e290` fires per event
+        // inside it. Running this per slice gave it several bites at one tick and left the slip it
+        // carries forward several corrections stale.
+        _slice = Step;
+
+        for (int index = 0; index < _contacts.Count; index++)
+        {
+            _contacts[index].Rubbed = false;
+        }
+
+        Rub();
 
         Gained = (Gained.Gravity, Gained.Joints, Energy() - Gained.Contacts);
     }
@@ -429,10 +445,15 @@ public sealed class IvpEnvironment
             }
         }
 
-        // **Nothing to hit in the rest of the interval: take it whole.** The contacts found above
-        // are still solved, because a body already resting on a surface has a contact at zero
-        // distance and no impact time at all.
-        Resolve(remaining);
+        // **Only the ARRIVALS are solved per slice, because only they are events.** IVP's PSI
+        // walks the interval firing mindist events, and an impact is one; the friction system is
+        // solved ONCE per PSI by `FUN_1800836b0` and not once per event. Running the resting solve
+        // every slice gave it several bites at the same tick, and the state it carries forward went
+        // stale between them: the stored slip a warm start reads back was several corrections
+        // behind the live one, which measured as friction acting as a motor.
+        _slice = remaining;
+
+        Arrive();
 
         // **Two ways a slice must become the WHOLE remainder, and both were escapes before.**
         //
@@ -499,7 +520,9 @@ public sealed class IvpEnvironment
     /// **The separation term is outside it**, because the engine's post-loop addition is applied
     /// once — see `IvpContact.Separate`, which is this project's and not Valve's.
     /// </remarks>
-    private void Resolve(float slice)
+    /// <summary>Records which sub-interval a depth is spread over — see the remarks above.</summary>
+    /// <param name="slice">The sub-interval this walk is about to take.</param>
+    public void Resolve(float slice)
     {
         // **The whole solve runs once per contact MANIFOLD, not once per touching vertex**, which
         // is the divergence four separate measurements pointed at before it was fixed.
@@ -522,11 +545,6 @@ public sealed class IvpEnvironment
         // hundred-pass loop that hung the viewer, and one-contact-per-body making penetration
         // worse: the quantities were the engine's and the set they ran over was ours.
         _slice = slice;
-
-        Passes = 0;
-        Split = (0f, 0f, 0f);
-
-        Rub();
     }
 
     private float _slice;
@@ -555,7 +573,19 @@ public sealed class IvpEnvironment
     /// What this does is give the friction solve the cardinality the engine's has, which is the
     /// part the measurement showed was wrong.
     /// </remarks>
-    private void Rub()
+    /// <summary>Kills the approach of every contact that is arriving — the per-EVENT half.</summary>
+    /// <remarks>
+    /// **An impact is an event and the friction system is not.** IVP fires a mindist event when a
+    /// pair arrives and solves that pair there (`FUN_18008e290`), and separately walks every
+    /// friction system exactly once per PSI (`FUN_1800836b0`). This is the first of those, so it
+    /// runs inside the interval walk where arrivals happen; <see cref="Rub"/> is the second and
+    /// runs once.
+    /// </remarks>
+    private void Arrive() => Manifolds(arriving: true);
+
+    private void Rub() => Manifolds(arriving: false);
+
+    private void Manifolds(bool arriving)
     {
         for (int index = 0; index < _contacts.Count; index++)
         {
@@ -595,15 +625,23 @@ public sealed class IvpEnvironment
             (float X, float Y, float Z) arm = contact.Steady(
                 (centre.X / count, centre.Y / count, centre.Z / count));
 
-            // **The whole solve for this feature, in the engine's order and once each.** The
-            // arrival impulse, then the separation, then friction — `FUN_18008e290` for a pair that
-            // is closing, `FUN_1800857c0` for one that is resting, and one contact per feature
-            // either way.
-            contact.Begin();
+            // **The arrival is an EVENT and the resting solve is not**, so the two halves run at
+            // different rates: `FUN_18008e290` fires per mindist event inside the PSI, and
+            // `FUN_1800836b0` walks every friction system exactly once per PSI. Running both every
+            // slice gave the resting half several bites at one tick and left the state it carries
+            // forward several corrections behind — measured as friction acting as a motor.
+            if (arriving)
+            {
+                contact.Begin();
 
-            float start = Energy();
+                float before = Energy();
 
-            Passes += contact.Oppose(arm);
+                Passes += contact.Oppose(arm);
+
+                Split = (Split.Oppose + (Energy() - before), Split.Separate, Split.Rub);
+
+                continue;
+            }
 
             float opposed = Energy();
 
@@ -629,7 +667,7 @@ public sealed class IvpEnvironment
             contact.Rub(IvpConstraintGroup.Relaxation, arm, contact.Accumulated);
 
             Split = (
-                Split.Oppose + (opposed - start),
+                Split.Oppose,
                 Split.Separate + (separated - opposed),
                 Split.Rub + (Energy() - separated));
         }
