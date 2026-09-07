@@ -83,6 +83,22 @@ public sealed class IvpRigidBody
     /// </remarks>
     public float InverseMass { get; set; } = 1f;
 
+    /// <summary>How fast this body loses speed — <c>core+0x50</c>, the <c>.phy</c>'s <c>damping</c>.</summary>
+    /// <remarks>
+    /// **Zero on every element of every TF2 ragdoll**, measured — so this is the term that does
+    /// nothing for a corpse and everything for a prop. Carried because the engine has it.
+    /// </remarks>
+    public float Damping { get; set; }
+
+    /// <summary>How fast it loses spin — <c>core+0x30/0x34/0x38</c>, the <c>rotdamping</c>.</summary>
+    /// <remarks>
+    /// **IVP holds three of these and Valve supplies one.** `core+0x30` is a per-axis vector and
+    /// `objectparams_t::rotdamping` is a scalar, so the engine writes the same number into all
+    /// three lanes; a scalar here is that, not a simplification of it. It matters for a corpse:
+    /// rotational damping runs 4 to 16 per joint across the game's ragdolls.
+    /// </remarks>
+    public float RotationDamping { get; set; }
+
     /// <summary>This body's coefficient of friction — its surface's, from the game's own table.</summary>
     /// <remarks>
     /// **`surfacephysicsparams_t::friction`**, looked up by the `surfaceprop` its `.phy` solid

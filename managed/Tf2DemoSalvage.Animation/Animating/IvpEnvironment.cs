@@ -166,6 +166,12 @@ public sealed class IvpEnvironment
     /// </remarks>
     public void Simulate()
     {
+        // **Damping first, then gravity, because that is the order the engine calls them in.**
+        // `FUN_180074c80` makes its two helper calls — of which `FUN_180078250` is this — and only
+        // then adds `g * dt`. Damping the velocity gravity has already contributed this step would
+        // scale the step's own acceleration, which the engine does not do.
+        IvpDamping.Apply(_bodies, Step);
+
         IvpGravity.Apply(_bodies, Gravity, Step, AlternateGravity);
 
         // **Contacts are found against the CURRENT positions and solved beside the joints**, which

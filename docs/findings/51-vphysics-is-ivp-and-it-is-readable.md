@@ -2019,6 +2019,55 @@ measure.
 *Evidence class: measured, with the camera's independently-built world as the control and its own
 confound stated.*
 
+### Damping, read — and it is what the gravity note said was missing
+
+**`IvpGravity`'s own remarks named two unread calls and one of them is the damping.**
+`FUN_180074c80` makes `FUN_180078250(core, dt)` and `FUN_180077950(core)` before adding `g·dt`,
+inside the same `0x10` gate. The first fetches the terms and the second is still unread.
+
+```c
+void FUN_180078250(longlong core, double dt)
+{
+  if (1 < *(byte *)(core + 1)) {
+    local_18 = *(float *)(core + 0x30) + DAT_1800ea968;   // 0.1
+    local_10 = *(float *)(core + 0x38) + DAT_1800ea968;
+    local_14 = *(float *)(core + 0x34) + DAT_1800ea968;
+    FUN_180077a20(core, dt, &local_18, (double)(*(float *)(core + 0x50) + DAT_1800ea968));
+    return;
+  }
+  FUN_180077a20(core, dt, (float *)(core + 0x30), (double)*(float *)(core + 0x50));
+}
+```
+
+So **`core+0x30/0x34/0x38` is a three-axis rotation damping and `core+0x50` a single speed
+damping**, which is exactly the pair a `.phy` spells as `rotdamping` and `damping`.
+
+`FUN_180077a20` applies them:
+
+| what | when | factor |
+|---|---|---|
+| angular, per axis | `Σ (rot·dt)² ≥ 0.5` | `exp(−rot·dt)` |
+| angular, per axis | below that | `1 − rot·dt` |
+| linear | `speed·dt ≥ 0.25` | `exp(−speed·dt)` |
+| linear | below that | `1 − speed·dt` |
+
+writing the first into `core+0x130/0x134/0x138` and the second into `core+0x140/0x144/0x148`.
+
+**Which of those is angular is read from the other side rather than assumed**: gravity accumulates
+into `+0x140`, and an acceleration is added to a linear velocity.
+
+**Every constant settled in the disassembly**, per
+`docs/memory/settle-a-constant-in-the-disassembly.md`: `DAT_1800ea984` = `0.5`, `DAT_1800ea988` =
+`1.0`, `DAT_1800efdf8` = `0.25` (double), `DAT_1800ea9b8` = `1.0` (double), and both XOR masks are
+sign bits — which is what makes those calls `exp(−x)` rather than `exp(x)`.
+
+**Still open:** the byte at `core+1`. When it is 2 or more, every damping term gains `0.1` — the
+same `0.1` as `g_PhysDefaultObjectParams`, which is suggestive and is not evidence. Nothing traced
+writes it. `FUN_180077950(core)` remains unread.
+
+*Evidence class: read from the decompiled binary, with every constant re-read in the disassembly;
+the angular/linear split is differential against the gravity site.*
+
 ### The point array
 
 Sixteen-byte stride at `ledge + c_point_offset`: three little-endian floats and four bytes that were

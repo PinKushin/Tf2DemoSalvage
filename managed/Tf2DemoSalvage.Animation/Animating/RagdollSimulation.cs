@@ -139,6 +139,12 @@ public sealed class RagdollSimulation
                 // **The game's own number for what this body is made of.** Every player element
                 // says `flesh`; a prop says whatever its `.phy` declares.
                 Friction = surfaces.FrictionOf(element.SurfaceProp),
+
+                // **Both damping terms, which the `.phy` has carried since it was first read and
+                // nothing applied** — see `IvpDamping`. Linear is zero on every TF2 ragdoll
+                // element and rotational runs 4 to 16, so this is what stops a corpse spinning.
+                Damping = element.Damping,
+                RotationDamping = element.RotationDamping,
             };
 
             environment.Add(bodies[index]);
