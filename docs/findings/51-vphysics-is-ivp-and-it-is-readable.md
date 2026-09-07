@@ -2068,6 +2068,50 @@ writes it. `FUN_180077950(core)` remains unread.
 *Evidence class: read from the decompiled binary, with every constant re-read in the disassembly;
 the angular/linear split is differential against the gravity site.*
 
+### The PSI's phases, and the lookahead used as a DISTANCE GATE
+
+**`FUN_180082560` was read as a call list; here it is as phases.** The `(**...)(profiler, N)` calls
+number the stages, so the structure is not guesswork:
+
+| phase | call | what |
+|---|---|---|
+| 1 | the `env+0x158[]` reverse loop, slot 0 per entry | the controller list — gravity is one of these |
+| 2 | `FUN_180075a90(env+0x10, psi, buffer)` | collect into a 0x80-entry buffer |
+| 3 | `FUN_18009a590(psi, buffer1, buffer2)` | buffer 1 in, buffer 2 out |
+| 4 | `FUN_18009a690(psi, buffer2)` | the contact-pair re-check scheduler |
+| 5 | `FUN_1800983e0(env+0x20)` | walk the mindist list, `FUN_180095cb0` per record |
+| 6 | `FUN_1800985a0(env+0x20)` | walk it again, `FUN_180099380(record, 1, 1)` per record |
+
+**`FUN_180099380` is where the lookahead is spent, and it settles what the parameter MEANS:**
+
+```c
+local_a8 = (double)(*(float *)(lVar3 + 0x254) + *(float *)(lVar2 + 0x254));
+local_90 = (double)*(float *)(lVar2 + 0x1dc) + local_a8 + (double)*(float *)(lVar3 + 0x1dc);
+…
+dVar5  = (double)*(float *)(&DAT_18012d548 + (ulonglong)(byte)(uVar6 >> 0x16) * 4);   // margin
+dVar13 = (double)*(float *)(param_1 + 0xa8);                                          // distance
+if ((double)(float)*(double *)(lVar4 + 0x108) * local_90 * _DAT_1800f5108 + dVar5 < dVar13) {
+    … reschedule …
+} else {
+    … escalate: FUN_180098dd0 … 
+}
+```
+
+So a pair is EXAMINED when its distance falls below `lookAheadTime × (a per-core speed bound summed
+over both) + the material margin`. **The lookahead is a gate on when to look, not a force applied
+early** — which is what `lookAheadTimeObjectsVsWorld = 1.0f` means in practice, and it is why
+transcribing the prediction as an impulse stopped a falling body dead sixty-six units above a floor.
+
+`lVar4+0x108` is the environment's own lookahead time; the margin table `DAT_18012d548` is the
+256-entry per-material float already noted above, whose base `DAT_18012d664` dumps as `0.0`.
+
+**Still unread: `FUN_180098dd0`**, the escalation — and with it the point where a contact record
+finally becomes an impulse. That remains the gap named under *Contact response is accumulated, not
+applied*.
+
+*Evidence class: read from the decompiled binary; the phase numbering is read from the profiler
+argument rather than inferred.*
+
 ### The point array
 
 Sixteen-byte stride at `ledge + c_point_offset`: three little-endian floats and four bytes that were
