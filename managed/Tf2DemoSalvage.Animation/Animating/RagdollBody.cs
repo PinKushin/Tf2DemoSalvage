@@ -66,6 +66,17 @@ public readonly record struct RagdollAxes(Vector3 X, Vector3 Y, Vector3 Z)
 /// <param name="Damping">Linear damping.</param>
 /// <param name="RotationDamping">Angular damping.</param>
 /// <param name="Volume">The hull's volume, which is the only size the text carries.</param>
+/// <param name="Hull">
+/// **The solid's collision points, in this element's OWN space and in Source units.** The `.phy`
+/// carries them in the model's reference frame and in IVP metres — measured, not assumed: a medic's
+/// pelvis hull has a bounding radius of 0.236, which is nine inches of limb and not a quarter of an
+/// inch. They are brought into bone space by the bone's `poseToBone`, because that is the frame the
+/// body's own transform is expressed in; leaving them in model space would put every limb's
+/// collision at the model origin.
+///
+/// Empty when the `.phy` carries no readable hull for this solid, which makes a body that cannot
+/// collide rather than one that collides wrongly.
+/// </param>
 public readonly record struct RagdollElement(
     int BoneIndex,
     int ParentIndex,
@@ -75,7 +86,8 @@ public readonly record struct RagdollElement(
     float Inertia,
     float Damping,
     float RotationDamping,
-    float Volume);
+    float Volume,
+    IReadOnlyList<Vector3> Hull);
 
 /// <summary>
 /// A model's ragdoll: the rigid bodies its <c>.phy</c> declares and the joints between them (B58).
@@ -265,7 +277,8 @@ public sealed class RagdollBody
                 solid.Inertia,
                 solid.Damping,
                 solid.RotationDamping,
-                solid.Volume);
+                solid.Volume,
+                HullInBoneSpace(physics, index, bones[bone]));
         }
 
         foreach (RagdollConstraint constraint in physics.Constraints)
@@ -460,6 +473,45 @@ public sealed class RagdollBody
     /// `stricmp` (`bone_setup.cpp`), and a `.phy` is authored by hand where the `.mdl`'s bone names
     /// come from the compiler.
     /// </remarks>
+    /// <summary>One solid's hull points, converted and moved into its bone's space.</summary>
+    /// <remarks>
+    /// **Two changes of frame in one place, deliberately.** IVP metres become Source units, and the
+    /// model's reference frame becomes the bone's — the same seam, and splitting it would leave a
+    /// half-converted hull that is wrong by a factor of thirty-nine somewhere in between
+    /// ([[ivp-is-a-third-convention]]).
+    ///
+    /// **`poseToBone` is the bind-pose inverse the model already carries**, so nothing here rebuilds
+    /// a transform that the `.mdl` states. A bone whose matrix is missing yields no hull rather than
+    /// an unconverted one.
+    /// </remarks>
+    private static List<Vector3> HullInBoneSpace(
+        PhysicsModel physics, int solid, StudioBone bone)
+    {
+        if (solid >= physics.Hulls.Count || bone.PoseToBone.Length < 12)
+        {
+            return [];
+        }
+
+        ReadOnlySpan<float> matrix = bone.PoseToBone.Span;
+
+        List<Vector3> hull = [];
+
+        foreach (PhysicsLedge ledge in physics.Hulls[solid])
+        {
+            foreach (Vector3 point in ledge.Points)
+            {
+                Vector3 inModel = point * IvpWorldCollision.SourceUnitsPerMetre;
+
+                hull.Add(new Vector3(
+                    (matrix[0] * inModel.X) + (matrix[1] * inModel.Y) + (matrix[2] * inModel.Z) + matrix[3],
+                    (matrix[4] * inModel.X) + (matrix[5] * inModel.Y) + (matrix[6] * inModel.Z) + matrix[7],
+                    (matrix[8] * inModel.X) + (matrix[9] * inModel.Y) + (matrix[10] * inModel.Z) + matrix[11]));
+            }
+        }
+
+        return hull;
+    }
+
     private static int BoneIndexByName(IReadOnlyList<StudioBone> bones, string name)
     {
         for (int bone = 0; bone < bones.Count; bone++)

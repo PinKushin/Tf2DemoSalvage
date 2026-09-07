@@ -474,6 +474,22 @@ public sealed class MomentScene : IGameSystemPerFrame
         int unjudged = _models.Unjudgeable;
         int posed = _models.Posed;
 
+        // **Where the SOLVER put each corpse, which is the only thing that can aim a camera at
+        // one** (B58). A corpse's wire position is where it died; after physics it is somewhere
+        // else, and that is the feature. Debug level, so it costs nothing when nobody is looking.
+        if (_models.Corpses.Count > 0 && _render.IsEnabled(LogLevel.Debug))
+        {
+            foreach ((int entity, System.Numerics.Vector3 root) in _models.Corpses.Roots)
+            {
+                _render.LogDebug(
+                    "corpse {Entity} settled at {X} {Y} {Z}",
+                    entity,
+                    root.X.ToString("0.#", CultureInfo.InvariantCulture),
+                    root.Y.ToString("0.#", CultureInfo.InvariantCulture),
+                    root.Z.ToString("0.#", CultureInfo.InvariantCulture));
+            }
+        }
+
         // **Timed apart from the counters above, because the pose phase spans this too.** They are
         // read across `Instances` alone, so every millisecond spent building the viewmodel scene was
         // landing in the "bones" column — which is arrived at by subtraction, and a derived column

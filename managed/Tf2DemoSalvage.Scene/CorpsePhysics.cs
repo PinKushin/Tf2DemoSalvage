@@ -36,6 +36,14 @@ public sealed class CorpsePhysics
     /// <summary>How many corpses are being simulated.</summary>
     public int Count => _running.Count;
 
+    /// <summary>The map every corpse falls onto, or null before one is loaded.</summary>
+    /// <remarks>
+    /// **Set when the map changes, and a simulation reads it at seed time.** A corpse created
+    /// before the world arrives would fall through it for its whole life, so
+    /// <see cref="Clear"/> — which a map change calls anyway — is what makes that impossible.
+    /// </remarks>
+    public IvpWorldCollision? World { get; set; }
+
     /// <summary>How many were rebuilt from death because the tick could not be reached forwards.</summary>
     /// <remarks>
     /// **Counted because a seek is the expensive case and nothing else would say it happened.**
@@ -48,8 +56,23 @@ public sealed class CorpsePhysics
     /// <summary>How many steps have been run, across all corpses.</summary>
     public int Steps { get; private set; }
 
+    /// <summary>Where the simulation has put each corpse's root body, by entity index.</summary>
+    /// <remarks>
+    /// **Carried out of the solver rather than recomputed** (B243). A corpse's simulated position is
+    /// not its wire position — that is the entire point of simulating it — so pointing a camera at
+    /// what the demo said, which is what `docs/memory/point-the-camera-from-the-data.md` otherwise
+    /// prescribes, aims at where the body was when it died and not at where it is.
+    /// </remarks>
+    public IReadOnlyDictionary<int, Vector3> Roots => _roots;
+
+    private readonly Dictionary<int, Vector3> _roots = [];
+
     /// <summary>Forgets every simulation — a new demo, or a map change.</summary>
-    public void Clear() => _running.Clear();
+    public void Clear()
+    {
+        _running.Clear();
+        _roots.Clear();
+    }
 
     /// <summary>Brings one corpse's simulation up to a tick, creating it if needed.</summary>
     /// <param name="entityIndex">The index the corpse is drawn under.</param>
@@ -58,6 +81,10 @@ public sealed class CorpsePhysics
     /// <param name="tick">The tick being drawn.</param>
     /// <param name="interval">Seconds per tick.</param>
     /// <param name="seconds">Playback time, for the pose that seeds a new simulation.</param>
+    /// <param name="bornAt">
+    /// The tick this corpse died, so a seek simulates it forward from there rather than seeding it
+    /// standing at whatever tick it was first drawn at. Null falls back to that drawn tick.
+    /// </param>
     /// <returns><c>true</c> when the entity now has a simulation attached.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
@@ -73,7 +100,8 @@ public sealed class CorpsePhysics
         AnimatingEntity entity,
         int tick,
         float interval,
-        double seconds)
+        double seconds,
+        int? bornAt = null)
     {
         ArgumentNullException.ThrowIfNull(ragdoll);
         ArgumentNullException.ThrowIfNull(entity);
@@ -87,7 +115,15 @@ public sealed class CorpsePhysics
             // **A tick before this corpse existed cannot be reached by stepping forward**, so the
             // simulation is discarded rather than run backwards. The same branch covers a seek to
             // a different part of the demo entirely.
-            live = Seed(entityIndex, ragdoll, entity, tick, interval, seconds);
+            // **Seeded at DEATH, not at the tick being drawn, and that is the whole of seeking.**
+            // A corpse opened at tick 14,270 having died at 14,100 is not a corpse standing in its
+            // death pose; it is one that has had 170 ticks of physics. Falling back to the drawn
+            // tick keeps a corpse whose birth the timeline did not record from being seeded in the
+            // past, which would replay the whole demo's worth of steps.
+            int birth = bornAt is { } known && known <= tick ? known : tick;
+
+            live = Seed(
+                entityIndex, ragdoll, entity, birth, interval, seconds - ((tick - birth) * interval));
 
             if (live is null)
             {
@@ -107,6 +143,13 @@ public sealed class CorpsePhysics
         }
 
         entity.Ragdoll = live.Write;
+
+        if (live.Simulation.Environment.Bodies.Count > 0)
+        {
+            (double x, double y, double z) = live.Simulation.Environment.Bodies[0].Position;
+
+            _roots[entityIndex] = new Vector3((float)x, (float)y, (float)z);
+        }
 
         // **`C_ClientRagdoll::LastBoneChangedTime()` returns the physics update time**
         // (`c_baseanimating.cpp:587`), which `CRagdoll::VPhysicsUpdate` advances only while the
@@ -183,8 +226,11 @@ public sealed class CorpsePhysics
                 new Vector3(matrix[3], matrix[7], matrix[11]), new Quaternion(x, y, z, w));
         }
 
-        Running live = new(
-            RagdollSimulation.Create(ragdoll, interval, start), tick, tick);
+        RagdollSimulation simulation = RagdollSimulation.Create(ragdoll, interval, start);
+
+        simulation.Environment.World = World;
+
+        Running live = new(simulation, tick, tick);
 
         _running[entityIndex] = live;
         Rebuilds++;

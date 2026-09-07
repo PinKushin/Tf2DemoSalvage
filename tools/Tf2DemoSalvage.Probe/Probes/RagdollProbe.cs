@@ -154,8 +154,16 @@ public sealed class RagdollProbe : IProbe
                 points += ledge.Points.Count;
             }
 
+            float extent = 0f;
+
+            foreach (PhysicsLedge ledge in physics.Hulls[solid])
+            {
+                extent = Math.Max(extent, ledge.Radius);
+            }
+
             output.WriteLine(
-                $"    hull {solid}: {ledges} ledges, {triangles} triangles, {points} points");
+                $"    hull {solid}: {ledges} ledges, {triangles} triangles, {points} points, " +
+                $"radius {extent:0.###}");
         }
 
         foreach (RagdollElement element in body.Elements)

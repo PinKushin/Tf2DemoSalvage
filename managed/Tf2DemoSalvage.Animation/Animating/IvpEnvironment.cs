@@ -86,6 +86,23 @@ public sealed class IvpEnvironment
     /// </remarks>
     public IvpConstraintGroup Constraints { get; } = new();
 
+    /// <summary>The static world these bodies collide with, or null when there is none.</summary>
+    /// <remarks>
+    /// **Null is a legitimate state and not a missing input.** Every test of the solve that predates
+    /// collision runs without a world, and a ragdoll in mid-air genuinely has nothing to touch.
+    /// </remarks>
+    public IvpWorldCollision? World { get; set; }
+
+    /// <summary>This step's contacts, rebuilt each time rather than carried.</summary>
+    /// <remarks>
+    /// **Not persistent, and the engine's ARE** — `FUN_18008d0c0` caches its record at
+    /// `mindist+0x70` and keeps it while the pair stays close. That persistence is what lets an
+    /// accumulated impulse warm-start the next step, so a stack settles in fewer iterations; here
+    /// each step starts from zero, which costs iterations rather than correctness. Filed as a
+    /// departure rather than left to look deliberate.
+    /// </remarks>
+    private readonly List<IvpContact> _contacts = [];
+
     /// <summary>Adds a body, starting its clock at the current time.</summary>
     /// <param name="body">The body.</param>
     /// <exception cref="ArgumentNullException"><paramref name="body"/> is null.</exception>
@@ -121,7 +138,30 @@ public sealed class IvpEnvironment
     {
         IvpGravity.Apply(_bodies, Gravity, Step, AlternateGravity);
 
+        // **Contacts are found against the CURRENT positions and solved beside the joints**, which
+        // is the order the engine runs: the mindist system re-checks its pairs, the contact records
+        // exist before the solve, and the integrator reads whatever the solve left. Finding them
+        // after integration instead would resolve last step's penetration one step late, and a
+        // corpse would sink a little further into the floor every step before being pushed back.
+        _contacts.Clear();
+
+        for (int index = 0; index < _bodies.Count; index++)
+        {
+            IvpContact.Find(_bodies[index], World, _contacts);
+        }
+
         Constraints.Solve();
+
+        // **The same iteration count the joints get.** A contact and a joint limit are the same
+        // kind of unilateral constraint, and splitting them across two loops with different counts
+        // would let one win every argument with the other.
+        for (int pass = 0; pass < Constraints.Iterations; pass++)
+        {
+            for (int index = 0; index < _contacts.Count; index++)
+            {
+                _contacts[index].Solve(Step);
+            }
+        }
 
         Now += Step;
 

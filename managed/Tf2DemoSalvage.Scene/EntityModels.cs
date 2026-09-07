@@ -4568,7 +4568,8 @@ public sealed class EntityModelSet : IModelBodygroups
                         animating,
                         (int)(seconds / IntervalPerTick),
                         IntervalPerTick,
-                        seconds);
+                        seconds,
+                        prop.FirstTick);
                 }
 
                 long setupAt = System.Diagnostics.Stopwatch.GetTimestamp();

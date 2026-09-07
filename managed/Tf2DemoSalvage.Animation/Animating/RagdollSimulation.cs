@@ -111,6 +111,14 @@ public sealed class RagdollSimulation
                 WorkingOrientation = (orientation.X, orientation.Y, orientation.Z, orientation.W),
                 Inertia = (inertia, inertia, inertia),
                 InverseInertia = (1f / inertia, 1f / inertia, 1f / inertia),
+
+                // **`objectparams_t::mass`, and it only starts mattering once something is
+                // touched.** The constraint solve is entirely angular, so a body's mass was
+                // unobservable until contacts arrived — which is why it is added here rather than
+                // having been carried all along.
+                InverseMass = element.Mass > MinimumInertia ? 1f / element.Mass : 0f,
+
+                Hull = Points(element.Hull),
             };
 
             environment.Add(bodies[index]);
@@ -154,6 +162,19 @@ public sealed class RagdollSimulation
 
     /// <summary>Advances the simulation by one step.</summary>
     public void Step() => Environment.Simulate();
+
+    /// <summary>A hull in the tuple shape the body holds it in.</summary>
+    private static (float X, float Y, float Z)[] Points(IReadOnlyList<Vector3> hull)
+    {
+        (float X, float Y, float Z)[] points = new (float, float, float)[hull.Count];
+
+        for (int index = 0; index < hull.Count; index++)
+        {
+            points[index] = (hull[index].X, hull[index].Y, hull[index].Z);
+        }
+
+        return points;
+    }
 
     /// <summary>Every element's current position and orientation, in Source space.</summary>
     /// <returns>One entry per element, ready for <c>RagdollBody.Pose</c>.</returns>
