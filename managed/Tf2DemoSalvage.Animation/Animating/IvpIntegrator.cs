@@ -135,6 +135,7 @@ public sealed class IvpRigidBody
     /// </remarks>
     public int Collisions { get; set; }
 
+
     /// <summary>Whether this body has been frozen for the rest of the step.</summary>
     /// <remarks>
     /// **Frozen, not asleep.** It lasts until the step ends and the count is cleared; the engine's

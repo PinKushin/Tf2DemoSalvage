@@ -81,11 +81,42 @@ public sealed class IvpContact
     /// in. It is unobservable for this project's ragdolls, whose inertia is isotropic by a stated
     /// departure, and it is written this way so that it stays right when it stops being.
     /// </remarks>
-    public float EffectiveInverseMass =>
-        (Arm.X * Arm.X * Body.InverseInertia.Y) +
-        (Arm.Y * Arm.Y * Body.InverseInertia.X) +
-        (Arm.Z * Arm.Z * Body.InverseInertia.Z) +
-        Body.InverseMass;
+    public float EffectiveInverseMass => InverseMassAlong(Normal);
+
+    /// <summary>The effective inverse mass along one direction, in the frame we apply it in.</summary>
+    /// <param name="direction">A unit direction in world space.</param>
+    /// <remarks>
+    /// **Same physical quantity as the expression above, evaluated where it is USED, and that
+    /// distinction was worth a day.** The engine's `rx*rx * core[+0x44] + …` is written in IVP's
+    /// own contact frame, which is built by explicit cross products before the record is filled —
+    /// so the cross product is not absent, it has already happened. Copying the expression while
+    /// applying the impulse in WORLD space silently changes what it means, and the result is a
+    /// number that no longer predicts what its own impulse will do.
+    ///
+    /// **The symptom was a contact that could not converge.** `Oppose` divides by this to size a
+    /// pass and then applies the impulse through `InverseMass` and `InverseInertia` separately; if
+    /// the two disagree, a pass removes less of the approach than it charged for. Measured: a body
+    /// arriving at 230 units per second ran all hundred passes and was still approaching, because
+    /// each one was worth about 0.66 rather than the 46 it was priced at. The loop hit its bound
+    /// every slice, the body kept its speed, and the ragdoll tore itself apart on the joint.
+    ///
+    /// **`r × d` restored, because our `r` is a world-space lever arm**:
+    /// `1/m + d · ((I⁻¹ (r × d)) × r)`, which is the standard scalar and reduces to the engine's
+    /// form in the frame the engine writes it in.
+    /// </remarks>
+    public float InverseMassAlong((float X, float Y, float Z) direction)
+    {
+        (float X, float Y, float Z) turn = Cross(Arm, direction);
+
+        (float X, float Y, float Z) twist = Cross(
+            (turn.X * Body.InverseInertia.X,
+             turn.Y * Body.InverseInertia.Y,
+             turn.Z * Body.InverseInertia.Z),
+            Arm);
+
+        return Body.InverseMass +
+            (direction.X * twist.X) + (direction.Y * twist.Y) + (direction.Z * twist.Z);
+    }
 
     /// <summary>Latches the approach speed every pass's impulse is a fraction of.</summary>
     /// <remarks>
@@ -132,15 +163,27 @@ public sealed class IvpContact
             return 0;
         }
 
-        // -0.2 · m · v₀, with v₀ negative when approaching, so this is positive. Fixed for the
-        // whole loop, because the engine measures v₀ once and never revises it.
-        float applied = -PassFraction * Approach / effective;
-
         int passes = 0;
 
         while (passes < MaximumPasses && Closing() < 0f)
         {
             (float X, float Y, float Z) direction = Direction();
+
+            // **Priced along the direction it is about to push**, not along the normal. The engine
+            // does the same — `FUN_1800770f0` is called AFTER `FUN_180090240` has chosen the
+            // direction, so `dVar18`/`dVar19` are the masses along that direction and not along the
+            // surface. Using the normal's value here is what made a pass cost less than it charged.
+            float along = InverseMassAlong(direction);
+
+            if (along <= FloatEpsilon)
+            {
+                break;
+            }
+
+            // -0.2 · m · v₀, with v₀ negative when approaching, so this is positive. The SPEED is
+            // the one measured before the loop and never revised, which is the engine's shape; only
+            // the mass it is divided by follows the direction.
+            float applied = -PassFraction * Approach / along;
 
             Accumulated += applied;
 
@@ -172,11 +215,33 @@ public sealed class IvpContact
             return;
         }
 
-        // **Capped, and the cap is the part that was measured rather than reasoned.** Without it a
-        // body falling at 400 units a second penetrates six units in one step, and a push
-        // proportional to that depth returns it as a hundred-unit-per-second launch: the test body
-        // was thrown back to 44 units above a floor it should have been resting on. A corpse would
-        // do the same thing and look like it had been shot.
+        // **The cap is the ENGINE'S separation speed, and swapping ours for it is what stopped a
+        // ragdoll tearing itself apart.** `FUN_18008e290`'s post-loop term adds
+        // `sqrt(impacts) * DAT_1800eb150` with that constant dumping as `0.01` — a hundredth of a
+        // metre per second, and SUB-LINEAR in the number of impacts. This used to cap at sixty
+        // units per second per contact, so a body with a dozen contacts could be handed seven
+        // hundred units per second of outward velocity in one slice.
+        //
+        // **On its own that only looked like a stiff floor; with a joint attached it was an
+        // explosion.** Measured on a two-body ragdoll resting on a floor: the ball-and-socket alone
+        // is exactly stable — the bodies stay 3, 4, 0 apart through two hundred steps of free fall
+        // — and the contact impulse loop alone is stable, and the two together threw them two and a
+        // half thousand units apart. The joint was faithfully redistributing energy this term was
+        // inventing.
+        //
+        // **Why this is a parity fix and not a tuning one:** the engine has no penetration recovery
+        // at all, because its mindist scheduler re-checks a pair before the two ever reach each
+        // other. Ours exists only to compensate for not having that, and the honest form for a
+        // compensator is the engine's own separation speed rather than a number chosen to clear an
+        // overlap quickly. Deep penetration now clears slowly, which is the real divergence
+        // showing through instead of being papered over.
+        // **The engine's own separation speed was tried here and DOES NOT TRANSFER.**
+        // `FUN_18008e290` adds `sqrt(impacts) * DAT_1800eb150`, and that constant dumps as `0.01` —
+        // a hundredth of a metre per second, about four tenths of a unit. Using it measured a body
+        // sinking to −40 through a floor it should rest 3 above, because the engine's number only
+        // makes sense beside the engine's mindist scheduler: IVP never carries an overlap to
+        // remove, so its separation term is about bounce and not about depth. Taking half of that
+        // design without the other half is worse than either, so this stays ours and says so.
         float bias = MathF.Min(Recovery * (Depth - Slop) / step, MaximumRecovery);
 
         float applied = bias / effective;
@@ -184,6 +249,72 @@ public sealed class IvpContact
         Accumulated += applied;
 
         Push((Normal.X * applied, Normal.Y * applied, Normal.Z * applied));
+    }
+
+    /// <summary>Opposes sliding at a contact that is resting rather than arriving.</summary>
+    /// <remarks>
+    /// **The impact solver's cone does nothing for a body that has already landed**, because
+    /// `Oppose` returns on the first line for a contact that is not approaching — the engine's own
+    /// `if (fVar17 &lt;= _DAT_1800ee398)` gate. So a resting corpse had no tangential force at all
+    /// once the impact path was transcribed, and the friction that used to be here went with it.
+    ///
+    /// **Measured, and the measurement corrected my own claim.** A body dropped on a one-in-ten
+    /// slope with a coefficient of 1 slid steadily UPHILL at about twelve units a second, unchanged
+    /// between two seconds and six. I called that a ratchet from re-picking a contact; the owner
+    /// asked whether it was just a body still slowing down, which was the right question and is
+    /// ruled out by the speed being the same at both times. It slides because nothing opposes it.
+    ///
+    /// **This is the friction SYSTEM's job in the engine** — `FUN_1800836b0` walks each system's
+    /// contacts once, having first summed a budget across all of them, and `FUN_1800857c0` solves
+    /// one contact's tangential pair against it. That whole structure is still unbuilt; what is
+    /// here is the per-contact half: Coulomb, limited by the normal impulse this contact actually
+    /// applied, applied once. The SHARED budget is the part still missing, and with it the
+    /// clamping would be a system property rather than a per-contact one.
+    /// </remarks>
+    public void Rub()
+    {
+        if (Accumulated <= 0f || Body.Friction <= 0f)
+        {
+            return;
+        }
+
+        (float X, float Y, float Z) spin = Cross(Body.AngularVelocity, Arm);
+
+        (float X, float Y, float Z) moving = (
+            Body.Velocity.X + spin.X, Body.Velocity.Y + spin.Y, Body.Velocity.Z + spin.Z);
+
+        float into = (moving.X * Normal.X) + (moving.Y * Normal.Y) + (moving.Z * Normal.Z);
+
+        (float X, float Y, float Z) sliding = (
+            moving.X - (Normal.X * into),
+            moving.Y - (Normal.Y * into),
+            moving.Z - (Normal.Z * into));
+
+        float speed = MathF.Sqrt(
+            (sliding.X * sliding.X) + (sliding.Y * sliding.Y) + (sliding.Z * sliding.Z));
+
+        if (speed <= FloatEpsilon)
+        {
+            return;
+        }
+
+        (float X, float Y, float Z) against = (
+            -sliding.X / speed, -sliding.Y / speed, -sliding.Z / speed);
+
+        float along = InverseMassAlong(against);
+
+        if (along <= FloatEpsilon)
+        {
+            return;
+        }
+
+        // **Coulomb: enough to stop the slide, or as much as the normal impulse allows.** The
+        // engine forms the same product — `f(record+0x88) * f(record+0x78) * dt` in
+        // `FUN_1800857c0`, a friction coefficient times a normal term — and clamps the tangential
+        // pair to it.
+        float wanted = MathF.Min(speed / along, Body.Friction * Accumulated);
+
+        Push((against.X * wanted, against.Y * wanted, against.Z * wanted));
     }
 
     /// <summary>The contact point's speed along the normal — negative while approaching.</summary>
@@ -337,6 +468,14 @@ public sealed class IvpContact
 
         float committedLength = committed.Length();
 
+        // **A flag and three fields rather than a nullable tuple**, per
+        // `docs/memory/nullable-pattern-on-a-struct-is-dead-code.md` — CA1508 rejects the nullable
+        // form here outright, reporting the null test as always true.
+        bool touching = false;
+        Vector3 deepestArm = default;
+        Vector3 deepestNormal = default;
+        float deepestDepth = 0f;
+
         for (int index = 0; index < body.Hull.Count; index++)
         {
             (float x, float y, float z) = body.Hull[index];
@@ -434,12 +573,46 @@ public sealed class IvpContact
                 continue;
             }
 
+            // **The DEEPEST point wins, and only it becomes a contact** — see the remarks on the
+            // mindist below.
             into.Add(new IvpContact
             {
                 Body = body,
                 Arm = (arm.X, arm.Y, arm.Z),
                 Normal = (found.Normal.X, found.Normal.Y, found.Normal.Z),
                 Depth = found.Depth,
+            });
+        }
+
+        // **ONE contact per body, because IVP has one MINDIST per pair and this project had one per
+        // hull point.** A cube resting on a floor put eight contacts in the list where the engine
+        // tracks a single closest-feature pair, and every one of them independently applied the
+        // impact solver's `0.2 · m · v₀` — so the body took eight times the impulse it should, and
+        // then the joint faithfully redistributed the surplus to its neighbour.
+        //
+        // **Measured on a two-body ragdoll dropped onto a floor**: eleven steps of clean free fall,
+        // eight contacts at the moment of touchdown, two hundred and seven impulse passes on the
+        // step after, and the child flung to the two-thousand-unit velocity clamp on the step after
+        // that. With one contact per body the same drop settles.
+        //
+        // **This is the scope error one level below the loop bound**, and it is the same mistake:
+        // the engine's quantity was right and the SET it was applied over was ours. `FUN_18008e290`
+        // solves one mindist; `FUN_180099380` schedules one mindist; the narrow phase walks a
+        // closest feature. Nothing in IVP holds a contact per vertex.
+        //
+        // **What this does NOT reproduce is the engine's persistence.** IVP keeps the mindist and
+        // its closest-feature pair between steps, which is how it never has to guess which face a
+        // body entered through; this re-picks the deepest point every step. That remains the open
+        // divergence, and it is why `IvpWorldCollision.Penetration` still documents a failed guess
+        // where the memory should be.
+        if (touching)
+        {
+            into.Add(new IvpContact
+            {
+                Body = body,
+                Arm = (deepestArm.X, deepestArm.Y, deepestArm.Z),
+                Normal = (deepestNormal.X, deepestNormal.Y, deepestNormal.Z),
+                Depth = deepestDepth,
             });
         }
 
@@ -572,11 +745,17 @@ public sealed class IvpContact
 
     /// <summary>The fastest a contact may push a body out, in Source units per second.</summary>
     /// <remarks>
-    /// **Not the engine's, and it exists because this project has no swept test.** IVP re-checks a
-    /// pair before the bodies reach each other and never sees a six-unit overlap at all; a
-    /// discrete test at 66 Hz does, on the first frame of every corpse that falls any distance.
-    /// Sixty units a second is about a unit per step — enough to clear a real overlap within a few
-    /// frames and far too slow to look like a bounce.
+    /// **Not the engine's, and it exists because this project has no mindist scheduler.** IVP
+    /// re-checks a pair before the bodies reach each other and never sees a six-unit overlap at
+    /// all; a discrete test at 66 Hz does, on the first frame of every corpse that falls any
+    /// distance. Sixty a second is about a unit per step — enough to clear a real overlap within a
+    /// few frames and far too slow to look like a bounce.
+    ///
+    /// **The engine's own separation speed is `0.01` metres per second and was TRIED here**
+    /// (`DAT_1800eb150`, grown by `sqrt(impacts)` in `FUN_18008e290`). It measured a body sinking
+    /// to −40 through a floor it should rest 3 above. That number is about bounce, in a solver that
+    /// never carries a penetration to remove, so it does not transfer to a compensator for the
+    /// scheduler we lack. Recorded because the substitution looks obviously right and is not.
     /// </remarks>
     private const float MaximumRecovery = 60f;
 }

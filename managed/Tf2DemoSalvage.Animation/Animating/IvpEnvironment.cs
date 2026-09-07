@@ -463,6 +463,18 @@ public sealed class IvpEnvironment
         {
             _contacts[index].Separate(slice);
         }
+
+        // **A per-contact friction pass belongs here and is NOT called, because the per-contact
+        // form measured worse.** `IvpContact.Rub` is written and unused: clamping each contact
+        // against its own normal impulse took a sliding body from 12 units a second to 17.8 and
+        // sank a resting ragdoll to −4.6.
+        //
+        // **That is evidence for the shared budget rather than against friction.** `FUN_1800836b0`
+        // sums a scalar across every contact of a friction system BEFORE applying anything and
+        // clamps each contact against that, so the system's capacity is divided rather than granted
+        // to each contact in turn. Ours has no notion of the system, and granting each contact a
+        // full budget is what the measurement rejected. Left wired out rather than deleted, since
+        // the missing half is identified.
     }
 
     /// <summary>Integrates every body over one slice of the step.</summary>

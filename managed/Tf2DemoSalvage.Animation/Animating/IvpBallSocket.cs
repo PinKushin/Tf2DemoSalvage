@@ -108,10 +108,18 @@ public static class IvpBallSocket
         (float X, float Y, float Z) spinA = Cross(a.AngularVelocity, armA);
         (float X, float Y, float Z) spinB = Cross(b.AngularVelocity, armB);
 
+        // **A's anchor MINUS B's, and the order is load-bearing.** The impulse is applied `+P` to A
+        // and `−P` to B, so the quantity this solve changes is `v(A) − v(B)`: taking the difference
+        // the other way makes the velocity term ADD to the relative motion instead of cancelling
+        // it, and the position term is unaffected, so the two halves fight.
+        //
+        // **It grew by about sixteen every tick, which is four sweeps of a sign error**, and it was
+        // invisible in free fall because a hanging ragdoll has neither relative velocity nor
+        // position error. Only a body arriving at a floor supplies both.
         (float X, float Y, float Z) relative = (
-            (b.Velocity.X + spinB.X) - (a.Velocity.X + spinA.X),
-            (b.Velocity.Y + spinB.Y) - (a.Velocity.Y + spinA.Y),
-            (b.Velocity.Z + spinB.Z) - (a.Velocity.Z + spinA.Z));
+            (a.Velocity.X + spinA.X) - (b.Velocity.X + spinB.X),
+            (a.Velocity.Y + spinA.Y) - (b.Velocity.Y + spinB.Y),
+            (a.Velocity.Z + spinA.Z) - (b.Velocity.Z + spinB.Z));
 
         (float X, float Y, float Z) wanted = (
             (-relative.X) + (weight * error.X),

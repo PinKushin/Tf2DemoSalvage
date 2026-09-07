@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Numerics;
 
@@ -265,24 +266,104 @@ public sealed class RagdollSimulationConformanceTests
             before, "a ball-and-socket closes its error rather than growing it");
     }
 
+    /// <remarks>
+    /// **A jointed ragdoll WITH hulls, resting on a floor — the condition that hung the viewer.**
+    /// Joints alone are cheap and contacts alone are cheap; it took both together, and there was no
+    /// fixture with both, so the only instrument was a viewer run that takes the desktop, orphans
+    /// itself when killed, and cannot be told apart from a wait on the machine-wide lock. Three
+    /// runs were spent on that confusion.
+    ///
+    /// **The bound is what makes this a test rather than a second hang.** A step that needs more
+    /// than a few slices is already the defect; asserting a generous ceiling fails in
+    /// milliseconds where the real thing failed in four hundred seconds.
+    /// </remarks>
     [Test]
-    public void Scratch_JointedSliceCount()
+    public void Simulate_AJointedRagdollRestingOnAFloor_TakesABoundedNumberOfSlices()
     {
-        RagdollSimulation simulation = Simulation();
+        RagdollSimulation simulation = RagdollSimulation.Create(
+            RagdollBody.Build(Solid(), Skeleton())!,
+            Step,
+            [
+                (new Vector3(0f, 0f, 40f), Quaternion.Identity),
+                (new Vector3(3f, 4f, 40f), Quaternion.Identity),
+            ]);
 
         simulation.Environment.World = FlatFloor();
 
         for (int step = 0; step < 200; step++)
         {
             simulation.Step();
+
+            IvpRigidBody root = simulation.Environment.Bodies[0];
+            IvpRigidBody child = simulation.Environment.Bodies[1];
+
+            float fastest = MathF.Max(Speed(root), Speed(child));
+
+            // **Asserted inside the loop, because the end state cannot tell a settle from an orbit.**
+            // A ragdoll that tore itself apart and flew off would be reported by its final position
+            // too, but only just — and the number that says which happened is the speed at the
+            // moment it goes wrong. Two thousand is the environment's own clamp, so anything near
+            // it means the solve saturated rather than converged.
+            fastest.ShouldBeLessThan(
+                400f,
+                $"step {step}: nothing here may approach the velocity clamp, and " +
+                $"root {root.Position} child {child.Position}");
         }
 
-        TestContext.Out.WriteLine(
-            $"slices {simulation.Environment.Slices} contacts {simulation.Environment.Contacts} " +
-            $"root {simulation.State()[0].Position} child {simulation.State()[1].Position}");
+        // Two hundred steps, and a settled body needs one slice each.
+        simulation.Environment.Slices.ShouldBeLessThan(
+            2000, "a resting ragdoll must not subdivide its step over and over");
 
-        simulation.Environment.Slices.ShouldBeLessThan(200000);
+        ((double)simulation.State()[0].Position.Z).ShouldBeGreaterThan(
+            0d, "and it is resting ON the floor, which is what makes the slice count mean anything");
     }
+
+    private static float Speed(IvpRigidBody body) =>
+        MathF.Sqrt(
+            (body.Velocity.X * body.Velocity.X) +
+            (body.Velocity.Y * body.Velocity.Y) +
+            (body.Velocity.Z * body.Velocity.Z));
+
+    /// <summary>The two-solid ragdoll with real collision hulls on both bodies.</summary>
+    /// <remarks>
+    /// **Authored in IVP metres**, because that is what a `.phy` holds and what
+    /// <c>RagdollBody.HullInBoneSpace</c> converts from — a fixture written in Source units would
+    /// describe a file that does not exist and would be 39 times too big.
+    /// </remarks>
+    private static PhysicsModel Solid()
+    {
+        const float Half = 4f * Metre;
+
+        List<Vector3> points =
+        [
+            new(-Half, -Half, -Half), new(Half, -Half, -Half),
+            new(Half, Half, -Half), new(-Half, Half, -Half),
+            new(-Half, -Half, Half), new(Half, -Half, Half),
+            new(Half, Half, Half), new(-Half, Half, Half),
+        ];
+
+        List<(int A, int B, int C)> triangles =
+        [
+            (4, 5, 6), (4, 6, 7), (0, 2, 1), (0, 3, 2),
+            (0, 1, 5), (0, 5, 4), (2, 3, 7), (2, 7, 6),
+            (1, 2, 6), (1, 6, 5), (3, 0, 4), (3, 4, 7),
+        ];
+
+        List<PhysicsLedge> hull = [new PhysicsLedge(points, triangles, Vector3.Zero, Half * 2f)];
+
+        return PhysicsModel.From(
+            [
+                new PhysicsSolid(0, "bip_root", "", "flesh", 10f, 1f, 0f, 0f, 100f, 0f),
+                new PhysicsSolid(1, "bip_child", "bip_root", "flesh", 2f, 1f, 0f, 0f, 20f, 0f),
+            ],
+            [new RagdollConstraint(0, 1, Axis, Axis, Axis)],
+            2,
+            checksum: 0,
+            collisionRules: null,
+            hulls: [hull, hull]);
+    }
+
+    private const float Metre = 0.0254f;
 
     private static IvpWorldCollision FlatFloor()
     {

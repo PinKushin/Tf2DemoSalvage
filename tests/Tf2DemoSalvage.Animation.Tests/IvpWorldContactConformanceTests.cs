@@ -78,12 +78,17 @@ public sealed class IvpWorldContactConformanceTests
     ///
     /// **One contact point is what makes the count observable.** The engine's pass applies a FIXED
     /// fraction of the approach speed measured before the loop — `-0.2 · m · v₀`, from
-    /// `FUN_18008e290` — so a single contact removes a fifth per pass and needs six of them to stop
-    /// a body at 312 units per second. The prediction is arithmetic and exact: the effective
-    /// inverse mass of a unit-mass body with a one-unit arm along the impulse is
-    /// `1 + 1²·0.1 = 1.1`, so each pass is worth `0.2 · 312 / 1.1 = 56.7` units per second, and the
-    /// loop stops on the first pass that carries the approach past zero — never below it, and never
-    /// more than one pass above.
+    /// `FUN_18008e290` — so a single contact removes a fifth per pass and needs five of them to stop
+    /// a body at 312 units per second.
+    ///
+    /// **The prediction is arithmetic and exact, and it CHANGED when the effective mass was fixed.**
+    /// This hull point sits at `(0, 0, −1)` and the impulse runs along `(0, 0, 1)`, so `r × d` is
+    /// zero: an arm parallel to the impulse can produce no torque, and the effective inverse mass
+    /// is simply `1/m = 1`. It used to read `1 + 1²·0.1 = 1.1`, because the old expression squared
+    /// the arm's components with no cross product and so charged for a rotation this contact cannot
+    /// cause. A pass is therefore worth `0.2 · 312 / 1 = 62.4` rather than 56.7, and the loop still
+    /// stops on the first pass that carries the approach past zero — never below it, and never more
+    /// than one pass above.
     /// </remarks>
     [Test]
     public void Simulate_ApproachingOnOneContact_TakesAsManyPassesAsItNeeds()
@@ -109,7 +114,7 @@ public sealed class IvpWorldContactConformanceTests
             0f, "the loop runs until the approach is gone, and one pass leaves four fifths of it");
 
         body.Velocity.Z.ShouldBeLessThan(
-            57f, "and it stops on the first pass past zero, so it never overshoots by more than one");
+            63f, "and it stops on the first pass past zero, so it never overshoots by more than one");
     }
 
     /// <remarks>
@@ -259,7 +264,20 @@ public sealed class IvpWorldContactConformanceTests
 
         environment.Add(body);
 
-        for (int step = 0; step < 132; step++)
+        // **Six seconds, not two, and the extra four are a correction the owner spotted.** This ran
+        // for 132 steps and asserted a POSITION WINDOW around where the body landed. When the
+        // effective mass was fixed the impact stopped being under-applied, the body carried more of
+        // its landing speed into a slide, and the window failed at x 284 — which was reported here
+        // as the body walking uphill. It was not: *"are you sure its an uphill walk and not just a
+        // body going up hill because it is newly dead and still slowing down?"* Measured at the old
+        // cutoff it was still travelling 11.5 units a second and decelerating, from about six
+        // hundred at touchdown. It was mid-slide, and the test was reading a stopwatch, not a
+        // resting place.
+        //
+        // **So the assertion below is now about REST rather than about a spot**, which is the claim
+        // this test always meant to make and a stronger one: a body held by friction stops, and
+        // where it stops depends on how hard it arrived.
+        for (int step = 0; step < 400; step++)
         {
             environment.Simulate();
         }
@@ -286,15 +304,28 @@ public sealed class IvpWorldContactConformanceTests
 
         body.Position.Z.ShouldBeGreaterThan(surface, "on the slope rather than through it");
 
+        // **Half the cube's diagonal for a corner rest, plus the solver's own slop.** The contact
+        // slop is the distance a resting body is deliberately left clear of a surface rather than
+        // driven onto it exactly — the same constant the lower bound's "not through it" relies on —
+        // so a settled body sits up to that much above where geometry alone would put it. Measured
+        // at 0.18, which is inside a slop of 0.25.
         body.Position.Z.ShouldBeLessThan(
-            surface + Math.Sqrt(3d), "and touching it, whichever way up it stopped");
+            surface + Math.Sqrt(3d) + 0.25d, "and touching it, whichever way up it stopped");
 
-        // **It stays put, and that is a corrected expectation rather than a loosened one.** This
-        // line first asserted the body slid, which was right when nothing applied friction — it
-        // ran 127 units downhill. With the game's own surface table a `flesh` body has a
-        // coefficient of 1, and a slope of one in ten needs only 0.1 to hold, so a body that
-        // stayed where it landed is the physics working rather than a contact failing to bite.
-        body.Position.X.ShouldBe(250d, 20d, "held by friction on a slope far shallower than it");
+        // **It comes to REST, and that is what "held by friction" actually predicts.** This line
+        // has been wrong twice in opposite directions — it first asserted the body slid, which was
+        // right when nothing applied friction and it ran 127 units downhill, and was then corrected
+        // to a position window that only held while impacts were under-applied. A `flesh` body has
+        // a coefficient of 1 and a slope of one in ten needs 0.1 to hold it, so the prediction is
+        // that whatever speed it lands with is eventually taken out of it — not that it stops in
+        // any particular place.
+        float speed = MathF.Sqrt(
+            (body.Velocity.X * body.Velocity.X) +
+            (body.Velocity.Y * body.Velocity.Y) +
+            (body.Velocity.Z * body.Velocity.Z));
+
+        speed.ShouldBeLessThan(
+            1f, "friction takes the landing speed out of it rather than letting it run");
     }
 
     /// <remarks>
