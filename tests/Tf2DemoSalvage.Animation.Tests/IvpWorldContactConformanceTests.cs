@@ -282,6 +282,7 @@ public sealed class IvpWorldContactConformanceTests
             environment.Simulate();
         }
 
+
         // **Asserted against the surface UNDER it rather than against a predicted spot, and that is
         // a correction the first version of this test earned.** It predicted the body would rest
         // near x = 250 where the slope is 25 high, and measured 12.3 — because nothing here applies

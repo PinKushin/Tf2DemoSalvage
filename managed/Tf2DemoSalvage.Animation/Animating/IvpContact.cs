@@ -62,6 +62,14 @@ public sealed class IvpContact
     /// <remarks>See <see cref="IvpRigidBody.Sliding"/> for why a contact needs an identity.</remarks>
     public required int Point { get; init; }
 
+    /// <summary>Whether this contact's manifold has already been rubbed this slice.</summary>
+    /// <remarks>
+    /// **The manifold is found by walking, so its members have to be marked.** Every contact of a
+    /// body sharing a normal is one feature and takes one friction solve between them; the rest are
+    /// folded into the centroid and the summed normal impulse rather than solved again.
+    /// </remarks>
+    public bool Rubbed { get; set; }
+
     /// <summary>The impulse applied so far, accumulated across iterations.</summary>
     public float Accumulated { get; private set; }
 
@@ -108,15 +116,22 @@ public sealed class IvpContact
     /// `1/m + d · ((I⁻¹ (r × d)) × r)`, which is the standard scalar and reduces to the engine's
     /// form in the frame the engine writes it in.
     /// </remarks>
-    public float InverseMassAlong((float X, float Y, float Z) direction)
+    public float InverseMassAlong((float X, float Y, float Z) direction) =>
+        InverseMassAlong(direction, Arm);
+
+    /// <summary>The same, about an arm that may be a manifold's centroid rather than this point.</summary>
+    /// <param name="direction">A unit direction in world space.</param>
+    /// <param name="arm">The lever arm to measure about.</param>
+    public float InverseMassAlong(
+        (float X, float Y, float Z) direction, (float X, float Y, float Z) arm)
     {
-        (float X, float Y, float Z) turn = Cross(Arm, direction);
+        (float X, float Y, float Z) turn = Cross(arm, direction);
 
         (float X, float Y, float Z) twist = Cross(
             (turn.X * Body.InverseInertia.X,
              turn.Y * Body.InverseInertia.Y,
              turn.Z * Body.InverseInertia.Z),
-            Arm);
+            arm);
 
         return Body.InverseMass +
             (direction.X * twist.X) + (direction.Y * twist.Y) + (direction.Z * twist.Z);
@@ -275,7 +290,26 @@ public sealed class IvpContact
     /// applied, applied once. The SHARED budget is the part still missing, and with it the
     /// clamping would be a system property rather than a per-contact one.
     /// </remarks>
-    public void Rub(float weight)
+    public void Rub(float weight) => Rub(weight, Arm, Accumulated);
+
+    /// <summary>Solves one contact's friction at a given arm, with a given normal impulse.</summary>
+    /// <param name="weight">The relaxation weight the warm start decays by.</param>
+    /// <param name="arm">Where to apply it — a MANIFOLD's centroid, not this point's own arm.</param>
+    /// <param name="normal">The normal impulse the cone is limited by, summed over the manifold.</param>
+    /// <remarks>
+    /// **The arm and the normal impulse are parameters because a face contact is ONE contact.** A
+    /// box resting on a floor is a single face-face feature pair to IVP — one mindist, one friction
+    /// contact — where this project raises one per hull vertex. Solving each vertex's slip in turn
+    /// is not the same operator and provably not friction: with the warm start off, so that each
+    /// contact simply drove its own slip to zero, a sliding body SPED UP from 12 units a second to
+    /// 21.3. Each cancellation retunes the body's spin and the next vertex then cancels a slip the
+    /// previous one just created.
+    ///
+    /// **So the manifold is solved once, at its centroid, against its summed normal impulse**,
+    /// which is the cardinality the engine has even though the feature dispatch behind it is not
+    /// built. See <see cref="IvpEnvironment"/>'s resolve for the grouping.
+    /// </remarks>
+    public void Rub(float weight, (float X, float Y, float Z) arm, float normal)
     {
         if (Body.Friction <= 0f || Body.Sliding.Count <= Point)
         {
@@ -285,7 +319,7 @@ public sealed class IvpContact
         (float X, float Y, float Z) first = Tangent(Normal);
         (float X, float Y, float Z) second = Cross(Normal, first);
 
-        (float X, float Y, float Z) spin = Cross(Body.AngularVelocity, Arm);
+        (float X, float Y, float Z) spin = Cross(Body.AngularVelocity, arm);
 
         (float X, float Y, float Z) moving = (
             Body.Velocity.X + spin.X, Body.Velocity.Y + spin.Y, Body.Velocity.Z + spin.Z);
@@ -311,9 +345,9 @@ public sealed class IvpContact
 
         // The symmetric 2x2 effective mass across the two tangents — `FUN_1800868d0` is handed
         // `a, b, b, d`, the same value twice, which is what makes it symmetric.
-        float a = InverseMassAlong(first);
-        float d = InverseMassAlong(second);
-        float b = Coupling(first, second);
+        float a = InverseMassAlong(first, arm);
+        float d = InverseMassAlong(second, arm);
+        float b = Coupling(first, second, arm);
 
         float determinant = (a * d) - (b * b);
 
@@ -329,7 +363,7 @@ public sealed class IvpContact
 
         // **The cone clamps the PAIR after the solve**, scaling both, which is not the same as
         // limiting a single magnitude before it.
-        float limit = Body.Friction * Accumulated;
+        float limit = Body.Friction * normal;
         float size = MathF.Sqrt((impulseFirst * impulseFirst) + (impulseSecond * impulseSecond));
 
         if (size > limit && size > FloatEpsilon)
@@ -338,15 +372,17 @@ public sealed class IvpContact
             impulseSecond = impulseSecond / size * limit;
         }
 
-        Push((
-            (first.X * impulseFirst) + (second.X * impulseSecond),
-            (first.Y * impulseFirst) + (second.Y * impulseSecond),
-            (first.Z * impulseFirst) + (second.Z * impulseSecond)));
+        Push(
+            (
+                (first.X * impulseFirst) + (second.X * impulseSecond),
+                (first.Y * impulseFirst) + (second.Y * impulseSecond),
+                (first.Z * impulseFirst) + (second.Z * impulseSecond)),
+            arm);
 
         // **The slip that RESULTED is what next step warms from**, measured after the impulse
         // rather than predicted from it, so a clamped solve stores the slip it actually left
         // behind and not the one it was aiming for.
-        (float X, float Y, float Z) after = Cross(Body.AngularVelocity, Arm);
+        (float X, float Y, float Z) after = Cross(Body.AngularVelocity, arm);
 
         (float X, float Y, float Z) settled = (
             Body.Velocity.X + after.X, Body.Velocity.Y + after.Y, Body.Velocity.Z + after.Z);
@@ -379,15 +415,17 @@ public sealed class IvpContact
 
     /// <summary>The off-diagonal of the tangential effective-mass matrix.</summary>
     private float Coupling(
-        (float X, float Y, float Z) first, (float X, float Y, float Z) second)
+        (float X, float Y, float Z) first,
+        (float X, float Y, float Z) second,
+        (float X, float Y, float Z) arm)
     {
-        (float X, float Y, float Z) turn = Cross(Arm, second);
+        (float X, float Y, float Z) turn = Cross(arm, second);
 
         (float X, float Y, float Z) twist = Cross(
             (turn.X * Body.InverseInertia.X,
              turn.Y * Body.InverseInertia.Y,
              turn.Z * Body.InverseInertia.Z),
-            Arm);
+            arm);
 
         return Dot(first, twist);
     }
@@ -474,14 +512,17 @@ public sealed class IvpContact
     }
 
     /// <summary>Adds one impulse's linear and angular halves to the body.</summary>
-    private void Push((float X, float Y, float Z) impulse)
+    private void Push((float X, float Y, float Z) impulse) => Push(impulse, Arm);
+
+    /// <summary>The same, about a given arm.</summary>
+    private void Push((float X, float Y, float Z) impulse, (float X, float Y, float Z) arm)
     {
         Body.Velocity = (
             Body.Velocity.X + (impulse.X * Body.InverseMass),
             Body.Velocity.Y + (impulse.Y * Body.InverseMass),
             Body.Velocity.Z + (impulse.Z * Body.InverseMass));
 
-        (float X, float Y, float Z) twist = Cross(Arm, impulse);
+        (float X, float Y, float Z) twist = Cross(arm, impulse);
 
         Body.AngularVelocity = (
             Body.AngularVelocity.X + (twist.X * Body.InverseInertia.X),

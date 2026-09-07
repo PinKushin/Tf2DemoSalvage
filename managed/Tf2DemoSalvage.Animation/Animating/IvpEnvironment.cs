@@ -464,6 +464,8 @@ public sealed class IvpEnvironment
             _contacts[index].Separate(slice);
         }
 
+        Rub();
+
         // **Friction belongs here, is written, and is NOT called — and the reason is now known.**
         // A resting contact takes nothing from `Oppose`, because the engine's approach gate sends
         // it down the other path entirely, so a landed corpse has nothing opposing a slide: one was
@@ -495,6 +497,83 @@ public sealed class IvpEnvironment
         // wired out, because its shape is transcribed and correct; what it needs is the right
         // contacts to run over.
     }
+
+    /// <summary>Solves friction once per contact MANIFOLD rather than once per hull point.</summary>
+    /// <remarks>
+    /// **A face resting on a face is ONE contact to IVP**, and that is the whole of this. The
+    /// engine's narrow phase returns a closest-feature pair — vertex-face, edge-edge and the rest —
+    /// so a box on a floor is a single mindist carrying a single friction contact. This project
+    /// tests hull VERTICES, so the same box arrives as eight, and solving eight slips in sequence
+    /// is a different operator: each cancellation retunes the body's spin and the next vertex
+    /// cancels a slip the previous one just made.
+    ///
+    /// **Measured, and it is why this exists.** With friction applied per vertex and the warm start
+    /// switched off — so each contact did nothing but drive its own slip to zero — a sliding body
+    /// SPED UP, from 11.98 units a second to 21.3. Friction is dissipative and no arrangement of
+    /// the arithmetic makes it add energy, so the fault could only be the set it ran over.
+    ///
+    /// **Grouped by body and by normal**, which is the observable a shared feature leaves behind:
+    /// every vertex resting on one face reports that face's normal. The group is solved at its
+    /// CENTROID against its SUMMED normal impulse, which is the arm and the force a single
+    /// face-face contact would have had.
+    ///
+    /// **This is not the feature dispatch itself.** A real narrow phase would produce the manifold
+    /// rather than infer it, and would distinguish an edge resting on a face from a vertex on one.
+    /// What this does is give the friction solve the cardinality the engine's has, which is the
+    /// part the measurement showed was wrong.
+    /// </remarks>
+    private void Rub()
+    {
+        for (int index = 0; index < _contacts.Count; index++)
+        {
+            IvpContact contact = _contacts[index];
+
+            if (contact.Rubbed)
+            {
+                continue;
+            }
+
+            float impulse = contact.Accumulated;
+            (float X, float Y, float Z) centre = contact.Arm;
+            int count = 1;
+
+            for (int other = index + 1; other < _contacts.Count; other++)
+            {
+                IvpContact beside = _contacts[other];
+
+                if (beside.Rubbed || !ReferenceEquals(beside.Body, contact.Body) ||
+                    Facing(beside.Normal, contact.Normal) < Shared)
+                {
+                    continue;
+                }
+
+                beside.Rubbed = true;
+                impulse += beside.Accumulated;
+                centre = (centre.X + beside.Arm.X, centre.Y + beside.Arm.Y, centre.Z + beside.Arm.Z);
+                count++;
+            }
+
+            contact.Rubbed = true;
+
+            contact.Rub(
+                IvpConstraintGroup.Relaxation,
+                (centre.X / count, centre.Y / count, centre.Z / count),
+                impulse);
+        }
+    }
+
+    private static float Facing(
+        (float X, float Y, float Z) left, (float X, float Y, float Z) right) =>
+        (left.X * right.X) + (left.Y * right.Y) + (left.Z * right.Z);
+
+    /// <summary>How closely two contacts must agree on a normal to be one feature.</summary>
+    /// <remarks>
+    /// **About eight degrees**, which separates the faces of a convex hull without splitting the
+    /// vertices of one face. A displacement's triangles meet at shallower angles than that and are
+    /// deliberately merged: they are one surface, and the engine's virtual terrain presents them to
+    /// the solver as one object.
+    /// </remarks>
+    private const float Shared = 0.99f;
 
     /// <summary>Integrates every body over one slice of the step.</summary>
     private void Move(float slice)
