@@ -96,6 +96,7 @@
 - [A loop is state, not an event](a-loop-is-state-not-an-event.md) — ask what should be PLAYING.
 - [An optimisation is not a skippable departure](an-optimisation-is-not-a-skippable-departure.md) — Valve's earn their place.
 - [Valve parity is the first principle](valve-parity-is-the-first-principle.md) — D89; performance buys nothing.
+- [Parity is the first hypothesis](parity-is-the-first-hypothesis.md) — D148; a cost symptom is parity evidence.
 - [The fat column is the subtracted one](the-fat-column-is-the-subtracted-one.md) — six at 3 ms, remainder at 126.
 - [Refactors are when to check parity](refactors-are-when-to-check-parity.md) — a new type hides divergence.
 - [Decide home and parity before writing](decide-home-and-parity-before-writing.md) — both, before the code.

@@ -2119,6 +2119,76 @@ point where a contact becomes an impulse is not on this path at all. It is in th
 *Evidence class: read from the decompiled binary; the phase numbering is read from the profiler
 argument rather than inferred. The correction to `FUN_180098dd0` is read from the function itself.*
 
+## There are TWO contact solvers, and a resting corpse uses the other one
+
+**This is the correction that makes the section below only half the story, and it was found by
+following a cost.** `FUN_18008e290` is the IMPACT solver — one mindist, one arrival, a hundred
+passes to kill one approach. A body already lying on a floor never goes near it. Resting contacts
+live in the **friction system** (`ivp_intern\ivp_friction.cxx`), and its driver is `FUN_1800836b0`:
+
+```c
+uVar11 = (ulonglong)*(ushort *)(param_1 + 0x6a);              // how many friction systems
+do {
+    lVar1 = *(longlong *)(*(longlong *)(param_1 + 0x70) + uVar11 * 8);   // one system
+    fVar15 = 0.0;
+    …
+    fVar15 += contact[0x88] * contact[0x78] * contact[0x60];  // summed over EVERY contact first
+    …
+    fVar15 = fVar15 * *param_2 * *param_2;                    // the system's shared budget
+    do {
+        plVar9 = system.contacts[lVar8];
+        if (limit exceeded) { … clamp this contact against fVar15 … }
+        if (*(char *)((longlong)plVar9 + 100) == '\x01') { FUN_180085100(plVar9, param_2); }
+        else { fVar16 += FUN_1800857c0(plVar9, param_2); }    // ONE application, per contact
+        lVar8 = lVar8 + -1;
+    } while (-1 < lVar8);
+} while (true);
+```
+
+**Three things, and each one contradicts something this project built:**
+
+- **One pass over the contacts, not a hundred and not two.** The walk is a single descending loop.
+- **The set is solved as a SET.** A scalar is accumulated across every contact of the system
+  BEFORE any impulse is applied, and each contact is then clamped against that shared budget. Our
+  solve has no notion of a group at all — each contact converges alone, knowing nothing about its
+  neighbours.
+- **The grouping is the friction SYSTEM**, which is why `FUN_180086e80` exists to split and merge
+  them when an object's contact list changes — a fact already recorded above and filed as an
+  identity predicate rather than as the thing that defines the solve's scope.
+
+**This is what "our contact set is not the engine's mindist set" turns out to mean**, and it
+explains both failures on the way to it. Wrapping the impact solver's hundred-pass bound around
+every contact of a ragdoll re-solved settled contacts a hundred times a slice — six ticks of one
+corpse past four hundred seconds. Moving the bound inside one contact stopped the hang and then
+overshot, resting a two-unit cube 2.04 above a plane it can be at most `sqrt(3)` above, because
+each contact drove its own approach to zero with no shared budget to divide.
+
+**Neither shape was the engine's, and no amount of tuning either would have got there.** The
+resting solve is a different function, reached from a different place, over a different set.
+
+**What is NOT established:** what `contact+0x60`, `+0x78` and `+0x88` hold — the three factors whose
+product forms the budget — and what the byte at `contact+0x64` selects, which sends a contact to
+`FUN_180085100` instead of `FUN_1800857c0`. `param_2[0]` is squared into the budget and its
+provenance is unread. Those are the next things to read, and none of them is guessable.
+
+**And the obvious way to look them up does NOT work, which is worth writing down before someone
+spends the run on it.** The friction-system contact is a DIFFERENT structure from the 0x110-byte
+record `FUN_18008d0c0` allocates — that one is written at `+0x24`, `+0x72`, `+0x76`, `+0x94`,
+`+0xc4`, `+0xd4` and `+0xf4`, and never at any of the four above. Nor does a whole-program grep for
+the offsets find the writer: searching all 2,813 functions for `0x60`, `0x64`, `0x78` and `0x88`
+together returns **zero**, because the decompiler renders a field by the type of the pointer holding
+it — the same byte appears as `*(float *)(param_1 + 0x78)` through one and as `plVar9 + 0xf` through
+another, and `FUN_1800857c0` does both within a dozen lines.
+
+So the route in is the structure's allocation, or a trace out of `FUN_180086e80`, which splits and
+merges these systems and therefore has to know how one is built. Recorded as a failed search rather
+than left for the next reader to repeat.
+
+*Evidence class: read from the decompiled binary. The identification of `FUN_1800836b0` as the
+friction-system driver is read from its own structure — a loop over `param_1+0x70` indexed by a
+count at `+0x6a`, calling the per-contact solve already traced — and from `ivp_friction.cxx` being
+the only IVP source file named by the two functions beside it.*
+
 ## The impact solver, found — and it is a fixed sub-impulse in a friction cone
 
 **`FUN_18008e290` is the consumer of the contact record**, reached from the mindist event through
