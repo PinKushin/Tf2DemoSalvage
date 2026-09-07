@@ -108,9 +108,9 @@ public sealed class CorpseDropProbe : IProbe
             $"{level.Physics.TriangleCount} terrain triangles; " +
             $"{model} has {ragdoll.Elements.Count} bodies");
 
-        foreach ((float X, float Y, float Z) at in Places(arguments))
+        foreach ((float X, float Y, float Z, float Blow) at in Places(arguments))
         {
-            Drop(output, level, ragdoll, game.Surfaces, at);
+            Drop(output, level, ragdoll, game.Surfaces, (at.X, at.Y, at.Z), at.Blow);
         }
     }
 
@@ -121,22 +121,31 @@ public sealed class CorpseDropProbe : IProbe
     /// world, and the rest settle. A probe whose default case is the known-bad one is worth more
     /// than one that needs arguments to say anything.
     /// </remarks>
-    private static IEnumerable<(float X, float Y, float Z)> Places(IReadOnlyList<string> arguments)
+    private static IEnumerable<(float X, float Y, float Z, float Blow)> Places(
+        IReadOnlyList<string> arguments)
     {
         if (arguments.Count >= 5 &&
             float.TryParse(arguments[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float x) &&
             float.TryParse(arguments[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float y) &&
             float.TryParse(arguments[4], NumberStyles.Float, CultureInfo.InvariantCulture, out float z))
         {
-            yield return (x, y, z);
+            float blow = arguments.Count >= 6 &&
+                float.TryParse(arguments[5], NumberStyles.Float, CultureInfo.InvariantCulture, out float given)
+                ? given
+                : 0f;
+
+            yield return (x, y, z, blow);
             yield break;
         }
 
-        yield return (361.7f, -1614.3f, 57.6f);      // 2185, leaves the world
-        yield return (-11.5f, -1558.8f, 47.3f);      // 2348, leaves the world
-        yield return (-972.6f, -1400.3f, 77.5f);     // 2277, used to leave and now rests
-        yield return (256.9f, -1416.1f, 55.2f);      // 2080, rests
-        yield return (-953.8f, -1556.3f, 77.5f);     // 2132, rests
+        // **Seed positions AND killing blows, both read out of the viewer's own log.** The blow is
+        // what separates the two that leave the world from the seven that rest, so a default set
+        // without it cannot reproduce the defect this probe exists for.
+        yield return (361.7f, -1614.3f, 57.6f, 16793f);     // 2185, leaves the world
+        yield return (-11.5f, -1558.8f, 47.3f, 23987f);     // 2348, leaves the world
+        yield return (-972.6f, -1400.3f, 77.5f, 19191f);    // 2277, rests
+        yield return (256.9f, -1416.1f, 55.2f, 0f);         // 2080, rests, no blow at all
+        yield return (-953.8f, -1556.3f, 77.5f, 23987f);    // 2132, rests despite a large one
     }
 
     /// <summary>Steps one ragdoll from a standing pose at a spot until it stops moving.</summary>
@@ -151,7 +160,8 @@ public sealed class CorpseDropProbe : IProbe
         MapLevel level,
         RagdollBody ragdoll,
         SurfaceTable surfaces,
-        (float X, float Y, float Z) at)
+        (float X, float Y, float Z) at,
+        float blow)
     {
         // **The pose is CHAINED down the hierarchy, and getting that wrong made this instrument
         // lie.** `OriginParentSpace` is where an element sits in its PARENT's space, so adding it
@@ -178,6 +188,16 @@ public sealed class CorpseDropProbe : IProbe
         RagdollSimulation simulation = RagdollSimulation.Create(ragdoll, Step, start, surfaces);
 
         simulation.Environment.World = level.Physics;
+
+        // **The killing blow, because the corpses that misbehave are the ones that got one.** Both
+        // of `z1800`'s remaining escapees carry a large `m_vecForce` — 16,793 and 23,987 — and
+        // dropping from rest cannot reproduce them at all: this probe settles both. A corpse that
+        // is thrown is a different question from a corpse that is dropped, and it is the question
+        // the demo is actually asking.
+        if (blow > 0f)
+        {
+            simulation.Kill((blow * 0.6f, blow * 0.6f, blow * 0.5f), forceBone: 0);
+        }
 
         float lowest = float.MaxValue;
         int settled = -1;
