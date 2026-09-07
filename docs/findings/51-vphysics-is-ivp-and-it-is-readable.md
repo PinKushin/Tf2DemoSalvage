@@ -2633,6 +2633,54 @@ the first time the arithmetic and the observed behaviour have pointed the same w
 mechanical axis selection, the index recording and the bound assignment, with every constant dumped;
 the cone interpretation of `flags+0xcc` is the MOST PROBABLE READING, with its falsifier named.*
 
+## The twist deflection, read in full — and it is zero at the bind pose
+
+The falsifier named above is now closed rather than open: the unused lanes of `FUN_180036b80`'s
+four-lane return are anded with `_UNK_1800ff104`, `_UNK_1800ff108` and `_UNK_1800ff10c`, all dumped
+as `0`. They cannot reach anything.
+
+The twist is built from three vectors, in order:
+
+```c
+fVar33 = fVar43 + fVar47;  fVar34 = fVar44 + fVar48;  fVar35 = fVar45 + fVar49;
+  // m = normalise( A[iVar9]_world + B[iVar9]_world ) — the BISECTOR, cached at geom+0x110
+fVar35 = fVar42 * fVar37 - fVar41 * fVar38;  …
+  // p = normalise( A[iVar16]_world × m ), zeroed when the cross is degenerate
+fVar22 = fVar21 * local_e8 + fVar24 * local_d8 + fVar17 * local_f8;   // q = R_bodyB · constraint[+0x90]
+local_158 = q · (p × m);
+local_148 = q · p;
+```
+
+so **`twist = −atan2( q·p , q·(p×m) )`**, where `m` bisects the two bodies' primary axes, `p` is
+perpendicular to it in the plane of the wider swing, and `q` is body B's `iVar16` axis in world
+space.
+
+**Which corrects a label used earlier in this document.** `geom+0x110` was written up as the joint's
+anchor — it is not; it is the bisector, and it is what `FUN_180036f80` receives as the axis for its
+Jacobian. The anchors live at `constraint+0x60` and `+0xa0`.
+
+**Checked at the bind pose, where `A[k] = B[k]` for every k by construction:** `m = A[iVar9]`,
+`p = ±A[iVar19]`, `q = A[iVar16]`, so `q·p = 0` and `q·(p×m) = ±1`. The twist is `atan2(0, ±1)` —
+**zero**, against bounds `−hi[iVar9]`, `−lo[iVar9]` which straddle zero. Consistent.
+
+**That also pins the argument order of `FUN_180036b80`**, which was not established when the
+four-lane `atan2` was first transcribed: `param_1` is the numerator and `param_2` the denominator.
+Taken the other way the twist would read `±π/2` at rest, far outside every ragdoll bound — so the
+bind-pose check is what settles it, not the disassembly.
+
+**And it leaves `flags+0xcc` as the only block that does not read zero-or-consistent at rest**, with
+one mitigation now visible and one problem still standing. The mitigation: its solve axis is
+`cross(A[iVar9], B[iVar9])`, which is exactly zero at the bind pose, so `FUN_1800372c0` retires the
+axis (`cache[0x1c] = 2`) before reaching the clamp — the corpse at rest is not fighting it. The
+problem: a few degrees off the bind pose the cross is no longer degenerate, the cosine is still near
+1, and the clamp does fire. Whether the resulting impulse pushes the joint back toward alignment or
+away from it depends on the sign the cross-derived row carries, and that has NOT been worked
+through.
+
+*Evidence class: read from the decompiled binary for all three vectors and both `atan2` terms;
+the argument order of `FUN_180036b80` is settled by the bind-pose check, which is ARITHMETIC on a
+read expression rather than a second reading; the sign the cone impulse carries is NOT established.*
+
 **It matters because the two answers are visibly different.** A sine compared against a radian bound
 tightens the limit as the angle grows — four per cent at 25°, twenty-nine at 79° — which is a corpse
 whose big joints stop short. A cosine compared against a radian bound would clamp constantly, which
