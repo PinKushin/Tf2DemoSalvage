@@ -2328,13 +2328,110 @@ projections.** That is consistent with the two-routines-are-genuinely-different 
 recorded — the difference is not only relaxation and gains, it is the QUANTITY being limited.
 
 **What this opens, and it is not closed:** `constraint_ragdollparams_t::axes[]` carries
-`minRotation`/`maxRotation` in DEGREES, and `FUN_180037890` has the `±0.017453292` conversion beside
-the 2π disable. A bound in radians cannot be compared against a dot product, so either that function
-converts the two swing bounds differently or the projections are scaled somewhere not yet read.
-**Guessing it would give two joints that clamp at the wrong deflection with nothing in the output to
-say so**, which is exactly the failure this document exists to avoid — so it is recorded as the next
-thing to read rather than filled in.
+`minRotation`/`maxRotation` in DEGREES. The section below establishes that all six bounds reach the
+constraint as RADIANS, so a dot product cannot be compared against them unless it is a SINE — which
+would be true if the two vectors dotted are perpendicular at the joint's rest pose, and would make
+the engine's swing limits progressively tighter than their nominal degrees (`sin 25°` = 0.42 against
+0.436 rad, four per cent; `sin 79°` = 0.98 against 1.38, twenty-nine per cent).
+
+**That is a hypothesis with an obvious shape and it has NOT been checked.** What the two dotted
+vectors are — `fVar40..fVar49` in `FUN_180038620`, each a basis vector rotated by one body's frame —
+is the next thing to read. **Guessing it would give two joints that clamp at the wrong deflection
+with nothing in the output to say so**, which is exactly the failure this document exists to avoid.
 
 *Evidence class: read from the decompiled binary for the write site, the dispatch order and the
-per-lane selection, with both lane masks dumped; the bound conversion for the two projection axes is
-OPEN.*
+per-lane selection, with both lane masks dumped; whether the two projections are sines is a NAMED
+HYPOTHESIS, not a reading.*
+
+## Chasing that open question found a whole construction path nobody has read
+
+Pulling on "where do the swing bounds come from" produced four facts and one much better question.
+
+**The conversion to radians is real and covers all six bounds.** `FUN_18000eac0` walks the three
+axes and scales each `minRotation`/`maxRotation` by one of two dumped constants —
+`DAT_1800eb764` = `0.017453292` and `DAT_1800eb770` = `-0.017453292`. The negative branch also
+**swaps min with max**, which is what a negation requires if the interval is to stay ordered. So
+degrees in, radians out, with a per-axis sign convention.
+
+**`FUN_180037890` converts nothing.** It is a straight copy of the descriptor into the constraint,
+which is why looking there for a conversion found none — including for the two swing axes.
+
+**`FUN_1800393d0` is where each block's bounds are actually decided, and the three are treated
+DIFFERENTLY.** It first zeroes all three blocks' `+0x4`/`+0x8` pairs and sets all three `+0x0`
+enables to 1, then:
+
+| block | becomes constraint | bounds written |
+|---|---|---|
+| `+0x80` | `+0xb0` (the atan2 axis) | `−hi`, `−lo` — negated AND swapped |
+| `+0x98` | `+0xcc` | `range × −0.5`, `range × 0.5` — re-centred on zero |
+| `+0xb0` | `+0xe8` | `lo`, `hi` — straight through |
+
+**The negation on the first block resolves half of the puzzle.** That axis's deflection is written as
+`0 − atan2(…)`, also negated, so the two negations cancel and the comparison is consistent. The
+re-centring on the second is paid for elsewhere: `FUN_18003dde0(&basis, axis, midpoint)` rotates the
+joint's reference frame by `(lo + hi) × 0.5` first, so bounds symmetric about zero are the same
+constraint expressed in a rotated frame.
+
+**Which of the three treatments a joint gets is chosen by counting its MOVABLE axes**, against a
+threshold dumped as `DAT_1800eea1c` = `1e-16`:
+
+```c
+cVar12 = (fVar28 < local_2e8[0]) + '\x01';
+if (local_2e8[1] <= fVar28) { cVar12 = fVar28 < local_2e8[0]; }
+cVar6  = cVar12 + '\x01';
+if (local_2e8[2] <= fVar28) { cVar6 = cVar12; }
+if (cVar6 == '\0') {                                          // nothing moves at all
+    *(undefined1 *)(param_1 + 0x13) = 1;
+    *(undefined4 *)((longlong)param_1 + 0x9c) = 0xbdcccccd;   // -0.1
+    *(undefined4 *)(param_1 + 0x14)           = 0x3dcccccd;   // +0.1
+    return 1;
+}
+```
+
+A TF2 ragdoll's three axes all have a nonzero range, so `cVar6` is **3** and it takes the branch
+that writes all three blocks — the table above. The `±0.1` is the degenerate fallback for a joint
+welded shut on every axis.
+
+**And the fork at the top of `FUN_18000eac0` is a HINGE test, which a ragdoll fails.**
+`FUN_18000cc20` opens by counting axes with `max != min` and refuses unless there is exactly one:
+
+```c
+cVar5 = (float)param_2[0x21] != (float)param_2[0x20];
+if ((float)param_2[0x25] != (float)param_2[0x24]) { cVar5 = cVar5 + '\x01'; }
+if ((float)param_2[0x29] != (float)param_2[0x28]) { uVar8 = 2; cVar5 = cVar5 + '\x01'; }
+if (cVar5 != '\x01') { return 0; }
+```
+
+One free axis is a hinge and gets `FUN_18000e090`; three free axes is a ragdoll joint and falls
+through to everything described above. So the general path IS the corpse's path.
+
+**So the original question is answered: all six bounds a ragdoll joint carries are RADIANS**,
+converted once in `FUN_18000eac0`, redistributed across the three blocks by `FUN_1800393d0` with a
+negation on one and a re-centring on another, and copied unchanged by `FUN_180037890`.
+
+### The misread that produced a dramatic wrong answer, kept because it was so cheap to make
+
+The paragraph above originally said the threshold was **π** and concluded that a TF2 ragdoll cannot
+reach this function at all — that every axis is narrower than a half turn, so the count is zero, the
+limits are discarded, and the corpse must be built somewhere else entirely. That was written up,
+committed, and was wrong.
+
+**The constant was never dumped; it was assumed from its neighbour.** `DAT_1800eea18` is
+`6.2831855` — genuinely 2π, and already established as the 2π disable test earlier in this document.
+`DAT_1800eea1c` is the next four bytes, and reading a π-shaped comparison beside a known 2π made
+"the adjacent one is π" feel like recall rather than a guess. It is `1.0e-16`, which is not a nearby
+value or a plausible variant — it is a different KIND of constant, an is-it-zero epsilon.
+
+**The tell was there and pointed the wrong way.** The conclusion contradicted the game, which is
+supposed to send you back to re-read — and it did, but to re-read the *fork*, on the theory that the
+subject was wrong. The subject was right; one constant in it was invented. **A conclusion that
+contradicts the game means re-derive every input to it, starting with the ones that were not
+measured**, rather than assuming the whole reading is aimed at the wrong function.
+
+This document already carries `a-constant-carries-no-scope` and "dump it, do not recall it" in
+several forms. This is the version where the wrong value came from an *adjacent address*, which is
+the one case where the habit of dumping feels redundant.
+
+*Evidence class: read from the decompiled binary for the conversion constants, the three bound
+treatments, the movable-axis count and the hinge fork, with every constant in them dumped this time;
+the joint ranges are MEASURED off the shipped `.phy` files.*
