@@ -372,7 +372,18 @@ public sealed class IvpContact
         // term between PSIs (`contact+0x78`, half the Coulomb product `FUN_1800857c0` clamps
         // against) — so a body is held continuously rather than ejected repeatedly. This is that
         // state, warm-started by the same relaxation weight the tangential pair uses.
-        float carried = held * IvpConstraintGroup.Relaxation;
+        // **Carried in FULL, not decayed, because a body at rest has nothing to re-derive it from.**
+        // This warm-started at the relaxation weight like the tangential pair, and that is wrong for
+        // the normal: the correction below is driven by the closing velocity, and a body in
+        // equilibrium has none — so the stored support decayed geometrically to nothing, the
+        // Coulomb limit `friction × Accumulated` went with it, and friction stopped existing exactly
+        // when it was needed. Measured on a slope with a coefficient of ten times what the gradient
+        // demands: the body slid at a steady 37 units a second with the whole solve dissipating,
+        // `separate` contributing 0 and `rub` 3.6 — no pump, no budget either.
+        //
+        // **The engine's contact holds a real normal force between PSIs** (`contact+0x78`), not a
+        // residue of how fast something was still sinking.
+        float carried = held;
 
         if (carried > 0f)
         {
@@ -422,9 +433,11 @@ public sealed class IvpContact
                 Body.Position.Z + (Normal.Z * shift));
         }
 
-        float wanted = closing < 0f ? -closing : 0f;
-
-        float extra = wanted / effective;
+        // **Signed, so a contact carrying too much support gives it back.** Clamping this to the
+        // sinking case alone would let the full carry above accumulate without ever unwinding, and
+        // a body being pushed off a surface it is no longer resting on is the same launch the old
+        // velocity recovery produced. The TOTAL is what is clamped non-negative, not this.
+        float extra = -closing / effective;
 
         // **The TOTAL is clamped non-negative, not the increment**, which is what lets a later
         // slice pull back an earlier one's over-correction while never letting a contact suck a
