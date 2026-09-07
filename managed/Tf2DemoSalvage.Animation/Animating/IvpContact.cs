@@ -22,11 +22,23 @@ namespace Tf2DemoSalvage.Animation.Animating;
 /// the fact that it carries no cross product — IVP's lever arm enters through the frame the
 /// contact is expressed in, not through an `r × n` here.
 ///
-/// **The consumer of that record is the one piece `docs/findings/51` still lists as missing**, so
-/// the application below is this project's, not a transcription: an accumulated normal impulse,
-/// clamped non-negative, in the same sequential-impulse loop the ragdoll constraints already use —
-/// which is what the constraint solve WAS found to be. Stated plainly rather than implied, because
-/// the parts either side of it are transcribed and this part is not.
+/// **The consumer of that record has been found, and it is `FUN_18008e290`** — reached from the
+/// mindist event through `FUN_18008ed60`, which builds the solver's working struct on the stack
+/// and hands it over. It replaces what this class used to do, which was an accumulated normal
+/// impulse with a separate Coulomb friction pass, invented here because the consumer was unread.
+/// Two things about it are not what a textbook solver does, and both are transcribed below:
+///
+/// - **The impulse is applied in a fixed fraction, repeatedly, until the approach is gone.** Each
+///   pass applies `-0.1 · mA · 2 · mB / (mA + mB) · v₀`, where `v₀` is the approach speed measured
+///   ONCE before the loop — so the magnitude never changes, and the loop simply runs until
+///   `dot(relative velocity, direction)` stops being negative, bounded at a hundred passes:
+///   `for (; (0.0 &lt; dVar24 &amp;&amp; (iVar15 &lt; 100)); iVar15 = iVar15 + 1)`. A static partner's mass
+///   term is its partner's scaled by `1.0e5`, which is what makes the world immovable here.
+/// - **There is ONE impulse, and friction is a direction constraint on it.** `FUN_180090240` sets
+///   the direction to the normalised relative velocity, and if that leans further from the normal
+///   than the friction cone allows it is clamped onto the cone edge —
+///   `dir = normal · (−cos θ) + tangent · sin θ`, with `(cos θ, sin θ)` precomputed at
+///   `record+0x134` / `+0x138` from `tan θ = friction`. There is no separate tangential impulse.
 ///
 /// **The static world contributes nothing**, which is not a shortcut: the contact builder zeroes
 /// the whole mass and inertia term for a body carrying `core+0x0 &amp; 2`, and that bit is how static
@@ -50,6 +62,17 @@ public sealed class IvpContact
     public float Accumulated { get; private set; }
 
     /// <summary>
+    /// The approach speed latched before the impulse loop — <c>FUN_18008e290</c>'s <c>fVar17</c>.
+    /// </summary>
+    /// <remarks>
+    /// **Measured once, and every pass's impulse is the same fraction of it.** The engine computes
+    /// `dot(relative velocity, normal)` before the loop starts and never recomputes it; only the
+    /// TEST that ends the loop reads the live velocity. Recomputing the magnitude each pass would
+    /// be a Gauss-Seidel solve, which converges faster and is not what this is.
+    /// </remarks>
+    public float Approach { get; private set; }
+
+    /// <summary>
     /// The contact's effective inverse mass — <c>FUN_18008d0c0</c>, <c>record+0x94</c>.
     /// </summary>
     /// <remarks>
@@ -64,125 +87,172 @@ public sealed class IvpContact
         (Arm.Z * Arm.Z * Body.InverseInertia.Z) +
         Body.InverseMass;
 
-    /// <summary>Applies one iteration's worth of impulse.</summary>
-    /// <param name="step">The timestep, for the penetration bias.</param>
+    /// <summary>Latches the approach speed every pass's impulse is a fraction of.</summary>
     /// <remarks>
-    /// **The accumulated impulse is clamped, not the increment**, which is what makes a stack of
-    /// contacts settle instead of jittering: an iteration is free to pull back an over-correction
-    /// from an earlier one, so long as the total push has never been negative. A contact cannot
-    /// pull a body in.
-    ///
-    /// **The bias returns only a fraction of the penetration per step.** Removing it all at once
-    /// converts depth into velocity and a corpse resting on a slope climbs it; Valve's own solver
-    /// leaks error the same way, and the fraction here is the constraint group's relaxation weight
-    /// rather than a second number invented for contacts.
+    /// **The engine measures it once and the loop never revises it** — see <see cref="Approach"/>.
+    /// A contact that is not approaching by more than <see cref="Approaching"/> takes no impulse
+    /// path at all: `if (fVar17 &lt;= _DAT_1800ee398)` gates the whole block, and
+    /// `_DAT_1800ee398` dumps as `-1.0E-4`, in metres per second.
     /// </remarks>
-    public void Solve(float step)
+    public void Begin()
+    {
+        Approach = Closing();
+        Accumulated = 0f;
+    }
+
+    /// <summary>Applies one pass of the engine's fixed sub-impulse.</summary>
+    /// <returns>Whether the contact is still approaching, so the loop must run again.</returns>
+    /// <remarks>
+    /// **The magnitude is `0.2 · effective mass · approach speed`, and both numbers are dumped.**
+    /// `dVar12 = DAT_1800fd880 / (dVar19 + dVar18)` with `DAT_1800fd880` = `-0.1` as a double, and
+    /// the impulse `dVar12 * dVar19 * (dVar18 + dVar18) * fVar17` reduces to
+    /// `-0.2 · mA·mB/(mA+mB) · v₀`. Against the static world `mA = 1.0e5 · mB`, so the harmonic
+    /// mean is the moving body's own effective mass and each pass removes a fifth of the approach.
+    ///
+    /// **The direction is chosen fresh every pass**, because the relative velocity it opposes
+    /// changes as the impulses land — <c>FUN_180090240</c> runs at the bottom of the engine's loop
+    /// body.
+    /// </remarks>
+    public bool Oppose()
     {
         float effective = EffectiveInverseMass;
 
-        if (effective <= FloatEpsilon || step <= 0f)
+        if (effective <= FloatEpsilon || Approach > Approaching)
+        {
+            return false;
+        }
+
+        if (Closing() >= 0f)
+        {
+            return false;
+        }
+
+        (float X, float Y, float Z) direction = Direction();
+
+        // -0.2 · m · v₀, with v₀ negative when approaching, so this is positive.
+        float applied = -PassFraction * Approach / effective;
+
+        Accumulated += applied;
+
+        Push((direction.X * applied, direction.Y * applied, direction.Z * applied));
+
+        return true;
+    }
+
+    /// <summary>Pushes the body back out of what it is already inside.</summary>
+    /// <param name="step">The timestep the depth is spread over.</param>
+    /// <remarks>
+    /// **This one is NOT the engine's, and it is here because the mindist scheduler is not.** IVP
+    /// re-checks a pair before the two reach each other, so a body never carries a six-unit
+    /// overlap and no term exists to remove one; the engine's only post-loop addition is a
+    /// separation speed of `sqrt(impacts) · 0.01` metres per second plus a restitution share, which
+    /// is about bounce and not about depth. A discrete test at 66 Hz does produce overlaps, so this
+    /// leaks a fraction of the remaining depth back as velocity, once per slice rather than once
+    /// per pass — inside the loop it would be multiplied by the pass count.
+    /// </remarks>
+    public void Separate(float step)
+    {
+        float effective = EffectiveInverseMass;
+
+        if (effective <= FloatEpsilon || step <= 0f || Depth <= Slop)
         {
             return;
         }
 
-        // The velocity of the contact point, which is the body's plus the rotation about its arm.
-        (float X, float Y, float Z) spin = Cross(Body.AngularVelocity, Arm);
-
-        float closing =
-            ((Body.Velocity.X + spin.X) * Normal.X) +
-            ((Body.Velocity.Y + spin.Y) * Normal.Y) +
-            ((Body.Velocity.Z + spin.Z) * Normal.Z);
-
         // **Capped, and the cap is the part that was measured rather than reasoned.** Without it a
-        // body falling at 400 units a second penetrates six units in one step, and a bias
+        // body falling at 400 units a second penetrates six units in one step, and a push
         // proportional to that depth returns it as a hundred-unit-per-second launch: the test body
         // was thrown back to 44 units above a floor it should have been resting on. A corpse would
         // do the same thing and look like it had been shot.
-        float bias = Depth > Slop
-            ? MathF.Min(Recovery * (Depth - Slop) / step, MaximumRecovery)
-            : 0f;
+        float bias = MathF.Min(Recovery * (Depth - Slop) / step, MaximumRecovery);
 
-        float wanted = (-closing + bias) / effective;
+        float applied = bias / effective;
 
-        // Clamp the TOTAL rather than this increment — see the remarks.
-        float was = Accumulated;
+        Accumulated += applied;
 
-        Accumulated = MathF.Max(0f, was + wanted);
-
-        float applied = Accumulated - was;
-
-        Body.Velocity = (
-            Body.Velocity.X + (Normal.X * applied * Body.InverseMass),
-            Body.Velocity.Y + (Normal.Y * applied * Body.InverseMass),
-            Body.Velocity.Z + (Normal.Z * applied * Body.InverseMass));
-
-        (float X, float Y, float Z) torque = Cross(
-            Arm, (Normal.X * applied, Normal.Y * applied, Normal.Z * applied));
-
-        Body.AngularVelocity = (
-            Body.AngularVelocity.X + (torque.X * Body.InverseInertia.X),
-            Body.AngularVelocity.Y + (torque.Y * Body.InverseInertia.Y),
-            Body.AngularVelocity.Z + (torque.Z * Body.InverseInertia.Z));
-
-        Rub(effective);
+        Push((Normal.X * applied, Normal.Y * applied, Normal.Z * applied));
     }
 
-    /// <summary>Opposes sliding, up to what the normal impulse allows.</summary>
-    /// <remarks>
-    /// **Coulomb, and the coefficient is the game's own shipped number.** A surface's friction is
-    /// `surfacephysicsparams_t::friction` out of `scripts/surfaceproperties*.txt`
-    /// (`vphysics_interface.h:882`), which the engine looks up per solid —
-    /// `physprops-&gt;GetSurfaceIndex( solid.surfaceprop )`, `ragdoll_shared.cpp:194` — and hands to
-    /// `CreatePolyObject` beside the hull.
-    ///
-    /// **Without this a corpse never stops.** Two of the eight measured on `koth_harvest_final` had
-    /// slid hundreds of units off the map, one of them to 23,832 units below it, because a body
-    /// resting on any slope with no tangential force keeps accelerating down it.
-    ///
-    /// **The world's own material is NOT read yet, and that is a stated gap.** The map's collision
-    /// text carries a per-hull material table — `MapSurfaceTable.Materials` — and this uses only the
-    /// body's coefficient, so a corpse slides the same on ice as on wood. The table is read and
-    /// unused rather than absent, which is the difference between a gap and a guess.
-    /// </remarks>
-    private void Rub(float effective)
+    /// <summary>The contact point's speed along the normal — negative while approaching.</summary>
+    private float Closing()
     {
-        if (Accumulated <= 0f || Body.Friction <= 0f)
-        {
-            return;
-        }
+        (float X, float Y, float Z) spin = Cross(Body.AngularVelocity, Arm);
 
+        return ((Body.Velocity.X + spin.X) * Normal.X) +
+               ((Body.Velocity.Y + spin.Y) * Normal.Y) +
+               ((Body.Velocity.Z + spin.Z) * Normal.Z);
+    }
+
+    /// <summary>The direction the pass impulse takes — <c>FUN_180090240</c>.</summary>
+    /// <remarks>
+    /// **It opposes the motion, not the surface**, and only leans back toward the normal when the
+    /// friction cone will not stretch far enough to cover it. The cone's half-angle is carried as
+    /// the pair `(cos θ, sin θ)` with `tan θ` the friction coefficient, which is what
+    /// <c>FUN_18008ed60</c> builds: `fVar2 = 1 − s²/2 + C·s⁴` is the series for `1/sqrt(1 + s²)`
+    /// and the partner is `fVar2 · s`.
+    ///
+    /// **The engine's `s` is `(sqrt(mindist+0x80) + 1) · material friction` and this uses the
+    /// material friction alone.** Nothing traced writes `mindist+0x80`, so the factor is between
+    /// one and unknown; taking it as one is the minimum of the engine's range rather than a
+    /// different rule, and it is flagged rather than smoothed over.
+    ///
+    /// **The world's own material is still NOT read.** The map's collision text carries a per-hull
+    /// table — `MapSurfaceTable.Materials` — and this uses the body's coefficient, so a corpse
+    /// slides the same on ice as on wood.
+    /// </remarks>
+    private (float X, float Y, float Z) Direction()
+    {
         (float X, float Y, float Z) spin = Cross(Body.AngularVelocity, Arm);
 
         (float X, float Y, float Z) moving = (
             Body.Velocity.X + spin.X, Body.Velocity.Y + spin.Y, Body.Velocity.Z + spin.Z);
 
-        // The part of that motion along the surface, which is what friction opposes.
-        float into = (moving.X * Normal.X) + (moving.Y * Normal.Y) + (moving.Z * Normal.Z);
-
-        (float X, float Y, float Z) sliding = (
-            moving.X - (Normal.X * into),
-            moving.Y - (Normal.Y * into),
-            moving.Z - (Normal.Z * into));
-
         float speed = MathF.Sqrt(
-            (sliding.X * sliding.X) + (sliding.Y * sliding.Y) + (sliding.Z * sliding.Z));
+            (moving.X * moving.X) + (moving.Y * moving.Y) + (moving.Z * moving.Z));
 
         if (speed <= FloatEpsilon)
         {
-            return;
+            return Normal;
         }
 
-        // **Clamped by the normal impulse, which is what makes it Coulomb rather than a drag.** A
-        // body pressed hard into a surface resists sliding more; one barely touching does not, and
-        // one in the air is not slowed at all.
-        float wanted = MathF.Min(speed / effective, Body.Friction * Accumulated);
+        // Opposing the motion, normalised — the engine's `dir = relative velocity`, normalised.
+        (float X, float Y, float Z) against = (
+            -moving.X / speed, -moving.Y / speed, -moving.Z / speed);
 
-        float scale = wanted / speed;
+        float lean = (against.X * Normal.X) + (against.Y * Normal.Y) + (against.Z * Normal.Z);
 
-        (float X, float Y, float Z) impulse = (
-            -sliding.X * scale, -sliding.Y * scale, -sliding.Z * scale);
+        float friction = MathF.Max(Body.Friction, 0f);
+        float cosine = 1f / MathF.Sqrt(1f + (friction * friction));
 
+        if (lean >= cosine)
+        {
+            return against;
+        }
+
+        // Outside the cone: put the impulse exactly on its edge.
+        (float X, float Y, float Z) tangent = (
+            against.X - (Normal.X * lean),
+            against.Y - (Normal.Y * lean),
+            against.Z - (Normal.Z * lean));
+
+        float across = MathF.Sqrt(
+            (tangent.X * tangent.X) + (tangent.Y * tangent.Y) + (tangent.Z * tangent.Z));
+
+        if (across <= FloatEpsilon)
+        {
+            return Normal;
+        }
+
+        float sine = friction * cosine;
+
+        return ((Normal.X * cosine) + (tangent.X / across * sine),
+                (Normal.Y * cosine) + (tangent.Y / across * sine),
+                (Normal.Z * cosine) + (tangent.Z / across * sine));
+    }
+
+    /// <summary>Adds one impulse's linear and angular halves to the body.</summary>
+    private void Push((float X, float Y, float Z) impulse)
+    {
         Body.Velocity = (
             Body.Velocity.X + (impulse.X * Body.InverseMass),
             Body.Velocity.Y + (impulse.Y * Body.InverseMass),
@@ -443,6 +513,23 @@ public sealed class IvpContact
 
     /// <summary><c>FLT_EPSILON</c>, the floor the engine's own guards use.</summary>
     private const float FloatEpsilon = 1.1920929e-07f;
+
+    /// <summary>How much of the approach one pass removes — <c>FUN_18008e290</c>.</summary>
+    /// <remarks>
+    /// **`DAT_1800fd880` is `-0.1` as a double**, dumped in the disassembly rather than read out of
+    /// the decompiled expression, and the `(dVar18 + dVar18)` beside it doubles it. So each pass
+    /// removes a fifth of the approach speed and the loop converges as `0.8ⁿ` — which is why the
+    /// engine needs a bound as large as <see cref="IvpEnvironment.MaximumImpulsePasses"/>.
+    /// </remarks>
+    private const float PassFraction = 0.2f;
+
+    /// <summary>The approach speed below which no impulse is applied at all.</summary>
+    /// <remarks>
+    /// **`_DAT_1800ee398` = `-1.0E-4`, in metres per second**, converted here to Source units
+    /// because this project's bodies are in inches. A contact slower than this takes the engine's
+    /// other branch, which applies friction and nothing else.
+    /// </remarks>
+    private const float Approaching = -1.0e-4f * IvpWorldCollision.SourceUnitsPerMetre;
 
     /// <summary>Penetration left unresolved, so resting contacts stop re-triggering.</summary>
     /// <remarks>

@@ -147,6 +147,15 @@ public sealed class IvpEnvironment
     /// </remarks>
     public int MaximumCollisionChecks { get; set; } = 250;
 
+    /// <summary>The impact solver's own loop bound — <c>FUN_18008e290</c>, <c>iVar15 &lt; 100</c>.</summary>
+    /// <remarks>
+    /// **A bound, not a count.** The loop's real exit is the contact no longer approaching, so a
+    /// resting body costs one test; reaching a hundred means the engine gave up, and it checks for
+    /// exactly that afterwards — `if ((0.0 &lt; dVar18) &amp;&amp; (iVar15 != 100))` skips the final
+    /// calibrated impulse when the loop ran out.
+    /// </remarks>
+    public const int MaximumImpulsePasses = 100;
+
     /// <summary>The static world these bodies collide with, or null when there is none.</summary>
     /// <remarks>
     /// **Null is a legitimate state and not a missing input.** Every test of the solve that predates
@@ -365,20 +374,55 @@ public sealed class IvpEnvironment
         return slice;
     }
 
-    /// <summary>Solves this slice's contacts beside the joints.</summary>
+    /// <summary>Solves this slice's contacts the way the engine's impact solver does.</summary>
     /// <remarks>
-    /// **The same iteration count the joints get.** A contact and a joint limit are the same kind
-    /// of unilateral constraint, and splitting them across two loops with different counts would
-    /// let one win every argument with the other.
+    /// **This used to borrow the joint group's two iterations, and that was a guess.**
+    /// `FUN_18008e290` — the consumer of the contact record, reached through `FUN_18008ed60` — runs
+    /// its own loop, and the number in it is not two:
+    ///
+    /// <code>
+    /// for (; (0.0 &lt; dVar24 &amp;&amp; (iVar15 &lt; 100)); iVar15 = iVar15 + 1) {
+    ///     FUN_18008f1c0(param_1, dVar12 * dVar19 * (dVar18 + dVar18) * (double)fVar17);
+    ///     FUN_18008fc00(param_1);                       // recompute the relative velocity
+    ///     dVar24 = -(dot of it with the direction);
+    ///     FUN_180090240(param_1);                       // re-choose the direction
+    /// }
+    /// </code>
+    ///
+    /// **The loop ends on a CONDITION and the hundred is only a bound.** A contact that is already
+    /// resting exits on the first test, so the cost of raising two to a hundred is paid by bodies
+    /// that are genuinely still moving into something — which is exactly the case two iterations
+    /// could not settle, and the one where three corpses were measured sinking through a floor they
+    /// were touching.
+    ///
+    /// **The separation term is outside it**, because the engine's post-loop addition is applied
+    /// once — see <see cref="IvpContact.Separate"/>, which is this project's and not Valve's.
     /// </remarks>
     private void Resolve(float slice)
     {
-        for (int pass = 0; pass < Constraints.Iterations; pass++)
+        for (int index = 0; index < _contacts.Count; index++)
         {
+            _contacts[index].Begin();
+        }
+
+        for (int pass = 0; pass < MaximumImpulsePasses; pass++)
+        {
+            bool approaching = false;
+
             for (int index = 0; index < _contacts.Count; index++)
             {
-                _contacts[index].Solve(slice);
+                approaching |= _contacts[index].Oppose();
             }
+
+            if (!approaching)
+            {
+                break;
+            }
+        }
+
+        for (int index = 0; index < _contacts.Count; index++)
+        {
+            _contacts[index].Separate(slice);
         }
     }
 

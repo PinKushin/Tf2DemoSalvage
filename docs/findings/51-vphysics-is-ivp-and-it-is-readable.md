@@ -2105,12 +2105,118 @@ transcribing the prediction as an impulse stopped a falling body dead sixty-six 
 `lVar4+0x108` is the environment's own lookahead time; the margin table `DAT_18012d548` is the
 256-entry per-material float already noted above, whose base `DAT_18012d664` dumps as `0.0`.
 
-**Still unread: `FUN_180098dd0`**, the escalation — and with it the point where a contact record
-finally becomes an impulse. That remains the gap named under *Contact response is accumulated, not
-applied*.
+**`FUN_180098dd0` was called the escalation above and it is not one — it is a REMOVAL.** Read, it
+unlinks a mindist from four doubly-linked lists and from an array at `manager+0x20` whose count sits
+at `+0x1a`; there is no impulse anywhere in it. And the branch it sits in is the FAR one, not the
+near one: the test reads `if (lookAheadTime × speedBound + margin < distance)`, so the pair taken
+out of the list is the pair too far apart to matter, and what follows installs a travel allowance
+per object (`FUN_180097bd0`, split between the two by their speed bounds) saying how far either may
+move before the pair must be looked at again.
+
+So both halves of that sentence were wrong: the deactivation was read as an escalation, and the
+point where a contact becomes an impulse is not on this path at all. It is in the next section.
 
 *Evidence class: read from the decompiled binary; the phase numbering is read from the profiler
-argument rather than inferred.*
+argument rather than inferred. The correction to `FUN_180098dd0` is read from the function itself.*
+
+## The impact solver, found — and it is a fixed sub-impulse in a friction cone
+
+**`FUN_18008e290` is the consumer of the contact record**, reached from the mindist event through
+`FUN_18008ed60`, which builds the solver's ~0x150-byte working struct on the stack and hands it
+over. It is the piece the section above and *Contact response is accumulated, not applied* both
+named as missing, and it was found by asking which functions read the record's mass term and write a
+core's velocity — six in the whole binary, and this is the one between them.
+
+**The working struct, from the two functions together:**
+
+| byte | holds |
+|---|---|
+| `+0x30`, `+0x38` | each core's 3×3 rotation, as doubles |
+| `+0x40`/`+0x60`, `+0x50`/`+0x70` | each core's working angular / linear velocity |
+| `+0x80`/`+0xa0`, `+0x90`/`+0xb0` | the per-application delta for each, so it can be undone |
+| `+0xc0` | the relative velocity at the contact |
+| `+0xd0` | **the impulse direction** |
+| `+0xe0` | the fallback direction, used when the pair is separating |
+| `+0x110`, `+0x118` | the two cores |
+| `+0x120`, `+0x128` | each core's contact anchor |
+| `+0x130` | the elasticity input |
+| `+0x134`, `+0x138` | **`cos θ` and `sin θ` of the friction cone** |
+| `+0x140` | the normal — `mindist+0x20`, or a negated copy when the roles are swapped |
+
+**The working velocity is `core+0x130/+0x140` plus `core+0x110/+0x120`, and the first pair is the
+live one.** `FUN_180099a00`, the integrator, advances the position by `core+0x170` and only then
+copies `core+0x140` into it, which is the one-step lag this project already reproduces — and it
+proves `+0x140` is the velocity rather than a delta accumulator. The `+0x110/+0x120` pair is a
+second velocity added on top, folded in and cleared by this function's tail under a `flags & 0xc0`
+gate.
+
+**The loop is the finding.** Every constant in it was dumped in the disassembly rather than read out
+of the decompiled expression, per `docs/memory/settle-a-constant-in-the-disassembly.md`:
+
+```c
+fVar17 = dot(relativeVelocity, normal);
+if (fVar17 <= _DAT_1800ee398) {                    // -1.0E-4, a float: genuinely approaching
+    FUN_180090240(param_1);                        // choose the direction
+    dVar12 = DAT_1800fd880 / (dVar19 + dVar18);    // -0.1 (double) over the two mass terms
+    dVar24 = -dot(relativeVelocity, direction);
+    for (; (0.0 < dVar24 && (iVar15 < 100)); iVar15 = iVar15 + 1) {
+        FUN_18008f1c0(param_1, dVar12 * dVar19 * (dVar18 + dVar18) * (double)fVar17);
+        FUN_18008fc00(param_1);                    // recompute the relative velocity
+        dVar24 = -dot(relativeVelocity, direction);
+        FUN_180090240(param_1);                    // re-choose the direction
+    }
+```
+
+Three things follow, and each contradicts what a textbook sequential-impulse solver does.
+
+- **The magnitude is fixed and comes from the approach speed measured BEFORE the loop.** `fVar17` is
+  never recomputed; only the test reads the live velocity. The expression reduces to
+  `-0.2 · mA·mB/(mA+mB) · v₀`, so each pass removes a fifth of the original approach and the loop
+  converges as `0.8ⁿ`. That is what a bound of a hundred is for.
+- **A static partner is `1.0e5 ×` its partner's mass term.** `DAT_1800fd870` dumps as `100000.0`
+  (double), substituted for whichever core carries `flags & 2` — so the harmonic mean collapses to
+  the moving body's own effective mass. Infinite mass by a large number rather than by a branch.
+- **There is ONE impulse and friction is a constraint on its DIRECTION.** `FUN_180090240` sets the
+  direction to the normalised relative velocity; if that leans further from the normal than the
+  cone allows — `if (-cos θ < dot)` — it is clamped onto the cone edge,
+  `dir = normal·(−cos θ) + tangent·sin θ`. There is no tangential impulse anywhere.
+
+**The cone pair is built in `FUN_18008ed60` and it is a series, not a table lookup:**
+
+```c
+dVar3 = (sqrt(*(float *)(param_1 + 0x80)) + 1.0) * *(float *)(param_4 + 0x78);   // tan θ
+dVar1 = FUN_1800d4398(dVar3);
+fVar2 = (1.0 - dVar1*dVar1 * 0.5) + dVar1*dVar1 * _DAT_1800fd858 * dVar1*dVar1;
+local_44 = CONCAT44((float)((double)fVar2 * dVar3), fVar2);                       // (cos θ, sin θ)
+```
+
+`1 − s²/2 + C·s⁴` is the series for `1/sqrt(1 + s²)`, and the partner is that times `s`, which makes
+the pair `(cos θ, sin θ)` with `tan θ = s`. **`mindist+0x80` has no traced producer**, so the
+`(sqrt(x) + 1)` factor on the material's friction is between one and unknown — flagged rather than
+rounded off, and this project takes it as one, which is the minimum of the engine's range.
+
+**After the loop there is a calibrated impulse, and it is measured rather than solved.** The target
+separating speed is `dVar24 + sqrt(n)·0.01 + sqrt(1 − (1−e)/(n·0.5 + 1))·dVar24` — with
+`DAT_1800eb150` dumping as `0.01` (double), metres per second, a floor that grows with the impact
+count so a pair cannot chatter forever. If that target is positive **and the loop did not hit its
+bound**, the solver applies a unit impulse, remeasures, subtracts its own accumulated deltas back
+out of both bodies, and reapplies the exact multiple the measurement calls for. `DAT_1800f50f8` =
+`1.0e-4` guards the division.
+
+**What is NOT established:** the elasticity source at `mindist+0x80` and what `param_4` counts —
+read as an impact or recursion count from its use under two square roots, not from a producer.
+`FUN_1800d4398` is taken to be a small-angle helper from the series that consumes it, not from a
+name. The tail's `flags & 0xc0` gate has no traced writer either.
+
+**And it names the divergence that mattered.** This project solved contacts with the joint group's
+`additionalIterations + 2`, a number read for joints and never for contacts, with a separate Coulomb
+friction pass — a shape invented here because this function was unread. Both are now the engine's:
+`IvpEnvironment.Resolve` runs the condition-terminated loop bounded at a hundred, and
+`IvpContact.Direction` is the cone clamp.
+
+*Evidence class: read from the decompiled binary for every function; every constant re-read as a
+raw lane in the disassembly. The `(cos θ, sin θ)` identification is ARITHMETIC — the series is
+matched to `1/sqrt(1+s²)` — rather than read from a name.*
 
 ### The point array
 

@@ -69,6 +69,49 @@ public sealed class IvpWorldContactConformanceTests
     }
 
     /// <remarks>
+    /// **This suite could not tell one impulse pass from a hundred, and that was the gap.** Cutting
+    /// <see cref="IvpEnvironment.MaximumImpulsePasses"/> from 100 to 1 reddened nothing: every case
+    /// here rests a cube on a floor through four corners at once, so four contacts each removing a
+    /// fifth of the approach finish it in one pass whatever the bound says, and what the bound
+    /// actually governs was never measured.
+    ///
+    /// **One contact point is what makes the count observable.** The engine's pass applies a FIXED
+    /// fraction of the approach speed measured before the loop — `-0.2 · m · v₀`, from
+    /// `FUN_18008e290` — so a single contact removes a fifth per pass and needs six of them to stop
+    /// a body at 312 units per second. The prediction is arithmetic and exact: the effective
+    /// inverse mass of a unit-mass body with a one-unit arm along the impulse is
+    /// `1 + 1²·0.1 = 1.1`, so each pass is worth `0.2 · 312 / 1.1 = 56.7` units per second, and the
+    /// loop stops on the first pass that carries the approach past zero — never below it, and never
+    /// more than one pass above.
+    /// </remarks>
+    [Test]
+    public void Simulate_ApproachingOnOneContact_TakesAsManyPassesAsItNeeds()
+    {
+        IvpEnvironment environment = new(Step) { World = Floor() };
+
+        // A tenth of a unit inside, which is under the contact slop, so the depth term contributes
+        // nothing and what is measured is the impulse loop alone.
+        IvpRigidBody body = Body(0.9f);
+
+        body.Velocity = (0f, 0f, -300f);
+
+        // ONE point, so one contact — see the remarks.
+        body.Hull = [(0f, 0f, -1f)];
+
+        environment.Add(body);
+
+        environment.Simulate();
+
+        environment.Contacts.ShouldBe(1, "one hull point can raise exactly one contact");
+
+        body.Velocity.Z.ShouldBeGreaterThanOrEqualTo(
+            0f, "the loop runs until the approach is gone, and one pass leaves four fifths of it");
+
+        body.Velocity.Z.ShouldBeLessThan(
+            57f, "and it stops on the first pass past zero, so it never overshoots by more than one");
+    }
+
+    /// <remarks>
     /// **A body already at rest must not be pushed UP**, which is the failure a penetration bias
     /// produces when it converts depth into velocity with no slop: the corpse climbs, slowly and
     /// convincingly, and looks like buoyancy.
