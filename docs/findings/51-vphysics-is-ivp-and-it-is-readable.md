@@ -2525,14 +2525,73 @@ in radians: for the demoman's widest joint that is `±1.187`, which a cosine can
 limit never fires; for his narrowest it is `±0.393`, which a cosine at rest already exceeds, so the
 limit fires permanently and hard. Neither is a working joint, and TF2's corpses visibly are.
 
-**So one input is still wrong, exactly as it was when the threshold was assumed to be π.** The
-candidate is the construction of `local_2d8` and `local_2a8` in `FUN_1800393d0` — read as "the two
-bodies' constraint frames" from the shape of the code around them, never actually read. That
-assumption is doing the same work `DAT_1800eea1c` was, and it is the next thing to open.
+**So one input is still wrong, exactly as it was when the threshold was assumed to be π.** The rest
+of this section is that input, run down.
 
-**Recorded as a contradiction on purpose.** Everything above it is measured or quoted; the
-resolution is not, and a plausible-sounding reconciliation written now would read afterwards like a
-finding.
+## The axis permutation, read — and the one block that is still not explained
+
+`local_2d8` and `local_2a8` are read straight back out of the descriptor:
+
+```c
+local_2d8 = *param_1;      uStack_2d0 = param_1[1];    // frame A, bytes 0x00..0x1f
+local_2c8 = param_1[2];    local_2b8 = param_1[4];
+local_2a8 = param_1[8];    uStack_2a0 = param_1[9];    // frame B, bytes 0x40..0x5f
+local_298 = param_1[10];   local_288 = param_1[0xc];
+FUN_18003dde0((float *)&local_2d8, iVar16, (uint)local_268[iVar16]);   // frame A only
+```
+
+so they are whatever is in the descriptor at that moment, permuted and written back. **Frame B is
+never rotated; frame A is, about `iVar16`, by that axis's range midpoint.**
+
+**The three indices are chosen by MECHANICS, not by position**, which is the part that makes the
+rest legible. The loop above picks `iVar9` as the axis maximising
+
+```c
+fVar23 = |r_A × axis_A|² · invMass_A + … + |r_B × axis_B|² · invMass_B;   // core+0x4c = inverse mass
+```
+
+— the axis whose rotation moves the two anchors most. Then `iVar16` is the WIDER of the two
+remaining ranges and `iVar19` the narrower, and all three are recorded in the descriptor at `0xd0`,
+`0xd1`, `0xd2` and copied to `constraint+0x154..0x156`. `uVar20` is `iVar9`; they are the same
+register.
+
+That resolves the apparent index mismatch, and two of the three blocks come out clean:
+
+| block | solve axis | deflection | bounds | at rest |
+|---|---|---|---|---|
+| `+0xb0` | the twist | `0 − atan2(…)` | `−hi[iVar9]`, `−lo[iVar9]` | consistent — both negated |
+| `+0xe8` | `A[iVar16]` | `B[iVar9] · A[iVar16]` | `lo[iVar19]`, `hi[iVar19]` | a SINE, and its bounds are the axis it turns about |
+| `+0xcc` | `A[iVar9]` | `B[iVar9] · A[iVar9]` | `range[iVar16] × ±0.5` | still unexplained |
+
+**The third row also has a second tell that the first two do not**: its solve axis is
+`cross(A[iVar9], B[iVar9])`, and `FUN_1800372c0` explicitly detects that cross going degenerate and
+retires the axis for the step (`cache[0x1c] = 2`). If the two vectors were parallel at rest, this
+axis would be dead exactly when the corpse is settled — which is when it matters most.
+
+### What that points at, stated as a mechanism rather than a conclusion
+
+**`FUN_18000c750` sets both frames to the IDENTITY** — `FUN_18003ddb0(param_1)` and
+`FUN_18003ddb0(param_1 + 8)`, the same identity-setter the caller uses on the two matrices. If the
+frames were still identity when they are read back, `A[iVar9]` and `B[iVar9]` would be the same
+vector, their dot a cosine and their cross zero, and the block above would be both degenerate and
+mis-bounded.
+
+**They are not still identity.** Between the two calls, `FUN_1800393d0`'s own three-axis path rotates
+each frame's rows by the two BODIES' matrices (`FUN_18003ec30` against `FUN_180032740`'s output),
+builds cross products from them and runs a linear solve (`FUN_18003d320`) whose result is written
+back into `param_1` — and it is that written-back state which `local_2d8` and `local_2a8` then copy.
+
+**So the frames encode the rest pose, and the natural thing for that solve to construct is frames in
+which each block's measured quantity is ZERO when the corpse is in its bind pose.** That would make
+the third row a sine like the second, its cross non-degenerate, and its `±range/2` bounds exactly
+right. **It is the obvious mechanism and it is NOT established** — the linear solve is the one block
+in this function still unread, and writing it up as settled is precisely the move that produced the
+π mistake earlier in this document.
+
+*Evidence class: read from the decompiled binary for the frame copies, the midpoint rotation, the
+mechanical axis selection with the inverse-mass term, the index recording, and the identity
+initialiser; the claim that the intervening linear solve leaves each measured quantity zero at the
+bind pose is a NAMED MECHANISM, not a reading, and `FUN_18003d320` is what would settle it.*
 
 **It matters because the two answers are visibly different.** A sine compared against a radian bound
 tightens the limit as the angle grows — four per cent at 25°, twenty-nine at 79° — which is a corpse
