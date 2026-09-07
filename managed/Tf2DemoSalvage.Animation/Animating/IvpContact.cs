@@ -308,6 +308,17 @@ public sealed class IvpContact
         // mindist scheduler to stop an overlap forming — see the remarks.
         float closing = Closing(arm);
 
+        // **The hold alone does NOT support a body, and that is measured rather than assumed.**
+        // Switching this term off drops the same ragdoll through the map to −1519 even with the
+        // stored normal impulse carried and warm-started. So the persistence built above is not yet
+        // doing the engine's job: `Remembered` keys on the contact normal, and a body settling into
+        // a surface changes which face is shallowest, so the slot it accumulates into changes and
+        // the support resets. IVP does not have that problem because its mindist keeps a
+        // closest-feature PAIR rather than re-deriving a face each step.
+        //
+        // **Which is the same missing narrow phase four other measurements have pointed at.** Until
+        // it exists this depth term is what actually holds a corpse up, and it is this project's
+        // and not the engine's.
         float bias = depth > Slop
             ? MathF.Min(Recovery * (depth - Slop) / step, MaximumRecovery)
             : 0f;
