@@ -2338,3 +2338,77 @@ thing to read rather than filled in.
 *Evidence class: read from the decompiled binary for the write site, the dispatch order and the
 per-lane selection, with both lane masks dumped; the bound conversion for the two projection axes is
 OPEN.*
+
+## Chasing that open question found a whole construction path nobody has read
+
+Pulling on "where do the swing bounds come from" produced four facts and one much better question.
+
+**The conversion to radians is real and covers all six bounds.** `FUN_18000eac0` walks the three
+axes and scales each `minRotation`/`maxRotation` by one of two dumped constants —
+`DAT_1800eb764` = `0.017453292` and `DAT_1800eb770` = `-0.017453292`. The negative branch also
+**swaps min with max**, which is what a negation requires if the interval is to stay ordered. So
+degrees in, radians out, with a per-axis sign convention.
+
+**`FUN_180037890` converts nothing.** It is a straight copy of the descriptor into the constraint,
+which is why looking there for a conversion found none — including for the two swing axes.
+
+**`FUN_1800393d0` is where each block's bounds are actually decided, and the three are treated
+DIFFERENTLY.** It first zeroes all three blocks' `+0x4`/`+0x8` pairs and sets all three `+0x0`
+enables to 1, then:
+
+| block | becomes constraint | bounds written |
+|---|---|---|
+| `+0x80` | `+0xb0` (the atan2 axis) | `−hi`, `−lo` — negated AND swapped |
+| `+0x98` | `+0xcc` | `range × −0.5`, `range × 0.5` — re-centred on zero |
+| `+0xb0` | `+0xe8` | `lo`, `hi` — straight through |
+
+**The negation on the first block resolves half of the puzzle.** That axis's deflection is written as
+`0 − atan2(…)`, also negated, so the two negations cancel and the comparison is consistent. The
+re-centring on the second is paid for elsewhere: `FUN_18003dde0(&basis, axis, midpoint)` rotates the
+joint's reference frame by `(lo + hi) × 0.5` first, so bounds symmetric about zero are the same
+constraint expressed in a rotated frame.
+
+**And then the reading breaks, in a way that says the wrong function is being read.** The path above
+is chosen by counting how many axes have a range wider than π (`DAT_1800eb768` = `3.1415927`):
+
+```c
+cVar12 = (fVar28 < local_2e8[0]) + '\x01';
+if (local_2e8[1] <= fVar28) { cVar12 = fVar28 < local_2e8[0]; }
+cVar6  = cVar12 + '\x01';
+if (local_2e8[2] <= fVar28) { cVar6 = cVar12; }
+if (cVar6 == '\0') {
+    *(undefined1 *)(param_1 + 0x13) = 1;
+    *(undefined4 *)((longlong)param_1 + 0x9c) = 0xbdcccccd;   // -0.1
+    *(undefined4 *)(param_1 + 0x14)           = 0x3dcccccd;   // +0.1
+    return 1;                                                 // and the bounds stay ZEROED
+}
+```
+
+**Every TF2 ragdoll axis is narrower than π**, measured rather than assumed — the demoman's first
+joint is 45°, 50° and 136°, and the census over all 37 jointed models found no axis anywhere near a
+half turn. So `cVar6` is zero, and this function returns having thrown the joint's limits away and
+left `±0.1` on one block.
+
+**That cannot be what a corpse gets**, so the conclusion is not "ragdoll limits are ±0.1" — it is
+that **a TF2 ragdoll does not reach this function at all.** `FUN_18000eac0` opens with a fork that
+has not been read:
+
+```c
+uVar8 = FUN_18000cc20((undefined8 *)local_d8, param_4, *(longlong **)(param_1 + 0x10));
+if ((char)uVar8 != '\0') {
+    FUN_18000e090(param_1, param_2, param_3, local_d8);
+    return;
+}
+```
+
+Everything transcribed above is on the `false` side of it. `FUN_18000cc20` and `FUN_18000e090` are
+unread, and the return of 1 from `FUN_1800393d0` is a second unhandled signal pointing the same way.
+
+**This is the memory about instruments, applied to reading rather than to measuring**: a chain of
+correct readings that arrives at an answer contradicting what the game visibly does means the wrong
+subject is being read. The three bound treatments above are solid and are worth keeping; which of
+them a corpse actually receives is not established, and the next thing to read is that fork.
+
+*Evidence class: read from the decompiled binary for the conversion constants, the three bound
+treatments, the π test and the early return, all constants dumped; the joint ranges are MEASURED off
+the shipped `.phy` files; which construction path a TF2 ragdoll takes is OPEN and is the next read.*
