@@ -7809,3 +7809,53 @@ before one sequence can even be looked up (B351), and it appears when somebody c
 be, and wherever it cannot be, the divergence gets written down beside what was measured — the same
 rule every other transcription here follows. The commitment is to read the engine before writing,
 not to guarantee an outcome that reading has not established yet.
+
+## D147 — a constant's identity comes from the disassembly, never from decompiled C (2026-09-07)
+
+**The owner asked for a fix rather than an apology.** Told that a reading had been stopped because
+it *"started depending on decompiler variable aliasing (`uVar6` reused for both a dumped constant
+and a comparison result) rather than on dumped facts, and that is exactly the failure mode that
+produced the π mistake earlier today"*, the reply was one question: **"how can you fix that?"**
+
+**Two wrong conclusions in one evening, and both were made in the decompiled C:**
+
+- **`DAT_1800eea1c` was taken for π** because its neighbour `DAT_1800eea18` genuinely is 2π — a
+  value already established in the same document as the 2π limit-disable test. It is `1.0e-16`, an
+  is-it-zero epsilon. An entire conclusion was written up, committed, and then retracted: that a TF2
+  ragdoll never reaches the general constraint path. It does.
+- **`uVar6` was read as "the mask from `_UNK_1800ff104`"** in one expression and as a comparison
+  result three lines later. Ghidra reuses a local name for unrelated SSA values, and nothing on the
+  page distinguishes them.
+
+**So the decision is a split, and a tool that makes the correct half cheap.**
+
+**Shape from the decompiler; identity from the instructions.** Control flow, the structure of an
+expression, which branch guards what — read those in the decompiled C, which is what it is good at.
+But any claim about *which memory a value came from*, or *what a constant is*, is settled in the
+disassembly, where the address is IN the instruction and cannot alias.
+
+`D:\ghidra-proj\scripts\DisasmWithData.java` prints each instruction with every memory operand
+resolved to its four lanes on the same line:
+
+```
+1800386df  MOVAPS XMM4,xmmword ptr [0x1800ff130]   ; 1800ff130 = {0.0, 0.0, 0.0, ffffffff}
+```
+
+**`DisasmAt.java` already existed and was not enough**, which is the part worth keeping. It printed
+Ghidra's symbol and not its contents, so settling a constant still meant a separate `DumpFloats`
+run — and a separate run is exactly the step that gets skipped in favour of remembering. Thirteen
+lines of output now carry every constant a whole function touches.
+
+**The trigger, so this is a habit rather than a resolution:** a sentence naming a `DAT_` or `_UNK_`
+symbol, or reaching for a value because it is ADJACENT to one already known. Adjacency is the case
+where dumping feels most redundant and is most likely to be wrong — `1800eea18` and `1800eea1c` are
+four bytes apart and are 2π and 1e-16.
+
+**It paid on the question it was built for.** What fills `geom+0x2d0`, the vector whose lane 0
+multiplies every ragdoll limit clamp, took two calls and no guessing: three scalars inserted lane by
+lane plus the bisector's fourth component, and the driver's own call sites then showed lane 0 is the
+per-pass relaxation weight. That closed the last unread multiplier in the clamp scale.
+
+**What this decision is NOT:** a claim that decompiled C is untrustworthy. It is the right tool for
+the question it answers, and the failure both times was asking it a question about identity. See
+`docs/memory/settle-a-constant-in-the-disassembly.md`.

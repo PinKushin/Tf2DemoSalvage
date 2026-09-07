@@ -1,216 +1,182 @@
-# Handoff — the project is a parity audit-and-fix loop, and the frame has a floor
+# Handoff — the ragdoll solver is transcribed and running; nothing draws with it yet
 
-Written 2026-09-01, **updated the same evening after B259 fix 3 landed in full and D128 shipped.**
-Supersedes the previous handoff, whose subjects — launch options, the chase camera, displacement
-collision — are done and merged.
+Written 2026-09-07, superseding the handoff of 2026-09-01 (launch options, the chase camera, the
+frame floor — all merged and done).
 
-Everything below is on `main` and pushed. Gate green: **4,532 across twelve assemblies, plus 30 UI**
-(core 1633, scene 305, rendering 722 — the floors in `build/gate.sh` are authoritative).
+Everything below is on `main` except the last two commits, which are on
+`feat/ragdoll-constraint-group` pending the gate. Gate green as of the last full run: twelve
+assemblies all at or above floor, **animation 111 → 210**, UI 31/31.
 
-## Update, same day — the floor section below is RESOLVED
+**Read `docs/findings/51-vphysics-is-ivp-and-it-is-readable.md` before touching any of this.** It is
+the reverse-engineering account, it is long, and it carries three wrong turns kept on purpose. The
+code cites it by function address throughout.
 
-The "ask before starting it" decision was made (D131, the owner: *"fix 3 is a needed fix its a real
-problem, bigger than pretty much any other since its such a low level change"*) and all three stages
-are merged:
+---
 
-- **Stage A** — a single-keyframe track derives its prop once (677 of 1,165 tracks).
-- **Stage B** — `SceneProp` is a `sealed record`, eight bytes of reference where 232 bytes copied
-  per pass; the engine passes `C_BaseEntity*` and so do we now, in the only sense that translates.
-- **Stage C** — the persistent sample: `PropsAt` keeps each track's prop (`Live`), a wake queue
-  names the next tick a track's answer can change (`Motion` — `NoteChanged` computed ahead of time),
-  and a lerp list holds what is mid-interpolation (`g_InterpolationList`). A rebuild pays for
-  boundaries crossed plus tracks lerping; a seek or a recorder team switch resyncs from nothing.
-  Guarded by `PersistentSampleTests` — a stepped timeline must equal a freshly built one at every
-  half tick — which caught a real one-tick-stale hole during the build.
+## What is done
 
-Measured across the day, same demo, first person, `--measure 20`: **96 fps → 351–395 fps** (best
-640), `sample` 0.5 → 0.1–0.2 ms, probe `PropsAt` 939 → 56 ns/prop. `pose` (1.1–1.3 ms) is now the
-fat column.
+A TF2 corpse's physics is transcribed end to end. `src/vphysics` ships no source, so all of it was
+read out of `vphysics.dll` with Ghidra; the published half (`ragdoll_shared.cpp`) supplied
+construction and the bone read-back.
 
-## Update, later the same evening — the outside audit, and the session was restarted for the agents
-
-An outside agent (Codex) left a read-only parity/performance audit in
-`C:/Users/pinku/source/repos/PinKushin/TF2DEMOSALVAGE-LOG.md` — **that file is the cross-agent
-conversation for THIS project** (distinct from MEASUREMENT-BOX-LOG.md, a confusion that cost a
-detour). Seven findings; each was verified against the code before being believed, per the log's
-own rule that an outside observation is a claim until checked.
-
-**Fixed, on `fix/audit-map-lifecycle`, merged on a green gate** (the reply entry in the log has the
-detail):
-
-1. **Map lifecycle** — `EntityModelSet` outlived the map: `*N` brush paths and pak-first overrides
-   served map A's geometry on map B, and a path that failed on A was cached missing for ever.
-   `LevelShutdown()` forgets everything, wired through `MomentScene.LevelShutdownPreEntity`.
-   Sabotage-verified tests in `ModelLevelLifecycleTests`.
-2. **Translucent order** — entities drew in prop input order under a comment defending it with the
-   sort's own argument. Now `SortEntities`' arithmetic verbatim (`TranslucentOrder`, bounds-center
-   forward-axis dot, ascending, reverse walk). The world/entity per-leaf INTERLEAVE is still a gap:
-   **B261**.
-3. **Per-draw allocations** — both constant-buffer writers staged through fresh arrays per draw;
-   now write straight into the WriteDiscard map. The explicit Clear is load-bearing (zero-means-
-   absent layout, stale bone slots).
-6. **Worn lighting** — the draw-loop override bypassed `ModelLighting.For`'s cache AND never
-   covered the sun (cosmetics' direct light was a sky ray from the map origin). One-place fix in
-   `IlluminationPoint`; the override is deleted; `wornlight` now reads a true 0. The counting tests
-   could not see the wrong point — a third test asserts the POINT.
-
-Findings 4/5/7 are one divergence (Valve builds buckets at leaf collation; our draw re-culls,
-re-classifies and re-sorts per frame) — filed together as **B262**, same restructure as B261.
-
-**Measured: 351–395 → 398–447 fps, best 640 → 691.** Moment cost 0.9–1.3 ms.
-
-**D133 — the parity-citation hook, ratified.** `.claude/hooks/parity-cited.ps1` (PreToolUse)
-refuses a `git commit` staging `.cs` under `Scene/Render/Viewer3D/Presentation` unless the message
-cites the engine or carries `[no-parity]` with a reason. Tested live both directions. Its D133
-entry has a correction worth reading: the owner quote first attached to it was a misread (he was
-asking about the ultrathink keyword), and he then ratified the hook explicitly.
-
-**This session ends with a deliberate restart to register the agents and skills** —
-`.claude/agents/{engine-reader,sabotage-verifier,instrument-auditor}.md` and
-`.claude/skills/{valve-parity-audit,measure}` load at session start, so the NEW session has them by
-name. The owner wants them run over the whole codebase. Remaining parity list, in rough order:
-that sweep, `DoAnimationEvents` (finding 3 in `docs/PARITY-AUDIT.md`, MDL event array unread),
-B261/B262 (the collate-time leaf-walk restructure), and the empty-model-path-reported-DRAWN oddity
-(PARITY-AUDIT finding 5).
-
-**D128 also shipped** (item 2 below): `SpectatorView.Refuses` + every window mode site; POV demos
-open through the recorder's eyes and refuse the free camera, third person and target cycling with
-the reason named. `TF2VIEW_CAMERA` is exempt — an explicitly placed camera is a measurement, not
-playback. **D132 made it land green**: the UI suite now runs `z1800` (SourceTV, twelve players,
-gcor) instead of a solo POV era specimen, so the camera tests exercise modes that stay legal — and
-five of them had been waiting on the exact POV log sentence where their claim was only "first
-person was entered"; they now wait on `ViewerSession.FirstPersonOn`, the shared prefix that existed
-for precisely this.
-
-```bash
-TF2DEMOSALVAGE_GCOR_ONLY=1 bash build/gate.sh
-```
-
-```bash
-pwsh C:/Users/pinku/source/repos/PinKushin/run-exclusive.ps1 dotnet test tests/Tf2DemoSalvage.Viewer3D.UiTests
-```
-
-## Read this first — what the project IS now
-
-**The owner, this session:** *"this project is basically a parity audit and fix loop at this point,
-to make sure you dont mess up"*. That is the shape of the work. Everything below follows from it,
-and two decisions were recorded that change how a result is judged:
-
-- **D129 — the target is BETTER than TF2, not equal to it.** We draw no projectiles, no particles and
-  no ragdolls, and skinning is on the GPU where Valve's `SetupBones` runs on the processor. So a
-  number that merely approaches Valve's is a number that will fall behind the moment a feature
-  lands. **Every frame measurement must state what is NOT being drawn when it quotes a rate.**
-- **D130 — finish decoding a Valve subsystem before building on it.** The demo wire IS completely
-  decoded, and this session kept finding fields sitting there unused: `m_bClientSideAnimation` with
-  3,319 occurrences in one recording, `m_nResetEventsParity` with zero consumers. **Decode complete,
-  consumption incomplete** is the pattern — and the better half to be missing.
-
-## The reference numbers, measured in the game
-
-Captured by the owner on `cp_badlands`, both overlays visible:
-
-| view | TF2 | frame | GPU |
-|---|---|---|---|
-| a room with props | 893 fps | 1.12 ms | **30%** |
-| facing a blank wall | 1135, TF2's own counter 1236 | 0.81–0.88 ms | **29%** |
-
-**The GPU figure is the one that matters.** TF2 is CPU-bound at thirty per cent of the card while
-turning in sub-millisecond frames. Ours, first person on `tf2-2026-pub-pov-clean`, is about 5.8 ms
-busy and 2.8–3.7 ms facing nothing. Badlands against process is not a paired measurement; treat it
-as an order of magnitude.
-
-## What is open, and the one thing that needs a decision
-
-### B259 fix 3 — the floor. THIS IS A DECISION, NOT A BUG FIX
-
-An empty view still costs **2.4 ms with zero props posed**. Traced to the end:
-
-| pass | ms | why it cannot start from the visible set |
+| piece | type | reads |
 |---|---|---|
-| `sample` | 0.8 | the filters are downstream of the enumeration that builds the list they filter |
-| `drawlist` | 0.6 | same |
-| `models` | 0.3 | packing must see the broad set, or a model coming into view hitches — B163 measured 385 ms in one frame |
-| `pose` | 0.7 | placement is needed whether or not a prop is drawn |
+| per-body integration | `IvpIntegrator` | `FUN_180099a00`, `FUN_180099fc0` |
+| quaternion delta / product / normalise | `IvpQuaternion` | `FUN_180071680`, `FUN_180070d60`, `FUN_180070c60` |
+| gravity | `IvpGravity` | `FUN_180074c80`, the controller at `env+0x0` |
+| environment and step order | `IvpEnvironment` | `FUN_18008a020` → `FUN_180082560` → `FUN_1800909d0` |
+| one angular limit | `IvpAngularLimit`, `IvpJacobian` | `FUN_180036f80`, `FUN_1800372c0`, `FUN_180037bd0` |
+| the three deflections | `IvpRagdollConstraint` | `FUN_180038620`, `FUN_180036b80` |
+| relaxation driver | `IvpConstraintGroup` | `FUN_18003c780`, `FUN_18003c330`/`FUN_18003d240` |
+| `.phy` → running bodies | `RagdollSimulation` | the seam; both halves |
 
-**The engine never enumerates.** `CClientLeafSystem` maintains per-leaf renderable lists
-INCREMENTALLY — inserted when an entity moves, removed when it leaves — so `BuildRenderablesList`
-reads only visible leaves. We rebuild from the timeline every frame, which is the honest cost of a
-design that can seek where the engine cannot.
+**The one thing worth knowing if you read nothing else:** a ragdoll joint's three limits measure
+three *different kinds of quantity*. Only the twist is an angle.
 
-**Do not drift into this.** A per-leaf entity index surviving across frames and invalidated by a seek
-is real architecture with a correctness hazard the current design does not have: a stale index draws
-things that have moved. The prize is most of the gap to 0.85 ms. **Ask before starting it.**
+```
+m = normalise( A[primary]_world + B[primary]_world )      the bisector, cached at geom+0x110
+p = normalise( m × A[wider]_world )
+q = B[wider]_world
 
-### Parity gaps still open, in the owner's rough order of interest
+twist = −atan2( q·p , q·(p×m) )      an ANGLE
+swing = B[primary] · A[wider]        a SINE   — zero at the bind pose
+cone  = B[primary] · A[primary]      a COSINE — one at the bind pose
+```
 
-1. **`C_BaseAnimating::DoAnimationEvents` is unimplemented and the MDL event array is never parsed.**
-   `mstudioevent_t` is unread; `m_nResetEventsParity` is decoded with zero consumers. Full account in
-   `docs/PARITY-AUDIT.md` finding 3, including the question that must be settled first — whether the
-   client-side events are transient overrides the networked state re-asserts. That reading is
-   probably wrong because delta compression means "the next time it is networked" can be never, and
-   it is filed as an interpolation rather than a measurement.
-2. **D128 — a POV demo must be locked to the recorder's view.** Decided and not implemented: no free
-   camera, no third person, because a POV demo is PVS-limited and a free camera shows a room that was
-   never recorded. SourceTV keeps the free camera.
-3. **Ragdolls are entirely undrawn** — 299 in one demo, all decoded. `DT_TFRagdoll` is
-   `IMPLEMENT_CLIENTCLASS_DT_NOBASE`, so nothing about how a corpse LOOKS is networked; every
-   appearance field is built by `CreateTFRagdoll`. **The owner does not want these** — he plays with
-   ragdolls off — so this is filed, not queued.
-4. **A prop with an EMPTY model path is reported DRAWN.** Noticed in a control run, unexamined, two
-   readings both guesses. `docs/PARITY-AUDIT.md` finding 5.
+and each block takes its bounds from a *different* axis than the one it measures, which reads like a
+bug and is what `FUN_1800393d0` does:
 
-## What landed this session
+| block | bounds |
+|---|---|
+| twist | `−hi`, `−lo` of the primary — negated and swapped to match its negated angle |
+| cone | `range × ∓0.5` of the **wider** swing |
+| swing | `lo`, `hi` of the **narrower** swing, straight through |
 
-Drawing: **B252** first-person attachments masked by display flags, and the econ attributes gating
-them. All 356 shipped attachment entries declare `model_display_flags 3`, so the mask filters nothing
-on real data — which is why the synthetic fixture was essential and a corpus test could never have
-caught a wrong mask.
+**The bind pose is the control that makes all of it checkable.** `constraintToReference` and
+`constraintToAttached` exist precisely so each constraint axis maps to the same world vector through
+either body at rest, so `0, 0, 1` is an exact prediction — and it caught a sign error on its first
+run.
 
-Parity/performance, all measured: **B254** cull entities before posing them (`CollateRenderablesInLeaf`
-order), **B255** pose after the view (`CViewRender`'s `SetUpView` → `BuildWorldLists` →
-`BuildRenderablesList`), **B258** derive player animation inputs only for players, **B259 fixes 1–2**
-the client-side animation gate and the interpolation list. Frame went 11 ms → 5.8 ms busy.
+---
 
-Instruments, because none of this was visible before: `FrameRateLog` and `MomentCostLog` average
-every frame rather than sampling one, `--measure <seconds>` counts PLAYBACK and prints to stdout, and
-`--help` lists what the viewer accepts.
+## What is NOT done, in the order it should be picked up
 
-## Gotchas that cost real time this session
+### 1. Nothing draws with it (the reason corpses still T-pose or play a death animation)
 
-**The `--first-person` claim was made wrong AGAIN.** The previous handoff already corrected it —
-*"an inference from a bad invocation that was never checked and then written down as fact"* — and
-this session filed a parity-audit finding saying the flag does not exist and is silently swallowed.
-It exists, in `LaunchOptions.cs:145`. The grep ran over `Viewer3D` and launch options live in
-`Presentation`. **An absence claim needs a control, and a grep's scope is a claim about the grep.**
-Finding 1b in `docs/PARITY-AUDIT.md` is now marked WITHDRAWN.
+`RagdollBody.Build`, `RagdollBody.Pose` and `RagdollSimulation` have **no production caller**.
+Corpses are posed today by a death sequence (`RagdollDeath.SequenceFor`) through
+`RagdollProps` → `SceneProp`.
 
-**Instruments lied five times, and every wrong turn started with one.** A cull counter the viewmodel
-pass reset before it was read, reporting zero while working. `posed 600 of 0 selected`, because a
-`with` expression copied the wrong record's fields. `posed 452 of 567` in an empty view — a derived
-`selected − culled` that counted undrawable props as posed, where the true figure was `0 of 578`, and
-it nearly sent an audit after a working frustum. A pose residual that subtracted `anim` twice and
-printed `rest -0.4`. A build checked with `grep -E "error C"`, which matches `error CS` and not the
-analyzer's `error S`, so a stale binary ran and reported the old format.
+Wiring it means per-corpse simulation state that lives across ticks and resets on a seek — the same
+shape as the persistent sample in D131, and the same hazard: a stepped timeline must equal a freshly
+built one. `PersistentSampleTests` is the pattern to copy.
 
-**`--measure` exists so a measurement is one call.** It counts seconds of PLAYBACK, not wall clock —
-a run timed from process start spends its first twenty seconds on archives and the map, so a "forty
-second" measurement was two seconds of frames. And it prints to stdout because the log is BUFFERED:
-reading it mid-run shows asset loading and nothing else, which was twice misread, once as the viewer
-having exited on its own.
+**This changes what the owner sees, so it needs their eyes, not a green suite**
+(`docs/memory/state-the-assumptions-the-owner-can-falsify.md`).
 
-**Measure only a FOCUSED window.** `NoFocusSleep` is the engine's own `engine_no_focus_sleep`, and an
-unattended run is clamped. A 150-second run came out cleanly bimodal — p25 16 fps, median 106 — and
-the clamped lines are recognisable on their own: phases summing to 10 ms under a 63 ms frame with
-`unaccounted 0`.
+### 2. The bind-pose rotation, which is the largest accuracy gap
 
-**Inserting a member above an existing one splits it from its doc comment.** Seven build breaks in
-one session, and `CS1572` names the WRONG member every time. Anchor on the END of the preceding
-member. Recorded in `docs/memory/insert-below-the-member-not-above-it.md`.
+`RagdollBody` keeps only the **translation** from `Studio_CalcBoneToBoneTransform`, as
+`OriginParentSpace`, and discards the rotation. So `RagdollSimulation` hands both constraint frames
+the identity, and **every joint measures its deflection from an identity rest pose rather than its
+bind pose** — biasing each limit by the bind offset. Fixing it is a change to `RagdollBody.Build`
+plus a frame pair on `IvpRagdollJoint`. Do this before (1); it will be visible immediately.
 
-## Verification, which the owner believes is the weak point
+### 3. Three smaller stated departures, each documented at its site
 
-He is right, and this session is evidence: three sabotage runs found holes a green suite did not.
-Emptying the player list across the `Build`/`Pose` split left **290/290 passing** (B257 — it took
-three attempts to write a test that could fail, and the fix was the FIXTURE, not the assertion).
-Two defects in the interpolation list were caught by the numbers alone. **He has suggested subagent
-audits and they have not been run.** That is the standing offer to take up.
+- **Isotropic inertia.** `CreatePolyObject` seeds it from the hull; hulls are decoded but not
+  integrated. Isotropic makes Euler's free-rotation terms vanish, so a wrong scalar changes joint
+  stiffness, not direction.
+- **The axis permutation is by declared range**, where the engine picks the twist as the axis whose
+  rotation moves the two anchors most, weighted by inverse mass (needs hull inertia).
+- **The rate gain is zero.** It would let a limit clamp the *predicted* deflection rather than the
+  current one; at zero a joint resists a limit it has already broken instead of stopping short.
+  It arrives in the per-sweep vector the driver builds and its provenance is unread.
+
+### 4. The cone limit's sense — a real open question, not a gap
+
+The cone measures a cosine and is bounded by half the wider swing's range in radians. Worked on the
+demoman's own joints, the clamp fires when the cone angle is **small** and releases when it is large
+— so it reads as a *minimum* bend of roughly 64–67° on his tighter joints, and never fires at all on
+his 136° one. At the exact bind pose the axis is degenerate and retired, so a settled corpse is not
+fighting it.
+
+Two things were checked and came back negative: `useClockwiseRotations` is false everywhere
+(`Defaults()` sets it, nothing in the SDK sets it, no `.phy` declares the key), and the range is
+invariant under that flip anyway. **The transcription is pinned by test either way**; what is open
+is whether a limit in that sense is physically what Valve intended. This is the first reading that
+predicts what the owner describes — *"the ragdolls do funny things thats why they are fun"*.
+
+### 5. Units — filed against `IvpEnvironment`, harmless today
+
+`CPhysicsEnvironment::SetGravity` converts on the way in (inches → metres, Z-up → Y-up). Our
+environment holds `(0, 0, −800)` unconverted and its tests bake that in, so the whole simulation
+runs in Source units and axes. Nothing transcribed so far notices — the integrator carries no length
+constant and the constraint solve is entirely angular. **It stops being harmless the moment hull
+collision arrives**, since a hull's extents are metres.
+
+---
+
+## FPS, which is a separate open thread
+
+Measured this session with a `PoseBuilds` counter added for it: `built ≈ posed × 1.1`. So the
+readable-bone cache works, `_previousMask` does its job, and there is **no mask thrash** — the
+remaining cost is genuine bone math. About 104 entities at ~62 µs each against TF2's implied ~5 µs:
+a twelve-fold gap, ~620 ns/bone for a quaternion-to-matrix plus a 3×4 concatenate.
+
+The candidate is contiguous `BoneAccessor` storage — **not** for cache locality (that reasoning was
+wrong; jagged arrays allocated in a loop are adjacent) but for per-access overhead: `Bone()` and
+`BoneForWrite()` each make two `ArgumentOutOfRangeException.ThrowIf*` guard calls plus a double
+indirection, three times per bone. 123 call sites across 26 files.
+
+---
+
+## Tooling and process changes made this session
+
+**`D:\ghidra-proj\scripts\DisasmWithData.java`** — disassembly with every memory operand resolved to
+its four lanes, printed on the instruction that reads it. Built because two wrong conclusions in one
+session were both made in decompiled C rather than in the disassembly:
+
+- `DAT_1800eea1c` taken for π because its neighbour `DAT_1800eea18` genuinely is 2π. It is `1e-16`,
+  and a whole conclusion was committed off it before being retracted.
+- `uVar6` read as a dumped mask in one expression and a comparison result three lines later, because
+  Ghidra reuses local names for unrelated SSA values.
+
+**The rule: shape from the decompiler, identity from the instructions.** The trigger is a sentence
+naming a `DAT_`/`_UNK_` symbol, or reaching for a value because it is *adjacent* to a known one —
+adjacency is where dumping feels most redundant and is most likely wrong. See
+`docs/memory/settle-a-constant-in-the-disassembly.md`.
+
+**A sabotage that reddened nothing found a real defect**, which is the second time that memory has
+paid (`docs/memory/a-sabotage-that-reddens-nothing-names-the-missing-input.md`). Reversing the cone
+axis left every test green; closing the hole exposed that `IvpAngularLimit` had collapsed the
+engine's **two** axis routines into one, on a note claiming their opposite sign conventions cancel.
+They do not — with the rate gain at zero the two `θ` are identical and only the impulse sign
+differs, so two of every joint's three axes were being driven backwards. The routine is now named at
+every call site, never defaulted.
+
+---
+
+## Standing constraints that bit this session, so they are worth repeating
+
+- **The UI phase of the gate exits 0 even when it fails.** `run-exclusive.ps1` does not propagate
+  the inner exit code — measured: `Failed: 1, Passed: 30` with exit 0. Read the `Passed!`/`Failed!`
+  line, never the status. And do not `| tail -6` it; that cut the only line naming the failing test.
+- **A person at the keyboard is an input to a UI suite.** One failure this session was the owner
+  pressing space. Re-run before investigating, and say which of the two you are reporting.
+- **Back-to-back pushes to `main` cancel each other's CI Test run** (`concurrency:
+  cancel-in-progress`). Several Test runs were cancelled tonight and never completed; branch pushes
+  trigger nothing, so batch main pushes and watch by SHA.
+- **Never run Ghidra while the UI suite has the desktop** — it is timing-sensitive and headless
+  analysis is CPU-heavy.
+
+---
+
+## Where to look
+
+| question | file |
+|---|---|
+| how any of the physics was worked out, and what was got wrong | `docs/findings/51-vphysics-is-ivp-and-it-is-readable.md` |
+| what a `.phy` holds, measured over all 4,755 the game ships | the `ragdoll-constraints` probe |
+| what a corpse's joints and bodies are | `RagdollBody`, `docs/RISKS.md` B58 |
+| why the project is built this way | `docs/DECISIONS.md` — D142, D143, D146, D147 |
