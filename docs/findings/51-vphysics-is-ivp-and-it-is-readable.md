@@ -2576,22 +2576,62 @@ frames were still identity when they are read back, `A[iVar9]` and `B[iVar9]` wo
 vector, their dot a cosine and their cross zero, and the block above would be both degenerate and
 mis-bounded.
 
-**They are not still identity.** Between the two calls, `FUN_1800393d0`'s own three-axis path rotates
-each frame's rows by the two BODIES' matrices (`FUN_18003ec30` against `FUN_180032740`'s output),
-builds cross products from them and runs a linear solve (`FUN_18003d320`) whose result is written
-back into `param_1` — and it is that written-back state which `local_2d8` and `local_2a8` then copy.
+**They are not still identity, and the answer was in the first twenty lines of the function.**
+`FUN_1800393d0` opens by copying its `param_2` straight over them:
 
-**So the frames encode the rest pose, and the natural thing for that solve to construct is frames in
-which each block's measured quantity is ZERO when the corpse is in its bind pose.** That would make
-the third row a sine like the second, its cross non-degenerate, and its `±range/2` bounds exactly
-right. **It is the obvious mechanism and it is NOT established** — the linear solve is the one block
-in this function still unread, and writing it up as settled is precisely the move that produced the
-π mistake earlier in this document.
+```c
+param_1[1] = param_2[1];   param_1[2] = param_2[2];   …   param_1[5] = param_2[5];   // frame A
+param_1[8] = param_2[8];   param_1[9] = param_2[9];   …   param_1[0xd] = param_2[0xd];  // frame B
+```
 
-*Evidence class: read from the decompiled binary for the frame copies, the midpoint rotation, the
-mechanical axis selection with the inverse-mass term, the index recording, and the identity
-initialiser; the claim that the intervening linear solve leaves each measured quantity zero at the
-bind pose is a NAMED MECHANISM, not a reading, and `FUN_18003d320` is what would settle it.*
+and `param_2` is the buffer `FUN_18000eac0` filled with `FUN_18000ca70(param_4 + 6, …)` and
+`FUN_18000ca70(param_4 + 0x12, …)` — **`constraintToReference` and `constraintToAttached`**, at
+`constraint_ragdollparams_t + 0x18` and `+ 0x48`, converted to IVP's convention. The identity from
+`FUN_18000c750` is a default that is immediately overwritten.
+
+**The loop that looked like it might build the frames does not.** `FUN_18003ec30` is a plain
+rotate-vector-by-matrix, and the block around it only measures each candidate axis to pick `iVar9` —
+`FUN_18003d320` writes into locals, never into `param_1`.
+
+**So the cosine is real, and the published semantics of the two matrices confirm it rather than
+rescue it.** `constraintToReference` maps constraint space into the reference object's, and
+`constraintToAttached` into the attached object's; the point of shipping both is that
+`R_ref · (toReference · e_k)` and `R_att · (toAttached · e_k)` are the SAME world vector at the bind
+pose. So `A[iVar9] · B[iVar9]` is `1` at rest by construction.
+
+### So `flags+0xcc` is a CONE limit, and this is the most probable reading of it
+
+`A[iVar9] · B[iVar9]` is the cosine of the total angle between the joint's primary axis as the two
+bones see it — one number covering deflection in every direction, which is a cone. Its bounds are
+`range[iVar16] × ±0.5`, the half-range of the WIDER of the two swing axes. So the engine limits the
+cone by comparing a cosine against a half-angle in radians, which is dimensionally wrong and
+monotonically right: a narrower declared swing gives a tighter cone.
+
+Worked on the demoman's own joints, whose ranges are 45°, 50° and 136°:
+
+| `range[iVar16]` | bound | cone it permits |
+|---|---|---|
+| 2.374 rad (136°) | ±1.187 | never fires — a cosine cannot leave ±1 |
+| 0.873 rad (50°) | ±0.436 | fires below about 64° |
+| 0.785 rad (45°) | ±0.393 | fires below about 67° |
+
+**And at the bind pose the cosine is 1, which is outside every one of those bounds.** So for any
+joint whose wider swing is under about 115°, this axis is clamping hardest exactly when the corpse
+is at rest, and relaxes as the joint deflects — the opposite sense to the other two limits.
+
+**Recorded as the most probable reading rather than as a fact**, with the arithmetic in the open so
+it can be judged. What would falsify it: a scale or an `acos` applied to `geom+0x104` between
+`FUN_180038620` writing it and `FUN_1800372c0` reading it — there is none in either function, but
+`FUN_180036b80`'s four-lane output is only partly consumed and the unused lanes were not traced.
+
+**It is also the first reading in this document that PREDICTS the thing the owner describes.** A
+limit that pushes hardest at rest and eases off under deflection is a corpse that will not settle
+quietly — *"the ragdolls do funny things thats why they are fun"*. That is not evidence, but it is
+the first time the arithmetic and the observed behaviour have pointed the same way.
+
+*Evidence class: read from the decompiled binary for the frame copy, the matrix sources, the
+mechanical axis selection, the index recording and the bound assignment, with every constant dumped;
+the cone interpretation of `flags+0xcc` is the MOST PROBABLE READING, with its falsifier named.*
 
 **It matters because the two answers are visibly different.** A sine compared against a radian bound
 tightens the limit as the angle grows — four per cent at 25°, twenty-nine at 79° — which is a corpse
