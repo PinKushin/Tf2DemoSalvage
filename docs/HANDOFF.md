@@ -3,9 +3,9 @@
 Written 2026-09-07, superseding the handoff of 2026-09-01 (launch options, the chase camera, the
 frame floor — all merged and done).
 
-Everything below is on `main` except the last two commits, which are on
-`feat/ragdoll-constraint-group` pending the gate. Gate green as of the last full run: twelve
-assemblies all at or above floor, **animation 111 → 210**, UI 31/31.
+`feat/ragdoll-constraint-group` is merged: the gate was run in both phases first — twelve assemblies
+all at or above floor with **animation 210 against a floor of 111**, and UI 31/31 under the
+machine-wide lock. The bind-pose frames of §2 below are on `feat/ragdoll-bind-pose-frames`.
 
 **Read `docs/findings/51-vphysics-is-ivp-and-it-is-readable.md` before touching any of this.** It is
 the reverse-engineering account, it is long, and it carries three wrong turns kept on purpose. The
@@ -74,13 +74,23 @@ built one. `PersistentSampleTests` is the pattern to copy.
 **This changes what the owner sees, so it needs their eyes, not a green suite**
 (`docs/memory/state-the-assumptions-the-owner-can-falsify.md`).
 
-### 2. The bind-pose rotation, which is the largest accuracy gap
+### 2. ~~The bind-pose rotation~~ — DONE 2026-09-07, and it found a defect beside it
 
-`RagdollBody` keeps only the **translation** from `Studio_CalcBoneToBoneTransform`, as
-`OriginParentSpace`, and discards the rotation. So `RagdollSimulation` hands both constraint frames
-the identity, and **every joint measures its deflection from an identity rest pose rather than its
-bind pose** — biasing each limit by the bind offset. Fixing it is a change to `RagdollBody.Build`
-plus a frame pair on `IvpRagdollJoint`. Do this before (1); it will be visible immediately.
+`RagdollBody` keeps the rotation now, as `AxesParentSpace`: the **columns** of
+`Studio_CalcBoneToBoneTransform`'s matrix, because a frame is used as `matrix · e_k` and
+`matrix3x4_t` is row-major. Both frames reach the joint in the same permutation, so a joint measures
+its deflection from the bind pose and the bind pose reads `0`, `0`, `1` exactly.
+
+**The defect found on the way: the CHILD is the reference body**, not the parent —
+`CreateRagdollConstraint( childElement.pObject, ragdoll.list[parentIndex].pObject, … )`
+(`ragdoll_shared.cpp:253`) against *"a constraint in the space of pReferenceObject"*
+(`vphysics_interface.h:572`). This had them reversed, which was invisible while both frames were the
+identity because every test started both bodies at the same orientation — the condition where
+correct and broken predict the same observation. A two-bone fixture with one bone **turned a quarter
+turn** is what separates them, and it is in `RagdollSkeletons`.
+
+Also closed: a constraint joining a body to itself now makes no joint at all, matching the engine
+nulling BOTH indices on *"Bogus constraint on ragdoll %s"*.
 
 ### 3. Three smaller stated departures, each documented at its site
 

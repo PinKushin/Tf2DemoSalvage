@@ -3360,11 +3360,19 @@ a **cosine**, making it a cone. And each block takes its bounds from a different
 it measures. `docs/findings/51-vphysics-is-ivp-and-it-is-readable.md` carries the whole account,
 including three wrong turns kept on purpose.
 
-**Named gaps, each documented at its site rather than hidden:** the bind-pose rotation
-(`RagdollBody` keeps only `Studio_CalcBoneToBoneTransform`'s translation, so joints measure from an
-identity rest pose — the largest one), isotropic inertia, the axis permutation by declared range
-rather than by anchor coupling, a zero rate gain, and the environment running in Source units where
-`SetGravity` converts to IVP's. `docs/HANDOFF.md` orders them.
+**The bind-pose rotation is CLOSED as of 2026-09-07, and closing it exposed a defect beside it.**
+`RagdollBody` keeps the rotation of `Studio_CalcBoneToBoneTransform` as `AxesParentSpace` — the
+columns, which is `matrix · e_k` for a row-major `matrix3x4_t` — and both constraint frames reach
+the joint in the same permutation, so a joint now measures its deflection from the BIND pose. The
+defect: the CHILD is the reference body and the parent is the attached one
+(`CreateRagdollConstraint( childElement.pObject, parent, … )`, `ragdoll_shared.cpp:253`), and this
+had them reversed. Invisible while both frames were the identity, and it also decides which body's
+`GetMass` scales the joint friction.
+
+**Named gaps that remain, each documented at its site rather than hidden:** isotropic inertia, the
+axis permutation by declared range rather than by anchor coupling, a zero rate gain, and the
+environment running in Source units where `SetGravity` converts to IVP's. `docs/HANDOFF.md` orders
+them.
 
 ---
 

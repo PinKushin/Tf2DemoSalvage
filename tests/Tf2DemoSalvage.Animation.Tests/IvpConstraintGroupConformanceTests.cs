@@ -34,7 +34,14 @@ public sealed class IvpConstraintGroupConformanceTests
     private static IvpRagdollJoint Joint(IvpRigidBody a, IvpRigidBody b)
     {
         IvpRagdollConstraint constraint = IvpRagdollConstraint.FromDegrees(
-            primary: (-30f, 15f), narrower: (-25f, 25f), wider: (-79f, 57f));
+            primary: (-30f, 15f),
+            narrower: (-25f, 25f),
+            wider: (-79f, 57f),
+
+            // Two bodies whose bind frames agree, which is what identity on both sides means —
+            // these tests are about the relaxation and the sweep order, not about the frames.
+            reference: IvpConstraintFrame.Identity,
+            attached: IvpConstraintFrame.Identity);
 
         return new IvpRagdollJoint { BodyA = a, BodyB = b, Constraint = constraint };
     }
@@ -73,7 +80,12 @@ public sealed class IvpConstraintGroupConformanceTests
             {
                 BodyA = new IvpRigidBody(),
                 BodyB = new IvpRigidBody(),
-                Constraint = IvpRagdollConstraint.FromDegrees((0f, 0f), (0f, 0f), (0f, 0f)),
+                Constraint = IvpRagdollConstraint.FromDegrees(
+                    (0f, 0f),
+                    (0f, 0f),
+                    (0f, 0f),
+                    IvpConstraintFrame.Identity,
+                    IvpConstraintFrame.Identity),
                 Solved = () => order.Add(captured),
             });
         }
@@ -156,7 +168,11 @@ public sealed class IvpConstraintGroupConformanceTests
         IvpRigidBody b = new() { Orientation = (0f, 0.34202015f, 0f, 0.9396926f) };
 
         IvpRagdollConstraint constraint = IvpRagdollConstraint.FromDegrees(
-            primary: (-30f, 15f), narrower: (-25f, 25f), wider: (-20f, 20f));
+            primary: (-30f, 15f),
+            narrower: (-25f, 25f),
+            wider: (-20f, 20f),
+            reference: IvpConstraintFrame.Identity,
+            attached: IvpConstraintFrame.Identity);
 
         IvpConstraintGroup group = new();
 

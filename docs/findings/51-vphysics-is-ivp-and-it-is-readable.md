@@ -2691,3 +2691,52 @@ them except how the body looks.
 dot products, the descriptor-to-constraint copy and the descriptor layout; `FUN_18003dde0` — the
 frame rotation by the range midpoint — is the one unread step, and whether each dot is a sine or a
 cosine follows from it.*
+
+## The reference body is the CHILD, and the frames are per side
+
+This one is published, needed no decompiler, and had been transcribed backwards.
+
+```cpp
+childElement.pConstraint = pPhysEnv->CreateRagdollConstraint( childElement.pObject,
+    ragdoll.list[constraint.parentIndex].pObject, ragdoll.pGroup, constraint );
+```
+
+`ragdoll_shared.cpp:253`, against the declaration it calls:
+
+```cpp
+// Create a constraint in the space of pReferenceObject which is attached by the constraint to
+// pAttachedObject
+virtual IPhysicsConstraint *CreateRagdollConstraint( IPhysicsObject *pReferenceObject,
+    IPhysicsObject *pAttachedObject, IPhysicsConstraintGroup *pGroup,
+    const constraint_ragdollparams_t &ragdoll ) = 0;
+```
+
+`vphysics_interface.h:572`. So the **child** is the reference and the **parent** is attached —
+the opposite of what `childElement.parentIndex` two lines above suggests, and the reason it is worth
+writing down is that nothing downstream reports getting it wrong.
+
+**It decides three things.** The frames are per side, so `constraintToReference` — the identity
+`SetIdentityMatrix` writes at `:246` — belongs to the CHILD, and `constraintToAttached`, the
+bone-to-bone transform, belongs to the PARENT. The joint friction is scaled by the reference
+object's `GetMass` (`FUN_18000eac0`, above), which is therefore the limb's own mass rather than
+whatever it hangs from. And the sign of every deflection follows from which body is A.
+
+**Read the pair as a pair and the bind pose becomes a control.** `constraintToReference` maps
+constraint space into the reference object's and `constraintToAttached` into the attached object's,
+so `R_ref · (toReference · e_k)` and `R_att · (toAttached · e_k)` are the SAME world vector at
+rest — which is why a joint measures `0`, `0`, `1` at the bind pose whatever its bones are turned
+to, and why a two-bone fixture with one bone turned a quarter turn can predict all three exactly.
+
+**What made this survive:** with both frames the identity, swapping the two bodies is invisible in
+every test that starts both bodies at the same orientation — and every test did. An unrotated
+fixture is the condition where the correct code and the broken code predict the same observation,
+which is route 2 of *a test that cannot fail*: the fix is the input, not the assertion.
+
+**A frame is used as `matrix · e_k`, which is a COLUMN.** `matrix3x4_t` is row-major and
+`VectorTransform` dots each row against the input, so the k-th column is the image of the k-th axis.
+Taking rows instead yields the transpose — the inverse rotation, orthonormal and plausible, and
+wrong in the way nothing in a corpse's pose reports.
+
+*Evidence class: read from published SDK source for the call and the declaration; the friction
+consequence is read from the decompiled binary; the bind-pose invariant is arithmetic on the two
+published matrix semantics, and is pinned by a synthetic test with a turned skeleton.*

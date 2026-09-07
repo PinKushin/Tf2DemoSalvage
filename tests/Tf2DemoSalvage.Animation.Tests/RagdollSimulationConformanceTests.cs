@@ -125,6 +125,104 @@ public sealed class RagdollSimulationConformanceTests
             () => RagdollSimulation.Create(ragdoll, Step, [(Vector3.Zero, Quaternion.Identity)]));
     }
 
+    /// <remarks>
+    /// **The CHILD is the reference body and the parent is the attached one**, which is the
+    /// opposite of what a reader would assume from `childElement.parentIndex`. The engine spells it
+    /// out at the call:
+    ///
+    /// <code>
+    ///   childElement.pConstraint = pPhysEnv->CreateRagdollConstraint( childElement.pObject,
+    ///       ragdoll.list[constraint.parentIndex].pObject, ragdoll.pGroup, constraint );
+    /// </code>
+    ///
+    /// (`ragdoll_shared.cpp:253`) against
+    /// `CreateRagdollConstraint( IPhysicsObject *pReferenceObject, IPhysicsObject *pAttachedObject,
+    /// … )` — *"Create a constraint in the space of pReferenceObject which is attached by the
+    /// constraint to pAttachedObject"* (`vphysics_interface.h:572`).
+    ///
+    /// **It decides two things, and neither is cosmetic.** The frames are per SIDE —
+    /// `constraintToReference` is the identity the CHILD carries and `constraintToAttached` is the
+    /// bone-to-bone transform the PARENT carries — and the joint friction is scaled by the
+    /// reference object's `GetMass` (`FUN_18000eac0`, `docs/findings/51`), which is the limb's own
+    /// mass rather than whatever it hangs from.
+    /// </remarks>
+    [Test]
+    public void Create_ForAConstraint_MakesTheChildTheReferenceBody()
+    {
+        RagdollSimulation simulation = Simulation();
+
+        IvpRagdollJoint joint = simulation.Environment.Constraints.Joints[0];
+
+        joint.BodyA.ShouldBeSameAs(simulation.Environment.Bodies[1], "the child is the reference");
+        joint.BodyB.ShouldBeSameAs(simulation.Environment.Bodies[0], "the parent is the attached");
+    }
+
+    /// <remarks>
+    /// **The control the two frames exist for, and the only test here that can see them.**
+    /// `constraintToReference` and `constraintToAttached` are shipped as a PAIR precisely so that
+    /// `R_ref · (toReference · e_k)` and `R_att · (toAttached · e_k)` are the same world vector at
+    /// the bind pose — so a ragdoll standing in its own bind pose must measure no deflection at
+    /// all, whatever its bones are turned to.
+    ///
+    /// **The prediction is exact and it is three different quantities**: the twist is an angle and
+    /// reads `0`, the swing is a SINE and reads `0`, and the cone is a COSINE and reads `1`.
+    ///
+    /// **The skeleton is turned, which is what makes this test able to fail.** With an unrotated
+    /// pair every reading is `0, 0, 1` whether the frames are carried or thrown away — the
+    /// condition where correct and broken predict the same observation. With the child turned a
+    /// quarter turn, identity frames put the two primary axes at right angles and the cone reads
+    /// `0`; swapping the reference and attached bodies does the same.
+    /// </remarks>
+    [Test]
+    public void Rebuild_AtTheBindPoseOfATurnedSkeleton_ReadsNoDeflectionOnAnyAxis()
+    {
+        IvpRagdollJoint joint = TurnedSimulation().Environment.Constraints.Joints[0];
+
+        joint.Rebuild();
+
+        joint.Constraint.Twist.Angle.ShouldBe(0f, Tolerance, "the joint is not twisted at rest");
+        joint.Constraint.Swing.Angle.ShouldBe(0f, Tolerance, "nor swung — this one is a sine");
+        joint.Constraint.Cone.Angle.ShouldBe(1f, Tolerance, "and the cone is a cosine, so it is one");
+    }
+
+    /// <remarks>
+    /// **A constraint joining a body to itself makes no joint at all.** `RagdollAddConstraint`
+    /// nulls BOTH indices on it — *"Bogus constraint on ragdoll %s"*, `ragdoll_shared.cpp:217` —
+    /// so the `childIndex >= 0 &amp;&amp; parentIndex >= 0` gate below never opens and
+    /// `CreateRagdollConstraint` is never reached.
+    ///
+    /// **The bodies are still built**, which is the half that separates "dropped the constraint"
+    /// from "refused the file": `RagdollAddSolid` ran before any constraint was looked at, and a
+    /// `.phy` is a stranger's file (D32) rather than something to reject wholesale.
+    /// </remarks>
+    [Test]
+    public void Create_WithAConstraintJoiningABodyToItself_MakesTheBodiesAndNoJoint()
+    {
+        RagdollConstraint bogus = new(1, 1, Axis, Axis, Axis);
+
+        RagdollSimulation simulation = RagdollSimulation.Create(
+            RagdollBody.Build(PhysicsWith(bogus), Skeleton())!, Step, Start());
+
+        simulation.Environment.Bodies.Count.ShouldBe(2);
+        simulation.Environment.Constraints.Joints.Count.ShouldBe(0);
+    }
+
+    /// <summary>The turned skeleton, with each body started at the orientation it binds in.</summary>
+    /// <remarks>
+    /// **The starting state is the bind pose, which is the whole point.** A body's orientation is
+    /// its bone's in the world, so the root stands unrotated and the child stands turned; anything
+    /// else here would be asserting about a corpse mid-fall rather than about the frames.
+    /// </remarks>
+    private static RagdollSimulation TurnedSimulation() =>
+        RagdollSimulation.Create(
+            RagdollBody.Build(Physics(), RagdollSkeletons.Turned())!,
+            Step,
+            [
+                (Vector3.Zero, Quaternion.Identity),
+                (Vector3.Zero,
+                    new Quaternion(0f, 0f, RagdollSkeletons.SinOf45, RagdollSkeletons.SinOf45)),
+            ]);
+
     private static RagdollSimulation Simulation() =>
         RagdollSimulation.Create(RagdollBody.Build(Physics(), Skeleton())!, Step, Start());
 
@@ -145,23 +243,6 @@ public sealed class RagdollSimulationConformanceTests
             2,
             checksum: 0);
 
-    private static IReadOnlyList<StudioBone> Skeleton() =>
-        [
-            Bone("bip_root", -1, 1f, 2f, 3f),
-            Bone("bip_child", 0, 4f, 6f, 3f),
-        ];
-
-    /// <summary>A bone at a bind position, with the world-to-bone matrix that implies.</summary>
-    private static StudioBone Bone(string name, int parent, float x, float y, float z) =>
-        new(
-            name,
-            parent,
-            (x, y, z),
-            (0f, 0f, 0f, 1f),
-            new float[]
-            {
-                1f, 0f, 0f, -x,
-                0f, 1f, 0f, -y,
-                0f, 0f, 1f, -z,
-            });
+    /// <summary>Two bones at chosen bind positions — <see cref="RagdollSkeletons.Straight"/>.</summary>
+    private static IReadOnlyList<StudioBone> Skeleton() => RagdollSkeletons.Straight();
 }

@@ -126,7 +126,11 @@ public sealed class IvpRagdollConstraintConformanceTests
     {
         // Primary −30..15, narrower −25..25, wider −79..57 — the demoman's first joint.
         IvpRagdollConstraint joint = IvpRagdollConstraint.FromDegrees(
-            primary: (-30f, 15f), narrower: (-25f, 25f), wider: (-79f, 57f));
+            primary: (-30f, 15f),
+            narrower: (-25f, 25f),
+            wider: (-79f, 57f),
+            reference: IvpConstraintFrame.Identity,
+            attached: IvpConstraintFrame.Identity);
 
         const float Radian = 0.017453292f;
 
@@ -149,7 +153,11 @@ public sealed class IvpRagdollConstraintConformanceTests
     public void FromDegrees_WithAnAxisFreeThroughAFullTurn_DisablesThatLimit()
     {
         IvpRagdollConstraint joint = IvpRagdollConstraint.FromDegrees(
-            primary: (-180f, 180f), narrower: (-25f, 25f), wider: (-79f, 57f));
+            primary: (-180f, 180f),
+            narrower: (-25f, 25f),
+            wider: (-79f, 57f),
+            reference: IvpConstraintFrame.Identity,
+            attached: IvpConstraintFrame.Identity);
 
         joint.Twist.Limited.ShouldBeFalse("360 degrees is not a limit");
         joint.Swing.Limited.ShouldBeTrue("but its neighbours still are");
