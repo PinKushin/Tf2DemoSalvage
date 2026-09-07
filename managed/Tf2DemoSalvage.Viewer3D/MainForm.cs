@@ -1494,6 +1494,14 @@ internal class MainForm : Form, IFrameSteps
             _models.Corpses.Clear();
             _models.Corpses.World = map.Level.Physics;
 
+            // **The control on the world a corpse is given.** Both halves come from different lumps
+            // by different mechanisms, and either can be empty while the other is fine — which is
+            // exactly the state that makes "the corpse fell through" unreadable.
+            _mapLog.LogInformation(
+                "physics world: {Ledges} brush ledges, {Triangles} terrain triangles",
+                map.Level.Physics.Ledges.Count,
+                map.Level.Physics.TriangleCount);
+
             // **The map's detail models are packed inside `LevelSystems.Load`** (B363), beside the
             // geometry loader that reads them — a call here instead ran after something else had
             // already added the path with no geometry, and the packer skips a path it has seen.

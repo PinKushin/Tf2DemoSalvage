@@ -79,6 +79,15 @@ public sealed class IvpWorldCollision
     /// <summary>Every convex piece of the world.</summary>
     public IReadOnlyList<IvpWorldLedge> Ledges => _ledges;
 
+    /// <summary>How many terrain triangles this world holds.</summary>
+    /// <remarks>
+    /// **A control, and the reason it exists is that its absence cost a wrong conclusion.** "The
+    /// corpse still falls" was read as a collision-response fault while the terrain half might
+    /// simply have been empty — and an empty answer needs something that MUST be present before it
+    /// can be believed (`docs/memory/an-empty-search-needs-a-control.md`).
+    /// </remarks>
+    public int TriangleCount => _triangles.Count;
+
     /// <summary>Adds one ledge, converting it from IVP metres into Source units.</summary>
     /// <param name="points">The ledge's points, in metres.</param>
     /// <param name="triangles">Its triangles, indexing those points.</param>

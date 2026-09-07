@@ -111,6 +111,28 @@ public sealed class IvpEnvironment
     /// </remarks>
     public int Contacts => _contacts.Count;
 
+    /// <summary>The deepest penetration the last step found.</summary>
+    /// <remarks>
+    /// **It separates "started inside" from "tunnelled in", which look identical afterwards.** A
+    /// body seeded from a death pose whose feet are already below the floor is penetrating on its
+    /// FIRST step and can only be pushed out; one that entered at speed penetrates later and only
+    /// once. Both end up under the map.
+    /// </remarks>
+    public float DeepestContact
+    {
+        get
+        {
+            float deepest = 0f;
+
+            foreach (IvpContact contact in _contacts)
+            {
+                deepest = MathF.Max(deepest, contact.Depth);
+            }
+
+            return deepest;
+        }
+    }
+
     /// <summary>Adds a body, starting its clock at the current time.</summary>
     /// <param name="body">The body.</param>
     /// <exception cref="ArgumentNullException"><paramref name="body"/> is null.</exception>
@@ -155,7 +177,7 @@ public sealed class IvpEnvironment
 
         for (int index = 0; index < _bodies.Count; index++)
         {
-            IvpContact.Find(_bodies[index], World, _contacts);
+            IvpContact.Find(_bodies[index], World, _contacts, Step);
         }
 
         Constraints.Solve();

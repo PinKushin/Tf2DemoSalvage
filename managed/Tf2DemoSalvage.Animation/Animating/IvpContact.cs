@@ -130,6 +130,10 @@ public sealed class IvpContact
     /// <param name="body">The body to test.</param>
     /// <param name="world">The static world, or null when there is none.</param>
     /// <param name="into">Where the contacts are added.</param>
+    /// <param name="step">
+    /// The timestep, so a point about to cross a surface raises its contact before it does. Zero
+    /// disables that and tests the current position alone.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **A body's hull points are tested, not its triangles.** That is the vertex-face case, and it
@@ -140,7 +144,7 @@ public sealed class IvpContact
     /// one either.
     /// </remarks>
     public static void Find(
-        IvpRigidBody body, IvpWorldCollision? world, ICollection<IvpContact> into)
+        IvpRigidBody body, IvpWorldCollision? world, ICollection<IvpContact> into, float step = 0f)
     {
         ArgumentNullException.ThrowIfNull(body);
         ArgumentNullException.ThrowIfNull(into);
@@ -161,7 +165,34 @@ public sealed class IvpContact
 
             Vector3 arm = Vector3.Transform(new Vector3(x, y, z), orientation);
 
-            if (world.Penetration(centre + arm) is not { } hit)
+            (Vector3 Normal, float Depth)? hit = world.Penetration(centre + arm);
+
+            if (hit is null && step > 0f)
+            {
+                // **The SPECULATIVE contact, and it is what stops a corpse tunnelling.** A body at
+                // terminal velocity moves twelve units in one tick, so a discrete test against the
+                // current position finds nothing this step and finds the point deep inside a brush
+                // the next — and once a point is past a brush's midplane the shallowest face is the
+                // BOTTOM one, so the push that should have stopped it drives it through instead.
+                // Measured: entity 2080 reporting 62 contacts while sixty-nine units under a floor.
+                //
+                // **IVP has no such failure because it never lets a pair get that close without
+                // looking.** Its mindist system reschedules a pair check against the pair's own
+                // closing distance (`docs/findings/51`, the contact-pair re-check scheduler), so
+                // the contact exists before the surfaces touch. This is that: where the point WILL
+                // be after this step is tested, and a contact is raised now with zero depth — no
+                // penetration to recover, only a closing velocity to cancel, which is exactly what
+                // a contact that has not happened yet should do.
+                Vector3 ahead = centre + arm + new Vector3(
+                    body.Velocity.X * step, body.Velocity.Y * step, body.Velocity.Z * step);
+
+                if (world.Penetration(ahead) is { } soon)
+                {
+                    hit = (soon.Normal, 0f);
+                }
+            }
+
+            if (hit is not { } found)
             {
                 continue;
             }
@@ -170,8 +201,8 @@ public sealed class IvpContact
             {
                 Body = body,
                 Arm = (arm.X, arm.Y, arm.Z),
-                Normal = (hit.Normal.X, hit.Normal.Y, hit.Normal.Z),
-                Depth = hit.Depth,
+                Normal = (found.Normal.X, found.Normal.Y, found.Normal.Z),
+                Depth = found.Depth,
             });
         }
     }

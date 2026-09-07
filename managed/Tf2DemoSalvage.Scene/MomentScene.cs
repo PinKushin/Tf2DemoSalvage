@@ -482,13 +482,13 @@ public sealed class MomentScene : IGameSystemPerFrame
             foreach ((int entity, System.Numerics.Vector3 root) in _models.Corpses.Roots)
             {
                 _render.LogDebug(
-                    "corpse {Entity} settled at {X} {Y} {Z} contacts {Contacts} hull {Hull}",
+                    "corpse {Entity} settled at {X} {Y} {Z} contacts {Contacts} deepest {Deepest}",
                     entity,
                     root.X.ToString("0.#", CultureInfo.InvariantCulture),
                     root.Y.ToString("0.#", CultureInfo.InvariantCulture),
                     root.Z.ToString("0.#", CultureInfo.InvariantCulture),
                     _models.Corpses.Contacts.TryGetValue(entity, out int touching) ? touching : -1,
-                    _models.Corpses.Hulls.TryGetValue(entity, out int points) ? points : -1);
+                    _models.Corpses.Deepest.TryGetValue(entity, out int depth) ? depth : -1);
             }
         }
 

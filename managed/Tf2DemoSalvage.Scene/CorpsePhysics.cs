@@ -76,12 +76,12 @@ public sealed class CorpsePhysics
     /// </remarks>
     public IReadOnlyDictionary<int, int> Contacts => _contacts;
 
-    /// <summary>How many hull points each corpse's root body carries.</summary>
-    public IReadOnlyDictionary<int, int> Hulls => _hulls;
+    /// <summary>The deepest penetration each corpse's last step found, in whole Source units.</summary>
+    public IReadOnlyDictionary<int, int> Deepest => _deepest;
 
     private readonly Dictionary<int, int> _contacts = [];
 
-    private readonly Dictionary<int, int> _hulls = [];
+    private readonly Dictionary<int, int> _deepest = [];
 
     /// <summary>Forgets every simulation — a new demo, or a map change.</summary>
     public void Clear()
@@ -167,7 +167,7 @@ public sealed class CorpsePhysics
             _roots[entityIndex] = new Vector3((float)x, (float)y, (float)z);
 
             _contacts[entityIndex] = live.Simulation.Environment.Contacts;
-            _hulls[entityIndex] = live.Simulation.Environment.Bodies[0].Hull.Count;
+            _deepest[entityIndex] = (int)live.Simulation.Environment.DeepestContact;
         }
 
         // **`C_ClientRagdoll::LastBoneChangedTime()` returns the physics update time**
