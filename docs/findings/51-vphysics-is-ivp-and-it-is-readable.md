@@ -2171,6 +2171,19 @@ product forms the budget — and what the byte at `contact+0x64` selects, which 
 `FUN_180085100` instead of `FUN_1800857c0`. `param_2[0]` is squared into the budget and its
 provenance is unread. Those are the next things to read, and none of them is guessable.
 
+**And the obvious way to look them up does NOT work, which is worth writing down before someone
+spends the run on it.** The friction-system contact is a DIFFERENT structure from the 0x110-byte
+record `FUN_18008d0c0` allocates — that one is written at `+0x24`, `+0x72`, `+0x76`, `+0x94`,
+`+0xc4`, `+0xd4` and `+0xf4`, and never at any of the four above. Nor does a whole-program grep for
+the offsets find the writer: searching all 2,813 functions for `0x60`, `0x64`, `0x78` and `0x88`
+together returns **zero**, because the decompiler renders a field by the type of the pointer holding
+it — the same byte appears as `*(float *)(param_1 + 0x78)` through one and as `plVar9 + 0xf` through
+another, and `FUN_1800857c0` does both within a dozen lines.
+
+So the route in is the structure's allocation, or a trace out of `FUN_180086e80`, which splits and
+merges these systems and therefore has to know how one is built. Recorded as a failed search rather
+than left for the next reader to repeat.
+
 *Evidence class: read from the decompiled binary. The identification of `FUN_1800836b0` as the
 friction-system driver is read from its own structure — a loop over `param_1+0x70` indexed by a
 count at `+0x6a`, calling the per-contact solve already traced — and from `ivp_friction.cxx` being
