@@ -7,6 +7,7 @@ using System.Linq;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
+using Tf2DemoSalvage.Animation.Animating;
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
 
@@ -1159,13 +1160,57 @@ public static class PropModels
                     // **The one thing that entitles a model to be drawn twice.** Without it a model
                     // with any translucent material belongs wholly to the translucent pass — see
                     // RenderGroups, which is where the consequence is spelled out.
-                    model.IsTranslucentTwoPass));
+                    model.IsTranslucentTwoPass,
+
+                    // **The ragdoll, read from the sibling `.phy` while the bones are in hand**
+                    // (B58). It needs both halves — the file's solids and joints, and the skeleton
+                    // they are matched to BY NAME — and this is the only place both exist at once.
+                    //
+                    // **A missing `.phy` is the normal case and says nothing**, so it is not logged:
+                    // most models ship none, and `Find` returning null here is how a hat differs
+                    // from a player rather than a failure to read one.
+                    ReadRagdoll(Find(stem + ".phy"), bones, props, path)));
         }
         catch (InvalidDataException failure)
         {
             // Includes the checksum mismatch, which is the engine's own guard against a model
             // whose three files do not belong together.
             props.LogWarning(failure, "reading {Path}", path);
+            return null;
+        }
+    }
+
+    /// <summary>The ragdoll a model's <c>.phy</c> declares, or null when there is nothing to build.</summary>
+    /// <param name="file">The <c>.phy</c> bytes, or null when the model ships none.</param>
+    /// <param name="bones">The skeleton its solids are matched against, by name.</param>
+    /// <param name="props">Where a malformed file is reported.</param>
+    /// <param name="path">The model, for that report.</param>
+    /// <returns>The ragdoll, or null.</returns>
+    /// <remarks>
+    /// **Three different nulls, and only one of them is worth a word.** No file at all is the
+    /// common case and silent. A file that parses to no ragdoll — a single collision solid, which
+    /// is what 4,718 of the game's 4,755 `.phy` files are — is also silent, since a crate having no
+    /// joints is not a problem. A file that throws while being read is neither, and is logged.
+    ///
+    /// **A `.phy` is a stranger's file (D32)**, so the read is wrapped: the format's own length
+    /// fields are attacker-controlled in the sense that matters here, which is that a corrupt or
+    /// truncated one must cost this model its ragdoll rather than the whole load.
+    /// </remarks>
+    private static RagdollBody? ReadRagdoll(
+        byte[]? file, IReadOnlyList<StudioBone> bones, ILogger props, string path)
+    {
+        if (file is not { Length: > 0 })
+        {
+            return null;
+        }
+
+        try
+        {
+            return RagdollBody.Build(PhysicsModel.Read(file), bones);
+        }
+        catch (Exception failure) when (failure is InvalidDataException or ArgumentException)
+        {
+            props.LogWarning(failure, "reading the ragdoll of {Path}", path);
             return null;
         }
     }
@@ -2654,6 +2699,11 @@ public static class PropModels
     /// Whether the model declares <c>$mostlyopaque</c> — <c>STUDIOHDR_FLAGS_TRANSLUCENT_TWOPASS</c>
     /// — which is the only thing that entitles it to be drawn in both passes.
     /// </param>
+    /// <param name="Ragdoll">
+    /// The bodies and joints this model's <c>.phy</c> declares, or null when it has none — which is
+    /// the answer for nearly every model, since only 37 of the 4,755 the game ships declare ragdoll
+    /// joints at all.
+    /// </param>
     /// <remarks>
     /// **The indirection is the point.** A demo networks a SEQUENCE and a CYCLE; the geometry is
     /// per ANIMATION and per FRAME. Collapsing the two would draw whatever animation happened to
@@ -2700,7 +2750,17 @@ public static class PropModels
         // of models — so a model whose flag went unread draws its translucent parts unsorted with
         // its solid ones rather than drawing nothing. Visible, not silent, which is why the default
         // is tolerable; `TwoPassWiringTests` is what proves production sets it.
-        bool TwoPass = false)
+        bool TwoPass = false,
+
+        // **The ragdoll this model's `.phy` declares, or null when it has none** (B58). Per MODEL
+        // rather than per corpse: the bodies, the joints and the bone-to-bone frames depend only on
+        // the file, and a match with thirty dead soldiers would otherwise rebuild the same graph
+        // thirty times.
+        //
+        // **Null is the common answer and is not a warning.** Most models ship no `.phy` at all,
+        // and of the 4,755 that do only 37 declare ragdoll joints — every other one is a single
+        // collision solid with nothing to simulate.
+        RagdollBody? Ragdoll = null)
     {
         /// <summary>The render bounds for one sequence, in model space.</summary>
         /// <param name="sequence">Which sequence is playing.</param>
