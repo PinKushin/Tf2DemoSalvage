@@ -562,6 +562,18 @@ public sealed class IvpContact
         // had and loses the rest every step; a resting one is asked for zero and stays there. Read
         // as an accumulated impulse instead — which is what this did first — the right-hand side
         // adds an impulse to a velocity, and a sliding body sped up from 12 units a second to 15.8.
+        // **`rub` is measured contributing a small POSITIVE energy — friction acting as a motor —
+        // and the obvious clamp for it measured worse.** The warm start asks for a fraction of last
+        // step's slip, so when the body has already slowed below that by other means the difference
+        // is positive and the impulse pushes it back up to speed. Refusing any target faster than
+        // the current slip took a sliding body from 25.4 units a second to 39.3, because the same
+        // clamp fires in the ordinary case and switches friction off altogether: the stored slip is
+        // routinely larger than the live one, so clamping to the live one asks for no change at all.
+        //
+        // **That says the stored value is stale rather than that the target is wrong.** It is
+        // written after each solve, and there are several slices per tick, so what is read back is
+        // several corrections behind. The engine's contact is solved once per PSI and does not have
+        // that gap. Recorded rather than clamped over.
         float wantFirst = (weight * stored.A) - slipFirst;
         float wantSecond = (weight * stored.B) - slipSecond;
 
@@ -698,6 +710,7 @@ public sealed class IvpContact
     private static float Dot(
         (float X, float Y, float Z) left, (float X, float Y, float Z) right) =>
         (left.X * right.X) + (left.Y * right.Y) + (left.Z * right.Z);
+
 
     /// <summary>The contact point's speed along the normal — negative while approaching.</summary>
     private float Closing() => Closing(Arm);
