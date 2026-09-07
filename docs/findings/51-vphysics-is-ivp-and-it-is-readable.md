@@ -2280,18 +2280,32 @@ outside all geometry at z −50 while the corpse still reports six to eleven con
 resting on a floor the pelvis has already gone through, which is a ragdoll coming apart rather than
 a body sinking.
 
-**What is NOT established: the two gains and the flag's value for a ragdoll.** The constraint's
-default descriptor zeroes both (`FUN_1800368c0` writes `qword [RDI + 0xc4] = 0` and
-`word [RDI + 0xcc] = 0`, and `+0xd3` — which `FUN_180037890` copies to `+0x157` — lands in the
-zeroed `qword [RDI + 0xd0]`), so translation is OFF by default and `CreateRagdollConstraint` must
-turn it on and set the gains. Where it does that has not been found; a search for the three offsets
-across all 2,813 functions returns nothing, so they are written through a helper or as a struct
-copy. **No number is inferred in their place** — a ball-socket's behaviour is entirely those two
-gains, and guessing them would be the same mistake as the exit-face rule.
+**Both gains are 1.0 and translation is ON, and all three are settled in the disassembly.** The
+chain is `CreateRagdollConstraint` → `FUN_18000d510` → `FUN_18000eac0`, which builds a template on
+its stack with `FUN_18000c750` and hands it to `FUN_1800368c0`; `FUN_180037890` then copies
+template `+0xc8`/`+0xcc`/`+0xd3` to constraint `+0x14c`/`+0x150`/`+0x157`. The template's own
+constructor writes them literally:
 
-*Evidence class: read from the decompiled binary for the solve and the default descriptor; the
-identification of `FUN_180038070` as the ball-socket K matrix is ARITHMETIC — matched to the
-standard form from the fields it reads — rather than read from a name.*
+```
+18000c7cb  MOV dword ptr [RBX + 0xc8],0x3f800000     ; the velocity gain = 1.0
+18000c7d5  MOV dword ptr [RBX + 0xcc],0x3f800000     ; the error gain    = 1.0
+18000c7df  MOV byte ptr  [RBX + 0xd3],0x1            ; translation ENABLED
+```
+
+Nothing between there and the constraint overwrites any of the three, so **every ragdoll joint TF2
+creates is a ball-and-socket with unit gains** — and the error term is additionally scaled by the
+driver's relaxation weight, `param_2[1]`, which is the same `0.4` the angular axes use.
+
+**What is NOT established: the two per-body scales** `fVar51` and `fVar52`, selected by a lane mask
+between the function's `param_4`/`param_5` arguments and a value from an `rsqrt` Newton refinement.
+Their ordinary value for a normalised axis is one, and that is what this project takes with the
+assumption stated rather than buried.
+
+*Evidence class: read from the decompiled binary for the solve; the three constants re-read as raw
+instruction operands in the disassembly per
+`docs/memory/settle-a-constant-in-the-disassembly.md`. The identification of `FUN_180038070` as the
+ball-socket K matrix is ARITHMETIC — matched to the standard form from the fields it reads — rather
+than read from a name.*
 
 ## Correction: there is no anchor axis — all THREE constraint axes are angular
 
