@@ -536,11 +536,34 @@ public sealed class IvpWorldCollision
     /// the pair — and the point where a contact record becomes an impulse is the piece
     /// `docs/findings/51` still lists as unread.
     /// </remarks>
-    public (Vector3 Normal, float Depth)? Penetration(Vector3 point, Vector3 motion)
+    public (Vector3 Normal, float Depth)? Penetration(Vector3 point, Vector3 motion) =>
+        Touching(point, motion) is { } hit ? (hit.Normal, hit.Depth) : null;
+
+    /// <summary>The same, and WHICH world feature it is against.</summary>
+    /// <param name="point">Where the point is, in Source units.</param>
+    /// <param name="motion">How the point has been moving; zero when that is not known.</param>
+    /// <returns>The normal, the depth and a stable id for the face, or null when outside.</returns>
+    /// <remarks>
+    /// **The id is the point of this overload, and it is what IVP's mindist keeps.** A contact
+    /// solved across steps needs to know it is the SAME contact, and a normal re-derived every step
+    /// cannot say so: a body settling into a surface changes which of a ledge's faces is
+    /// shallowest, so anything keyed on the normal loses its accumulated state exactly when the
+    /// body is coming to rest. Measured — the persistent hold built for that reason could not
+    /// support a corpse at all, and switching off the depth term that was really holding it dropped
+    /// a ragdoll through the map to −1519.
+    ///
+    /// **A ledge index and a plane index within it**, packed, because both are stable for as long
+    /// as the body rests on that face; terrain triangles get their own range above them. This is
+    /// the identity half of a closest-feature pair and not the pair itself — the engine also
+    /// retains WHICH feature of the moving body is closest, and this project still tests every hull
+    /// vertex against the world every step.
+    /// </remarks>
+    public (Vector3 Normal, float Depth, int Feature)? Touching(Vector3 point, Vector3 motion)
     {
         bool found = false;
         float deepest = 0f;
         Vector3 face = default;
+        int feature = -1;
 
         _ = motion;
 
@@ -560,6 +583,7 @@ public sealed class IvpWorldCollision
             bool shallowest = false;
             float shallowDepth = float.MaxValue;
             Vector3 shallowFace = default;
+            int shallowPlane = -1;
 
             for (int plane = 0; plane < ledge.Planes.Count; plane++)
             {
@@ -581,6 +605,7 @@ public sealed class IvpWorldCollision
                 {
                     shallowDepth = -outside;
                     shallowFace = normal;
+                    shallowPlane = plane;
                     shallowest = true;
                 }
             }
@@ -590,11 +615,46 @@ public sealed class IvpWorldCollision
                 found = true;
                 deepest = shallowDepth;
                 face = shallowFace;
+
+                // **Packed so one integer names the face**, which is all a retained contact needs
+                // to recognise itself next step. A ledge has far fewer than `PlanesPerLedge` faces
+                // in practice; the multiplier only has to be larger than any real count.
+                feature = (candidates[candidate] * PlanesPerLedge) + shallowPlane;
             }
         }
 
-        return Terrain(point, found ? (face, deepest) : null);
+        (Vector3 Normal, float Depth)? brush = found ? (face, deepest) : null;
+
+        (Vector3 Normal, float Depth)? both = Terrain(point, brush);
+
+        if (both is not { } hit)
+        {
+            return null;
+        }
+
+        // **Terrain wins its own identity**, because a triangle is a different kind of feature.
+        // `Terrain` returns whichever of the two is deeper, so it took over exactly when there was
+        // no brush hit or the depth grew — a comparison, not a float equality.
+        if (brush is not { } chosen || hit.Depth > chosen.Depth)
+        {
+            feature = TerrainFeature;
+        }
+
+        return (hit.Normal, hit.Depth, feature);
     }
+
+    /// <summary>More planes than any real ledge has, so a packed id cannot collide.</summary>
+    private const int PlanesPerLedge = 4096;
+
+    /// <summary>One id for terrain, which this does not yet tell apart triangle by triangle.</summary>
+    /// <remarks>
+    /// **Deliberately coarse and stated as such.** `Terrain` returns a normal and a depth and not
+    /// which triangle produced them, so every terrain contact on a body shares an identity here. A
+    /// body resting on a hillside therefore accumulates one retained contact where it should have
+    /// one per triangle it touches — better than the normal-keyed version it replaces, and not the
+    /// engine's, which names the feature exactly.
+    /// </remarks>
+    private const int TerrainFeature = int.MaxValue;
 
     /// <summary>Where a moving point first enters the world, if it does.</summary>
     /// <param name="from">Where the point is now.</param>

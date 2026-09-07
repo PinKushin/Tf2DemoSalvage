@@ -58,9 +58,25 @@ public sealed class IvpContact
     /// <summary>How far inside it is.</summary>
     public required float Depth { get; init; }
 
-    /// <summary>Which hull point raised it — the key its stored friction is filed under.</summary>
-    /// <remarks>See <see cref="IvpRigidBody.Sliding"/> for why a contact needs an identity.</remarks>
+    /// <summary>Which hull point raised it.</summary>
     public required int Point { get; init; }
+
+    /// <summary>Which WORLD face it is against — the retained half of a closest-feature pair.</summary>
+    /// <remarks>
+    /// **A contact solved across steps has to recognise itself, and a normal cannot do it.** This
+    /// was keyed on the contact normal and before that on the hull point, and both lose their
+    /// state exactly when a body settles: the shallowest face of a ledge changes as the body sinks
+    /// into it, and which vertex is first in the list changes as it rocks. A ledge and a plane
+    /// within it do not change while the body rests on that face.
+    ///
+    /// **`IvpWorldCollision.Touching` produces it**, and it is the identity half of what IVP's
+    /// mindist keeps. The other half — which feature of the MOVING body is closest — this project
+    /// still does not have, because it tests every hull vertex against the world every step.
+    /// </remarks>
+    public required int Feature { get; init; }
+
+    /// <summary>The id a contact that has not happened yet is filed under.</summary>
+    private const int Speculative = -1;
 
     /// <summary>Whether this contact's manifold has already been rubbed this slice.</summary>
     /// <remarks>
@@ -340,15 +356,19 @@ public sealed class IvpContact
             Accumulated += applied;
         }
 
-        (float X, float Y, float Z) face = Normal;
+        if (Feature == Speculative)
+        {
+            return;
+        }
 
         if (slot < 0)
         {
-            Body.Sliding.Add((face, total, 0f, 0f));
+            Body.Sliding.Add((Feature, total, 0f, 0f));
         }
         else
         {
-            Body.Sliding[slot] = (face, total, Body.Sliding[slot].First, Body.Sliding[slot].Second);
+            Body.Sliding[slot] = (
+                Feature, total, Body.Sliding[slot].First, Body.Sliding[slot].Second);
         }
 
     }
@@ -489,17 +509,19 @@ public sealed class IvpContact
         (float X, float Y, float Z) settled = (
             Body.Velocity.X + after.X, Body.Velocity.Y + after.Y, Body.Velocity.Z + after.Z);
 
-        (float X, float Y, float Z) kept = (
-            Normal.X, Normal.Y, Normal.Z);
+        if (Feature == Speculative)
+        {
+            return;
+        }
 
         if (slot < 0)
         {
-            Body.Sliding.Add((kept, 0f, Dot(settled, first), Dot(settled, second)));
+            Body.Sliding.Add((Feature, 0f, Dot(settled, first), Dot(settled, second)));
         }
         else
         {
             Body.Sliding[slot] = (
-                kept, Body.Sliding[slot].Holding, Dot(settled, first), Dot(settled, second));
+                Feature, Body.Sliding[slot].Holding, Dot(settled, first), Dot(settled, second));
         }
     }
 
@@ -513,9 +535,14 @@ public sealed class IvpContact
     /// </remarks>
     private int Remembered()
     {
+        if (Feature == Speculative)
+        {
+            return -1;
+        }
+
         for (int index = 0; index < Body.Sliding.Count; index++)
         {
-            if (Dot(Body.Sliding[index].Normal, Normal) >= Feature)
+            if (Body.Sliding[index].Face == Feature)
             {
                 return index;
             }
@@ -732,7 +759,8 @@ public sealed class IvpContact
 
             Vector3 arm = Vector3.Transform(new Vector3(x, y, z), orientation);
 
-            (Vector3 Normal, float Depth)? hit = world.Penetration(centre + arm);
+            (Vector3 Normal, float Depth, int Feature)? hit =
+                world.Touching(centre + arm, default);
 
             if (hit is null && step > 0f)
             {
@@ -813,7 +841,12 @@ public sealed class IvpContact
 
                     if (soon.Fraction * (committed + predicted).Length() <= reachable)
                     {
-                        hit = (soon.Normal, 0f);
+                        // **A speculative contact gets no retained identity**, because it is not
+                        // against a face yet — the sweep says which surface it WILL meet, and a
+                        // contact that has not happened has nothing to accumulate. It is filed
+                        // under `Speculative` so it never inherits a resting contact's stored
+                        // impulse.
+                        hit = (soon.Normal, 0f, Speculative);
                     }
                 }
             }
@@ -837,6 +870,7 @@ public sealed class IvpContact
                 Normal = (found.Normal.X, found.Normal.Y, found.Normal.Z),
                 Depth = found.Depth,
                 Point = index,
+                Feature = found.Feature,
             });
         }
 
@@ -951,9 +985,6 @@ public sealed class IvpContact
     /// </remarks>
     private const int MaximumPasses = 100;
 
-    /// <summary>How closely two normals must agree to be the same resting feature.</summary>
-    /// <remarks>The same threshold the manifold is grouped by — `IvpEnvironment`'s `Shared`.</remarks>
-    private const float Feature = 0.99f;
 
     /// <summary>Penetration left unresolved, so resting contacts stop re-triggering.</summary>
     /// <remarks>
