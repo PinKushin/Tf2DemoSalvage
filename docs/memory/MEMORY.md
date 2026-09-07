@@ -172,3 +172,4 @@
 - [A sabotage that reddens nothing names the missing input](a-sabotage-that-reddens-nothing-names-the-missing-input.md) — sometimes the code is what is wrong.
 - [A gate in flight owns the tree](a-gate-in-flight-owns-the-tree.md) — an edit mid-run splits the measurement, and it still exits 0.
 - [Settle a constant in the disassembly](settle-a-constant-in-the-disassembly.md) — shape from the decompiler, identity from the instructions.
+- [Workflow agents inherit the session model](workflow-agents-inherit-the-session-model.md) — haiku only, and review is what makes it acceptable.
