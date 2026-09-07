@@ -335,6 +335,134 @@ public sealed class IvpWorldCollision
         return Terrain(point, best);
     }
 
+    /// <summary>Where a moving point first enters the world, if it does.</summary>
+    /// <param name="from">Where the point is now.</param>
+    /// <param name="to">Where it would be after this move.</param>
+    /// <returns>The surface normal it would enter through, or null when the path is clear.</returns>
+    /// <remarks>
+    /// **A point sample cannot answer this and it was measured failing.** A body at 1,131 units a
+    /// second moves seventeen units in a tick, and a floor brush sixteen units thick fits entirely
+    /// between where a point is and where it will be — so testing the far end finds it out the
+    /// other side, clear, and the body sails through a floor it never technically touched. The
+    /// segment is what has to be tested, and this is that.
+    ///
+    /// **This is what IVP's mindist system provides for free**, by tracking a pair's closing
+    /// distance and rescheduling its check before contact rather than sampling positions
+    /// (`docs/findings/51`, the contact-pair re-check scheduler).
+    ///
+    /// **Exact for both kinds of geometry, not sampled.** A convex ledge is clipped by its own
+    /// planes, which is the standard slab clip and gives the entry face directly; a terrain
+    /// triangle is a plane crossing plus the same containment test its point case uses.
+    /// </remarks>
+    public Vector3? Entry(Vector3 from, Vector3 to)
+    {
+        Vector3 travel = to - from;
+
+        if (travel.LengthSquared() <= DegenerateArea)
+        {
+            return null;
+        }
+
+        float nearest = float.MaxValue;
+        Vector3? normal = null;
+
+        foreach (int index in Candidates(from, to))
+        {
+            if (Clip(_ledges[index], from, travel) is not { } clipped ||
+                clipped.Fraction >= nearest)
+            {
+                continue;
+            }
+
+            nearest = clipped.Fraction;
+            normal = clipped.Normal;
+        }
+
+        foreach (int index in TriangleCandidates(from, to))
+        {
+            IvpWorldTriangle triangle = _triangles[index];
+
+            float above = Vector3.Dot(triangle.Normal, from) - triangle.Distance;
+            float below = Vector3.Dot(triangle.Normal, to) - triangle.Distance;
+
+            // Crossing from the front to the back, which is the only direction that is an entry.
+            if (above < 0f || below > 0f || above - below <= FloatEpsilon)
+            {
+                continue;
+            }
+
+            float fraction = above / (above - below);
+
+            if (fraction >= nearest || !Within(triangle, from + (travel * fraction)))
+            {
+                continue;
+            }
+
+            nearest = fraction;
+            normal = triangle.Normal;
+        }
+
+        return normal;
+    }
+
+    /// <summary>Clips a segment by one convex ledge, giving the face it enters through.</summary>
+    /// <remarks>
+    /// **The standard slab clip, and the entry face falls out of it.** The segment enters at the
+    /// LAST plane it crosses inwards and leaves at the first it crosses outwards; if those cross
+    /// over, it missed. Nothing here needs the ledge's triangles, which is the whole reason a
+    /// convex piece is stored as planes.
+    /// </remarks>
+    private static (float Fraction, Vector3 Normal)? Clip(
+        IvpWorldLedge ledge, Vector3 from, Vector3 travel)
+    {
+        float enter = 0f;
+        float leave = 1f;
+        Vector3 face = default;
+        bool entered = false;
+
+        for (int plane = 0; plane < ledge.Planes.Count; plane++)
+        {
+            (Vector3 normal, float distance) = ledge.Planes[plane];
+
+            float start = Vector3.Dot(normal, from) - distance;
+            float along = Vector3.Dot(normal, travel);
+
+            if (MathF.Abs(along) <= FloatEpsilon)
+            {
+                if (start > 0f)
+                {
+                    // Parallel to this face and outside it: the whole segment misses.
+                    return null;
+                }
+
+                continue;
+            }
+
+            float at = -start / along;
+
+            if (along < 0f)
+            {
+                if (at > enter)
+                {
+                    enter = at;
+                    face = normal;
+                    entered = true;
+                }
+            }
+            else if (at < leave)
+            {
+                leave = at;
+            }
+
+            if (enter > leave)
+            {
+                return null;
+            }
+        }
+
+        return entered && enter is >= 0f and <= 1f ? (enter, face) : null;
+    }
+
     /// <summary>The terrain half of the same question, taking the shallower answer of the two.</summary>
     /// <remarks>
     /// **A triangle is a surface and not a solid, so "inside" has to be given a thickness.** A point
@@ -392,6 +520,68 @@ public sealed class IvpWorldCollision
         Vector3.Dot(Vector3.Cross(triangle.C - triangle.B, point - triangle.B), triangle.Normal) >= 0f &&
         Vector3.Dot(Vector3.Cross(triangle.A - triangle.C, point - triangle.C), triangle.Normal) >= 0f;
 
+    /// <summary>Every ledge whose cell the segment passes through, plus the oversized ones.</summary>
+    /// <remarks>
+    /// **The segment's whole cell RANGE, not its endpoints.** A grid query that asked only where
+    /// the point starts and ends would miss a wall standing between them, which is the same class
+    /// of mistake as sampling the far end of the move.
+    /// </remarks>
+    private IEnumerable<int> Candidates(Vector3 from, Vector3 to)
+    {
+        foreach ((int, int, int) key in Cells(from, to))
+        {
+            if (_grid.TryGetValue(key, out List<int>? bucket))
+            {
+                foreach (int index in bucket)
+                {
+                    yield return index;
+                }
+            }
+        }
+
+        foreach (int index in _oversized)
+        {
+            yield return index;
+        }
+    }
+
+    /// <summary>The same, for terrain triangles.</summary>
+    private IEnumerable<int> TriangleCandidates(Vector3 from, Vector3 to)
+    {
+        foreach ((int, int, int) key in Cells(from, to))
+        {
+            if (_triangleGrid.TryGetValue(key, out List<int>? bucket))
+            {
+                foreach (int index in bucket)
+                {
+                    yield return index;
+                }
+            }
+        }
+    }
+
+    /// <summary>Every grid cell the segment's own box covers.</summary>
+    private static IEnumerable<(int X, int Y, int Z)> Cells(Vector3 from, Vector3 to)
+    {
+        int minimumX = Cell(MathF.Min(from.X, to.X));
+        int maximumX = Cell(MathF.Max(from.X, to.X));
+        int minimumY = Cell(MathF.Min(from.Y, to.Y));
+        int maximumY = Cell(MathF.Max(from.Y, to.Y));
+        int minimumZ = Cell(MathF.Min(from.Z, to.Z));
+        int maximumZ = Cell(MathF.Max(from.Z, to.Z));
+
+        for (int x = minimumX; x <= maximumX; x++)
+        {
+            for (int y = minimumY; y <= maximumY; y++)
+            {
+                for (int z = minimumZ; z <= maximumZ; z++)
+                {
+                    yield return (x, y, z);
+                }
+            }
+        }
+    }
+
     /// <summary>Whether a plane is already held, up to the angle and offset IVP treats as the same.</summary>
     private static bool Duplicate(
         List<(Vector3 Normal, float Distance)> planes, Vector3 normal, float distance)
@@ -427,6 +617,9 @@ public sealed class IvpWorldCollision
     /// slips past it.
     /// </remarks>
     private const float TerrainDepth = 64f;
+
+    /// <summary><c>FLT_EPSILON</c>, the floor the engine's own guards use.</summary>
+    private const float FloatEpsilon = 1.1920929e-07f;
 
     /// <summary>Below this squared cross-product length a triangle has no usable normal.</summary>
     private const float DegenerateArea = 1e-12f;

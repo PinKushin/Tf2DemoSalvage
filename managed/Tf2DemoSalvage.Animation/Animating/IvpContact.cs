@@ -183,12 +183,21 @@ public sealed class IvpContact
                 // be after this step is tested, and a contact is raised now with zero depth — no
                 // penetration to recover, only a closing velocity to cancel, which is exactly what
                 // a contact that has not happened yet should do.
+                // **Two steps, and the reason is the integrator's one-step lag.** `IvpIntegrator`
+                // moves a body by its PREVIOUS velocity — `core[0x150] += core[0x170] * dt`, and
+                // only then `core[0x170] = core[0x140]` — so this step's motion is already decided
+                // before any impulse is applied, and an impulse raised now takes effect on the step
+                // after. Predicting with the current velocity alone therefore raises the contact
+                // exactly one step too late, which is what left a body 2,775 units under a
+                // sixteen-unit floor while reporting contacts the whole way down.
                 Vector3 ahead = centre + arm + new Vector3(
-                    body.Velocity.X * step, body.Velocity.Y * step, body.Velocity.Z * step);
+                    (body.PreviousVelocity.X + body.Velocity.X) * step,
+                    (body.PreviousVelocity.Y + body.Velocity.Y) * step,
+                    (body.PreviousVelocity.Z + body.Velocity.Z) * step);
 
-                if (world.Penetration(ahead) is { } soon)
+                if (world.Entry(centre + arm, ahead) is { } soon)
                 {
-                    hit = (soon.Normal, 0f);
+                    hit = (soon, 0f);
                 }
             }
 

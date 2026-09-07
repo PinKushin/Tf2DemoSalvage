@@ -188,6 +188,40 @@ public sealed class IvpWorldContactConformanceTests
         body.Position.X.ShouldBeLessThan(250d, "the control: with no friction it really did slide");
     }
 
+    /// <remarks>
+    /// **The tunnelling case, reproduced from the map.** A corpse falling onto
+    /// `koth_harvest_final` ended sixty-nine units under its floor while reporting sixty-two
+    /// contacts, so the fault was never detection. The condition is a THIN brush and a body already
+    /// at speed: a body at terminal velocity moves twelve units in a tick, and once a point is past
+    /// a thin brush's midplane the shallowest face is the underside, so the push that should stop
+    /// it drives it through.
+    ///
+    /// **A thick slab cannot show this** — the floor in the tests above is a hundred units deep, so
+    /// a point never reaches its midplane and every reading passes. That is the "wrong condition"
+    /// failure: an input for which correct and broken predict the same observation.
+    /// </remarks>
+    [Test]
+    public void Simulate_FallingFastOntoAThinFloor_DoesNotPassThroughIt()
+    {
+        IvpEnvironment environment = new(Step) { World = Floor(depth: 16f) };
+
+        IvpRigidBody body = Body(400f);
+
+        // Already falling at terminal speed, which is the condition — a body released from rest
+        // above a thin floor is caught on its first step and proves nothing.
+        body.Velocity = (0f, 0f, -800f);
+
+        environment.Add(body);
+
+        for (int step = 0; step < 132; step++)
+        {
+            environment.Simulate();
+        }
+
+        body.Position.Z.ShouldBeGreaterThan(0d, "it must be ON the floor, not under it");
+        body.Position.Z.ShouldBeLessThan(4d);
+    }
+
     /// <summary>A body with a two-unit cube for a hull, at a height.</summary>
     private static IvpRigidBody Body(float height) =>
         new()
@@ -210,12 +244,12 @@ public sealed class IvpWorldContactConformanceTests
     /// that arrived already converted would pass every test while the real one was 39 times too
     /// small.
     /// </remarks>
-    private static IvpWorldCollision Floor()
+    private static IvpWorldCollision Floor(float depth = 100f)
     {
         const float Metre = 0.0254f;
 
         float wide = 1000f * Metre;
-        float deep = 100f * Metre;
+        float deep = depth * Metre;
 
         List<Vector3> points =
         [

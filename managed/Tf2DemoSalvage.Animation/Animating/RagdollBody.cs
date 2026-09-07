@@ -278,7 +278,7 @@ public sealed class RagdollBody
                 solid.Damping,
                 solid.RotationDamping,
                 solid.Volume,
-                HullInBoneSpace(physics, index, bones[bone]));
+                HullInBoneSpace(physics, index));
         }
 
         foreach (RagdollConstraint constraint in physics.Constraints)
@@ -473,26 +473,30 @@ public sealed class RagdollBody
     /// `stricmp` (`bone_setup.cpp`), and a `.phy` is authored by hand where the `.mdl`'s bone names
     /// come from the compiler.
     /// </remarks>
-    /// <summary>One solid's hull points, converted and moved into its bone's space.</summary>
+    /// <summary>One solid's hull points, in the body's own space and in Source units.</summary>
     /// <remarks>
-    /// **Two changes of frame in one place, deliberately.** IVP metres become Source units, and the
-    /// model's reference frame becomes the bone's — the same seam, and splitting it would leave a
-    /// half-converted hull that is wrong by a factor of thirty-nine somewhere in between
-    /// ([[ivp-is-a-third-convention]]).
+    /// **A solid's hull is ALREADY in its own body's space, and this is measured rather than
+    /// assumed.** The engine creates each one at the origin with no rotation —
+    /// `CreatePolyObject( params.pCollide-&gt;solids[solid.index], surfaceData, vec3_origin,
+    /// vec3_angle, &amp;solid.params )` (`ragdoll_shared.cpp:200`) — and only then places the body at
+    /// its bone. A hull in model space would make that call put every limb at the model's origin.
     ///
-    /// **`poseToBone` is the bind-pose inverse the model already carries**, so nothing here rebuilds
-    /// a transform that the `.mdl` states. A bone whose matrix is missing yields no hull rather than
-    /// an unconverted one.
+    /// **The measurement, because the earlier version of this method got it wrong**: a medic's
+    /// twenty-four hulls have bounding-sphere centres within ten units of zero — `(0, 0.8, -0.3)`
+    /// for the pelvis, `(-0.4, 0.1, -9.6)` for the deepest of them. In model space a head's hull
+    /// would sit some seventy units up. Applying `poseToBone` here displaced every limb's collision
+    /// by that bone's bind offset, which on a map looks like a corpse colliding with geometry that
+    /// is not there — and reported contacts nineteen thousand units below the floor.
+    ///
+    /// **So the only change of frame left is the unit one**, IVP metres to Source units, which is
+    /// the seam this project keeps in one place ([[ivp-is-a-third-convention]]).
     /// </remarks>
-    private static List<Vector3> HullInBoneSpace(
-        PhysicsModel physics, int solid, StudioBone bone)
+    private static List<Vector3> HullInBoneSpace(PhysicsModel physics, int solid)
     {
-        if (solid >= physics.Hulls.Count || bone.PoseToBone.Length < 12)
+        if (solid >= physics.Hulls.Count)
         {
             return [];
         }
-
-        ReadOnlySpan<float> matrix = bone.PoseToBone.Span;
 
         List<Vector3> hull = [];
 
@@ -500,12 +504,7 @@ public sealed class RagdollBody
         {
             foreach (Vector3 point in ledge.Points)
             {
-                Vector3 inModel = point * IvpWorldCollision.SourceUnitsPerMetre;
-
-                hull.Add(new Vector3(
-                    (matrix[0] * inModel.X) + (matrix[1] * inModel.Y) + (matrix[2] * inModel.Z) + matrix[3],
-                    (matrix[4] * inModel.X) + (matrix[5] * inModel.Y) + (matrix[6] * inModel.Z) + matrix[7],
-                    (matrix[8] * inModel.X) + (matrix[9] * inModel.Y) + (matrix[10] * inModel.Z) + matrix[11]));
+                hull.Add(point * IvpWorldCollision.SourceUnitsPerMetre);
             }
         }
 

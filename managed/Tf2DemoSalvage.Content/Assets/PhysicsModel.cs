@@ -207,13 +207,36 @@ public sealed class PhysicsModel
         IReadOnlyList<RagdollConstraint> constraints,
         int declaredSolidCount,
         int checksum,
-        PhysicsCollisionRules? collisionRules)
+        PhysicsCollisionRules? collisionRules) =>
+        From(solids, constraints, declaredSolidCount, checksum, collisionRules, null);
+
+    /// <summary>A physics model assembled from parts, with collision rules and hulls.</summary>
+    /// <param name="solids">The rigid bodies, in the order a <c>.phy</c> would declare them.</param>
+    /// <param name="constraints">The joints between them.</param>
+    /// <param name="declaredSolidCount">What the header would claim.</param>
+    /// <param name="checksum">The <c>.mdl</c> checksum this belongs to, or zero.</param>
+    /// <param name="collisionRules">The rules, or null for a model that declares none.</param>
+    /// <param name="hulls">One hull per solid, or null for a model with no collision geometry.</param>
+    /// <returns>The model.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **So a test can state which SPACE a hull is in**, which is the thing a synthetic ragdoll
+    /// could not express before and the thing that was got wrong: a hull authored at the origin
+    /// beside a bone bound far from it tells the two readings apart, and nothing else does.
+    /// </remarks>
+    public static PhysicsModel From(
+        IReadOnlyList<PhysicsSolid> solids,
+        IReadOnlyList<RagdollConstraint> constraints,
+        int declaredSolidCount,
+        int checksum,
+        PhysicsCollisionRules? collisionRules,
+        IReadOnlyList<IReadOnlyList<PhysicsLedge>>? hulls)
     {
         ArgumentNullException.ThrowIfNull(solids);
         ArgumentNullException.ThrowIfNull(constraints);
 
         return new PhysicsModel(
-            solids, constraints, declaredSolidCount, checksum, collisionRules);
+            solids, constraints, declaredSolidCount, checksum, collisionRules, hulls);
     }
 
     private PhysicsModel(

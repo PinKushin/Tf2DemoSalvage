@@ -163,7 +163,7 @@ public sealed class RagdollProbe : IProbe
 
             output.WriteLine(
                 $"    hull {solid}: {ledges} ledges, {triangles} triangles, {points} points, " +
-                $"radius {extent:0.###}");
+                $"radius {extent:0.###} centre {Centre(physics.Hulls[solid])}");
         }
 
         foreach (RagdollElement element in body.Elements)
@@ -196,6 +196,27 @@ public sealed class RagdollProbe : IProbe
         output.WriteLine(
             $"    {roots.ToString(CultureInfo.InvariantCulture)} root " +
             (roots == 1 ? "(one, as a jointed body should have)" : "— NOT one"));
+    }
+
+    /// <summary>A hull's first ledge centre, in Source units — the question is which SPACE it is in.</summary>
+    /// <remarks>
+    /// **A centre near zero means the hull is bone-local; one tens of units out means model space.**
+    /// The difference decides whether a body's hull needs the bone's bind transform applied to it,
+    /// and getting it wrong displaces every limb's collision by that bone's bind offset — which
+    /// looks like a corpse colliding with geometry that is not there.
+    /// </remarks>
+    private static string Centre(IReadOnlyList<PhysicsLedge> hull)
+    {
+        if (hull.Count == 0)
+        {
+            return "none";
+        }
+
+        const float SourceUnitsPerMetre = 1f / 0.0254f;
+
+        System.Numerics.Vector3 centre = hull[0].Center * SourceUnitsPerMetre;
+
+        return $"({centre.X:0.#} {centre.Y:0.#} {centre.Z:0.#})";
     }
 
     private static bool Names(IReadOnlyList<StudioBone> bones, string name) =>
