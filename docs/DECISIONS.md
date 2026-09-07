@@ -7859,3 +7859,52 @@ per-pass relaxation weight. That closed the last unread multiplier in the clamp 
 **What this decision is NOT:** a claim that decompiled C is untrustworthy. It is the right tool for
 the question it answers, and the failure both times was asking it a question about identity. See
 `docs/memory/settle-a-constant-in-the-disassembly.md`.
+
+## D148 — when anything is wrong, parity is the FIRST hypothesis (2026-09-07)
+
+**The owner, after watching an afternoon go into the wrong reading of a hang:**
+
+> *"basically any time theres anything wrong, look at valve parity first"*
+
+and, on the hang itself:
+
+> *"if this is partiy it shouldnt be doing this"*
+
+**This is a third rule and the two that existed do not cover it.** D89 governs DESIGN — what to
+build when there is a choice, and the answer is always the engine's way. The standing note that
+*"performance never buys a departure from parity"* governs TRADES — refusing to sell parity for
+speed. Neither says anything about DIAGNOSIS, which is where every defect this session actually
+lived:
+
+| what looked wrong | what it was |
+|---|---|
+| corpses sank through a floor they were touching | a contact solve invented, because `FUN_18008e290` was unread |
+| corpses walked through crates and doorways | `CreateVPhysicsRepresentations` — the props the engine adds two lines after building the world |
+| corpses slid to rest 755 units under the map | a playerclip brush; a ragdoll's `MASK_SOLID` excludes `CONTENTS_PLAYERCLIP` |
+| six ticks of one corpse took past 400 seconds | a 100-pass loop transcribed at the wrong SCOPE |
+
+Not one was a coding mistake in the ordinary sense. Four for four.
+
+**The speed case is the same rule at its sharpest, and it is the one that keeps being missed.** The
+engine simulates a server full of ragdolls at sixty-six ticks a second. When our transcription of it
+cannot keep up, the likely cause is that we are running a DIFFERENT algorithm, not the same one
+slowly — so a cost symptom is evidence about parity before it is evidence about optimisation. The
+100-pass loop was read correctly out of the binary and applied to the wrong thing: the engine bounds
+one mindist pair, and it was wrapped around every contact of a whole ragdoll. The symptom was pure
+cost. The defect was pure parity.
+
+**Enforced by `~/.claude/hooks/block-fix-without-parity.ps1`**, which refuses a commit that
+describes something wrong and cites nothing in the engine. The escape is `not-parity:` with what it
+is instead, greppable so the exceptions stay auditable. The reasoning lives in the script header per
+the ladder in `~/.claude/CLAUDE.md`.
+
+**Why a hook when the prose already existed.** D89 loads on every turn and it was followed — the
+engine WAS read, at length, all session. What failed was asking the parity question about the
+SYMPTOM rather than about the design. Prose cannot catch that because it reads as already-obeyed; a
+hook fires at the one moment it matters, which is when a diagnosis is being written into the
+permanent record and becomes the remembered one.
+
+**A second, narrower rule came out of the same failure and belongs beside it: when transcribing a
+loop, state what ONE ITERATION is over on the engine's side.** `iVar15 < 100` bounds the passes over
+a single mindist pair. Writing that sentence down would have caught the scope error immediately, and
+no amount of re-reading the function did.
