@@ -398,9 +398,29 @@ public sealed class IvpEnvironment
         return slice;
     }
 
+    /// <summary>How many impulse passes the last slice's contacts took between them.</summary>
+    /// <remarks>
+    /// **Carried out of the loop that ran it, not recomputed** (B243). It is the number that says
+    /// whether the solve is converging or thrashing, and reconstructing it from contact counts
+    /// afterwards would be a second route free to be wrong.
+    /// </remarks>
+    public int Passes { get; private set; }
+
     /// <summary>Solves this slice's contacts the way the engine's impact solver does.</summary>
     /// <remarks>
-    /// **This used to borrow the joint group's two iterations, and that was a guess.**
+    /// **The hundred-pass bound belongs to ONE contact, and putting it here instead was a
+    /// mis-transcription that cost an afternoon.** `FUN_18008e290` solves a single mindist — one
+    /// pair of objects — and iterates that pair's approach to zero. This method used to wrap the
+    /// same bound around a sweep over every contact a ragdoll has, which re-solves settled contacts
+    /// a hundred times per slice and lets the joint solve re-supply the approach in between.
+    /// Measured that way, six ticks of one corpse ran past four hundred seconds.
+    ///
+    /// **The cost was the evidence, and the owner named it**: *"if this is partiy it shouldnt be
+    /// doing this"*. The engine simulates a server full of ragdolls at sixty-six ticks a second, so
+    /// a transcription that cannot keep up is not slow, it is wrong — and in this project doing
+    /// what the engine does has been faster every time.
+    ///
+    /// **And before that it borrowed the joint group's two iterations, which was also a guess.**
     /// `FUN_18008e290` — the consumer of the contact record, reached through `FUN_18008ed60` — runs
     /// its own loop, and the number in it is not two:
     ///
@@ -429,19 +449,14 @@ public sealed class IvpEnvironment
             _contacts[index].Begin();
         }
 
-        for (int pass = 0; pass < MaximumImpulsePasses; pass++)
+        // **One pass over the contacts, each running its OWN loop to convergence.** The engine's
+        // hundred-pass bound lives inside a single mindist and this used to wrap it around the
+        // whole set instead — see the remarks.
+        Passes = 0;
+
+        for (int index = 0; index < _contacts.Count; index++)
         {
-            bool approaching = false;
-
-            for (int index = 0; index < _contacts.Count; index++)
-            {
-                approaching |= _contacts[index].Oppose();
-            }
-
-            if (!approaching)
-            {
-                break;
-            }
+            Passes += _contacts[index].Oppose();
         }
 
         for (int index = 0; index < _contacts.Count; index++)

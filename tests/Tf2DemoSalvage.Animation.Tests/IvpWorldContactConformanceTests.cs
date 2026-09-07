@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Numerics;
 
@@ -273,9 +274,20 @@ public sealed class IvpWorldContactConformanceTests
         // assertion**: `objectparams_t` carries a surface property per solid and the map's own
         // collision text carries a material table for exactly this, and neither is read yet. What
         // this test pins is that the body is ON the surface, which is what collision owes it.
-        double surface = (body.Position.X / 10d) + 1d;
+        // **A RANGE, because how high a cube's centre sits depends on which part of it is down.**
+        // The old `± 1` around a face-resting height happened to fit the residual penetration the
+        // old solver left, and it reddened the moment each contact converged properly — the body
+        // came to rest 1.03 above the plane instead of 1.00, which is a cube on an edge rather than
+        // flat, and there is nothing here to make it lie flat.
+        //
+        // The bounds are arithmetic and cover every orientation of a 2-unit cube: at least the
+        // surface itself, and at most half its diagonal, `sqrt(3)`, for a corner.
+        double surface = body.Position.X / 10d;
 
-        body.Position.Z.ShouldBe(surface, 1d, "resting on the slope, wherever it ended up");
+        body.Position.Z.ShouldBeGreaterThan(surface, "on the slope rather than through it");
+
+        body.Position.Z.ShouldBeLessThan(
+            surface + Math.Sqrt(3d), "and touching it, whichever way up it stopped");
 
         // **It stays put, and that is a corrected expectation rather than a loosened one.** This
         // line first asserted the body slid, which was right when nothing applied friction — it

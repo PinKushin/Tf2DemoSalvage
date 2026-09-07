@@ -100,8 +100,8 @@ public sealed class IvpContact
         Accumulated = 0f;
     }
 
-    /// <summary>Applies one pass of the engine's fixed sub-impulse.</summary>
-    /// <returns>Whether the contact is still approaching, so the loop must run again.</returns>
+    /// <summary>Runs this contact's own impulse loop until it stops approaching.</summary>
+    /// <returns>How many passes it took — zero when there was nothing to oppose.</returns>
     /// <remarks>
     /// **The magnitude is `0.2 · effective mass · approach speed`, and both numbers are dumped.**
     /// `dVar12 = DAT_1800fd880 / (dVar19 + dVar18)` with `DAT_1800fd880` = `-0.1` as a double, and
@@ -112,31 +112,44 @@ public sealed class IvpContact
     /// **The direction is chosen fresh every pass**, because the relative velocity it opposes
     /// changes as the impulses land — <c>FUN_180090240</c> runs at the bottom of the engine's loop
     /// body.
+    ///
+    /// **The loop belongs HERE, to one contact, and putting it anywhere else is a mis-transcription
+    /// that the cost gives away.** `FUN_18008e290` solves ONE mindist — one pair of objects — and
+    /// iterates that pair's own approach to zero. Wrapping the same hundred-pass bound around a
+    /// sweep over every contact a ragdoll has is a different algorithm: it re-solves settled
+    /// contacts a hundred times a slice and lets the joint solve re-supply the approach in between.
+    /// Measured that way, six ticks of a single corpse ran past four hundred seconds and the owner
+    /// stopped it — *"if this is partiy it shouldnt be doing this"*, which is the right test. The
+    /// engine runs a server full of ragdolls at sixty-six ticks a second; a transcription that
+    /// cannot is not a transcription.
     /// </remarks>
-    public bool Oppose()
+    public int Oppose()
     {
         float effective = EffectiveInverseMass;
 
         if (effective <= FloatEpsilon || Approach > Approaching)
         {
-            return false;
+            return 0;
         }
 
-        if (Closing() >= 0f)
-        {
-            return false;
-        }
-
-        (float X, float Y, float Z) direction = Direction();
-
-        // -0.2 · m · v₀, with v₀ negative when approaching, so this is positive.
+        // -0.2 · m · v₀, with v₀ negative when approaching, so this is positive. Fixed for the
+        // whole loop, because the engine measures v₀ once and never revises it.
         float applied = -PassFraction * Approach / effective;
 
-        Accumulated += applied;
+        int passes = 0;
 
-        Push((direction.X * applied, direction.Y * applied, direction.Z * applied));
+        while (passes < MaximumPasses && Closing() < 0f)
+        {
+            (float X, float Y, float Z) direction = Direction();
 
-        return true;
+            Accumulated += applied;
+
+            Push((direction.X * applied, direction.Y * applied, direction.Z * applied));
+
+            passes++;
+        }
+
+        return passes;
     }
 
     /// <summary>Pushes the body back out of what it is already inside.</summary>
@@ -530,6 +543,16 @@ public sealed class IvpContact
     /// other branch, which applies friction and nothing else.
     /// </remarks>
     private const float Approaching = -1.0e-4f * IvpWorldCollision.SourceUnitsPerMetre;
+
+    /// <summary>The engine's own bound on one contact's loop — <c>iVar15 &lt; 100</c>.</summary>
+    /// <remarks>
+    /// **A bound, not a count.** `for (; (0.0 &lt; dVar24 &amp;&amp; (iVar15 &lt; 100)); …)` ends on the
+    /// condition; a contact that is already resting exits on the first test, and one taking a real
+    /// impact needs about six, since each pass removes a fifth. Reaching a hundred means the engine
+    /// gave up, and it checks for exactly that afterwards — `if ((0.0 &lt; dVar18) &amp;&amp;
+    /// (iVar15 != 100))` skips the final calibrated impulse when the loop ran out.
+    /// </remarks>
+    private const int MaximumPasses = 100;
 
     /// <summary>Penetration left unresolved, so resting contacts stop re-triggering.</summary>
     /// <remarks>
