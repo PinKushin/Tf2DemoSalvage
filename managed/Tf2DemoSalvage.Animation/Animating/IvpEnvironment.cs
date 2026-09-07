@@ -269,18 +269,9 @@ public sealed class IvpEnvironment
         float remaining = Step;
         int checks = 0;
 
-        while (remaining > TimeEpsilon && checks < MaximumCollisionChecks)
+        while (remaining > TimeEpsilon)
         {
-            float slice = Advance(remaining, ref checks);
-
-            remaining -= slice;
-        }
-
-        // Whatever is left after the budget runs out is taken in one piece, which is the engine's
-        // own answer: the pair stops being checked and the bodies are allowed to interpenetrate.
-        if (remaining > TimeEpsilon)
-        {
-            Move(remaining);
+            remaining -= Advance(remaining, ref checks);
         }
     }
 
@@ -310,11 +301,27 @@ public sealed class IvpEnvironment
         // **Nothing to hit in the rest of the interval: take it whole.** The contacts found above
         // are still solved, because a body already resting on a surface has a contact at zero
         // distance and no impact time at all.
-        Resolve(soonest);
+        Resolve(remaining);
 
-        Move(soonest);
+        // **Two ways a slice must become the WHOLE remainder, and both were escapes before.**
+        //
+        // An impact at essentially zero means a body is already touching what it is about to hit.
+        // Advancing by an epsilon there makes no progress and spends the check budget, and the
+        // interval left over was then taken in one unresisted move — a corpse thrown at a wall
+        // went through it. The contact for that surface has just been solved, so the rest of the
+        // interval is taken with the body already resisted.
+        //
+        // **And when the budget runs out the move still happens WITH its contacts solved.** The
+        // engine's own answer to running out is that *"objects may penetrate after this many
+        // collision checks"* — penetrate, which is a body pressed into a surface, not a body
+        // teleported past one. Stopping the search is not the same as stopping the collision.
+        bool exhausted = checks >= MaximumCollisionChecks;
 
-        return MathF.Max(soonest, TimeEpsilon);
+        float slice = soonest <= TimeEpsilon || exhausted ? remaining : soonest;
+
+        Move(slice);
+
+        return slice;
     }
 
     /// <summary>Solves this slice's contacts beside the joints.</summary>

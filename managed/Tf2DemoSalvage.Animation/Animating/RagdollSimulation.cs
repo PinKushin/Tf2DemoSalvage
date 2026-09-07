@@ -223,6 +223,20 @@ public sealed class RagdollSimulation
     /// **The scale divides by the TOTAL mass, not by the body's own**, so the shares sum to less
     /// than one force — Valve's own comment beside it reads *"UNDONE: Test scaling the force by
     /// total mass on all bones"*, so this is deliberate and unfinished in the engine too.
+    ///
+    /// **The magnitudes are Valve's own and they are large**, which is worth knowing before anyone
+    /// concludes the decode is wrong. `CalcDamageForceVector` sizes the impulse as
+    ///
+    /// <code>
+    /// // Calculate an impulse large enough to push a 75kg man 4 in/sec per point of damage
+    /// float forceScale = info.GetDamage() * 75 * 4;
+    /// </code>
+    ///
+    /// `basecombatcharacter.cpp:1395` — three hundred kg·in/s per point of damage. A sixty-damage
+    /// kill is eighteen thousand, and `z1800` carries 16,793, 19,191 and 23,987, which is that
+    /// formula for three ordinary kills. **The struck bone weighs about ten kilos, not
+    /// seventy-five**, so the whole force through its centre really is thousands of units a second
+    /// — and that is why <see cref="IvpEnvironment.MaximumVelocity"/> exists.
     /// </remarks>
     public void Kill((float X, float Y, float Z) force, int forceBone)
     {
