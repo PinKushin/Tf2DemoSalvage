@@ -3369,6 +3369,39 @@ would prove it rather than assume it.
 ground with a floor at z 0 beneath it, a corpse still travels 63 units north into the hole before
 falling. Ground that is missing and a corpse that will not stay put are different faults.
 
+### The slope test's mechanism, traced to a number — uncommanded spin-up, not rocking
+
+Two attempts to loosen `Separate`'s `total = Max(0, carried + extra)` clamp were built and measured
+worse (linear velocity for the release decision, 31→67 units/sec; bounding the release to half of
+`carried` per step, 31→42). Both assumed the zero-out was itself the fault. A third, decisive trace
+— body velocity and angular velocity printed alongside `arm` on every rub — settles what the first
+two could only guess at.
+
+**The body is not rocking. It is being spun up, continuously and without a physical cause.**
+`Body.AngularVelocity` about Y, sampled across the run: −32.36, −32.51, −32.53, −33.46, −33.43,
+−33.94, −34.36, −34.58 rad/s — over five full rotations a second, and MONOTONICALLY GROWING. A box
+sliding down a real 1-in-10 slope under gravity and friction alone does not spontaneously spin up;
+something in the solve is injecting angular momentum every step, the rotational counterpart of the
+`Lifted` linear-energy pump `IvpEnvironment.Lifted` already measures.
+
+**The cause is visible in the same trace: `arm` — the manifold's representative contact point —
+jumps between genuinely different corners of the box every step**, not a stable pair: 0.769, 0.107,
+0.443, 0.397, 0.489, 0.659, 0.208, 0.328 (X-components across eight consecutive rubs). A single
+torque applied at a wandering, arbitrarily-ordered moment arm does not converge to damping rotation
+the way a torque applied at a FIXED contact point would — each step's correction is computed as if
+it opposes the current slip, but the arm it is applied through has no continuity with the arm the
+PREVIOUS step corrected through, so nothing here can ever integrate to zero net torque. Over enough
+steps that produces a random walk with an apparent bias, which is exactly a monotonic climb.
+
+**This is the sixth independent measurement pointing at the same root cause**, and the first with a
+number precise enough to say WHAT the missing narrow phase costs rather than only that it is
+missing: a stable multi-point manifold — the actual feature-based narrow phase five earlier
+sections already name — would apply every step's torque through the SAME small set of contact
+points, which is the only thing that can make repeated torque corrections converge instead of
+random-walking. `IvpWorldLedge.Support` and `Gjk.Distance`, built and wired this session, give a
+single closest-point PAIR per body-ledge pair; they do not yet give the multi-point manifold this
+symptom needs. That remains the open, scoped, multi-week item.
+
 **Correcting my own later mis-citation of this same finding.** Several commits after this section
 was written, `corpse-drop`'s default report of "4 of 5 settle, the fifth leaves the world" was cited
 repeatedly as an open, unrelated ground-hole divergence — as if a fourth defect remained beside the
