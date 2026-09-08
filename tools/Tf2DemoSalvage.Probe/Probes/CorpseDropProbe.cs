@@ -36,14 +36,14 @@ namespace Tf2DemoSalvage.Probe.Probes;
 ///
 /// <code>
 ///   corpse-drop                                  koth_harvest_final, scout, the measured deaths
-///   corpse-drop &lt;map&gt; &lt;model&gt; x y z              one drop, at a place you choose
+///   corpse-drop &lt;map&gt; &lt;model&gt; x y z [fx fy fz]   one drop, at a place you choose
 /// </code>
 ///
-/// **The static props and the contents filter are NOT here**, and that is a stated difference from
-/// the viewer: `MapLevel.Read` builds brushes and terrain, and props are added later by
-/// `LoadedMap` because a `.phy` needs the pakfile and the archives. A corpse resting on a crate in
-/// the viewer will fall past it here, so a disagreement between the two instruments is expected in
-/// exactly that case and means nothing on its own.
+/// **The static props ARE here, and they were not at first — that was a wrong answer.**
+/// `MapLevel.Read` builds brushes and terrain only; a prop needs a `.phy` each, which needs the
+/// pakfile and the archives, so `LoadedMap` adds them and this skipped them. 456 of 456 solid props
+/// on `koth_harvest_final` were missing, and a corpse seeded among the mining crates fell through
+/// where the viewer rests it at z 4.8.
 /// </remarks>
 public sealed class CorpseDropProbe : IProbe
 {
@@ -108,9 +108,11 @@ public sealed class CorpseDropProbe : IProbe
             $"{level.Physics.TriangleCount} terrain triangles; " +
             $"{model} has {ragdoll.Elements.Count} bodies");
 
-        foreach ((float X, float Y, float Z, float Blow) at in Places(arguments))
+        foreach ((float X, float Y, float Z, float FX, float FY, float FZ) at in Places(arguments))
         {
-            Drop(output, level, ragdoll, game.Surfaces, (at.X, at.Y, at.Z), at.Blow);
+            Drop(
+                output, level, ragdoll, game.Surfaces,
+                (at.X, at.Y, at.Z), (at.FX, at.FY, at.FZ));
         }
     }
 
@@ -121,7 +123,7 @@ public sealed class CorpseDropProbe : IProbe
     /// world, and the rest settle. A probe whose default case is the known-bad one is worth more
     /// than one that needs arguments to say anything.
     /// </remarks>
-    private static IEnumerable<(float X, float Y, float Z, float Blow)> Places(
+    private static IEnumerable<(float X, float Y, float Z, float FX, float FY, float FZ)> Places(
         IReadOnlyList<string> arguments)
     {
         if (arguments.Count >= 5 &&
@@ -129,31 +131,37 @@ public sealed class CorpseDropProbe : IProbe
             float.TryParse(arguments[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float y) &&
             float.TryParse(arguments[4], NumberStyles.Float, CultureInfo.InvariantCulture, out float z))
         {
-            float blow = arguments.Count >= 6 &&
-                float.TryParse(arguments[5], NumberStyles.Float, CultureInfo.InvariantCulture, out float given)
-                ? given
-                : 0f;
-
-            yield return (x, y, z, blow);
+            yield return (x, y, z, Number(arguments, 5), Number(arguments, 6), Number(arguments, 7));
             yield break;
         }
 
-        // **Seed positions AND killing blows, both read out of the viewer's own log.** The blow is
-        // what separates the two that leave the world from the seven that rest, so a default set
-        // without it cannot reproduce the defect this probe exists for.
-        yield return (361.7f, -1614.3f, 57.6f, 16793f);     // 2185, leaves the world
-        yield return (-11.5f, -1558.8f, 47.3f, 23987f);     // 2348, leaves the world
-        yield return (-972.6f, -1400.3f, 77.5f, 19191f);    // 2277, rests
-        yield return (256.9f, -1416.1f, 55.2f, 0f);         // 2080, rests, no blow at all
-        yield return (-953.8f, -1556.3f, 77.5f, 23987f);    // 2132, rests despite a large one
+        // **Seed positions and the blow's whole VECTOR, both read out of the viewer's own log.**
+        // The blow is what separates the two that leave the world from the seven that rest, and its
+        // direction is half of that: 2348 is punched with −8,495 of DOWNWARD force, straight into
+        // the ground it then goes through. A magnitude with a guessed direction reproduced the
+        // wrong corpse entirely, which is why `CorpsePhysics.Blows` now keeps the vector.
+        yield return (361.7f, -1614.3f, 57.6f, -2129.2f, -16651.1f, -473.8f);   // 2185, leaves
+        yield return (-11.5f, -1558.8f, 47.3f, -17897.2f, 13523.2f, -8495.5f);  // 2348, leaves
+        yield return (-972.6f, -1400.3f, 77.5f, 0f, 0f, 0f);                    // 2277, rests
+        yield return (256.9f, -1416.1f, 55.2f, 0f, 0f, 0f);                     // 2080, no blow
+        yield return (-953.8f, -1556.3f, 77.5f, 0f, 0f, 0f);                    // 2132, rests
     }
+
+    /// <summary>One optional number off the command line; absent means zero.</summary>
+    private static float Number(IReadOnlyList<string> arguments, int index) =>
+        index < arguments.Count &&
+        float.TryParse(
+            arguments[index], NumberStyles.Float, CultureInfo.InvariantCulture, out float value)
+            ? value
+            : 0f;
 
     /// <summary>Steps one ragdoll from a standing pose at a spot until it stops moving.</summary>
     /// <remarks>
-    /// **No death force, deliberately.** The wire's `m_vecForce` is what makes a corpse fly, and
-    /// including it would make this a test of the blow rather than of the collision. A body
-    /// released from rest asks the narrower question — does the map hold it — which is the one
-    /// every measurement this session has actually been about.
+    /// **The death force is applied, and that reversed an earlier decision here.** This dropped
+    /// every corpse from rest, on the reasoning that a blow would make it a test of the blow rather
+    /// than of the collision — but the two corpses that leave the world on `z1800` are exactly the
+    /// two that were hit hard, and both SETTLED in this probe. An instrument that cannot reproduce
+    /// the defect is not measuring the defect.
     /// </remarks>
     private static void Drop(
         TextWriter output,
@@ -161,7 +169,7 @@ public sealed class CorpseDropProbe : IProbe
         RagdollBody ragdoll,
         SurfaceTable surfaces,
         (float X, float Y, float Z) at,
-        float blow)
+        (float X, float Y, float Z) blow)
     {
         // **The pose is CHAINED down the hierarchy, and getting that wrong made this instrument
         // lie.** `OriginParentSpace` is where an element sits in its PARENT's space, so adding it
@@ -185,18 +193,36 @@ public sealed class CorpseDropProbe : IProbe
             start[index] = (origin, Quaternion.Identity);
         }
 
+        // **A straight sweep down before anything is simulated, because an absence needs a
+        // control.** "The corpse fell through" and "there was nothing under it" produce the same
+        // trace, and only this tells them apart: it asks the same `IvpWorldCollision` the solver
+        // asks, by the same route, for the surface directly beneath the drop point.
+        Vector3 above = new(at.X, at.Y, at.Z);
+
+        string inside = level.Physics.Touching(above, default) is { } already
+            ? $"INSIDE a solid, {already.Depth:0.#} deep, feature {already.Feature}"
+            : "in open space";
+
+        output.WriteLine(
+            level.Physics.Sweep(above, above with { Z = at.Z - Probing }) is { } floor
+                ? $"  {inside}; floor beneath: z {at.Z - (floor.Fraction * Probing):0.#} " +
+                  $"normal ({floor.Normal.X:0.##}, {floor.Normal.Y:0.##}, {floor.Normal.Z:0.##})"
+                : $"  {inside}; NOTHING beneath ({at.X:0.#}, {at.Y:0.#}, {at.Z:0.#}) " +
+                  $"for {Probing:0} units");
+
         RagdollSimulation simulation = RagdollSimulation.Create(ragdoll, Step, start, surfaces);
 
         simulation.Environment.World = level.Physics;
 
-        // **The killing blow, because the corpses that misbehave are the ones that got one.** Both
-        // of `z1800`'s remaining escapees carry a large `m_vecForce` — 16,793 and 23,987 — and
-        // dropping from rest cannot reproduce them at all: this probe settles both. A corpse that
-        // is thrown is a different question from a corpse that is dropped, and it is the question
-        // the demo is actually asking.
-        if (blow > 0f)
+        // **The killing blow, whole, because the corpses that misbehave are the ones that got one.**
+        // Both of `z1800`'s remaining escapees carry a large `m_vecForce`, and dropping from rest
+        // cannot reproduce either: this probe settled both. The DIRECTION is half of it — 2348 is
+        // punched with −8,495 of downward force, straight into the ground it then goes through — so
+        // a magnitude with a guessed diagonal reproduced a different corpse entirely, which is why
+        // `CorpsePhysics.Blows` now carries the vector.
+        if ((blow.X * blow.X) + (blow.Y * blow.Y) + (blow.Z * blow.Z) > 0f)
         {
-            simulation.Kill((blow * 0.6f, blow * 0.6f, blow * 0.5f), forceBone: 0);
+            simulation.Kill(blow, forceBone: 0);
         }
 
         float lowest = float.MaxValue;
@@ -220,9 +246,12 @@ public sealed class CorpseDropProbe : IProbe
             {
                 (float oppose, float separate, float rub) = simulation.Environment.Split;
 
+                IvpRigidBody at0 = simulation.Environment.Bodies[0];
+
                 output.WriteLine(
-                    $"    tick {tick,3} speed {speed,7:0.#} " +
+                    $"    tick {tick,3} z {at0.Position.Z,9:0.#} speed {speed,7:0.#} " +
                     $"contacts {simulation.Environment.Contacts,3} " +
+                    $"deepest {simulation.Environment.DeepestContact,7:0.##} " +
                     $"oppose {oppose,11:0.#} separate {separate,11:0.#} rub {rub,11:0.#}");
             }
         }
@@ -285,6 +314,9 @@ public sealed class CorpseDropProbe : IProbe
 
     /// <summary>Below this a body counts as stopped, in Source units per second.</summary>
     private const float Still = 1f;
+
+    /// <summary>How far straight down the floor control looks, in Source units.</summary>
+    private const float Probing = 2000f;
 
     /// <summary>The height the viewer's own diagnostic calls leaving the world.</summary>
     private const float Lost = -50f;

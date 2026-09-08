@@ -524,8 +524,9 @@ public sealed class MomentScene : IGameSystemPerFrame
                     _models.Corpses.Seeded.TryGetValue(entity, out System.Numerics.Vector3 seed)
                         ? $"{seed.X:0.#} {seed.Y:0.#} {seed.Z:0.#}"
                         : "none",
-                    _models.Corpses.Blows.TryGetValue(entity, out float blow)
-                        ? blow.ToString("0", CultureInfo.InvariantCulture)
+                    _models.Corpses.Blows.TryGetValue(
+                        entity, out (float X, float Y, float Z) blow)
+                        ? $"{blow.X:0.#} {blow.Y:0.#} {blow.Z:0.#}"
                         : "none");
             }
         }

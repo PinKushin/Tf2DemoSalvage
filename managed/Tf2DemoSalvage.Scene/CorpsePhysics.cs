@@ -166,9 +166,9 @@ public sealed class CorpsePhysics
     /// that look identical from outside — the wire's force being larger than expected, and this
     /// project applying it wrongly — and only the number the code actually used separates them.
     /// </remarks>
-    public IReadOnlyDictionary<int, float> Blows => _blows;
+    public IReadOnlyDictionary<int, (float X, float Y, float Z)> Blows => _blows;
 
-    private readonly Dictionary<int, float> _blows = [];
+    private readonly Dictionary<int, (float X, float Y, float Z)> _blows = [];
 
     /// <summary>Forgets every simulation — a new demo, or a map change.</summary>
     public void Clear()
@@ -410,8 +410,11 @@ public sealed class CorpsePhysics
         {
             simulation.Kill(blow, forceBone ?? -1);
 
-            _blows[entityIndex] =
-                MathF.Sqrt((blow.X * blow.X) + (blow.Y * blow.Y) + (blow.Z * blow.Z));
+            // **The whole vector, not its length.** A magnitude cannot reproduce the event: the two
+            // corpses that leave the world on `z1800` are the two that were hit hardest, and a
+            // probe replaying them with a guessed DIRECTION throws a different corpse off the map
+            // and rests the two that really go. Which is the wrong bug, arrived at confidently.
+            _blows[entityIndex] = blow;
         }
 
         Running live = new(simulation, tick, tick);
