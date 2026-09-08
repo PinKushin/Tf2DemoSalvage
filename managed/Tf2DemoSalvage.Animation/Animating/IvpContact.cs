@@ -878,6 +878,216 @@ public sealed class IvpContact
     }
 
     /// <summary>Adds one impulse's linear and angular halves to the body.</summary>
+    /// <summary>Contacts between one body's hull and the terrain triangles near it (B306).</summary>
+    /// <param name="body">The body.</param>
+    /// <param name="world">The static world.</param>
+    /// <param name="centre">The body's position, in Source units.</param>
+    /// <param name="orientation">Its orientation.</param>
+    /// <param name="into">Where contacts are appended.</param>
+    /// <param name="nearby">A reused buffer for the sphere query.</param>
+    /// <returns>How many triangles produced a contact.</returns>
+    /// <remarks>
+    /// **This is the engine's question, and the per-vertex path is not.** vphysics reaches a
+    /// displacement through `IVirtualMeshEvent::GetTrianglesInSphere` and collides the object's
+    /// HULL against each triangle as a shape (`public/vphysics/virtualmesh.h`); this project
+    /// instead walked the body's vertices and asked which triangle PLANE each was least far behind.
+    /// A vertex against a plane cannot report an edge-edge touch and its "depth" is a plane
+    /// distance rather than a penetration between two shapes.
+    ///
+    /// **A face-face contact needs SEVERAL points, which is why the faces had to be carried.** The
+    /// incident face — the body face most nearly parallel to the triangle and facing it — is
+    /// clipped against the triangle's three side planes, and every clipped point at or below the
+    /// triangle's plane becomes a contact with its own depth. A box resting flat therefore gets the
+    /// corners it actually rests on from ONE pair, where a single closest-point answer gives one
+    /// and a per-vertex walk gives whatever the sampling happens to catch.
+    ///
+    /// **Side planes, not the triangle's own plane, decide containment**, so a point beyond an edge
+    /// is dropped rather than pushed by a face it has already slid off.
+    /// </remarks>
+    private static int AgainstTerrain(
+        IvpRigidBody body,
+        IvpWorldCollision world,
+        Vector3 centre,
+        Quaternion orientation,
+        ICollection<IvpContact> into,
+        List<(IvpWorldTriangle Shape, int Index)> nearby)
+    {
+        if (body.Faces.Count == 0 || body.Hull.Count == 0)
+        {
+            return 0;
+        }
+
+        float reach = 0f;
+
+        Vector3[] points = new Vector3[body.Hull.Count];
+
+        for (int index = 0; index < body.Hull.Count; index++)
+        {
+            (float x, float y, float z) = body.Hull[index];
+
+            points[index] = centre + Vector3.Transform(new Vector3(x, y, z), orientation);
+
+            reach = MathF.Max(reach, (points[index] - centre).Length());
+        }
+
+        nearby.Clear();
+
+        world.TrianglesInSphere(centre, reach + Slop, nearby);
+
+        int found = 0;
+
+        foreach ((IvpWorldTriangle shape, int index) in nearby)
+        {
+            // **The whole body above the triangle's plane cannot touch it**, and this is the cheap
+            // reject that keeps a sphere query affordable.
+            float highest = float.NegativeInfinity;
+            float lowest = float.PositiveInfinity;
+
+            for (int point = 0; point < points.Length; point++)
+            {
+                float above = Vector3.Dot(shape.Normal, points[point]) - shape.Distance;
+
+                highest = MathF.Max(highest, above);
+                lowest = MathF.Min(lowest, above);
+            }
+
+            if (lowest > Slop || highest < -TerrainReach)
+            {
+                continue;
+            }
+
+            // The incident face: the one facing the triangle most squarely.
+            int incident = -1;
+            float facing = 0f;
+
+            for (int face = 0; face < body.Faces.Count; face++)
+            {
+                (int a, int b, int c) = body.Faces[face];
+
+                if (a >= points.Length || b >= points.Length || c >= points.Length)
+                {
+                    continue;
+                }
+
+                Vector3 normal = Vector3.Cross(points[b] - points[a], points[c] - points[a]);
+
+                if (normal.LengthSquared() <= FloatEpsilon)
+                {
+                    continue;
+                }
+
+                float against = Vector3.Dot(Vector3.Normalize(normal), shape.Normal);
+
+                if (incident < 0 || against < facing)
+                {
+                    incident = face;
+                    facing = against;
+                }
+            }
+
+            if (incident < 0)
+            {
+                continue;
+            }
+
+            (int first, int second, int third) = body.Faces[incident];
+
+            List<Vector3> polygon =
+                [points[first], points[second], points[third]];
+
+            polygon = Clip(polygon, shape);
+
+            bool any = false;
+
+            foreach (Vector3 at in polygon)
+            {
+                float depth = shape.Distance - Vector3.Dot(shape.Normal, at);
+
+                if (depth < 0f)
+                {
+                    continue;
+                }
+
+                any = true;
+
+                into.Add(new IvpContact
+                {
+                    Body = body,
+                    Arm = (at.X - centre.X, at.Y - centre.Y, at.Z - centre.Z),
+                    Normal = (shape.Normal.X, shape.Normal.Y, shape.Normal.Z),
+                    Depth = depth,
+                    Point = -1,
+                    Feature = IvpWorldCollision.TerrainFeature(index),
+                });
+            }
+
+            if (any)
+            {
+                found++;
+            }
+        }
+
+        return found;
+    }
+
+    /// <summary>Clips a polygon to a triangle's three side planes — Sutherland-Hodgman.</summary>
+    /// <remarks>
+    /// **The side planes are perpendicular to the triangle's own**, so this keeps the part of the
+    /// incident face that is actually over the triangle and discards what hangs past an edge.
+    /// </remarks>
+    private static List<Vector3> Clip(List<Vector3> polygon, IvpWorldTriangle triangle)
+    {
+        Vector3[] corners = [triangle.A, triangle.B, triangle.C];
+
+        for (int edge = 0; edge < 3 && polygon.Count > 0; edge++)
+        {
+            Vector3 from = corners[edge];
+            Vector3 along = corners[(edge + 1) % 3] - from;
+
+            Vector3 inward = Vector3.Cross(triangle.Normal, along);
+
+            if (inward.LengthSquared() <= FloatEpsilon)
+            {
+                continue;
+            }
+
+            inward = Vector3.Normalize(inward);
+
+            float offset = Vector3.Dot(inward, from);
+
+            List<Vector3> kept = [];
+
+            for (int index = 0; index < polygon.Count; index++)
+            {
+                Vector3 current = polygon[index];
+                Vector3 next = polygon[(index + 1) % polygon.Count];
+
+                float here = Vector3.Dot(inward, current) - offset;
+                float there = Vector3.Dot(inward, next) - offset;
+
+                if (here >= 0f)
+                {
+                    kept.Add(current);
+                }
+
+                if ((here >= 0f) != (there >= 0f) && MathF.Abs(here - there) > FloatEpsilon)
+                {
+                    kept.Add(current + ((next - current) * (here / (here - there))));
+                }
+            }
+
+            polygon = kept;
+        }
+
+        return polygon;
+    }
+
+    /// <summary>How far behind a triangle this pass still looks, in Source units.</summary>
+    private const float TerrainReach = 512f;
+
+    /// <summary>The sphere query's reused buffer — this runs per body per slice.</summary>
+    private static readonly List<(IvpWorldTriangle Shape, int Index)> _nearby = [];
+
     private void Push((float X, float Y, float Z) impulse, (float X, float Y, float Z) arm)
     {
         Body.Velocity = (
@@ -960,6 +1170,11 @@ public sealed class IvpContact
         // speculative/tunnel-prevention path below are untouched, and a ledge a manifold already
         // covers is skipped in the per-point walk purely by feature id, not by removing that walk.
         HashSet<int> covered = [];
+
+        // **Terrain the engine's way: the hull against each nearby triangle** (B306). When this
+        // produces contacts they REPLACE the per-vertex terrain sampling below, which is the
+        // substitution being removed rather than a second opinion beside it.
+        bool terrain = AgainstTerrain(body, world, centre, orientation, into, _nearby) > 0;
 
         if (body.Hull.Count > 0)
         {
@@ -1174,6 +1389,14 @@ public sealed class IvpContact
             // while terrain and every ledge the sphere reject above skipped still go through the
             // per-point path exactly as before.
             if (covered.Count > 0 && covered.Contains(IvpWorldCollision.LedgeOf(found.Feature)))
+            {
+                continue;
+            }
+
+            // **A terrain hit the hull-vs-triangle pass already answered is not sampled again**
+            // (B306). Speculative contacts are exempt: those are a prediction about a surface not
+            // yet reached, which that pass does not make.
+            if (terrain && found.Feature <= -2)
             {
                 continue;
             }

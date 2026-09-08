@@ -172,6 +172,57 @@ public sealed class IvpWorldCollision
     /// <remarks>Carried out of the loop that examined them, never recounted (B243).</remarks>
     public long Examined { get; private set; }
 
+    /// <summary>The terrain triangles within a sphere — the engine's own query.</summary>
+    /// <param name="centre">The sphere's centre, in Source units.</param>
+    /// <param name="radius">Its radius.</param>
+    /// <param name="into">Where the triangles are appended; NOT cleared.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="into"/> is null.</exception>
+    /// <remarks>
+    /// **This is `IVirtualMeshEvent::GetTrianglesInSphere`** (`public/vphysics/virtualmesh.h`),
+    /// which is how vphysics reaches a displacement: it asks for the triangles near an object and
+    /// then collides the object's hull against them as shapes. Asking the same question is the
+    /// first half of doing what the engine does instead of sampling our own vertices against
+    /// planes (B306).
+    /// </remarks>
+    public void TrianglesInSphere(
+        Vector3 centre, float radius, ICollection<(IvpWorldTriangle Shape, int Index)> into)
+    {
+        ArgumentNullException.ThrowIfNull(into);
+
+        int minimumX = Cell(centre.X - radius);
+        int maximumX = Cell(centre.X + radius);
+        int minimumY = Cell(centre.Y - radius);
+        int maximumY = Cell(centre.Y + radius);
+        int minimumZ = Cell(centre.Z - radius);
+        int maximumZ = Cell(centre.Z + radius);
+
+        _sphereSeen.Clear();
+
+        for (int x = minimumX; x <= maximumX; x++)
+        {
+            for (int y = minimumY; y <= maximumY; y++)
+            {
+                for (int z = minimumZ; z <= maximumZ; z++)
+                {
+                    if (!_triangleGrid.TryGetValue((x, y, z), out List<int>? bucket))
+                    {
+                        continue;
+                    }
+
+                    for (int index = 0; index < bucket.Count; index++)
+                    {
+                        if (_sphereSeen.Add(bucket[index]))
+                        {
+                            into.Add((_triangles[bucket[index]], bucket[index]));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private readonly HashSet<int> _sphereSeen = [];
+
     /// <summary>How many terrain triangles this world holds.</summary>
     /// <remarks>
     /// **A control, and the reason it exists is that its absence cost a wrong conclusion.** "The
@@ -711,6 +762,11 @@ public sealed class IvpWorldCollision
     /// face is <c>ledge × PlanesPerLedge + plane</c> and non-negative, a speculative contact is −1,
     /// and a terrain triangle is −2 downwards.
     /// </remarks>
+    /// <summary>The feature id naming one terrain triangle, for a contact raised against it.</summary>
+    /// <param name="triangle">The triangle's index.</param>
+    /// <returns>Its feature id, below <c>Speculative</c> as every terrain id is.</returns>
+    public static int TerrainFeature(int triangle) => TerrainFeatureFor(triangle);
+
     private static int TerrainFeatureFor(int triangle) => -2 - triangle;
 
     /// <summary>Where a retained feature's surface is, relative to a point — the mindist half.</summary>
