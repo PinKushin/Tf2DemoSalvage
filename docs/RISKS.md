@@ -25426,3 +25426,35 @@ A fall is a body leaving the surface it was ON, not a fixed world height.
 
 *Evidence class: measured, on a real match demo, with every draw-path gate instrumented and the
 instrumentation removed afterwards (working tree confirmed clean).*
+
+### Refusing to sleep a penetrating corpse — built, measured WORSE, and it settles the mechanism
+
+The section above reads as a race: `Separate` claws penetration back (60.73 → 8.39) and the settle
+rule freezes the body before it finishes. If that were the whole story, refusing to sleep while a
+contact is deeper than `Slop` would let the correction finish and then sleep normally. That was
+built — a single guard in `RagdollSimulation.Step` before `Asleep = true`, with `_since` deliberately
+not reset so the corpse sleeps on the first clear step.
+
+**Measured on the real `corpse-drop` seeds: the corpse went from settling to `AWAKE NEVER
+SETTLED`.** The per-tick trace says why, and it is the opposite of the assumed mechanism:
+
+```
+tick 231  deepest 52.81      tick 396  deepest  1.76      tick 594  deepest 21.58
+tick 264  deepest 23.12      tick 462  deepest  8.33      tick 627  deepest 21.76
+```
+
+**Penetration never converges at all — it oscillates between roughly 2 and 53 units for the whole
+run.** It is not a correction being cut short; there is no penetration-free state for the solve to
+reach. So the guard removes the only thing that was ever stopping the body (the settle rule) and
+buys nothing, which is strictly worse: a frozen half-buried corpse at least stays put, where this
+one wanders for the rest of the demo. Reverted in full; `git diff --stat` empty, solution builds
+clean.
+
+**What this rules out, and it is the useful half.** "Let the position correction finish" is dead as
+an approach, for every variant of it — more steps, a higher `MaximumRecovery`, a later sleep — since
+the depth is not decaying toward zero on any timescale. The sinking has to be prevented in the
+CONTACT SOLVE, at the moment the body arrives, which is the same conclusion the slope test reached
+from the other direction. Two independent lines of evidence, one synthetic and one on a real corpse,
+now point at the identical missing piece.
+
+*Evidence class: measured, exact revert confirmed by an empty diff.*
