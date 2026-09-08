@@ -3467,6 +3467,28 @@ unconditionally re-tests every hull point against the world from scratch, so the
 slices' points. Checked by reading `Find`'s loop bound again rather than by writing an accumulator
 and measuring whether it helped.
 
+### Discovery-time churn is real, and hysteresis for it measured worse
+
+A fourth trace — logging which hull point indices `Find` reports touching on every single call, not
+just the group-level summary — found something none of the grouping-level fixes could have reached:
+some `Find` calls report ZERO points touching entirely, sandwiched between calls (same tick, same
+body) that find one. That is a complete miss for a whole slice: no contact object is created, so
+neither `Separate` nor `Rub` runs for the body that slice, regardless of the manifold or warm-start
+fixes already landed — those only ever improve the solve for a point that DID register as touching.
+
+**A hysteresis margin was built and measured worse.** `IvpWorldCollision.Touching` gained an
+overload accepting a margin (a point up to that far OUTSIDE a face still counts), and
+`IvpRigidBody.HasRestedAt(point)` gave `Find` a way to apply that margin only to a corner with an
+established rest identity — never to a genuinely new point, and never widening the shared test's
+default for any other caller. Landing speed went from 9.3 units a second to 14.8. Reverted in full;
+verified bit-identical to the prior commit afterward.
+
+**Why it lost, worth recording precisely:** preventing a point from dropping OUT of the touching set
+matters less than what happens once a widened test admits one. A point at a shallower angle than the
+real contact gets solved as if it were fully resting rather than barely so, and the false positives
+this creates apparently cost more than the true dropouts they prevent. The discovery-time churn this
+was built to fix is real and measured; this particular remedy for it is not the answer.
+
 **Correcting my own later mis-citation of this same finding.** Several commits after this section
 was written, `corpse-drop`'s default report of "4 of 5 settle, the fifth leaves the world" was cited
 repeatedly as an open, unrelated ground-hole divergence — as if a fourth defect remained beside the
