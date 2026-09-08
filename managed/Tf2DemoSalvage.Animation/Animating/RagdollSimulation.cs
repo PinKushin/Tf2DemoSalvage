@@ -183,7 +183,15 @@ public sealed class RagdollSimulation
             {
                 BodyA = bodies[constraint.Child],
                 BodyB = bodies[constraint.Parent],
-                Constraint = Joint(constraint, ragdoll.Elements[constraint.Child].AxesParentSpace),
+                Constraint = Joint(
+                    constraint,
+                    ragdoll.Elements[constraint.Child].AxesParentSpace,
+                    (
+                        ragdoll.Elements[constraint.Child].OriginParentSpace.X,
+                        ragdoll.Elements[constraint.Child].OriginParentSpace.Y,
+                        ragdoll.Elements[constraint.Child].OriginParentSpace.Z),
+                    ragdoll.Elements[constraint.Child].Mass,
+                    ragdoll.Elements[constraint.Parent].Mass),
 
                 // **The same point from each end**, which is what a ball-and-socket is. The
                 // reference body is the child and its frame is centred on itself, so its anchor is
@@ -458,17 +466,32 @@ public sealed class RagdollSimulation
 
     /// <summary>Turns a <c>.phy</c> constraint into a solvable joint.</summary>
     /// <remarks>
-    /// **The engine picks which axis is the twist by MECHANICS, not by index** — `FUN_1800393d0`
-    /// takes the axis whose rotation moves the two anchors most, weighted by inverse mass, and then
-    /// orders the other two by declared range. Reproducing the anchor term needs the hull inertia
-    /// this type does not have yet, so the primary is chosen by the part that IS available and
-    /// dominant: the widest range is the axis a joint actually turns about.
+    /// **The engine picks which axis is the twist by MECHANICS, not by declared range** —
+    /// `FUN_1800393d0` takes the axis whose rotation moves the two anchors most, weighted by
+    /// inverse mass, and then orders the other two by declared range.
     ///
-    /// **Stated as a departure rather than presented as the rule.** Getting the permutation wrong
-    /// shuffles which limit clamps which motion, and nothing in a corpse's pose reports it — so it
-    /// is written down here and in `docs/findings/51` rather than left to look deliberate.
+    /// **This used to guess it from the range alone, and that guess is what contorted a corpse**
+    /// (B306). The departure was written down as unobservable — *"nothing in a corpse's pose
+    /// reports it"* — and that was wrong: the permutation decides WHICH LIMIT CLAMPS WHICH MOTION,
+    /// so a wrong one lets an elbow swing where it should twist and a knee twist where it should
+    /// bend. The owner, looking at the first corpse to draw above ground: *"thats contorted as
+    /// hell, theres some other parity point you havent noticed"*. This was it.
+    ///
+    /// **The reason given for the shortcut no longer holds either.** It said the anchor term needed
+    /// hull inertia "this type does not have yet" — the anchors are `AnchorA`/`AnchorB` at the call
+    /// site and the masses are on the elements, so the engine's own rule is computable here.
+    ///
+    /// **Rotation about an axis moves an anchor by `|axis x anchor|`**, and the engine weights that
+    /// by inverse mass because a lighter body swings further for the same turn. The reference
+    /// body's anchor is its own origin, so its term is zero by construction and the attached side
+    /// decides — which is the geometry a limb actually has.
     /// </remarks>
-    private static IvpRagdollConstraint Joint(RagdollConstraint constraint, RagdollAxes attached)
+    private static IvpRagdollConstraint Joint(
+        RagdollConstraint constraint,
+        RagdollAxes attached,
+        (float X, float Y, float Z) anchor,
+        float referenceMass,
+        float attachedMass)
     {
         (float Minimum, float Maximum)[] axes =
         [
@@ -477,7 +500,7 @@ public sealed class RagdollSimulation
             (constraint.Z.Minimum, constraint.Z.Maximum),
         ];
 
-        int primary = Widest(axes, -1, -1);
+        int primary = Turning(anchor, referenceMass, attachedMass);
         int wider = Widest(axes, primary, -1);
         int narrower = Widest(axes, primary, wider);
 
@@ -508,6 +531,54 @@ public sealed class RagdollSimulation
     private static (float X, float Y, float Z) Axis(Vector3 axis) => (axis.X, axis.Y, axis.Z);
 
     /// <summary>The widest range not already taken.</summary>
+    /// <summary>Which axis a joint actually turns about — <c>FUN_1800393d0</c>'s choice.</summary>
+    /// <param name="anchor">Where the attached body hangs, in the reference body's space.</param>
+    /// <param name="referenceMass">The reference body's mass.</param>
+    /// <param name="attachedMass">The attached body's mass.</param>
+    /// <returns>The axis index, 0 for x through 2 for z.</returns>
+    /// <remarks>
+    /// **The axis whose rotation moves the two anchors most, weighted by inverse mass.** Turning
+    /// about an axis carries a point at `|axis x anchor|`, so an axis lying ALONG the bone barely
+    /// moves the far anchor and one across it moves it fully. The reference body's own anchor is
+    /// the origin — a ball socket is the same point from each end — so its cross product is zero
+    /// and the attached side is what decides.
+    ///
+    /// **Inverse mass, not mass**, because the engine weights by how far a body would actually
+    /// swing: the same torque moves a light limb further than a heavy one.
+    /// </remarks>
+    private static int Turning(
+        (float X, float Y, float Z) anchor, float referenceMass, float attachedMass)
+    {
+        float reference = referenceMass > MinimumInertia ? 1f / referenceMass : 0f;
+        float pull = attachedMass > MinimumInertia ? 1f / attachedMass : 0f;
+
+        int turning = 0;
+        float furthest = -1f;
+
+        for (int axis = 0; axis < 3; axis++)
+        {
+            // |e_axis x anchor| — the two components the axis does NOT lie along.
+            float moved = axis switch
+            {
+                0 => MathF.Sqrt((anchor.Y * anchor.Y) + (anchor.Z * anchor.Z)),
+                1 => MathF.Sqrt((anchor.X * anchor.X) + (anchor.Z * anchor.Z)),
+                _ => MathF.Sqrt((anchor.X * anchor.X) + (anchor.Y * anchor.Y)),
+            };
+
+            // The reference anchor is the origin, so it contributes nothing; carried so the shape
+            // is the engine's rather than a special case that happens to agree.
+            float weighted = (moved * pull) + (0f * reference);
+
+            if (weighted > furthest)
+            {
+                furthest = weighted;
+                turning = axis;
+            }
+        }
+
+        return turning;
+    }
+
     private static int Widest((float Minimum, float Maximum)[] axes, int first, int second)
     {
         int widest = -1;

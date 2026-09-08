@@ -84,16 +84,32 @@ public sealed class RagdollSimulationConformanceTests
     }
 
     /// <remarks>
-    /// **A joint's three axes are not interchangeable, so the permutation is asserted.** The engine
-    /// orders them by mechanics; this orders them by declared range, which is a stated departure —
-    /// and either way the WIDEST must land on the axis the twist is measured about, because that is
-    /// the one whose bounds are negated and swapped.
+    /// **The twist axis is chosen by MECHANICS, which is the engine's rule** — `FUN_1800393d0`
+    /// takes the axis whose rotation moves the two anchors most, weighted by inverse mass, and only
+    /// then orders the remaining two by declared range.
     ///
-    /// The ranges below are 10°, 90° and 40°, all different, so a transcription that took them in
-    /// declaration order lands somewhere else.
+    /// **This test asserted the opposite until B306, and it was asserting our own departure.** The
+    /// twist used to be given the WIDEST range, which is a guess this project made when the anchor
+    /// term looked unavailable — and a wrong permutation decides which limit clamps which motion,
+    /// so it let elbows swing where they should twist. The owner, on the first corpse to draw above
+    /// ground: *"thats contorted as hell, theres some other parity point you havent noticed"*.
+    ///
+    /// **The prediction is arithmetic from the fixture, not from the code.** `RagdollSkeletons`
+    /// puts the child at a bind offset of `(3, 4, 0)` from its parent, and rotation about an axis
+    /// carries the anchor by `|axis x anchor|`:
+    ///
+    /// | axis | moved |
+    /// |---|---|
+    /// | x | `sqrt(4² + 0²)` = 4 |
+    /// | y | `sqrt(3² + 0²)` = 3 |
+    /// | z | `sqrt(3² + 4²)` = **5** |
+    ///
+    /// So Z turns the joint and takes the twist — and Z's declared range is the MIDDLE one at 40°,
+    /// which is what makes this fixture able to tell the two rules apart. The ranges are 10°, 90°
+    /// and 40°, all different, so declaration order lands somewhere else again.
     /// </remarks>
     [Test]
-    public void Create_WithThreeUnequalAxisRanges_GivesTheTwistTheWidestOne()
+    public void Create_WithThreeUnequalAxisRanges_GivesTheTwistTheAxisItTurnsAbout()
     {
         RagdollConstraint constraint = new(
             0,
@@ -109,8 +125,8 @@ public sealed class RagdollSimulationConformanceTests
 
         const float Radian = 0.017453292f;
 
-        joint.Twist.Lower.ShouldBe(-45f * Radian, Tolerance, "the 90° axis, negated hi");
-        joint.Twist.Upper.ShouldBe(45f * Radian, Tolerance);
+        joint.Twist.Lower.ShouldBe(-20f * Radian, Tolerance, "the Z axis, which the anchor turns about");
+        joint.Twist.Upper.ShouldBe(20f * Radian, Tolerance);
     }
 
     /// <remarks>
