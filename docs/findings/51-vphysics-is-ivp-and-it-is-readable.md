@@ -3535,6 +3535,24 @@ section ("solve the set better, don't find more of it") is real but not uncondit
 combination that is MORE consistent with the arm's own weighting is more correct, when the original
 choice of combination was already a considered trade-off rather than an oversight.
 
+### The cone's full-share budget is correct as it stands — a third division scheme also lost
+
+Two prior measurements bracket how the friction cone's summed budget is handed to a manifold's
+members: full share to every member (kept, committed) beat an equal division by count (reverted).
+A depth-proportional share — the same weighting the centroid uses, giving a barely-touching point a
+small fraction of the budget and a pressed-in point most of it — sat between those two conceptually
+and looked like the natural next refinement.
+
+**Measured worse than either: 6.15 units a second became 17.1.** Reverted; bit-identical to the
+prior commit confirmed. Between the three measured points — full share, equal division, and
+depth-proportional share — full share is not merely the best of the two tried before; it beats a
+THIRD, more physically-motivated scheme too. Whatever makes full-share work is not "it happens to
+avoid under-dividing the budget", since a scheme that divides MORE generously than equal division
+(depth-proportional gives most of the budget to whichever point is deepest, more like full share for
+that one point) still loses badly. Recorded so this exact family of idea — divide the SAME cone
+budget some other way — is not retried a third time without a new reason to expect a different
+result.
+
 **Correcting my own later mis-citation of this same finding.** Several commits after this section
 was written, `corpse-drop`'s default report of "4 of 5 settle, the fifth leaves the world" was cited
 repeatedly as an open, unrelated ground-hole divergence — as if a fourth defect remained beside the
