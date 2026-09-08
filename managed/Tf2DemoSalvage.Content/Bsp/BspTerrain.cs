@@ -190,25 +190,28 @@ public sealed class BspTerrain
             }
         }
 
-        List<SurfaceVertex> triangles = new((side - 1) * (side - 1) * 6);
+        // **Valve's own tesselation, not a uniform grid, and the difference is where the ground
+        // ENDS.** A displacement next to a coarser neighbour has edge vertices turned off in
+        // `m_AllowedVerts` so its edge collapses onto the neighbour's and the two meet exactly;
+        // spanning every quad regardless keeps them, and the fine edge then bulges away from the
+        // straight line the coarse one draws. Measured before this: 26 columns on
+        // `koth_harvest_final` where a ray fell through ground the map's own brush tree stops it
+        // on, and a corpse seeded on one of them reached z -1015.
+        //
+        // **The same walk serves the renderer, which is Valve's arrangement rather than ours** —
+        // *"This interface is shared betwixt VBSP and the engine. VBSP uses it to build the physics
+        // mesh and the engine uses it to render"* (`disp_tesselate.h:174-175`). A renderer and a
+        // collision mesh that tesselate one displacement differently disagree about where the
+        // ground is, which is a defect wearing the clothes of an optimisation.
+        List<int> indices = new((side - 1) * (side - 1) * 6);
 
-        for (int row = 0; row + 1 < side; row++)
+        DisplacementTesselation.Build(power, info[DispAllowedVertsOffset..], indices);
+
+        List<SurfaceVertex> triangles = new(indices.Count);
+
+        foreach (int index in indices)
         {
-            for (int column = 0; column + 1 < side; column++)
-            {
-                SurfaceVertex topLeft = grid[(row * side) + column];
-                SurfaceVertex topRight = grid[(row * side) + column + 1];
-                SurfaceVertex bottomLeft = grid[((row + 1) * side) + column];
-                SurfaceVertex bottomRight = grid[((row + 1) * side) + column + 1];
-
-                triangles.Add(topLeft);
-                triangles.Add(topRight);
-                triangles.Add(bottomRight);
-
-                triangles.Add(topLeft);
-                triangles.Add(bottomRight);
-                triangles.Add(bottomLeft);
-            }
+            triangles.Add(grid[index]);
         }
 
         return triangles;

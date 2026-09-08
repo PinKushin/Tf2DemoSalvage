@@ -201,4 +201,22 @@ internal static class BspStructLayout
 
     /// <summary>Byte offset of <c>power</c> inside a <c>ddispinfo_t</c>.</summary>
     public const int DispPowerOffset = 20;
+
+    /// <summary>How many <c>uint32</c> of <c>m_AllowedVerts</c> a <c>ddispinfo_t</c> carries.</summary>
+    /// <remarks>
+    /// <c>ALLOWEDVERTS_SIZE = PAD_NUMBER( MAX_DISPVERTS, 32 ) / 32</c> (<c>bspfile.h:665</c>), and
+    /// <c>MAX_DISPVERTS</c> is 17 × 17 for a power-4 grid — 289 padded to 320, so ten words.
+    /// </remarks>
+    public const int AllowedVertsWords = 10;
+
+    /// <summary>Byte offset of <c>m_AllowedVerts</c>, the LAST member of <c>ddispinfo_t</c>.</summary>
+    /// <remarks>
+    /// **Addressed from the END of the struct, and that is what makes it safe to compute rather
+    /// than count.** Reaching it forwards means reproducing the padding of
+    /// <c>CDispNeighbor[4]</c> and <c>CDispCornerNeighbors[4]</c>, two nested classes of
+    /// <c>unsigned char</c> and <c>unsigned short</c> members — exactly the arithmetic that
+    /// <c>docs/memory/address-a-struct-by-name-not-from-its-end.md</c> records going wrong four
+    /// times on this buffer.
+    /// </remarks>
+    public const int DispAllowedVertsOffset = DispInfoStride - (AllowedVertsWords * 4);
 }

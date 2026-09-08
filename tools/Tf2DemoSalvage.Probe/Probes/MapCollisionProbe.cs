@@ -93,7 +93,27 @@ public sealed class MapCollisionProbe : IProbe
     private const float Overhead = 64f;
 
     /// <summary>How far either side of the column a lump ledge still counts as nearby.</summary>
-    private const float Near = 128f;
+    private const float Near = 256f;
+
+    /// <summary>Above this a ledge is map geometry rather than one of the world's floor slabs.</summary>
+    private const float AboveGround = -512f;
+
+    /// <summary>Within this of a terrain vertex, a hole is at a displacement's own rim.</summary>
+    /// <remarks>
+    /// **Half a quad on the coarsest displacement, so a rim column cannot be mistaken for open
+    /// ground.** A power-2 displacement on a 512-unit face has 128-unit quads; anything within 64
+    /// of a terrain vertex is inside or immediately beside the terrain rather than out in a room.
+    /// </remarks>
+    private const float Rim = 64f;
+
+    /// <summary><c>LUMP_BRUSHES</c> — <c>BspLumpIndex.Brushes</c>, which is internal.</summary>
+    private const int BrushesLump = 18;
+
+    /// <summary>Bytes per <c>dbrush_t</c>: first side, side count, contents.</summary>
+    private const int BrushStride = 12;
+
+    /// <summary><c>CONTENTS_PLAYERCLIP</c> — <c>bspflags.h</c>.</summary>
+    private const int PlayerClip = 0x10000;
 
     /// <summary><c>LUMP_DISPINFO</c> — <c>BspLumpIndex.DispInfo</c>, which is internal.</summary>
     private const int DispInfoLump = 26;
@@ -103,6 +123,21 @@ public sealed class MapCollisionProbe : IProbe
 
     /// <summary>Byte offset of <c>power</c> inside one — <c>BspStructLayout.DispPowerOffset</c>.</summary>
     private const int DispPowerOffset = 20;
+
+    /// <summary>Byte offset of <c>m_AllowedVerts</c>, the LAST member of <c>ddispinfo_t</c>.</summary>
+    /// <remarks>
+    /// **Addressed from the end of the struct, which is the one thing that makes it safe to compute
+    /// rather than count.** `uint32 m_AllowedVerts[ALLOWEDVERTS_SIZE]` with `ALLOWEDVERTS_SIZE =
+    /// PAD_NUMBER(MAX_DISPVERTS, 32) / 32`, and `MAX_DISPVERTS` is 17 × 17 for power 4, so 289
+    /// padded to 320 gives ten words — forty bytes, ending at 176. Counting forwards past
+    /// `CDispNeighbor[4]` and `CDispCornerNeighbors[4]` means reproducing two nested classes'
+    /// padding, which is exactly the arithmetic
+    /// `docs/memory/address-a-struct-by-name-not-from-its-end.md` says goes wrong.
+    /// </remarks>
+    private const int AllowedVertsOffset = DispInfoStride - (AllowedVertsWords * 4);
+
+    /// <summary><c>ALLOWEDVERTS_SIZE</c> — ten <c>uint32</c>, enough for a power-4 grid's 289.</summary>
+    private const int AllowedVertsWords = 10;
 
     /// <summary>Bytes of <c>dphysmodel_t</c> — four ints.</summary>
     private const int ModelHeaderSize = 16;
@@ -455,6 +490,11 @@ public sealed class MapCollisionProbe : IProbe
             // physics world finds nothing above `Floor` while the camera's world does — so a roof
             // over the point, which is what defeated the first census, cannot register.
             int columns = 0;
+            int rims = 0;
+
+            // Read once rather than per column: the list is the same every time and rebuilding it
+            // inside the scan turns a linear pass into a quadratic one.
+            IReadOnlyList<DisplacementTriangle> ground = level.Displacements.Triangles();
             int holes = 0;
 
             for (int gx = -Across; gx <= Across; gx++)
@@ -474,9 +514,33 @@ public sealed class MapCollisionProbe : IProbe
 
                     columns++;
 
-                    if (world.Sweep(sky, pit) is null)
+                    if (world.Sweep(sky, pit) is not null)
                     {
-                        holes++;
+                        continue;
+                    }
+
+                    holes++;
+
+                    // **How far a hole is from the nearest terrain, which says what KIND of hole it
+                    // is.** A gap a few units from a displacement's edge is the rim of the brush
+                    // that displacement was built on — vbsp takes those brushes out of
+                    // `LUMP_PHYSCOLLIDE` and hands the ground to the virtual mesh, so vphysics has
+                    // no collision there either and neither should we. A gap in open ground, far
+                    // from any terrain, is ours.
+                    float away = float.MaxValue;
+
+                    for (int corner = 0; corner < ground.Count; corner++)
+                    {
+                        (float X, float Y, float Z) at = ground[corner].A;
+
+                        away = MathF.Min(
+                            away,
+                            ((at.X - px) * (at.X - px)) + ((at.Y - py) * (at.Y - py)));
+                    }
+
+                    if (away <= Rim * Rim)
+                    {
+                        rims++;
                     }
                 }
             }
@@ -484,7 +548,8 @@ public sealed class MapCollisionProbe : IProbe
             output.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
                 $"  over the whole map: {holes} of {columns} columns that the camera's world floors " +
-                $"have no floor at all in the physics world"));
+                $"have no floor at all in the physics world, and {rims} of those are within " +
+                $"{Rim:0} units of a terrain vertex"));
 
             // **The static props near the point, because their collision is in NEITHER lump.** A
             // `prop_static` is a model placed by the map, and the engine builds a physics object
@@ -577,6 +642,7 @@ public sealed class MapCollisionProbe : IProbe
             // dropped; no such ledge means `LUMP_PHYSCOLLIDE` genuinely does not cover the spot and
             // the floor the camera stops on is something else.
             int spanning = 0;
+            int standing = 0;
 
             foreach (MapPhysicsModel model in
                 BspPhysicsCollision.Read(BspLumpData.Read(file, header.Lump(PhysCollideLump))))
@@ -592,9 +658,13 @@ public sealed class MapCollisionProbe : IProbe
                         (System.Numerics.Vector3 Low, System.Numerics.Vector3 High) box =
                             Box(ledge.Points);
 
+                        if (box.High.Z > AboveGround)
+                        {
+                            standing++;
+                        }
+
                         if (box.Low.X > spot.X + Near || box.High.X < spot.X - Near ||
-                            box.Low.Y > spot.Y + Near || box.High.Y < spot.Y - Near ||
-                            box.Low.Z > spot.Z)
+                            box.Low.Y > spot.Y + Near || box.High.Y < spot.Y - Near)
                         {
                             continue;
                         }
@@ -618,7 +688,38 @@ public sealed class MapCollisionProbe : IProbe
             output.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
                 $"  {spanning} lump ledges have their own points within {Near:0} units of the " +
-                $"column and a bottom below z {spot.Z:0.#}"));
+                $"column, at any height; {standing} of all of them reach above z {AboveGround:0}"));
+
+            // **The ledges' own denominator, from LUMP_BRUSHES.** vbsp walks the world's leaves,
+            // takes every brush they reference whose contents match, and writes one convex per
+            // brush — `VisitLeaves_r( planes, dmodels[0].headnode ); planes.AddBrushes();`
+            // (`ivp.cpp:1278-1279`). So the ledge count should track the count of solid world
+            // brushes, allowing for the merge; a count far below it means this project's reader is
+            // dropping geometry, and one near it means the lump holds what it holds.
+            ReadOnlySpan<byte> brushes =
+                BspLumpData.Read(file, header.Lump(BrushesLump)).Span;
+
+            int solidBrushes = 0;
+            int clipBrushes = 0;
+
+            for (int at = 0; at + BrushStride <= brushes.Length; at += BrushStride)
+            {
+                int contents = BinaryPrimitives.ReadInt32LittleEndian(brushes[(at + 8)..]);
+
+                if ((contents & IvpWorldCollision.MaskSolid) != 0)
+                {
+                    solidBrushes++;
+                }
+                else if ((contents & PlayerClip) != 0)
+                {
+                    clipBrushes++;
+                }
+            }
+
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  LUMP_BRUSHES declares {solidBrushes} solid and {clipBrushes} playerclip " +
+                $"brushes, against {world.Ledges.Count} ledges read"));
 
             // **And the terrain, asked the same way.** `virtualterrain {}` in the world's own
             // KeyValues says the displacements are NOT in this lump — the engine builds them into a
@@ -627,6 +728,7 @@ public sealed class MapCollisionProbe : IProbe
             // question "is the ground here made of terrain" and not "did the sweep hit".
             float nearest = float.MaxValue;
             float nearestZ = 0f;
+            int listedTriangles = 0;
             DisplacementTriangle closest = default;
 
             foreach (DisplacementTriangle triangle in level.Displacements.Triangles())
@@ -644,6 +746,22 @@ public sealed class MapCollisionProbe : IProbe
                     nearest = across;
                     nearestZ = middle.Z;
                     closest = triangle;
+                }
+
+                // **The SHAPE of the coverage edge, not just its distance.** A single nearest
+                // triangle says the ground stops somewhere; the corners of every triangle around
+                // the column say which way it stops and whether the edge is a displacement's own
+                // boundary or a ragged line through the middle of one.
+                if (across < Near * Near && listedTriangles < Listed)
+                {
+                    listedTriangles++;
+
+                    output.WriteLine(string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"    terrain near the column: " +
+                        $"({triangle.A.X:0}, {triangle.A.Y:0}, {triangle.A.Z:0}) " +
+                        $"({triangle.B.X:0}, {triangle.B.Y:0}, {triangle.B.Z:0}) " +
+                        $"({triangle.C.X:0}, {triangle.C.Y:0}, {triangle.C.Z:0})"));
                 }
             }
 
@@ -682,6 +800,9 @@ public sealed class MapCollisionProbe : IProbe
             int wanted = 0;
             int lowest = int.MaxValue;
             int highest = 0;
+            int disallowed = 0;
+            int wasDisallowed = 0;
+            int stitched = 0;
 
             ReadOnlySpan<byte> infos =
                 BspLumpData.Read(file, header.Lump(DispInfoLump)).Span;
@@ -698,6 +819,38 @@ public sealed class MapCollisionProbe : IProbe
                 wanted += 2 << (2 * power);
                 lowest = Math.Min(lowest, power);
                 highest = Math.Max(highest, power);
+
+                // **`m_AllowedVerts` is how Valve stops two displacements of different power from
+                // parting company along their shared edge**, and it is the last 40 bytes of the
+                // struct: *"This is built based on the layout and sizes of our neighbors and tells
+                // us which vertices are allowed to be active"* (`bspfile.h:665`).
+                // `TesselateDisplacement` reads it per vertex and skips the ones that are off, so a
+                // fine displacement next to a coarse one drops its extra edge verts and meets the
+                // neighbour exactly. A uniform grid keeps them, and the two edges then differ by
+                // however far the fine one bulges.
+                int side = (1 << power) + 1;
+
+                for (int vertex = 0; vertex < side * side; vertex++)
+                {
+                    int word = at + AllowedVertsOffset + ((vertex >> 5) * 4);
+
+                    if (word + 4 > infos.Length)
+                    {
+                        break;
+                    }
+
+                    if ((BinaryPrimitives.ReadUInt32LittleEndian(infos[word..]) &
+                        (1u << (vertex & 31))) == 0)
+                    {
+                        disallowed++;
+                    }
+                }
+
+                if (disallowed > wasDisallowed)
+                {
+                    stitched++;
+                    wasDisallowed = disallowed;
+                }
             }
 
             output.WriteLine(string.Create(
@@ -705,7 +858,9 @@ public sealed class MapCollisionProbe : IProbe
                 $"  terrain triangles: {level.Displacements.TriangleCount} built against " +
                 $"{wanted} the lump's powers ask for, over " +
                 $"{infos.Length / DispInfoStride} displacements of power " +
-                $"{(lowest > highest ? 0 : lowest)}..{highest}"));
+                $"{(lowest > highest ? 0 : lowest)}..{highest}; " +
+                $"{disallowed} vertices are NOT allowed to be active, over {stitched} " +
+                $"displacements that are stitched to a coarser neighbour"));
         }
 
         return walked;
