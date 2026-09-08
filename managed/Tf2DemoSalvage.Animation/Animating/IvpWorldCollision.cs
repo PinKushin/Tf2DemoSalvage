@@ -623,38 +623,109 @@ public sealed class IvpWorldCollision
             }
         }
 
-        (Vector3 Normal, float Depth)? brush = found ? (face, deepest) : null;
+        (Vector3 Normal, float Depth, int Triangle)? brush = found ? (face, deepest, -1) : null;
 
-        (Vector3 Normal, float Depth)? both = Terrain(point, brush);
+        (Vector3 Normal, float Depth, int Triangle)? both = Terrain(point, brush);
 
         if (both is not { } hit)
         {
             return null;
         }
 
-        // **Terrain wins its own identity**, because a triangle is a different kind of feature.
-        // `Terrain` returns whichever of the two is deeper, so it took over exactly when there was
-        // no brush hit or the depth grew — a comparison, not a float equality.
+        // **Terrain wins its own identity, and it is now PER TRIANGLE.** A triangle is a different
+        // kind of feature from a ledge face, and until this it shared one id for the whole map —
+        // so every terrain contact on a body looked like the same retained contact, and a body
+        // crossing from one triangle to the next could not be told from one staying put. That is
+        // half of a closest-feature pair missing on exactly the surface corpses land on.
         if (brush is not { } chosen || hit.Depth > chosen.Depth)
         {
-            feature = TerrainFeature;
+            feature = TerrainFeatureFor(hit.Triangle);
         }
 
         return (hit.Normal, hit.Depth, feature);
     }
 
+    /// <summary>The retained id for one terrain triangle — negative, so it cannot meet a ledge's.</summary>
+    /// <remarks>
+    /// **Below <see cref="IvpContact"/>'s <c>Speculative</c>, which is −1**, so the three kinds of
+    /// feature id occupy disjoint ranges without anyone having to bound the ledge count: a ledge
+    /// face is <c>ledge × PlanesPerLedge + plane</c> and non-negative, a speculative contact is −1,
+    /// and a terrain triangle is −2 downwards.
+    /// </remarks>
+    private static int TerrainFeatureFor(int triangle) => -2 - triangle;
+
+    /// <summary>Where a retained feature's surface is, relative to a point — the mindist half.</summary>
+    /// <param name="feature">A feature id from <see cref="Touching(Vector3, Vector3)"/>.</param>
+    /// <param name="point">Where the body's own feature is now, in Source units.</param>
+    /// <returns>
+    /// The surface normal and the SIGNED distance to it — positive outside, negative penetrating —
+    /// or null when the pair no longer means anything and must be rediscovered.
+    /// </returns>
+    /// <remarks>
+    /// **This is the identity half of IVP's closest-feature pair, and its absence is what every
+    /// measurement in `docs/findings/51` kept arriving back at.** `Touching` re-derives the
+    /// SHALLOWEST face every step, and the shallowest face of a convex piece changes as a body
+    /// settles into it — so a resting contact's stored impulse was filed under a slot that moved,
+    /// and once a point passed a brush's midplane the shallowest face became the UNDERSIDE and the
+    /// push that should have held it drove it through.
+    ///
+    /// **The engine never chooses, because it never forgets.** A mindist keeps the pair of features
+    /// that were closest when the two were still apart, and re-measures THAT pair; the face a body
+    /// entered through is simply the one it is still being measured against. This asks the same
+    /// question of a face already chosen rather than choosing again.
+    ///
+    /// **Signed rather than a depth, which is the other half of why the engine needs no position
+    /// correction.** A pair carries a real distance while the two are still apart, so the contact
+    /// exists before they touch and there is never an overlap to recover from.
+    ///
+    /// **Null means the pair is DEAD, not that the point is clear**: a terrain triangle the point no
+    /// longer projects onto, or an id naming geometry that is gone. A live pair at any distance
+    /// returns a number.
+    /// </remarks>
+    public (Vector3 Normal, float Distance)? Against(int feature, Vector3 point)
+    {
+        if (feature < -1)
+        {
+            int index = -2 - feature;
+
+            if (index < 0 || index >= _triangles.Count)
+            {
+                return null;
+            }
+
+            IvpWorldTriangle triangle = _triangles[index];
+
+            // **The containment test still gates it**, because a triangle is a surface and not a
+            // solid: a point that has slid off the end of one is no longer paired with it, however
+            // near its plane still passes.
+            return Within(triangle, point)
+                ? (triangle.Normal, Vector3.Dot(triangle.Normal, point) - triangle.Distance)
+                : null;
+        }
+
+        if (feature < 0)
+        {
+            return null;
+        }
+
+        int ledge = feature / PlanesPerLedge;
+        int plane = feature % PlanesPerLedge;
+
+        if (ledge < 0 || ledge >= _ledges.Count ||
+            plane < 0 || plane >= _ledges[ledge].Planes.Count ||
+            (_ledges[ledge].Contents & Mask) == 0)
+        {
+            return null;
+        }
+
+        (Vector3 normal, float distance) = _ledges[ledge].Planes[plane];
+
+        return (normal, Vector3.Dot(normal, point) - distance);
+    }
+
     /// <summary>More planes than any real ledge has, so a packed id cannot collide.</summary>
     private const int PlanesPerLedge = 4096;
 
-    /// <summary>One id for terrain, which this does not yet tell apart triangle by triangle.</summary>
-    /// <remarks>
-    /// **Deliberately coarse and stated as such.** `Terrain` returns a normal and a depth and not
-    /// which triangle produced them, so every terrain contact on a body shares an identity here. A
-    /// body resting on a hillside therefore accumulates one retained contact where it should have
-    /// one per triangle it touches — better than the normal-keyed version it replaces, and not the
-    /// engine's, which names the feature exactly.
-    /// </remarks>
-    private const int TerrainFeature = int.MaxValue;
 
     /// <summary>Where a moving point first enters the world, if it does.</summary>
     /// <param name="from">Where the point is now.</param>
@@ -837,8 +908,8 @@ public sealed class IvpWorldCollision
     /// **The SHALLOWEST contact wins across both halves**, brush and terrain alike, so a corpse in a
     /// corner where a brush meets a hillside is pushed out the short way.
     /// </remarks>
-    private (Vector3 Normal, float Depth)? Terrain(
-        Vector3 point, (Vector3 Normal, float Depth)? best)
+    private (Vector3 Normal, float Depth, int Triangle)? Terrain(
+        Vector3 point, (Vector3 Normal, float Depth, int Triangle)? best)
     {
         if (!_triangleGrid.TryGetValue(
             (Cell(point.X), Cell(point.Y), Cell(point.Z)), out List<int>? nearby))
@@ -864,7 +935,7 @@ public sealed class IvpWorldCollision
 
             if (best is null || -outside < best.Value.Depth)
             {
-                best = (triangle.Normal, -outside);
+                best = (triangle.Normal, -outside, nearby[candidate]);
             }
         }
 

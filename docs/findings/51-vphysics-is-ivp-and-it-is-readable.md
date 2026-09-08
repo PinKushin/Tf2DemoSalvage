@@ -3258,6 +3258,43 @@ in `LUMP_PHYSCOLLIDE` and not in the world's leaf tree, so the two legitimately 
 directions. The figure that means "a corpse has nothing to land on" is the whole-map one, and it is
 0.4% rather than 64%.
 
+### A retained face is not a mindist — built, measured worse, reversed
+
+**The missing closest-feature pair has been named by five measurements, so it was built. It lost.**
+The attempt: keep the world feature each hull point landed on, and re-measure the point against
+THAT face rather than re-deriving the shallowest one every step.
+
+| | before | after |
+|---|---|---|
+| corpses settling and sleeping (`corpse-drop`, five drops) | 4 of 5 | **3 of 5** |
+| free lift added per tick | 5,551–21,198 | 6,383–17,431 |
+| slope conformance test | 33.5 units a second | unchanged |
+| deepest penetration, sampled ticks | 2.66, 6.44 | 1.29, 4.80 |
+
+Penetration is the one thing that behaved as predicted. Everything else was flat or worse.
+
+**Why it lost, and the distinction is the whole finding: a retained face is STICKY, and a mindist is
+not.** IVP tracks which pair of features is closest and updates that pair incrementally as the two
+bodies move — *track and update*. Freezing one face and continuing to ask about it is only the
+second half of that. On a seventeen-body ragdoll the genuinely closest feature changes several times
+a second, so a frozen face measures a surface the body has already left, for as long as the pair is
+held. That is worse than re-deriving, which is at least measuring something the body is near.
+
+**So "keep the pair" is not implementable as "remember the answer".** It needs the incremental
+tracking that makes the kept pair still be the closest one — which is the part of the mindist system
+`docs/findings/51` has always listed as unread, and it is unread still.
+
+**Two pieces of the attempt survive because they are correct independently of it:**
+
+- **Terrain features are identified PER TRIANGLE**, where every terrain contact in the map used to
+  share one id (`int.MaxValue`). That was documented as a known coarseness and it made a body
+  crossing from one triangle to the next indistinguishable from one staying put — on exactly the
+  surface corpses land on. Ids are negative now, below `Speculative`'s −1, so the three kinds cannot
+  collide without anyone bounding the ledge count.
+- **`IvpWorldCollision.Against(feature, point)`** re-measures a NAMED feature and returns a SIGNED
+  distance — positive outside, negative penetrating, null when the pair is dead. Any correct version
+  of the mindist needs exactly this, and it is what the sticky version was built on.
+
 ### The word "hole" was wrong, and so was the subject
 
 **The owner, on the first version of this: *"they literally cant have holes because hammer doesnt

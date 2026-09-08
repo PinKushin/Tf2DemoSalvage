@@ -78,6 +78,7 @@ public sealed class IvpContact
     /// <summary>The id a contact that has not happened yet is filed under.</summary>
     private const int Speculative = -1;
 
+
     /// <summary>The point this feature's contact acts at, held steady between steps.</summary>
     /// <param name="fresh">The manifold's centroid as measured this step, in world directions.</param>
     /// <returns>The retained point if there is one, else <paramref name="fresh"/>.</returns>
@@ -903,6 +904,17 @@ public sealed class IvpContact
 
             Vector3 arm = Vector3.Transform(new Vector3(x, y, z), orientation);
 
+            // **The world half is RE-DERIVED here every step, and that is the divergence.** IVP
+            // keeps a mindist — the pair of features that were closest — and re-measures that pair;
+            // `Touching` instead returns whichever face the point is least far behind now, and
+            // which face that is changes as a body settles.
+            //
+            // **Retaining the face and re-measuring against it was built and measured WORSE**:
+            // corpses settling went from four of five to three, and the free lift did not move.
+            // The reason is in `docs/findings/51` — a retained face is STICKY where a mindist is
+            // *track and update*, so on a seventeen-body ragdoll it measures a surface the body has
+            // already left. `IvpWorldCollision.Against` is what a correct version would use and is
+            // kept for it.
             (Vector3 Normal, float Depth, int Feature)? hit =
                 world.Touching(centre + arm, default);
 
