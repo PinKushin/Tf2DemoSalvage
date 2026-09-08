@@ -3579,6 +3579,23 @@ dynamics (rotational energy from repeated impacts, a genuinely tumbling rigid bo
 real, EPA-capable narrow phase with actual penetration resolution — not a differently-selected point
 set — can address.
 
+### Stale-slot reactivation across many revolutions — also a clean null
+
+A genuinely different axis from every prior check: `Body.Sliding` is never pruned, and the measured
+spin is a steady, single-axis roll rather than an oscillation — meaning a tumbling box cycles through
+a small, repeating set of orientations, and a slot from several revolutions ago could be reactivated
+by a later normal that happens to match closely, reading back `Holding`/slip measured at a
+completely different velocity. A small capacity cap (`Body.EvictStaleSlots`, evicting the oldest
+slot past eight) was built to test this.
+
+**Bit-identical to the baseline again: 6.1484184f.** Either `Sliding` never reaches the cap in this
+run, or stale reactivation was not occurring at a magnitude this test can show. Reverted; verified
+bit-identical.
+
+**Fifth confirmation, on a fifth genuinely distinct axis** — after four membership mechanisms and
+now warm-start staleness — that the remaining gap survives every angle this session can construct
+from the existing architecture without the actual persistent, feature-based manifold.
+
 **Correcting my own later mis-citation of this same finding.** Several commits after this section
 was written, `corpse-drop`'s default report of "4 of 5 settle, the fifth leaves the world" was cited
 repeatedly as an open, unrelated ground-hole divergence — as if a fourth defect remained beside the
