@@ -3553,6 +3553,32 @@ that one point) still loses badly. Recorded so this exact family of idea — div
 budget some other way — is not retried a third time without a new reason to expect a different
 result.
 
+### An analytically-derived incident face — genuinely different in kind, and a NULL result
+
+Every earlier attempt to admit more contacts shared one property: each re-queried the WORLD for a
+point the world's own per-point pass had already answered once, inheriting whatever noise made that
+answer flicker. A materially different mechanism was built: given the dominant contact normal this
+step, transform it into the body's OWN local frame, find which local hull vertices sit lowest along
+it (the box's own incident face, purely a function of current orientation), and raise a contact for
+any of those vertices the per-point pass missed — asking the BODY's geometry instead of the world
+a second time.
+
+**Measured bit-identical to the committed baseline: 6.1484184f, unchanged to the last decimal.** Not
+a regression — a true null. The likely reason: during an active tumble the box's instantaneous
+incident face relative to a fixed external normal is not a flat face at all, it is close to a single
+point or edge, which is exactly what the per-point pass already finds on its own — there is nothing
+left over to backfill until the body is closer to resting flat, which this run may never reach
+within the window measured. Reverted for zero benefit at real added complexity; verified bit-
+identical to the prior commit.
+
+**What this does establish, positively**: the "admit more contacts" family is now ruled out by a
+FOURTH, structurally distinct mechanism, closing off the last obvious variant of it — geometric
+derivation, not just repeated world queries in different shapes. Nothing about contact MEMBERSHIP,
+tried four separate ways, has moved this test. Whatever remains is in the SOLVE, or in aggregate
+dynamics (rotational energy from repeated impacts, a genuinely tumbling rigid body) that only a
+real, EPA-capable narrow phase with actual penetration resolution — not a differently-selected point
+set — can address.
+
 **Correcting my own later mis-citation of this same finding.** Several commits after this section
 was written, `corpse-drop`'s default report of "4 of 5 settle, the fifth leaves the world" was cited
 repeatedly as an open, unrelated ground-hole divergence — as if a fourth defect remained beside the
