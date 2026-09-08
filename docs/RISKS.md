@@ -25520,3 +25520,26 @@ world, and whatever fails there fails with the joints present and worse without 
 
 *Evidence class: measured for the terrain half and for the single-body/jointed split;
 read-from-source for the engine's single constraint group.*
+
+### B370 OPEN 2026-09-08: granary's shutter doors do not animate
+
+**Reported by the owner while watching a demo play, and filed rather than chased**: *"the shutter
+doors on granary are not animating right, note it dont fix or look into it right now"*.
+
+**What is known: nothing beyond the observation.** It has not been reproduced from a capture, the
+door entities have not been identified on the wire, and no code has been read for it. It is written
+down at this size deliberately — the alternative was to carry it as a memory of a remark, and a
+remark is not a finding.
+
+**Where a reader should start, and why none of it is a conclusion.** `cp_granary`'s shutters are
+brush entities driven by the server, so the candidates are the `func_door` / `CBaseDoor` track this
+project already draws (a `*NN` brush model was seen on the prop list at every tick sampled), the
+`m_flSimulationTime` interpolation that carries a moving brush between snapshots, and whatever
+`SetModel`-on-a-brush does to a track that keys on the model path. Which of those it is has not been
+established.
+
+**Do not fold this into B306.** The corpse work touched terrain and ledge CONTACT, and a door that
+does not move is an animation or interpolation question about a brush entity — a different
+subsystem, and the two were only observed in the same session.
+
+*Evidence class: owner observation, unreproduced.*
