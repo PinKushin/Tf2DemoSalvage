@@ -3511,6 +3511,30 @@ own warm-start slot) both worked with the EXISTING contact set rather than tryin
 That is the shape the next attempt should have, if there is a sixth: solve what is already found
 better, do not find more of it.
 
+### Weighting depth to match the arm's own weighting - also measured worse, and a real prior warning explains why
+
+The pattern from the last section suggested a further instance: `Separate` receives `deepest`, the
+group's plain MAXIMUM depth, applied through `arm`, the group's now depth-WEIGHTED centroid — two
+different combinations of the same set, magnitude and lever no longer describing the same effective
+point. Weighting depth the same way `arm` is weighted (rather than taking the max) looked like the
+same fix applied a second time.
+
+**Measured worse: 6.15 units a second became 12.7.** Reverted; bit-identical to the prior commit
+confirmed (6.1484184f exactly).
+
+**A comment already in this file, from an earlier session's own reversal, explains why before this
+one repeats the mistake.** `IvpEnvironment._resting`'s remarks record that POOLING contacts across
+slices was tried, improved the slope test (33.5 → 19.2), and simultaneously dropped corpse-drop's
+real settling rate from four of five to two — because "a pooled contact carries the DEPTH and the
+ARM it was measured at, from a position the body has since left. `Separate` takes the deepest of a
+manifold, so stale depths make the position correction larger and the free lift with it." **`deepest`
+being the MAX rather than an average is not an oversight the weighted centroid change should have
+carried over to — it is a deliberate guard against under-correction**, and averaging it away
+reintroduces exactly the failure mode that specific guard exists for. The pattern from the previous
+section ("solve the set better, don't find more of it") is real but not unconditional: not every
+combination that is MORE consistent with the arm's own weighting is more correct, when the original
+choice of combination was already a considered trade-off rather than an oversight.
+
 **Correcting my own later mis-citation of this same finding.** Several commits after this section
 was written, `corpse-drop`'s default report of "4 of 5 settle, the fifth leaves the world" was cited
 repeatedly as an open, unrelated ground-hole divergence — as if a fourth defect remained beside the
