@@ -647,6 +647,15 @@ public sealed class IvpEnvironment
                 continue;
             }
 
+            // **Preferring a PERSISTED representative point (matched to what the group used last
+            // step, via `IvpRigidBody.Representative`) was built and measured WORSE**, on both the
+            // slope test (31 units a second to 38) and real geometry: a corpse that had settled
+            // cleanly at every measurement since this branch began (seed 256.9, −1416.1, 55.2) no
+            // longer settled at all, awake at 336 units a second. Reverted. The uncommanded spin-up
+            // traced in `docs/findings/51` is real and its cause is correctly identified — but
+            // forcing representative continuity is not the fix, a third confirmation that patching
+            // around this symptom without the actual stable multi-point manifold makes things worse
+            // rather than better.
             (float X, float Y, float Z) centre = contact.Arm;
             float deepest = contact.Depth;
             float weight = contact.Accumulated;
