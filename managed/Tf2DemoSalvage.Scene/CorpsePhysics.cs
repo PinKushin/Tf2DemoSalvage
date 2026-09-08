@@ -111,8 +111,22 @@ public sealed class CorpsePhysics
 
     private readonly Dictionary<int, (double X, double Y, double Z)> _touched = [];
 
-    /// <summary>Below this a body has left the playable world rather than sunk into a floor.</summary>
-    private const double FallenThrough = -50d;
+    /// <summary>How far below its last contact a body must be to have left the world, not sunk.</summary>
+    /// <remarks>
+    /// **This was an absolute <c>-50</c> world height and it could not work.** A fixed z asks
+    /// "is the body below fifty units", which is a question about the MAP rather than about the
+    /// body: on `cp_granary` the ground under a real corpse sits near z −416, so every corpse there
+    /// is already "fallen" before it is dropped and the detector reports nothing — measured while
+    /// tracing corpses that were genuinely sinking (B306), where it stayed silent throughout.
+    ///
+    /// **A fall is leaving the surface you were ON**, which is what the record beside it already
+    /// says: *"The last contact is the lip of the hole."* So the threshold is relative to that
+    /// point, and it is map-independent by construction. Sixty-four units is the terrain slab's own
+    /// thickness (`IvpWorldCollision.TerrainDepth`) — a body still within it is inside the ground
+    /// the solve is trying to push it out of, and a body below it has passed through the whole slab
+    /// and is not coming back.
+    /// </remarks>
+    private const double FallenThrough = -64d;
 
     /// <summary>The same, in seconds.</summary>
     public double SteppingSeconds =>
@@ -273,24 +287,36 @@ public sealed class CorpsePhysics
 
             (double X, double Y, double Z) at = live.Simulation.Environment.Bodies[0].Position;
 
-            // **Where it last touched anything, kept whether or not it ever falls.** The threshold
-            // below fires long after the event — a corpse crossing a floor at z 200 is recorded at
-            // −50, three hundred units and a second of sideways travel later, and probing THAT spot
-            // asks about the wrong geometry. Two probes were spent on the wrong answer before this
-            // existed. The last contact is the lip of the hole.
-            if (live.Simulation.Environment.Contacts > 0)
+            // **The HIGHEST place it ever touched anything, which is the lip of the hole.** The
+            // threshold below fires long after the event — a corpse crossing a floor at z 200 is
+            // recorded three hundred units and a second of sideways travel later, and probing THAT
+            // spot asks about the wrong geometry. Two probes were spent on the wrong answer before
+            // this existed.
+            //
+            // **Highest rather than most recent, because a body sinking THROUGH a surface keeps
+            // finding contacts the whole way down** (B306). Measured: a corpse on `cp_granary`
+            // descended from −424 to −654 with ninety-odd contacts at every step, so a
+            // most-recent reference followed it down and the gap between the two never grew —
+            // the detector could not fire no matter how far the body sank. The surface it landed
+            // ON does not move.
+            if (live.Simulation.Environment.Contacts > 0 &&
+                (!_touched.TryGetValue(entityIndex, out (double X, double Y, double Z) touched) ||
+                 at.Z > touched.Z))
             {
                 _touched[entityIndex] = at;
             }
 
-            if (!_fell.ContainsKey(entityIndex) && at.Z < FallenThrough)
+            // **Measured against the last place it touched anything, not against a world height.**
+            // See <see cref="FallenThrough"/>: a body that never touched has nothing to have fallen
+            // THROUGH, so it is not reported until it does.
+            if (!_fell.ContainsKey(entityIndex) &&
+                _touched.TryGetValue(entityIndex, out (double X, double Y, double Z) last) &&
+                at.Z - last.Z < FallenThrough)
             {
                 _fell[entityIndex] = (
                     live.SteppedTo,
                     live.Simulation.Environment.Contacts,
-                    _touched.TryGetValue(entityIndex, out (double X, double Y, double Z) last)
-                        ? last
-                        : at);
+                    last);
             }
         }
 
