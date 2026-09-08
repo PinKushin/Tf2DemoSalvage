@@ -1015,25 +1015,23 @@ public sealed class IvpContact
                 // velocity to cancel. Admitting these as ORDINARY terrain contacts instead — with
                 // their own feature and warm start — measured 31.382078f against 9.285662f, so the
                 // distinction is the whole of it.
-                // **Only points genuinely INSIDE the face, and the threshold is measured.** Four
-                // widths were run against the slope conformance test:
+                // **At or below the face, and this threshold is set by REAL corpses rather than by
+                // the synthetic slope test** (B306). Four widths were tried; the synthetic test and
+                // the real demo disagree about them, and the real demo wins:
                 //
-                //   within one slop ABOVE the face           12.207724f
-                //   within this step's own closing travel     7.122617f
-                //   at or below the plane                     9.285662f
-                //   penetrating by more than float noise      6.621238f
+                //                                        slope test    corpse 2073 on cp_granary
+                //   one slop above the face               12.207724f   —
+                //   this step's closing travel             7.122617f   —
+                //   penetrating by more than noise         6.621238f   −522, buried 106 deep
+                //   at or below the plane  (this)          9.285662f   −377, resting correctly
                 //
-                // **The narrowest wins, and the near-contact reading was wrong.** Widening this to
-                // catch corners that sit a hair proud looks right — a flush box loses them to float
-                // error and rocks on three — but every wider band measured worse. A point that is
-                // merely NEAR a face is not carrying load, and raising a contact for it supports a
-                // body the surface is not yet holding; the solve then pushes against nothing and
-                // the body leaves the ground it was settling onto.
-                //
-                // The engine has no equivalent question because its mindist tracks a feature PAIR
-                // and knows the distance between them; this is the discrete stand-in for that, and
-                // it errs toward "not touching yet" deliberately.
-                if (depth < OnTheFace)
+                // **The number the synthetic test likes buries a real body.** Requiring a body to be
+                // measurably INSIDE a face before it is held means a corpse settling onto ground
+                // loses its support the moment it stops penetrating, and it sinks until it does
+                // again. The slope fixture cannot see that: it drops one cube from 150 units up and
+                // scores the speed it still has after 400 steps, which rewards anything that damps
+                // a tumble regardless of what it does to a body at rest.
+                if (depth < 0f)
                 {
                     continue;
                 }
@@ -1115,15 +1113,6 @@ public sealed class IvpContact
     /// <summary>How far behind a triangle this pass still looks, in Source units.</summary>
     private const float TerrainReach = 512f;
 
-    /// <summary>How deep inside a face a point must be before it is carrying any load.</summary>
-    /// <remarks>
-    /// **Float noise, so a point grazing a plane is not mistaken for one resting on it.** Anything
-    /// shallower is a coincidence of arithmetic rather than contact, and raising a contact for it
-    /// supports a body the surface is not yet holding. Measured against the slope conformance
-    /// test — the alternatives and their numbers are beside the check in
-    /// <see cref="AgainstTerrain"/>.
-    /// </remarks>
-    private const float OnTheFace = 0.004f;
 
     /// <summary>The sphere query's reused buffer — this runs per body per slice.</summary>
     private static readonly List<(IvpWorldTriangle Shape, int Index)> _nearby = [];

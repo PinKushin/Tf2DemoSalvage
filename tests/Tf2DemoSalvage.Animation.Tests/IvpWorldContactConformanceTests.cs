@@ -313,20 +313,25 @@ public sealed class IvpWorldContactConformanceTests
         body.Position.Z.ShouldBeLessThan(
             surface + Math.Sqrt(3d) + 0.25d, "and touching it, whichever way up it stopped");
 
-        // **It comes to REST, and that is what "held by friction" actually predicts.** This line
-        // has been wrong twice in opposite directions — it first asserted the body slid, which was
-        // right when nothing applied friction and it ran 127 units downhill, and was then corrected
-        // to a position window that only held while impacts were under-applied. A `flesh` body has
-        // a coefficient of 1 and a slope of one in ten needs 0.1 to hold it, so the prediction is
-        // that whatever speed it lands with is eventually taken out of it — not that it stops in
-        // any particular place.
-        float speed = MathF.Sqrt(
-            (body.Velocity.X * body.Velocity.X) +
-            (body.Velocity.Y * body.Velocity.Y) +
-            (body.Velocity.Z * body.Velocity.Z));
-
-        speed.ShouldBeLessThan(
-            1f, "friction takes the landing speed out of it rather than letting it run");
+        // **The speed assertion that used to be here is GONE, and it was actively harmful** (B306).
+        //
+        // It asserted `speed < 1` after 400 steps. That threshold was never measured from TF2 — it
+        // is a prediction about a hand-built cube dropped 150 units onto two hand-built triangles,
+        // and the owner named it: *"the test is probably not a good one, it probably doesn't sim
+        // the engine correctly"*. Its own comment admitted it had "been wrong twice in opposite
+        // directions", each time rewritten to match what the code then did, which is the one thing
+        // `CLAUDE.md` says a parity test must never become.
+        //
+        // **It did not merely fail to help — it pointed the wrong way.** Tuning the terrain contact
+        // threshold to satisfy it (requiring a body to be measurably inside a face before it is
+        // held) took this number from 9.285662f to 6.621238f while burying a real corpse on
+        // `cp_granary`: entity 2073 went from resting 39 above its own networked origin to 106
+        // BELOW it. A green synthetic number and a body under the map, from the same change.
+        //
+        // **What survives is the claim that can be checked against the engine**: the body is ON the
+        // surface and not through it, asserted above. How fast a cube is still moving after six
+        // seconds is a MEASUREMENT (D38), and the instruments that own it are `corpse-drop` and a
+        // real demo, where a corpse's resting height can be compared with `m_vecRagdollOrigin`.
     }
 
     /// <remarks>
