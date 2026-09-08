@@ -3433,6 +3433,29 @@ churn that currently starts the tumble.
 It is the same feature-based narrow phase five earlier sections and the spin-up trace all name,
 now confirmed as the actual bottleneck by a direct measurement that a longer run does not converge.
 
+### Two more leads, both checked and ruled out before another patch
+
+**Iterating the friction solve, the way `IvpConstraintGroup.Solve()` iterates ragdoll joints, was
+considered and rejected by READING rather than by measuring.** `IvpConstraintGroup`'s twelve-entry
+relaxation table (`0.4, 0.4, 0.4, 0.4, 1.0, 1.0, 0.8, 0.6, 0.8, 0.8, 0.8, 0.8`) looked like exactly
+what a body touching several points at once would need — a Gauss-Seidel pass repeated within one
+step, letting several simultaneous contacts converge against each other the way real multi-point
+manifolds do. But that table is `FUN_18003c780`'s JOINT relaxation, a different constraint group
+from contacts entirely, and this project's own earlier reading already establishes the contact
+system's real cardinality: `FUN_1800836b0` "walks each system exactly once" per PSI — single-pass,
+not iterated. Building an iterated friction solve would have been a FABRICATED divergence, adding
+behaviour the engine does not have, not fixing one it does. Caught before any code was written,
+which is what reading the engine before designing is for.
+
+**The initial impact was checked for a spurious kick and found clean.** If the tumble's true origin
+were the very first touchdown imparting more spin than a real impact would, no amount of ongoing
+friction tuning could ever have helped — a real tumbling box cannot be arrested by friction either,
+so the fix would have to be at `Oppose`, not `Rub`. Traced directly: angular velocity during the
+arrival passes climbs to roughly 4 rad/s by the end of the first `Simulate()` call, for a box
+landing at an angle on a slope. That is not an obviously wrong number for an impact of that kind,
+and it is far short of the eventual tumble's magnitude — so the spin-up compounds during the
+ONGOING resting phase, consistent with everything measured above, not from one bad initial kick.
+
 **Correcting my own later mis-citation of this same finding.** Several commits after this section
 was written, `corpse-drop`'s default report of "4 of 5 settle, the fifth leaves the world" was cited
 repeatedly as an open, unrelated ground-hole divergence — as if a fourth defect remained beside the
