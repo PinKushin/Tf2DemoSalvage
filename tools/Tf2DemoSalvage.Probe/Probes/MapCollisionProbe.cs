@@ -80,6 +80,15 @@ public sealed class MapCollisionProbe : IProbe
     /// <summary>How many of the ledges over the column to print before counting the rest.</summary>
     private const int Listed = 12;
 
+    /// <summary>Half the width of the whole-map hole scan, in grid steps of twice <see cref="Apart"/>.</summary>
+    private const int Across = 40;
+
+    /// <summary>Where the whole-map scan drops from, in Source units.</summary>
+    private const float Ceiling = 512f;
+
+    /// <summary>And where it drops to.</summary>
+    private const float Floor = -512f;
+
     /// <summary>How far above and below a triangle the control ray starts and ends.</summary>
     private const float Overhead = 64f;
 
@@ -436,6 +445,46 @@ public sealed class MapCollisionProbe : IProbe
                 CultureInfo.InvariantCulture,
                 $"  where the camera stopped on the {cameraOnly} it found alone, by tenth of the " +
                 $"drop: {string.Join(' ', deepest)}"));
+
+            // **And the same question over the WHOLE map, because the shape of the holes names the
+            // cause.** A missing subtree of the ledge tree would leave a coherent region unserved;
+            // a reader that drops the odd ledge would leave holes scattered everywhere. One
+            // neighbourhood cannot tell those apart and this can, for the cost of one more pass.
+            //
+            // **The floor is what is counted, not any surface.** A column is a hole when the
+            // physics world finds nothing above `Floor` while the camera's world does — so a roof
+            // over the point, which is what defeated the first census, cannot register.
+            int columns = 0;
+            int holes = 0;
+
+            for (int gx = -Across; gx <= Across; gx++)
+            {
+                for (int gy = -Across; gy <= Across; gy++)
+                {
+                    float px = gx * Apart * 2f;
+                    float py = gy * Apart * 2f;
+
+                    System.Numerics.Vector3 sky = new(px, py, Ceiling);
+                    System.Numerics.Vector3 pit = new(px, py, Floor);
+
+                    if (level.Sweep((px, py, Ceiling), (px, py, Floor), halfExtent: 1f) >= 1f)
+                    {
+                        continue;
+                    }
+
+                    columns++;
+
+                    if (world.Sweep(sky, pit) is null)
+                    {
+                        holes++;
+                    }
+                }
+            }
+
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  over the whole map: {holes} of {columns} columns that the camera's world floors " +
+                $"have no floor at all in the physics world"));
 
             // **The static props near the point, because their collision is in NEITHER lump.** A
             // `prop_static` is a model placed by the map, and the engine builds a physics object

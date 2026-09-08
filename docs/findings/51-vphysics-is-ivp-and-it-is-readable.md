@@ -3185,3 +3185,89 @@ wrong in the way nothing in a corpse's pose reports.
 *Evidence class: read from published SDK source for the call and the declaration; the friction
 consequence is read from the decompiled binary; the bind-pose invariant is arithmetic on the two
 published matrix semantics, and is pinned by a synthetic test with a turned skeleton.*
+
+## The map's own collision is not the map's brushes, and a corpse falls through the difference
+
+**A corpse on `koth_harvest_final` free-falls a thousand units at (-972.6, -1400.3), and the solver
+is not at fault.** `corpse-drop` drops a straight ray before it simulates anything now, and the ray
+says there is nothing between z 77.5 and z -1024. The corpse comes to rest at -1015, on the floor of
+the world. Given that world, that is the correct answer.
+
+**vbsp builds the world's physics from three passes and a mesh, and each one bounds what a corpse
+can land on** (`utils/vbsp/ivp.cpp:1314-1336`):
+
+```cpp
+ConvertWorldBrushesToPhysCollide( collisionList, shrinkSize, mergeTolerance, MASK_SOLID );
+ConvertWorldBrushesToPhysCollide( collisionList, shrinkSize, mergeTolerance, CONTENTS_PLAYERCLIP );
+ConvertWorldBrushesToPhysCollide( collisionList, shrinkSize, mergeTolerance, CONTENTS_MONSTERCLIP );
+…
+if ( g_bNoVirtualMesh || !physcollision->SupportsVirtualMesh() )
+    Disp_AddCollisionModels( collisionList, &dmodels[0], MASK_SOLID );
+else
+    Disp_BuildVirtualMesh( MASK_SOLID );
+```
+
+Harvest's world model declares exactly two solids — `"contents" "33570827"` (`MASK_SOLID`) and
+`"contents" "65536"` (`CONTENTS_PLAYERCLIP`) — plus `virtualterrain {}`. There is no monsterclip
+solid because the map has no monsterclip brushes, which is why the count is two and not three.
+
+**The world is built with `NO_SHRINK`, and only brush ENTITIES are shrunk** — `BuildWorldPhysModel(
+collisionList[i], NO_SHRINK, VPHYSICS_MERGE )` against `ConvertModelToPhysCollide( …,
+VPHYSICS_SHRINK, VPHYSICS_MERGE )`, `ivp.cpp:1531` and `:1535`, where `VPHYSICS_SHRINK` is `0.5f`
+*"shrink BSP brushes by this much for collision"* (`:37`). So a systematic half-unit gap under the
+world was a candidate and is not the answer; under a `func_` brush it would be.
+
+**World brushes are MERGED, which is why a ledge is a box the size of a quarter of the map.** One of
+harvest's solid ledges spans x -4032..1472, y -3008..0, z -1056..-1024 — that is not a misplaced
+hull, it is a merged floor slab, and reading it as a placement error cost an hour. 2,844 of the
+map's 3,030 ledges have six faces, with 4, 5, 7 and 8 also present, which is what merged
+axis-aligned brushwork looks like.
+
+**`Disp_BuildVirtualMesh` tesselates from the ALLOWED verts, and power 4 turns the whole mechanism
+off** (`utils/vbsp/disp_ivp.cpp:268-320`):
+
+```cpp
+helper.m_pActiveVerts = pDispInfo->GetAllowedVerts().Base();
+::TesselateDisplacement( &helper );
+…
+params.buildOuterHull = true;
+```
+
+and `ivp.cpp:1320` — *"Map using power 4 displacements, terrain physics cannot be compressed"* —
+sets `g_bNoVirtualMesh`, after which the terrain is baked into the polysoup as ordinary ledges
+instead. **So a map's terrain is in one of two entirely different places depending on its highest
+displacement power**, and harvest is power 2..3, so its terrain is a virtual mesh and is absent from
+`LUMP_PHYSCOLLIDE` by design.
+
+### What is measured, and what is still open
+
+Our terrain is COMPLETE: **20,608 triangles built against 20,608 the lump's powers ask for**, over
+all 533 displacements — arithmetic from `2 * 4^power`, not a second reading. The terrain sweep is
+not at fault either: dropped through the middle of its own nearest triangle it hits at 0.492, which
+is the control an absence claim needs.
+
+**So the hole is real and it is small: 26 of 6,331 floored columns on harvest, 107 of 6,041 on
+2fort, 138 of 6,561 on dustbowl.** Scattered rather than in a block, which rules out a truncated
+ledge-tree walk — and that was checked directly as well, by raising the reader's depth guard from
+64 to 4,096 and measuring the same 3,030 ledges.
+
+**A larger figure from the same session is NOT this one and should not be quoted as it.** The
+neighbourhood census reports 698 of 1,089 columns where the two worlds stop more than 32 units
+apart, 696 of them with the physics world lower. That question is looser: a `func_` brush entity is
+in `LUMP_PHYSCOLLIDE` and not in the world's leaf tree, so the two legitimately disagree in both
+directions. The figure that means "a corpse has nothing to land on" is the whole-map one, and it is
+0.4% rather than 64%.
+
+**What is NOT established:** the BSP brush tree stops a trace at z 33 over that column, on brushwork
+`LUMP_PHYSCOLLIDE` does not carry, while our terrain ends at y -1408 and the column is 7.7 units
+past it. Whether the shortfall is ours or the map's is open. `LUMP_PHYSICS_DISPLACEMENT` (28), which
+is where vbsp writes each displacement's virtual-mesh collide, is not read by this project at all —
+we rebuild the mesh from `LUMP_DISPINFO` instead, and comparing the two is the next measurement.
+
+**A second defect is separable from the first and both are present.** Seeded at y -1416, ON good
+ground with a floor at z 0 beneath it, a corpse still travels 63 units north into the hole before
+falling. Ground that is missing and a corpse that will not stay put are different faults.
+
+*Evidence class: read from published SDK source for vbsp's passes, the shrink sizes and the power-4
+switch; measured on `koth_harvest_final`, `ctf_2fort` and `cp_dustbowl` for every count; arithmetic
+for the terrain denominator.*
