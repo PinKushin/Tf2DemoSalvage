@@ -1153,11 +1153,26 @@ public sealed class IvpWorldCollision
     /// <remarks>
     /// **The slab that stands in for the engine's outer hull.** `virtualmeshparams_t` carries a
     /// `buildOuterHull` flag and vphysics closes the mesh with one; a bare triangle soup has no
-    /// inside, so contact needs a thickness. Sixty-four units is half a player and several times
-    /// the twelve a body falls in one tick at terminal velocity, so nothing that should have landed
-    /// slips past it.
+    /// inside, so contact needs a thickness.
+    ///
+    /// **It was 64, and a body that got past it stopped colliding with the ground entirely** — the
+    /// slab has a BOTTOM where the engine's closed hull has none, so ground that is solid in TF2 is
+    /// a shell here and anything below it is in free space. Measured on `cp_granary` (B306): a
+    /// corpse whose limbs sank past the shell fell from −424 to −654 and kept going, with no
+    /// contact to find, which is what the owner reported as corpses disappearing.
+    ///
+    /// **A body does not arrive below the shell in one step — it accumulates.** The velocity clamp
+    /// is 2,000 units a second and a step is 0.015, so 30 units is the most a point can travel in
+    /// one; 64 was chosen against exactly that and is sound for a single crossing. What defeats it
+    /// is a body the contact solve pushes out and gravity puts back, a little deeper each time,
+    /// until it is through — so the depth has to cover the accumulated case, not the one-step one.
+    ///
+    /// **512 rather than unbounded, because this is also the filing depth.** `AddTriangle` files a
+    /// triangle into every grid cell from `Cell(minZ − TerrainDepth)` up, so this multiplies terrain
+    /// storage: at a 128-unit cell it is four to five cells per triangle instead of one to two.
+    /// Deeper than anything a corpse accumulates in a demo, and still bounded.
     /// </remarks>
-    private const float TerrainDepth = 64f;
+    private const float TerrainDepth = 512f;
 
     /// <summary><c>FLT_EPSILON</c>, the floor the engine's own guards use.</summary>
     private const float FloatEpsilon = 1.1920929e-07f;
