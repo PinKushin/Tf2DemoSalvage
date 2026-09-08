@@ -3718,3 +3718,34 @@ does rather than re-deriving one each step — only then are the compensators re
 
 *Evidence class: read from published SDK source for the callback and the params; measured for the
 6.1484184f → 11.153114f attempt.*
+
+### And the faces are already parsed — they are discarded one line before the physics (B306)
+
+**`PhysicsLedge` carries `Points` AND `Triangles`** — the real faces out of the `IVPS` compact-ledge
+structure, already read from a `.phy` and from a map's `LUMP_PHYSCOLLIDE`. Then
+`RagdollSimulation` builds a body with
+
+```csharp
+Hull = Points(element.Hull),
+```
+
+which flattens every ledge to a bare point cloud and drops the triangles before the physics ever
+sees them.
+
+**That one line forced everything downstream.** With no faces on a body there is no incident face to
+clip, no edge to test another edge against, and no way to ask the engine's question at all — so the
+narrow phase became the only thing a point cloud supports: sample each vertex against a triangle
+PLANE inside a slab. `Separate`, `Slop`, `Recovery`, `MaximumRecovery` and `TerrainDepth` are all
+cleanup for that, and none of them exists in vphysics.
+
+**So the port is not blocked on reading a closed format.** Valve's face data is in memory and is
+being thrown away. Carrying `PhysicsLedge` through to `IvpRigidBody` instead of flattening it is the
+first step, and it is what makes hull-vs-triangle contact — the engine's own question, per
+`virtualmesh.h`'s `GetTrianglesInSphere` — expressible at all.
+
+**Order of work, so it is not started from the wrong end again:** carry the faces onto the body;
+add hull-vs-triangle contact using them and the existing `Gjk`/`Support`; keep the closest-feature
+pair per (body, triangle) across steps as the mindist does; remove the vertex sampling; then delete
+the compensators, which have nothing left to compensate for.
+
+*Evidence class: read from this project's own source.*
