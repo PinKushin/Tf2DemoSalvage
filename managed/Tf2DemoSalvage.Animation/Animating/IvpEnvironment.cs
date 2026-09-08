@@ -173,6 +173,31 @@ public sealed class IvpEnvironment
     /// </remarks>
     private readonly List<IvpContact> _contacts = [];
 
+    /// <summary>The contacts the resting solve walks — this slice's, and that is a KNOWN gap.</summary>
+    /// <remarks>
+    /// **The resting solve should see the whole PSI's contacts and sees only the last slice's.**
+    /// `_contacts` is cleared at the top of every `Advance`, because the impact solve is about the
+    /// arrivals in that sub-interval; `Rub` then runs on whatever the last one left behind, so a
+    /// body whose contact was found in the first slice and not the third gets no `Separate` and no
+    /// `Rub` that tick. IVP has no such gap: `FUN_1800836b0` walks each friction SYSTEM exactly
+    /// once per PSI, and a system is a persistent set belonging to an object rather than the
+    /// contents of whichever sub-interval finished last.
+    ///
+    /// **Pooling the slices was TRIED and measured worse, which is why this alias exists rather
+    /// than a second list.** Carrying every slice's contacts into one set took the slope
+    /// conformance test from 33.5 units a second to 19.2 — a real improvement — and took the corpse
+    /// drops from four of five settling and sleeping to two, because a pooled contact carries the
+    /// DEPTH and the ARM it was measured at, from a position the body has since left. `Separate`
+    /// takes the deepest of a manifold, so stale depths make the position correction larger and the
+    /// free lift with it, which is the pump this solver already fights.
+    ///
+    /// **So the fix is not the pooling, it is re-evaluating each contact at the PSI's end state**,
+    /// which is what the engine's contact does — and underneath that, the retained closest-feature
+    /// pair that would stop a depth being re-derived at all. Five measurements now name that same
+    /// missing piece.
+    /// </remarks>
+    private List<IvpContact> _resting => _contacts;
+
     /// <summary>How many contacts the last step found.</summary>
     /// <remarks>
     /// **Carried out of the step that used them, never recounted** (B243). "The corpse is still
@@ -296,6 +321,7 @@ public sealed class IvpEnvironment
 
         Passes = 0;
         Split = (0f, 0f, 0f);
+        Rubbing = (0f, 0f, 0);
 
         // **The walk is bounded by the number of SLICES as well as by the check count, and that
         // second bound is not a belt-and-braces addition — without it this loop does not
@@ -333,9 +359,9 @@ public sealed class IvpEnvironment
         // carries forward several corrections stale.
         _slice = Step;
 
-        for (int index = 0; index < _contacts.Count; index++)
+        for (int index = 0; index < _resting.Count; index++)
         {
-            _contacts[index].Rubbed = false;
+            _resting[index].Rubbed = false;
         }
 
         Rub();
@@ -357,6 +383,15 @@ public sealed class IvpEnvironment
 
     /// <summary>And the contact solve's own three passes, split the same way.</summary>
     public (float Oppose, float Separate, float Rub) Split { get; private set; }
+
+    /// <summary>What friction asked for last step, what the cone allowed, and how often it bound.</summary>
+    /// <remarks>
+    /// **"Friction is not holding it" has two causes that need opposite fixes**, and one number
+    /// cannot separate them: the Coulomb cone refusing an impulse the solve asked for, and the
+    /// solve never asking. The first is a normal impulse too small — the cone is
+    /// <c>friction × Accumulated</c> — and the second is the warm start's target.
+    /// </remarks>
+    public (float Wanted, float Allowed, int Clamped) Rubbing { get; private set; }
 
     /// <summary>Total kinetic energy of every body, linear and angular.</summary>
     private float Energy()
@@ -581,15 +616,15 @@ public sealed class IvpEnvironment
     /// runs inside the interval walk where arrivals happen; <see cref="Rub"/> is the second and
     /// runs once.
     /// </remarks>
-    private void Arrive() => Manifolds(arriving: true);
+    private void Arrive() => Manifolds(_contacts, arriving: true);
 
-    private void Rub() => Manifolds(arriving: false);
+    private void Rub() => Manifolds(_resting, arriving: false);
 
-    private void Manifolds(bool arriving)
+    private void Manifolds(List<IvpContact> contacts, bool arriving)
     {
-        for (int index = 0; index < _contacts.Count; index++)
+        for (int index = 0; index < contacts.Count; index++)
         {
-            IvpContact contact = _contacts[index];
+            IvpContact contact = contacts[index];
 
             if (contact.Rubbed)
             {
@@ -600,9 +635,9 @@ public sealed class IvpEnvironment
             float deepest = contact.Depth;
             int count = 1;
 
-            for (int other = index + 1; other < _contacts.Count; other++)
+            for (int other = index + 1; other < contacts.Count; other++)
             {
-                IvpContact beside = _contacts[other];
+                IvpContact beside = contacts[other];
 
                 if (beside.Rubbed || !ReferenceEquals(beside.Body, contact.Body) ||
                     Facing(beside.Normal, contact.Normal) < Shared)
@@ -665,6 +700,11 @@ public sealed class IvpEnvironment
             float separated = Energy();
 
             contact.Rub(IvpConstraintGroup.Relaxation, arm, contact.Accumulated);
+
+            Rubbing = (
+                Rubbing.Wanted + contact.Wanted,
+                Rubbing.Allowed + contact.Allowed,
+                Rubbing.Clamped + (contact.Wanted > contact.Allowed ? 1 : 0));
 
             Split = (
                 Split.Oppose,

@@ -252,7 +252,12 @@ public sealed class CorpseDropProbe : IProbe
                     $"    tick {tick,3} z {at0.Position.Z,9:0.#} speed {speed,7:0.#} " +
                     $"contacts {simulation.Environment.Contacts,3} " +
                     $"deepest {simulation.Environment.DeepestContact,7:0.##} " +
-                    $"oppose {oppose,11:0.#} separate {separate,11:0.#} rub {rub,11:0.#}");
+                    $"oppose {oppose,11:0.#} separate {separate,11:0.#} rub {rub,11:0.#} " +
+                    $"friction wanted {simulation.Environment.Rubbing.Wanted,9:0.#} " +
+                    $"allowed {simulation.Environment.Rubbing.Allowed,9:0.#} " +
+                    $"clamped {simulation.Environment.Rubbing.Clamped,3} " +
+                    $"gravity {simulation.Environment.Gained.Gravity,10:0.#} " +
+                    $"joints {simulation.Environment.Gained.Joints,11:0.#}");
             }
         }
 

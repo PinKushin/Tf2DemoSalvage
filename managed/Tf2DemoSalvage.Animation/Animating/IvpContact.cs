@@ -150,6 +150,12 @@ public sealed class IvpContact
     /// <summary>The impulse applied so far, accumulated across iterations.</summary>
     public float Accumulated { get; private set; }
 
+    /// <summary>The friction impulse the last solve ASKED for, before the cone.</summary>
+    public float Wanted { get; private set; }
+
+    /// <summary>And what the Coulomb cone allowed it — <c>friction × the normal impulse</c>.</summary>
+    public float Allowed { get; private set; }
+
     /// <summary>
     /// The approach speed latched before the impulse loop — <c>FUN_18008e290</c>'s <c>fVar17</c>.
     /// </summary>
@@ -599,6 +605,12 @@ public sealed class IvpContact
         // limiting a single magnitude before it.
         float limit = Body.Friction * normal;
         float size = MathF.Sqrt((impulseFirst * impulseFirst) + (impulseSecond * impulseSecond));
+
+        // **Carried out of the solve rather than recomputed by a caller** (B243). "Friction is not
+        // holding it" has two entirely different causes — the cone refusing the impulse, and the
+        // solve not asking for one — and only the pair of numbers tells them apart.
+        Wanted = size;
+        Allowed = limit;
 
         if (size > limit && size > FloatEpsilon)
         {
