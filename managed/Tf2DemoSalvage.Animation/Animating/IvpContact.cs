@@ -116,7 +116,7 @@ public sealed class IvpContact
 
         if (slot < 0)
         {
-            Body.Sliding.Add((Feature, 0f, 0f, 0f, local));
+            Body.Sliding.Add((Normal, 0f, 0f, 0f, local));
 
             return fresh;
         }
@@ -131,7 +131,7 @@ public sealed class IvpContact
             kept.Z + ((local.Z - kept.Z) * weight));
 
         Body.Sliding[slot] = (
-            Feature,
+            Normal,
             Body.Sliding[slot].Holding,
             Body.Sliding[slot].First,
             Body.Sliding[slot].Second,
@@ -481,12 +481,12 @@ public sealed class IvpContact
 
         if (slot < 0)
         {
-            Body.Sliding.Add((Feature, total, 0f, 0f, arm));
+            Body.Sliding.Add((Normal, total, 0f, 0f, arm));
         }
         else
         {
             Body.Sliding[slot] = (
-                Feature,
+                Normal,
                 total,
                 Body.Sliding[slot].First,
                 Body.Sliding[slot].Second,
@@ -656,12 +656,12 @@ public sealed class IvpContact
 
         if (slot < 0)
         {
-            Body.Sliding.Add((Feature, 0f, Dot(settled, first), Dot(settled, second), arm));
+            Body.Sliding.Add((Normal, 0f, Dot(settled, first), Dot(settled, second), arm));
         }
         else
         {
             Body.Sliding[slot] = (
-                Feature,
+                Normal,
                 Body.Sliding[slot].Holding,
                 Dot(settled, first),
                 Dot(settled, second),
@@ -677,6 +677,12 @@ public sealed class IvpContact
     /// linear walk is the right shape; a body that stops touching a surface simply stops finding
     /// its entry, and the stale one costs a slot rather than a wrong answer.
     /// </remarks>
+    /// <summary>How closely two normals must agree to count as the same warm-start slot.</summary>
+    /// <remarks>The same threshold <c>IvpEnvironment.Shared</c> groups a manifold by — about eight
+    /// degrees, wide enough to survive float noise and narrow enough not to merge two real
+    /// faces.</remarks>
+    private const float SameNormal = 0.99f;
+
     private int Remembered()
     {
         if (Feature == Speculative)
@@ -684,9 +690,22 @@ public sealed class IvpContact
             return -1;
         }
 
+        // **Keyed by NORMAL, not by the exact feature id, and the two are not the same thing.**
+        // Two coplanar triangles — the common case for a flat slope built from more than one, or a
+        // brush face the compiler split — share a normal but not a feature id once terrain
+        // identifies itself per triangle. Matching the id exactly reset this warm start every time
+        // the representative contact happened to land on the OTHER triangle of the same flat
+        // surface, which is indistinguishable from a real change of surface if only the id is
+        // compared. The doc this replaces already named normal identity as the correct key
+        // — see the remarks above <see cref="IvpRigidBody.Sliding"/> — the comparison just never
+        // matched what was actually stored.
         for (int index = 0; index < Body.Sliding.Count; index++)
         {
-            if (Body.Sliding[index].Face == Feature)
+            (float X, float Y, float Z) stored = Body.Sliding[index].Normal;
+
+            float cosine = (stored.X * Normal.X) + (stored.Y * Normal.Y) + (stored.Z * Normal.Z);
+
+            if (cosine >= SameNormal)
             {
                 return index;
             }

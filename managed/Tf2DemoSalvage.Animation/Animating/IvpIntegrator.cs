@@ -190,7 +190,7 @@ public sealed class IvpRigidBody
     /// comes from** — a stateless pass can only react to the slide it can already see.
     /// </remarks>
     public IList<(
-        int Face,
+        (float X, float Y, float Z) Normal,
         float Holding,
         float First,
         float Second,

@@ -649,6 +649,7 @@ public sealed class IvpEnvironment
 
             (float X, float Y, float Z) centre = contact.Arm;
             float deepest = contact.Depth;
+            float weight = contact.Accumulated;
             int count = 1;
 
             for (int other = index + 1; other < contacts.Count; other++)
@@ -664,6 +665,15 @@ public sealed class IvpEnvironment
                 beside.Rubbed = true;
                 deepest = MathF.Max(deepest, beside.Depth);
                 centre = (centre.X + beside.Arm.X, centre.Y + beside.Arm.Y, centre.Z + beside.Arm.Z);
+
+                // **The friction cone's budget is SUMMED across the manifold, not read off the one
+                // representative contact.** The centroid and the deepest point already gather the
+                // whole group; the normal force holding the body up has to be gathered the same
+                // way, or the cone judges a body's total weight by whichever single vertex happened
+                // to be first in the list. `docs/findings/51` names this "the SHARED budget… still
+                // missing" — `FUN_1800836b0` sums a budget across a friction system's own contacts
+                // before `FUN_1800857c0` clamps any one of them against it, which is this.
+                weight += beside.Accumulated;
                 count++;
             }
 
@@ -723,7 +733,7 @@ public sealed class IvpEnvironment
 
             float separated = Energy();
 
-            contact.Rub(IvpConstraintGroup.Relaxation, arm, contact.Accumulated);
+            contact.Rub(IvpConstraintGroup.Relaxation, arm, weight);
 
             Rubbing = (
                 Rubbing.Wanted + contact.Wanted,
