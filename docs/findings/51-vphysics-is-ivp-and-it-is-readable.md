@@ -3456,6 +3456,17 @@ landing at an angle on a slope. That is not an obviously wrong number for an imp
 and it is far short of the eventual tumble's magnitude — so the spin-up compounds during the
 ONGOING resting phase, consistent with everything measured above, not from one bad initial kick.
 
+**A third lead looked promising and dissolved on closer reading — recorded so it is not re-raised.**
+`IvpEnvironment._resting` is literally `_contacts` (`private List<IvpContact> _resting => _contacts;`)
+and `_contacts` is cleared at the top of every slice's `Advance()` call, so `Rub()` — called once
+after the whole interval is walked — only ever sees whatever the LAST slice's `Find()` populated.
+That looked like a real bug: a point that mattered in an earlier slice but not the final one would
+never reach friction at all. It is not, because `IvpContact.Find` is not incremental — every call
+unconditionally re-tests every hull point against the world from scratch, so the final slice's
+`_contacts` already IS the body's complete current touching set, not a partial one missing earlier
+slices' points. Checked by reading `Find`'s loop bound again rather than by writing an accumulator
+and measuring whether it helped.
+
 **Correcting my own later mis-citation of this same finding.** Several commits after this section
 was written, `corpse-drop`'s default report of "4 of 5 settle, the fifth leaves the world" was cited
 repeatedly as an open, unrelated ground-hole divergence — as if a fourth defect remained beside the
