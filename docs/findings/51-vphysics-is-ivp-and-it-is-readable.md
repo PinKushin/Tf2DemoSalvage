@@ -3258,11 +3258,35 @@ in `LUMP_PHYSCOLLIDE` and not in the world's leaf tree, so the two legitimately 
 directions. The figure that means "a corpse has nothing to land on" is the whole-map one, and it is
 0.4% rather than 64%.
 
-**What is NOT established:** the BSP brush tree stops a trace at z 33 over that column, on brushwork
-`LUMP_PHYSCOLLIDE` does not carry, while our terrain ends at y -1408 and the column is 7.7 units
-past it. Whether the shortfall is ours or the map's is open. `LUMP_PHYSICS_DISPLACEMENT` (28), which
-is where vbsp writes each displacement's virtual-mesh collide, is not read by this project at all —
-we rebuild the mesh from `LUMP_DISPINFO` instead, and comparing the two is the next measurement.
+### The word "hole" was wrong, and so was the subject
+
+**The owner, on the first version of this: *"they literally cant have holes because hammer doesnt
+allow holes, so idk what you mean by holes"*. He is right and the correction is worth more than the
+finding was.** The map has no hole in it. What has a gap is a reading of the map, and the whole
+question is WHICH reading.
+
+**Our physics world is complete, and this is the measurement that settles it.**
+`koth_harvest_final`'s `LUMP_BRUSHES` declares **2,722 solid and 314 playerclip brushes** against
+**3,030 ledges** read out of `LUMP_PHYSCOLLIDE` — and vbsp writes one convex per referenced brush,
+`VisitLeaves_r( planes, dmodels[0].headnode ); planes.AddBrushes();` (`ivp.cpp:1278-1279`). Model 0's
+two solids read 2,671 and 312 against those 2,722 and 314. Nothing is being dropped.
+
+**So the 26 columns are the CAMERA's reading, not the corpse's.** Our `BspLeafTree.Sweep` stops on
+brushes that vphysics has no collision for — a displacement's base brush is solid in `LUMP_BRUSHES`
+and absent from `LUMP_PHYSCOLLIDE` by design, because `virtualterrain {}` hands that ground to the
+virtual mesh instead. A corpse and a camera therefore SHOULD disagree there, and the instrument was
+reporting the disagreement as a defect in the corpse's world.
+
+**Which also disposes of the corpse that started this.** Its seed is where the demo's ragdoll
+SPAWNS, not where it comes to rest; the probe drops it from rest at a point the real corpse only
+passes over. The instrument's own defaults were the error, not the world — the fourth time a probe
+here has produced a confident wrong answer and the reason
+`docs/memory/instrument-bugs-outnumber-decoder-bugs.md` exists.
+
+**What is genuinely open**: `LUMP_PHYSICS_DISPLACEMENT` (28), where vbsp writes each displacement's
+virtual-mesh collide, is not read by this project at all — we rebuild the mesh from `LUMP_DISPINFO`.
+Since the tesselation is now Valve's own, the two should agree, and comparing them is the check that
+would prove it rather than assume it.
 
 **A second defect is separable from the first and both are present.** Seeded at y -1416, ON good
 ground with a floor at z 0 beneath it, a corpse still travels 63 units north into the hole before

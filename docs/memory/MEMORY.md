@@ -55,6 +55,7 @@
 - [An uncoverable gap is usually your reader](an-uncoverable-gap-is-usually-your-reader.md) — exclusions describe your parser.
 - [Output-level assertion or it is not done](output-level-assertion-or-it-is-not-done.md) — only it catches wiring.
 - [An empty search needs a control](an-empty-search-needs-a-control.md) — absence is often about the grep.
+- [A map cannot have a hole](a-map-cannot-have-a-hole.md) — name the reading, not the geometry.
 - [Wire names are strings](wire-names-are-strings.md) — SENDINFO_NAME sends under its second argument.
 - [A running client caches its config](a-running-client-caches-its-config.md) — a stale read fakes a failed fix.
 - [Nothing is closed](nothing-is-closed.md) — SDK, headers, shipped data, binaries, decompiler.

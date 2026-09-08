@@ -7908,3 +7908,30 @@ permanent record and becomes the remembered one.
 loop, state what ONE ITERATION is over on the engine's side.** `iVar15 < 100` bounds the passes over
 a single mindist pair. Writing that sentence down would have caught the scope error immediately, and
 no amount of re-reading the function did.
+
+## D149 — the map cannot have a hole, so name the READING that does (2026-09-07)
+
+**The owner, cutting a whole line of investigation short: *"they literally cant have holes because
+hammer doesnt allow holes, so idk what you mean by holes"*.** He is right, and the direction the
+correction points matters more than the fact.
+
+I had measured columns on `koth_harvest_final` where a ray fell through ground and reported them as
+holes in the map's collision. A `.bsp` is compiled from a sealed solid; the geometry is not the
+thing with a gap in it. What has a gap is a READING, and there are at least four readings of the
+same map in this project — the physics ledges out of `LUMP_PHYSCOLLIDE`, the terrain rebuilt from
+`LUMP_DISPINFO`, the brush tree out of `LUMP_BRUSHES`, and whatever a probe assembles from those.
+Saying "hole" instead of naming which one collapses all four into a claim about Valve's data.
+
+**Making the question "which reading" produced the answer in one measurement.** `LUMP_BRUSHES`
+declares 2,722 solid and 314 playerclip brushes; we read 3,030 ledges, model 0's two solids giving
+2,671 and 312. vbsp writes one convex per referenced brush, so our physics world is complete and the
+gaps were in the CAMERA's reading — which stops on displacement base brushes that vphysics
+deliberately has no collision for. The corpse's world and the camera's world SHOULD disagree there.
+
+**So the rule: a defect is never in the map. Name the reading, and give it its denominator from the
+file.** "The physics world floors 6,331 columns where the camera world floors 6,331" is a claim that
+can be wrong; "the map has holes" is a claim that cannot be right.
+
+**This is the same shape as `docs/memory/an-empty-search-needs-a-control.md` one level up.** That
+rule says an absence is usually about the grep; this one says an absence is usually about which of
+several parallel readings you asked.
