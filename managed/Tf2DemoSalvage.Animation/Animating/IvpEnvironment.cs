@@ -322,6 +322,7 @@ public sealed class IvpEnvironment
         Passes = 0;
         Split = (0f, 0f, 0f);
         Rubbing = (0f, 0f, 0);
+        Lifted = 0f;
 
         // **The walk is bounded by the number of SLICES as well as by the check count, and that
         // second bound is not a belt-and-braces addition — without it this loop does not
@@ -383,6 +384,21 @@ public sealed class IvpEnvironment
 
     /// <summary>And the contact solve's own three passes, split the same way.</summary>
     public (float Oppose, float Separate, float Rub) Split { get; private set; }
+
+    /// <summary>Potential energy the position corrections handed the bodies last step.</summary>
+    /// <remarks>
+    /// **The term the kinetic split is blind to, and the reason a pump stayed hidden.** `Split`
+    /// reports what `Oppose`, `Separate` and `Rub` do to KINETIC energy; a position correction moves
+    /// a body without touching its velocity, so it contributes nothing there while handing gravity
+    /// a fresh `m · g · Δh` to convert on the way back down. Measured on a corpse resting at z 5
+    /// to 11: all three passes dissipating, and gravity returning 96,000 to 114,000 a tick against
+    /// the 7,485 a body at rest should take.
+    ///
+    /// **The engine has no such term at all**, because its mindist scheduler re-checks a pair before
+    /// the two reach each other and a body never carries an overlap to correct. This number is
+    /// therefore a measure of how far this solver is from that, in the units the defect is felt in.
+    /// </remarks>
+    public float Lifted { get; private set; }
 
     /// <summary>What friction asked for last step, what the cone allowed, and how often it bound.</summary>
     /// <remarks>
@@ -696,6 +712,14 @@ public sealed class IvpEnvironment
             // **So the remaining energy is not a term to tune, it is a missing state.** The warm
             // start built for the tangential pair is the same structure the normal needs.
             contact.Separate(_slice, arm, deepest);
+
+            // **The potential energy the correction handed the body**, `m · g · Δh`, which is the
+            // work gravity gets to do on it all over again on the way back down. Summed with the
+            // same sign convention as `Split`, so a positive number is energy the solver ADDED.
+            if (contact.Body.InverseMass > 0f)
+            {
+                Lifted += contact.Lifted * -Gravity.Z / contact.Body.InverseMass;
+            }
 
             float separated = Energy();
 

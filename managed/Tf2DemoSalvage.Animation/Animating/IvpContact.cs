@@ -150,6 +150,9 @@ public sealed class IvpContact
     /// <summary>The impulse applied so far, accumulated across iterations.</summary>
     public float Accumulated { get; private set; }
 
+    /// <summary>How far UP the last position correction moved this body, in Source units.</summary>
+    public float Lifted { get; private set; }
+
     /// <summary>The friction impulse the last solve ASKED for, before the cone.</summary>
     public float Wanted { get; private set; }
 
@@ -437,6 +440,18 @@ public sealed class IvpContact
                 Body.Position.X + (Normal.X * shift),
                 Body.Position.Y + (Normal.Y * shift),
                 Body.Position.Z + (Normal.Z * shift));
+
+            // **How far UP this correction moved the body, which is the one term the energy split
+            // cannot see.** `Energy()` is kinetic; a position correction adds POTENTIAL energy and
+            // shows as nothing, so a solver lifting bodies for free reads as three passes all
+            // dissipating while the thing speeds up. That is exactly what was measured — gravity
+            // handing back 96,000 a tick to a corpse whose height never changed — and it stayed
+            // hidden because the instrument had no term for it.
+            Lifted = shift * Normal.Z;
+        }
+        else
+        {
+            Lifted = 0f;
         }
 
         // **Signed, so a contact carrying too much support gives it back.** Clamping this to the

@@ -257,7 +257,8 @@ public sealed class CorpseDropProbe : IProbe
                     $"allowed {simulation.Environment.Rubbing.Allowed,9:0.#} " +
                     $"clamped {simulation.Environment.Rubbing.Clamped,3} " +
                     $"gravity {simulation.Environment.Gained.Gravity,10:0.#} " +
-                    $"joints {simulation.Environment.Gained.Joints,11:0.#}");
+                    $"joints {simulation.Environment.Gained.Joints,11:0.#} " +
+                    $"lifted {simulation.Environment.Lifted,10:0.#}");
             }
         }
 
