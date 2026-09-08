@@ -194,7 +194,8 @@ public sealed class IvpRigidBody
         float Holding,
         float First,
         float Second,
-        (float X, float Y, float Z) Local)> Sliding { get; } = [];
+        (float X, float Y, float Z) Local,
+        int Point)> Sliding { get; } = [];
 
 
     private IReadOnlyList<(float X, float Y, float Z)> _hull = [];

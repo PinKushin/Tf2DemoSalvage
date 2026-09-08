@@ -116,7 +116,7 @@ public sealed class IvpContact
 
         if (slot < 0)
         {
-            Body.Sliding.Add((Normal, 0f, 0f, 0f, local));
+            Body.Sliding.Add((Normal, 0f, 0f, 0f, local, Point));
 
             return fresh;
         }
@@ -135,7 +135,8 @@ public sealed class IvpContact
             Body.Sliding[slot].Holding,
             Body.Sliding[slot].First,
             Body.Sliding[slot].Second,
-            blended);
+            blended,
+            Point);
 
         return IvpQuaternion.Rotate(Body.Orientation, blended);
     }
@@ -503,7 +504,7 @@ public sealed class IvpContact
 
         if (slot < 0)
         {
-            Body.Sliding.Add((Normal, total, 0f, 0f, arm));
+            Body.Sliding.Add((Normal, total, 0f, 0f, arm, Point));
         }
         else
         {
@@ -512,7 +513,8 @@ public sealed class IvpContact
                 total,
                 Body.Sliding[slot].First,
                 Body.Sliding[slot].Second,
-                Body.Sliding[slot].Local);
+                Body.Sliding[slot].Local,
+                Point);
         }
 
     }
@@ -678,7 +680,7 @@ public sealed class IvpContact
 
         if (slot < 0)
         {
-            Body.Sliding.Add((Normal, 0f, Dot(settled, first), Dot(settled, second), arm));
+            Body.Sliding.Add((Normal, 0f, Dot(settled, first), Dot(settled, second), arm, Point));
         }
         else
         {
@@ -687,7 +689,8 @@ public sealed class IvpContact
                 Body.Sliding[slot].Holding,
                 Dot(settled, first),
                 Dot(settled, second),
-                Body.Sliding[slot].Local);
+                Body.Sliding[slot].Local,
+                Point);
         }
     }
 
@@ -721,8 +724,20 @@ public sealed class IvpContact
         // compared. The doc this replaces already named normal identity as the correct key
         // — see the remarks above <see cref="IvpRigidBody.Sliding"/> — the comparison just never
         // matched what was actually stored.
+        //
+        // **And ALSO by which hull point, once friction started being solved at every manifold
+        // member rather than one.** Normal alone collided every point resting on the same flat
+        // surface onto the SAME slot, so within one step's multi-point loop each point's own Rub
+        // call overwrote the tangential slip the point processed just before it — only the last
+        // point in the list ever kept a real warm start. A slope test measured at 20 units a
+        // second with the multi-point fix landed there DESPITE this bug, not because it was absent.
         for (int index = 0; index < Body.Sliding.Count; index++)
         {
+            if (Body.Sliding[index].Point != Point)
+            {
+                continue;
+            }
+
             (float X, float Y, float Z) stored = Body.Sliding[index].Normal;
 
             float cosine = (stored.X * Normal.X) + (stored.Y * Normal.Y) + (stored.Z * Normal.Z);
