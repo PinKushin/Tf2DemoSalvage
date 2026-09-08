@@ -656,6 +656,8 @@ public sealed class IvpEnvironment
             // forcing representative continuity is not the fix, a third confirmation that patching
             // around this symptom without the actual stable multi-point manifold makes things worse
             // rather than better.
+            List<IvpContact> members = [contact];
+
             (float X, float Y, float Z) centre = contact.Arm;
             float deepest = contact.Depth;
             float weight = contact.Accumulated;
@@ -671,6 +673,7 @@ public sealed class IvpEnvironment
                     continue;
                 }
 
+                members.Add(beside);
                 beside.Rubbed = true;
                 deepest = MathF.Max(deepest, beside.Depth);
                 centre = (centre.X + beside.Arm.X, centre.Y + beside.Arm.Y, centre.Z + beside.Arm.Z);
@@ -742,7 +745,17 @@ public sealed class IvpEnvironment
 
             float separated = Energy();
 
-            contact.Rub(IvpConstraintGroup.Relaxation, arm, weight);
+            // **Friction is solved at EVERY member's own arm, not collapsed to one point.** Three
+            // attempts to fix the arm — the centroid, a persisted single representative — measured
+            // worse each time (`docs/findings/51`). All three still solved torque through exactly
+            // one point, and a real manifold does not: `FUN_1800836b0` walks a friction SYSTEM's
+            // own contacts, which for a face-face pair is several, each reacting to its OWN local
+            // slip. A single averaged or persisted point cannot represent a body that is genuinely
+            // touching several — it manufactures a slip that belongs to no real point.
+            for (int member = 0; member < members.Count; member++)
+            {
+                members[member].Rub(IvpConstraintGroup.Relaxation, members[member].Arm, weight);
+            }
 
             Rubbing = (
                 Rubbing.Wanted + contact.Wanted,
