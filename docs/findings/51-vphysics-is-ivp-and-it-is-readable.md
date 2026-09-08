@@ -3402,6 +3402,37 @@ random-walking. `IvpWorldLedge.Support` and `Gjk.Distance`, built and wired this
 single closest-point PAIR per body-ledge pair; they do not yet give the multi-point manifold this
 symptom needs. That remains the open, scoped, multi-week item.
 
+### Two real fixes narrowed the gap; the residual is not a convergence-time problem
+
+Two fixes landed on the mechanism the spin-up trace pointed at: friction solved at every manifold
+member's own arm instead of one collapsed point (31.1 → 20.0 units/sec), and each member keyed to
+its own warm-start slot rather than colliding on one shared by normal alone (20.0 → 9.3). Both
+measured with zero regression across the suite, the gate, and all four real corpse-drop seeds.
+
+**A scratch run at 1,600 steps — four times the test's 400 — corrects an over-read of the second
+fix's own trace.** A sixteen-line sample taken right after the second fix showed angular velocity
+falling steadily, which looked like ordinary convergence still in progress. Extending the run
+disproves that: speed at step 400 is 7.95, close to the committed measurement, but by step 800 it is
+back up to 22.86, then 18.8, then 18.2 at 1,599. **This is not decaying toward rest — it is
+oscillating, net roughly flat, well past the point four times as much simulated time as the failing
+test already allows.**
+
+**The likely mechanism is a genuine physical one this solver cannot arrest by construction, not a
+bug still to find.** A rigid box that starts tumbling on a one-directional slope, rather than
+sliding flat, can keep re-gaining energy each time it rolls over one of its own corners — gravity
+does work on the fall, and Coulomb friction only opposes SLIP at a contact, never rotation. A body
+in a genuine tumble can have near-zero slip at its instantaneous contact point the whole time (which
+matches the measured `wanted` values staying tiny, well under the cone's `allowed` budget, for most
+of the run) while still carrying substantial linear and angular kinetic energy from the tumble
+itself. The two fixes reduced how BADLY the spurious contact churn spins the body up; they did not
+stop the spin-up from starting, because that requires the actual stable manifold — a real narrow
+phase never lets the body tumble in the first place, holding a face-face contact through the
+churn that currently starts the tumble.
+
+**So the remaining gap is not "needs more steps" and not a fifth tunable in the friction layer.**
+It is the same feature-based narrow phase five earlier sections and the spin-up trace all name,
+now confirmed as the actual bottleneck by a direct measurement that a longer run does not converge.
+
 **Correcting my own later mis-citation of this same finding.** Several commits after this section
 was written, `corpse-drop`'s default report of "4 of 5 settle, the fifth leaves the world" was cited
 repeatedly as an open, unrelated ground-hole divergence — as if a fourth defect remained beside the
