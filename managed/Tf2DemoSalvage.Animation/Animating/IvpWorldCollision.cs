@@ -24,11 +24,59 @@ namespace Tf2DemoSalvage.Animation.Animating;
 /// (`game/client/physics.cpp:249`). Without it a corpse collides with every brush in the map
 /// including the ones written to stop players and nothing else.
 /// </param>
+/// <param name="Vertices">
+/// Every distinct vertex a surviving triangle uses, in Source units, needed only for
+/// <see cref="Support"/> — a GJK-style narrow phase asks for a shape's extreme point along a
+/// direction, and a plane set alone cannot answer that; only the hull's own vertices can.
+/// </param>
 public readonly record struct IvpWorldLedge(
     Vector3 Center,
     float Radius,
     IReadOnlyList<(Vector3 Normal, float Distance)> Planes,
-    int Contents);
+    int Contents,
+    IReadOnlyList<Vector3> Vertices)
+{
+    /// <summary>The GJK support function: this ledge's extreme vertex along a direction.</summary>
+    /// <param name="direction">Need not be normalised — only its direction is used.</param>
+    /// <returns>The vertex maximising the dot product with <paramref name="direction"/>.</returns>
+    /// <remarks>
+    /// **This is the one primitive a convex-convex distance solver is built on, and it is the piece
+    /// this project never had.** `docs/findings/51` reads the engine's own mindist geometry
+    /// (`FUN_180096680`) as a GJK/EPA solver — a warm-started simplex built entirely out of calls to
+    /// each body's own support function. A ledge could answer "which face is shallowest" but never
+    /// "which vertex is furthest this way", which is the question GJK actually asks, every
+    /// iteration, of both shapes in a pair.
+    ///
+    /// **Brute force over `Vertices`, not the plane set.** A convex hull's planes bound the
+    /// interior; its support point is one of its VERTICES, and there is no way to get one from
+    /// planes without re-deriving the hull first. This is why `Vertices` exists on this record at
+    /// all — plane data alone cannot support this method, which is the actual gap the plane-only
+    /// version had.
+    /// </remarks>
+    public Vector3 Support(Vector3 direction)
+    {
+        if (Vertices.Count == 0)
+        {
+            return Center;
+        }
+
+        Vector3 best = Vertices[0];
+        float bestDot = Vector3.Dot(best, direction);
+
+        for (int index = 1; index < Vertices.Count; index++)
+        {
+            float dot = Vector3.Dot(Vertices[index], direction);
+
+            if (dot > bestDot)
+            {
+                bestDot = dot;
+                best = Vertices[index];
+            }
+        }
+
+        return best;
+    }
+}
 
 /// <summary>One triangle of terrain, with its own plane.</summary>
 /// <param name="A">First vertex, in Source units.</param>
@@ -280,6 +328,12 @@ public sealed class IvpWorldCollision
 
         List<(Vector3 Normal, float Distance)> planes = [];
 
+        // **Every vertex a surviving triangle actually uses, deduplicated by value.** A GJK support
+        // query needs the hull's own VERTICES, not its planes — see `IvpWorldLedge.Support` — and
+        // there is no way to recover them once only planes are kept. Building this list is the same
+        // walk that already builds `planes`, so it costs nothing extra to keep.
+        List<Vector3> vertices = [];
+
         foreach ((int a, int b, int c) in triangles)
         {
             if (a < 0 || b < 0 || c < 0 ||
@@ -308,6 +362,10 @@ public sealed class IvpWorldCollision
             {
                 planes.Add((normal, distance));
             }
+
+            AddVertex(vertices, first);
+            AddVertex(vertices, second);
+            AddVertex(vertices, third);
         }
 
         if (planes.Count == 0)
@@ -329,7 +387,8 @@ public sealed class IvpWorldCollision
             Vector3.Transform(ToSource(center), placement),
             radius * SourceUnitsPerMetre * scale,
             planes,
-            contents);
+            contents,
+            vertices);
 
         _ledges.Add(ledge);
 
@@ -1034,6 +1093,27 @@ public sealed class IvpWorldCollision
         }
 
         return false;
+    }
+
+    /// <summary>Adds a vertex to a ledge's own list, skipping one already present.</summary>
+    /// <remarks>
+    /// **A shared point cloud means the same vertex arrives from every triangle that touches it**,
+    /// so a floor's corner would otherwise appear once per adjacent face. Exact equality is
+    /// deliberate rather than a tolerance: these are the SAME transform applied to the SAME source
+    /// point every time it recurs, so they compare bit-identical — a tolerance would only risk
+    /// merging two vertices that are actually distinct.
+    /// </remarks>
+    private static void AddVertex(List<Vector3> vertices, Vector3 vertex)
+    {
+        for (int index = 0; index < vertices.Count; index++)
+        {
+            if (vertices[index] == vertex)
+            {
+                return;
+            }
+        }
+
+        vertices.Add(vertex);
     }
 
     /// <summary>How wide one broadphase cell is, in Source units.</summary>
