@@ -25373,3 +25373,56 @@ rather than re-discovered by a future session re-running the same six now-closed
 
 **Evidence class: measured**, each item above with an exact before/after float and a reverted diff
 confirmed bit-identical to its prior baseline; **read-from-source** for `FUN_180096680`'s shape.
+
+### The owner's "corpses are disappearing and not ragdolling" is THIS, measured on a real match
+
+**Reported as a rendering fault and it is not one.** Every draw-path gate was instrumented on
+`20130518_0313_cp_granary_blu_blu` and every one passes: `RagdollProps.Fill` appends 5 corpses at
+tick 14300; each reaches `EntityModels.Instances` with `frames=True skinned=True ragdoll=True
+animating=True` on a real model (`models/player/soldier.mdl`, `medic.mdl`); `SetupBones` returns
+true with 86–92 bones. `RagdollFade.Gone` was instrumented separately and is correct —
+`deathTime=227.6 >= seconds=214.5, visible=False` returns false, so nothing is being expired early.
+**The corpses are drawn. They are drawn underground.**
+
+Root bone against the networked `m_vecRagdollOrigin`, same tick:
+
+| entity | wire origin Z | drawn Z | difference |
+|---|---|---|---|
+| 2107 | −120 | −78 | +42 (pelvis above the model origin — correct) |
+| 2056 | −331 | −404 | **73 below** |
+| 2073 | −416 | −559 | **143 below** |
+
+Tracked over continuous playback, entity 2073's root goes **−438, −424, −591, −649, −654** — it
+falls through the floor and keeps going. Entity 2056 instead settles, and the per-step trace says
+why it looks half-buried:
+
+```
+step 13850  z=-383  contacts=59  deepest=6.89
+step 13975  z=-407  contacts=96  deepest=60.73   <- sixty units inside geometry
+step 14200  z=-404  contacts=101 deepest=8.39    <- frozen here, every later step identical
+```
+
+**Two facts, and the second is the one that makes it visible.** The solve lets a falling corpse
+reach **60.73 units of penetration** with 96 contacts already found — contacts exist in quantity and
+do not hold the body. It then comes to rest still **8.39 units inside the floor**, against a `Slop`
+of 0.25, and `RagdollSimulation`'s sleep — which is faithful to Valve, `RAGDOLL_SLEEP_TOLERANCE 1.0`
+and `ragdoll_sleepaftertime 5` (`game/client/ragdoll.cpp:265-297`) — then freezes it there for good.
+Valve's sleep is safe because Valve's solver never rests a body eight units deep; ours does, so the
+same faithful sleep rule cements a half-buried corpse.
+
+**`RagdollSolveSeparation` is NOT the missing piece, checked rather than assumed.** It is gated on
+`m_ragdoll.pGroup->IsInErrorState()` (`ragdoll.cpp:209-214`) and repairs JOINT separation from a
+parent body, not world penetration — and TF2 disables its small-mass heuristic outright
+(`#if !defined(TF_CLIENT_DLL)`, `ragdoll_shared.cpp:650`). It would not fix this.
+
+**So the visible symptom and the slope test are one defect.** A body the contact solve cannot hold
+out of penetration is the same body the solve cannot stop tumbling, and this section's numbers are
+the real-data half of what the synthetic test measures at 6.1484184f.
+
+**One genuine instrument fault found alongside it, worth fixing on its own:**
+`CorpsePhysics.FallenThrough` is an absolute `-50d`, so on `cp_granary`, whose ground here sits near
+z −416, every corpse is "fallen through" before it starts and the detector reports nothing useful.
+A fall is a body leaving the surface it was ON, not a fixed world height.
+
+*Evidence class: measured, on a real match demo, with every draw-path gate instrumented and the
+instrumentation removed afterwards (working tree confirmed clean).*
