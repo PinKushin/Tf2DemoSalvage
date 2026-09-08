@@ -894,6 +894,105 @@ public sealed class IvpContact
 
         float committedLength = committed.Length();
 
+        // **One GJK manifold per (body, ledge) pair, replacing every per-point hit against that
+        // ledge with a single contact — the divergence this loop's own comment below has named
+        // since before this existed.** IVP holds one closest-feature pair per pair of objects; a
+        // resting box previously raised eight contacts here, one per hull point, where the engine
+        // raises one. `docs/findings/51` and `docs/memory/prove-the-equivalence-before-building-it`
+        // both name measuring this rather than assuming it, so it is ADDITIVE: terrain and the
+        // speculative/tunnel-prevention path below are untouched, and a ledge a manifold already
+        // covers is skipped in the per-point walk purely by feature id, not by removing that walk.
+        HashSet<int> covered = [];
+
+        if (body.Hull.Count > 0)
+        {
+            float bodyRadius = 0f;
+
+            for (int index = 0; index < body.Hull.Count; index++)
+            {
+                (float x, float y, float z) = body.Hull[index];
+                float reach = MathF.Sqrt((x * x) + (y * y) + (z * z));
+
+                bodyRadius = MathF.Max(bodyRadius, reach);
+            }
+
+            Vector3 BodySupport(Vector3 direction)
+            {
+                Vector3 local = Vector3.Transform(direction, Quaternion.Inverse(orientation));
+
+                Vector3 best = default;
+                float bestDot = float.NegativeInfinity;
+
+                for (int index = 0; index < body.Hull.Count; index++)
+                {
+                    (float x, float y, float z) = body.Hull[index];
+                    Vector3 candidate = new(x, y, z);
+                    float dot = Vector3.Dot(candidate, local);
+
+                    if (dot > bestDot)
+                    {
+                        bestDot = dot;
+                        best = candidate;
+                    }
+                }
+
+                return centre + Vector3.Transform(best, orientation);
+            }
+
+            for (int ledgeIndex = 0; ledgeIndex < world.Ledges.Count; ledgeIndex++)
+            {
+                IvpWorldLedge ledge = world.Ledges[ledgeIndex];
+
+                if ((ledge.Contents & world.Mask) == 0)
+                {
+                    continue;
+                }
+
+                // Cheap sphere reject before the GJK call, mirroring the broadphase every other
+                // world query already uses — without it this is a GJK call against every ledge in
+                // the map, every body, every step.
+                float apart = ledge.Radius + bodyRadius + committedLength + Slop;
+
+                if ((ledge.Center - centre).LengthSquared() > apart * apart)
+                {
+                    continue;
+                }
+
+                if (Gjk.Distance(BodySupport, ledge.Support) is not { Distance: <= Slop } manifold)
+                {
+                    continue;
+                }
+
+                // **A zero normal is `Gjk`'s own honest signal that this pair is already
+                // OVERLAPPING, not merely close — see its own remarks on why it stops short of
+                // EPA.** A contact pushed along no direction moves nothing, so raising one here and
+                // marking the ledge covered would suppress the per-point path's real, working
+                // answer for exactly the case this pass cannot itself resolve. Measured: without
+                // this guard a body already 0.9 units inside a floor fell straight through it,
+                // because the one ledge it needed the per-point path for had been marked done by a
+                // contact that pushed nowhere.
+                if (manifold.Normal == Vector3.Zero)
+                {
+                    continue;
+                }
+
+                covered.Add(ledgeIndex);
+
+                into.Add(new IvpContact
+                {
+                    Body = body,
+                    Arm = (
+                        manifold.PointOnA.X - centre.X,
+                        manifold.PointOnA.Y - centre.Y,
+                        manifold.PointOnA.Z - centre.Z),
+                    Normal = (manifold.Normal.X, manifold.Normal.Y, manifold.Normal.Z),
+                    Depth = MathF.Max(0f, Slop - manifold.Distance),
+                    Point = -1,
+                    Feature = IvpWorldCollision.FeatureForLedge(ledgeIndex),
+                });
+            }
+        }
+
         // **A flag and three fields rather than a nullable tuple**, per
         // `docs/memory/nullable-pattern-on-a-struct-is-dead-code.md` — CA1508 rejects the nullable
         // form here outright, reporting the null test as always true.
@@ -1012,13 +1111,24 @@ public sealed class IvpContact
                 continue;
             }
 
+            // **A ledge already covered by the GJK manifold above is skipped here, not tested
+            // twice.** This is what makes the manifold pass additive rather than doubled: a body
+            // resting on a ledge gets the one contact the manifold raised for it and nothing more,
+            // while terrain and every ledge the sphere reject above skipped still go through the
+            // per-point path exactly as before.
+            if (covered.Count > 0 && covered.Contains(IvpWorldCollision.LedgeOf(found.Feature)))
+            {
+                continue;
+            }
+
             // **Every touching point raises a contact, and ONE PER BODY was tried instead.** IVP
             // holds a single mindist per pair of objects, so a cube on a floor is one closest
             // feature where this is eight — a real divergence, and reproducing the count alone
             // measured worse: penetration went from 7 to 27 and corpses began leaving the world
             // with zero contacts. Our hull is a point cloud where IVP's features are faces and
             // edges, so one vertex cannot hold a resting box the way one face-face pair does.
-            // Closing this properly means the feature-based narrow phase, not a smaller list.
+            // **The manifold pass above closes this for BRUSH ledges** — terrain and the
+            // speculative/tunnel-prevention path below are what remain per-point.
             into.Add(new IvpContact
             {
                 Body = body,

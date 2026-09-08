@@ -785,6 +785,21 @@ public sealed class IvpWorldCollision
     /// <summary>More planes than any real ledge has, so a packed id cannot collide.</summary>
     private const int PlanesPerLedge = 4096;
 
+    /// <summary>Which ledge a non-negative feature id from <see cref="Touching"/> names.</summary>
+    /// <param name="feature">A feature id — a ledge face is non-negative, everything else is not.</param>
+    /// <returns>An index into <see cref="Ledges"/>, or -1 for a feature that names no ledge at all.</returns>
+    /// <remarks>
+    /// **So a caller building a SEPARATE contact for the same ledge — a GJK manifold, say — can
+    /// tell whether a per-point hit it is about to raise already belongs to a ledge it has already
+    /// covered**, without needing <see cref="PlanesPerLedge"/> itself exposed.
+    /// </remarks>
+    public static int LedgeOf(int feature) => feature >= 0 ? feature / PlanesPerLedge : -1;
+
+    /// <summary>A feature id naming a ledge as a whole, for a caller raising its own contact against it.</summary>
+    /// <param name="ledgeIndex">An index into <see cref="Ledges"/>.</param>
+    /// <remarks>The inverse of <see cref="LedgeOf"/> — always resolves back to the same ledge.</remarks>
+    public static int FeatureForLedge(int ledgeIndex) => ledgeIndex * PlanesPerLedge;
+
 
     /// <summary>Where a moving point first enters the world, if it does.</summary>
     /// <param name="from">Where the point is now.</param>
