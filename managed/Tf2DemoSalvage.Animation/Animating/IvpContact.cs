@@ -1088,6 +1088,7 @@ public sealed class IvpContact
     /// <summary>The sphere query's reused buffer — this runs per body per slice.</summary>
     private static readonly List<(IvpWorldTriangle Shape, int Index)> _nearby = [];
 
+
     private void Push((float X, float Y, float Z) impulse, (float X, float Y, float Z) arm)
     {
         Body.Velocity = (

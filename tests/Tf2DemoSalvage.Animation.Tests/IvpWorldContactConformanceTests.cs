@@ -376,6 +376,25 @@ public sealed class IvpWorldContactConformanceTests
                 (-1f, -1f, -1f), (1f, -1f, -1f), (1f, 1f, -1f), (-1f, 1f, -1f),
                 (-1f, -1f, 1f), (1f, -1f, 1f), (1f, 1f, 1f), (-1f, 1f, 1f),
             ],
+
+            // **The cube's own faces, because a body without them is not a body the engine could
+            // collide** (B306). A real hull arrives from the `.phy` with the ledge triangles beside
+            // its points, and the narrow phase asks the engine's question with them — the hull
+            // against a triangle. A fixture that supplied points alone silently exercised the
+            // per-vertex path that is being removed, so it measured the substitute rather than the
+            // thing under test.
+            //
+            // Wound outward, two triangles per face, so a face normal from
+            // `cross(b - a, c - a)` points out of the cube.
+            Faces =
+            [
+                (0, 3, 2), (0, 2, 1),
+                (4, 5, 6), (4, 6, 7),
+                (0, 1, 5), (0, 5, 4),
+                (2, 3, 7), (2, 7, 6),
+                (1, 2, 6), (1, 6, 5),
+                (0, 4, 7), (0, 7, 3),
+            ],
         };
 
     /// <summary>A slab whose top face is z = 0, given in IVP metres as a real hull would be.</summary>
