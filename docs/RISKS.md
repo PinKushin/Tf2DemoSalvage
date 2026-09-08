@@ -25458,3 +25458,42 @@ from the other direction. Two independent lines of evidence, one synthetic and o
 now point at the identical missing piece.
 
 *Evidence class: measured, exact revert confirmed by an empty diff.*
+
+### Half of it was the ground having a bottom — fixed. The other half looks like joints vs contacts
+
+**The shell was real and is closed** (`3ffda429`). `TerrainDepth` was 64 and it is not only the
+touching window — it is the FILING depth, so a triangle reached 64 units of grid below itself and a
+body past that collided with nothing at all. The engine has no such limit; `virtualmeshparams_t`
+carries `buildOuterHull` and vphysics closes the mesh, so ground solid in TF2 was a shell here.
+Measured, corpse 2073 at tick 14300 against its own origin of −416: **−559 (and still descending to
+−654) before, −430 after.** 64 was sound for a single crossing — 30 units is the most a point travels
+in a step at the velocity clamp — but a body accumulates its way through over many steps, and past
+the shell nothing ever stopped it again.
+
+**What remains is a body resting INSIDE the floor**, entity 2056 unchanged at 73 units below its
+origin with 8.39 of penetration. A new and testable inference narrows it:
+
+- **A single body does NOT rest deeply penetrating.** The slope conformance test drops one 2-unit
+  box and its POSITION assertions pass — inside `surface + sqrt(3) + slop` — every time. Only its
+  speed fails. So the contact solve holds one body out of a surface correctly.
+- **Jointed bodies do.** Every measurement of deep resting penetration here is a ragdoll.
+
+**And the solve order allows exactly that.** `IvpEnvironment.Simulate` runs gravity, then
+`Constraints.Solve()` for the joints, then the interval walk, then `Rub`/`Separate` last. So the
+position correction gets the last word inside a step — but the NEXT step's joint solve moves those
+bodies again before anything re-checks a contact, and a joint that wants a limb where the floor is
+will put it there. That is a tug of war across step boundaries, and a tug of war is what the
+measured 2-to-53-unit oscillation looks like.
+
+**The engine does not have this shape.** IVP solves contacts and constraints in ONE constraint
+group — the twelve-entry relaxation table `docs/findings/51` reads live is a constraint-group
+property, applied to both — so the two converge on a solution that satisfies both rather than taking
+turns overwriting each other.
+
+**The next experiment, stated so it is not re-derived:** disable the joint solve for one scratch run
+and measure whether a ragdoll then rests at the same penetration a single box does. If it does, the
+fix is unifying the two solves rather than anything further inside the contact code, and every
+remaining contact-side tuning attempt is wasted effort.
+
+*Evidence class: measured for the terrain half and for the single-body/jointed split;
+read-from-source for the engine's single constraint group.*
