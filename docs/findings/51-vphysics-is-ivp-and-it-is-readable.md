@@ -3258,6 +3258,46 @@ in `LUMP_PHYSCOLLIDE` and not in the world's leaf tree, so the two legitimately 
 directions. The figure that means "a corpse has nothing to land on" is the whole-map one, and it is
 0.4% rather than 64%.
 
+### The mindist pair's shape, read from `vphysics.dll` — and where the trail stops
+
+**A mindist has TWO feature-kind fields, one per synapse, not one.** `FUN_1800b2460`
+(`ivp_mindist_recursive.cxx`) dispatches on a short at `+0x5a` for one object and another at
+`+0x92` for the other, each 0–3, with the "none of these" branch calling `Error(...)` at line 0x5d
+and 0x32 respectively — an assert, not a real case. That is the pair, explicit in the struct: this
+object's closest feature and that object's closest feature, held independently.
+
+**Recompute happens through a vtable, not inline.** When both features read as "unknown"
+(`FUN_1800b2460`'s fallthrough), it calls `FUN_18008ecb0` directly; when at least one kind is
+resolved it instead calls through `(**(code**)(*(longlong*)(lVar2+0x20)))(...)` — a virtual
+dispatch on the mindist's own vtable at `+0x20` — then converts the result via
+`FUN_180097d60` and reschedules with `FUN_1800b29b0`. So updating an established pair and creating
+a fresh one are genuinely different code paths, which is the "track vs. derive" split the sticky-face
+attempt collapsed into one.
+
+**The reschedule (`FUN_1800b29b0`) is bookkeeping, not geometry**: it reads two bodies' positions at
+`+0x158`/`+0x150`/`+0x160` relative to each body's own transform time-delta at `+0x1d0`, extrapolates
+by velocity (`+0x174`/`+0x170`/`+0x178`), and hands the extrapolated points to `FUN_180096680`.
+
+**`FUN_180096680` is where the trail stops, and it is not a distance formula — it is GJK/EPA.** The
+decompile shows a hashed vertex cache (open-addressed, `puVar12[(int)uVar17]` probing on a computed
+hash of a support-point id), building a simplex/polytope over calls to each body's own support
+function (`(**(code**)(*plVar13+0x18))`), with per-entry state cached across STEPS so the walk does
+not restart from nothing every call. That is IVP's actual narrow phase — a real convex-convex
+closest-points solver with warm-started simplex state — not a formula this project can transcribe
+into a few lines.
+
+**What this settles:** the project's "one retained pair" model was never going to be the fix by
+itself, because the engine's pair is backed by a stateful GJK solver whose OWN warm start is the
+thing doing the work session after session — re-deriving the shallowest ledge face each step (what
+this project does) and re-deriving a GJK simplex each step (what a naive port would do) are the same
+class of mistake for the same reason.
+
+**What is NOT established, and is where this stops rather than where it is finished:** porting a
+convex-convex GJK/EPA solver is a multi-week feature on its own, is exactly what
+`docs/DECISIONS.md`'s "feature-based narrow phase, not a smaller list" already names as the real
+fix, and per this project's decompiler rule nothing here gets pasted into source — only the shape
+above. Building it is future work, not a same-session divergence to close.
+
 ### A retained face is not a mindist — built, measured worse, reversed
 
 **The missing closest-feature pair has been named by five measurements, so it was built. It lost.**
