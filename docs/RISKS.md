@@ -25495,5 +25495,28 @@ and measure whether a ragdoll then rests at the same penetration a single box do
 fix is unifying the two solves rather than anything further inside the contact code, and every
 remaining contact-side tuning attempt is wasted effort.
 
+#### That experiment was run, and it DISPROVES the reading above
+
+Ran, same session, with the joint solve behind a scratch environment variable. Not a small
+difference and not in the predicted direction:
+
+| | with joints (control) | without joints |
+|---|---|---|
+| deepest penetration | up to 399 | **up to 463** |
+| final speed | settles, 4 of 5 asleep | **2,000 — the velocity clamp — never settles** |
+| result | 4 of 5 settle | **AWAKE NEVER SETTLED** |
+
+**Joints are not overpowering the contacts; they are the thing holding the body together.** Removing
+them lets each limb fall and interpenetrate independently, which is worse on every axis measured.
+So "contacts and joints take turns overwriting each other" is not what the 2-to-53-unit oscillation
+is, and unifying the two solves is NOT indicated by anything measured here.
+
+**The single-body-versus-ragdoll split that suggested it still stands as an observation** — one box
+holds its position, a ragdoll does not — but the cause is not the joint solve fighting the contact
+solve. A ragdoll has sixteen bodies whose contacts are found and solved per body against a shared
+world, and whatever fails there fails with the joints present and worse without them.
+
+*Evidence class: measured, control and experiment in the same session, scratch toggle reverted.*
+
 *Evidence class: measured for the terrain half and for the single-body/jointed split;
 read-from-source for the engine's single constraint group.*
