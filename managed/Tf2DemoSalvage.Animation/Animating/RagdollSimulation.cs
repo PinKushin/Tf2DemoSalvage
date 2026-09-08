@@ -136,6 +136,10 @@ public sealed class RagdollSimulation
 
                 Hull = Points(element.Hull),
 
+                // **Valve's own ledge faces, carried rather than dropped** (B306). See
+                // `IvpRigidBody.Faces` for what their absence cost.
+                Faces = element.Faces,
+
                 // **The game's own number for what this body is made of.** Every player element
                 // says `flesh`; a prop says whatever its `.phy` declares.
                 Friction = surfaces.FrictionOf(element.SurfaceProp),

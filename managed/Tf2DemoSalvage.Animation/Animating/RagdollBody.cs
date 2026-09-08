@@ -77,6 +77,15 @@ public readonly record struct RagdollAxes(Vector3 X, Vector3 Y, Vector3 Z)
 /// Empty when the `.phy` carries no readable hull for this solid, which makes a body that cannot
 /// collide rather than one that collides wrongly.
 /// </param>
+/// <param name="Faces">
+/// **The ledge TRIANGLES that go with those points, indexing <paramref name="Hull"/>** (B306).
+/// `PhysicsLedge` has carried them out of the `IVPS` compact ledge all along and this reader used
+/// to drop them, leaving the solver a bare point cloud — which is precisely why its narrow phase
+/// had to be vertex-against-plane rather than the engine's hull-against-triangle.
+///
+/// **Rebased across ledges**, since each ledge indexes its own points and a solid may be built from
+/// several.
+/// </param>
 /// <param name="SurfaceProp">
 /// **What this body is made of, by name** — `flesh` for every element of a player. The engine
 /// resolves it through `physprops-&gt;GetSurfaceIndex( solid.surfaceprop )` and hands the index to
@@ -94,6 +103,7 @@ public readonly record struct RagdollElement(
     float RotationDamping,
     float Volume,
     IReadOnlyList<Vector3> Hull,
+    IReadOnlyList<(int A, int B, int C)> Faces,
     string SurfaceProp);
 
 /// <summary>
@@ -273,6 +283,9 @@ public sealed class RagdollBody
                 return null;
             }
 
+            (List<Vector3> Points, List<(int A, int B, int C)> Faces) shape =
+                HullInBoneSpace(physics, index);
+
             elements[index] = new RagdollElement(
                 bone,
 
@@ -285,7 +298,8 @@ public sealed class RagdollBody
                 solid.Damping,
                 solid.RotationDamping,
                 solid.Volume,
-                HullInBoneSpace(physics, index),
+                shape.Points,
+                shape.Faces,
                 solid.SurfaceProperty);
         }
 
@@ -499,24 +513,37 @@ public sealed class RagdollBody
     /// **So the only change of frame left is the unit one**, IVP metres to Source units, which is
     /// the seam this project keeps in one place ([[ivp-is-a-third-convention]]).
     /// </remarks>
-    private static List<Vector3> HullInBoneSpace(PhysicsModel physics, int solid)
+    private static (List<Vector3> Points, List<(int A, int B, int C)> Faces) HullInBoneSpace(
+        PhysicsModel physics, int solid)
     {
         if (solid >= physics.Hulls.Count)
         {
-            return [];
+            return ([], []);
         }
 
         List<Vector3> hull = [];
+        List<(int A, int B, int C)> faces = [];
 
         foreach (PhysicsLedge ledge in physics.Hulls[solid])
         {
+            // **Each ledge indexes its OWN points, so a solid built from several needs its
+            // triangles rebased** as their vertices are appended to one shared list. Getting this
+            // wrong points a face at another ledge's geometry, which is a hull that is subtly the
+            // wrong shape rather than an obvious failure.
+            int rebase = hull.Count;
+
             foreach (Vector3 point in ledge.Points)
             {
                 hull.Add(IvpWorldCollision.ToSource(point));
             }
+
+            foreach ((int a, int b, int c) in ledge.Triangles)
+            {
+                faces.Add((a + rebase, b + rebase, c + rebase));
+            }
         }
 
-        return hull;
+        return (hull, faces);
     }
 
     private static int BoneIndexByName(IReadOnlyList<StudioBone> bones, string name)

@@ -168,6 +168,29 @@ public sealed class IvpRigidBody
         set => _hull = value ?? [];
     }
 
+    /// <summary>The hull's FACES, indexing <see cref="Hull"/> — the ledge triangles from the `.phy`.</summary>
+    /// <remarks>
+    /// **Read all along and thrown away one line before the physics saw them** (B306).
+    /// `PhysicsLedge` carries `Points` AND `Triangles` out of the `IVPS` compact ledge, and
+    /// `RagdollBody.HullInBoneSpace` kept only the points — so a body reached the solver as a bare
+    /// point cloud.
+    ///
+    /// **That is what forced the narrow phase to be ours rather than the engine's.** With no faces
+    /// there is no incident face to clip, no edge to test another edge against, and no way to ask
+    /// vphysics' own question — the hull against a triangle (`virtualmesh.h`,
+    /// `IVirtualMeshEvent::GetTrianglesInSphere`) — so what remained was sampling each vertex
+    /// against a triangle PLANE inside a slab, and every compensator around it.
+    ///
+    /// **Empty is legitimate** and means the same as it always did: a body whose solid declared no
+    /// ledge geometry, which the per-vertex path already handles.
+    /// </remarks>
+    public IReadOnlyList<(int A, int B, int C)> Faces
+    {
+        get => _faces;
+
+        set => _faces = value ?? [];
+    }
+
     /// <summary>Each contact FEATURE's tangential slip, carried between steps, keyed by normal.</summary>
     /// <remarks>
     /// **A friction contact in IVP SURVIVES between PSIs, and this is what that survival needs.**
@@ -199,6 +222,8 @@ public sealed class IvpRigidBody
 
 
     private IReadOnlyList<(float X, float Y, float Z)> _hull = [];
+
+    private IReadOnlyList<(int A, int B, int C)> _faces = [];
 
     /// <summary>When this body was last stepped — <c>core+0x1d0</c>, absolute.</summary>
     public double LastStepped { get; set; }
