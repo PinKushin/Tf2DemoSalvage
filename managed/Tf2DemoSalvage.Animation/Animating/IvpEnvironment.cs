@@ -658,10 +658,18 @@ public sealed class IvpEnvironment
             // rather than better.
             List<IvpContact> members = [contact];
 
-            (float X, float Y, float Z) centre = contact.Arm;
+            // **Weighted by DEPTH, not averaged by count.** A simple mean treats a corner barely
+            // touching the same as one genuinely pressed in, so the applied point jumps toward
+            // whichever set of corners happened to register this exact step even when the true
+            // pressure is concentrated elsewhere — this is a way of solving the SAME set of points
+            // better, not a way of finding a different set, per the pattern five separate reverted
+            // attempts at enlarging the set already established in `docs/findings/51`.
+            float pull = MathF.Max(contact.Depth, MinimumPull);
+
+            (float X, float Y, float Z) centre = (contact.Arm.X * pull, contact.Arm.Y * pull, contact.Arm.Z * pull);
             float deepest = contact.Depth;
             float weight = contact.Accumulated;
-            int count = 1;
+            float total = pull;
 
             for (int other = index + 1; other < contacts.Count; other++)
             {
@@ -676,7 +684,14 @@ public sealed class IvpEnvironment
                 members.Add(beside);
                 beside.Rubbed = true;
                 deepest = MathF.Max(deepest, beside.Depth);
-                centre = (centre.X + beside.Arm.X, centre.Y + beside.Arm.Y, centre.Z + beside.Arm.Z);
+
+                float besidePull = MathF.Max(beside.Depth, MinimumPull);
+
+                centre = (
+                    centre.X + (beside.Arm.X * besidePull),
+                    centre.Y + (beside.Arm.Y * besidePull),
+                    centre.Z + (beside.Arm.Z * besidePull));
+                total += besidePull;
 
                 // **The friction cone's budget is SUMMED across the manifold, not read off the one
                 // representative contact.** The centroid and the deepest point already gather the
@@ -686,7 +701,6 @@ public sealed class IvpEnvironment
                 // missing" — `FUN_1800836b0` sums a budget across a friction system's own contacts
                 // before `FUN_1800857c0` clamps any one of them against it, which is this.
                 weight += beside.Accumulated;
-                count++;
             }
 
             contact.Rubbed = true;
@@ -696,7 +710,7 @@ public sealed class IvpEnvironment
             // the retained impulse would be applied somewhere new every tick. See
             // `IvpContact.Steady` — this is the body half of the closest-feature pair.
             (float X, float Y, float Z) arm = contact.Steady(
-                (centre.X / count, centre.Y / count, centre.Z / count));
+                (centre.X / total, centre.Y / total, centre.Z / total));
 
             // **The arrival is an EVENT and the resting solve is not**, so the two halves run at
             // different rates: `FUN_18008e290` fires per mindist event inside the PSI, and
@@ -781,6 +795,12 @@ public sealed class IvpEnvironment
     /// the solver as one object.
     /// </remarks>
     private const float Shared = 0.99f;
+
+    /// <summary>The least a manifold member's own depth may count for in the weighted centroid.</summary>
+    /// <remarks>A point exactly at zero depth still belongs to the group and still deserves some
+    /// pull, or it would vanish from the weighted average entirely the moment it is barely
+    /// touching rather than genuinely pressed in.</remarks>
+    private const float MinimumPull = 0.01f;
 
     /// <summary>Integrates every body over one slice of the step.</summary>
     private void Move(float slice)
