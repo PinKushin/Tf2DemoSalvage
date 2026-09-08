@@ -3489,6 +3489,28 @@ real contact gets solved as if it were fully resting rather than barely so, and 
 this creates apparently cost more than the true dropouts they prevent. The discovery-time churn this
 was built to fix is real and measured; this particular remedy for it is not the answer.
 
+### An analytic same-plane fallback within one call — also measured worse
+
+A fifth attempt, distinct in kind from the hysteresis just reverted: instead of widening one point's
+OWN spatial query, let a point whose query fails be tested directly against the PLANE an earlier
+point in the SAME `Find()` call already confirmed — no memory across steps, pure within-call
+geometric consistency, the thing a real face-face contact gives for free by having one shared plane
+rather than several independent point queries.
+
+**Measured worse still: 9.3 units a second became 23.6, the largest regression of any attempt so
+far.** Reverted in full; bit-identical to the prior commit confirmed afterward (9.306977f exactly).
+
+**A pattern is now visible across all three per-point remedies for the discovery-time churn**
+(hysteresis, this same-plane fallback, and by extension anything else that makes MORE points count
+as touching within a single `Find()` call): each one that admits more contacts than the current
+code independently finds makes the tumble WORSE, not better. That is the opposite of what "the
+discovery-time churn is dropping real contacts" would predict, and it is worth stating plainly:
+whatever is actually driving the spin is not well-modelled as "not enough contacts are recognised".
+The two changes that DID help (solving friction at every already-found point, and giving each its
+own warm-start slot) both worked with the EXISTING contact set rather than trying to enlarge it.
+That is the shape the next attempt should have, if there is a sixth: solve what is already found
+better, do not find more of it.
+
 **Correcting my own later mis-citation of this same finding.** Several commits after this section
 was written, `corpse-drop`'s default report of "4 of 5 settle, the fifth leaves the world" was cited
 repeatedly as an open, unrelated ground-hole divergence — as if a fourth defect remained beside the
