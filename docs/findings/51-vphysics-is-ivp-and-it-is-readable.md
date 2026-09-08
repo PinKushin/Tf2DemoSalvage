@@ -3603,6 +3603,37 @@ three above. It does not: the fifth seed IS this section's 2277 spawn point, and
 already explains why dropping it from rest there proves nothing about the demo. Read every later
 "corpse-drop: 4 of 5" in this branch's commit history with that correction in mind.
 
+### The per-member `Rub` fix does not transfer to `Oppose` — a real asymmetry, not an oversight
+
+`Manifolds`'s resting branch calls `Rub` once per manifold member at that member's own arm (Fix 1,
+this session) rather than once at a single blended arm — treating a body touching several points as
+touching several points, not one. The arriving branch still called `contact.Oppose(arm)` once, at
+the blended representative arm, the whole time Fix 1 was landing on the other half of the same
+method. That looked like a missed spot: the same reasoning ("a manifold is several points, not one")
+should apply to the impact solve too.
+
+Built the obvious mirror — loop `members[member].Begin(); Passes += members[member].Oppose(members[member].Arm);`
+per member, same shape as the `Rub` loop.
+
+**Measured WORSE: 13.608729f, more than double the 6.1484184f baseline.** Reverted to the single
+`contact.Oppose(arm)` call; rebuilt; re-ran; confirmed bit-identical to baseline. `git diff --stat`
+empty before rebuilding.
+
+**Why this is a real result and not just another null.** `Oppose` is the impact/approach solver —
+it fires per-slice during the interval walk, once per contact still arriving, and is meant to
+resolve a COLLISION event, not distribute a resting load. Splitting one impact into N independent
+per-member impulses double- (or N-fold-) counts the impact response where the resting case is
+correctly summed as separable per-point support. The two solves are not the same kind of problem
+just because they share a manifold data structure — `Rub`'s "solve what is already found, at every
+point that has it" principle is about distributing SUSTAINED load across contact points that persist
+across a step; `Oppose` is answering "how hard did this body just hit", and hitting is a property of
+the approach as a whole, not additively decomposable across points sharing a normal. This is the
+first attempt this session where the general pattern ("solve the existing found set more precisely
+rather than finding more of it") actively made a result worse instead of null — the pattern has a
+real boundary at the arrive/rest split itself, not just at membership.
+
+*Evidence class: measured, exact revert confirmed bit-identical.*
+
 *Evidence class: read from published SDK source for vbsp's passes, the shrink sizes and the power-4
 switch; measured on `koth_harvest_final`, `ctf_2fort` and `cp_dustbowl` for every count; arithmetic
 for the terrain denominator.*
