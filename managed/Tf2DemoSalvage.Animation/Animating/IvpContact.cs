@@ -404,6 +404,18 @@ public sealed class IvpContact
         // **Stop it sinking first, THEN remove any overlap.** The first term is what a resting
         // contact is for and the second is this project's own, needed only because there is no
         // mindist scheduler to stop an overlap forming — see the remarks.
+        //
+        // **The BODY's linear velocity alone was tried here and measured WORSE.** Traced first: on
+        // a rocking body the warm-started support went to exactly zero on many individual steps
+        // with the same normal and the same slot, because `total` below clamps to zero WHOLESALE
+        // and `Closing(arm)`'s spin term `ω × arm` swings through zero as the contact tips — so a
+        // reading using linear velocity alone, dropping that spin term, looked like the fix. It
+        // made the same test's landing speed WORSE, 31 units a second to 67. The spin term is
+        // carrying real information this arm needs — a rocking body's rotation is still resting
+        // weight on the surface it is rocking against, not noise to be filtered from the release
+        // decision — so `Closing(arm)` is kept, and the actual zero-out this was chasing is
+        // recorded rather than patched again on a guess: `total`'s all-or-nothing clamp is the
+        // more likely target, not which velocity feeds it.
         float closing = Closing(arm);
 
         // **The hold alone does NOT support a body, and that is measured rather than assumed.**
