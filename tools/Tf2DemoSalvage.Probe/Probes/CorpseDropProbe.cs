@@ -44,6 +44,14 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// pakfile and the archives, so `LoadedMap` adds them and this skipped them. 456 of 456 solid props
 /// on `koth_harvest_final` were missing, and a corpse seeded among the mining crates fell through
 /// where the viewer rests it at z 4.8.
+///
+/// **The 2277 seed is a KNOWN-WRONG default, kept because the wrongness is itself the finding —
+/// see `docs/findings/51`.** That seed is where the demo's ragdoll SPAWNS, not where it comes to
+/// rest, and dropping it from REST at a spawn point tests a fall the real corpse never makes: the
+/// real one carries momentum through that spot already and lands elsewhere. This probe reports it
+/// leaving the world, and that is a fact about this SYNTHETIC drop, not a physics divergence the
+/// viewer's own run of `z1800` exhibits. Read "5 seeds, 4 settle" as "4 of the 4 seeds that are
+/// genuinely rest points settle" — the fifth answers a question nobody is asking.
 /// </remarks>
 public sealed class CorpseDropProbe : IProbe
 {
@@ -142,7 +150,7 @@ public sealed class CorpseDropProbe : IProbe
         // wrong corpse entirely, which is why `CorpsePhysics.Blows` now keeps the vector.
         yield return (361.7f, -1614.3f, 57.6f, -2129.2f, -16651.1f, -473.8f);   // 2185, leaves
         yield return (-11.5f, -1558.8f, 47.3f, -17897.2f, 13523.2f, -8495.5f);  // 2348, leaves
-        yield return (-972.6f, -1400.3f, 77.5f, 0f, 0f, 0f);                    // 2277, rests
+        yield return (-972.6f, -1400.3f, 77.5f, 0f, 0f, 0f);                    // 2277, SPAWN not rest — leaves the world here, and that is expected (see remarks above)
         yield return (256.9f, -1416.1f, 55.2f, 0f, 0f, 0f);                     // 2080, no blow
         yield return (-953.8f, -1556.3f, 77.5f, 0f, 0f, 0f);                    // 2132, rests
     }

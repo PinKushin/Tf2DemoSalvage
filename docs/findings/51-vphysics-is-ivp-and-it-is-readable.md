@@ -3369,6 +3369,13 @@ would prove it rather than assume it.
 ground with a floor at z 0 beneath it, a corpse still travels 63 units north into the hole before
 falling. Ground that is missing and a corpse that will not stay put are different faults.
 
+**Correcting my own later mis-citation of this same finding.** Several commits after this section
+was written, `corpse-drop`'s default report of "4 of 5 settle, the fifth leaves the world" was cited
+repeatedly as an open, unrelated ground-hole divergence — as if a fourth defect remained beside the
+three above. It does not: the fifth seed IS this section's 2277 spawn point, and this section
+already explains why dropping it from rest there proves nothing about the demo. Read every later
+"corpse-drop: 4 of 5" in this branch's commit history with that correction in mind.
+
 *Evidence class: read from published SDK source for vbsp's passes, the shrink sizes and the power-4
 switch; measured on `koth_harvest_final`, `ctf_2fort` and `cp_dustbowl` for every count; arithmetic
 for the terrain denominator.*
