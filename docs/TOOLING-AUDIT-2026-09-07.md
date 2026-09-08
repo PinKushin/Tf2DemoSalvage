@@ -111,12 +111,17 @@ Reference: `C:\Users\pinku\source\repos\PinKushin\CONVENTIONS-HARVEST.md`, four-
 **Repository**: `.claude/hooks/` (project-level, in-repo hooks called by `.claude/settings.json`)
 
 **Four hooks in settings.json**:
-- `valves-way.ps1` (UserPromptSubmit)
-- `parity-cited.ps1` (PreToolUse)
-- `verify-build-output.ps1` (PostToolUse)
-- `flag-unread.ps1` (PostToolUse)
+- `tf2-valves-way.ps1` (UserPromptSubmit)
+- `tf2-parity-cited.ps1` (PreToolUse)
+- `tf2-verify-build-output.ps1` (PostToolUse)
+- `tf2-flag-unread.ps1` (PostToolUse)
 
-### C1. valves-way.ps1
+**Renamed with a `tf2-` prefix after this audit** (the owner: identify which repo a hook came from
+when a multi-repo overlord/firstmate agent, or cross-referencing intertwined projects, surfaces it
+in a shared menu). No governing rule added here — that convention lives in global CLAUDE.md and the
+global hooks directory, not this repo's own.
+
+### C1. tf2-valves-way.ps1
 
 **Purpose**: Remind on every turn that Valve parity is a standing decision (D89, D129, D131), not a question.
 
@@ -126,7 +131,7 @@ Reference: `C:\Users\pinku\source\repos\PinKushin\CONVENTIONS-HARVEST.md`, four-
 
 **Current**: The rule was correct on 2026-09-01 and is correct now. No drift.
 
-### C2. parity-cited.ps1
+### C2. tf2-parity-cited.ps1
 
 **Purpose**: Refuse a commit to parity-sensitive code (`managed/Tf2DemoSalvage.{Scene,Render,Viewer3D,Presentation}`) unless the message cites engine source (file.cpp:line, source-sdk path) or carries `[no-parity]` with reason.
 
@@ -138,7 +143,7 @@ Reference: `C:\Users\pinku\source\repos\PinKushin\CONVENTIONS-HARVEST.md`, four-
 
 **Current**: The guard survived a fix on 2026-09-01 that would have broken a naive implementation. Well-thought-out.
 
-### C3. verify-build-output.ps1
+### C3. tf2-verify-build-output.ps1
 
 **Purpose**: Catch build/test failures that exit 0 (e.g., when piped through grep or redirected).
 
@@ -150,7 +155,7 @@ Reference: `C:\Users\pinku\source\repos\PinKushin\CONVENTIONS-HARVEST.md`, four-
 
 **Current**: The pattern is sound and accounts for the full analyzer set. No drift.
 
-### C4. flag-unread.ps1
+### C4. tf2-flag-unread.ps1
 
 **Purpose**: After reading engine source, alert on any flag being USED (set, tested, masked) that was not looked up this session.
 

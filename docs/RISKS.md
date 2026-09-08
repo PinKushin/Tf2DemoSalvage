@@ -17715,7 +17715,7 @@ being cited elsewhere in the same session.
 **The signal was in what was READ, not in what was written**, which is why no review of the diff
 would have caught it: the dangerous line never appeared in any comment or commit. That is the
 detectable thing — a flag being SET or TESTED in engine source that has just been read and never
-looked up — and it is what `.claude/hooks/flag-unread.ps1` now watches for.
+looked up — and it is what `.claude/hooks/tf2-flag-unread.ps1` now watches for.
 
 ## B277 — the model scale was interpolated; the engine has no interpolator for it — FIXED
 

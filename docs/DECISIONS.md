@@ -7232,7 +7232,7 @@ this repo's own history confirms — `managed/Tf2DemoSalvage.{Scene,Render,Viewe
 where every defect this project has shipped was a divergence from the engine.
 
 **The automation is a PreToolUse hook at the one gate every change already passes**:
-`.claude/hooks/parity-cited.ps1` refuses a `git commit` that stages `.cs` files in those buckets
+`.claude/hooks/tf2-parity-cited.ps1` refuses a `git commit` that stages `.cs` files in those buckets
 unless the commit text carries an engine citation (`file.cpp`/`.h` reference or a source-sdk path)
 or an explicit `[no-parity]` tag with its reason — the same refuse-until-the-reason-is-written
 shape as `build/gate.sh`'s floors. Verified live in both directions before being committed: an
