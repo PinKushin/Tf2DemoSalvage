@@ -3634,6 +3634,50 @@ real boundary at the arrive/rest split itself, not just at membership.
 
 *Evidence class: measured, exact revert confirmed bit-identical.*
 
+### Extending the ledge GJK manifold to terrain — the same one-point failure, now on terrain
+
+The ledge GJK manifold pass in `IvpContact.Find` (one `Gjk.Distance` per (body, ledge) pair,
+replacing the per-vertex walk) explicitly leaves terrain per-point — its own comment names this as
+the remaining gap: *"terrain and the speculative/tunnel-prevention path below are what remain
+per-point."* A triangle is already a three-vertex convex hull, so `IvpWorldLedge.Support`'s brute
+force over `Vertices` needed no new primitive — it was built to answer exactly this the moment a
+triangle was wrapped in the same record type.
+
+Added `IvpWorldCollision.NearbyTriangles(centre, radius)`, gathering terrain triangles near a body
+from the existing `_triangleGrid` and exposing each as a degenerate `IvpWorldLedge` (its three
+vertices, centroid as `Center`, max vertex distance as `Radius`). Wired it into `Find` right after
+the ledge loop: one `Gjk.Distance(BodySupport, triangleLedge.Support)` call per nearby triangle,
+covering it (skipping the per-vertex fallback for that triangle) exactly the way a covered ledge is
+skipped.
+
+**Measured WORSE: 11.153114f, nearly double the 6.1484184f baseline.** Reverted in full — the new
+`NearbyTriangles` method, the `TerrainFeatureForContact`/`TriangleOf` accessors, and the `Find` wiring
+— confirmed `git diff --stat` empty, rebuilt (0 warnings), re-ran, bit-identical baseline.
+
+**Why this failed for exactly the reason already on record two sections up.** This file's own
+comment at the per-vertex loop says it outright: *"Every touching point raises a contact, and ONE
+PER BODY was tried instead… reproducing the count alone measured worse: penetration went from 7 to
+27."* GJK's closest-point-pair answers "where are these two convex shapes nearest", which for a box
+resting flat on a triangle is ONE point — the same collapse the ledge manifold already accepts for a
+convex BRUSH (a box on a flat brush face has the same problem, and is not fully immune to it either,
+it is just less commonly hit because brush ledges are rarely a single thin triangle a box spans).
+Terrain is triangulated far more finely relative to a resting box than most ledges are, so nearly
+every resting contact hit exactly this collapse: a box spanning 2-4 triangles got 2-4 independent
+single-point GJK contacts, each blind to the others, instead of either the four-corner per-vertex
+patch it had before or one true multi-point manifold across the covered triangles combined.
+
+**What this establishes**: the GJK-manifold mechanism itself is not the general answer to "stop
+sampling more points than the engine would" — it is specifically an answer for a SINGLE dominant
+contact per pair, and a resting box on flat ground has FOUR simultaneous ones. Extending it blindly
+to a surface triangulated finer than the resting footprint reproduces the single-point-per-pair
+regression on a new surface, not a manifold. The real fix, per the pattern across every failed
+lever this session, needs a true multi-point manifold: either merge GJK results across
+CO-PLANAR nearby triangles into one shared support set before calling `Gjk.Distance` once, or an
+actual SAT/EPA face-clip between the box's incident face and the merged terrain patch — not a
+per-primitive GJK call, however the primitive is chosen.
+
+*Evidence class: measured, exact revert confirmed bit-identical.*
+
 *Evidence class: read from published SDK source for vbsp's passes, the shrink sizes and the power-4
 switch; measured on `koth_harvest_final`, `ctf_2fort` and `cp_dustbowl` for every count; arithmetic
 for the terrain denominator.*
