@@ -473,6 +473,16 @@ public sealed class IvpContact
         // velocity recovery produced. The TOTAL is what is clamped non-negative, not this.
         float extra = -closing / effective;
 
+        // **Bounding one step's release to a fraction of what is held — rather than clamping the
+        // whole total to zero — was also tried and also measured WORSE.** Landing speed went from
+        // 31 units a second to 42, a smaller regression than the linear-velocity attempt above but
+        // a regression. Reverted. Both experiments assumed the zero-out itself is the fault; the
+        // measurement says otherwise twice now, which is worth more than either guess: whatever the
+        // real mechanism is, it is not upstream of this line in a way either the READING (`closing`)
+        // or the CLAMP SHAPE (`total`'s floor) can fix in isolation. The next hypothesis needs to
+        // explain why LOOSENING the clamp in two different ways both made a resting body slide
+        // faster, which neither attempt predicted going in.
+        //
         // **The TOTAL is clamped non-negative, not the increment**, which is what lets a later
         // slice pull back an earlier one's over-correction while never letting a contact suck a
         // body down.
