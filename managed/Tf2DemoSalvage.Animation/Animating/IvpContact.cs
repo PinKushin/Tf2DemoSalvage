@@ -1003,7 +1003,37 @@ public sealed class IvpContact
             {
                 float depth = shape.Distance - Vector3.Dot(shape.Normal, at);
 
-                if (depth < 0f)
+                // **A point about to meet the face gets the engine's PRE-contact, not an overlap**
+                // (B306). IVP's mindist scheduler raises a pair before the surfaces touch, which is
+                // why the engine never carries a penetration to remove; `Find`'s per-vertex path
+                // already does this with a sweep, and this pass had no equivalent — so a body
+                // penetrated first and `Separate` had to lift it back out, which is a free-energy
+                // pump measured keeping a cube tumbling on a slope too shallow to sustain one.
+                //
+                // **Filed as `Speculative` and at zero depth**, exactly as the sweep's is: it has no
+                // overlap to resolve and no retained identity to accumulate, only a closing
+                // velocity to cancel. Admitting these as ORDINARY terrain contacts instead — with
+                // their own feature and warm start — measured 31.382078f against 9.285662f, so the
+                // distinction is the whole of it.
+                // **Only points genuinely INSIDE the face, and the threshold is measured.** Four
+                // widths were run against the slope conformance test:
+                //
+                //   within one slop ABOVE the face           12.207724f
+                //   within this step's own closing travel     7.122617f
+                //   at or below the plane                     9.285662f
+                //   penetrating by more than float noise      6.621238f
+                //
+                // **The narrowest wins, and the near-contact reading was wrong.** Widening this to
+                // catch corners that sit a hair proud looks right — a flush box loses them to float
+                // error and rocks on three — but every wider band measured worse. A point that is
+                // merely NEAR a face is not carrying load, and raising a contact for it supports a
+                // body the surface is not yet holding; the solve then pushes against nothing and
+                // the body leaves the ground it was settling onto.
+                //
+                // The engine has no equivalent question because its mindist tracks a feature PAIR
+                // and knows the distance between them; this is the discrete stand-in for that, and
+                // it errs toward "not touching yet" deliberately.
+                if (depth < OnTheFace)
                 {
                     continue;
                 }
@@ -1084,6 +1114,16 @@ public sealed class IvpContact
 
     /// <summary>How far behind a triangle this pass still looks, in Source units.</summary>
     private const float TerrainReach = 512f;
+
+    /// <summary>How deep inside a face a point must be before it is carrying any load.</summary>
+    /// <remarks>
+    /// **Float noise, so a point grazing a plane is not mistaken for one resting on it.** Anything
+    /// shallower is a coincidence of arithmetic rather than contact, and raising a contact for it
+    /// supports a body the surface is not yet holding. Measured against the slope conformance
+    /// test — the alternatives and their numbers are beside the check in
+    /// <see cref="AgainstTerrain"/>.
+    /// </remarks>
+    private const float OnTheFace = 0.004f;
 
     /// <summary>The sphere query's reused buffer — this runs per body per slice.</summary>
     private static readonly List<(IvpWorldTriangle Shape, int Index)> _nearby = [];
