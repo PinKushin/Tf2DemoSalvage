@@ -110,8 +110,13 @@ public sealed class IvpRigidBody
     /// <remarks>
     /// **Zero on every element of every TF2 ragdoll**, measured — so this is the term that does
     /// nothing for a corpse and everything for a prop. Carried because the engine has it.
+    ///
+    /// **0.1 by default and not zero**, which is `g_PhysDefaultObjectParams`
+    /// (`game/shared/physics_shared.cpp:43-56`) — the same struct <see cref="Friction"/> already
+    /// takes its 1 from. A body that names no damping is not a body without damping, and defaulting
+    /// to zero made every such body frictionless in rotation as well as translation.
     /// </remarks>
-    public float Damping { get; set; }
+    public float Damping { get; set; } = 0.1f;
 
     /// <summary>How fast it loses spin — <c>core+0x30/0x34/0x38</c>, the <c>rotdamping</c>.</summary>
     /// <remarks>
@@ -120,7 +125,12 @@ public sealed class IvpRigidBody
     /// three lanes; a scalar here is that, not a simplification of it. It matters for a corpse:
     /// rotational damping runs 4 to 16 per joint across the game's ragdolls.
     /// </remarks>
-    public float RotationDamping { get; set; }
+    ///
+    /// **0.1 by default, from `g_PhysDefaultObjectParams`** (`physics_shared.cpp:43-56`), for the
+    /// reason beside <see cref="Damping"/>: zero is not the engine's answer for a body that names
+    /// no value, and a body with no rotational damping never stops spinning once something sets it
+    /// turning.
+    public float RotationDamping { get; set; } = 0.1f;
 
     /// <summary>How many collisions this body has taken in the current step.</summary>
     /// <remarks>

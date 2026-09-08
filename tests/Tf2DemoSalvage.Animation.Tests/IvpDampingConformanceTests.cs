@@ -113,6 +113,14 @@ public sealed class IvpDampingConformanceTests
     {
         IvpRigidBody body = Body();
 
+        // **Declared, not assumed.** This asserts what a body with NO damping does, and it used to
+        // get that by leaving both terms unset — which stopped being the same thing when the
+        // defaults were corrected to Valve's own `g_PhysDefaultObjectParams` (0.1 and 0.1,
+        // `physics_shared.cpp:43-56`). A control that depends on a default is a control that
+        // changes meaning when the default is fixed.
+        body.Damping = 0f;
+        body.RotationDamping = 0f;
+
         body.Velocity = (100f, 200f, 300f);
         body.AngularVelocity = (10f, 20f, 30f);
 
