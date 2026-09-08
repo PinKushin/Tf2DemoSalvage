@@ -455,6 +455,7 @@ public sealed class IvpContact
                 Body.Position.Y + (Normal.Y * shift),
                 Body.Position.Z + (Normal.Z * shift));
 
+
             // **How far UP this correction moved the body, which is the one term the energy split
             // cannot see.** `Energy()` is kinetic; a position correction adds POTENTIAL energy and
             // shows as nothing, so a solver lifting bodies for free reads as three passes all

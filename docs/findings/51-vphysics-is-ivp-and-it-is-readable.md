@@ -3681,3 +3681,40 @@ per-primitive GJK call, however the primitive is chosen.
 *Evidence class: read from published SDK source for vbsp's passes, the shrink sizes and the power-4
 switch; measured on `koth_harvest_final`, `ctf_2fort` and `cp_dustbowl` for every count; arithmetic
 for the terrain denominator.*
+
+### The engine collides the HULL against each triangle; we sample vertices against planes (B306)
+
+**Read from published source, and it names the substitution exactly.** `virtualmesh.h` declares the
+callback vphysics uses to reach a displacement:
+
+```c
+virtual void GetTrianglesInSphere( void *userData, const Vector &center, float radius,
+                                   virtualmeshtrianglelist_t *pList ) = 0;
+```
+
+The engine asks the displacement for the triangles within a SPHERE around the object, then collides
+the object — a convex hull — against those triangles as shapes. `virtualmeshparams_t` carries
+`buildOuterHull` beside it and `virtualmeshlist_t` carries a `pHull`.
+
+**Ours inverts both halves.** `IvpContact.Find` walks the body's own hull VERTICES and asks
+`IvpWorldCollision.Touching` which triangle PLANE each vertex is least far behind, within a 64-unit
+slab. A vertex against a plane is not a hull against a triangle: it cannot report an edge-edge
+touch, it knows nothing of the triangle's extent beyond a containment test, and its "depth" is a
+plane distance rather than a penetration between two shapes. Everything this project has had to
+invent — `Separate`, `Slop`, `Recovery`, `MaximumRecovery`, `TerrainDepth` — exists to clean up
+after that substitution, and none of it appears in the engine.
+
+**The primitive to port with is already here.** `Gjk.Distance` and `IvpWorldLedge.Support` give the
+closest-feature pair between two convex shapes, and a triangle is a three-vertex convex hull — so
+this needs no new primitive, only the engine's question (hull vs triangle) instead of ours (vertex
+vs plane).
+
+**And it explains the attempt already lost.** Extending the GJK pass to terrain measured
+6.1484184f → 11.153114f because it REPLACED the per-vertex path through a covered-triangle set: a
+box spanning two triangles then got two single closest points where it previously had four corners.
+The primitive was right and the wiring was wrong. A correct port replaces the vertex sampling
+wholesale, and keeps a persistent closest-feature pair per (body, triangle) the way IVP's mindist
+does rather than re-deriving one each step — only then are the compensators removable.
+
+*Evidence class: read from published SDK source for the callback and the params; measured for the
+6.1484184f → 11.153114f attempt.*
