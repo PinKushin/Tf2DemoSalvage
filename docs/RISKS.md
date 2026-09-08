@@ -25319,3 +25319,57 @@ separately — `LUMP_PHYSDISP` is lump 28 and is likewise unread.
 
 **Evidence class: read-from-source** for the layout; **measured** over 234 maps, with a control, for
 the contents.
+
+## B306 — a box tumbling on a slope spins up without cause: no real multi-point contact manifold
+
+`Simulate_WithATerrainSlope_StopsOnTheSurfaceBeneathIt` — a two-unit cube dropped on a 1-in-10
+slope, friction coefficient 1.0 (ten times what a static hold needs) — must come to rest
+(`speed < 1f`) within 400 steps. It does not: landing speed is reduced from a 31.1 units/sec
+session-start baseline to **6.1484184f**, but no further, across every mechanism this project's
+existing architecture can express.
+
+**Root cause, traced to a number (`docs/findings/51`, "the slope test's mechanism, traced to a
+number"):** `Body.AngularVelocity` climbs monotonically across the run — five-plus rotations a
+second and still growing — because the manifold's representative contact ARM jumps between
+genuinely different corners of the box every step rather than holding one stable pair. A torque
+applied through a wandering, discontinuous moment arm cannot integrate to zero net torque the way
+one applied through a fixed contact point would; over enough steps that random walk shows an
+apparent bias, which is the observed monotonic spin-up.
+
+**Six independent mechanisms have been tried and measured, ruled out one at a time:**
+
+1. Per-manifold-member friction instead of one collapsed point — helped (31.1 → 20.0).
+2. Per-point warm-start identity (`Body.Sliding` keyed by `Point`, not normal alone) — helped
+   (20.0 → 9.3).
+3. Depth-weighted manifold centroid — helped (9.3 → 6.1484184f, the current baseline).
+4. Four further membership/geometry variants (persisted representative face, same-plane fallback,
+   analytic incident-face backfill, stale-slot eviction) — each built, measured, and reverted:
+   worse, worse, null, and null respectively.
+5. Extending the per-member solve from `Rub` (resting) to `Oppose` (arriving/impact) — measured
+   worse (6.1484184f → 13.608729f). `Oppose` resolves one impact event as a whole; splitting it
+   per-point double-counts the collision response, which is a real boundary of the "solve what is
+   found, don't find more" pattern, not another failed guess.
+6. Extending the ledge GJK manifold (`Gjk.Distance` + `IvpWorldLedge.Support`, already proven for
+   brush ledges) to terrain triangles — measured worse (6.1484184f → 11.153114f). GJK's
+   closest-point-pair answers "where are two convex shapes nearest", which is ONE point; a box
+   resting flat needs four simultaneous ones, and terrain is triangulated finer than the box's
+   footprint, so this reproduced the exact single-point regression already on record from the
+   per-vertex path, on a different primitive.
+
+**What actually closes this is named and scoped, not open-ended.** `docs/findings/51` reads
+`FUN_180096680` — IVP's own mindist/narrow-phase routine — as a genuine convex-convex GJK/EPA solver
+with a warm-started simplex/polytope cached per pair across steps, not a formula this project can
+transcribe. That is a real, bounded feature: a persistent, feature-based multi-point manifold with
+actual penetration resolution (EPA), holding the SAME small set of contact points step to step so a
+correction's torque can integrate toward zero instead of random-walking across whichever corner the
+current step happens to pick. It was already named a "multi-week feature on its own" before this
+session's two further confirming measurements (items 5 and 6 above), and nothing found this session
+changes that estimate — it sharpens it, by ruling out every cheaper variant.
+
+**What this is not:** a case for lowering the bar. The test's `speed < 1f` assertion is correct and
+stays red rather than being loosened, per this project's standing rule that a divergence is a
+defect regardless of cost to fix. This entry exists so the gap is tracked as one named, scoped item
+rather than re-discovered by a future session re-running the same six now-closed experiments.
+
+**Evidence class: measured**, each item above with an exact before/after float and a reverted diff
+confirmed bit-identical to its prior baseline; **read-from-source** for `FUN_180096680`'s shape.
