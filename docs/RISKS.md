@@ -26383,8 +26383,25 @@ read as a string of yellow blobs instead of a flame at the rocket.
 tick and camera, before and after. The reuse of entity indices is measured (1,669 tracks); the
 initializer values are read from the shipped `.pcf`.*
 
-**Still not identical, and stated rather than glossed:** TF2's fire sits closer to the rocket head
-than ours does. The smoke column, its length, colour, size and blending now match.
+**A fifth divergence was asserted and then WITHDRAWN, which is worth recording.** "TF2's fire sits
+closer to the rocket head than ours" was written into this entry from an impression of two captures
+taken at different moments, from different cameras, of different rockets. It was not measured, and
+the numbers say it is not there:
+
+- both children declare `lifetime_min`/`lifetime_max` **0.2**, which at 1100 units per second is
+  about 220 units of trail;
+- the smoke declares 0.8..1.2, about 880 to 1320 units — so fire occupying roughly the near fifth of
+  the trail is what the file SPECIFIES;
+- and the simulator measures **27 fire particles alive against `128/s × 0.2s = 25.6`**, so the
+  lifetime is being applied.
+
+**The comparison that would settle it has not been made**, because `spec_next` attaches TF2 to an
+arbitrary player rather than the one the viewer's `--first-person` follows, so the two captures are
+not the same eye. Naming the player on both sides is the next step for `tools/tf2-reference-capture.ps1`.
+
+*So: no divergence is established here, and the earlier claim of one was the error.* Asserting a
+difference from two pictures that were never comparable is the same fault as believing an instrument
+without a control — `docs/memory/a-picture-is-assertable.md` is about pictures that CAN be compared.
 
 ### B371 CLOSED 2026-09-08: gibs are not implemented, and that is most deaths
 

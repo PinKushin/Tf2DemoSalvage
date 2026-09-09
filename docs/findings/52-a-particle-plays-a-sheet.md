@@ -320,6 +320,15 @@ gets one by restarting the demo and fast-forwarding through it. Filed as **B375*
 attempt written, reverted and stashed because it made the picture worse rather than better.
 
 **That is the whole argument for the golden comparison.** Six separate divergences in this finding
-were caught by reading files and the engine. This one could not have been: every parameter was right,
-every test green, and the picture still wrong — because the fault was in *when* the simulation runs,
-which no amount of reading the `.pcf` would have shown.
+were caught by reading files and the engine. Those could not have been: every parameter was right,
+every test green, and the picture still wrong — because the faults were in *when* the simulation
+runs and in a lookup keyed on something that does not identify the thing, neither of which any
+amount of reading the `.pcf` would have shown. Full account in **B375**.
+
+**And a caution the same comparison earned.** A seventh divergence — "TF2's fire sits closer to the
+rocket head" — was asserted from two captures taken at different moments, from different cameras, of
+different rockets, and then withdrawn: the children declare a 0.2-second lifetime against the
+smoke's 0.8–1.2, so fire in the near fifth of the trail is what the file asks for, and the simulator
+measures 27 alive against the 25.6 that rate and lifetime predict. **A picture is assertable only
+when the two pictures are comparable**, and `spec_next` attaching TF2 to an arbitrary player means
+these were not. Naming the player on both sides is the outstanding work on the capture tool.
