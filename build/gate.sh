@@ -1145,7 +1145,14 @@ run Tf2DemoSalvage.Presentation.Tests presentation 444
 # 1028 -> 1032 on 2026-09-05: four for B354's schema half, `vision_filter_flags`. One of them lets an
 # item override its prefab's filter with 0, which is what forces the field to be a tri-state: read as
 # a plain int, a prefab's filter could never be turned off.
-run Tf2DemoSalvage.Content.Tests  content   1032
+#
+# 1032 -> 1040 on 2026-09-09: eight for B351's scene archive. Three were red before the fix and name
+# the three divergences separately — the actor tree the top-level event list does not reach, a
+# SPEAK's caption trailer, and a flex sample being seven bytes rather than five. Three are the
+# controls a reader answering everything would also pass. The last two cover the event list playback
+# will need and the incomplete-walk signal B376 was found with — that one is sensitive only to
+# sabotaging every bounds guard at once, because each guard alone is sufficient.
+run Tf2DemoSalvage.Content.Tests  content   1040
 # 96: SoundCharProbe, [Explicit], which measured the prefix population before SoundName was written.
 # 97: SoundResolutionProbe, [Explicit]. It harvests the precached names real demos carry so the fast
 # synthetic suite can be built from them, and it is a probe rather than a test because it needs a TF2

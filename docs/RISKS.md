@@ -24076,6 +24076,30 @@ sabotages:
 
 ### B351 OPEN 2026-09-05: a taunting player plays no taunt
 
+**2026-09-09 — the reader works: 730 of 730 scene paths the schema names now yield a sequence.**
+`SceneImage` (`managed/Tf2DemoSalvage.Content/Assets/SceneImage.cs`) does the whole lookup — CRC of
+`scenes\<name>.vcd`, binary search of the directory, LZMA, then the compiled VCD's event walk — and
+every taunt path in `items_game.txt` resolves:
+
+```
+730 distinct taunt scene paths read from the schema
+730 of 730 named a sequence
+  'scenes/player/scout/low/taunt_hi5_start.vcd' -> taunt_highFiveStart
+  'scenes/player/pyro/low/taunt_hi5_start.vcd'  -> taunt_highFiveStart
+control: 5 of 5 hashes read from the directory were found by the search, and an
+invented name resolves to (nothing)
+```
+
+**Three divergences from `SaveToBinaryBuffer` were in the first version, and one of them is the whole
+reason a first attempt returns nothing** — the top-level event list holds only the events with NO
+actor, so a taunt's gesture is not in it. Written up in
+`docs/findings/53-a-taunt-names-its-sequence-in-a-scene.md`; each has its own test, and each was red
+before the fix.
+
+**What is left is the wiring, not the format:** the `"Scenes"` network string table,
+`m_nSceneStringIndex` off `DT_SceneEntity`, and `AddVCDSequenceToGestureSlot` on the player's own
+model. Nothing below is superseded — the sizing was right.
+
 **2026-09-06 — sized, and the archive is already reachable.** The question that decides the cost was
 whether a taunt ever reduces to a plain sequence a viewer could play without a scene system. **It
 does not**, and the evidence is specific:
@@ -26522,3 +26546,45 @@ of five `corpse-drop` seeds leaves the world) and B306 (brush ledges on the old 
 `models/player/medic.mdl` for the nine pieces and their fields, and for the 231-of-407 share on
 `z1800`; observed on screen for the emission, with the same camera and tick before and after as the
 control.*
+
+---
+
+### B376 OPEN 2026-09-09: two compiled scenes out of 9,939 drift two bytes inside a long EXPRESSION event
+
+**Found by censusing the scene reader over the WHOLE archive instead of over the taunts** — B351's
+first measurement was 730 of 730 taunt paths, which is 7.3% of the population and would pass a stride
+that is wrong for a kind of event no taunt uses. The `scene-image` probe now walks all 9,939:
+
+```
+census: 9,937 of 9,939 scenes walked to the end, 2 ran out of bytes, 1,703 name a sequence
+  INCOMPLETE slot 1,751, crc 0x2D581E89, stopped at 6,627 of 6,631
+    3 events: LOOP 8.153..-1.000; SEQUENCE 0.000..8.167 'taunt_jackhammer_rodeo';
+              EXPRESSION 0.000..9.900 'player\engineer\emotion\emotion'
+  INCOMPLETE slot 8,825, crc 0xE4759CDC, stopped at 6,597 of 6,601
+    2 events: SEQUENCE 0.000..1.600 'taunt_jackhammer_rodeo_outro';
+              EXPRESSION -8.333..1.567 'player\engineer\emotion\emotion'
+```
+
+**Both are the Engineer's jackhammer-rodeo taunt, and both still read their sequence correctly** —
+`taunt_jackhammer_rodeo` at byte 47 and `taunt_jackhammer_rodeo_outro` at byte 17, long before the
+drift. So this does not cost B351 anything today; what it costs is the claim that the reader is total
+(`docs/memory/decode-must-be-total.md`), which is why it is filed rather than shrugged at.
+
+**Localised, not diagnosed.** The two files have byte-identical 28-byte tails,
+`1C410332551D410066661E4100080000000000000000000001010000`, and both land exactly two bytes short of
+the `01 01 00 00` that closes them — channel active, actor active, an empty scene ramp and
+`m_bIgnorePhonemes` (`choreoscene.cpp:3765`). The whole 6.5 KB between byte 50 and the end is one
+`EXPRESSION` event's flex-animation block, so the missing two bytes are one 2-byte field inside it.
+Every candidate in the published writer has been checked against the reader and matches:
+the 17-byte event header, the ramp's 5-byte samples, 3-byte relative and timing tags, 4-byte absolute
+tags in two passes, the gesture float, the relative-tag pair, the 13-byte flex-track header, 7-byte
+flex samples and the combo list's `PutUnsignedShort` count. **What has NOT been checked** is whether
+TF2's current compiler writes a field SDK 2013's `SaveFlexAnimationsToBuffer` does not — which 9,937
+passing scenes argues against, and two failing ones do not rule out.
+
+**What would settle it:** per-flex-track instrumentation on these two bodies — the track count, and
+each track's flags and sample count — so the track carrying the extra field can be named. That is a
+diagnostic to write, not a guess to make.
+
+*Evidence class: measured, over the whole 9,939-scene archive; the localisation to a single 2-byte
+field is arithmetic from the trailer's known 4-byte shape. The cause is NOT established.*
