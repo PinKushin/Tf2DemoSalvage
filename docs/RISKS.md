@@ -25643,6 +25643,69 @@ subsystem, and the two were only observed in the same session.
 
 *Evidence class: owner observation, unreproduced.*
 
+### B372 OPEN 2026-09-09: every projectile is decoded and none reaches the timeline
+
+**Rockets, pipebombs, arrows and flares are on the wire in quantity and this project draws none of
+them.** The decoder sees them; the timeline has no track for any of them; nothing downstream can
+draw what has no track.
+
+**Measured, with a denominator on both sides.** In `z1800`, mentions in a full `-t -e` decompile:
+
+| class | mentions |
+|---|---|
+| `CTFGrenadePipebombProjectile` | 10,066 |
+| `CTFProjectile_Rocket` | 3,846 |
+| `CTFWearable` — the control, a class we DO draw | 1,177 |
+
+And the new `projectiles` census, which walks every track rather than one tick:
+
+```
+z1800                              0 fired projectiles of 1760 prop tracks
+tf2-2007-build3258-pov-cp_granary  0 of 245
+tf2-2008-build3420-pov-cp_granary  0 of 193
+tf2-2008-build3420-stv-cp_granary  0 of 507
+```
+
+The four "projectile" tracks `z1800` does report are `CTFJar`/`CTFJarMilk` — the jar a player
+HOLDS, alive for the whole demo, not a thrown one.
+
+**Where it is lost, traced to one line.** `DemoTimeline` returns without creating a track when a
+model and an item are both absent, which is right for a player and wrong here:
+
+```csharp
+if (model is null && item is null) { return; }
+```
+
+A rocket has no item, and **`m_nModelIndex` is not in the update that creates it** — the `ENTER`
+carries `m_flSimulationTime`, `m_vecOrigin`, `m_angRotation`, the collision properties and four zero
+`m_nModelIndexOverrides`, and nothing else. It is in the class INSTANCE BASELINE:
+
+```
+CTFProjectile_Rocket   baseline of 91 properties
+    DT_BaseEntity.m_nModelIndex = 588
+```
+
+**What is NOT established, and it is the next measurement rather than a guess:** whether
+`state.ModelIndex()` surfaces that baseline value, or whether it does and `precache.Path(588)`
+answers null. `ModelFor` fails on either, identically, and the two need different fixes.
+
+**Two instrument artefacts on the way here, recorded so they are not repeated.** `props <demo>`
+samples ONE tick and a projectile lives about a second, so two hand-picked ticks showing none was an
+absence with no control — that is why the census probe exists. And `DemoTimeline.ModelPaths()` is
+built FROM the tracks, so asking it which projectile models the demo declares is circular and
+answers nothing; the `-t -e` trace prints no `.mdl` paths at all, so "w_rocket is absent from the
+trace" was equally worthless.
+
+**The engine, for when the fix is written.** `DT_TFBaseRocket` networks `m_vInitialVelocity`,
+origin, angles, `m_iDeflected` and `m_hLauncher` (`tf_weaponbase_rocket.cpp:38`); the model is set
+server-side in `Spawn` and reaches the client as an ordinary `m_nModelIndex`
+(`ROCKET_MODEL "models/weapons/w_models/w_rocket.mdl"`, `tf_projectile_rocket.cpp:16`), with
+`MINI_ROCKETS_MODEL` substituted when the launcher has the `mini_rockets` attribute
+(`tf_weaponbase_rocket.cpp:137`).
+
+*Evidence class: measured, with controls on both the mention count and the census; read-from-source
+for the network table and the model names.*
+
 ### B371 CLOSED 2026-09-08: gibs are not implemented, and that is most deaths
 
 **The owner: *"i should see ragdolls and gibs"*.** Ragdolls draw. Gibs do not exist at all — no
