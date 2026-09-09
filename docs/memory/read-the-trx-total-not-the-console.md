@@ -459,3 +459,61 @@ tests; both numbers on screen were one behind, and nothing about the output said
 **How to apply:** redirect the gate to a file THIS invocation names, then read that file. Never grep
 a `/tmp/gate-*.txt` from an earlier step in the same breath as a fresh run — the two look identical
 in the transcript and only one of them is about the code as it stands now.
+
+---
+
+## A CI floor cannot be checked against a run that uploads nothing, 2026-09-09
+
+**`.github/workflows/test.yml`'s floors had drifted further than the local gate's ever did — core
+226 low, content 293, scene 386, animation 211, viewer-ui 17, corpus 32, rendering 53 — and the
+cause was one word in a step nobody associates with floors.** Both `upload-artifact` steps were
+`if: failure()`, so **no GREEN run ever produced a `.trx`.** The file's own notes ask twice to
+"confirm against the next green run's .trx and tighten if it disagrees"; there was never one to
+read, so every number stayed the arithmetic it was first written as, and the notes saying *this one
+is a guess, confirm it later* were true for a year.
+
+**Fixed by `if: always()` on both uploads.** That is the root cause; the numbers are the symptom.
+
+**Two sources for the count, and they cost differently:**
+
+- The `.trx` artifact — authoritative, and downloadable **per job as soon as that job finishes**.
+- The check step's own line, `Core: 1825 executed, 0 failed (floor 1599)`, which prints in every
+  run — but `gh run view --job N --log` refuses while ANY job in the run is still going: *"run
+  34414373886 is still in progress; logs will be available when it is complete"*. With a 27-minute
+  UI suite in the same run, the artifact is the only thing readable for half an hour.
+
+**Measure a CI floor on CI.** The premise that CI totals sit below local ones because some cases
+enumerate from files a runner lacks is false and has now been disproved twice — a `.trx` total
+counts SKIPPED tests, so an ignored case still appears. Measured the same day, CI and the local
+gcor-only gate agreed on all twelve: 1825 core (before B383's four), 74, 1136, 444, 17, 252, 669,
+183, 7, 108, 769, 156. **That agreement is a measured result, not a licence to copy the local
+numbers next time** — viewer-ui exists only on CI, and the corpus count is CI's by definition since
+a local run sees `tools/corpus/local` too.
+
+**The console/trx gap is WIDER on CI than the local example above.** Same run: Audio printed
+`Total: 180` and its `.trx` said 183; Corpus printed 126 against 156. A floor set from the console
+line would sit thirty short and look entirely reasonable.
+
+### Raising one file's floor is not raising the other's, and git will not tell you
+
+`build/gate.sh` and `.github/workflows/test.yml` hold the same facts in two places, and **the two
+lines are in different files, so they merge independently and cleanly.** Measured this session: a
+branch raised gate.sh's core floor to 1831 and CI's copy stayed at 1599 — no conflict, no warning,
+and the CI copy is the one that protects `main`. See [[one-place-or-it-drifts]]. The standing fix is
+for the workflow to READ the floors rather than restate them; until it does, both files move
+together or neither does.
+
+### Verify a floor by manipulation, in a directory that holds one candidate
+
+`assert-test-count.sh` finds the `.trx` by BASENAME (`find . -name core.trx | head -1`) from
+wherever it is invoked, so in a tree with several worktrees it will hand back another tree's
+results — that happened to a parallel session and was believed. Removing the ambiguity beats
+detecting it:
+
+```bash
+gh run download <run-id> -n unit-trx -D "$scratch"      # one file per basename
+cd "$scratch" && bash <repo>/build/assert-test-count.sh '**/core.trx' 1825 at-floor      # passes
+cd "$scratch" && bash <repo>/build/assert-test-count.sh '**/core.trx' 1826 plus-one      # must fail
+```
+
+**The floor plus one MUST fail.** A number that passes at both is not a measurement of anything.
