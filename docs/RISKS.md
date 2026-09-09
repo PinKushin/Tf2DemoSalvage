@@ -25914,13 +25914,27 @@ three pieces and the third has a documented trap:
 2. **The material's sheet**, so a particle has a texture. The system declares one and this project
    already reads VMTs; `render_animated_sprites` also declares the sequence layout, which is what
    `SEQUENCE_NUMBER` indexes.
-3. **A draw pass in `Device3D` — and this is where it must not be rushed.** Particles are
-   translucent, and `docs/findings/32-the-opaque-pass-blend-leak.md` is this repository's account of
-   what one wrong line of render state costs: *"Every static prop was alpha-blended for two days, and
-   it read as four art faults."* A particle pass added without reading the existing sort and depth
-   order would reproduce that exactly, and it would look like an art problem rather than a state
-   one. So the pass gets read first — where translucent geometry sorts against models, and what
-   `CClientLeafSystem::CollateRenderablesInLeaf` does with a sprite — rather than appended.
+3. **A draw pass in `Device3D`. READ 2026-09-09, and it is safer than it looked.** The worry was
+   `docs/findings/32-the-opaque-pass-blend-leak.md` — *"Every static prop was alpha-blended for two
+   days, and it read as four art faults"* — so the frame order was read before anything was written,
+   and it answers the question:
+
+   - **Detail sprites already draw in the translucent pass**, after the world's surfaces and its
+     opaque renderables and before the models, and the code says why they are safe there:
+     *"They own every piece of state they need — blend, depth and rasteriser — so this cannot be the
+     pass that leaks one onto the models below."*
+   - **The leak that finding 32 records came from the opposite habit** — `DrawTranslucent` setting a
+     read-only depth state and not restoring it, so `Device3D` now sets `_depthOn` explicitly after
+     the sprites *"rather than trust the last one to have tidied up"*.
+
+   **So the safe insertion is a SECOND `DetailSpriteRenderer` drawn last, owning its own state.**
+   Drawing after the models means it cannot leak onto anything, and self-contained state means it
+   inherits nothing — which is exactly the property the existing sprite pass documents about itself.
+
+   **What still makes this one chunk rather than three:** the pass alone draws nothing and would be
+   dead code, so it has to land with the scene system that fills a store and the sheet that gives a
+   particle a texture. That is the next session's first task, and the risk that was blocking it is
+   now measured rather than feared.
 
 **That third piece is why this stops at the sprite builder rather than continuing into the viewer.**
 Everything above it is testable without a device and is tested; the pass is not, and the specific
