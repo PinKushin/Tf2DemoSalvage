@@ -25601,10 +25601,33 @@ the fade. Nothing draws a gib yet.
 `RandomFloat( 0, 120 )` on two axes (`c_tf_player.cpp:7429-7441`). The corpse already carries both
 force and velocity, so the inputs are on hand.
 
-**The remaining half is not started deliberately.** Spawning spans a per-gib track, physics per
-piece and a fade, and this branch has just spent three days on what a half-built physics path costs.
-The list being parsed is a complete layer with an instrument on it; the spawning wants its own
-session rather than the tail of this one.
+**BUILT: the throw.** `PlayerGibs` carries `CreatePlayerGibs`' arithmetic with nine conformance
+tests — the shared throw (`normalize(m_vecForce + m_vecRagdollVelocity)`, `z += forceup`,
+normalise, `× force`, capped), the per-piece scatter, and the once-per-corpse angular impulse. The
+constants are `FCVAR_CHEAT | FCVAR_DEVELOPMENTONLY`, which is *"Hidden in released products"*
+(`iconvar.h:40`), so they are effectively fixed at 1.0 / 500 / 400 in a shipped game. Their
+registered names carry a Valve typo worth knowing: `tf_playersgib_force` and
+`tf_playersgib_forceup` have an extra `s`; `tf_playergib_maxspeed` does not.
+
+**A gib does NOT build a ragdoll body, and assuming it did would have failed silently.** Measured:
+
+```
+MODELS/PLAYER/GIBS/MEDICGIB001.MDL: 1 solid(s), 1 hull(s), body FAILED to build
+    solid 'medicgib001_reference'
+    bone 0 'polymsh'
+```
+
+`RagdollBody.Build` refuses when a solid's name matches no bone — the correct rule for a RAGDOLL,
+where each solid drives a named bone. A gib has one bone that the `.phy` does not name, and the
+engine never asks it to: `CreateGibsFromList` calls `BreakModelCreateSingle`
+(`props_shared.cpp:1497`), which makes a `prop_physics`-style single rigid body straight from the
+VCollide. **So gibs want a single-body prop path, not the ragdoll builder** — the hull and mass are
+there, and only the bone-name requirement is in the way. The `ragdoll` probe now reports single-solid
+models and whether a body builds, which is what caught this.
+
+**Still to do:** that single-body path, hiding the ragdoll for a gib death (`m_bGib` is decoded and
+read by NOTHING today, so a gibbed death currently draws a whole corpse where TF2 draws pieces), and
+the ten-second fade.
 
 *Evidence class: read from published SDK source for the whole chain; measured on
 `models/player/medic.mdl` for the nine pieces and their fields, and for the 231-of-407 share on
