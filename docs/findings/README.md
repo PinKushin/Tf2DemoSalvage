@@ -13,10 +13,18 @@ It is deliberately *not* a specification. The repository already separates those
 | `docs/RISKS.md` | **What is still open.** Numbered bugs and unknowns, each with its status. |
 | `docs/DECISIONS.md` | **Why the project is built this way.** Engineering choices, numbered D1…. |
 | `docs/TIMELINE.md` | **The era axis.** Which build shipped which protocol, and how that was dated. |
+| `docs/verification/` | **What a command prints today.** Superseded numbers are replaced, not appended. |
+
+**This table is the one copy** — `CLAUDE.md` and `docs/verification/README.md` point here rather than
+restating it, because the version that lived in all three drifted apart by a row.
 
 When a finding lands, the spec gets the conclusion and this folder gets the story. Neither should
 restate the other at length — where detail lives elsewhere, these files link to it rather than copy
 it, because a second copy is a copy that goes stale.
+
+**The distinction that matters is findings against verification.** A finding keeps the wrong turn and
+the evidence that killed it; a verification entry keeps only the number a rerun would produce, and
+when the number changes the old one is gone.
 
 ## Contents
 

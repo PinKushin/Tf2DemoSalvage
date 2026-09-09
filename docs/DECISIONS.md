@@ -4255,6 +4255,16 @@ A local cache follows from both: the measurement boxes should not re-download on
 `TF2DEMOSALVAGE_GCOR_ONLY` exists precisely because run time is the thing being managed. The natural
 shape is the cache being what tests read, and the fetch being what fills it.
 
+**lcor consolidates onto `D:` in the same move, by symlink rather than by copying.** The owner,
+2026-08-26, first on what lcor actually is — *"the FULL lcor includes the 3 gigs of esea and etf2l
+demos, and the benroads demos, and the 20 demos found by another agent on d:, and the tf2 research
+repo"* — and then on where it should be: *"i kinda want all the lcor demos in the d: demo archive,
+although that still leaves a bunch of demos actually in another repo too, but we might be able to use
+symlinks for those or for all of the consolidation so nothing has to actually move"*. Symlinks mean
+nothing is copied and no repo loses its own copy, which is what makes the consolidation reversible.
+`tools/corpus/local/` is therefore the part a test currently sees, not the pool — a distinction that
+misleads about scale in both directions if it is forgotten.
+
 Related and still to decide: whether anything stays committed at all. A handful of tiny specimens in
 the repository means `git clone && dotnet test` works with no network, which has real value for a
 contributor and for CI. That is a smaller question than it was, and worth answering deliberately
@@ -7935,3 +7945,41 @@ can be wrong; "the map has holes" is a claim that cannot be right.
 **This is the same shape as `docs/memory/an-empty-search-needs-a-control.md` one level up.** That
 rule says an absence is usually about the grep; this one says an absence is usually about which of
 several parallel readings you asked.
+
+## D150 — `CLAUDE.md` is bare rules and pointers, and a restatement in it is a defect (2026-09-08)
+
+**The owner: *"yea we have a massive project slaude file, it needs to be made a lot smaller"*.** It
+was 499 lines and 40,588 bytes; it is now 288 and 21,618 — 47% smaller by bytes — with no rule
+dropped. Every cut was a fact that already had an owner, replaced by a one-line pointer to it.
+
+**The reason is cost, and it compounds in the direction nobody notices.** This file loads on every
+turn of every session, so a paragraph of reasoning nobody needed this turn is paid for thousands of
+times, and a MEASUREMENT in it is worse than absent: it reads as current while nothing ever corrects
+it. The global standards' tier ladder already said this — tier 2 and tier 4 are *bare rule plus
+pointer*, and measurements are tier 5 — and this file was violating its own house rule at length.
+
+**What came out, and where it went:**
+
+| Was in `CLAUDE.md` | Now owned by |
+|---|---|
+| the two-phase gate's per-assembly counts, corpus sizes and timings, B89's UI figures, the viewer's fps | `docs/verification/` (B1, created for this) |
+| the Ghidra invocation, the JDK 21 trap, `DisasmWithData` | `docs/DECOMPILING.md` |
+| a table of 18 probes with descriptions | the tool's own no-argument listing, out of `IProbe.Summary` |
+| the corpus's era gaps, the 21/22 specimens, what a demo can date | `docs/TIMELINE.md` |
+| lcor's real extent and the `D:` consolidation | D81 |
+| why synthetic fixtures come first, and what stays in the corpus | D38 |
+| the test-naming convention's history and safety checks | `docs/memory/test-naming-convention.md` |
+| the document-routing table, which existed in three drifted copies | `docs/findings/README.md`, one copy |
+| the language constraints as originally written | D2, which had already superseded them |
+
+**Four of those were already stale, and that is the argument.** The test count read 4,690 against
+5,522 — sitting two paragraphs above this file's own warning that a per-assembly table *"drifted by
+about four hundred tests while the warning sat directly beneath it"*. The probe table named eighteen
+and claimed forty-four against a directory holding forty-nine. The language bullet described a C
+decode core that D2 records as never built and warns against resurrecting *"from an old conversation
+transcript or stale docs"* — this file being the stale doc. And the routing table had drifted a row
+apart across `CLAUDE.md`, `docs/findings/README.md` and `docs/verification/README.md`.
+
+**So the standing rule, stated at the top of the file itself:** when you find a restatement in
+`CLAUDE.md`, move it to the document that owns it and leave a pointer. A snapshot labelled "this will
+go stale" is still a stale number that somebody reads.
