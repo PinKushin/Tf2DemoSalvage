@@ -59,21 +59,22 @@ public interface IPlayerAppearance
     /// </remarks>
     public ItemBodygroups BodygroupsOf(int itemDefinitionIndex);
 
-    /// <summary>The animation sequence a compiled scene plays, for a taunt (B351).</summary>
+    /// <summary>What a compiled scene does to whoever it animates, for a taunt (B351).</summary>
     /// <param name="scene">The scene's filename, as the <c>Scenes</c> string table spells it.</param>
-    /// <returns>The sequence name, or null when the archive names none or there is no install.</returns>
+    /// <returns>The plan, or null when the archive has no such scene or there is no install.</returns>
     /// <remarks>
     /// **Asked here for the same reason the model is: it is in the game's own files, not on the
     /// wire.** `DT_SceneEntity` sends only `m_nSceneStringIndex`, and the sequence is a parameter
     /// string inside the compiled scene — `LookupSequence( event-&gt;GetParameters() )`
     /// (<c>c_tf_player.cpp:9456</c>). A demo carries the scene's name and nothing about the animation.
     ///
-    /// **Null for a scene that plays no gesture, which most of the archive is.** A voice line is all
-    /// `SPEAK` and flex; measured, 1,703 of 9,939 shipped scenes name a sequence at all, and of the
-    /// twenty-three taunt scenes one real match played, twenty do — the other three being the Heavy's
-    /// sandwich voice lines, whose events are `SPEAK` and `EXPRESSION`.
+    /// **An EMPTY plan for a scene that plays no gesture, which most of the archive is.** A voice
+    /// line is all `SPEAK` and flex; measured, 1,703 of 9,939 shipped scenes name a sequence at all,
+    /// and of the twenty-three taunt scenes one real match played, twenty do — the other three being
+    /// the Heavy's sandwich voice lines, whose events are `SPEAK` and `EXPRESSION`. Null is reserved
+    /// for "cannot say".
     /// </remarks>
-    public string? SequenceForScene(string scene);
+    public SceneTaunt? TauntForScene(string scene);
 }
 
 /// <summary>What one equipped item does to its wearer's body parts.</summary>
@@ -167,7 +168,9 @@ public sealed class NoBodygroups : IModelBodygroups
 /// <param name="Classes">The class script, or null when no install was found.</param>
 /// <param name="Roles">The weapon-to-activity map, or null.</param>
 /// <param name="Items">The item schema, or null when no install was found (B352).</param>
-/// <param name="Scenes">The compiled scene archive, or null when no install was found (B351).</param>
+/// <param name="Taunts">
+/// Every scene the recording plays, already resolved, or null when no install was found (B351).
+/// </param>
 /// <remarks>
 /// **Null means "no install", and answering null is the honest response.** A viewer with no TF2
 /// draws what it can rather than refusing, so every member here degrades to "cannot say" rather
@@ -178,11 +181,19 @@ public sealed record GameAppearance(
     PlayerClassModels? Classes,
     WeaponRoles? Roles,
     ItemSchema? Items = null,
-    SceneImage? Scenes = null)
+    IReadOnlyDictionary<string, SceneTaunt>? Taunts = null)
     : IPlayerAppearance
 {
     /// <inheritdoc/>
-    public string? SequenceForScene(string scene) => Scenes?.SequenceFor(scene);
+    /// <remarks>
+    /// **A dictionary rather than the archive itself, because resolving is not cheap.** A filename
+    /// becomes a plan through a CRC search, an LZMA decompression and an event walk; asking per
+    /// player per sampled tick would repeat all three several hundred times for one five-second
+    /// taunt. `DemoAppearance.Ensure` resolves every scene the recording mentions, once, exactly as
+    /// it reads only the weapon roles this recording needs.
+    /// </remarks>
+    public SceneTaunt? TauntForScene(string scene) =>
+        Taunts is not null && Taunts.TryGetValue(scene, out SceneTaunt? taunt) ? taunt : null;
 
     /// <inheritdoc/>
     public string? ModelOf(int playerClass) => Classes?.Model(playerClass);
@@ -459,10 +470,17 @@ public static class PlayerProps
     /// <param name="appearance">What the installed game says, which is where the scene archive is.</param>
     /// <returns>The gestures with any VCD slot's sequence resolved.</returns>
     /// <remarks>
-    /// **A scene that names no sequence is DROPPED, which is the engine's own behaviour**:
+    /// **A scene that stages no gesture is DROPPED, which is the engine's own behaviour**:
     /// `if ( info-&gt;m_nSequence &lt; 0 ) return false;` (<c>c_tf_player.cpp:9457</c>) abandons the
     /// gesture rather than substituting one. Keeping it would leave a gesture nothing can resolve in
     /// the slot, holding it against the next taunt.
+    ///
+    /// **A STOPPED scene is dropped only if it loops**, which is the rule
+    /// `C_TFPlayer::StopGestureSceneEvent` states in a comment
+    /// (<c>c_tf_player.cpp:9491</c>): *"The ResetGestureSlot call will prevent people from doing
+    /// running taunts (which they like to do), so let's only reset the gesture slot if the scene
+    /// contains a loop (such as the high five pose)."* So a one-shot taunt whose scene the server has
+    /// stopped keeps playing out, and a high-five pose ends the moment it is released.
     ///
     /// **On a machine with no TF2 every taunt is dropped**, and that is the honest answer: the
     /// sequence genuinely cannot be named, and the same rule that leaves a player undrawn when their
@@ -501,10 +519,17 @@ public static class PlayerProps
                 }
             }
 
-            if (appearance.SequenceForScene(scene) is { Length: > 0 } sequence)
+            if (appearance.TauntForScene(scene) is not { Gestures.Count: > 0 } taunt)
             {
-                resolved.Add(gesture with { SequenceName = sequence });
+                continue;
             }
+
+            if (gesture.StoppedSeconds is not null && taunt.Loops)
+            {
+                continue;
+            }
+
+            resolved.Add(gesture with { Taunt = taunt });
         }
 
         if (resolved is null)

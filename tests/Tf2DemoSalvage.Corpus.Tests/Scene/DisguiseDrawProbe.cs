@@ -254,7 +254,7 @@ public sealed class DisguiseDrawProbe
 
         /// <inheritdoc/>
         /// <remarks>Null: this probe asks which players are drawn, not what they are playing (B351).</remarks>
-        public string? SequenceForScene(string scene) => null;
+        public SceneTaunt? TauntForScene(string scene) => null;
 
         // This probe asks which players are drawn, so what they wear is deliberately not modelled.
         public ItemBodygroups BodygroupsOf(int itemDefinitionIndex) => ItemBodygroups.None;

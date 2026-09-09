@@ -35,9 +35,15 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// <param name="SceneName">
 /// The compiled scene this gesture came out of, for a taunt, or null for an ordinary gesture (B351).
 /// </param>
-/// <param name="SequenceName">
-/// The sequence the model must look up, once something with the game's own files has resolved
+/// <param name="Taunt">
+/// What that scene stages, once something with the game's own files has resolved
 /// <paramref name="SceneName"/>. Null until then, and null for ever on a machine with no TF2.
+/// </param>
+/// <param name="StoppedSeconds">
+/// Demo time when the scene stopped playing back, or null while it still is. **Whether that ends the
+/// gesture depends on the scene**: `C_TFPlayer::StopGestureSceneEvent` resets the VCD slot only for a
+/// scene containing a `LOOP` (<c>c_tf_player.cpp:9505</c>), deliberately, so that a running taunt
+/// plays out — so the decision needs the resolved plan and cannot be made here.
 /// </param>
 public readonly record struct SceneGesture(
     GestureSlot Slot,
@@ -46,7 +52,8 @@ public readonly record struct SceneGesture(
     bool AutoKill,
     double StartedSeconds,
     string? SceneName = null,
-    string? SequenceName = null);
+    SceneTaunt? Taunt = null,
+    double? StoppedSeconds = null);
 
 /// <summary>One animation layer an entity sends on the wire.</summary>
 /// <param name="Order">
@@ -299,7 +306,7 @@ public sealed class PlayerGestureFeed
     ///
     /// **The SEQUENCE is not resolved here** and cannot be: it is a string inside the compiled scene,
     /// which lives in the installed game's own archive. Core carries the scene's name and the layer
-    /// with the game's files fills in <see cref="SceneGesture.SequenceName"/>.
+    /// with the game's files fills in <see cref="SceneGesture.Taunt"/>.
     /// </remarks>
     public void RecordScene(int entityIndex, string scene, double seconds)
     {
@@ -318,6 +325,31 @@ public sealed class PlayerGestureFeed
             GestureSlot.Vcd, null, null, AutoKill: true, seconds, SceneName: scene);
 
         AnyRecorded = true;
+    }
+
+    /// <summary>Notes that a scene has stopped playing back (B351).</summary>
+    /// <param name="entityIndex">The actor.</param>
+    /// <param name="scene">Which scene stopped.</param>
+    /// <param name="seconds">Demo time when <c>m_bIsPlayingBack</c> went false.</param>
+    /// <remarks>
+    /// **Recorded rather than acted on, because the rule needs the scene's own contents.**
+    /// `C_TFPlayer::StopGestureSceneEvent` resets the VCD slot only when the scene contains a `LOOP`
+    /// (<c>c_tf_player.cpp:9505</c>) — the comment there is explicit that this is to let a running
+    /// taunt play out — and whether it does is inside the compiled scene, which Core cannot read.
+    ///
+    /// **Only the gesture naming THIS scene is marked.** A player who began a second taunt already
+    /// holds a different scene in the slot, and the first one's stop must not end it.
+    /// </remarks>
+    public void StopScene(int entityIndex, string scene, double seconds)
+    {
+        if (!_byPlayer.TryGetValue(entityIndex, out SceneGesture?[]? slots) ||
+            slots[(int)GestureSlot.Vcd] is not { } playing ||
+            !string.Equals(playing.SceneName, scene, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        slots[(int)GestureSlot.Vcd] = playing with { StoppedSeconds = seconds };
     }
 
     /// <summary>The gestures a player has going, newest per slot, in slot order.</summary>

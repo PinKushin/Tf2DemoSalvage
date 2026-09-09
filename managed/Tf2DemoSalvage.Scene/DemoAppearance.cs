@@ -104,29 +104,45 @@ public static class DemoAppearance
                         $"{pair.Weapon}/{pair.Class?.ToString(CultureInfo.InvariantCulture) ?? "?"}=" +
                         roles.Suffix(pair.Weapon, pair.Class))));
 
-        // **And the compiled scene archive, because a taunt's sequence name is inside it** (B351).
-        // Read once here for the same reason as the rest: this is the one place holding the install,
-        // and the archive is 3.6 MB carrying 9,939 scenes — reading it per taunt would open it again
-        // for every player who dances.
+        // **Only the scenes this recording plays, resolved once each** (B351). The archive is 3.6 MB
+        // carrying 9,939 scenes, and turning one filename into a plan costs a CRC search, an LZMA
+        // decompression and an event walk — so this is the same arrangement the weapon roles use one
+        // paragraph above, and for the same reason: a match touches a handful.
         //
-        // Null when the install has no `scenes.image`, which leaves every taunt unresolved rather
+        // Empty when the install has no `scenes.image`, which leaves every taunt unresolved rather
         // than failing: the same degradation the class models and the item schema take.
-        SceneImage? scenes = game.Archives.Read(ScenePath) is { Length: > 0 } image
-            ? SceneImage.Read(image)
-            : null;
+        Dictionary<string, SceneTaunt> taunts = new(StringComparer.Ordinal);
 
-        log.LogInformation(
-            "{Message}",
-            scenes is null
-                ? "scenes: no scenes.image, so taunts will not resolve"
-                : string.Create(
-                    CultureInfo.InvariantCulture, $"scenes: {scenes.Count:N0} compiled scenes"));
+        if (game.Archives.Read(ScenePath) is { Length: > 0 } image &&
+            SceneImage.Read(image) is { } scenes)
+        {
+            foreach (SceneChoreography playing in timeline.Scenes)
+            {
+                if (playing.Scene.Length > 0 && !taunts.ContainsKey(playing.Scene) &&
+                    scenes.TauntFor(playing.Scene) is { } taunt)
+                {
+                    taunts[playing.Scene] = taunt;
+                }
+            }
+
+            log.LogInformation(
+                "{Message}",
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"scenes: {scenes.Count:N0} in the archive, {taunts.Count:N0} played by this " +
+                    $"recording, {taunts.Values.Count(one => one.Gestures.Count > 0):N0} staging a " +
+                    $"gesture, {taunts.Values.Count(one => one.Loops):N0} looping"));
+        }
+        else
+        {
+            log.LogInformation("{Message}", "scenes: no scenes.image, so taunts will not resolve");
+        }
 
         // **The item schema comes along because a player's body number needs it** (B352): a hat
         // hides the head it replaces, and only `items_game.txt` says which part that is. Reached
         // for here rather than by the scene for the same reason the class models are — this is the
         // one place that already holds the install.
-        return new GameAppearance(game.Classes, roles, game.Weapons.Items, scenes);
+        return new GameAppearance(game.Classes, roles, game.Weapons.Items, taunts);
     }
 
     /// <summary>Where the compiled choreography archive sits inside the game's VPKs (B351).</summary>

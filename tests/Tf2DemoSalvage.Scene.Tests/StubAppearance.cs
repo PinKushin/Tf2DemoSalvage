@@ -1,3 +1,5 @@
+using Tf2DemoSalvage.Core.Scene;
+
 namespace Tf2DemoSalvage.Scene.Tests;
 
 /// <summary>An appearance that names a player model for every class.</summary>
@@ -29,16 +31,16 @@ internal sealed class StubAppearance : IPlayerAppearance
     /// <inheritdoc/>
     public string? Hands(int playerClass) => null;
 
-    /// <summary>What every scene resolves to, or null for an appearance that names none.</summary>
+    /// <summary>What every scene resolves to, or null for an appearance that resolves none.</summary>
     /// <remarks>
     /// **Settable, because a taunt test must name a sequence without an install.** The compiled scene
     /// archive is 3.6 MB of game data and no test should need it to assert that a resolved scene
     /// becomes a pose layer (B351). Null by default, which is what a machine with no TF2 answers.
     /// </remarks>
-    public string? SceneSequence { get; init; }
+    public SceneTaunt? Taunt { get; init; }
 
     /// <inheritdoc/>
-    public string? SequenceForScene(string scene) => SceneSequence;
+    public SceneTaunt? TauntForScene(string scene) => Taunt;
 
     /// <inheritdoc/>
     /// <remarks>

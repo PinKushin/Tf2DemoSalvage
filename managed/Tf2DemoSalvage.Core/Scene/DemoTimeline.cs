@@ -1945,7 +1945,19 @@ public sealed class DemoTimeline
                 if (entity.ScenePlayingBack() is not true ||
                     entity.SceneStringIndex() is not { } index)
                 {
-                    playingScenes.Remove(entity.EntityIndex);
+                    // **The stop is a transition too, and it has to reach the actors.** The engine
+                    // walks the same actor list on the way down — `ClearSceneEvents` then
+                    // `RemoveChoreoScene` (`c_sceneentity.cpp:344`) — and what that does to the
+                    // gesture depends on whether the scene loops, which only the archive knows.
+                    if (playingScenes.Remove(entity.EntityIndex, out int stopped) &&
+                        scenePrecache.Path(stopped) is { Length: > 0 } was)
+                    {
+                        foreach (int actor in entity.SceneActors())
+                        {
+                            gestures.StopScene(actor, was, command.Tick * interval);
+                        }
+                    }
+
                     continue;
                 }
 

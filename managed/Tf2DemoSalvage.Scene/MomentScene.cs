@@ -1463,7 +1463,7 @@ internal sealed class NoAppearance : IPlayerAppearance
     /// general case to fall back on; a sequence name does not — it is a string inside a file this
     /// machine does not have. Answering anything but null would name a sequence no model declares.
     /// </remarks>
-    public string? SequenceForScene(string scene) => null;
+    public SceneTaunt? TauntForScene(string scene) => null;
 
     /// <inheritdoc/>
     /// <remarks>

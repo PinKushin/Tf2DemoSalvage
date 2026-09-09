@@ -7,6 +7,7 @@ using System.IO.Hashing;
 using System.Text;
 
 using Tf2DemoSalvage.Core.Primitives;
+using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Content.Assets;
 
@@ -227,6 +228,59 @@ public sealed class SceneImage
         SequenceIn(Body(entry), events, out _, out _);
 
         return events;
+    }
+
+    /// <summary>What a scene does to the player it animates, resolved once (B351).</summary>
+    /// <param name="scene">The scene's name as the wire spells it.</param>
+    /// <returns>The plan, or null when the scene is not in the archive.</returns>
+    /// <remarks>
+    /// **The `LOOP` event's parameter is a TIME, not a name.** `DispatchProcessLoop` reads it as
+    /// <c>(float)atof( event-&gt;GetParameters() )</c> and hands it to `SetCurrentTime`
+    /// (<c>c_sceneentity.cpp:574</c>) — measured on `taunt_jackhammer_rodeo`, the string is
+    /// <c>"2.500000"</c>. So the same field that names a sequence on a gesture is a clock position on
+    /// a loop, which is why this cannot be read without knowing the event's type.
+    ///
+    /// **A scene with no gesture returns an empty plan rather than null**, because "plays no
+    /// animation" is most of the archive and must be distinguishable from "not in the archive".
+    /// </remarks>
+    public SceneTaunt? TauntFor(string scene)
+    {
+        ArgumentNullException.ThrowIfNull(scene);
+
+        if (Locate(scene) is not { } entry)
+        {
+            return null;
+        }
+
+        List<SceneEvent> events = [];
+
+        SequenceIn(Body(entry), events, out _, out _);
+
+        List<SceneTauntGesture> gestures = [];
+        float loopsFrom = -1f;
+        float loopsAt = -1f;
+
+        foreach (SceneEvent one in events)
+        {
+            if (one.Type is Gesture or Sequence && one.Parameters.Length > 0)
+            {
+                gestures.Add(new SceneTauntGesture(one.Start, one.Parameters));
+                continue;
+            }
+
+            // **The FIRST loop wins, matching the engine's own scan.** `StopGestureSceneEvent`
+            // breaks out of its walk at the first `LOOP` it finds (`c_tf_player.cpp:9500`), and a
+            // scene with two of them is not something any shipped taunt does.
+            if (one.Type == Loop && loopsAt < 0f &&
+                float.TryParse(
+                    one.Parameters, NumberStyles.Float, CultureInfo.InvariantCulture, out float back))
+            {
+                loopsFrom = back;
+                loopsAt = one.Start;
+            }
+        }
+
+        return new SceneTaunt(gestures, loopsFrom, loopsAt);
     }
 
     /// <summary>Every event one directory slot's scene declares.</summary>

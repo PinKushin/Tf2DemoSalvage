@@ -240,6 +240,44 @@ public sealed class SceneWireProbe : IProbe
             $"of the {taunts.Count:N0} naming a taunt, " +
             $"{taunts.Count(name => archive.SequenceFor(name) is { Length: > 0 }):N0} do"));
 
+        // **How many of the scenes this recording plays actually loop**, which decides two behaviours
+        // that look identical until one is wrong: whether a taunt repeats while held, and whether
+        // stopping the scene ends it (`c_tf_player.cpp:9505`).
+        int looping = 0;
+        int staging = 0;
+
+        foreach (string name in distinct)
+        {
+            if (archive.TauntFor(name) is not { } plan)
+            {
+                continue;
+            }
+
+            if (plan.Gestures.Count > 0)
+            {
+                staging++;
+            }
+
+            if (plan.Loops)
+            {
+                looping++;
+            }
+        }
+
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"  resolved plans: {staging:N0} stage a gesture, {looping:N0} loop"));
+
+        foreach (string name in taunts.Where(one => archive.TauntFor(one)?.Loops == true).Take(4))
+        {
+            SceneTaunt plan = archive.TauntFor(name)!;
+
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"    LOOPS '{name}': [{plan.LoopsFrom:F2}, {plan.LoopsAt:F2}], " +
+                $"{plan.Gestures.Count} gesture(s)"));
+        }
+
         foreach (string silent in taunts
             .Where(name => archive.SequenceFor(name) is not { Length: > 0 })
             .Take(6))

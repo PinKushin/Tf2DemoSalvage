@@ -24102,10 +24102,30 @@ reader was copied from. And `CycleProbe` reported `gestures 0` through a real ta
 its own `GameAppearance` instead of calling `DemoAppearance.Ensure`. Both in
 `docs/findings/53-a-taunt-names-its-sequence-in-a-scene.md`.
 
-**Still open in this area, and deliberately not claimed:** a scene's `LOOP` is read but not obeyed, so
-a press-and-hold taunt plays once rather than repeating; `m_bIsPlayingBack` going false is not
-recorded, so a taunt cut short by death finishes its animation; and only the FIRST gesture in a scene
-is played, though `SceneImage.EventsFor` already carries all of them with their times.
+**2026-09-09 (third pass) — the three things the second pass did not claim are now done.**
+
+- **A scene's `LOOP` is obeyed.** `DispatchProcessLoop` sets the scene's clock back to the event's
+  parameter read as a float (`c_sceneentity.cpp:574`), so a press-and-hold taunt repeats. `SceneTaunt.
+  TimeAt` folds the elapsed time into `[backtime, loopStart]`, which is the closed form of that and is
+  what a seeking viewer can evaluate. Four of the scenes one real match played loop — all the Pyro's
+  Skating Scorcher, windows like `[1.77, 6.20]` — and on the drawn skeleton entity 7's
+  `taunt_skating_scorcher_intro` goes frame 181 at tick 960 to frame 62 at tick 990.
+- **The stop is recorded, and honoured only for a looping scene.** `StopGestureSceneEvent` resets the
+  VCD slot only when the scene contains a `LOOP` (`c_tf_player.cpp:9505`), under a comment saying this
+  is deliberately so a running taunt plays out. Core records `StoppedSeconds`; the layer holding the
+  archive applies the rule. Both halves have a test, because the same input predicts opposite answers.
+- **Every gesture a scene stages is carried, and the LAST one to have begun is the one playing** —
+  each `StartGestureSceneEvent` resets the slot before adding (`c_tf_player.cpp:9477`), so a scene with
+  two gestures never layers them.
+
+**Resolution moved out of the per-tick path.** Turning a filename into a plan costs a CRC search, an
+LZMA decompression and an event walk; asking per player per sampled tick repeated all three several
+hundred times for one taunt. `DemoAppearance.Ensure` now resolves every scene the recording mentions,
+once, exactly as it reads only the weapon roles the recording needs.
+
+**Still not established:** what a partner taunt looks like with two actors (every measured taunt has
+one), and whether a looping SEQUENCE inside a non-looping scene diverges — `StartGestureSceneEvent`
+reads `STUDIO_LOOPING` and ours does not, but for every scene measured the two agree.
 
 **2026-09-09 — the reader works: 730 of 730 scene paths the schema names now yield a sequence.**
 `SceneImage` (`managed/Tf2DemoSalvage.Content/Assets/SceneImage.cs`) does the whole lookup — CRC of

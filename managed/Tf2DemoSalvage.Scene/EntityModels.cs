@@ -1348,9 +1348,25 @@ public sealed class EntityModelSet : IModelBodygroups
             // `Find` does, where `SelectWeightedSequence` matches an activity. Putting a taunt
             // through the activity path resolves nothing, because no sequence is labelled with an
             // activity name.
-            if (gesture.SequenceName is { Length: > 0 } vcd)
+            if (gesture.Taunt is { } taunt)
             {
-                Layer(layers, skinned, skinned.Find(vcd), gesture, seconds);
+                // **The scene's own clock, folded by its LOOP, decides which gesture is playing and
+                // how far into it we are.** `DispatchProcessLoop` sets the scene's time back to the
+                // loop's parameter (`c_sceneentity.cpp:594`), so a press-and-hold taunt crosses its
+                // gesture event again and `StartGestureSceneEvent` restarts the layer — which in
+                // closed form is folding the elapsed time into the loop's window.
+                float scene = taunt.TimeAt((float)(seconds - gesture.StartedSeconds));
+
+                if (taunt.At(scene) is { } staged)
+                {
+                    Layer(
+                        layers,
+                        skinned,
+                        skinned.Find(staged.Gesture.Sequence),
+                        gesture with { StartedSeconds = seconds - staged.Elapsed },
+                        seconds);
+                }
+
                 continue;
             }
 

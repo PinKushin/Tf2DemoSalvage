@@ -320,7 +320,11 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # (B348). Four, and the control is three snapshots all with the tubes already apart — the case that
 # separates "stamped once and held" from "restamped every packet", which would freeze the chamber a
 # few degrees from where it set off with nothing about the pose looking wrong.
-run Tf2DemoSalvage.Core.Tests     core     1799
+# 1799 -> 1807 on 2026-09-09: eight for a compiled scene's clock (B351). The LOOP fold has to agree
+# with the engine's per-frame stepping however long a pose is held, so one holds for twenty seconds
+# and lands where half a window does; the control is a scene with no loop, without which a fold
+# applied unconditionally would restart every one-shot taunt in the game for ever.
+run Tf2DemoSalvage.Core.Tests     core     1807
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.
@@ -751,7 +755,13 @@ run Tf2DemoSalvage.Animation.Tests animation 111
 # becomes a resolved sequence and that an unresolvable one is DROPPED, as the engine drops it; two
 # assert the resolved sequence reaches the skeleton by LABEL rather than by activity, on a fixture
 # whose taunt has no activity at all so the activity path cannot satisfy it.
-run Tf2DemoSalvage.Scene.Tests    scene     575
+#
+# 575 -> 579 on 2026-09-09: four more for B351's loop and stop. Two are the halves of Valve's own
+# rule that stopping a scene ends the taunt ONLY if the scene loops (`c_tf_player.cpp:9491`) -- same
+# input, opposite scene, opposite answer. One is a looping taunt still drawn 300 seconds in, whose
+# fixture window must be SHORTER than the gesture's sequence or the layer legitimately dies between
+# loops. One is an empty plan, which is a scene that answers "animates nothing".
+run Tf2DemoSalvage.Scene.Tests    scene     579
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

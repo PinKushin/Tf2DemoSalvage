@@ -213,21 +213,71 @@ moment playback begins, so a viewer driving its own clock reproduces it exactly 
 `SceneChoreography` therefore does not carry `m_flForceClientTime` at all: carrying it would invite a
 consumer to honour a value the game discards.
 
+## The scene runs on its own clock, and the clock loops
+
+A press-and-hold taunt does not play once. `DispatchProcessLoop` reads the `LOOP` event's parameter as
+a TIME and hands it to `SetCurrentTime`:
+
+```cpp
+float backtime = (float)atof( event->GetParameters() );
+…
+scene->LoopToTime( backtime );
+SetCurrentTime( backtime, true );
+```
+
+`c_sceneentity.cpp:574`. So the same parameter field that names a sequence on a `GESTURE` is a clock
+position on a `LOOP` — which is why it cannot be read without the event's type. Measured, a real one
+is the string `"2.500000"`.
+
+**The scene therefore cycles over `[backtime, loopStart]` for as long as the server keeps it playing**,
+crossing the gesture event again each time, and `StartGestureSceneEvent` re-adds the layer. In closed
+form that is folding the elapsed time into the window — which a seeking viewer can evaluate where the
+engine's per-frame stepping cannot. `SceneTaunt.TimeAt` does exactly that.
+
+**Four of the scenes one real match played loop**, all of them the Pyro's Skating Scorcher:
+
+```
+resolved plans: 21 stage a gesture, 4 loop
+  LOOPS 'scenes/workshop/player/pyro/low/taunt_the_skating_scorcher_intro.vcd': [1.77, 6.20], 1 gesture(s)
+  LOOPS 'scenes/workshop/player/pyro/low/taunt_the_skating_scorcher_trick1.vcd': [2.05, 6.49], 1 gesture(s)
+```
+
+and on the drawn skeleton the fold is visible: entity 7's `taunt_skating_scorcher_intro` is at frame
+181 at tick 960 and frame 62 at tick 990. Without the fold, auto-kill removes the layer the moment the
+sequence's cycle passes one, and a held taunt collapses back to the idle pose part-way through.
+
+## Stopping a scene only ends the taunt if the scene loops
+
+The obvious implementation — clear the gesture when `m_bIsPlayingBack` goes false — is wrong, and
+Valve says why in a comment:
+
+```cpp
+// The ResetGestureSlot call will prevent people from doing running taunts (which they like to do),
+// so let's only reset the gesture slot if the scene contains a loop (such as the high five pose).
+```
+
+`c_tf_player.cpp:9491`. `StopGestureSceneEvent` walks the scene's events for a `LOOP` and resets
+`GESTURE_SLOT_VCD` only if it finds one. So a one-shot taunt whose scene the server has already stopped
+plays out to its end, and a held pose ends the instant it is released. Both halves have their own test,
+because the stop and the loop predict opposite answers from the same input.
+
+**The rule needs the scene's contents, so the decision cannot be made where the stop is seen.** Core
+records `StoppedSeconds` on the gesture; the layer holding the archive decides. That is the same split
+as everything else here: the wire says what happened, the installed game says what it means.
+
 ## What is NOT established
 
-- **Which gesture a scene with several of them plays.** `SequenceFor` returns the first, which is
-  right for every taunt measured and is a guess for anything else. The engine plays events on the
-  scene's clock (`C_SceneEntity`), so a scene staging two gestures in sequence needs the times, not
-  the first name. `EventsFor` carries them; nothing consumes them yet.
-- **A scene's `LOOP` is read but not obeyed.** `DispatchProcessLoop` folds the scene's clock back to
-  `atof( event->GetParameters() )` (`c_sceneentity.cpp:594`) — measured, a real `LOOP` event's
-  parameter really is the string `"2.500000"` — so a press-and-hold taunt repeats until the server
-  stops it. Ours plays the gesture once and lets auto-kill end it, which is right for a one-shot taunt
-  and short for a held one.
-- **The stop.** `m_bIsPlayingBack` going false is not recorded; the gesture's own auto-kill ends it.
-  A taunt cut short by death will therefore finish its animation.
 - **That `taunt_highFiveStart` exists as a sequence on the class models.** `taunt_laugh` does — it
-  resolved to sequence 288 on a real soldier — but the partner-taunt names have not been checked.
+  resolved to sequence 288 on a real soldier, and `taunt_skating_scorcher_intro` to 377 on a pyro — but
+  the partner-taunt names have not been checked.
+- **What a partner taunt looks like with two actors.** `m_hActorList` is read in full and every actor
+  gets the gesture, but no measured taunt in the corpus has more than one actor, so the second slot has
+  never carried anything.
+- **Whether a looping sequence is exempt from auto-kill.** `StartGestureSceneEvent` branches on
+  `STUDIO_LOOPING` when choosing the initial cycle and the taunt duration (`c_tf_player.cpp:9459`), and
+  ours does not read that flag — it relies on the scene's own loop instead. For every scene measured
+  the two agree, because the looping taunts are the ones with a `LOOP` event; a looping SEQUENCE inside
+  a non-looping scene would diverge and none has been found.
 - **The scene ramp and everything after the actors.** The reader stops once the actors are walked, so
   nothing past that point in a compiled scene has been read or verified beyond arithmetic on its
   known 4-byte shape.

@@ -186,8 +186,32 @@ public sealed class GestureLayerWiringTests
             "AddVCDSequenceToGestureSlot is called with bAutoKill true at both of its call sites");
     }
 
+    /// <remarks>
+    /// **A looping scene restarts its gesture instead of letting auto-kill end it** (B351).
+    /// `DispatchProcessLoop` folds the scene's clock back to the `LOOP` event's parameter
+    /// (<c>c_sceneentity.cpp:594</c>), so the gesture event is crossed again and
+    /// `StartGestureSceneEvent` re-adds the layer — which is how a held pose stays up.
+    ///
+    /// **Same input as <c>Instances_ForAnExpiredTaunt_HandsNoLayer</c>, opposite scene, opposite
+    /// answer.** That is what makes both statements about the loop rather than about time: 300
+    /// seconds in, a one-shot taunt is gone and a held one is still drawn.
+    /// </remarks>
+    [Test]
+    public void Instances_ForALoopingTauntLongPastItsEnd_StillHandsALayer()
+    {
+        EntityModelSet models = new() { Geometry = _ => Taunts() };
+
+        List<SceneProp> drawn = [Taunting(startedSeconds: 0d, autoKill: true, loops: true)];
+
+        models.Add(drawn, _ => Taunts());
+        models.Instances(drawn, [], seconds: 300d);
+
+        models.LayersOf(4).ShouldNotBeNull().Count.ShouldBe(
+            1, "a scene that folds its own clock back re-stages its gesture for ever");
+    }
+
     /// <summary>A player prop playing one taunt out of a compiled scene.</summary>
-    private static SceneProp Taunting(double startedSeconds, bool autoKill) =>
+    private static SceneProp Taunting(double startedSeconds, bool autoKill, bool loops = false) =>
         Reloading(startedSeconds) with
         {
             Pose = Reloading(startedSeconds).Pose with
@@ -201,7 +225,17 @@ public sealed class GestureLayerWiringTests
                         autoKill,
                         startedSeconds,
                         SceneName: "scenes/player/soldier/low/taunt_laugh.vcd",
-                        SequenceName: "taunt_laugh"),
+
+                        // **The window must be SHORTER than the gesture's own sequence**, which is
+                        // the shape a real held pose has and is not an arbitrary choice: the fixture
+                        // sequence runs one second, so a window wider than that would let the
+                        // gesture expire between loops and the layer would legitimately be gone —
+                        // measured, a 2.0s window did exactly that and the test failed for a reason
+                        // about the fixture rather than about the code.
+                        Taunt: new SceneTaunt(
+                            [new SceneTauntGesture(0f, "taunt_laugh")],
+                            LoopsFrom: loops ? 0.2f : -1f,
+                            LoopsAt: loops ? 0.7f : -1f)),
                 ],
             },
         };

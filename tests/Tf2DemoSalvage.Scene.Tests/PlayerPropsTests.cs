@@ -48,18 +48,62 @@ public sealed class PlayerPropsTests
         PlayerProps.Add(
             [Taunting("scenes/player/soldier/low/taunt_laugh.vcd")],
             drawn,
-            new Appearance { SceneSequence = "taunt_laugh" },
+            new Appearance { Taunt = OneShot },
             NoParts);
 
         SceneGesture taunt = drawn.ShouldHaveSingleItem().Pose.Gestures.ShouldHaveSingleItem();
 
         taunt.Slot.ShouldBe(GestureSlot.Vcd);
-        taunt.SequenceName.ShouldBe("taunt_laugh");
+        taunt.Taunt.ShouldNotBeNull().Gestures.ShouldHaveSingleItem().Sequence.ShouldBe("taunt_laugh");
 
         // The scene's name survives, because it is what the recording said and the resolution is a
         // reading of it rather than a replacement.
         taunt.SceneName.ShouldBe("scenes/player/soldier/low/taunt_laugh.vcd");
     }
+
+    [Test]
+    public void Add_AStoppedLoopingTaunt_DropsIt()
+    {
+        // **A high-five pose ends the moment it is released**, because
+        // `C_TFPlayer::StopGestureSceneEvent` resets the VCD slot for a scene containing a `LOOP`
+        // (`c_tf_player.cpp:9505`).
+        List<SceneProp> drawn = [];
+
+        PlayerProps.Add(
+            [Taunting("scenes/player/scout/low/taunt_hi5_start.vcd", stoppedSeconds: 4d)],
+            drawn,
+            new Appearance { Taunt = Looping },
+            NoParts);
+
+        drawn.ShouldHaveSingleItem().Pose.Gestures.ShouldBeNull();
+    }
+
+    [Test]
+    public void Add_AStoppedOneShotTaunt_KeepsIt()
+    {
+        // **The other half of the same rule, and the reason it exists at all.** The engine's own
+        // comment: *"The ResetGestureSlot call will prevent people from doing running taunts (which
+        // they like to do), so let's only reset the gesture slot if the scene contains a loop."* Same
+        // input, no loop in the scene, opposite answer — which is what makes the test above a
+        // statement about the loop rather than about the stop.
+        List<SceneProp> drawn = [];
+
+        PlayerProps.Add(
+            [Taunting("scenes/player/soldier/low/taunt_laugh.vcd", stoppedSeconds: 4d)],
+            drawn,
+            new Appearance { Taunt = OneShot },
+            NoParts);
+
+        drawn.ShouldHaveSingleItem().Pose.Gestures.ShouldNotBeNull().ShouldHaveSingleItem();
+    }
+
+    /// <summary>A scene staging one gesture and never folding its clock back.</summary>
+    private static SceneTaunt OneShot =>
+        new([new SceneTauntGesture(0f, "taunt_laugh")], LoopsFrom: -1f, LoopsAt: -1f);
+
+    /// <summary>A scene that stages a gesture and then loops over it, as a held pose does.</summary>
+    private static SceneTaunt Looping =>
+        new([new SceneTauntGesture(0f, "taunt_highFiveStart")], LoopsFrom: 0.5f, LoopsAt: 2.5f);
 
     [Test]
     public void Add_ATauntWhoseSceneNamesNoSequence_DropsIt()
@@ -75,6 +119,23 @@ public sealed class PlayerPropsTests
             [Taunting("scenes/Player/Heavy/low/SandwichTaunt01.vcd")],
             drawn,
             new Appearance(),
+            NoParts);
+
+        drawn.ShouldHaveSingleItem().Pose.Gestures.ShouldBeNull();
+    }
+
+    [Test]
+    public void Add_ASceneStagingNoGesture_DropsIt()
+    {
+        // **An EMPTY plan is not the same as no plan**, and both drop the gesture. A voice line is
+        // all `SPEAK` and flex — measured, the Heavy's `SandwichTaunt01.vcd` has event types
+        // `[5, 2]` — so the archive answers, and what it answers is "this scene animates nothing".
+        List<SceneProp> drawn = [];
+
+        PlayerProps.Add(
+            [Taunting("scenes/Player/Heavy/low/SandwichTaunt01.vcd")],
+            drawn,
+            new Appearance { Taunt = new SceneTaunt([], LoopsFrom: -1f, LoopsAt: -1f) },
             NoParts);
 
         drawn.ShouldHaveSingleItem().Pose.Gestures.ShouldBeNull();
@@ -98,7 +159,7 @@ public sealed class PlayerPropsTests
         PlayerProps.Add(
             [Soldier() with { Gestures = [reload, taunt] }],
             drawn,
-            new Appearance { SceneSequence = "taunt_laugh" },
+            new Appearance { Taunt = OneShot },
             NoParts);
 
         IReadOnlyList<SceneGesture> kept =
@@ -106,17 +167,24 @@ public sealed class PlayerPropsTests
 
         kept.Count.ShouldBe(2);
         kept[0].ActivityName.ShouldBe("ACT_MP_RELOAD_STAND");
-        kept[1].SequenceName.ShouldBe("taunt_laugh");
+        kept[1].Taunt.ShouldNotBeNull().Gestures.ShouldHaveSingleItem().Sequence
+            .ShouldBe("taunt_laugh");
     }
 
     /// <summary>A soldier playing one taunt scene and nothing else.</summary>
-    private static ScenePlayer Taunting(string scene) =>
+    private static ScenePlayer Taunting(string scene, double? stoppedSeconds = null) =>
         Soldier() with
         {
             Gestures =
             [
                 new SceneGesture(
-                    GestureSlot.Vcd, null, null, AutoKill: true, 0d, SceneName: scene),
+                    GestureSlot.Vcd,
+                    null,
+                    null,
+                    AutoKill: true,
+                    0d,
+                    SceneName: scene,
+                    StoppedSeconds: stoppedSeconds),
             ],
         };
 
@@ -273,10 +341,10 @@ public sealed class PlayerPropsTests
             playerClass == SoldierClass ? "models/weapons/c_models/c_soldier_arms.mdl" : null;
 
         /// <summary>What every scene resolves to, so a taunt needs no installed archive (B351).</summary>
-        public string? SceneSequence { get; init; }
+        public SceneTaunt? Taunt { get; init; }
 
         /// <inheritdoc/>
-        public string? SequenceForScene(string scene) => SceneSequence;
+        public SceneTaunt? TauntForScene(string scene) => Taunt;
 
         // Nothing, so these tests keep measuring what they were written to measure — the wardrobe
         // half is `PlayerBodygroupWiringTests`, with a stub of its own.
