@@ -230,7 +230,12 @@ public sealed class ScenePropTrackTests
 
         ScenePose shown = track.At(Between(100, 0.5))!.Value;
 
-        shown.Sequence.ShouldBe(1, "the new animation has not started yet");
+        // **The sequence is the one that ARRIVED, and the cycle is eight ticks behind it** (B383). That
+        // pairing is the engine's, not a compromise: `m_nSequence` is a plain networked member read live
+        // by `BuildTransformations`, while the cycle comes out of `m_iv_flCycle` at
+        // `curtime - cl_interp`. This asserted 1 and passed only because state used to be selected at the
+        // delayed target, which ignored an update the client had already received.
+        shown.Sequence.ShouldBe(2, "the update naming it has arrived");
         shown.Cycle.ShouldBe(0.9f, "held, not blended into an animation it does not belong to");
     }
 

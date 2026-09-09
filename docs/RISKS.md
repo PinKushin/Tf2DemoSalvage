@@ -26720,7 +26720,7 @@ control.*
 
 ---
 
-### B382 OPEN 2026-09-09: one keyframe list serves two interpolation histories, and the engine keeps two
+### B382 FIXED 2026-09-09: one keyframe list served the interpolation histories, and the engine keeps one per registered variable
 
 **The owner caught this in a sentence of mine that was excusing it.** I wrote that our hold-extension
 *"is Valve's `simTimeChanged` term, reached by a different route"*, and he answered:
@@ -26862,12 +26862,225 @@ It is reverted. The two conformance tests it was written against are KEPT and ar
 is right, which is the correct order — `RestatedPoseSplineConformanceTests`. D155 records the rule and
 `.claude/skills/tf2-parity-structural-fix/` enforces it.
 
-**What is NOT established:** whether any of the three consequences is currently visible. B370's slow
-doors are the suspected symptom and are not yet traced to it — the live suspect there is still
-`m_flSimulationTime`'s 8-bit window being unwrapped against the wrong base for an entity that speaks
-rarely, which is a decode question and cheaper to settle first.
+#### Fixed 2026-09-09 — `InterpolatedHistory` is `CInterpolatedVarArrayBase`
 
-*Evidence class: read-from-source for both sides. No measurement, and no visible symptom yet attributed.*
+`managed/Tf2DemoSalvage.Core/Scene/InterpolatedHistory.cs` is the engine's class: a flat value store
+`m_nMaxCount` floats per entry, a changetime per entry, `SetLooping` per component
+(`interpolatedvar.h:490`), `Bracket` transcribing `GetInterpolationInfo` (`:815`) and `TimeFixup`
+transcribing `TimeFixup2_Hermite` (`:1372`). `ScenePropTrack` holds THREE of them, one per registered
+variable, with the widths the engine gives them:
+
+| ours | engine | width | appended when | stamped |
+|---|---|---|---|---|
+| `_simulation` | `m_iv_vecOrigin` + `m_iv_angRotation` (`c_baseentity.cpp:905`, `:906`) | 6 | `originChanged \|\| anglesChanged \|\| simTimeChanged` | `GetSimulationTime()` |
+| `_animation` | `m_iv_flCycle` (`c_baseanimating.cpp:896`) | 1 + a sequence of ours | `animTimeChanged` | `GetAnimTime()` |
+| `_poseParameters` | `m_iv_flPoseParameter` (`:890`) | `MAXSTUDIOPOSEPARAM` = 24 | `animTimeChanged` | `GetAnimTime()` |
+
+**Deleted, not disabled:** `Neighbours` and its `HistoryScan` bound, `Renormalise`, `AnimationIndexAt`,
+`_animationHeldUntil`, `_hasAnimationClock`, and `BlendPoses`. `_keyframes`, `_appliedAt` and `_heldUntil`
+STAY and are not a second copy of the histories: they are the record of what the demo stated, which
+`AtKeyframe` answers and every report, export and applied-time test reads. The engine has both too — the
+networked members assigned on receipt, and the interpolated vars' histories.
+
+#### Four things the replacement found, three of them defects in the replacement itself
+
+1. **`Renormalise` was Valve's `TimeFixup_Hermite`, and the analyzer called it dead.** The first version
+   of the rewrite stopped calling it, so `error S1144: Remove the unused private method 'Renormalise'`
+   was not dead code — it was a divergence one keystroke from being committed as a cleanup. Reinstated as
+   `InterpolatedHistory.TimeFixup`, where the engine has it: inside `_Interpolate_Hermite`, on the
+   history, before the per-component loop.
+2. **The causality gate went missing with the old neighbour search (B94).** An applied time can precede
+   its own arrival by up to 127 ticks, so a bracket chosen on changetime alone can reach an entry the
+   client had not received. Restored as a stored `Received` tick per entry and `Bracket(target,
+   arrivedBy)`, which is the engine's own guarantee — its history contains only arrived entries — made
+   explicit because ours contains the whole recording.
+3. **`Motion` still described `_heldUntil`.** The wake scheduler predicts when `At` changes answer; after
+   the move its candidates came from a structure `At` no longer read. `NoDrawTrackTests` caught entity
+   648 on `tf2-2007-build3258-pov-cp_granary` at tick 5334 — the third time that entity has caught a
+   scheduler drifting from its sampler. Candidates now come from the histories' changetimes and arrivals,
+   plus the STATE boundary at `keyframe.Tick + delay`, which is no history's changetime and has to be
+   named separately.
+4. **`_hasAnimationClock` was a real defect, not an optimisation.** It skipped the animation lookup for a
+   track whose two clocks always agreed, on the reasoning that the simulation pair would serve. It cannot:
+   the simulation pair carries six position and angle components, so both ends took their cycle from the
+   same state pose and the cycle stopped interpolating at all. The engine registers `m_flCycle`
+   unconditionally, so the history always exists; when the clocks agree its changetimes are the arrival
+   ticks, which is the answer the shared path was reaching for.
+
+#### The hermite window was this project's rule, and reading the prune killed it
+
+`HermiteWindowTests` was written on the belief that the engine's pruning keeps a spline's three samples
+close together, so a multi-second span could be refused. `RemoveEntriesPreviousTo` (`interpolatedvar.h:782`)
+keeps `Truncate( i + 3 )` — the first entry past the cutoff **plus two more** — so two arbitrarily old
+entries survive and the spline uses them. `INTERPOLATE_LINEAR_ONLY`, the one switch that would prevent it,
+is set on exactly one variable in the entire client: `m_viewtarget` (`c_baseflex.cpp:133`). Not the origin.
+
+So `HermiteWindow_AClosingDoor_DoesNotUndershootPastShut` asserted something the engine does not do. The
+engine's own arithmetic for that fixture, worked through before the value was read back:
+
+```
+target      = 209 - 8 = 201
+history     = changetimes 209, 9, 8, 7        (Truncate(i+3) at the last prune, then 209 arrives)
+older = 9, newer = 209, oldest = 8, dt2 = 1   → m_bHermite            (:851)
+dt1 = 200, frac = dt1/dt2 = 200
+fixup       = Lerp( 1-200, 600, 584 ) = 600 + (-199)(-16) = 3784      (:1372)
+Lerp_Hermite( 0.96, 3784, 584, 584 ) = 584 - 3200*0.001536 = 579.085
+```
+
+Ours gives 579.085. The test now asserts the number and keeps the wrong conclusion recorded, because it
+had already produced a symptom patch — a span limit that is our rule and not Valve's.
+
+**The same overshoot happens on the way UP, and the respacing is why rather than despite.** A second
+assertion was added while strengthening `RestatedPoseSplineConformanceTests` — "the drawn height never
+exceeds the highest height the demo stated" — and it failed at **117.395 against 111**, on a door held
+open after rising at 4.625 units per tick. That is not a defect either. The fixture's spacing is 4-tick
+gaps while moving and a 36-tick gap to the first restatement, so `frac = 36/4 = 9` and the synthetic
+sample lands at `changetime 124 - 36 = 88` with value `Lerp( 1-9, 92.5, 111 ) = -55.5`. Its slope to the
+older sample is `(111 - -55.5)/36 = 4.625` — **exactly the door's real speed.** Respacing PRESERVES the
+velocity, which is its whole purpose, and a hermite handed a real velocity and a dead stop overshoots
+before it settles. Doors in TF2 are slightly springy for this reason. The assertion was removed as
+another claim about the engine that reading it refutes; what replaced it is exact and narrow — from the
+SECOND restatement onward all three samples are the held pose, so the value is 111 to the bit.
+
+**Sabotage results, and one of them found a weak test.** Three sabotages, each run alone and reverted
+with a precise inverse edit:
+
+| sabotage | reddened |
+|---|---|
+| restore the entry collapse (`if (movedOrTurned)`) | `At_ARepeatedPose_HoldsUntilTheRestatementsAppliedTime`, `HermiteWindow_AClosingDoor_UndershootsExactlyAsTheEngineDoes` |
+| drop the arrival reach bound (`available = Count - 1`) | the same door test, `AGapWithNoRestatement_HoldsRatherThanSliding`, `PlayersAt_AKeyframeStatedAfterTheTickAsked_DoesNotPullThePosition` |
+| skip `TimeFixup`'s respacing loop | the same door test, `At_WithUnevenlySpacedSamples_RenormalisesTheOldest`, `At_KeyframesUnevenlySpaced_RenormalisesTheOlderSampleBeforeSplining` |
+
+The first sabotage did **not** redden `RestatedPoseSplineConformanceTests`, which is the suite written
+for this entry. **A test whose mechanism can be broken without reddening it is not measuring that
+mechanism**, and it took three runs to make it sensitive — the first two attempts both failed, and the
+reason is a fact about the fix worth having on its own:
+
+> **While a door is HELD, the restatements cannot change what is drawn.** The next update has not
+> ARRIVED, so `Bracket` returns `Older == Newer`, the fraction is 0 and the value holds — whatever the
+> history contains. The identical-third-sample mechanism becomes visible at exactly one moment: when the
+> next MOVING update lands and the pair spans the hold's end to it.
+
+For the fixture that is one tick: **304**, when the closing update arrives.
+
+**And the fault there is not a RISE — it is leaving open early**, which is why three sweeps in a row
+failed to see it. At tick 304 the correct pair is the entry at changetime 300 to the entry at 300 with 280
+behind it, all three restatements of the open pose, so the drawn height is **111** whatever the fraction
+is. Collapse the restatements and the pair is the last OPENING entry (changetime 124) to the first MOVED
+closing one (304), the fraction is already `(296-124)/180 = 0.956`, `TimeFixup2_Hermite` respaces at
+`frac = 180/4 = 45`, and the door is drawn at **94.85** — seventeen units into a close it has not started.
+The assertion is now that one value, and it reddens.
+
+**Two rules that a sweep cannot satisfy here, both checked and discarded:**
+
+- *"The height never rises during the close."* True under the collapse as well — the excursion is downward.
+- *"The height never moves faster than the fastest speed the demo states."* False of the ENGINE. At the
+  frame a packet lands, the history gains an entry and `GetInterpolationInfo` returns a different pair, so
+  the drawn value steps. Correct code steps from 111 to 117.38 in one tick at the first restatement's
+  arrival. `cl_interp` is what normally keeps the target bracketed so this does not show; it shows exactly
+  when the gap between updates exceeds the interp window, which is the door-stops case.
+
+An earlier diagnosis of the same failure — offered as *"the interpolation system has other sources of
+information it consults"* — is wrong, and worth recording as wrong: there is no fallback, there is a
+degenerate pair, which is the engine's own answer for a value nothing newer has restated.
+
+**The sabotage that finally worked, and why the obvious one cannot be run.** Deleting
+`|| _lastSimulationTime != appliedAt` from `ScenePropTrack.Add` does not compile — S4487 rejects the field
+once nothing reads it. The equivalent at the history level does, and states the divergence more directly:
+
+```csharp
+if (_changeTimes.Count > 0 && ValuesAt(_changeTimes.Count - 1).SequenceEqual(values))
+{
+    return;
+}
+```
+
+Reddens `At_ADoorClosingAfterBeingHeldOpen_NeverMovesAgainstItsTravel`,
+`At_ARepeatedPose_HoldsUntilTheRestatementsAppliedTime`,
+`HermiteWindow_AClosingDoor_UndershootsExactlyAsTheEngineDoes`,
+`At_ALoopingPoseParameterAcrossTheWrap_TakesTheShortWay` and
+`At_ANonLoopingPoseParameterAcrossTheSameGap_Interpolates` — five, across all three histories.
+
+**What is NOT established, and each has its falsifier:**
+
+- **Whether a real recording contains the undershoot shape.** It needs a restatement long after a door
+  stops with nothing between, and a `func_door` that has stopped also stops simulating. `jitter` on a
+  match demo settles it; that measurement belongs to B370.
+- **Pose-parameter looping.** Every component of `_poseParameters` is marked looping, where the engine
+  sets it per parameter from the model (`m_iv_flPoseParameter.SetLooping( Pose.loop != 0.0f, i )`,
+  `c_baseanimating.cpp:1130`). It is set to agree with `PoseBetween`, which does consult
+  `PoseParameterLoops`. **Falsifier:** a model whose NON-looping parameter spans more than half its range
+  between two updates — the respaced third sample would wrap and the blend would not.
+- **Pose parameters spline in the engine and blend linearly here.** `_Interpolate_Hermite` runs over the
+  pose-parameter array like any other (`:1438`). Pre-existing, unchanged by this fix.
+- **Cycle looping is set once, not per sequence.** The engine re-evaluates
+  `m_iv_flCycle.SetLooping( IsSequenceLooping( GetSequence() ) )` every frame (`:4472`). Ours is
+  constant-true, matching what `InterpolateCycle` already does for every same-sequence pair.
+- **`frac` is clamped to 1 here and to 2 in the engine** (`pInfo->frac = MIN( frac, 2.0f )`, `:845`).
+  Checked and equivalent: `Bracket` returns `newer` as the first entry whose changetime exceeds the
+  target, so the target never passes it and `frac` cannot exceed 1 on either side. The engine's clamp is
+  unreachable for the same reason.
+- **B383** — the engine RESETS the cycle history on a new sequence and we hold the older cycles.
+
+*Evidence class: read-from-source for the structure; arithmetic for the 579.085 prediction; measured for
+the suite (core 1827 total, 0 failed) and for entity 648.*
+
+### B383 OPEN 2026-09-09: the engine RESETS the cycle history on a new sequence and we hold the older cycles
+
+**Found while replacing B382's structure**, and deliberately not fixed with it, because adopting it
+changes what is drawn.
+
+`C_BaseAnimating::PostDataUpdate` clears the whole cycle history when an animation starts
+(`c_baseanimating.cpp:4747`):
+
+```cpp
+// reset prev cycle if new sequence
+if (m_nNewSequenceParity != m_nPrevNewSequenceParity)
+{
+    // It's important not to call Reset() on a static prop, because if we call
+    // Reset(), then the entity will stay in the interpolated entities list
+    // forever, wasting CPU.
+    MDLCACHE_CRITICAL_SECTION();
+    CStudioHdr *hdr = GetModelPtr();
+    if ( hdr && !( hdr->flags() & STUDIOHDR_FLAGS_STATIC_PROP ) )
+    {
+        m_iv_flCycle.Reset();
+    }
+}
+```
+
+**Three separate divergences in that one block.**
+
+1. **The trigger is `m_nNewSequenceParity`, not the sequence number.** A networked counter the server
+   bumps on `SetSequence`, so it fires on a RESTART of the same animation — which a sequence comparison
+   cannot see — and does not fire when the sequence number changes without the server announcing it.
+   `ScenePropTrack` compares `pose.Sequence`, carried as the cycle entry's second component.
+2. **`Reset()` DISCARDS; we hold.** After a reset the history has one entry, so the cycle holds at the
+   new value with no blend. We keep the older entries and `InterpolateCycle` merely refuses to blend
+   across the change, which holds the OLD cycle instead of snapping to the new one.
+3. **A `STUDIOHDR_FLAGS_STATIC_PROP` model is exempt**, and for a CPU reason Valve states in the comment
+   rather than a behavioural one. We do not read that flag here at all.
+
+**Why it was not fixed with B382.** The faithful form of a reset, for a viewer that can scrub backwards,
+is a generation boundary the neighbour search refuses to cross — it was built, measured and taken back
+out. It pairs the NEW animation's cycle with the OLD sequence, because our state fields come from the
+keyframe at the DELAYED target while the engine's `m_nSequence` is simply the latest received, undelayed.
+`At_AcrossASequenceChange_DoesNotBlendTheCycle` reads sequence 1 with cycle 0.1 under it. **That state
+delay is the prior question**, and it is a fourth divergence: `m_fEffects`, `m_nSequence`, `m_flModelScale`
+and the rest are assigned on receipt with no interpolation delay, and `At` selects them at
+`target = tick - delay`.
+
+**What is visible when it is wrong:** an animation that restarts — a sentry re-firing, a door retriggered
+before it finished — plays its first frames from the previous animation's cycle instead of from where the
+server put it. Small, and easiest to see on a looping sequence restarted mid-loop.
+
+**What is NOT established:** whether `m_nNewSequenceParity` is decoded at all. `m_nResetEventsParity`
+beside it was decoded and had exactly one reference in the repository — its own declaration
+(`docs/memory/a-schema-key-nobody-reads-is-a-lead.md`), so the same is likely here and must be checked
+rather than assumed.
+
+*Evidence class: read-from-source. No measurement; the sequence-change case has never been measured on a
+real demo.*
 
 ### B380 OPEN 2026-09-09: the sticky launcher fills the whole screen in first person on a 2008 demo
 

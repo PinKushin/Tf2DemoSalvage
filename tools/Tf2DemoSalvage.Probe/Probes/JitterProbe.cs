@@ -451,7 +451,7 @@ public sealed class JitterProbe : IProbe
             // shows it. The window comes from the track's own keyframes rather than from a tick
             // somebody guessed, because a door's opening is twenty-five ticks in a fifty-thousand-tick
             // recording and picking that by hand is how the first attempt measured nothing.
-            Runs(output, track, interval);
+            Runs(output, track, timeline.IntervalPerTick);
         }
     }
 

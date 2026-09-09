@@ -330,7 +330,35 @@ trap 'dotnet build-server shutdown >/dev/null 2>&1 || true' EXIT
 # sharing one simulation time, and a later arrival carrying an earlier one), one bounds every step
 # across a track carrying both, and the fourth is the clean-track control without which a search that
 # simply reached further back would satisfy the other three and smear every ordinary interpolation.
-run Tf2DemoSalvage.Core.Tests     core     1811
+#
+# 1811 -> 1825 on 2026-09-09: DRIFT, not new tests. The floor sat fourteen below what main already
+# measured, which is safe (a floor only catches a DROP) and weak (it could not catch a drop of
+# fourteen). Measured in a clean main worktree, because this tree's own core.trx was red at the time
+# with the conformance tests B382 was about to satisfy. Four other floors were short the same way and
+# moved in the same commit.
+#
+# 1825 -> 1827 on 2026-09-09: two for B382, `RestatedPoseSplineConformanceTests` -- swept twice each,
+# once over the hold and once over the close, because a sabotage restoring the entry collapse reddened
+# two OTHER tests and left these green. The rise it looks for lands in the four ticks between the
+# closing update's ARRIVAL and the interpolation delay, which both earlier sweeps stepped over.
+# One existing test changed its claim rather than its count:
+# HermiteWindow_AClosingDoor_DoesNotUndershootPastShut became ..._UndershootsExactlyAsTheEngineDoes,
+# because reading `RemoveEntriesPreviousTo` -- `Truncate(i+3)` keeps two arbitrarily old entries --
+# refuted the premise the old name asserted. D156.
+#
+# **`InterpolationNeighbourConformanceTests` is NOT part of that +2**, and a first version of this note
+# credited it. Those four arrived with B377 in cafd1caa and are inside main's 1825 already. The floor
+# value was right while the arithmetic behind it was wrong, which is the kind of note that survives.
+#
+# 1827 -> 1831 on 2026-09-09: four for B383, the cycle history's RESET on a new sequence. Two are the
+# reset itself and its scrub control -- the engine deletes the older run and we cannot, so the boundary
+# has to answer "discarded" going forward and "still there" going back. One is Valve's
+# STUDIOHDR_FLAGS_STATIC_PROP exemption, whose expected value is a hermite through the surviving samples
+# and was written down as 0.2 before the spline was accounted for; it is 0.2625 and the derivation is in
+# the test. The fourth is the pose-parameter history's WIDTH, which is the model's own count -- the
+# callback used to report only which parameters wrap and returned an empty array when none did, losing
+# the count with it.
+run Tf2DemoSalvage.Core.Tests     core     1831
 
 # Raised to 74: UndeclaredHeaderReportingTests, six cases covering each clause of the CLI's
 # "did the header state a length" check plus the finalised-header control.

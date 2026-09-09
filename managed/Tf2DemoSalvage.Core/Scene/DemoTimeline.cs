@@ -3344,9 +3344,21 @@ public sealed class DemoTimeline
         // it appears — wrong for one that has been idling since the map loaded.
         bool restarted = false;
 
+        // **Held until after the keyframe is added, because the engine's reset runs after the latch.**
+        // `C_BaseAnimating::PostDataUpdate` calls `BaseClass::PostDataUpdate` FIRST — that is where
+        // `OnLatchInterpolatedVariables` appends the entry (`c_baseentity.cpp:2584`) — and only then does
+        // the parity block reach `m_iv_flCycle.Reset()` (`c_baseanimating.cpp:4738`). So the reset wipes
+        // the entry that has just landed and re-seeds from the value that came with it. Resetting first
+        // would seed from the PREVIOUS update's cycle, which is a different animation's.
+        bool newSequenceStarted = false;
+
         if (state.NewSequenceParity() is { } parity)
         {
-            restarted |= track.LastSequenceParity is not null && parity != track.LastSequenceParity;
+            bool newSequence = track.LastSequenceParity is not null
+                && parity != track.LastSequenceParity;
+
+            restarted |= newSequence;
+            newSequenceStarted = newSequence;
             track.LastSequenceParity = parity;
         }
 
@@ -3709,6 +3721,19 @@ public sealed class DemoTimeline
             animationAppliedAt: state.AnimatedAtTick is { } animatedAt
                 ? tick - (state.SimulationBaseTick - animatedAt)
                 : tick);
+
+        // **After the latch, because that is where the engine puts it** (B383).
+        // `C_BaseAnimating::PostDataUpdate` runs `BaseClass::PostDataUpdate` — the latch — and reaches the
+        // parity block last, so `m_iv_flCycle.Reset()` discards the entry that just landed and re-seeds
+        // three copies of the value it carried (`c_baseanimating.cpp:4738`, `interpolatedvar.h:740`).
+        //
+        // **Stamped with the arrival tick, not the animation time**, which is the engine's `curtime`:
+        // `Reset` calls `AddToHead( gpGlobals->curtime, m_pValue, false )` where the latch it replaces
+        // used `GetAnimTime()`.
+        if (newSequenceStarted)
+        {
+            track.SequenceRestarted(tick);
+        }
     }
 
     /// <summary>Gives a player their earliest known team and class before it was first stated.</summary>

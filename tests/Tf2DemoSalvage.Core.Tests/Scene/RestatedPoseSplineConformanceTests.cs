@@ -19,19 +19,23 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 ///   newer  = the closing entry
 ///   older  = the newest OPEN entry
 ///   oldest = the entry before it — OPEN AGAIN, the same position
-///   dt2 = older_change_time - oldest_change_time  →  非zero, so m_bHermite is true
+///   dt2 = older_change_time - oldest_change_time  is non-zero, so m_bHermite is true
 /// </code>
 ///
 /// Two identical older samples mean the curve leaves the open position with **zero incoming velocity**.
 ///
-/// **This project collapses restatements into one keyframe** and reconstructs the hold with
-/// `_heldUntil`. That is faithful for the PAIR, and wrong for the third sample: `_keyframes[index - 1]`
-/// is the previous DISTINCT pose, which for a door is a mid-opening position. The spline then starts
-/// the close with a large incoming velocity from the opening motion — so it leaves its start slowly and
-/// can move against the direction of travel first.
+/// **This project collapsed restatements into one keyframe** and reconstructed the hold with
+/// `_heldUntil`. That was faithful for the PAIR, and wrong for the third sample:
+/// `_keyframes[index - 1]` is the previous DISTINCT pose, which for a door is a mid-opening position.
+/// The spline then started the close with a large incoming velocity from the opening motion — so it left
+/// its start slowly and could move against the direction of travel first.
 ///
 /// **That is the owner's report**: *"doors in this demo from 13 seem to be maybe animating too slow"*
 /// and *"the garage doors in 'garage' are not animating or just glitch opening then closing again"*.
+///
+/// **These pass because <see cref="InterpolatedHistory"/> keeps the restatements**, not because a case
+/// was added for them. The sabotage that reddens them is restoring the collapse — gating
+/// `_simulation.Add` on the position having changed — which is the structure B382 replaced.
 /// </remarks>
 public sealed class RestatedPoseSplineConformanceTests
 {
@@ -68,15 +72,57 @@ public sealed class RestatedPoseSplineConformanceTests
             track.Add(tick, Shut(111f - (111f * ((tick - 300) / 24f))), appliedAt: tick);
         }
 
-        // **The assertion: while closing, the drawn height never RISES.** A spline handed a
-        // mid-opening third sample carries upward velocity into the close, so the door lifts before
-        // it drops — which is both the stutter and the slow start, and is what no per-pair check sees.
+        // **While held, and exactly.** From the second restatement on, all three spline samples are the
+        // held pose, so the drawn height is that pose to the bit.
+        //
+        // **This window is NOT what measures the restatements, and two sabotage runs proved it.** While a
+        // door is held, the next update has not ARRIVED, so `Bracket` returns `Older == Newer` and the
+        // value holds however many entries the history contains — which is the right answer reached
+        // without needing any of them. The restatement mechanism becomes visible at exactly one moment:
+        // when the next MOVING update lands and the pair spans the hold's end to it.
+        for (int step = 0; step <= 800; step++)
+        {
+            double at = 200d + Delay + (step / 10d);
+
+            if (at > 280d + Delay) { break; }
+
+            track.At(at).ShouldNotBeNull().Z.ShouldBe(
+                111f,
+                0.01f,
+                $"tick {at}: three restatements of the open pose make all three spline samples equal, " +
+                "so a held door is flat");
+        }
+
+        // **The one exact value, and it is the whole of B382 for this fixture.** At tick 304 the closing
+        // update has just arrived, so the pair spans the hold's end to it — and every one of the three
+        // samples the spline reads is a RESTATEMENT of the open pose: `older` is the entry at changetime
+        // 300, `newer` the one at 300 (the first closing keyframe restates 111 before moving), `oldest`
+        // the one at 280. Three equal samples give 111 whatever the fraction is.
+        //
+        // **Collapse the restatements and this reads 94.85**, which is the number that took three
+        // sabotage runs to find. With them dropped the pair is the last OPENING entry (changetime 124) to
+        // the first MOVED closing one (304), the fraction is already `(296-124)/180 = 0.956`, and
+        // `TimeFixup2_Hermite` respaces at `frac = 180/4 = 45` — so the door is drawn seventeen units into
+        // its close at the moment it should not have started. **The fault is leaving open EARLY, not
+        // rising**, which is why the sweep below could not see it and why the owner reported the doors as
+        // wrong in both directions at once.
+        track.At(304d).ShouldNotBeNull().Z.ShouldBe(
+            111f,
+            0.01f,
+            "at the tick the closing update arrives, all three spline samples are restatements of the " +
+            "open pose, so the door has not begun to move");
+
+        // **The stated symptom, kept as a property rather than as the sensitive assertion.** A spline
+        // handed a mid-opening third sample carries upward velocity into the close, so the door lifts
+        // before it drops. This sweep does NOT redden under the collapse — the arrival assertion above is
+        // what does — and it is kept because it is the shape the owner described and it would catch a
+        // spline that carried velocity in some other way.
         float? highest = null;
         int rose = 0;
 
         for (int step = 0; step <= 400; step++)
         {
-            double at = 300d + Delay + (step / 10d);
+            double at = 300d + (step / 10d);
 
             if (at > 324d + Delay + 10) { break; }
 

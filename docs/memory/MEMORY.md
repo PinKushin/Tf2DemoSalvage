@@ -182,3 +182,6 @@
 - [An entity index does not name a track](an-entity-index-does-not-name-a-track.md) — edict slots are reused; key on index PLUS tick.
 - [A vector keys its halves differently](a-vector-keys-its-halves-differently.md) — plain-prop elements key FLAT, the length keys by PATH.
 - [The interpolation pair is found by changetime](the-interpolation-pair-is-found-by-changetime.md) — an arrival-adjacent pair need not bracket the target; that was the jitter.
+- [The prune keeps two stale entries](the-prune-keeps-two-stale-entries.md) — Truncate(i+3); the engine's spline is bounded by ARRIVAL, never by age.
+- [An unused method may be the engine's](an-unused-method-may-be-the-engines.md) — S1144 can mean a lost call site; a refactor's damage is the calls it stops making.
+- [Port the engine's bottom layer first](port-the-engines-bottom-layer-first.md) — top-down retrofits every fact into the wrong object, and its tests cannot see the bottom at all.

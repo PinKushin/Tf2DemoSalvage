@@ -133,7 +133,7 @@ public sealed class WirePoseParameterTests
         List<ModelInstance> instances = [];
         List<(int Entity, IReadOnlyList<bool> Looping)> told = [];
 
-        models.ModelResolved = (entity, looping) => told.Add((entity, looping));
+        models.ModelResolved = (entity, looping, _) => told.Add((entity, looping));
 
         SceneProp[] props = [Building(sent: [0.5f, 0.5f])];
 
@@ -148,18 +148,25 @@ public sealed class WirePoseParameterTests
     }
 
     /// <remarks>
-    /// **The control for the one above.** A model whose parameters all stop at their ends must
-    /// report an empty list, not two falses — and a fixture that only ever asked a looping model
-    /// could not tell a correct answer from one that says everything loops.
+    /// **The control for the one above**, and a fixture that only ever asked a looping model could not
+    /// tell a correct answer from one that says everything loops.
+    ///
+    /// **It used to assert an EMPTY list and that was the defect** (B383). The report is one entry per
+    /// parameter the model declares, all false here — because its LENGTH is a second fact, and it is what
+    /// sizes the interpolation history: `m_iv_flPoseParameter.SetMaxCount( hdr->GetNumPoseParameters() )`
+    /// comes before the per-parameter `SetLooping` (<c>c_baseanimating.cpp:1124</c>), two calls in the
+    /// engine because they answer two questions. Eliding the all-false case saved an allocation and
+    /// reported every ordinary model as having no pose parameters at all, which left its history one
+    /// component wide.
     /// </remarks>
     [Test]
-    public void ModelResolved_ForAModelWithNoLoopingParameter_ReportsNone()
+    public void ModelResolved_ForAModelWithNoLoopingParameter_StillReportsItsCount()
     {
         EntityModelSet models = new();
         List<ModelInstance> instances = [];
         List<(int Entity, IReadOnlyList<bool> Looping)> told = [];
 
-        models.ModelResolved = (entity, looping) => told.Add((entity, looping));
+        models.ModelResolved = (entity, looping, _) => told.Add((entity, looping));
 
         SceneProp[] props = [Building(sent: [0.5f])];
 
@@ -169,7 +176,8 @@ public sealed class WirePoseParameterTests
         models.Instances(props, instances);
 
         told.Count.ShouldBe(1);
-        told[0].Looping.ShouldBeEmpty();
+        told[0].Looping.Count.ShouldBe(1, "the model declares one parameter, and the count is a fact");
+        told[0].Looping[0].ShouldBeFalse("aim_pitch stops at ±50, so it does not wrap");
     }
 
     /// <summary>A building-like prop carrying the pose parameters given.</summary>

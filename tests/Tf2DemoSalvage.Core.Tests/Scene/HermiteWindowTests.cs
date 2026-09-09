@@ -20,16 +20,24 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 /// all while still — so the three nearest samples to a moving door routinely straddle a long
 /// stationary stretch.
 ///
-/// **The engine never sees that shape, and this project did.** `CInterpolatedVar` keeps a history
-/// trimmed to the interpolation window and clamps its fraction (`pInfo->frac = MIN(frac, 2.0f)`),
-/// so its three samples are always recent; hermite additionally requires a valid third entry with
-/// `dt2 > 0.0001f`, and `INTERPOLATE_LINEAR_ONLY` disables it for variables where overshoot cannot
-/// be tolerated. Our keyframe list is the whole demo, so "the third sample" could be from any point
-/// in the recording.
+/// **What the engine actually refuses is a sample it has not RECEIVED, and nothing else** — which is
+/// most of this file, and was worth the fix. A client's history contains only arrived entries, so it
+/// cannot slide toward an update that has not been sent; this reader holds the whole recording and
+/// could. That bound is now stored per entry and applied to the search
+/// (<see cref="InterpolatedHistory"/>).
+///
+/// **The belief this file was written on was that the engine also refuses a sample that is merely OLD,
+/// and reading `RemoveEntriesPreviousTo` kills it** (<c>interpolatedvar.h:782</c>). It keeps
+/// `Truncate( i + 3 )` — the first entry past the cutoff PLUS TWO MORE — so a history pruned at a quiet
+/// moment still holds two arbitrarily old entries, and the spline will use them. The wrong conclusion is
+/// kept here deliberately, because it produced a real symptom patch: a window that refused hermite over
+/// a long span, which is this project's rule and not Valve's.
 ///
 /// Valve's own comment on the fixup says the quiet part: without renormalising, a spline
 /// "overshoots whenever the packet spacing wobbles". Renormalising evens the spacing; it does not
-/// make a multi-second span appropriate for a spline.
+/// stop the curve leaving the range of its samples, and `INTERPOLATE_LINEAR_ONLY` — the one switch that
+/// would — is set on exactly one variable in the whole client, `m_viewtarget`
+/// (<c>c_baseflex.cpp:133</c>). Not the origin.
 /// </remarks>
 public sealed class HermiteWindowTests
 {
@@ -144,18 +152,42 @@ public sealed class HermiteWindowTests
         door.At(610 + delay).ShouldNotBeNull().Z.ShouldBe(728f, 0.01f);
     }
 
+    /// <remarks>
+    /// **The engine undershoots here, and this test says by how much.** It was written asserting that a
+    /// closing door never dips below shut, on the belief that Valve's pruning keeps the spline's three
+    /// samples close together. It does not: `RemoveEntriesPreviousTo` keeps `Truncate( i + 3 )`
+    /// (<c>interpolatedvar.h:782</c>), so the two entries past the cutoff survive however old they are.
+    ///
+    /// **The arithmetic, all of it, because a predicted value is the only assertion worth making here.**
+    /// At tick 209 the client draws <c>targettime = 209 - 8 = 201</c>. Its history holds the
+    /// just-arrived entry at changetime 209 and, from the last prune, changetimes 9, 8 and 7. So
+    /// `GetInterpolationInfo` gives <c>older = 9</c>, <c>newer = 209</c>, <c>oldest = 8</c>, and sets
+    /// `m_bHermite` because <c>dt2 = 9 - 8 = 1 &gt; 0.0001</c> (<c>:851</c>).
+    ///
+    /// `TimeFixup2_Hermite` then respaces the oldest with <c>dt1 = 209 - 9 = 200</c>
+    /// (<c>:1372</c>): <c>frac = 200 / 1 = 200</c>, and
+    /// <c>Lerp( 1 - 200, 600, 584 ) = 600 + (-199)(584 - 600) = 3784</c>. That is an extrapolation two
+    /// hundred ticks into the past, and it is what the engine feeds the curve.
+    ///
+    /// `Lerp_Hermite( 0.96, 3784, 584, 584 )` with <c>d1 = -3200</c> and <c>d2 = 0</c>:
+    ///
+    /// <code>
+    /// 584 * (2t³-3t²+1)  = 584 * 0.004672 =    2.728
+    /// 584 * (-2t³+3t²)   = 584 * 0.995328 =  581.272
+    /// -3200 * (t³-2t²+t) = -3200 * 0.001536 = -4.915
+    /// </code>
+    ///
+    /// — **579.085**, five units below shut. Predicted from the engine's own three functions before the
+    /// value was read back, which is what makes it an experiment rather than a description.
+    ///
+    /// **What is NOT established:** whether a real recording contains this shape. It needs a
+    /// restatement two hundred ticks after a door stops with nothing in between, and a `func_door` that
+    /// has stopped also stops simulating, so its updates stop entirely. The measurement that would
+    /// settle it is `jitter` on a match demo, and it is B370's, not this test's.
+    /// </remarks>
     [Test]
-    public void HermiteWindow_AClosingDoor_DoesNotUndershootPastShut()
+    public void HermiteWindow_AClosingDoor_UndershootsExactlyAsTheEngineDoes()
     {
-        // **The other half of what was seen: it now stops at closed for a moment and then sinks
-        // into the floor.** A demo states no pose below the closed height — measured across every
-        // brush track on cp_process — so nothing but the interpolation can produce one.
-        //
-        // A door travels at a constant speed and then stops dead. That makes the last two spans
-        // very different: -15 units, then 0. A cubic fitted through them carries the incoming
-        // velocity past the final sample before turning round, which puts the door below shut. It is
-        // the same overshoot Valve's own comment warns about, and the reason the engine exposes
-        // INTERPOLATE_LINEAR_ONLY for values that cannot tolerate it.
         ScenePropTrack door = new(entityIndex: 43, modelPath: "*132");
 
         int tick = 0;
@@ -168,17 +200,30 @@ public sealed class HermiteWindowTests
 
         door.Add(tick, At(584f));
 
-        // Then it sits shut. Repeats collapse, so this is one keyframe and a hold.
+        // Then it is restated, two hundred ticks later and unchanged. `AddToHead` is unconditional, so
+        // this is a second history entry carrying the same height at a different changetime.
         door.Add(tick + 200, At(584f));
 
-        for (double at = 0; at <= tick + 200; at += 0.25)
+        // **Only the moment the restatement lands can reach past shut, and this pins both halves.**
+        // Every earlier sample is bounded by what had arrived, so the deep sample is the last one.
+        double deepest = 584f;
+
+        for (double at = 0; at < tick + 200; at += 0.25)
         {
             ScenePose pose = door.At(at).ShouldNotBeNull();
 
             pose.Z.ShouldBeGreaterThanOrEqualTo(
                 584f - 0.01f,
-                $"tick {at} put the closing door at {pose.Z:0.###}, below shut");
+                $"tick {at} put the closing door at {pose.Z:0.###}: before the restatement arrives, " +
+                "no entry the client holds is below shut");
+
+            deepest = Math.Min(deepest, pose.Z);
         }
+
+        deepest.ShouldBe(584f, 0.01f);
+
+        door.At(tick + 200).ShouldNotBeNull().Z.ShouldBe(
+            579.085f, 0.01f, "the value Valve's three functions predict for this history");
     }
 
     [Test]
