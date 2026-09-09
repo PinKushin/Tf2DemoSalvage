@@ -25565,11 +25565,35 @@ The body correctly vanishes and nothing replaces it.
 | the gib list comes from `m_aGibs`, built by `BuildGibList` | `InitPlayerGibs`, `:7355-7363` |
 | which is `BreakModelList` → `BuildPropList( "break", … )` | `props_shared.cpp:1282`, `:660` |
 
-**So the gib models are declared by the MODEL, in a `break` KeyValues block inside the `.mdl`** —
-they are not a hardcoded table, and only the birthday gibs (`g_pszBDayGibs`) are literals in code.
-That is the piece this project cannot reach today: `StudioModel` does not parse the studio header's
-`keyvalueindex`/`keyvaluesize` at all, so the block is unread. A `KeyValuesReader` already exists to
-parse it once the bytes are found.
+**So the gib models are declared by the MODEL and are not a hardcoded table** — only the birthday
+gibs (`g_pszBDayGibs`) are literals in code.
+
+**CORRECTION, and it made the job much smaller.** This entry first said the block lived in the
+`.mdl`'s own KeyValues and that `StudioModel` would have to learn to read
+`keyvalueindex`/`keyvaluesize`. That was wrong, and reading one more line of `BuildPropList`
+settled it:
+
+```c
+vcollide_t *pCollide = modelinfo->GetVCollide( modelindex );
+IVPhysicsKeyParser *pParse = physcollision->VPhysicsKeyParserCreate( pCollide->pKeyValues );
+```
+
+The blocks are in the **`.phy`'s text section** — the same text this project already walks for
+`solid`, `ragdollconstraint` and `collisionrules`, skipping everything else. Measured on
+`models/player/medic.mdl`: **nine `break` blocks**, each `model` / `health 0` / `fadetime 10`,
+naming `player\gibs\medicgib001` through `008` and `random_organ`.
+
+**BUILT 2026-09-08: the list is parsed.** `PhysicsBreakPiece` and `PhysicsModel.BreakPieces` carry
+it, `PhysicsModel.GibPath` turns the QC-style `player\gibs\medicgib001` into
+`models/player/gibs/medicgib001.mdl`, and the `ragdoll` probe reports it beside the joints:
+
+```
+models/player/medic.mdl: 24 bodies, 23 joints, 92 bones, 9 gibs
+    gib models/player/gibs/medicgib001.mdl fades after 10s
+```
+
+**What remains is the spawning, and it is the larger half**: a track per gib, physics per piece, and
+the fade. Nothing draws a gib yet.
 
 **The velocities are Valve's and are cvars, not constants** — `tf_playergib_force`,
 `tf_playergib_forceup` and `tf_playergib_maxspeed`, with `vecBreakVelocity` normalised from
@@ -25577,9 +25601,11 @@ parse it once the bytes are found.
 `RandomFloat( 0, 120 )` on two axes (`c_tf_player.cpp:7429-7441`). The corpse already carries both
 force and velocity, so the inputs are on hand.
 
-**Not started deliberately.** It spans model parsing, a new per-gib track, and physics per piece —
-three layers — and this branch has just spent three days on what a half-built physics path costs.
-It wants its own session, not the tail of this one.
+**The remaining half is not started deliberately.** Spawning spans a per-gib track, physics per
+piece and a fade, and this branch has just spent three days on what a half-built physics path costs.
+The list being parsed is a complete layer with an instrument on it; the spawning wants its own
+session rather than the tail of this one.
 
-*Evidence class: read from published SDK source for the whole chain; measured for the 231-of-407
-share on `z1800`.*
+*Evidence class: read from published SDK source for the whole chain; measured on
+`models/player/medic.mdl` for the nine pieces and their fields, and for the 231-of-407 share on
+`z1800`.*

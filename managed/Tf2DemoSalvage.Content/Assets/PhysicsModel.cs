@@ -27,6 +27,28 @@ public readonly record struct PhysicsSolid(
     float Volume,
     float DragCoefficient);
 
+/// <summary>One piece a model breaks into — a <c>break</c> block of the <c>.phy</c> text (B371).</summary>
+/// <param name="Model">
+/// The gib's model, as the file writes it: no <c>models/</c> prefix and no <c>.mdl</c> suffix, with
+/// backslashes. <see cref="PhysicsModel.GibPath"/> turns it into a path this project can open.
+/// </param>
+/// <param name="Health">
+/// What the piece must take before it breaks further. **Zero on every TF2 player gib**, measured —
+/// a gib that cannot be broken again.
+/// </param>
+/// <param name="FadeTime">
+/// Seconds before the piece fades out. Ten on every TF2 player gib, measured, against
+/// <c>cl_ragdoll_fade_time</c>'s fifteen for the body — so gibs leave BEFORE a corpse would.
+/// </param>
+/// <remarks>
+/// **This is where gibs are declared, and it is not the model's own KeyValues** — a distinction
+/// that cost a wrong entry in `docs/RISKS.md` before it was measured. `BuildGibList` is
+/// `BreakModelList` is <c>BuildPropList( "break", … )</c>, and that reads
+/// <c>modelinfo->GetVCollide( modelindex )->pKeyValues</c> (`props_shared.cpp:634-657`, `:660`,
+/// `:1282`) — the `.phy`'s text section, which this reader was already walking and skipping.
+/// </remarks>
+public readonly record struct PhysicsBreakPiece(string Model, float Health, float FadeTime);
+
 /// <summary>One ragdoll joint, limiting how two solids may turn relative to each other.</summary>
 /// <param name="Parent">The solid index this joint hangs from.</param>
 /// <param name="Child">The solid index it moves.</param>
@@ -245,7 +267,8 @@ public sealed class PhysicsModel
         int declaredSolidCount,
         int checksum,
         PhysicsCollisionRules? collisionRules,
-        IReadOnlyList<IReadOnlyList<PhysicsLedge>>? hulls = null)
+        IReadOnlyList<IReadOnlyList<PhysicsLedge>>? hulls = null,
+        IReadOnlyList<PhysicsBreakPiece>? pieces = null)
     {
         Solids = solids;
         Constraints = constraints;
@@ -253,6 +276,41 @@ public sealed class PhysicsModel
         Checksum = checksum;
         CollisionRules = collisionRules;
         Hulls = hulls ?? [];
+        BreakPieces = pieces ?? [];
+    }
+
+    /// <summary>The pieces this model comes apart into — its <c>break</c> blocks (B371).</summary>
+    /// <remarks>
+    /// **Empty for almost everything and nine long for a TF2 player**, measured on
+    /// `models/player/medic.mdl`: `medicgib001` through `medicgib008` and `random_organ`, each with
+    /// `health 0` and `fadetime 10`. `InitPlayerGibs` builds exactly this list —
+    /// <c>BuildGibList( m_aGibs, nModelIndex, 1.0f, COLLISION_GROUP_NONE )</c>
+    /// (`c_tf_player.cpp:7363`) — and `CreatePlayerGibs` spawns from it when a death gibs.
+    /// </remarks>
+    public IReadOnlyList<PhysicsBreakPiece> BreakPieces { get; }
+
+    /// <summary>Turns a <c>break</c> block's model into a path the content layer can open.</summary>
+    /// <param name="declared">The name as the <c>.phy</c> writes it.</param>
+    /// <returns>A forward-slashed <c>models/…/….mdl</c> path.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="declared"/> is null.</exception>
+    /// <remarks>
+    /// **A `.phy` writes a gib the way a QC did**: `player\gibs\medicgib001`, with backslashes, no
+    /// `models/` in front and no `.mdl` on the end. Everything that opens a model here takes the
+    /// full forward-slashed path, so the conversion belongs beside the thing that produced it
+    /// rather than at each future call site.
+    /// </remarks>
+    public static string GibPath(string declared)
+    {
+        ArgumentNullException.ThrowIfNull(declared);
+
+        string path = declared.Replace('\\', '/').Trim();
+
+        if (!path.StartsWith("models/", StringComparison.OrdinalIgnoreCase))
+        {
+            path = "models/" + path;
+        }
+
+        return path.EndsWith(".mdl", StringComparison.OrdinalIgnoreCase) ? path : path + ".mdl";
     }
 
     /// <summary>Every solid's hull, walked out of the binary section.</summary>
@@ -361,6 +419,10 @@ public sealed class PhysicsModel
                 IndexOf(bytes, "solid"u8),
                 IndexOf(bytes, "ragdollconstraint"u8),
                 IndexOf(bytes, "collisionrules"u8),
+
+                // A breakable prop's text can open with its pieces and carry no ragdoll at all, so
+                // this name has to be findable on its own (B371).
+                IndexOf(bytes, "break"u8),
             ])
         {
             if (at >= 0 && (earliest < 0 || at < earliest))
@@ -394,6 +456,7 @@ public sealed class PhysicsModel
     {
         List<PhysicsSolid> solids = [];
         List<RagdollConstraint> constraints = [];
+        List<PhysicsBreakPiece> pieces = [];
         PhysicsCollisionRules? rules = null;
 
         // The block being read, and the keys gathered for it so far. A block's fields are flat, so
@@ -421,6 +484,10 @@ public sealed class PhysicsModel
             else if (block.Equals("collisionrules", StringComparison.OrdinalIgnoreCase))
             {
                 rules = RulesFrom(ordered);
+            }
+            else if (block.Equals("break", StringComparison.OrdinalIgnoreCase))
+            {
+                pieces.Add(BreakFrom(fields));
             }
 
             block = string.Empty;
@@ -455,7 +522,7 @@ public sealed class PhysicsModel
         // (`docs/memory/author-the-specimen-the-corpus-lacks.md`).
         Close();
 
-        return new PhysicsModel(solids, constraints, solidCount, checksum, rules, hulls);
+        return new PhysicsModel(solids, constraints, solidCount, checksum, rules, hulls, pieces);
     }
 
     /// <summary>Replays a <c>collisionrules</c> block the way the engine's handler consumes it.</summary>
@@ -568,6 +635,22 @@ public sealed class PhysicsModel
             Number(fields, "rotdamping"),
             Number(fields, "volume"),
             Number(fields, "drag", 1f));
+
+    /// <summary>One <c>break</c> block: a gib this model comes apart into (B371).</summary>
+    /// <remarks>
+    /// **Three keys, measured rather than assumed** — every TF2 player `.phy` writes exactly
+    /// `model`, `health` and `fadetime`, nine times over. `CBreakParser` accepts more than that
+    /// (burst, offset, placementname, a collision group), so the defaults here are the engine's for
+    /// a block that omits them rather than an assertion that nothing else can appear.
+    /// </remarks>
+    private static PhysicsBreakPiece BreakFrom(Dictionary<string, string> fields) =>
+        new(
+            Text(fields, "model"),
+            Number(fields, "health"),
+
+            // The engine's own default when a piece does not say — `breakmodel_t` is memset and
+            // then given the parser's defaults, and a gib with no fade never leaves.
+            Number(fields, "fadetime"));
 
     private static RagdollConstraint ConstraintFrom(Dictionary<string, string> fields) =>
         new(

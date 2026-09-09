@@ -137,7 +137,16 @@ public sealed class RagdollProbe : IProbe
 
         output.WriteLine(
             $"{model}: {body.Elements.Count} bodies, {body.Constraints.Count} joints, " +
-            $"{bones.Count} bones");
+            $"{bones.Count} bones, {physics.BreakPieces.Count} gibs");
+
+        // **The gibs this model comes apart into** (B371). `InitPlayerGibs` builds exactly this
+        // list and `CreatePlayerGibs` spawns from it, so a class with none here can never gib —
+        // which is worth seeing beside the ragdoll rather than inferred from its absence.
+        foreach (PhysicsBreakPiece piece in physics.BreakPieces)
+        {
+            output.WriteLine(
+                $"    gib {PhysicsModel.GibPath(piece.Model)} fades after {piece.FadeTime:0.#}s");
+        }
 
         // **The hulls, because a body with no hull cannot land on anything** (B58). Printed per
         // solid rather than totalled: a reader that finds the tree but walks one branch reports a

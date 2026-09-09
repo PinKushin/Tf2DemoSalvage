@@ -97,6 +97,10 @@ public sealed class RagdollConstraintProbe : IProbe
             ["editparams"] = 0,
         };
 
+        // Which names were asked for up front, so a discovered one that turns out to be absent can
+        // be dropped as noise while a seeded absence is still reported. See the census below.
+        HashSet<string> seeded = new(blocks.Keys, StringComparer.Ordinal);
+
         int filesRead = 0;
         int scanDisagreed = 0;
         List<string> jointsWithoutRules = [];
@@ -173,6 +177,16 @@ public sealed class RagdollConstraintProbe : IProbe
                     largestFriction = friction;
                     largestFrictionModel = Path.GetFileName(path);
                 }
+            }
+
+            // **Every opener the FILE declares, not every name this probe thought to ask about**
+            // (B371). The seeded list above is the control; this adds whatever else is really
+            // there. A census that can only count names someone remembered to list cannot report
+            // the one nobody knew about — which is exactly how nine `break` blocks per player
+            // model, the gib list, stayed invisible in a probe written to find unparsed data.
+            foreach (string found in Openers(tail))
+            {
+                blocks.TryAdd(found, 0);
             }
 
             foreach (string block in blocks.Keys.ToList())
@@ -253,12 +267,41 @@ public sealed class RagdollConstraintProbe : IProbe
 
         foreach ((string block, int count) in blocks)
         {
+            // **A DISCOVERED name that no file actually declares is scan noise, not a finding.**
+            // The opener heuristic reads a bare identifier off a line, and a `.phy`'s text sits
+            // against binary, so a stray letter can look like one — `p` and `P` both did. A seeded
+            // name is kept at zero on purpose, because `animatedfriction 0 of 1108` is a real
+            // measurement about the game and is the reason the seed list exists.
+            if (count == 0 && !seeded.Contains(block))
+            {
+                continue;
+            }
+
             string note = block switch
             {
                 "solid" or "ragdollconstraint" => "  (control — this project parses it)",
                 "collisionrules" => "  (which bodies may touch; ragdoll_shared.cpp:296)",
-                "animatedfriction" => "  (the friction ramp; ragdoll_shared.cpp:147)",
-                _ => string.Empty,
+
+                // **Read, and it is inert on this game's content.** The ramp fades joint friction
+                // in and out after a ragdoll spawns — `animfrictionmin`/`max` with
+                // `timein`/`hold`/`timeout` (`CRagdollAnimatedFriction`, `ragdoll_shared.cpp:113`).
+                // Its consumer is guarded on `m_iMinFriction != 0 || m_iMaxFriction != 0`
+                // (`c_baseanimating.cpp:441`) and `ragdoll.animfriction` is memset to zero
+                // (`:270`), so a model that declares no block never starts the state machine.
+                // Zero of 1108 declare one, so implementing it would be implementing a branch that
+                // provably never runs here.
+                "animatedfriction" =>
+                    "  (friction ramp; INERT — no model declares it and the consumer early-outs)",
+
+                "break" => "  (the GIB list; BuildGibList, props_shared.cpp:1282 — parsed since B371)",
+
+                // **Read, and nothing in the engine consumes it.** `editparams` does not appear
+                // anywhere in `source-sdk-2013` — zero files — so it is authoring metadata the
+                // tools write into every `.phy` and no runtime reads.
+                "editparams" =>
+                    "  (authoring metadata; the string appears in NO SDK source file)",
+
+                _ => "  (DISCOVERED, and nothing parses it — read it before assuming it is noise)",
             };
 
             output.WriteLine(string.Create(
@@ -291,6 +334,54 @@ public sealed class RagdollConstraintProbe : IProbe
                     CultureInfo.InvariantCulture,
                     $"  WARNING: the scan and PhysicsModel disagreed {scanDisagreed} times — " +
                     $"treat every number above as suspect, the instrument is broken."));
+    }
+
+    /// <summary>Every block name the text actually opens, discovered rather than assumed.</summary>
+    /// <param name="text">The <c>.phy</c>'s KeyValues tail, as ASCII.</param>
+    /// <returns>The distinct names, lowercased.</returns>
+    /// <remarks>
+    /// **This is the half a fixed list cannot do** (B371). A `.phy`'s text is a flat run of
+    /// `name {` blocks, so the names are readable straight off the file — and a census built from
+    /// them reports the block nobody knew to look for. The one that was missed is `break`, nine per
+    /// player model, which is the gib list `BuildGibList` reads.
+    ///
+    /// **A line whose brace is on the NEXT line is not matched, and that is deliberate**: Valve's
+    /// writer puts the brace on its own line for `solid` and inline for nothing, so requiring the
+    /// pair would find zero. This takes the identifier at the start of a line whose following
+    /// non-blank line opens a brace, which is the shape every shipped file uses.
+    /// </remarks>
+    private static HashSet<string> Openers(string text)
+    {
+        HashSet<string> found = new(StringComparer.Ordinal);
+
+        foreach (string raw in text.Split('\n'))
+        {
+            string line = raw.Trim();
+
+            // A block opener is a bare identifier, optionally followed by its brace. Anything with
+            // a quote or a digit is a key/value pair inside a block.
+            int brace = line.IndexOf('{', StringComparison.Ordinal);
+
+            if (brace >= 0)
+            {
+                line = line[..brace].Trim();
+            }
+
+            if (line.Length == 0 || line.Length > 32 || line.Contains('"', StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            // **Kept as the file writes it, not case-folded.** Every shipped `.phy` writes these
+            // lowercase, and reporting the name verbatim means the census shows what is actually
+            // in the file rather than a normalised version of it.
+            if (line.All(letter => char.IsAsciiLetter(letter) || letter == '_'))
+            {
+                found.Add(line);
+            }
+        }
+
+        return found;
     }
 
     /// <summary>How many times a block opener appears in the text.</summary>
