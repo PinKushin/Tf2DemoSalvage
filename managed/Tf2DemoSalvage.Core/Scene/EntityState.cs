@@ -2273,6 +2273,56 @@ public sealed class EntityState
             }
         }
 
+        // **Any table that DECLARES an origin, because the three above are not the only ones**
+        // (B372). A class may declare `m_vecOrigin` in its own table rather than inherit
+        // `DT_BaseEntity`'s, and the engine does not care which: `RECVINFO_NAME( m_vecNetworkOrigin,
+        // m_vecOrigin )` binds the same proxy wherever it appears, so the property NAME is the
+        // contract and the table is not ([[wire-names-are-strings]],
+        // [[a-property-name-needs-its-declaring-table]]).
+        //
+        // **Every projectile in the game arrives this way and every one of them was dropped.**
+        // `CTFBaseRocket` declares its own origin and angles (`tf_weaponbase_rocket.cpp:43`), so a
+        // rocket's position was invisible to this method, `DemoTimeline` returned before creating a
+        // track, and 3,846 rocket updates in `z1800` produced nothing to draw. The named tables are
+        // still tried FIRST, because a player's local/non-local pair genuinely has a priority
+        // between them that this fallback must not disturb.
+        string suffix = $".{OriginProperty}";
+        string? declaring = null;
+        long newest = long.MinValue;
+
+        foreach (string key in _properties.Keys)
+        {
+            if (!key.EndsWith(suffix, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            long when = Sequence(key);
+
+            if (when > newest)
+            {
+                newest = when;
+                declaring = key;
+            }
+        }
+
+        if (declaring is not null && _properties.TryGetValue(declaring, out PropertyValue found))
+        {
+            if (found.Kind == PropertyValueKind.Vector)
+            {
+                return found.AsVector;
+            }
+
+            if (found.Kind == PropertyValueKind.VectorXY)
+            {
+                (float x, float y) = found.AsVectorXY;
+
+                string owner = declaring[..^suffix.Length];
+
+                return (x, y, Number($"{owner}.{OriginZProperty}") ?? 0f);
+            }
+        }
+
         return null;
     }
 

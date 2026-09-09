@@ -146,13 +146,25 @@ public sealed class ProjectileProbe : IProbe
 
             // **One example in full, so the claim can be checked by looking.** A count says a
             // track exists; where it is and what model it names is what a camera needs.
-            ScenePropTrack example = of[0];
+            // **The LAST one rather than the first, and its position with it.** The first projectile
+            // in a demo is usually fired during the pre-round while everyone is still in spawn, so
+            // a camera aimed at it sees a spawn room — which cost two screenshots before this line
+            // existed. A late one is mid-match, and printing where it is means the camera comes
+            // from the data rather than from a guess
+            // (`docs/memory/point-the-camera-from-the-data.md`).
+            foreach (ScenePropTrack example in (ScenePropTrack[])[of[0], of[^1]])
+            {
+                (int tick, ScenePose pose) = example.Keyframes.Count > 0
+                    ? example.Keyframes[0]
+                    : (example.FirstTick, default);
 
-            output.WriteLine(string.Create(
-                CultureInfo.InvariantCulture,
-                $"    entity {example.EntityIndex} ticks {example.FirstTick}-" +
-                $"{(example.Keyframes.Count > 0 ? example.Keyframes[^1].Tick : example.FirstTick)} " +
-                $"model '{example.ModelPath}' kind {example.Kind}"));
+                output.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"    entity {example.EntityIndex} ticks {example.FirstTick}-" +
+                    $"{(example.Keyframes.Count > 0 ? example.Keyframes[^1].Tick : example.FirstTick)}" +
+                    $" at tick {tick} ({pose.X:0} {pose.Y:0} {pose.Z:0}) " +
+                    $"model '{example.ModelPath}'"));
+            }
         }
 
         // **`ModelPaths()` cannot answer "which projectile models does the demo declare", and this

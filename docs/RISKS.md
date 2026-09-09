@@ -25643,7 +25643,7 @@ subsystem, and the two were only observed in the same session.
 
 *Evidence class: owner observation, unreproduced.*
 
-### B372 OPEN 2026-09-09: every projectile is decoded and none reaches the timeline
+### B372 FIXED 2026-09-09: every projectile is decoded and none reaches the timeline
 
 **Rockets, pipebombs, arrows and flares are on the wire in quantity and this project draws none of
 them.** The decoder sees them; the timeline has no track for any of them; nothing downstream can
@@ -25685,9 +25685,69 @@ CTFProjectile_Rocket   baseline of 91 properties
     DT_BaseEntity.m_nModelIndex = 588
 ```
 
-**What is NOT established, and it is the next measurement rather than a guess:** whether
-`state.ModelIndex()` surfaces that baseline value, or whether it does and `precache.Path(588)`
-answers null. `ModelFor` fails on either, identically, and the two need different fixes.
+**FIXED 2026-09-09, and the model index was a RED HERRING.** `EffectiveProperties` does overlay the
+class baseline, so `state.ModelIndex()` did return 588 and the precache did resolve it. The entity
+never got that far: `DemoTimeline` reads the origin BEFORE the model and returns when there is none.
+
+**`EntityState.Origin()` searched three hardcoded tables** — `DT_TFLocalPlayerExclusive`,
+`DT_TFNonLocalPlayerExclusive`, `DT_BaseEntity` — and a rocket sends its position under
+**`DT_TFBaseRocket.m_vecOrigin`**, because `CTFBaseRocket` declares its own rather than inheriting
+one:
+
+```cpp
+BEGIN_NETWORK_TABLE( CTFBaseRocket, DT_TFBaseRocket )
+RecvPropVector( RECVINFO_NAME( m_vecNetworkOrigin, m_vecOrigin ) ),   // tf_weaponbase_rocket.cpp:43
+```
+
+**The engine binds the recv proxy by NAME, wherever the property is declared**, so the table is a
+detail and the name is the contract — `docs/memory/wire-names-are-strings.md` and
+`docs/memory/a-property-name-needs-its-declaring-table.md`, both of which say exactly this and
+neither of which was applied here. `Origin()` now tries the three named tables first, then any table
+declaring `m_vecOrigin`, newest write winning.
+
+**The named tables must still win, and that is a separate test.** A player's local/non-local pair has
+a real priority between them; a scan that answered first would disturb it, and every other test in
+the file supplies only one table, so the two readings would agree everywhere else.
+
+| `projectiles z1800` | before | after |
+|---|---|---|
+| fired projectile tracks | **0** | **1,608** |
+| prop tracks | 1,760 | 3,364 |
+
+Every family resolves to its own world model with a projectile-shaped lifetime: 750
+`CTFGrenadePipebombProjectile` (`w_stickybomb.mdl`), 557 `CTFProjectile_Rocket` (`w_rocket.mdl`,
+entity 658 alive ticks 130–134), 107 `CTFProjectile_Flare`, 80 `CTFProjectile_HealingBolt`, 54
+`CTFProjectile_SentryRocket`, 40 `CTFProjectile_Arrow`, plus the jars and an ornament.
+
+**Proved by sabotage:** breaking the fallback's suffix so it matches nothing reddens exactly
+`EntityState_OriginDeclaredByTheClasssOwnTable_IsStillFound` and leaves the priority control green.
+
+**Confirmed by looking**, which the census alone cannot do: `z1800` tick 52392, camera placed from
+the probe's own reported position for rocket entity 620 — the rocket is in flight in front of the
+soldier who fired it.
+
+**The probe misled twice before that and now says where a projectile IS.** It printed the FIRST
+projectile of each class, and the first rocket in a demo is fired during the pre-round while
+everyone is still in spawn — so two screenshots aimed at it showed a spawn room. It prints the first
+AND the last with positions now (`docs/memory/point-the-camera-from-the-data.md`).
+
+### B373 OPEN 2026-09-09: a projectile draws its model and none of its effects
+
+**Follows directly from B372 and is scoped separately because it needs a subsystem that does not
+exist.** `C_TFProjectile_Rocket::CreateTrails` (`c_tf_projectile_rocket.cpp:48`) is entirely
+particle work — `rockettrail`, `rockettrail_underwater` when the origin is in `MASK_WATER`,
+`rockettrail_airstrike` for a launcher with the `mini_rockets` attribute, `halloween_rockettrail`
+under the holiday check — and then `m_bCritical` selects `critical_rocket_blue` or
+`critical_rocket_red` by team.
+
+**`m_bCritical` is already decoded**: it is the whole of `DT_TFProjectile_Rocket` beside the
+baseclass, so the input is on the wire and nothing reads it.
+
+**There is no particle system in this project** — zero types matching `Particle` in `managed/`. So
+this is a new subsystem rather than a fix, and it is filed rather than started.
+
+*Evidence class: read-from-source for the effect names and their conditions; measured for the
+absence of a particle system.*
 
 **Two instrument artefacts on the way here, recorded so they are not repeated.** `props <demo>`
 samples ONE tick and a projectile lives about a second, so two hand-picked ticks showing none was an
