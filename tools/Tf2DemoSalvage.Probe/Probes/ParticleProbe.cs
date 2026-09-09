@@ -231,6 +231,127 @@ public sealed class ParticleProbe : IProbe
             return;
         }
 
+        // **The sheet resource in a real `.vtf`, because its payload format is not published.**
+        // `CSheet` is forward-declared in `particles.h` and defined nowhere in the SDK, so the
+        // structure has to come from the FILES — the same route the compact ledges took
+        // (`docs/findings/51`). The container IS published: `vtf.h:531` gives
+        // `ResourceEntryInfo { uint32 eType; uint32 resData; }` after `numResources`, the id is
+        // `MK_VTF_RSRC_ID( 0x10, 0, 0 )`, and the HIGH BYTE of `eType` is flags — so
+        // `RSRCF_HAS_NO_DATA_CHUNK` (`0x02 << 24`) means `resData` IS the data rather than an
+        // offset, and reading the offset unconditionally returns garbage.
+        if (filter.Equals("sheet", StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (string archive in archives)
+            {
+                VpkArchive open = VpkArchive.Open(archive);
+
+                // **The texture the MATERIAL names, not the material's own name.**
+                // `effects/rocketrailsmoke.vmt` is a `SpriteCard` whose `$basetexture` is
+                // `effects/smoke/smokelit` — asking for a `.vtf` beside the `.vmt` finds nothing,
+                // which is how this probe first reported "not found" for a texture that ships.
+                if (open.ReadFile("materials/effects/smoke/smokelit.vtf") is not
+                    { Length: > 96 } vtf)
+                {
+                    continue;
+                }
+
+                int version = BitConverter.ToInt32(vtf, 8);
+                int headerSize = BitConverter.ToInt32(vtf, 12);
+
+                output.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"  rocketrailsmoke.vtf: {vtf.Length} bytes, version 7.{version}, " +
+                    $"header {headerSize}"));
+
+                if (version < 3)
+                {
+                    output.WriteLine("    below 7.3, so it carries no resources at all.");
+                    return;
+                }
+
+                // **The header's tail, dumped rather than indexed.** `numResources` sits after the
+                // 7.2 fields and three pad bytes, and getting that offset wrong reports zero
+                // resources for a file that has them — which it did, at 0x4C. The bytes settle it.
+                output.WriteLine("    --- header tail, 0x38 to 0x58 ---");
+
+                for (int row = 0; row < 2; row++)
+                {
+                    int from = 0x38 + (row * 16);
+
+                    string hex = string.Join(' ', vtf.Skip(from).Take(16)
+                        .Select(one => one.ToString("x2", CultureInfo.InvariantCulture)));
+
+                    output.WriteLine(string.Create(
+                        CultureInfo.InvariantCulture, $"      0x{from:x2}  {hex}"));
+                }
+
+                // Both candidate offsets, so the right one is chosen by which is plausible rather
+                // than by which was assumed.
+                output.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"      numResources at 0x44 = {BitConverter.ToInt32(vtf, 0x44)}, " +
+                    $"at 0x48 = {BitConverter.ToInt32(vtf, 0x48)}, " +
+                    $"at 0x4C = {BitConverter.ToInt32(vtf, 0x4C)}"));
+
+                int resources = BitConverter.ToInt32(vtf, 0x44);
+
+                if (resources is < 0 or > 32)
+                {
+                    output.WriteLine("    that count is not plausible; the offset is still wrong.");
+                    return;
+                }
+
+                output.WriteLine($"    {resources} resources");
+
+                // Entries follow numResources, after its own four bytes of padding.
+                for (int index = 0; index < resources && 0x50 + (index * 8) + 8 <= vtf.Length; index++)
+                {
+                    int at = 0x50 + (index * 8);
+
+                    uint type = BitConverter.ToUInt32(vtf, at);
+                    uint data = BitConverter.ToUInt32(vtf, at + 4);
+
+                    uint id = type & 0x00FFFFFF;
+                    uint flags = (type >> 24) & 0xFF;
+
+                    output.WriteLine(string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"      id 0x{id:x6} flags 0x{flags:x2} data {data}" +
+                        $"{((flags & 0x02) != 0 ? "  (IS the data, no chunk)" : "  (offset)")}"));
+
+                    if (id != 0x10 || (flags & 0x02) != 0 || data + 64 > vtf.Length)
+                    {
+                        continue;
+                    }
+
+                    output.WriteLine("    --- sheet payload, first 64 bytes ---");
+
+                    for (int row = 0; row < 4; row++)
+                    {
+                        int from = (int)data + (row * 16);
+
+                        string hex = string.Join(' ', vtf.Skip(from).Take(16)
+                            .Select(one => one.ToString("x2", CultureInfo.InvariantCulture)));
+
+                        output.WriteLine($"      {from,8}  {hex}");
+                    }
+
+                    // The first words, which is where a version and a count would sit.
+                    output.WriteLine(string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"      as int32: {BitConverter.ToInt32(vtf, (int)data)}, " +
+                        $"{BitConverter.ToInt32(vtf, (int)data + 4)}, " +
+                        $"{BitConverter.ToInt32(vtf, (int)data + 8)}, " +
+                        $"{BitConverter.ToInt32(vtf, (int)data + 12)}"));
+                }
+
+                return;
+            }
+
+            output.WriteLine("  materials/effects/rocketrailsmoke.vtf not found.");
+            return;
+        }
+
         // **The simulator run on Valve's OWN definition, end to end.** The synthetic tests prove
         // each operator does what its parameters say; this proves the layers join — a real `.pcf`
         // through `DmxFile`, `ParticleSystems`, a `ParticleStore` and the operators, with the
