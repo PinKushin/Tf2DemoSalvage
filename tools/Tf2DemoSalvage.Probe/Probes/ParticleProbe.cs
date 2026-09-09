@@ -184,6 +184,49 @@ public sealed class ParticleProbe : IProbe
                     CultureInfo.InvariantCulture, $"    {count,5}  {named}"));
             }
 
+            // **What each one is PARAMETERISED by, which is the strongest source short of the
+            // binary.** The implementations are closed, so a name alone would have to be guessed
+            // at — but the attributes a real operator carries constrain it hard: an operator with
+            // `lifetime_min` and `lifetime_max` picks a value in a range, and one with
+            // `gravity` and `drag` integrates a velocity.
+            foreach (string archive in archives)
+            {
+                VpkArchive open = VpkArchive.Open(archive);
+
+                if (open.ReadFile("particles/rockettrail.pcf") is not { } trail)
+                {
+                    continue;
+                }
+
+                HashSet<string> shown = new(StringComparer.Ordinal);
+
+                foreach (IReadOnlyDictionary<string, DmxValue> bag in DmxFile.Read(trail)
+                    .Where(one => one.Type == "DmeParticleOperator")
+                    .Select(one => one.Attributes))
+                {
+                    if (!bag.TryGetValue("functionName", out DmxValue what) ||
+                        what.Text is not { Length: > 0 } named ||
+                        !shown.Add(named))
+                    {
+                        continue;
+                    }
+
+                    output.WriteLine($"    {named}");
+
+                    foreach ((string attribute, DmxValue value) in bag
+                        .Where(one => one.Key is not ("functionName" or "name"))
+                        .OrderBy(one => one.Key, StringComparer.Ordinal))
+                    {
+                        output.WriteLine(string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"        {attribute} ({value.Type}) = " +
+                            $"{value.Text ?? value.Number.ToString("0.###", CultureInfo.InvariantCulture)}"));
+                    }
+                }
+
+                break;
+            }
+
             return;
         }
 
@@ -230,6 +273,31 @@ public sealed class ParticleProbe : IProbe
                 IReadOnlyList<DmxElement> parsed = DmxFile.Read(raw);
 
                 output.WriteLine($"    DmxFile.Read: {DmxFile.Census(parsed)}");
+
+                // **The schema layer against the same file**, which is what a simulator consumes.
+                IReadOnlyDictionary<string, ParticleSystem> systems = ParticleSystems.Read(raw);
+
+                output.WriteLine($"    ParticleSystems.Read: {systems.Count} systems");
+
+                foreach (ParticleSystem system in systems.Values.Take(2))
+                {
+                    output.WriteLine(string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"      '{system.Name}': {system.Emitters.Count} emitters, " +
+                        $"{system.Initializers.Count} initializers, " +
+                        $"{system.Operators.Count} operators, " +
+                        $"{system.Renderers.Count} renderers, " +
+                        $"{system.Children.Count} children"));
+
+                    foreach (ParticleFunction one in system.Operators.Take(3))
+                    {
+                        output.WriteLine(string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"        operator '{one.Function}' " +
+                            $"gravity {one.Vector("gravity", default).Z:0.##} " +
+                            $"drag {one.Number("drag", -1d):0.##}"));
+                    }
+                }
 
                 foreach (DmxElement element in parsed
                     .Where(one => one.Type == "DmeParticleSystemDefinition")

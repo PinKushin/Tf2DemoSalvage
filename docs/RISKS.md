@@ -25831,9 +25831,36 @@ archaeology**: pick a random value in a declared range (`Lifetime`, `Radius`, `C
 `Lifespan Decay`), and draw a sprite (`render_animated_sprites`). A single effect uses a dozen or
 so of them.
 
-**So the ordering is: implement the head of this list, measure a rocket trail against a capture, and
-decompile only what the ranking says a demo actually reaches.** The tail is where the closed-binary
-work lives, and most of the tail is unusual hats.
+**BUILT: the schema, which is the second of the three.** `ParticleSystems` turns a `.pcf` into named
+systems with their emitters, initializers, operators, renderers and children, and it reads TF2's own
+file:
+
+```
+particles/rockettrail.pcf: 53 systems
+  'rockettrail_!': 1 emitter, 6 initializers, 4 operators, 1 renderer, 2 children
+      Movement Basic          gravity 6   drag 0     (declared)
+      Alpha Fade and Decay    gravity 0   drag -1    (absent — the caller's default)
+```
+
+**That last column is the whole reason the accessor takes a default.** A `.pcf` omits any parameter
+left at its default, so an absent `drag` does not mean zero drag — and `Movement Basic` declaring it
+while `Alpha Fade and Decay` does not is the distinction, on the real file.
+`docs/memory/sentinels-conflate-unknown-with-answer.md` is the rule; sabotaging it to return zero
+reddens exactly `Number_AnAbsentParameter_IsTheCallersDefaultAndNeverZero`.
+
+**A function's KIND comes from the array that named it, not from its type.** All four arrays hold
+`DmeParticleOperator` elements, so a reader keying on the element type would put emitters,
+operators and renderers in one bag — its own test.
+
+**So the ordering for the third part is: implement the head of the ranking, measure a rocket trail
+against a capture, and decompile only what the ranking says a demo actually reaches.** The tail is
+where the closed-binary work lives, and most of the tail is unusual hats.
+
+**What the third part needs that the first two did not: a REFERENCE.** A simulator can be written
+from the parameter names, and writing one without comparing it to TF2 drawing the same effect would
+produce plausible motion and call it parity — the failure this project's rules exist to prevent. So
+it wants a capture of the same rocket in TF2 beside ours, which is `docs/findings/24-reference-capture.md`'s
+job, and it is the reason this stops here rather than continuing into the operators.
 
 *Evidence class: measured — the file counts, the 10,456 systems, the 110 distinct operators and
 their ranking, all read through this project's own `DmxFile` over every shipped `.pcf`;
