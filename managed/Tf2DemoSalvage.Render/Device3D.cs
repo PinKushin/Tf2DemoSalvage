@@ -1252,6 +1252,26 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 WorldRenderer.ResetBlend(_context);
 
                 DrawViewmodels(viewmodels, viewmodelCamera);
+
+                // **Particles last of the world, and the position is the whole safety argument**
+                // (B373). They are translucent, and `docs/findings/32-the-opaque-pass-blend-leak.md`
+                // is this repository's account of what one unrestored blend state costs — two days,
+                // presenting as four unrelated art faults.
+                //
+                // Two things make this safe rather than hopeful, and both are read out of the pass
+                // above rather than assumed. `DetailSpriteRenderer` **owns every piece of state it
+                // needs** — blend, depth and rasteriser — which is why the detail sprites are
+                // already drawn mid-frame without leaking. And drawing AFTER the models means
+                // nothing in the world follows it, so even a state it failed to restore could not
+                // reach geometry; the depth-off overlays below set their own.
+                //
+                // **After the models rather than before them, unlike the grass**, because a
+                // particle is not standing on the ground: it hangs in the air among the models and
+                // must be depth-tested against them, which needs their depth already written.
+                if (_particleSprites is not null && _worldCamera is { } particleCamera)
+                {
+                    _particleSprites.Draw(_device, _context, particleCamera.Matrix);
+                }
             }
             else
             {
@@ -1611,6 +1631,55 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
         _detailSprites.SetSheet(_detailSheet);
     }
+
+    /// <summary>Hands this frame's particle quads and their material to the device (B373).</summary>
+    /// <param name="corners">Six per particle, already camera-facing — see <c>ParticleSprites</c>.</param>
+    /// <param name="sheet">The material the particle system declares, or null to draw none.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="corners"/> is null.</exception>
+    /// <remarks>
+    /// **A SECOND `DetailSpriteRenderer` rather than sharing the grass one**, because the two carry
+    /// different materials and a shared instance would have each frame overwrite the other's sheet.
+    /// Reusing the TYPE is the point — one sprite pipeline, two instances — since two pipelines that
+    /// must agree about blending is the defect this project has already met.
+    ///
+    /// **The corners are built on the CPU** by `ParticleSprites`, which is what lets the existing
+    /// pass take them unchanged: it wants explicit positions with a tint and an alpha, and a
+    /// billboarded particle is exactly that.
+    ///
+    /// **No corners or no sheet clears the pass rather than leaving the last frame's**, which is the
+    /// stale-pairing fault `SetDetailProps` documents for the grass: a rocket that has exploded must
+    /// take its trail with it.
+    /// </remarks>
+    public void SetParticles(IReadOnlyList<DetailSpriteVertex> corners, MapTexture? sheet)
+    {
+        ArgumentNullException.ThrowIfNull(corners);
+
+        if (corners.Count == 0 || sheet is null)
+        {
+            _particleSprites?.SetSheet(default);
+            return;
+        }
+
+        _particleSprites ??= DetailSpriteRenderer.Create(_device);
+
+        // **Uploaded once, not per frame**: re-creating a texture sixty times a second for a
+        // trail that keeps the same material all its life is pure cost.
+        //
+        // **One material at a time, and that is a stated limit rather than an oversight.** Every
+        // rocket in a demo uses `rockettrail`, so one sheet serves them; an effect with a different
+        // material would need a sheet per material and a draw per sheet, which is a batching
+        // question to answer when a second effect exists rather than now (B373).
+        if (_particleSheet.Handle is null)
+        {
+            _particleSheet = WorldRenderer.UploadTexture(_device, _context, sheet);
+        }
+
+        _particleSprites.SetSheet(_particleSheet);
+        _particleSprites.Upload(_device, _context, corners);
+    }
+
+    private DetailSpriteRenderer? _particleSprites;
+    private ComPtr<ID3D11ShaderResourceView> _particleSheet;
 
     private DetailSpriteRenderer? _detailSprites;
     private ComPtr<ID3D11ShaderResourceView> _detailSheet;
