@@ -4,9 +4,13 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.Core.Schema;
+using Tf2DemoSalvage.Core.Scene;
+using Tf2DemoSalvage.Presentation;
+using Tf2DemoSalvage.Scene;
 
 namespace Tf2DemoSalvage.Probe.Probes;
 
@@ -173,9 +177,87 @@ public sealed class SceneWireProbe : IProbe
             $"{scenes.Count:N0} names"));
 
         foreach (string scene in scenes.Where(
-            name => name.Contains("taunt", StringComparison.OrdinalIgnoreCase)).Take(8))
+            name => name.Contains("taunt", StringComparison.OrdinalIgnoreCase)).Take(4))
         {
             output.WriteLine($"    {scene}");
+        }
+
+        // **And whether any scene entity ever ENTERS, which the table cannot say.** A table with
+        // 4,431 names is precache: every scene the map could play, sent whether or not one does.
+        // Only an entity carrying `m_bIsPlayingBack` says a taunt happened, and only its
+        // `m_hActorList` says to whom.
+        DemoTimeline timeline = DemoTimeline.Build(bytes);
+
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"  timeline: {timeline.Frames.Count:N0} frames, " +
+            $"{timeline.Scenes.Count:N0} scene playbacks"));
+
+        foreach (SceneChoreography playing in timeline.Scenes
+            .Where(one => one.Scene.Contains("taunt", StringComparison.OrdinalIgnoreCase))
+            .Take(10))
+        {
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"    tick {playing.Tick:N0} entity {playing.EntityIndex}: " +
+                $"'{playing.Scene}' actors [{string.Join(", ", playing.Actors)}]"));
+        }
+
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"  {timeline.Scenes.Count(one => one.Scene.Contains("taunt", StringComparison.OrdinalIgnoreCase)):N0}" +
+            $" of them name a taunt; {timeline.Scenes.Count(one => one.Actors.Count > 0):N0} name an actor"));
+
+        // **The whole chain, end to end, on names the WIRE chose rather than names a schema listed.**
+        // Every earlier measurement resolved paths out of `items_game.txt`; these come from this
+        // recording's own string table, carry the game's own mixed case, and include the `workshop/`
+        // prefix community taunts use — none of which the schema paths exercised.
+        if (new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder)
+                .FindGameFolder() is not { } folder ||
+            GameArchives.Open(folder).Read("scenes/scenes.image") is not { } image ||
+            SceneImage.Read(image) is not { } archive)
+        {
+            output.WriteLine("  No scene archive, so the wire's names cannot be resolved here.");
+            return;
+        }
+
+        List<string> distinct = [.. timeline.Scenes
+            .Select(one => one.Scene)
+            .Where(name => name.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+
+        int resolved = distinct.Count(name => archive.SequenceFor(name) is { Length: > 0 });
+
+        // **The taunt-named subset is the denominator that matters.** Most scenes a match plays are
+        // voice lines — all `SPEAK` and flex, with no gesture and so no sequence — so a low overall
+        // rate is the expected shape rather than a failure, and only the taunts can be silent wrongly.
+        List<string> taunts = [.. distinct.Where(
+            name => name.Contains("taunt", StringComparison.OrdinalIgnoreCase))];
+
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"  {resolved:N0} of {distinct.Count:N0} distinct wire scene names give a sequence; " +
+            $"of the {taunts.Count:N0} naming a taunt, " +
+            $"{taunts.Count(name => archive.SequenceFor(name) is { Length: > 0 }):N0} do"));
+
+        foreach (string silent in taunts
+            .Where(name => archive.SequenceFor(name) is not { Length: > 0 })
+            .Take(6))
+        {
+            // **The event types are what separate the two readings of "silent".** A scene of nothing
+            // but SPEAK genuinely names no animation — the Heavy's sandwich lines are voice, not
+            // movement — where a scene holding a GESTURE this reader failed to reach is a defect.
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"    SILENT '{silent}': {archive.BodyFor(silent).Length} bytes, types [" +
+                $"{string.Join(", ", archive.EventsFor(silent).Select(one => one.Type))}]"));
+        }
+
+        foreach (string name in distinct
+            .Where(one => one.Contains("taunt", StringComparison.OrdinalIgnoreCase))
+            .Take(8))
+        {
+            output.WriteLine($"    '{name}' -> {archive.SequenceFor(name) ?? "(nothing)"}");
         }
     }
 }

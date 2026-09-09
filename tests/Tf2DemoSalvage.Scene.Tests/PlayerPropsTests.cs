@@ -38,6 +38,89 @@ public sealed class PlayerPropsTests
     }
 
     [Test]
+    public void Add_ATauntGesture_CarriesTheSequenceTheSceneNames()
+    {
+        // **The wire names a compiled scene, and only the installed game holds the sequence inside
+        // it** (B351). The timeline can go no further than the filename, so this adapter is where a
+        // taunt becomes something a model can look up.
+        List<SceneProp> drawn = [];
+
+        PlayerProps.Add(
+            [Taunting("scenes/player/soldier/low/taunt_laugh.vcd")],
+            drawn,
+            new Appearance { SceneSequence = "taunt_laugh" },
+            NoParts);
+
+        SceneGesture taunt = drawn.ShouldHaveSingleItem().Pose.Gestures.ShouldHaveSingleItem();
+
+        taunt.Slot.ShouldBe(GestureSlot.Vcd);
+        taunt.SequenceName.ShouldBe("taunt_laugh");
+
+        // The scene's name survives, because it is what the recording said and the resolution is a
+        // reading of it rather than a replacement.
+        taunt.SceneName.ShouldBe("scenes/player/soldier/low/taunt_laugh.vcd");
+    }
+
+    [Test]
+    public void Add_ATauntWhoseSceneNamesNoSequence_DropsIt()
+    {
+        // **The engine abandons it rather than substituting** — `if ( info->m_nSequence < 0 ) return
+        // false;` (`c_tf_player.cpp:9457`). Keeping it would leave a gesture nothing can resolve
+        // sitting in the VCD slot, holding it against the next taunt.
+        //
+        // This is also every taunt on a machine with no TF2: the sequence genuinely cannot be named.
+        List<SceneProp> drawn = [];
+
+        PlayerProps.Add(
+            [Taunting("scenes/Player/Heavy/low/SandwichTaunt01.vcd")],
+            drawn,
+            new Appearance(),
+            NoParts);
+
+        drawn.ShouldHaveSingleItem().Pose.Gestures.ShouldBeNull();
+    }
+
+    [Test]
+    public void Add_AnOrdinaryGestureBesideATaunt_KeepsBoth()
+    {
+        // **The copy this makes must not lose what came before the taunt.** A reload and a taunt can
+        // hold different slots at once, and a rewrite that starts its list at the scene-carrying
+        // gesture would silently drop every gesture ahead of it.
+        List<SceneProp> drawn = [];
+
+        SceneGesture reload = new(
+            GestureSlot.AttackAndReload, "ACT_MP_RELOAD_STAND", null, AutoKill: true, 0d);
+
+        SceneGesture taunt = new(
+            GestureSlot.Vcd, null, null, AutoKill: true, 0d,
+            SceneName: "scenes/player/soldier/low/taunt_laugh.vcd");
+
+        PlayerProps.Add(
+            [Soldier() with { Gestures = [reload, taunt] }],
+            drawn,
+            new Appearance { SceneSequence = "taunt_laugh" },
+            NoParts);
+
+        IReadOnlyList<SceneGesture> kept =
+            drawn.ShouldHaveSingleItem().Pose.Gestures.ShouldNotBeNull();
+
+        kept.Count.ShouldBe(2);
+        kept[0].ActivityName.ShouldBe("ACT_MP_RELOAD_STAND");
+        kept[1].SequenceName.ShouldBe("taunt_laugh");
+    }
+
+    /// <summary>A soldier playing one taunt scene and nothing else.</summary>
+    private static ScenePlayer Taunting(string scene) =>
+        Soldier() with
+        {
+            Gestures =
+            [
+                new SceneGesture(
+                    GestureSlot.Vcd, null, null, AutoKill: true, 0d, SceneName: scene),
+            ],
+        };
+
+    [Test]
     public void Add_APlayerOnNoTeam_AddsNothing()
     {
         // **The control that keeps the spectators out.** A SourceTV camera and every spectator is a
@@ -188,6 +271,12 @@ public sealed class PlayerPropsTests
 
         public string? Hands(int playerClass) =>
             playerClass == SoldierClass ? "models/weapons/c_models/c_soldier_arms.mdl" : null;
+
+        /// <summary>What every scene resolves to, so a taunt needs no installed archive (B351).</summary>
+        public string? SceneSequence { get; init; }
+
+        /// <inheritdoc/>
+        public string? SequenceForScene(string scene) => SceneSequence;
 
         // Nothing, so these tests keep measuring what they were written to measure — the wardrobe
         // half is `PlayerBodygroupWiringTests`, with a stub of its own.

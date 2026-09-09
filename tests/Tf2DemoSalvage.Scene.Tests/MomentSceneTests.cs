@@ -780,6 +780,10 @@ public sealed class MomentSceneTests
         public string? Hands(int playerClass) =>
             playerClass == SoldierClass ? "models/weapons/c_models/c_soldier_arms.mdl" : null;
 
+        /// <inheritdoc/>
+        /// <remarks>Null: these tests assert what is drawn, and no scene entity is built here (B351).</remarks>
+        public string? SequenceForScene(string scene) => null;
+
         // These tests are about which props a moment produces, not about what the props wear.
         public ItemBodygroups BodygroupsOf(int itemDefinitionIndex) => ItemBodygroups.None;
     }

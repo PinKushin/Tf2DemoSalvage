@@ -746,7 +746,12 @@ run Tf2DemoSalvage.Animation.Tests animation 111
 # already did. One of the three is the control that it does NOT take the wall's own-team rule --
 # `C_FuncForceField::DrawModel` has no local-player test, so reusing the wall's rule wholesale
 # would delete every field the recorder's own team owns.
-run Tf2DemoSalvage.Scene.Tests    scene     570
+#
+# 570 -> 575 on 2026-09-09: five for B351's playback half. Three assert that a taunt's scene name
+# becomes a resolved sequence and that an unresolvable one is DROPPED, as the engine drops it; two
+# assert the resolved sequence reaches the skeleton by LABEL rather than by activity, on a fixture
+# whose taunt has no activity at all so the activity path cannot satisfy it.
+run Tf2DemoSalvage.Scene.Tests    scene     575
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

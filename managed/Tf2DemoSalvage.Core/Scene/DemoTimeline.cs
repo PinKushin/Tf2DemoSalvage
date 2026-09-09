@@ -576,6 +576,9 @@ public sealed class DemoTimeline
     /// <summary>The entity that carries the atmosphere.</summary>
     private const string FogControllerClass = "CFogController";
 
+    /// <summary>The entity a choreographed scene arrives on (B351).</summary>
+    private const string SceneEntityClass = "CSceneEntity";
+
     /// <summary>The table that declares <c>m_iState</c>, so a class reaching it is a weapon.</summary>
     /// <remarks>
     /// `SendPropInt( SENDINFO(m_iState), 8, SPROP_UNSIGNED )` lives in the MAIN
@@ -1052,6 +1055,17 @@ public sealed class DemoTimeline
     /// recording. Per-tick presence is the next step and needs a lifetime, not just a list.
     /// </remarks>
     public IReadOnlyList<SceneRagdoll> Corpses { get; private init; } = [];
+
+    /// <summary>Every choreographed scene that started playing, in tick order (B351).</summary>
+    /// <remarks>
+    /// **A start rather than a per-tick state, for the reason <see cref="SceneChoreography"/>
+    /// gives**: TF2 runs a scene's clock client-side from the moment playback begins, so one tick
+    /// says everything a viewer needs.
+    ///
+    /// **Flat rather than per-actor**, because a partner taunt is one scene animating two players
+    /// and splitting it would lose which two were paired.
+    /// </remarks>
+    public IReadOnlyList<SceneChoreography> Scenes { get; private init; } = [];
 
     /// <summary>The weapon a player is holding, as they would see it.</summary>
     /// <param name="tick">The tick being drawn.</param>
@@ -1543,6 +1557,15 @@ public sealed class DemoTimeline
         SoundNames soundNames = new();
         List<SceneSound> sounds = [];
 
+        // **The taunts, and the table that names them** — the same arrangement, for the same reason:
+        // `m_nSceneStringIndex` is a number and only this demo's own `Scenes` table says which
+        // compiled scene it is (B351). `_playing` remembers which scene entities were already
+        // running, because the engine acts on the TRANSITION rather than the value
+        // (`c_sceneentity.cpp:327`) and a taunt sitting at true for a thousand ticks began once.
+        ScenePrecache scenePrecache = new();
+        List<SceneChoreography> choreography = [];
+        Dictionary<int, int> playingScenes = [];
+
         // Sampled on change like fog, and present only in a point-of-view recording — see
         // SceneSoundscape for why a SourceTV demo carries nobody's (B173).
         List<(int Tick, SceneSoundscape Soundscape)> soundscapes = [];
@@ -1704,6 +1727,19 @@ public sealed class DemoTimeline
                     case UpdateStringTableMessage rosterUpdate
                         when state.StringTableName(rosterUpdate.TableId) == RosterBuilder.TableName:
                         RosterBuilder.Apply(rosterUpdate.Entries, bySlot, everyone);
+                        continue;
+
+                    // **Which compiled scene each `m_nSceneStringIndex` names**, and the only thing
+                    // on the wire that says which taunt played (B351). Both messages, for the
+                    // reason the sounds table gives: a table is created once and added to as the
+                    // round goes on.
+                    case CreateStringTableMessage { Name: ScenePrecache.TableName } sceneTable:
+                        scenePrecache.Apply(sceneTable.Entries);
+                        continue;
+
+                    case UpdateStringTableMessage sceneUpdate
+                        when state.StringTableName(sceneUpdate.TableId) == ScenePrecache.TableName:
+                        scenePrecache.Apply(sceneUpdate.Entries);
                         continue;
 
                     case CreateStringTableMessage { Name: SoundNames.TableName } soundTable:
@@ -1893,6 +1929,51 @@ public sealed class DemoTimeline
                 }
 
                 break;
+            }
+
+            // **Every scene entity, on every tick, and recorded only on the TRANSITION to playing.**
+            // `C_SceneEntity::OnDataChanged` compares `m_bWasPlaying` against `m_bIsPlayingBack` and
+            // starts the scene on each actor only when they differ (`c_sceneentity.cpp:327`), so a
+            // taunt held true for its whole length began at one tick. The scene index is part of the
+            // key, because a slot reused by a second taunt is a second start.
+            //
+            // **Outside the `moved` gate on purpose.** That gate skips ticks where nothing the
+            // sampler cares about changed, and a taunt beginning is exactly the kind of one-tick
+            // event that would fall in the gap.
+            foreach (EntityState entity in entities.OfClass(SceneEntityClass))
+            {
+                if (entity.ScenePlayingBack() is not true ||
+                    entity.SceneStringIndex() is not { } index)
+                {
+                    playingScenes.Remove(entity.EntityIndex);
+                    continue;
+                }
+
+                if (playingScenes.TryGetValue(entity.EntityIndex, out int already) &&
+                    already == index)
+                {
+                    continue;
+                }
+
+                playingScenes[entity.EntityIndex] = index;
+
+                // A scene whose name the table cannot give is still recorded as having started, with
+                // an empty name: the tick and the actors are facts about the recording, and dropping
+                // them would make a missing table look like a demo where nobody taunted.
+                string scene = scenePrecache.Path(index) ?? string.Empty;
+                IReadOnlyList<int> actors = entity.SceneActors();
+
+                choreography.Add(new SceneChoreography(
+                    command.Tick, entity.EntityIndex, scene, actors));
+
+                // **Straight into the gesture feed, at the VCD slot the engine uses.** Every actor,
+                // because a partner taunt animates both players and each one's own model resolves
+                // the sequence separately — `DispatchStartGesture` is called per actor
+                // (`c_sceneentity.cpp:511`).
+                foreach (int actor in actors)
+                {
+                    gestures.RecordScene(actor, scene, command.Tick * interval);
+                }
             }
 
             samplingTicks += Stopwatch.GetTimestamp() - sampleFrom;
@@ -2323,6 +2404,7 @@ public sealed class DemoTimeline
             Roster = everyone,
             RecorderEntityIndex = recorderSlot is { } recorded ? recorded + 1 : null,
             Corpses = [.. replaced, .. corpses.Values],
+            Scenes = choreography,
             ServerConVars = serverConVars,
             MapCrc = mapCrc,
             MapHash = mapHash,

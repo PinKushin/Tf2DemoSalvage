@@ -120,16 +120,6 @@ The CRC lookup was right from the first attempt and stayed right, which is what 
 half of the same rule. **A diagnostic that collapses three causes into one null is not lying — it is
 refusing to answer**, and it costs the same.
 
-## What is NOT established
-
-- **Which gesture a scene with several of them plays.** `SequenceFor` returns the first, which is
-  right for every taunt measured and is a guess for anything else. The engine plays events on the
-  scene's clock (`C_SceneEntity`), so a scene staging two gestures in sequence needs the times, not
-  the first name. The walk already reads start and end time and currently discards them.
-- **That `taunt_highFiveStart` exists as a sequence on the class models.** The archive names it; that
-  `LookupSequence` finds it has not been checked here.
-- **The scene ramp and everything after the actors.** The reader stops once the actors are walked, so
-  nothing past that point in a compiled scene has been read or verified.
 ## The 730 was the wrong denominator, and censusing the archive found two failures
 
 730 of 730 taunt paths naming a sequence is 7.3% of the archive. A stride wrong for a kind of event
@@ -148,14 +138,96 @@ not been checked.
 That is the whole argument for `docs/memory/the-denominator-decides-what-can-be-lost.md`: the taunt
 paths were a real measurement of a real population, and they could not have found this.
 
+## The wire half, and the vector that keyed itself differently
+
+Reading the archive is only useful if a recording says which scene played. It does, and every piece
+is present in a modern POV demo:
+
+```
+tf2-2026-pub-pov-clean.dem protocol 24, 363 classes
+  class 114 'CSceneEntity' table 'DT_SceneEntity'
+    DT_SceneEntity.m_nSceneStringIndex   m_hActorList.000 … .015
+    DT_SceneEntity.m_bIsPlayingBack      m_hActorList.lengthproxy.lengthprop16
+  -> 'Scenes': 4,431 entries
+  1,824 scene playbacks; 37 of them name a taunt; 1,824 name an actor
+  of the 23 distinct taunt names, 20 give a sequence
+```
+
+**The three that do not are `SandwichTaunt01/02/14.vcd`, and their events are `[5, 2]` — `SPEAK` and
+`EXPRESSION`.** They are the Heavy's voice lines during the taunt, not the taunt. Asking for the event
+TYPES is what separates "this scene has no animation" from "our walk failed to reach one", and without
+it the same three lines read as a defect.
+
+**`m_hActorList` came back empty on the first attempt, on every one of the 1,824.** The cause is a
+real asymmetry in how this project keys properties, and it is not a defect on either side:
+
+- `EntityStateTable` keys a property by its PATH only when the flattener marked it element-scoped, and
+  that mark is set for a **datatable** member named `lengthproxy` or all digits
+  (`SchemaFlattener.cs:237`).
+- An `m_AnimOverlay` element IS a sub-table, so it keys as `…m_AnimOverlay.000.m_nSequence`.
+- An `m_hActorList` element is a plain `EHANDLE`, so it keys FLAT as `_ST_m_hActorList_16.000` — while
+  the length, which reaches its property through the `lengthproxy` sub-table, keys as
+  `m_hActorList.lengthproxy.lengthprop16`.
+
+Both halves of one vector, keyed two different ways — and correctly so, because the element's flat
+name already carries its index, so the collision `ElementScoped` exists to prevent cannot happen here.
+But a reader written by copying `AnimationLayers`, which is the obvious thing to do, matches on a
+leading dot, finds the length, finds none of the elements, and reports every scene as having no actor.
+
+**The tell was the ratio.** 1,824 playbacks and 0 actors is not a plausible fact about TF2, and a demo
+trace settled it: `entity 323 ENTER class CSceneEntity { _LPT_m_hActorList_16.lengthprop16 1;
+_ST_m_hActorList_16.000 1521686; }`. The data was there, in a spelling the reader could not see.
+
+## What it looks like once it is wired
+
+`cycle tf2-2026-pub-pov-clean 9 1074`, at the tick the wire says a soldier began `taunt_laugh`:
+
+```
+1074  POSED seq 150  gestures 1  layers 2
+  W[seq6'PRIMARY_aimmatrix_idle':78of86 …
+    seq288'taunt_laugh':0of86 f0+0/146 animdelta True seqdelta False post False]
+```
+
+**Sequence 288, advancing through 146 frames, as a second layer over the idle.** The taunt is not a
+delta, unlike every other player gesture — `seqdelta False` — which is why it overrides the pose
+rather than adding to it.
+
+**That measurement first said `gestures 0`, and the probe was at fault rather than the code.**
+`CycleProbe` built `new GameAppearance(content.Classes, null)` instead of calling
+`DemoAppearance.Ensure`, so it loaded no weapon roles, no item schema and no scene archive — three
+silent omissions that each look like the demo containing nothing. It now takes the viewer's own path.
+*"A probe that skipped the resolution step the viewer runs"* is the first entry on this project's own
+list of instrument faults, and this was that fault again.
+
+## Two things Valve's own code does that are worth recording
+
+**`case LOOP:` has no `break` and falls through into `case SPEAK:`** (`c_sceneentity.cpp:530`). It is
+inert for a networked taunt, because the `SPEAK` body is guarded by `IsClientOnly()`, but it is real
+and it is in shipping code.
+
+**TF2 throws away the scene time the server sends it.** `m_flForceClientTime` arrives on the wire with
+a receive proxy that calls `OnResetClientTime`, whose only statement is wrapped in `#ifndef
+TF_CLIENT_DLL` — *"In TF2 we ignore this as the scene is played entirely client-side"*
+(`c_sceneentity.cpp:70`). The scene's clock is `m_flCurrentTime += gpGlobals->frametime` from the
+moment playback begins, so a viewer driving its own clock reproduces it exactly from one tick.
+`SceneChoreography` therefore does not carry `m_flForceClientTime` at all: carrying it would invite a
+consumer to honour a value the game discards.
+
 ## What is NOT established
 
 - **Which gesture a scene with several of them plays.** `SequenceFor` returns the first, which is
   right for every taunt measured and is a guess for anything else. The engine plays events on the
   scene's clock (`C_SceneEntity`), so a scene staging two gestures in sequence needs the times, not
   the first name. `EventsFor` carries them; nothing consumes them yet.
-- **That `taunt_highFiveStart` exists as a sequence on the class models.** The archive names it; that
-  `LookupSequence` finds it has not been checked here.
+- **A scene's `LOOP` is read but not obeyed.** `DispatchProcessLoop` folds the scene's clock back to
+  `atof( event->GetParameters() )` (`c_sceneentity.cpp:594`) — measured, a real `LOOP` event's
+  parameter really is the string `"2.500000"` — so a press-and-hold taunt repeats until the server
+  stops it. Ours plays the gesture once and lets auto-kill end it, which is right for a one-shot taunt
+  and short for a held one.
+- **The stop.** `m_bIsPlayingBack` going false is not recorded; the gesture's own auto-kill ends it.
+  A taunt cut short by death will therefore finish its animation.
+- **That `taunt_highFiveStart` exists as a sequence on the class models.** `taunt_laugh` does — it
+  resolved to sequence 288 on a real soldier — but the partner-taunt names have not been checked.
 - **The scene ramp and everything after the actors.** The reader stops once the actors are walked, so
   nothing past that point in a compiled scene has been read or verified beyond arithmetic on its
   known 4-byte shape.

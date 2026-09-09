@@ -236,8 +236,19 @@ public sealed class CycleProbe : IProbe
             if (models is { } set && geometry is { } load && game is { } content)
             {
                 timeline.PropsAt(at, drawn);
+
+                // **`DemoAppearance.Ensure`, not a hand-built `GameAppearance`** — a probe that
+                // assembles its own appearance skips whatever the viewer's path reads, and it did:
+                // with `new GameAppearance(content.Classes, null)` this probe reported `gestures 0`
+                // through a real taunt, because a taunt's sequence lives in the scene archive that
+                // constructor never loads (B351). "A probe that skipped the resolution step the
+                // viewer runs" is the first entry on this project's own list of instrument faults.
                 PlayerProps.Add(
-                    players, drawn, new GameAppearance(content.Classes, null), NoBodygroups.Instance);
+                    players,
+                    drawn,
+                    DemoAppearance.Ensure(
+                        DemoAppearance.None, timeline, content, NullLogger.Instance),
+                    NoBodygroups.Instance);
 
                 set.Add(drawn, load);
                 set.UpdateClientSideAnimations(drawn);

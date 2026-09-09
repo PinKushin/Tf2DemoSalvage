@@ -1459,6 +1459,14 @@ internal sealed class NoAppearance : IPlayerAppearance
 
     /// <inheritdoc/>
     /// <remarks>
+    /// **Null, unlike <see cref="Airwalks"/>, and the difference is deliberate.** Air-walking has a
+    /// general case to fall back on; a sequence name does not — it is a string inside a file this
+    /// machine does not have. Answering anything but null would name a sequence no model declares.
+    /// </remarks>
+    public string? SequenceForScene(string scene) => null;
+
+    /// <inheritdoc/>
+    /// <remarks>
     /// **Nothing, which is the honest answer and also the safe one.** Without `items_game.txt` we
     /// cannot know what a hat replaces, and a player drawn with every default part is a player
     /// wearing their own hair under a cosmetic — the state this viewer was in before B352, and a

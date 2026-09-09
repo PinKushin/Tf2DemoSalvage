@@ -389,6 +389,10 @@ public sealed class PlayerBodygroupWiringTests
         public string? Hands(int playerClass) => null;
 
         /// <inheritdoc/>
+        /// <remarks>Null: this fixture asks about body parts, not animation (B351).</remarks>
+        public string? SequenceForScene(string scene) => null;
+
+        /// <inheritdoc/>
         public ItemBodygroups BodygroupsOf(int itemDefinitionIndex) => itemDefinitionIndex switch
         {
             Hat or HatAgain => new ItemBodygroups(new Dictionary<string, int> { ["hat"] = 1 }, false),

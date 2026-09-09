@@ -32,12 +32,21 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// <c>m_flWeight = 1.0f</c> and <c>m_flCycle = 0.0f</c>. So a gesture needs no weight of its own
 /// here: every one of them starts at full weight and at cycle zero.
 /// </remarks>
+/// <param name="SceneName">
+/// The compiled scene this gesture came out of, for a taunt, or null for an ordinary gesture (B351).
+/// </param>
+/// <param name="SequenceName">
+/// The sequence the model must look up, once something with the game's own files has resolved
+/// <paramref name="SceneName"/>. Null until then, and null for ever on a machine with no TF2.
+/// </param>
 public readonly record struct SceneGesture(
     GestureSlot Slot,
     string? ActivityName,
     int? ActivityNumber,
     bool AutoKill,
-    double StartedSeconds);
+    double StartedSeconds,
+    string? SceneName = null,
+    string? SequenceName = null);
 
 /// <summary>One animation layer an entity sends on the wire.</summary>
 /// <param name="Order">
@@ -271,6 +280,44 @@ public sealed class PlayerGestureFeed
 
         slots[slot] = new SceneGesture(
             GestureSlot.Jump, LandActivity, null, AutoKill: true, seconds);
+    }
+
+    /// <summary>Records a choreographed scene as a VCD gesture on the player it animates (B351).</summary>
+    /// <param name="entityIndex">The actor, out of the scene entity's <c>m_hActorList</c>.</param>
+    /// <param name="scene">The compiled scene's filename, out of the <c>Scenes</c> string table.</param>
+    /// <param name="seconds">Demo time when playback began.</param>
+    /// <remarks>
+    /// **Writing over the slot IS what the engine does.** `C_TFPlayer::StartGestureSceneEvent` calls
+    /// `ResetGestureSlot( GESTURE_SLOT_VCD )` and then `AddVCDSequenceToGestureSlot` on the very next
+    /// line (<c>c_tf_player.cpp:9477</c>), so a second taunt replaces the first rather than layering
+    /// over it.
+    ///
+    /// **Auto-kill is true, unconditionally**, because that is the argument the engine passes at both
+    /// of its call sites (<c>c_tf_player.cpp:4357</c> and <c>:9478</c>). A taunt therefore ends when
+    /// its sequence's cycle passes one, without needing the scene to be stopped — which is how a
+    /// viewer that never sees `m_bIsPlayingBack` go false still stops drawing it.
+    ///
+    /// **The SEQUENCE is not resolved here** and cannot be: it is a string inside the compiled scene,
+    /// which lives in the installed game's own archive. Core carries the scene's name and the layer
+    /// with the game's files fills in <see cref="SceneGesture.SequenceName"/>.
+    /// </remarks>
+    public void RecordScene(int entityIndex, string scene, double seconds)
+    {
+        if (string.IsNullOrEmpty(scene))
+        {
+            return;
+        }
+
+        if (!_byPlayer.TryGetValue(entityIndex, out SceneGesture?[]? slots))
+        {
+            slots = new SceneGesture?[SlotCount];
+            _byPlayer[entityIndex] = slots;
+        }
+
+        slots[(int)GestureSlot.Vcd] = new SceneGesture(
+            GestureSlot.Vcd, null, null, AutoKill: true, seconds, SceneName: scene);
+
+        AnyRecorded = true;
     }
 
     /// <summary>The gestures a player has going, newest per slot, in slot order.</summary>

@@ -1341,6 +1341,19 @@ public sealed class EntityModelSet : IModelBodygroups
         foreach (SceneGesture gesture in gestures)
         {
 
+            // **A VCD gesture names a SEQUENCE, not an activity**, and so takes neither the weapon
+            // rewrite nor the activity search below (B351). `C_TFPlayer::StartGestureSceneEvent` does
+            // `info->m_nSequence = LookupSequence( event->GetParameters() )`
+            // (`c_tf_player.cpp:9456`) — `LookupSequence` matches a sequence LABEL, which is what
+            // `Find` does, where `SelectWeightedSequence` matches an activity. Putting a taunt
+            // through the activity path resolves nothing, because no sequence is labelled with an
+            // activity name.
+            if (gesture.SequenceName is { Length: > 0 } vcd)
+            {
+                Layer(layers, skinned, skinned.Find(vcd), gesture, seconds);
+                continue;
+            }
+
             // `SelectWeightedSequence( iGestureActivity )`, and its `<= 0` abandonment. An activity
             // number rather than a name is the two custom-gesture events, which carry the activity
             // on the wire; nothing resolves those yet, so they are skipped rather than guessed at.
@@ -1408,54 +1421,80 @@ public sealed class EntityModelSet : IModelBodygroups
             // this model does not have, rather than substituting one. That still holds for every
             // other slot, and for a flinch on a model carrying no flinch at all: the substitution
             // above reaches this same check with the chest activity and is abandoned on it.
-            if (sequence <= 0)
-            {
-                continue;
-            }
-
-            float rate = skinned.CyclesPerSecond(sequence);
-
-            // A sequence with no rate has one frame and nothing to advance through; the engine's
-            // cycle would stay at zero, which is that single frame.
-            double cycle = rate > 0f ? (seconds - gesture.StartedSeconds) * rate : 0d;
-
-            if (cycle < 0d)
-            {
-                continue;
-            }
-
-            if (cycle > 1d)
-            {
-                // `if ( pGesture->m_bAutoKill ) ResetGestureSlot(…)` — the slot is gone, so the
-                // layer is not drawn at all. Otherwise it holds on its last frame, for ever, which
-                // is what a `_BEGIN` gesture is for.
-                if (gesture.AutoKill)
-                {
-                    continue;
-                }
-
-                cycle = 1d;
-            }
-
-            (int frame, float fraction) = StudioSequences.FrameAt(
-                (float)cycle, skinned.Frames(sequence), skinned.Loops(sequence));
-
-            layers.Add(new PoseLayer(
-                sequence,
-                frame,
-                fraction,
-                1f,
-                skinned.BoneWeights(sequence),
-
-                // **Every TF2 player gesture is a DELTA**, measured: `PRIMARY_reload_start` and
-                // `jumpland_primary` both carry the bit. `SlerpBones` composes those additively
-                // rather than blending toward them (B284).
-                Delta: skinned.IsDelta(sequence),
-                Post: skinned.IsPost(sequence),
-                Locks: skinned.LocksOf(sequence)));
+            Layer(layers, skinned, sequence, gesture, seconds);
         }
 
         return layers;
+    }
+
+    /// <summary>Turns one resolved gesture sequence into a pose layer, or into nothing.</summary>
+    /// <param name="layers">Where the layer is appended, in place.</param>
+    /// <param name="skinned">The model the sequence belongs to.</param>
+    /// <param name="sequence">What the activity or the label resolved to; zero or below is abandoned.</param>
+    /// <param name="gesture">The gesture, for its start and its auto-kill.</param>
+    /// <param name="seconds">Demo time now.</param>
+    /// <remarks>
+    /// **Shared by the activity path and the VCD path because everything after the lookup is
+    /// identical.** The engine's own split is the same shape: `AddToGestureSlot` and
+    /// `AddVCDSequenceToGestureSlot` differ only in how they arrive at `m_nSequence`, and then set
+    /// the same `m_flWeight = 1.0f`, `m_flPlaybackRate = 1.0f` and `m_nOrder = iGestureSlot`
+    /// (<c>multiplayer_animstate.cpp:718</c>). Two copies of the cycle arithmetic would be two
+    /// chances for a taunt and a reload to age differently.
+    /// </remarks>
+    private static void Layer(
+        List<PoseLayer> layers,
+        PropModels.SkinnedModel skinned,
+        int sequence,
+        SceneGesture gesture,
+        double seconds)
+    {
+        // `if ( iGestureSequence <= 0 ) return;` — the engine abandons a gesture the model does not
+        // have rather than substituting one.
+        if (sequence <= 0)
+        {
+            return;
+        }
+
+        float rate = skinned.CyclesPerSecond(sequence);
+
+        // A sequence with no rate has one frame and nothing to advance through; the engine's
+        // cycle would stay at zero, which is that single frame.
+        double cycle = rate > 0f ? (seconds - gesture.StartedSeconds) * rate : 0d;
+
+        if (cycle < 0d)
+        {
+            return;
+        }
+
+        if (cycle > 1d)
+        {
+            // `if ( pGesture->m_bAutoKill ) ResetGestureSlot(…)` — the slot is gone, so the
+            // layer is not drawn at all. Otherwise it holds on its last frame, for ever, which
+            // is what a `_BEGIN` gesture is for.
+            if (gesture.AutoKill)
+            {
+                return;
+            }
+
+            cycle = 1d;
+        }
+
+        (int frame, float fraction) = StudioSequences.FrameAt(
+            (float)cycle, skinned.Frames(sequence), skinned.Loops(sequence));
+
+        layers.Add(new PoseLayer(
+            sequence,
+            frame,
+            fraction,
+            1f,
+            skinned.BoneWeights(sequence),
+
+            // **Every TF2 player gesture is a DELTA**, measured: `PRIMARY_reload_start` and
+            // `jumpland_primary` both carry the bit. `SlerpBones` composes those additively
+            // rather than blending toward them (B284).
+            Delta: skinned.IsDelta(sequence),
+            Post: skinned.IsPost(sequence),
+            Locks: skinned.LocksOf(sequence)));
     }
 
     /// <summary>How deep an autolayer chain may go before it is abandoned.</summary>

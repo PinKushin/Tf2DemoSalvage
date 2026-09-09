@@ -1192,6 +1192,118 @@ public sealed class EntityState
     /// <summary>The table a weapon's own properties arrive under.</summary>
     private const string WeaponTable = "DT_BaseCombatWeapon";
 
+    /// <summary>Where a choreographed scene's playback state arrives (B351).</summary>
+    private const string SceneTable = "DT_SceneEntity";
+
+    /// <summary>Which compiled scene this entity plays, as an index into the <c>Scenes</c> table.</summary>
+    /// <returns>The index, or null when this is not a scene entity.</returns>
+    /// <remarks>
+    /// **The only thing on the wire that names a taunt.** `C_SceneEntity::GetSceneFileName` is
+    /// exactly this lookup — `g_pStringTableClientSideChoreoScenes->GetString( m_nSceneStringIndex )`
+    /// (<c>c_sceneentity.cpp:80</c>) — against the table the server creates as <c>"Scenes"</c>
+    /// (<c>gameinterface.cpp:1448</c>). Nothing about the animation itself is networked.
+    /// </remarks>
+    public int? SceneStringIndex() => Integer($"{SceneTable}.m_nSceneStringIndex");
+
+    /// <summary>Whether the scene is running — <c>m_bIsPlayingBack</c>.</summary>
+    /// <returns>Whether it is, or null when this is not a scene entity.</returns>
+    /// <remarks>
+    /// **The transition is what matters, not the value.** `C_SceneEntity::OnDataChanged` compares it
+    /// against `m_bWasPlaying` and only then starts or stops the scene on every actor
+    /// (<c>c_sceneentity.cpp:327</c>), so a scene entity sitting at true for a thousand ticks began
+    /// once.
+    /// </remarks>
+    public bool? ScenePlayingBack() =>
+        Integer($"{SceneTable}.m_bIsPlayingBack") is { } playing ? playing != 0 : null;
+
+    /// <summary>Whether the scene is held — <c>m_bPaused</c>.</summary>
+    /// <returns>Whether it is, or null when this is not a scene entity.</returns>
+    /// <remarks>
+    /// `DoThink` returns before advancing the clock while this is set (<c>c_sceneentity.cpp:981</c>),
+    /// so a paused scene holds its frame rather than ending.
+    /// </remarks>
+    public bool? ScenePaused() =>
+        Integer($"{SceneTable}.m_bPaused") is { } paused ? paused != 0 : null;
+
+    /// <summary>The entities the scene animates — <c>m_hActorList</c>.</summary>
+    /// <returns>Their entity indices, in the order the vector holds them.</returns>
+    /// <remarks>
+    /// **Read from PATH-shaped keys and bounded by the vector's own length**, the same way
+    /// <see cref="AnimationLayers"/> is: sixteen slots share one flat name, and an element at or
+    /// past the length is a stale handle from before the vector shrank
+    /// (<c>MAX_ACTORS_IN_SCENE</c>, <c>c_sceneentity.cpp:52</c>).
+    ///
+    /// **The actor list is how the engine knows WHO taunted.** The scene's filename names a class —
+    /// `scenes/player/scout/low/taunt_hi5_start.vcd` — and never a player;
+    /// `C_SceneEntity::OnDataChanged` walks this list and calls `StartChoreoScene` on each actor
+    /// (<c>c_sceneentity.cpp:329</c>).
+    ///
+    /// Each handle is masked through <see cref="Slot"/>, so an unset one is nobody rather than
+    /// entity 2047.
+    /// </remarks>
+    public IReadOnlyList<int> SceneActors()
+    {
+        const string marker = "m_hActorList";
+
+        SortedDictionary<int, int> handles = [];
+        int? length = null;
+
+        foreach ((string key, PropertyValue value) in _properties)
+        {
+            if (!key.Contains(marker, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            // **The two halves of this vector are keyed DIFFERENTLY, and that is not a defect.**
+            // `EntityStateTable` keys a property by its path only when the flattener marked it
+            // element-scoped, and that mark is set for a DATATABLE member named `lengthproxy` or all
+            // digits (`SchemaFlattener.cs:237`) — a plain property never sets it. So the count, which
+            // reaches its prop through the `lengthproxy` sub-table, keys as
+            // `m_hActorList.lengthproxy.lengthprop16`, while each element is a plain `EHANDLE` and
+            // keys flat as `_ST_m_hActorList_16.000`.
+            //
+            // **Which is correct, because the element's flat name already carries its index** — the
+            // collision `ElementScoped` exists to prevent cannot happen here. It is also why a
+            // reader written from `AnimationLayers` finds the length and none of the elements: an
+            // `m_AnimOverlay` element IS a sub-table, so its key is a path, and the leading-dot match
+            // that works there matches nothing on `_ST_m_hActorList_16.000`. Measured: 37 taunts,
+            // every one with a populated list on the wire, every one reported as having no actor.
+            if (key.Contains("lengthprop", StringComparison.Ordinal))
+            {
+                length = (int)value.AsInt;
+                continue;
+            }
+
+            string tail = key[(key.LastIndexOf('.') + 1)..];
+
+            if (int.TryParse(
+                tail, NumberStyles.None, CultureInfo.InvariantCulture, out int element))
+            {
+                handles[element] = (int)value.AsInt;
+            }
+        }
+
+        List<int> actors = [];
+
+        foreach ((int element, int handle) in handles)
+        {
+            // The lifted comparison, as in AnimationLayers: with no length declared this is false
+            // and the element is kept, which is the defensive reading.
+            if (element >= length)
+            {
+                continue;
+            }
+
+            if (Slot(handle) is { } actor)
+            {
+                actors.Add(actor);
+            }
+        }
+
+        return actors;
+    }
+
     /// <summary>Where a TF cosmetic declares whether it belongs to a disguise.</summary>
     /// <remarks>
     /// `m_bDisguiseWearable` is on `CTFWearable`'s own table, not on the econ base — a disguise is

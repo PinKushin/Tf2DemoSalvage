@@ -24074,7 +24074,38 @@ sabotages:
   boundary had been designed around instead of tested. A fifth case now pins it, and reddens alone
   under that sabotage.
 
-### B351 OPEN 2026-09-05: a taunting player plays no taunt
+### B351 FIXED 2026-09-09: a taunting player plays no taunt
+
+**2026-09-09 (second pass) — wired end to end, and a taunt is on the skeleton.** The chain is
+`m_bIsPlayingBack` → `m_nSceneStringIndex` → the `Scenes` string table → `SceneImage` → the sequence
+name → `LookupSequence` on the actor's own model → a gesture layer in `GESTURE_SLOT_VCD`. Measured on
+`tf2-2026-pub-pov-clean` at tick 1074, where the wire says entity 9 began
+`scenes/player/Soldier/low/taunt_laugh.vcd`:
+
+```
+1074  POSED seq 150  gestures 1  layers 2
+  W[seq6'PRIMARY_aimmatrix_idle':78of86 …
+    seq288'taunt_laugh':0of86 f0+0/146 animdelta True seqdelta False post False]
+```
+
+**What was built:** `ScenePrecache` (the `Scenes` table), `EntityState.SceneStringIndex/
+ScenePlayingBack/SceneActors`, `SceneChoreography` and `DemoTimeline.Scenes`,
+`PlayerGestureFeed.RecordScene`, `IPlayerAppearance.SequenceForScene` with the archive loaded once in
+`DemoAppearance.Ensure`, `PlayerProps.Choreographed`, and a VCD branch in `EntityModelSet.LayersFor`
+that resolves by LABEL — `LookupSequence`, not `SelectWeightedSequence`, because no sequence is
+labelled with an activity name.
+
+**Two faults on the way, both instruments rather than code.** `m_hActorList` read as empty on all
+1,824 playbacks because a `SendPropUtlVector` of PLAIN props keys its elements flat
+(`_ST_m_hActorList_16.000`) while its length keys by path — the opposite of `m_AnimOverlay`, which the
+reader was copied from. And `CycleProbe` reported `gestures 0` through a real taunt because it built
+its own `GameAppearance` instead of calling `DemoAppearance.Ensure`. Both in
+`docs/findings/53-a-taunt-names-its-sequence-in-a-scene.md`.
+
+**Still open in this area, and deliberately not claimed:** a scene's `LOOP` is read but not obeyed, so
+a press-and-hold taunt plays once rather than repeating; `m_bIsPlayingBack` going false is not
+recorded, so a taunt cut short by death finishes its animation; and only the FIRST gesture in a scene
+is played, though `SceneImage.EventsFor` already carries all of them with their times.
 
 **2026-09-09 — the reader works: 730 of 730 scene paths the schema names now yield a sequence.**
 `SceneImage` (`managed/Tf2DemoSalvage.Content/Assets/SceneImage.cs`) does the whole lookup — CRC of

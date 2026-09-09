@@ -104,10 +104,32 @@ public static class DemoAppearance
                         $"{pair.Weapon}/{pair.Class?.ToString(CultureInfo.InvariantCulture) ?? "?"}=" +
                         roles.Suffix(pair.Weapon, pair.Class))));
 
+        // **And the compiled scene archive, because a taunt's sequence name is inside it** (B351).
+        // Read once here for the same reason as the rest: this is the one place holding the install,
+        // and the archive is 3.6 MB carrying 9,939 scenes — reading it per taunt would open it again
+        // for every player who dances.
+        //
+        // Null when the install has no `scenes.image`, which leaves every taunt unresolved rather
+        // than failing: the same degradation the class models and the item schema take.
+        SceneImage? scenes = game.Archives.Read(ScenePath) is { Length: > 0 } image
+            ? SceneImage.Read(image)
+            : null;
+
+        log.LogInformation(
+            "{Message}",
+            scenes is null
+                ? "scenes: no scenes.image, so taunts will not resolve"
+                : string.Create(
+                    CultureInfo.InvariantCulture, $"scenes: {scenes.Count:N0} compiled scenes"));
+
         // **The item schema comes along because a player's body number needs it** (B352): a hat
         // hides the head it replaces, and only `items_game.txt` says which part that is. Reached
         // for here rather than by the scene for the same reason the class models are — this is the
         // one place that already holds the install.
-        return new GameAppearance(game.Classes, roles, game.Weapons.Items);
+        return new GameAppearance(game.Classes, roles, game.Weapons.Items, scenes);
     }
+
+    /// <summary>Where the compiled choreography archive sits inside the game's VPKs (B351).</summary>
+    private const string ScenePath = "scenes/scenes.image";
+
 }

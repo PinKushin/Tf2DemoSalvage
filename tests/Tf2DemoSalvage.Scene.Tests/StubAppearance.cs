@@ -29,6 +29,17 @@ internal sealed class StubAppearance : IPlayerAppearance
     /// <inheritdoc/>
     public string? Hands(int playerClass) => null;
 
+    /// <summary>What every scene resolves to, or null for an appearance that names none.</summary>
+    /// <remarks>
+    /// **Settable, because a taunt test must name a sequence without an install.** The compiled scene
+    /// archive is 3.6 MB of game data and no test should need it to assert that a resolved scene
+    /// becomes a pose layer (B351). Null by default, which is what a machine with no TF2 answers.
+    /// </remarks>
+    public string? SceneSequence { get; init; }
+
+    /// <inheritdoc/>
+    public string? SequenceForScene(string scene) => SceneSequence;
+
     /// <inheritdoc/>
     /// <remarks>
     /// **Nothing, so a test that does not set out to measure equipment measures none.** The tests

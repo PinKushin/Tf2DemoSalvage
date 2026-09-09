@@ -139,6 +139,100 @@ public sealed class GestureLayerWiringTests
             1, "without auto-kill the cycle clamps to one and the gesture holds its last frame");
     }
 
+    /// <remarks>
+    /// **A taunt resolves by LABEL, not by activity, and this fixture cannot be satisfied any other
+    /// way** (B351). `C_TFPlayer::StartGestureSceneEvent` does
+    /// <c>info-&gt;m_nSequence = LookupSequence( event-&gt;GetParameters() )</c>
+    /// (<c>c_tf_player.cpp:9456</c>), and `LookupSequence` matches the sequence's label —
+    /// where every other gesture goes through `SelectWeightedSequence`, which matches an activity.
+    ///
+    /// The model here gives `taunt_laugh` an EMPTY activity, so the activity path can never find it:
+    /// a taunt put through `ForActivity` resolves to −1 and draws nothing, silently. That is the
+    /// exact shape of the fault B282 shipped, so the fixture is built to make it impossible.
+    /// </remarks>
+    [Test]
+    public void Instances_ForATauntNamingASequenceLabel_HandsTheSkeletonALayer()
+    {
+        EntityModelSet models = new() { Geometry = _ => Taunts() };
+
+        List<SceneProp> drawn = [Taunting(startedSeconds: 0d, autoKill: true)];
+
+        models.Add(drawn, _ => Taunts());
+        models.Instances(drawn, [], seconds: 0.05d);
+
+        models.LayersOf(4).ShouldNotBeNull().Count.ShouldBe(
+            1,
+            "a VCD gesture names a sequence label and must resolve through LookupSequence rather " +
+            "than through the activity table");
+    }
+
+    /// <remarks>
+    /// **The control.** Both taunt call sites pass <c>bAutoKill = true</c>
+    /// (<c>c_tf_player.cpp:4357</c>, <c>:9478</c>), so a taunt whose sequence has finished is gone
+    /// rather than held — and without this a lookup that resolved everything forever would pass the
+    /// test above.
+    /// </remarks>
+    [Test]
+    public void Instances_ForAnExpiredTaunt_HandsNoLayer()
+    {
+        EntityModelSet models = new() { Geometry = _ => Taunts() };
+
+        List<SceneProp> drawn = [Taunting(startedSeconds: 0d, autoKill: true)];
+
+        models.Add(drawn, _ => Taunts());
+        models.Instances(drawn, [], seconds: 300d);
+
+        models.LayersOf(4).ShouldNotBeNull().ShouldBeEmpty(
+            "AddVCDSequenceToGestureSlot is called with bAutoKill true at both of its call sites");
+    }
+
+    /// <summary>A player prop playing one taunt out of a compiled scene.</summary>
+    private static SceneProp Taunting(double startedSeconds, bool autoKill) =>
+        Reloading(startedSeconds) with
+        {
+            Pose = Reloading(startedSeconds).Pose with
+            {
+                Gestures =
+                [
+                    new SceneGesture(
+                        GestureSlot.Vcd,
+                        null,
+                        null,
+                        autoKill,
+                        startedSeconds,
+                        SceneName: "scenes/player/soldier/low/taunt_laugh.vcd",
+                        SequenceName: "taunt_laugh"),
+                ],
+            },
+        };
+
+    /// <summary>A model whose taunt answers to a LABEL and to no activity at all.</summary>
+    /// <remarks>
+    /// **The empty activity is the whole point**, for the reason `SyntheticSkinnedModel.WithActivities`
+    /// gives: a model whose label and activity are the same string makes a label lookup and an
+    /// activity lookup predict the same observation, so swapping one for the other is invisible.
+    /// A real taunt sequence is exactly this shape — TF2's class models label it `taunt_laugh` and
+    /// give it no activity.
+    /// </remarks>
+    /// <remarks>
+    /// **The animated bytes are carried over from <see cref="Frames"/> and that is not optional** —
+    /// its own note says why: with the default empty bytes every sequence reports one frame at zero
+    /// cycles a second, so the cycle never leaves zero and an expiry test cannot fail. Rebuilding the
+    /// model without them made <c>Instances_ForAnExpiredTaunt_HandsNoLayer</c> fail with a layer at
+    /// frame zero, which is that fixture note happening in real time.
+    /// </remarks>
+    private static PropModels.ModelFrames Taunts() =>
+        Frames() with
+        {
+            Skinned = SyntheticSkinnedModel.WithActivities(
+                ("ref", "ACT_MP_RUN_PRIMARY"),
+                ("taunt_laugh", ""),
+                ("stand", "ACT_MP_STAND_PRIMARY")) with
+            {
+                Models = [AnimatedStudioBytes.OneSecondLoop(animations: 3)],
+            },
+        };
+
     /// <summary>A player prop carrying one fresh reload gesture.</summary>
     private static SceneProp Reloading(double startedSeconds) =>
         new(

@@ -58,6 +58,22 @@ public interface IPlayerAppearance
     /// throwing.
     /// </remarks>
     public ItemBodygroups BodygroupsOf(int itemDefinitionIndex);
+
+    /// <summary>The animation sequence a compiled scene plays, for a taunt (B351).</summary>
+    /// <param name="scene">The scene's filename, as the <c>Scenes</c> string table spells it.</param>
+    /// <returns>The sequence name, or null when the archive names none or there is no install.</returns>
+    /// <remarks>
+    /// **Asked here for the same reason the model is: it is in the game's own files, not on the
+    /// wire.** `DT_SceneEntity` sends only `m_nSceneStringIndex`, and the sequence is a parameter
+    /// string inside the compiled scene — `LookupSequence( event-&gt;GetParameters() )`
+    /// (<c>c_tf_player.cpp:9456</c>). A demo carries the scene's name and nothing about the animation.
+    ///
+    /// **Null for a scene that plays no gesture, which most of the archive is.** A voice line is all
+    /// `SPEAK` and flex; measured, 1,703 of 9,939 shipped scenes name a sequence at all, and of the
+    /// twenty-three taunt scenes one real match played, twenty do — the other three being the Heavy's
+    /// sandwich voice lines, whose events are `SPEAK` and `EXPRESSION`.
+    /// </remarks>
+    public string? SequenceForScene(string scene);
 }
 
 /// <summary>What one equipped item does to its wearer's body parts.</summary>
@@ -151,6 +167,7 @@ public sealed class NoBodygroups : IModelBodygroups
 /// <param name="Classes">The class script, or null when no install was found.</param>
 /// <param name="Roles">The weapon-to-activity map, or null.</param>
 /// <param name="Items">The item schema, or null when no install was found (B352).</param>
+/// <param name="Scenes">The compiled scene archive, or null when no install was found (B351).</param>
 /// <remarks>
 /// **Null means "no install", and answering null is the honest response.** A viewer with no TF2
 /// draws what it can rather than refusing, so every member here degrades to "cannot say" rather
@@ -158,9 +175,15 @@ public sealed class NoBodygroups : IModelBodygroups
 /// <see cref="PlayerProps.Add"/> treats as a reason to skip.
 /// </remarks>
 public sealed record GameAppearance(
-    PlayerClassModels? Classes, WeaponRoles? Roles, ItemSchema? Items = null)
+    PlayerClassModels? Classes,
+    WeaponRoles? Roles,
+    ItemSchema? Items = null,
+    SceneImage? Scenes = null)
     : IPlayerAppearance
 {
+    /// <inheritdoc/>
+    public string? SequenceForScene(string scene) => Scenes?.SequenceFor(scene);
+
     /// <inheritdoc/>
     public string? ModelOf(int playerClass) => Classes?.Model(playerClass);
 
@@ -420,10 +443,76 @@ public static class PlayerProps
                     // installed game knows whether that class shows it
                     // (`tf_playeranimstate.cpp:1482`). A class that sets `DontDoNewJump` loses the
                     // JUMP slot and keeps every other gesture.
-                    Gestures = Landing(player.Gestures, appearance.Lands(playerClass)),
+                    //
+                    // **And the taunt's scene is resolved here** for the same reason again: the
+                    // wire names a compiled scene and only the installed game holds the sequence
+                    // name inside it (B351).
+                    Gestures = Choreographed(
+                        Landing(player.Gestures, appearance.Lands(playerClass)), appearance),
                 },
                 ClientSideAnimated: player.ClientSideAnimated));
         }
+    }
+
+    /// <summary>Fills in the sequence name a taunt's compiled scene declares (B351).</summary>
+    /// <param name="gestures">The gestures the timeline collected, or null.</param>
+    /// <param name="appearance">What the installed game says, which is where the scene archive is.</param>
+    /// <returns>The gestures with any VCD slot's sequence resolved.</returns>
+    /// <remarks>
+    /// **A scene that names no sequence is DROPPED, which is the engine's own behaviour**:
+    /// `if ( info-&gt;m_nSequence &lt; 0 ) return false;` (<c>c_tf_player.cpp:9457</c>) abandons the
+    /// gesture rather than substituting one. Keeping it would leave a gesture nothing can resolve in
+    /// the slot, holding it against the next taunt.
+    ///
+    /// **On a machine with no TF2 every taunt is dropped**, and that is the honest answer: the
+    /// sequence genuinely cannot be named, and the same rule that leaves a player undrawn when their
+    /// model cannot be named applies here.
+    /// </remarks>
+    private static IReadOnlyList<SceneGesture>? Choreographed(
+        IReadOnlyList<SceneGesture>? gestures, IPlayerAppearance appearance)
+    {
+        if (gestures is not { Count: > 0 })
+        {
+            return gestures;
+        }
+
+        List<SceneGesture>? resolved = null;
+
+        for (int index = 0; index < gestures.Count; index++)
+        {
+            SceneGesture gesture = gestures[index];
+
+            if (gesture.SceneName is not { Length: > 0 } scene)
+            {
+                resolved?.Add(gesture);
+                continue;
+            }
+
+            // **The first scene-carrying gesture is where the list has to be copied**, because
+            // everything before it is unchanged and most players carry none at all — this runs once
+            // per player per sampled tick, so the common case must allocate nothing.
+            if (resolved is null)
+            {
+                resolved = [];
+
+                for (int before = 0; before < index; before++)
+                {
+                    resolved.Add(gestures[before]);
+                }
+            }
+
+            if (appearance.SequenceForScene(scene) is { Length: > 0 } sequence)
+            {
+                resolved.Add(gesture with { SequenceName = sequence });
+            }
+        }
+
+        if (resolved is null)
+        {
+            return gestures;
+        }
+
+        return resolved.Count > 0 ? resolved : null;
     }
 
     /// <summary>Drops the landing gesture for a class that does not play one.</summary>
