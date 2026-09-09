@@ -25758,8 +25758,123 @@ baseclass, so the input is on the wire and nothing reads it.
 **There is no particle system in this project** — zero types matching `Particle` in `managed/`. So
 this is a new subsystem rather than a fix, and it is filed rather than started.
 
+**The size of it, measured with the new `particles` probe rather than asserted:**
+
+```
+4 archives, 134 .pcf files, 23.1 MB total
+header: <!-- dmx encoding binary 2 format pcf 1 -->
+'rockettrail' named by 9 of 134 files; PARTICLES/ROCKETTRAIL.PCF is its own
+```
+
+**So the work is three things:** a binary DMX reader (`encoding binary 2`), the PCF schema on top of
+it — a particle system is a tree of emitters, initializers, operators and renderers, each a typed
+attribute bag — and a simulator that runs Valve's operator set per frame, plus sprite rendering for
+the result.
+
+**BUILT 2026-09-09: the first of the three.** `DmxFile` reads the container, and it reads TF2's own
+file rather than only a fixture:
+
+```
+particles/rockettrail.pcf, 118,126 bytes
+  755 elements: 1 DmeElement, 53 DmeParticleSystemDefinition,
+                45 DmeParticleChild, 656 DmeParticleOperator
+  'rockettrail_!': 34 attributes — renderers, operators, initializers, emitters
+```
+
+**The types are read from source and the layout from the files, because the SDK ships only half.**
+`src/public/datamodel/dmattributetypes.h:66` gives the attribute enum; `src/dmxloader/*.cpp` is not
+in the SDK, so the byte layout was measured on `rockettrail.pcf` and is written down in `DmxFile`'s
+remarks — header line, `uint16` string count, the strings, `int32` element count, then per element a
+`uint16` TYPE INDEX and an INLINE name and a sixteen-byte id, then the attributes.
+
+**That asymmetry is the trap and it has its own test.** An element's type is a string-table index
+and its name is written inline; a reader treating both alike produces plausible garbage rather than
+failing. `Read_AnElementTypeIndex_NamesTheStringTableEntryNotTheElement` uses a table whose entries
+could be confused, and sabotaging the index reddens exactly it.
+
+Six synthetic conformance tests (D38 — the fixture writes the bytes, so the expected value is the
+one the test put there), including a refusal for `binary 5` rather than a best effort, and a
+truncated file costing one attribute rather than the read.
+
+**Still to build: the operator set and the renderer, and that half is a CLOSED-BINARY project.**
+Measured, because it decides whether the rest is transcription or reverse engineering:
+
+```
+src/public/particles/particles.h   2,612 lines — the interface
+src/particles/*.cpp                0 files     — the implementations
+```
+
+So the SDK publishes the particle attribute layout (`DEFPARTICLE_ATTRIBUTE( XYZ, 0 )`,
+`LIFE_DURATION`, `PREV_XYZ`, `RADIUS`, `ROTATION`, `TINT_RGB`, `ALPHA`, up to
+`MAX_PARTICLE_ATTRIBUTES 32`) and the operator base class, and ships none of the operators
+themselves. `rockettrail.pcf` alone instantiates **656** of them.
+
+**But the census makes it much smaller than "656 operators" suggested, and this is the number that
+should drive the plan.** `particles operators` reads every shipped `.pcf` through `DmxFile` and
+ranks what they actually instantiate:
+
+```
+10,456 particle systems across 134 files, 110 DISTINCT operators
+
+  8602  Lifetime Random              7472  Alpha Random
+  8503  render_animated_sprites      7296  Radius Scale
+  8166  Movement Basic               7059  Position Within Sphere Random
+  7846  emit_continuously            6462  Movement Lock to Control Point
+  7760  Radius Random                5376  Lifespan Decay
+  7719  Color Random                 5142  Position Modify Offset Random
+```
+
+**110, not hundreds, and the head of the distribution is arithmetic rather than engine
+archaeology**: pick a random value in a declared range (`Lifetime`, `Radius`, `Color`, `Alpha`,
+`Rotation`), advance a position by a velocity (`Movement Basic`), emit at a rate
+(`emit_continuously`), fade a channel over a lifetime (`Alpha Fade Out`, `Color Fade`,
+`Lifespan Decay`), and draw a sprite (`render_animated_sprites`). A single effect uses a dozen or
+so of them.
+
+**BUILT: the schema, which is the second of the three.** `ParticleSystems` turns a `.pcf` into named
+systems with their emitters, initializers, operators, renderers and children, and it reads TF2's own
+file:
+
+```
+particles/rockettrail.pcf: 53 systems
+  'rockettrail_!': 1 emitter, 6 initializers, 4 operators, 1 renderer, 2 children
+      Movement Basic          gravity 6   drag 0     (declared)
+      Alpha Fade and Decay    gravity 0   drag -1    (absent — the caller's default)
+```
+
+**That last column is the whole reason the accessor takes a default.** A `.pcf` omits any parameter
+left at its default, so an absent `drag` does not mean zero drag — and `Movement Basic` declaring it
+while `Alpha Fade and Decay` does not is the distinction, on the real file.
+`docs/memory/sentinels-conflate-unknown-with-answer.md` is the rule; sabotaging it to return zero
+reddens exactly `Number_AnAbsentParameter_IsTheCallersDefaultAndNeverZero`.
+
+**A function's KIND comes from the array that named it, not from its type.** All four arrays hold
+`DmeParticleOperator` elements, so a reader keying on the element type would put emitters,
+operators and renderers in one bag — its own test.
+
+**So the ordering for the third part is: implement the head of the ranking, measure a rocket trail
+against a capture, and decompile only what the ranking says a demo actually reaches.** The tail is
+where the closed-binary work lives, and most of the tail is unusual hats.
+
+**What the third part needs that the first two did not: a REFERENCE.** A simulator can be written
+from the parameter names, and writing one without comparing it to TF2 drawing the same effect would
+produce plausible motion and call it parity — the failure this project's rules exist to prevent. So
+it wants a capture of the same rocket in TF2 beside ours, which is `docs/findings/24-reference-capture.md`'s
+job, and it is the reason this stops here rather than continuing into the operators.
+
+*Evidence class: measured — the file counts, the 10,456 systems, the 110 distinct operators and
+their ranking, all read through this project's own `DmxFile` over every shipped `.pcf`;
+read-from-source for the attribute layout and the absent implementations.*
+
+**This is a MISSING FEATURE, not a divergence, and the distinction is the project's own.**
+`.claude/skills/valve-parity-audit` opens by saying the job *"is not to find features Valve has and
+we lack — that list is long, visible, and mostly uninteresting"*, and to rank by *"what we already
+draw"*. A rocket is now on screen with the right model, the right position and the right facing,
+all from the wire; its trail is a subsystem to build, and building it is a decision about scope
+rather than a defect to close.
+
 *Evidence class: read-from-source for the effect names and their conditions; measured for the
-absence of a particle system.*
+absence of a particle system here and for the shape and size of what TF2 ships.*
 
 **Two instrument artefacts on the way here, recorded so they are not repeated.** `props <demo>`
 samples ONE tick and a projectile lives about a second, so two hand-picked ticks showing none was an
