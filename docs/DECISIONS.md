@@ -8040,3 +8040,43 @@ Where they genuinely do conflict, the seed is the adaptation; the draw is not ne
 in `particles.lib`, so this project's table is its own — uniform and stable, which is every property
 the arithmetic needs, but not float-for-float Valve's. Full statement and how to falsify it:
 `docs/findings/52-a-particle-plays-a-sheet.md`.
+
+## D153 — a POV demo has one camera and uses it; an STV demo is told who to watch (2026-09-09)
+
+**The owner, in his own words:**
+
+> *"first person shouldn't be needed for pov demos, you only have 1 cam to use in those and we
+> should just force it to only show the exact cam the pov player was using while alive and dead,
+> since pov demos show what the pov player was spectating after they die too. in stv first person
+> should probably just pick the first real player on the server or allow the input of a player name
+> or id to first person cam a specific player on boot."*
+
+**So the mode is a property of the RECORDING, not a preference.** A point-of-view demo contains
+exactly one camera — `democmdinfo_t` on every packet, which `RecordedView` already reads — and it is
+what that player saw *including after they died*, because a POV recording keeps rolling through the
+deathcam and through whoever they spectated afterwards. Opening such a demo on a free camera offers a
+choice the file does not contain. It now opens on the recorded view whenever `HasRecordedView` is
+true.
+
+**A SourceTV recording has no recorder**, so there the choice is real: eighteen players and nobody
+nominated. The default was already right — `SpectatorTarget.Choose` takes the first player on a
+playing team and skips the SourceTV slot, which `docs/findings/29` records the cost of getting wrong.
+What was missing is the second half: **`--spectate` now accepts a NAME**, as well as a user id or an
+entity index, and puts the camera in first person on that player at boot.
+
+**A name is the only memorable one of the three**, which is why it was the gap worth closing: an
+entity index is a number nobody knows, and a user id is barely better. Matching is
+case-insensitive, exact first and then by part — competitive names carry tags and unicode, so
+requiring an exact match would make the option useless for exactly the demos it exists for, while an
+exact match must still WIN or `b4nny` could never be picked over `b4nnyPog`. The SourceTV slot never
+matches, whatever it is called.
+
+**It needed the roster, which the timeline did not keep.** `userinfo` is now read in the same switch
+that already collects `instance_baseline`, `modelprecache` and `soundprecache`, through the existing
+`RosterBuilder` — both of its maps, because a slot reused by a later joiner overwrites its first
+occupant and only the by-user-id map remembers everybody.
+
+**The control that this works**, rather than a claim: `--spectate gummo` and `--spectate koel` on the
+same demo and tick produce two entirely different first-person views. And the POV branch was proved
+NOT to fire on `cp_process_f12`, which reports `Client: SourceTV Demo` — so the default correctly
+left it alone.

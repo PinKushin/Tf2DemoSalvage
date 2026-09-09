@@ -2591,6 +2591,43 @@ internal class MainForm : Form, IFrameSteps
         _demo = decoded.Demo;
         _timeline = decoded.Timeline;
 
+        // **A point-of-view demo HAS one camera, so it opens on it** (D153). The recorder's own
+        // view is in the file — `democmdinfo_t` on every packet — and it is what that player saw
+        // alive and dead alike, because a POV recording keeps rolling through the deathcam and
+        // through whoever they spectated afterwards. Opening such a demo on a free camera offers a
+        // choice the recording does not contain.
+        //
+        // **A SourceTV recording has no such view** and keeps the free camera, because there the
+        // choice is real: eighteen players and no recorder.
+        if (_timeline?.HasRecordedView == true)
+        {
+            _cameraMode = CameraMode.FirstPerson;
+        }
+
+        // **A name is resolved HERE because this is where the roster exists.** `--spectate` accepts
+        // a player name, a user id or an entity index, and only the demo can say which — so the
+        // text is carried from the command line and turned into an entity once the file is read.
+        if (_launch.SpectateWho is { Length: > 0 } who && _timeline is { } loaded)
+        {
+            if (loaded.EntityForPlayer(who) is { } chosen)
+            {
+                _spectator.Spectating = chosen;
+
+                // **Naming somebody is asking to WATCH them**, which is the option's whole purpose:
+                // *"allow the input of a player name or id to first person cam a specific player on
+                // boot"*. Setting the target and leaving the camera overhead answers half of it and
+                // shows the map from above, which is what it did.
+                _cameraMode = CameraMode.FirstPerson;
+            }
+            else
+            {
+                // Not silent: spectating somebody else because a name was mistyped is a recording
+                // of the wrong person, which is worse than refusing.
+                _log.LogWarning(
+                    "{Message}", $"--spectate {who} matches nobody in this demo; choosing normally");
+            }
+        }
+
         // **The free camera flies at the SERVER's speeds** (D106). `sv_maxspeed * sv_specspeed` is
         // what TF2's roaming spectator clamps to, both are replicated, and a mod that changes
         // movement sends the new values in this demo. One assignment, here, because this is where

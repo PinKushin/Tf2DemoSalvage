@@ -1164,6 +1164,24 @@ public sealed class DemoTimeline
     /// </remarks>
     public bool HasRecordedView => _recordedViews.Count > 0;
 
+    /// <summary>Everybody who played, by user id — the roster from <c>userinfo</c>.</summary>
+    /// <remarks>
+    /// **Keyed by user id rather than by slot**, because a slot reused by a later joiner overwrites
+    /// its first occupant and this map is the one that has to remember everybody. `RosterBuilder`
+    /// carries the measurement that forced the distinction.
+    /// </remarks>
+    public IReadOnlyDictionary<int, PlayerInfo> Roster { get; private init; } =
+        new Dictionary<int, PlayerInfo>();
+
+    /// <summary>Which entity a person named on the command line is.</summary>
+    /// <param name="who">A player name, a user id, or an entity index.</param>
+    /// <returns>The entity index to spectate, or null when nobody matches.</returns>
+    /// <remarks>
+    /// The matching lives in <see cref="PlayerLookup"/> so it can be tested against a roster built
+    /// by hand, which HAS ground truth where a corpus demo only has whoever is in it (D38).
+    /// </remarks>
+    public int? EntityForPlayer(string? who) => PlayerLookup.Resolve(Roster.Values, who);
+
     /// <summary>The camera the recording was made through at a tick.</summary>
     /// <param name="tick">The tick being drawn.</param>
     /// <returns>The most recently stated view, or <c>null</c> before the first one.</returns>
@@ -1557,6 +1575,11 @@ public sealed class DemoTimeline
         // by entity because a player carries two and they interleave.
         Dictionary<int, SceneViewmodel> lastViewmodel = [];
 
+        // Who is in which slot now, and everybody who ever played. Two maps because a slot reused
+        // by a later joiner overwrites the first occupant — see `RosterBuilder`.
+        Dictionary<int, PlayerInfo> bySlot = [];
+        Dictionary<int, PlayerInfo> everyone = [];
+
         foreach (DemoCommand command in commands)
         {
             if (command.Type is not (DemoCommandType.Signon or DemoCommandType.Packet))
@@ -1665,6 +1688,24 @@ public sealed class DemoTimeline
                     // created once and then updated as the round goes on — a sound first played
                     // mid-match is added by an update, so handling only the create resolves the
                     // opening minute and nothing after it.
+                    // **The roster, so a person can be named rather than counted.** A viewer
+                    // spectating an STV recording has eighteen players to choose between and no way
+                    // to say which; an entity index is a number nobody knows. The owner's own
+                    // framing: *"allow the input of a player name or id to first person cam a
+                    // specific player on boot"*.
+                    //
+                    // Both halves are read, for the reason `RosterBuilder` gives: the slot map says
+                    // who is here NOW and the by-user-id map says who PLAYED, and a slot reused by
+                    // a later joiner silently loses the first occupant from the former.
+                    case CreateStringTableMessage { Name: RosterBuilder.TableName } roster:
+                        RosterBuilder.Apply(roster.Entries, bySlot, everyone);
+                        continue;
+
+                    case UpdateStringTableMessage rosterUpdate
+                        when state.StringTableName(rosterUpdate.TableId) == RosterBuilder.TableName:
+                        RosterBuilder.Apply(rosterUpdate.Entries, bySlot, everyone);
+                        continue;
+
                     case CreateStringTableMessage { Name: SoundNames.TableName } soundTable:
                         soundNames.Add(soundTable);
                         continue;
@@ -2279,6 +2320,7 @@ public sealed class DemoTimeline
             FogControllersSeen = fogControllersSeen,
             FogControllerProperties = fogProperties,
             IntervalPerTick = interval,
+            Roster = everyone,
             RecorderEntityIndex = recorderSlot is { } recorded ? recorded + 1 : null,
             Corpses = [.. replaced, .. corpses.Values],
             ServerConVars = serverConVars,

@@ -24,6 +24,11 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="Zoom">The overhead camera's zoom.</param>
 /// <param name="SurfaceColours">Whether the capture uses the surface-category view.</param>
 /// <param name="Spectate">Which entity to follow, or null to choose automatically.</param>
+/// <param name="SpectateWho">
+/// Who to follow as the user typed it — a player NAME, a user id, or an entity index. Resolved
+/// against the demo's own roster once it is loaded, because that is the only place a name can be
+/// looked up; <see cref="Spectate"/> keeps the number for the case where one was given.
+/// </param>
 /// <param name="AutoPlay">Whether playback starts as soon as a demo is loaded.</param>
 /// <param name="MeasureSeconds">
 /// How many seconds of PLAYBACK to run before printing the frame-cost summary and exiting, or null
@@ -40,6 +45,7 @@ public readonly record struct LaunchOptions(
     float Zoom = 1f,
     bool SurfaceColours = false,
     int? Spectate = null,
+    string? SpectateWho = null,
     bool AutoPlay = false,
     double? MeasureSeconds = null,
     bool ShowHelp = false,
@@ -237,13 +243,15 @@ public static class LaunchOptionsReader
             {
                 string value = pending.Dequeue();
 
-                if (Whole(value) is { } entity)
-                {
-                    read = read with { Spectate = entity };
-                    continue;
-                }
+                // **A NAME is the useful spelling, and it is why this no longer refuses one.** The
+                // owner: *"allow the input of a player name or id to first person cam a specific
+                // player on boot"*. An entity index is a number nobody knows; a name is on the
+                // scoreboard. Both are kept, and the demo's roster decides which this is — so the
+                // text is carried through rather than parsed here, where there is no roster to ask.
+                read = Whole(value) is { } entity
+                    ? read with { Spectate = entity, SpectateWho = value }
+                    : read with { SpectateWho = value };
 
-                log.LogWarning("{Message}", $"--spectate {value} is not a number; ignoring it");
                 continue;
             }
 

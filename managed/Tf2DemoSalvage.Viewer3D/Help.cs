@@ -57,7 +57,10 @@ internal static class Help
           --third-person             Open over a player's shoulder, the chase camera.
           --tick <n>                 Seek here before drawing.
           --shot <path>              Save one frame to path, then exit.
-          --spectate <entity>        Follow this entity rather than choosing one.
+          --spectate <who>           First-person a specific player: a NAME, a user id or an
+                                    entity index. A name matches case-insensitively, exactly
+                                    first and then by part. A point-of-view demo ignores this
+                                    and uses its own recorded camera.
           --look <x> <y>             Point the overhead camera at a world position.
           --zoom <factor>            Overhead camera zoom.
           --colours                  Draw surface categories instead of textures.
