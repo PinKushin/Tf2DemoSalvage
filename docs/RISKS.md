@@ -25543,3 +25543,43 @@ does not move is an animation or interpolation question about a brush entity —
 subsystem, and the two were only observed in the same session.
 
 *Evidence class: owner observation, unreproduced.*
+
+### B371 OPEN 2026-09-08: gibs are not implemented, and that is most deaths
+
+**The owner: *"i should see ragdolls and gibs"*.** Ragdolls draw. Gibs do not exist at all — no
+model, no physics, nothing. **On `z1800` that is 231 of 407 corpses**, so it is the majority of
+deaths in the reference demo, not an edge case.
+
+**What we do today is HALF right, which is why it was nearly filed as correct.** A gibbed corpse
+draws no body, and that much matches the engine: `CreateTFGibs` ends by destroying or hiding the
+ragdoll — `EndFadeOut()`, or `SetRenderMode( kRenderNone )` (`c_tf_player.cpp:1124-1133`). But
+before it does that it calls `pPlayer->CreatePlayerGibs(...)`, and that is the half we have none of.
+The body correctly vanishes and nothing replaces it.
+
+**The chain, read end to end so the next reader does not have to find it again:**
+
+| step | where |
+|---|---|
+| `m_bGib` decides it | `c_tf_player.cpp:1235-1237` |
+| `CreateTFGibs` → `CreatePlayerGibs` | `:1088`, `:7423` |
+| the gib list comes from `m_aGibs`, built by `BuildGibList` | `InitPlayerGibs`, `:7355-7363` |
+| which is `BreakModelList` → `BuildPropList( "break", … )` | `props_shared.cpp:1282`, `:660` |
+
+**So the gib models are declared by the MODEL, in a `break` KeyValues block inside the `.mdl`** —
+they are not a hardcoded table, and only the birthday gibs (`g_pszBDayGibs`) are literals in code.
+That is the piece this project cannot reach today: `StudioModel` does not parse the studio header's
+`keyvalueindex`/`keyvaluesize` at all, so the block is unread. A `KeyValuesReader` already exists to
+parse it once the bytes are found.
+
+**The velocities are Valve's and are cvars, not constants** — `tf_playergib_force`,
+`tf_playergib_forceup` and `tf_playergib_maxspeed`, with `vecBreakVelocity` normalised from
+`m_vecForce + m_vecRagdollVelocity` and then capped, plus an angular impulse of
+`RandomFloat( 0, 120 )` on two axes (`c_tf_player.cpp:7429-7441`). The corpse already carries both
+force and velocity, so the inputs are on hand.
+
+**Not started deliberately.** It spans model parsing, a new per-gib track, and physics per piece —
+three layers — and this branch has just spent three days on what a half-built physics path costs.
+It wants its own session, not the tail of this one.
+
+*Evidence class: read from published SDK source for the whole chain; measured for the 231-of-407
+share on `z1800`.*
