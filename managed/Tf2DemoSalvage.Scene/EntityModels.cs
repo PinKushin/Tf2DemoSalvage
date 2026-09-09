@@ -3759,6 +3759,20 @@ public sealed class EntityModelSet : IModelBodygroups
                 skinned, speed, flags, alive, slot, airborneSeconds, airwalking, waterLevel)
             : -1;
 
+    /// <summary>The pieces a model breaks into, empty when it declares none (B371).</summary>
+    /// <param name="modelPath">The model.</param>
+    /// <returns>Its <c>break</c> blocks, or an empty list.</returns>
+    /// <remarks>
+    /// **Empty rather than null for a model that is not loaded YET**, which is a real state: a
+    /// corpse can be drawn before its class model has been read. A gibbed corpse then draws no
+    /// pieces for those frames, which is right — the alternative would be to draw its body, and the
+    /// engine has already removed that.
+    /// </remarks>
+    public IReadOnlyList<PhysicsBreakPiece> BreakPiecesOf(string modelPath) =>
+        _frames.TryGetValue(modelPath, out PropModels.ModelFrames? frames)
+            ? frames.BreakPieces ?? []
+            : [];
+
     /// <summary>Every baked frame's batches for one model.</summary>
     /// <param name="modelPath">The model's path.</param>
     /// <returns>One entry per baked frame, each a list of runs.</returns>

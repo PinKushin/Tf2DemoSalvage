@@ -49,6 +49,16 @@ public static class RagdollProps
     /// need it — see <see cref="Skipped"/> — and both of its defaults are to KEEP, so a null schema
     /// draws too much rather than too little.
     /// </param>
+    /// <param name="gibsOf">
+    /// Resolves a class model's <c>break</c> list, or null when models are not open yet (B371). A
+    /// gibbed corpse with no list draws NOTHING rather than falling back to its body: the engine has
+    /// already removed that body, so drawing it would be a divergence rather than a graceful
+    /// degradation.
+    /// </param>
+    /// <param name="intervalPerTick">
+    /// Seconds per tick, so a gib's own <c>fadetime</c> can be measured from its corpse's death.
+    /// Zero disables the fade, which is what a caller with no clock should get.
+    /// </param>
     /// <returns>How many were appended.</returns>
     /// <remarks>
     /// **Appended rather than cleared, because this runs after the props.** The scene's buffer is
@@ -68,7 +78,9 @@ public static class RagdollProps
         ICollection<SceneProp> into,
         RagdollFade? fade = null,
         IReadOnlySet<int>? visible = null,
-        ItemSchema? items = null)
+        ItemSchema? items = null,
+        Func<string, IReadOnlyList<PhysicsBreakPiece>>? gibsOf = null,
+        float intervalPerTick = 0f)
     {
         ArgumentNullException.ThrowIfNull(corpses);
         ArgumentNullException.ThrowIfNull(modelForClass);
@@ -120,6 +132,18 @@ public static class RagdollProps
             // The engine's own guard: no model means the whole block is skipped, skin included.
             if (look.Model is not { } model || look.Skin is not { } skin)
             {
+                continue;
+            }
+
+            // **A gibbed death draws PIECES and no body** (B371). `CreateTFGibs` spawns the gibs
+            // and then removes the ragdoll outright — `EndFadeOut()`, or
+            // `SetRenderMode( kRenderNone )` (`c_tf_player.cpp:1124-1133`) — so a corpse drawn here
+            // as well would be a whole body standing inside its own remains. `m_bGib` was decoded
+            // and read by NOTHING until this line, which is why it was.
+            if (corpse.Gib)
+            {
+                drawn += Gibs(corpse, model, tick, intervalPerTick, gibsOf, into);
+
                 continue;
             }
 
@@ -428,4 +452,93 @@ public static class RagdollProps
     /// the worst kind of fix.
     /// </remarks>
     public const int FirstCorpseEntityIndex = 2048;
+
+    /// <summary>The class every gib prop is filed under, as corpses have their own.</summary>
+    public const string GibClassName = "CTFPlayerGib";
+
+    /// <summary>Where gib indices start, clear of the corpses at 2048 and the viewmodel at 4096.</summary>
+    /// <remarks>
+    /// **The same reasoning as <see cref="FirstCorpseEntityIndex"/> and for the same crash.** A gib
+    /// is a client-side object with per-entity caches keyed by index, and nine of them come from one
+    /// corpse — so each needs a slot that nothing else can take. `NUM_ENT_ENTRIES` is 8192, so
+    /// 4608 upward is free of the networked range, the corpses and the viewmodel alike.
+    /// </remarks>
+    public const int FirstGibEntityIndex = 4608;
+
+    /// <summary>How many pieces one corpse may spawn, so the index space cannot be overrun.</summary>
+    /// <remarks>
+    /// TF2's classes declare nine; the cap is generous and exists so a stranger's `.phy` (D32)
+    /// cannot walk a corpse's gibs into the next corpse's indices.
+    /// </remarks>
+    private const int MaximumGibsPerCorpse = 32;
+
+    /// <summary>The pieces one gibbed corpse is drawn as, in place of its body (B371).</summary>
+    /// <param name="corpse">The corpse that gibbed.</param>
+    /// <param name="model">Its class model, whose <c>.phy</c> declares the pieces.</param>
+    /// <param name="tick">The tick being drawn.</param>
+    /// <param name="intervalPerTick">Seconds per tick, for the fade.</param>
+    /// <param name="gibsOf">Resolves a model's break list, or null when models are not open.</param>
+    /// <param name="into">Where the props are appended.</param>
+    /// <returns>How many were added.</returns>
+    /// <remarks>
+    /// **Each piece is thrown by <see cref="PlayerGibs"/> and placed by physics afterwards.** The
+    /// prop is emitted at the corpse's own origin because that is where `CreatePlayerGibs` spawns
+    /// them — `breakablepropparams_t breakParams( vecOrigin, … )` — and the simulation moves it from
+    /// there.
+    ///
+    /// **The fade is the piece's own, not the corpse's.** `fadetime` is 10 on every TF2 gib against
+    /// `cl_ragdoll_fade_time`'s 15 for a body, so gibs leave first; a gib past its fade is simply
+    /// not emitted, which is what `EndFadeOut` does to it.
+    /// </remarks>
+    private static int Gibs(
+        SceneRagdoll corpse,
+        string model,
+        double tick,
+        float intervalPerTick,
+        Func<string, IReadOnlyList<PhysicsBreakPiece>>? gibsOf,
+        ICollection<SceneProp> into)
+    {
+        if (gibsOf?.Invoke(model) is not { Count: > 0 } pieces)
+        {
+            // No list means the model is not open yet, or declares none. Drawing the body instead
+            // would be worse than drawing nothing: the engine has already removed it.
+            return 0;
+        }
+
+        double since = intervalPerTick > 0f ? (tick - corpse.FirstTick) * intervalPerTick : 0d;
+
+        int drawn = 0;
+        int count = Math.Min(pieces.Count, MaximumGibsPerCorpse);
+
+        for (int piece = 0; piece < count; piece++)
+        {
+            if (since > pieces[piece].FadeTime)
+            {
+                continue;
+            }
+
+            into.Add(new SceneProp(
+                FirstGibEntityIndex + (corpse.EntityIndex * MaximumGibsPerCorpse) + piece,
+                PhysicsModel.GibPath(pieces[piece].Model),
+                SceneModelKind.Studio,
+                new ScenePose
+                {
+                    X = corpse.X,
+                    Y = corpse.Y,
+                    Z = corpse.Z,
+                    Yaw = corpse.Yaw,
+                },
+                ClassName: GibClassName,
+                FirstTick: corpse.FirstTick,
+
+                // The piece's own throw and the corpse's shared spin, which the simulation stages
+                // onto the body exactly as a corpse's killing blow is staged.
+                Force: PlayerGibs.Velocity(corpse, piece),
+                RagdollVelocity: PlayerGibs.Spin(corpse)));
+
+            drawn++;
+        }
+
+        return drawn;
+    }
 }

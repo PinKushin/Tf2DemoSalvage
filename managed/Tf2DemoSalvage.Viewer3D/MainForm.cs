@@ -1018,6 +1018,10 @@ internal class MainForm : Form, IFrameSteps
         _demoSystems = new DemoSystems(
             _spectator, _moment, _moments, appearances, _sound, _playback, _loops, _loggers);
 
+        // **The gib list is a fact about a loaded MODEL**, so it comes from the model set rather
+        // than the install (B371). Set here because this is the one place that holds both.
+        _demoSystems.Gibs = _models.BreakPiecesOf;
+
         _playback.MomentChanged += (_, moment) =>
         {
             // **The tick drives the picture.** Scrubbing and playing both arrive here, so the

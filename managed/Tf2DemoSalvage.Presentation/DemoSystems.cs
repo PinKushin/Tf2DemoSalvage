@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 using Microsoft.Extensions.Logging;
 
@@ -112,7 +113,12 @@ public sealed class DemoSystems
         // **The corpses need the install half too**, which `_appearances` already carries on its own
         // lifecycle — so the source reads it per call rather than being given a table now (B315).
         _moments.Source = timeline is { } moments
-            ? new TimelineMoments(moments) { ClassModels = CorpseModels, Items = CorpseItems }
+            ? new TimelineMoments(moments)
+            {
+                ClassModels = CorpseModels,
+                Items = CorpseItems,
+                Gibs = Gibs,
+            }
             : null;
         _sound.Schedule = timeline is { } withSound ? new SoundSchedule(withSound.Sounds) : null;
 
@@ -212,6 +218,20 @@ public sealed class DemoSystems
         // shape B206 and B207 were both about. Ask `PlaybackPresenter` instead: it owns the clock,
         // and `HasDemo` and `Position` are the questions a caller actually has.
     }
+
+    /// <summary>Where a model's gib list comes from, set by whoever owns the models (B371).</summary>
+    /// <remarks>
+    /// **A property rather than a constructor argument, because the two live on different
+    /// clocks.** A gib list is a fact about a LOADED MODEL, not about the install — so it cannot
+    /// come from `PlayerAppearances` with the class table and the item schema, and it is not
+    /// available when this type is built. The owner of `EntityModelSet` sets it once and it is read
+    /// per call, so a demo opened before its models still gibs when they arrive.
+    ///
+    /// **Null draws no pieces at all, which is deliberate.** A gibbed corpse's body has already
+    /// been removed by the engine's own rule, so falling back to drawing it would be a divergence
+    /// rather than a graceful degradation.
+    /// </remarks>
+    public Func<string, IReadOnlyList<PhysicsBreakPiece>>? Gibs { get; set; }
 
     /// <summary>The class table a corpse's model comes from, null while the install is unread.</summary>
     /// <returns>An index in, a model path out — <c>PlayerClassModels.Model</c>.</returns>
