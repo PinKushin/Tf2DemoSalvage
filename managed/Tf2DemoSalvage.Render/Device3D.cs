@@ -2718,8 +2718,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 $"{instance.Alpha} of 255, render mode {instance.RenderMode}, group {requested}");
         }
 
+        // **The model AND the entity, because a diagnostic that cannot tell two lockers apart reports
+        // a flip that never happened** (B356). An unidentified instance carries −1, which groups
+        // every hand-built one together — that is the same fault one value along, and it is why the
+        // path stays in the key rather than being replaced by the index.
+        (string Model, int Entity) key = (instance.ModelPath, instance.EntityIndex);
+
         _classified.TryGetValue(
-            instance.ModelPath,
+            key,
             out (RenderGroup Group, bool Opaque, bool Translucent, int Reported) was);
 
         bool moved = was.Group != requested || was.Opaque != opaque || was.Translucent != blended;
@@ -2734,30 +2740,31 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         // against a value that oscillates is not a guard. Paired with a rate limit"* — and because
         // a budget spent in the first second is silent for the run where the flip starts late.
         //
-        // **The flapping itself is very likely two instances sharing one slot**, not a model
-        // changing its mind: this is keyed by MODEL PATH while `Frame` is the input the comment
-        // above names as the one that varies, so a map with two resupply lockers at different
-        // animation frames reports a change on every draw. Keying it by instance needs an identity
-        // `ModelInstance` does not carry, which is why the limit is the fix here and the identity
-        // is B356.
+        // **Two instances of one model no longer share a slot** (B356). This was keyed by MODEL PATH
+        // while `Frame` is the input the comment above names as the one that varies, so a map with
+        // two resupply lockers at different animation frames reported a change on every draw:
+        // measured, `_locker` alone wrote 11,576 lines on one two-minute run, 5,788 in each
+        // direction, and not one of them was a model changing its mind. The rate limit bounded that
+        // noise without answering the question; the entity index answers it.
         long now = Stopwatch.GetTimestamp();
 
-        _classifiedAt.TryGetValue(instance.ModelPath, out long lastAt);
+        _classifiedAt.TryGetValue(key, out long lastAt);
 
-        if (moved && _classified.ContainsKey(instance.ModelPath) &&
+        if (moved && _classified.ContainsKey(key) &&
             now - lastAt >= Stopwatch.Frequency &&
             _render.IsEnabled(LogLevel.Debug))
         {
-            _classifiedAt[instance.ModelPath] = now;
+            _classifiedAt[key] = now;
 
             _render.LogDebug(
                 "{Message}",
-                $"{System.IO.Path.GetFileNameWithoutExtension(instance.ModelPath)} changed render " +
-                $"group: {was.Group} (opaque {was.Opaque}, translucent {was.Translucent}) -> " +
+                $"{System.IO.Path.GetFileNameWithoutExtension(instance.ModelPath)} " +
+                $"(entity {instance.EntityIndex.ToString(CultureInfo.InvariantCulture)}) changed " +
+                $"render group: {was.Group} (opaque {was.Opaque}, translucent {was.Translucent}) -> " +
                 $"{requested} (opaque {opaque}, translucent {blended}) at frame {instance.Frame}");
         }
 
-        _classified[instance.ModelPath] =
+        _classified[key] =
             (requested, opaque, blended, moved ? was.Reported + 1 : was.Reported);
 
         return (opaque, blended, twoPass);
@@ -2946,12 +2953,17 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         _ => $"{drawing} drawn",
     };
 
-    /// <summary>The last render group each model classified into, to report a change.</summary>
-    private readonly Dictionary<string, (RenderGroup Group, bool Opaque, bool Translucent, int Reported)>
-        _classified = [];
+    /// <summary>The last render group each ENTITY's model classified into, to report a change.</summary>
+    /// <remarks>
+    /// **Keyed by model and entity, not by model alone** (B356). Two instances of one model at
+    /// different animation frames legitimately classify differently, so a per-model slot reported a
+    /// change on every draw for any map carrying two of anything.
+    /// </remarks>
+    private readonly Dictionary<(string Model, int Entity),
+        (RenderGroup Group, bool Opaque, bool Translucent, int Reported)> _classified = [];
 
-    /// <summary>When each model last reported a change, so an alternating one is rate limited.</summary>
-    private readonly Dictionary<string, long> _classifiedAt = new(StringComparer.Ordinal);
+    /// <summary>When each entity last reported a change, so an alternating one is rate limited.</summary>
+    private readonly Dictionary<(string Model, int Entity), long> _classifiedAt = [];
 
     /// <summary>Models already reported as drawn below full alpha, so each says so once.</summary>
     /// <remarks>

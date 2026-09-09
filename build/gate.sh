@@ -761,7 +761,12 @@ run Tf2DemoSalvage.Animation.Tests animation 111
 # input, opposite scene, opposite answer. One is a looping taunt still drawn 300 seconds in, whose
 # fixture window must be SHORTER than the gesture's sequence or the layer legitimately dies between
 # loops. One is an empty plan, which is a scene that answers "animates nothing".
-run Tf2DemoSalvage.Scene.Tests    scene     579
+#
+# 579 -> 581 on 2026-09-09: two for B356, the identity a per-model diagnostic needs. One asserts two
+# props of ONE model carry their own entity indices -- and asserts the path really is shared, without
+# which the test would pass against two different models. The other pins the -1 default, because
+# entity 0 is the worldspawn and a zero default would have every hand-built instance claim to be it.
+run Tf2DemoSalvage.Scene.Tests    scene     581
 # Raised 28 -> 68 on 2026-08-22: RiffConformance (8), SoundScriptConformance (9),
 # SoundScriptCatalogConformance (10), SoundScriptProbe (1) moved in from Content.Tests, and
 # SoundAttenuationConformance (7) from Core.Tests — 40 in total, against -33 and -7 there. Sound

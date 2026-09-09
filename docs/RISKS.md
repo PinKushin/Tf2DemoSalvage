@@ -24384,7 +24384,14 @@ part that certainly exists — and says outright that a 0 there means nothing be
 **What is NOT established:** whether the parts a cosmetic hides look right at close range. That is
 visible and therefore the owner's to judge, not something a body number can settle.
 
-### B353 OPEN 2026-09-05: two items set a body part by index, and we ignore it
+### B353 FIXED 2026-09-05: two items set a body part by index, and we ignore it
+
+**The heading said OPEN until 2026-09-09 while the entry below described the whole fix**, including the
+two commits, the models that settled the reading, and the sabotage results. Nothing was reopened and
+nothing changed: `GameAppearance.BodygroupsOf` reads `wm_bodygroup_override` and its state through
+`ItemSchema.WorldmodelBodygroupOverrideFor`, and Scene's tests pin it. Only the word was wrong — which
+is worth a line, because a stale heading is how a closed defect gets worked on twice.
+
 
 **`UpdateBodygroups`' last arm addresses a part by NUMBER rather than by name**
 (`econ_entity.cpp:2083`):
@@ -24614,7 +24621,34 @@ of the comparison.
 a runtime, a device against a real adapter, a map and every model in a real match. That is inherent
 to a suite that drives the real viewer and was not touched here.
 
-### B356 OPEN 2026-09-05: the render-group guard cannot tell two instances apart
+### B356 FIXED 2026-09-09: the render-group guard cannot tell two instances apart
+
+**`ModelInstance` now carries `EntityIndex`, and the guard keys on it beside the model path.** The
+worry that filed this — *"Adding one is the fix and it is not free: `ModelInstance` is built per prop
+per frame on the hot path"* — was wrong about the cost. `ModelInstance` is a **readonly record
+struct**, never boxed, so an `int` beside its twenty-odd existing fields is four bytes on a stack copy
+and no allocation at all. The instrument's imprecision was paid for by a rate limit for four days for
+nothing.
+
+**−1 for an instance built by hand, not 0**, because entity 0 is the worldspawn: a zero default would
+have every test and the viewmodel path claim to be it. Anything reading the field treats −1 as
+unidentified rather than as one shared bucket, which is the same fault one value along.
+
+**An attached model takes its WEARER's index**, because it is not an entity — `attached_models` is an
+extra model drawn on the item's own transform and bones (`econ_entity.cpp:103`). That still separates
+two players in the same hat, which is what this needed: they are two props.
+
+**What is still not established:** whether any real model alternates render group per frame. The
+instrument could not answer that while it cried wolf, and now that it can, nothing has been measured
+with it — so *"if a model really does alternate between drawing and not drawing, that is a visible
+flicker"* remains an open question rather than a closed one.
+
+*Evidence class: read-from-source for the key and the struct's shape; measured for the 11,576 lines
+that filed it. The absence of a real flip is UNMEASURED.*
+
+#### The original entry
+
+
 
 **`Device3D._classified` is keyed by MODEL PATH while the input its own comment names as the varying
 one is the FRAME**, so two instances of one model at different animation frames report a change on
@@ -25902,7 +25936,22 @@ same sabotage: breaking the suffix reddens only
 and do not resolve its orientation at that size, so the angle claim rests on the test and the wire
 values, not on the capture.
 
-### B373 OPEN 2026-09-09: a projectile draws its model and none of its effects
+### B373 FIXED 2026-09-09: a projectile draws its model and none of its effects
+
+**The heading and the "what is NOT done" list below both went stale within the same day.** The trail
+draws, and the two things that list names as missing are done: the sequence sheet IS read —
+`VtfSheet` parses the 7.3 `VTF_RSRC_SHEET` block and `ParticleMaterial.Sequences` carries it to the
+draw, so a particle takes its animation frame rather than the whole texture — and the six spawn-time
+random operators are implemented against `CParticleCollection::RandomInt`'s own seeding.
+
+**Left as its own entry rather than folded away:** B375 is the follow-up that made the picture right
+(a puff where TF2 draws a plume), and B376 is the scene-archive census. What genuinely remains from
+this area is listed at the end of B375, not here.
+
+**Recorded because the same mistake happened twice in one file today** — B353's heading also said OPEN
+over a closed entry. A stale heading is how a closed defect gets worked on a second time, and the cost
+is a whole session, so the word gets corrected in the same pass as the work now.
+
 
 **Follows directly from B372 and is scoped separately because it needs a subsystem that does not
 exist.** `C_TFProjectile_Rocket::CreateTrails` (`c_tf_projectile_rocket.cpp:48`) is entirely

@@ -98,6 +98,10 @@ public readonly record struct FiredAnimationEvent(
 /// <c>m_nRenderMode</c>. Anything but <c>kRenderNormal</c> makes the entity transparent, and
 /// <c>kRenderEnvironmental</c> makes it undrawn — <c>RenderGroups.For</c>.
 /// </param>
+/// <param name="EntityIndex">
+/// Which entity this instance is, or −1 when it was built by hand (B356). A per-model diagnostic
+/// keyed without it cannot tell two of the same model apart.
+/// </param>
 public readonly record struct ModelInstance(
     string ModelPath,
     float[] Matrix,
@@ -201,7 +205,21 @@ public readonly record struct ModelInstance(
     // `kRenderNormal` makes it transparent, and `kRenderEnvironmental` makes it undrawn — see
     // `RenderGroups.For`, which has taken this parameter since D114 and received the default from
     // every caller until now.
-    int RenderMode = 0);
+    int RenderMode = 0,
+
+    // **Which entity this instance IS**, so a per-model diagnostic can tell two of the same model
+    // apart (B356). A map carrying two resupply lockers put both through one slot of the render-group
+    // guard, and two instances at different animation frames report a change on every draw — 11,576
+    // lines from `_locker` alone on one two-minute run, 5,788 in each direction, none of them real.
+    //
+    // **A field on a struct, so it costs no allocation** — which is what the entry filing this
+    // worried about. An instance is built per prop per frame and never boxed; four bytes beside
+    // twenty-odd other fields is not the hot-path cost it looked like.
+    //
+    // **−1 rather than 0, because 0 is the worldspawn** and a test or viewmodel that builds an
+    // instance by hand must not claim to be it. Anything reading this must treat −1 as "unidentified"
+    // rather than grouping every such instance together — the same fault, one value along.
+    int EntityIndex = -1);
 
 /// <summary>
 /// The models a demo's entities wear, packed once and posed by the GPU.
@@ -5019,7 +5037,8 @@ public sealed class EntityModelSet : IModelBodygroups
                 // since D114 and never been given** (B221). Until now every caller passed
                 // `FullyOpaque` and `Normal`, so a cloaked spy drew solid and nothing could fade.
                 Alpha: fx.Blend,
-                RenderMode: prop.Pose.RenderMode));
+                RenderMode: prop.Pose.RenderMode,
+                EntityIndex: prop.EntityIndex));
 
             // **The item's `attached_models`, drawn on the item's own transform and bones.**
             // `DrawEconEntityAttachedModels` (`econ_entity.cpp:103`) copies the parent's
@@ -5095,7 +5114,13 @@ public sealed class EntityModelSet : IModelBodygroups
                     WorldBounds: WorldBoxFor(prop),
                     TwoPass: attachedParts?.TwoPass ?? false,
                     Alpha: fx.Blend,
-                    RenderMode: prop.Pose.RenderMode));
+                    RenderMode: prop.Pose.RenderMode,
+
+                    // **The WEARER's index, because an attached model is not an entity** — it is an
+                    // extra model drawn on the item's own transform and bones
+                    // (`econ_entity.cpp:103`), so it has no index of its own. That still separates
+                    // two players in the same hat, which is what B356 needs: they are two props.
+                    EntityIndex: prop.EntityIndex));
             }
         }
 
