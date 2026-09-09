@@ -285,7 +285,7 @@ public sealed class ParticleProbe : IProbe
 
                 for (int tick = 0; tick < 20; tick++)
                 {
-                    store.Add(new Vector3(tick * 4f, 0f, 0f), lives: 0.2f);
+                    _ = ParticleSystems.Spawn(trail, store, new Vector3(tick * 4f, 0f, 0f), 0.2f);
                     store.Tick(step);
 
                     foreach (ParticleFunction one in trail.Operators)
@@ -396,7 +396,9 @@ public sealed class ParticleProbe : IProbe
                         CultureInfo.InvariantCulture,
                         $"      '{element.Name}': {element.Attributes.Count} attributes"));
 
-                    foreach ((string name, DmxValue value) in element.Attributes.Take(4))
+                    foreach ((string name, DmxValue value) in element.Attributes
+                        .Where(one => one.Value.Type is DmxAttributeType.Text
+                            or DmxAttributeType.Real or DmxAttributeType.Whole))
                     {
                         output.WriteLine(string.Create(
                             CultureInfo.InvariantCulture,

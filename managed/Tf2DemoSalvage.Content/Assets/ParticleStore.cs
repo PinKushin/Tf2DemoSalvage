@@ -114,6 +114,20 @@ public sealed class ParticleStore
     /// <returns>Its duration in seconds.</returns>
     public float LifetimeOf(int index) => Lifetime[index];
 
+    /// <summary>Sets one particle's radius, and the spawn radius operators scale from.</summary>
+    /// <param name="index">Which particle.</param>
+    /// <param name="radius">Its radius.</param>
+    /// <remarks>
+    /// **Both, because a spawn value that disagrees with the current one is the compounding bug in
+    /// waiting.** `Radius Scale` reads <c>RadiusAtBirth</c>; setting only the current radius would
+    /// have it scale from a stale 1 and undo this on the first step.
+    /// </remarks>
+    public void Resize(int index, float radius)
+    {
+        Radius[index] = radius;
+        RadiusAtBirth[index] = radius;
+    }
+
     /// <summary>Sets one particle's opacity.</summary>
     /// <param name="index">Which particle.</param>
     /// <param name="alpha">Its alpha, 0..1.</param>

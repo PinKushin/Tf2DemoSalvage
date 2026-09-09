@@ -64,6 +64,52 @@ public sealed class ParticleSystemsConformanceTests
     }
 
     [Test]
+    public void Spawn_ADefinitionDeclaringARadius_SeedsTheParticleWithIt()
+    {
+        // **A system's own attributes are the spawn defaults, and ignoring them is a divergence.**
+        // `rockettrail` declares `radius 10`; a store defaulting to 1 draws particles a tenth of
+        // the size, and no operator corrects it because `Radius Scale` scales what it was given.
+        // Measured end to end on the shipped file: the radius went from 1.178 to 11.78 when this
+        // was honoured.
+        ParticleSystem system = new(
+            "trail", [], [], [], [], [],
+            new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+            {
+                ["radius"] = new DmxValue(DmxAttributeType.Real, 10d),
+            });
+
+        ParticleStore store = new();
+
+        int index = ParticleSystems.Spawn(system, store, Vector3.Zero, lives: 1f);
+
+        index.ShouldBe(0);
+        store.RadiusOf(0).ShouldBe(10f);
+    }
+
+    [Test]
+    public void Spawn_AtMaxParticles_RefusesRatherThanGrowing()
+    {
+        // **`max_particles` is a refusal, not a hint** - the engine sizes its collection from it, so
+        // a system at its cap emits nothing. Silently adding would make a trail denser than the
+        // effect asks for, which reads as an art choice rather than a bug.
+        ParticleSystem system = new(
+            "trail", [], [], [], [], [],
+            new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+            {
+                ["max_particles"] = new DmxValue(DmxAttributeType.Whole, 2d),
+            });
+
+        ParticleStore store = new();
+
+        ParticleSystems.Spawn(system, store, Vector3.Zero, lives: 1f).ShouldBe(0);
+        ParticleSystems.Spawn(system, store, Vector3.Zero, lives: 1f).ShouldBe(1);
+
+        // The third is refused, and the store is unchanged by the refusal.
+        ParticleSystems.Spawn(system, store, Vector3.Zero, lives: 1f).ShouldBe(-1);
+        store.Count.ShouldBe(2);
+    }
+
+    [Test]
     public void Read_AChild_IsNamedRatherThanInlined()
     {
         // `rockettrail` pulls in `rockettrail_fire` by NAME, and a child can live in another file —

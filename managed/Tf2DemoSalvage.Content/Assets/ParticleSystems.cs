@@ -136,6 +136,54 @@ public static class ParticleSystems
         return systems;
     }
 
+    /// <summary>Births one particle with the defaults its DEFINITION declares.</summary>
+    /// <param name="system">The definition, which carries the spawn values.</param>
+    /// <param name="into">The store to add to.</param>
+    /// <param name="at">Where the particle is born.</param>
+    /// <param name="lives">How long it lives, in seconds.</param>
+    /// <returns>Its index, or -1 when the system is already at <c>max_particles</c>.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **A system's own attributes ARE the spawn defaults, and seeding a store without them is a
+    /// divergence** (B373). `rockettrail` declares `radius 10`; a store defaulting to 1 draws
+    /// particles a tenth of the size and no operator corrects it, because `Radius Scale` scales
+    /// what it was given. Measured on the shipped file, which is where the number came from:
+    ///
+    /// <code>
+    /// max_particles 170   initial_particles 1   radius 10   rotation 0
+    /// material effects\rocketrailsmoke.vmt
+    /// </code>
+    ///
+    /// **`max_particles` is a REFUSAL and not a hint** — the engine sizes its collection from it, so
+    /// a system at its cap emits nothing rather than growing. Returning -1 says so; silently adding
+    /// would make a trail denser than the effect asks for.
+    /// </remarks>
+    public static int Spawn(ParticleSystem system, ParticleStore into, Vector3 at, float lives)
+    {
+        ArgumentNullException.ThrowIfNull(system);
+        ArgumentNullException.ThrowIfNull(into);
+
+        int cap = (int)Number(system, "max_particles", int.MaxValue);
+
+        if (into.Count >= cap)
+        {
+            return -1;
+        }
+
+        int index = into.Add(at, lives);
+
+        into.Resize(index, (float)Number(system, "radius", 1d));
+
+        return index;
+    }
+
+    /// <summary>A number the definition declares, or a default when it does not.</summary>
+    private static double Number(ParticleSystem system, string named, double otherwise) =>
+        system.Parameters.TryGetValue(named, out DmxValue value) &&
+        value.Type is DmxAttributeType.Real or DmxAttributeType.Whole
+            ? value.Number
+            : otherwise;
+
     /// <summary>The functions one of a definition's arrays points at.</summary>
     private static List<ParticleFunction> Functions(
         IReadOnlyList<DmxElement> elements, DmxElement definition, string array)

@@ -25897,7 +25897,24 @@ correct head-on.
 **What is NOT done, so that a green suite does not read as a trail on screen:**
 
 - **The sequence sheet is unread**, so a particle takes the whole texture rather than its animation
-  frame. `SEQUENCE_NUMBER` is a published attribute and nothing writes it.
+  frame. `SEQUENCE_NUMBER` is a published attribute and nothing writes it. **The material is known**:
+  the definition declares it, and `rockettrail_!` names `effects\rocketrailsmoke.vmt`, which this
+  project already has a reader for.
+
+**FIXED on the way: a system's own attributes are the spawn defaults, and ignoring them was a
+divergence.** The definition carries them beside the material, measured on the shipped file:
+
+```
+max_particles 170   initial_particles 1   radius 10   rotation 0
+material effects\rocketrailsmoke.vmt
+```
+
+`ParticleStore` seeded a radius of **1** while `rockettrail` declares **10**, so every particle was a
+tenth of its intended size — and no operator corrected it, because `Radius Scale` scales what it was
+given. `ParticleSystems.Spawn` seeds from the definition now, and the end-to-end run moved from
+`first radius 1.178` to `11.78`, exactly the factor of ten. `max_particles` is honoured as a refusal
+rather than a hint, since the engine sizes its collection from it and a system at its cap emits
+nothing.
 - **The blend mode is the detail pass's**, not the one the particle's material declares.
 - **Nothing is WIRED**: no system is instantiated when a rocket spawns, so the store is never filled
   and `ParticleSprites` is never called from the viewer. That wiring is the next step and it is the
