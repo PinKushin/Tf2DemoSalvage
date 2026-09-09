@@ -7946,6 +7946,28 @@ can be wrong; "the map has holes" is a claim that cannot be right.
 rule says an absence is usually about the grep; this one says an absence is usually about which of
 several parallel readings you asked.
 
+## D151 — `run-exclusive.ps1` waits for a GUI application, because an agent drives it (2026-09-08)
+
+**The owner: *"run exclusive is built around test suites if you need to update it to work properly
+with probes and me taking it through an ai, then do it"*.**
+
+PowerShell's call operator blocks for a console application and returns IMMEDIATELY for a
+Windows-subsystem one, so every viewer launch through the script released the machine-wide lock
+while the app was still starting. Two quiet consequences: the lock was dropped while the app owned
+the desktop — the exact collision the script exists to prevent — and the caller was told the run had
+finished, so an agent read a screenshot that did not exist yet and launched another instance. Three
+viewers piled up before the pattern was recognised.
+
+**The script is not in any git repository**, so its reasoning lives in its own header (tier 9) and
+is not restated here: the PE-subsystem test, why the console path is deliberately unchanged, and
+why the GUI wait is unbounded. `C:\Users\pinku\source\repos\PinKushin\run-exclusive.ps1`.
+
+**Worth keeping because the first fix broke every other caller.** Returning the exit code from a
+function merged the command's stdout into the same output stream, so `exit (Invoke-Held …)` consumed
+it and console runs printed nothing — a silent regression across four repos. Caught by asking the
+console path for a value it must produce, `dotnet --version`, and getting an empty string. The
+control is the rule, not the fix.
+
 ## D150 — `CLAUDE.md` is bare rules and pointers, and a restatement in it is a defect (2026-09-08)
 
 **The owner: *"yea we have a massive project slaude file, it needs to be made a lot smaller"*.** It
