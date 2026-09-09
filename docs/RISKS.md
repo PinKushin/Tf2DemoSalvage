@@ -25966,9 +25966,30 @@ three pieces and the third has a documented trap:
    ParticleSprites: 258 corners for 45 particles
    ```
 
-   **What remains is the pass and the sheet.** The pass alone draws nothing and would be dead code,
-   so it lands with the material lookup — and the material is known: the definition declares
-   `effects\rocketrailsmoke.vmt` and this project already reads VMTs.
+   **BUILT: the pass and the scene system.** `Device3D.SetParticles` uploads the frame's quads and
+   their sheet, and the pass draws after the models — the safety argument is in its own remarks and
+   rests on two facts read out of the existing sprite pass rather than assumed: it owns every piece
+   of state it needs, and nothing in the world follows it. `ParticleEffects` owns one
+   `ParticleEffect` per live projectile, steps it on the timeline's interval, and keeps it after the
+   rocket is gone so the trail fades rather than being cut off at the blast.
+
+   **Writing that caught a bug before it shipped**: stepping a dead rocket's effect kept EMITTING at
+   the trail's own position, an immortal trail that grows for ever. `ParticleEffect.Fade` operates
+   and reaps without emitting, and sabotage reddens both dead-rocket tests.
+
+   **What remains is ONE call site and the material load, and both are now precise:**
+
+   - **The material loads the way the grass sheet does.** `WorldPresenter` hands
+     `level.Assets?.DetailSpriteSheet` to `SetDetailProps`, so a particle material is the same
+     shape: resolve `effects\rocketrailsmoke.vmt` — declared by the definition — to a `MapTexture`
+     alongside the map's other assets.
+   - **The call site is beside `SetCamera`**, which is *"the one per-frame view setup"* in
+     `MainForm`. It needs the frame's projectile positions, the camera's right and up vectors for
+     `ParticleSprites.Build`, and the `.pcf` read once at load.
+
+   **Nothing above that call is untested and nothing below it exists**, which is the honest shape of
+   what is left: every layer has its own conformance tests and a sabotage proof, and no pixel has
+   been drawn.
 
 **That third piece is why this stops at the sprite builder rather than continuing into the viewer.**
 Everything above it is testable without a device and is tested; the pass is not, and the specific
