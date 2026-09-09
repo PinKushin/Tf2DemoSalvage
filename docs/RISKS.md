@@ -21447,6 +21447,19 @@ and the gold, ice and zombie overrides.
 
 ### B316 OPEN 2026-09-04: a corpse stands upright, and `RagdollSpawn` is the wrong branch to fix it with
 
+**2026-09-09 — the SYMPTOM this was filed for is gone, and what remains open is the simulation.**
+`EntityModelSet.CorpseSequence` now takes the copy branch this entry identified: the death sequence by
+label when the wire names one, otherwise the player's own sequence reconstructed from the corpse's
+speed and ground flag, with `ACT_DIERAGDOLL` only as the last fallback for a model declaring neither.
+So a corpse no longer stands to attention, and the `ACT_DIERAGDOLL` stopgap the note below calls a
+stopgap is no longer what is normally drawn.
+
+**Left OPEN deliberately, because the entry's own conclusion still stands**: every pose after the first
+frame is something the client computed in its own physics environment, and reproducing that is B58's
+and B306's work rather than a sequence choice. The heading stays until that lands. Recorded here so the
+next reader does not go looking for a standing corpse that is already sitting down — the same stale-
+heading cost B353 and B373 each paid today.
+
 **2026-09-06 — what this entry actually requires is now settled, and the current fix cannot be
 finished into correctness.** A TF2 corpse is **simulated by the client**, so the demo carries no pose
 for it at any tick after the first.
