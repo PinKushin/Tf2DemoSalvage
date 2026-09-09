@@ -25882,10 +25882,30 @@ simulation of Valve's declared parameters, which is worth having and is a differ
 pin the declared behaviour — the integrator, a fade at a known fraction, an absent scale leaving a
 radius alone — and none of them can see whether the result looks like the engine.
 
-**What would settle it is a capture of the same effect in TF2 beside ours**
-(`docs/findings/24-reference-capture.md`). Until that exists the renderer is also unstarted, so
-nothing is on screen: `render_animated_sprites` is the most-used renderer in the game and needs
-camera-facing quads, the sequence sheet, and the blend mode its material declares.
+**STARTED: `render_animated_sprites`, the most-used renderer in the game** — 8,503 of the shipped
+systems use it, more than anything but `Lifetime Random`. `ParticleSprites` turns a store into
+camera-facing quads as `DetailSpriteVertex`, which is what `DetailSpriteRenderer` already uploads
+and draws — **so no second sprite pipeline reaches the device.** Two that must agree about blending
+is a defect waiting to happen, and this repository has met that shape before.
+
+Billboarding is done on the CPU because the existing pass takes explicit corner positions, so a quad
+is `centre ± right·radius ± up·radius`. Its own test turns the basis and asserts the quad's plane
+turns with it — sabotaging the right vector to a world axis reddens exactly that one and leaves the
+other three green, which is the difference between a billboard and an axis-aligned quad that looks
+correct head-on.
+
+**What is NOT done, so that a green suite does not read as a trail on screen:**
+
+- **The sequence sheet is unread**, so a particle takes the whole texture rather than its animation
+  frame. `SEQUENCE_NUMBER` is a published attribute and nothing writes it.
+- **The blend mode is the detail pass's**, not the one the particle's material declares.
+- **Nothing is WIRED**: no system is instantiated when a rocket spawns, so the store is never filled
+  and `ParticleSprites` is never called from the viewer. That wiring is the next step and it is the
+  one that first puts something on screen.
+
+**And the verification gap is unchanged by any of this.** The operators' parameter combination is
+still interpolated, and what would settle it is a capture of the same effect in TF2 beside ours
+(`docs/findings/24-reference-capture.md`).
 
 *Evidence class: measured — the file counts, the 10,456 systems, the 110 distinct operators and
 their ranking, all read through this project's own `DmxFile` over every shipped `.pcf`;
