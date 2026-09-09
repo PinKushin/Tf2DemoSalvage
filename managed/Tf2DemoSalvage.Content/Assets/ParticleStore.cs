@@ -91,6 +91,17 @@ public sealed class ParticleStore
     /// <returns>Its duration in seconds.</returns>
     public float LifetimeOf(int index) => Lifetime[index];
 
+    /// <summary>Sets one particle's opacity.</summary>
+    /// <param name="index">Which particle.</param>
+    /// <param name="alpha">Its alpha, 0..1.</param>
+    /// <remarks>
+    /// **A writer, because the streams are internal and a caller outside this assembly cannot
+    /// reach them.** An operator writes `Alpha` directly; anything else — a test placing a state,
+    /// a renderer fading a system out — goes through here, so the streams keep their one invariant
+    /// of being the same length.
+    /// </remarks>
+    public void Fade(int index, float alpha) => Alpha[index] = alpha;
+
     /// <summary>Adds one particle, with defaults an initializer then overwrites.</summary>
     /// <param name="at">Where it is born.</param>
     /// <param name="lives">How long it lives, in seconds.</param>
