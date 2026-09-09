@@ -25903,6 +25903,29 @@ correct head-on.
   and `ParticleSprites` is never called from the viewer. That wiring is the next step and it is the
   one that first puts something on screen.
 
+**The wiring, planned rather than half-done, because the last step is the dangerous one.** It is
+three pieces and the third has a documented trap:
+
+1. **A scene system owning a store per projectile.** A `CTFProjectile_Rocket` track appears and its
+   system is `rockettrail` — `GetTrailParticleName()`, with `rockettrail_underwater` when the origin
+   is in `MASK_WATER` and `rockettrail_airstrike` for a `mini_rockets` launcher
+   (`c_tf_projectile_rocket.cpp:48`). The store steps with the timeline's own interval, which
+   `RagdollProps` already receives and is the same clock.
+2. **The material's sheet**, so a particle has a texture. The system declares one and this project
+   already reads VMTs; `render_animated_sprites` also declares the sequence layout, which is what
+   `SEQUENCE_NUMBER` indexes.
+3. **A draw pass in `Device3D` — and this is where it must not be rushed.** Particles are
+   translucent, and `docs/findings/32-the-opaque-pass-blend-leak.md` is this repository's account of
+   what one wrong line of render state costs: *"Every static prop was alpha-blended for two days, and
+   it read as four art faults."* A particle pass added without reading the existing sort and depth
+   order would reproduce that exactly, and it would look like an art problem rather than a state
+   one. So the pass gets read first — where translucent geometry sorts against models, and what
+   `CClientLeafSystem::CollateRenderablesInLeaf` does with a sprite — rather than appended.
+
+**That third piece is why this stops at the sprite builder rather than continuing into the viewer.**
+Everything above it is testable without a device and is tested; the pass is not, and the specific
+mistake it invites has already cost this project two days once.
+
 **And the verification gap is unchanged by any of this.** The operators' parameter combination is
 still interpolated, and what would settle it is a capture of the same effect in TF2 beside ours
 (`docs/findings/24-reference-capture.md`).
