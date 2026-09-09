@@ -25987,9 +25987,30 @@ three pieces and the third has a documented trap:
      `MainForm`. It needs the frame's projectile positions, the camera's right and up vectors for
      `ParticleSprites.Build`, and the `.pcf` read once at load.
 
-   **Nothing above that call is untested and nothing below it exists**, which is the honest shape of
-   what is left: every layer has its own conformance tests and a sabotage proof, and no pixel has
-   been drawn.
+   **DONE 2026-09-09: particles reach the screen.** `MapAssets` loads `rockettrail` and the material
+   it names, `MainForm.DrawParticles` steps the effects beside `SetCamera` and builds the quads from
+   the camera's own angles, and `Device3D.SetParticles` draws them. Verified by looking: `z1800`
+   tick 52392, a quad at the rocket, camera-facing, textured from `effects/rocketrailsmoke`.
+
+   **The basis comes from the camera's ANGLES rather than its matrix**, because `AngleVectors.Right`
+   and `Up` are the engine's own decomposition and are where every other direction in this project
+   comes from — pulling rows out of a view matrix is a second route to the same number and free to
+   disagree with the first (B243).
+
+   **And it is visibly WRONG in two ways the picture names**, neither of which the tests could:
+
+   - **The whole sheet is drawn instead of one frame.** `render_animated_sprites` indexes a sequence
+     grid through `SEQUENCE_NUMBER`, a published attribute nothing writes, so a particle takes the
+     entire texture — which reads as a rainbow block rather than smoke. This is the gap listed
+     above, now confirmed rather than predicted.
+   - **One blob rather than a trail**, because a paused tick gives the rocket one position and every
+     particle spawns in the same place. A trail needs the rocket's motion, so this is a playback
+     observation and not a still one.
+
+   **Three wrong turns caught while wiring, all of which would have compiled or read as plausible:**
+   `_maps.Assets` does not exist (it is `_loaded?.Assets`), `_moment.Props` does not exist (it is
+   `Drawn`), and the first dead-rocket handler stepped the effect as though it were alive — emitting
+   for ever at the trail's own position.
 
 **That third piece is why this stops at the sprite builder rather than continuing into the viewer.**
 Everything above it is testable without a device and is tested; the pass is not, and the specific

@@ -5,6 +5,7 @@ using System.Drawing;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -3682,8 +3683,73 @@ internal class MainForm : Form, IFrameSteps
         // has a camera of its own and no business culling against the world's.
         // **The one per-frame view setup, so this is what advances the chase camera's recovery** —
         // `CViewRender::SetUpView` computes the view once and everything downstream reads it.
-        _device.SetCamera(ViewCameraNow(_demoFrameSeconds), _menu.SurfaceColours.Checked);
+        FreeCamera viewing = ViewCameraNow(_demoFrameSeconds);
+
+        _device.SetCamera(viewing, _menu.SurfaceColours.Checked);
+
+        DrawParticles(viewing);
     }
+
+    /// <summary>Steps this frame's particle effects and hands their quads to the device (B373).</summary>
+    /// <param name="viewing">The camera this frame, whose basis the quads face.</param>
+    /// <remarks>
+    /// **Beside `SetCamera` because it needs the same camera** — a billboard faces the view, so the
+    /// quads cannot be built until the frame's camera is known, and this is the one per-frame view
+    /// setup.
+    ///
+    /// **The basis comes from the camera's ANGLES rather than from its matrix.** `AngleVectors.Right`
+    /// and `Up` are the engine's own decomposition and are what every other direction in this
+    /// project is taken from; pulling rows out of a view matrix would be a second route to the same
+    /// number, free to disagree with the first (B243).
+    ///
+    /// **A missing definition costs the trails and nothing else** — no TF2 install means no `.pcf`,
+    /// which is every CI run, and the rockets still draw.
+    /// </remarks>
+    private void DrawParticles(FreeCamera viewing)
+    {
+        if (_device is null)
+        {
+            return;
+        }
+
+        _particleQuads.Clear();
+
+        if (_loaded?.Assets?.RocketTrail is { } trail)
+        {
+            _projectilesNow.Clear();
+
+            foreach (SceneProp prop in _moment.Drawn)
+            {
+                if (string.Equals(
+                    prop.ClassName, ParticleEffects.RocketClass, StringComparison.Ordinal))
+                {
+                    _projectilesNow.Add(
+                        (prop.EntityIndex, new Vector3(prop.Pose.X, prop.Pose.Y, prop.Pose.Z)));
+                }
+            }
+
+            _particles.Update(_projectilesNow, trail, _timeline?.IntervalPerTick ?? (1f / 66f));
+
+            (float rx, float ry, float rz) = AngleVectors.Right(
+                viewing.Angles.Pitch, viewing.Angles.Yaw, viewing.Angles.Roll);
+
+            (float ux, float uy, float uz) = AngleVectors.Up(
+                viewing.Angles.Pitch, viewing.Angles.Yaw, viewing.Angles.Roll);
+
+            _particles.Build(new Vector3(rx, ry, rz), new Vector3(ux, uy, uz), _particleQuads);
+        }
+
+        _device.SetParticles(_particleQuads, _loaded?.Assets?.ParticleSheet);
+    }
+
+    /// <summary>The effects running for this demo.</summary>
+    private readonly ParticleEffects _particles = new();
+
+    /// <summary>This frame's quads, reused so a frame costs no allocation.</summary>
+    private readonly List<DetailSpriteVertex> _particleQuads = [];
+
+    /// <summary>This tick's projectiles, reused for the same reason.</summary>
+    private readonly List<(int Entity, Vector3 At)> _projectilesNow = [];
 
     // **`ReportSlowFrame` was here until 2026-08-25** (B188, D90). It is `StallReport.Frame`, and
     // its eight timestamp parameters became a `FramePhases` record — the same correction
