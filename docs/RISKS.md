@@ -25432,6 +25432,44 @@ Reverted by a precise inverse edit, confirmed by `git diff --stat` reporting no 
 
 *Evidence class: measured, with the revert verified bit-identical.*
 
+### FIXED 2026-09-08: the reference face is chosen by the mindist DIRECTION, not by separation
+
+**The seventh attempt failed on one line, and naming that line is the fix.** Maximum separation is
+the standard convex reference test and it is wrong for a ledge: a body straddling the edge of a big
+floor brush is furthest outside a SIDE face, so the manifold measured against the side and its
+normal shoved the body sideways. A triangle cannot make that mistake, which is why the same code
+succeeded for terrain.
+
+**What the engine has instead is a DIRECTION.** IVP's mindist is a closest-feature pair, and the
+line between those features is the contact normal (`docs/findings/51`). `Gjk.Distance` already
+computes exactly that for each ledge pair here and its result was being thrown away on one contact —
+so the reference face is now the ledge plane whose outward normal is most aligned with it, which is
+the face the body is actually resting on.
+
+The manifold is then identical to the terrain one: incident body face, Sutherland–Hodgman against
+the ledge's remaining planes, one contact per surviving vertex at its own depth. **The single
+speculative contact is kept whenever the manifold raises nothing**, which is the separated case —
+deleting it would remove the pre-contact that stops a fast body tunnelling.
+
+| `corpse-drop`, the four valid seeds | before | seventh attempt | this |
+|---|---|---|---|
+| settle and sleep | 4 of 4 | 3 of 4 | **4 of 4** |
+| seed 1 settles at tick | 405 | never | **343** |
+| seed 1 resting z / lowest point | 19.2 / 14.5 | — | **25.2 / 17.0** |
+
+**Settling sooner AND resting higher is the shape of the right answer**: a body held by several
+contacts instead of one stops rotating about a single arm, and it stops sinking into the face it is
+held by.
+
+**Proved by sabotage, because a change that has never been red proves nothing.** Negating the
+alignment test — picking the face pointing AWAY from the mindist direction — returns `corpse-drop`
+to the baseline figures exactly (tick 405, z 19.2, lowest 14.5): the manifold stops firing and the
+single contact takes over again. So the measurement moves with this code and not with something
+else. Restored by the precise inverse edit.
+
+*Evidence class: measured on real map collision, with a sabotage control; read-from-source for the
+mindist direction being the contact normal.*
+
 **Evidence class: measured**, each item above with an exact before/after float and a reverted diff
 confirmed bit-identical to its prior baseline; **read-from-source** for `FUN_180096680`'s shape.
 

@@ -1063,6 +1063,146 @@ public sealed class IvpContact
     /// **The side planes are perpendicular to the triangle's own**, so this keeps the part of the
     /// incident face that is actually over the triangle and discards what hangs past an edge.
     /// </remarks>
+    private static int LedgeManifold(
+        IvpRigidBody body,
+        Vector3[] points,
+        Vector3 centre,
+        IvpWorldLedge ledge,
+        int ledgeIndex,
+        Vector3 direction,
+        ICollection<IvpContact> into)
+    {
+        if (body.Faces.Count == 0 || ledge.Planes.Count == 0)
+        {
+            return 0;
+        }
+
+        // The face the body is resting ON: the one whose outward normal best matches the direction
+        // between the closest features. See the call site for why this is not maximum separation.
+        int reference = -1;
+        float aligned = float.NegativeInfinity;
+
+        for (int plane = 0; plane < ledge.Planes.Count; plane++)
+        {
+            float towards = Vector3.Dot(ledge.Planes[plane].Normal, direction);
+
+            if (towards > aligned)
+            {
+                aligned = towards;
+                reference = plane;
+            }
+        }
+
+        if (reference < 0)
+        {
+            return 0;
+        }
+
+        (Vector3 referenceNormal, float referenceDistance) = ledge.Planes[reference];
+
+        // The incident face: the body face turned most squarely against the reference.
+        int incident = -1;
+        float facing = 0f;
+
+        for (int face = 0; face < body.Faces.Count; face++)
+        {
+            (int a, int b, int c) = body.Faces[face];
+
+            if (a >= points.Length || b >= points.Length || c >= points.Length)
+            {
+                continue;
+            }
+
+            Vector3 normal = Vector3.Cross(points[b] - points[a], points[c] - points[a]);
+
+            if (normal.LengthSquared() <= FloatEpsilon)
+            {
+                continue;
+            }
+
+            float against = Vector3.Dot(Vector3.Normalize(normal), referenceNormal);
+
+            if (incident < 0 || against < facing)
+            {
+                incident = face;
+                facing = against;
+            }
+        }
+
+        if (incident < 0)
+        {
+            return 0;
+        }
+
+        (int first, int second, int third) = body.Faces[incident];
+
+        List<Vector3> polygon = [points[first], points[second], points[third]];
+
+        // Sutherland-Hodgman against the ledge's SIDE planes — every plane but the reference, which
+        // is the surface being measured against rather than a boundary of it. A ledge's planes face
+        // outward, so a point is inside while `dot(N, p) - D <= 0`.
+        for (int plane = 0; plane < ledge.Planes.Count && polygon.Count > 0; plane++)
+        {
+            if (plane == reference)
+            {
+                continue;
+            }
+
+            (Vector3 normal, float distance) = ledge.Planes[plane];
+
+            List<Vector3> kept = [];
+
+            for (int index = 0; index < polygon.Count; index++)
+            {
+                Vector3 current = polygon[index];
+                Vector3 next = polygon[(index + 1) % polygon.Count];
+
+                float here = Vector3.Dot(normal, current) - distance;
+                float there = Vector3.Dot(normal, next) - distance;
+
+                if (here <= 0f)
+                {
+                    kept.Add(current);
+                }
+
+                if ((here <= 0f) != (there <= 0f) && MathF.Abs(here - there) > FloatEpsilon)
+                {
+                    kept.Add(current + ((next - current) * (here / (here - there))));
+                }
+            }
+
+            polygon = kept;
+        }
+
+        int raised = 0;
+
+        foreach (Vector3 at in polygon)
+        {
+            // The same threshold the terrain manifold settled on: at or below the face, measured by
+            // real corpses rather than by the synthetic slope fixture.
+            float depth = referenceDistance - Vector3.Dot(referenceNormal, at);
+
+            if (depth < 0f)
+            {
+                continue;
+            }
+
+            raised++;
+
+            into.Add(new IvpContact
+            {
+                Body = body,
+                Arm = (at.X - centre.X, at.Y - centre.Y, at.Z - centre.Z),
+                Normal = (referenceNormal.X, referenceNormal.Y, referenceNormal.Z),
+                Depth = depth,
+                Point = -1,
+                Feature = IvpWorldCollision.FeatureForLedge(ledgeIndex),
+            });
+        }
+
+        return raised;
+    }
+
     private static List<Vector3> Clip(List<Vector3> polygon, IvpWorldTriangle triangle)
     {
         Vector3[] corners = [triangle.A, triangle.B, triangle.C];
@@ -1210,12 +1350,18 @@ public sealed class IvpContact
         {
             float bodyRadius = 0f;
 
+            // The hull in world space, kept because the manifold below needs the actual points and
+            // not just a support direction — computing it per ledge would repeat this per ledge.
+            Vector3[] hullPoints = new Vector3[body.Hull.Count];
+
             for (int index = 0; index < body.Hull.Count; index++)
             {
                 (float x, float y, float z) = body.Hull[index];
                 float reach = MathF.Sqrt((x * x) + (y * y) + (z * z));
 
                 bodyRadius = MathF.Max(bodyRadius, reach);
+
+                hullPoints[index] = centre + Vector3.Transform(new Vector3(x, y, z), orientation);
             }
 
             Vector3 BodySupport(Vector3 direction)
@@ -1280,18 +1426,41 @@ public sealed class IvpContact
 
                 covered.Add(ledgeIndex);
 
-                into.Add(new IvpContact
+                // **One contact per pair cannot hold a box flat** (B306): one contact has one arm,
+                // and a body supported at a single point rotates about it. The engine's own answer
+                // is a manifold, which `AgainstTerrain` already builds for triangles — this is that
+                // for a ledge, and the ONLY thing it takes from the pair is which face to measure.
+                //
+                // **The reference face is chosen by alignment with the GJK normal, and that choice
+                // is the whole fix.** An earlier version picked the plane the hull was furthest
+                // OUTSIDE of, which is the standard convex test and is wrong here: a body straddling
+                // the edge of a big floor brush is furthest outside a SIDE face, so the contact
+                // normal shoved it sideways instead of holding it up, and `corpse-drop` went from
+                // four seeds settling to three. `manifold.Normal` is the direction between the
+                // closest features — IVP's mindist answer — so the face most aligned with it is the
+                // face the body is actually resting on.
+                int raised = LedgeManifold(
+                    body, hullPoints, centre, ledge, ledgeIndex, manifold.Normal, into);
+
+                // **The speculative contact stays when the manifold raises nothing**, which is the
+                // separated case: every clipped vertex is still outside the face, so there is no
+                // depth to resolve and only a closing velocity to cancel. Replacing it wholesale
+                // would delete the pre-contact that stops a fast body tunnelling.
+                if (raised == 0)
                 {
-                    Body = body,
-                    Arm = (
-                        manifold.PointOnA.X - centre.X,
-                        manifold.PointOnA.Y - centre.Y,
-                        manifold.PointOnA.Z - centre.Z),
-                    Normal = (manifold.Normal.X, manifold.Normal.Y, manifold.Normal.Z),
-                    Depth = MathF.Max(0f, Slop - manifold.Distance),
-                    Point = -1,
-                    Feature = IvpWorldCollision.FeatureForLedge(ledgeIndex),
-                });
+                    into.Add(new IvpContact
+                    {
+                        Body = body,
+                        Arm = (
+                            manifold.PointOnA.X - centre.X,
+                            manifold.PointOnA.Y - centre.Y,
+                            manifold.PointOnA.Z - centre.Z),
+                        Normal = (manifold.Normal.X, manifold.Normal.Y, manifold.Normal.Z),
+                        Depth = MathF.Max(0f, Slop - manifold.Distance),
+                        Point = -1,
+                        Feature = IvpWorldCollision.FeatureForLedge(ledgeIndex),
+                    });
+                }
             }
         }
 
