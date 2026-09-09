@@ -349,41 +349,67 @@ public sealed class JitterProbe : IProbe
             return;
         }
 
-        int statedTicks = track.Keyframes[to].Tick - track.Keyframes[from].Tick;
+        // **Measured on the APPLIED times, not the arrival ticks** (B370). Arrival spacing is the wire's
+        // cadence and has nothing to do with how fast the door moved: the same 111-unit granary shutter
+        // read 25 ticks in a quiet moment and 50 in a busy one, purely because the server sent its
+        // updates further apart. The interpolation runs on `GetSimulationTime()`, so the duration the
+        // demo STATED is the span between the applied times of the run's two ends.
+        int statedTicks = track.AppliedAt(to) - track.AppliedAt(from);
 
-        // **The drawn run is measured by when the sampled Z leaves one end and reaches the other**, in
-        // the sampled window only. A run outside the window reports nothing rather than a wrong number.
+        if (statedTicks <= 0)
+        {
+            return;
+        }
+
+        // **The drawn run is measured by when the sampled Z leaves one end and reaches the other.**
+        // Thresholds at 1% and 99% rather than 5% and 95%: the old band covered nine tenths of the
+        // travel and reported it as the whole, which biased every ratio down by about a tenth before
+        // anything real was measured.
         double began = double.NaN;
         double ended = double.NaN;
+        bool clipped = false;
 
-        foreach ((double tick, _, _, float z) in samples)
+        for (int index = 0; index < samples.Count; index++)
         {
+            (double tick, _, _, float z) = samples[index];
             float along = Math.Abs(z - startZ);
 
-            if (double.IsNaN(began) && along > travel * 0.05f)
+            if (double.IsNaN(began) && along > travel * 0.01f)
             {
+                // **A run already under way at the window's first sample is CLIPPED, not fast.** Its
+                // start is outside what was sampled, so `began` would be the window edge and the
+                // duration would come out short — which is most of what the 0.46x cluster was.
+                clipped = index == 0;
                 began = tick;
             }
 
-            if (!double.IsNaN(began) && along >= travel * 0.95f)
+            if (!double.IsNaN(began) && along >= travel * 0.99f)
             {
                 ended = tick;
                 break;
             }
         }
 
-        if (double.IsNaN(began) || double.IsNaN(ended))
+        if (double.IsNaN(began) || double.IsNaN(ended) || clipped)
         {
             return;
         }
 
         double drawnTicks = ended - began;
 
+        // **Speed against speed, which is the question.** A duration comparison cannot separate "the
+        // door moved at the wrong rate" from "the run detection picked a different span at each end";
+        // units per tick can, because a `func_door` has ONE speed and the map states it. Granary's is
+        // `speed='300'`, which at 66.67 ticks a second is 4.5 units a tick.
+        double statedSpeed = travel / statedTicks;
+        double drawnSpeed = drawnTicks > 0 ? travel / drawnTicks : 0d;
+
         output.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
-            $"    motion of {travel:F1} units: demo states {statedTicks} ticks " +
-            $"({statedTicks * interval:F2}s), drawn over {drawnTicks:F1} ticks " +
-            $"({drawnTicks * interval:F2}s) — {(statedTicks > 0 ? drawnTicks / statedTicks : 0d):F2}x"));
+            $"    tick {track.Keyframes[from].Tick} motion of {travel:F1} units: stated {statedTicks} ticks " +
+            $"({statedTicks * interval:F2}s, {statedSpeed:F2} u/tick), drawn {drawnTicks:F1} ticks " +
+            $"({drawnTicks * interval:F2}s, {drawnSpeed:F2} u/tick) — " +
+            $"{(statedSpeed > 0 ? drawnSpeed / statedSpeed : 0d):F2}x speed"));
     }
 
     /// <summary>Every track whose model matches, with the two numbers that decide whether it moves right.</summary>

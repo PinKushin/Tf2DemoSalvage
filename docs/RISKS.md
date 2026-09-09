@@ -27112,7 +27112,74 @@ that is what separates a regression from an era problem. Nothing has been read f
 
 *Evidence class: owner observation with a screenshot, unreproduced by any instrument.*
 
-### B370 2026-09-09: the granary shutters — the mechanism is now measured, and the 2008 demo cannot show it
+### B370 OPEN 2026-09-09: measured after B382/B383 — a full-travel door is drawn at 80% of the map's own speed
+
+**Run on the owner's request, after the interpolation histories landed, and it confirms his report with a
+number.** `jitter 20130518_0313_cp_granary_blu_blu '*'` — 297 brush-entity tracks, 32 runs of real
+vertical motion.
+
+**The control is the MAP, not our data**, which is what makes this a measurement rather than three correct
+readings of a wrong model. Granary's `func_door` carries `speed='300'`, and the demo's own
+`IntervalPerTick` is 0.015 (66.67 ticks a second), so the correct drawn speed is exactly **4.5 units a
+tick**. The distribution of drawn speeds is bimodal against it:
+
+| drawn speed | runs | travel | verdict |
+|---|---|---|---|
+| 3.42 – 3.82 u/tick (mean ≈ 3.6) | **26** | every run of 111 – 126 units | **76 – 85% of 4.5** |
+| 4.16 – 4.55 u/tick | 5 | every run of 12.5, 35 and 76.5 units | straddles 4.5 exactly |
+| 7.43 u/tick | 1 | 116 units | faster than the door can move — a run-detection artefact |
+
+**The error is a near-constant +7 ticks, not a proportional rate error**, which is the useful part:
+
+| travel | drawn | correct at 4.5 u/tick | error |
+|---|---|---|---|
+| 12.5 u | 2.9 t | 2.8 t | +0.1 |
+| 35.0 u | 7.8 t | 7.8 t | 0 |
+| 76.5 u | 16.8 t | 17.0 t | −0.2 |
+| 111.0 u | 31.7 t | 24.7 t | **+7.0** |
+| 113.9 u | 33.0 t | 25.3 t | **+7.7** |
+| 116.0 u | 32.7 t | 25.8 t | **+6.9** |
+| 126.0 u | 34.8 t | 28.0 t | **+6.8** |
+
+Seven ticks is one interpolation window — `InterpolationDelayTicks` is 8 — and a short travel carries none
+of it. **That is a lead and not a conclusion**: the arithmetic says the long runs contain about one extra
+window and the short ones do not, and nothing here says WHERE it is spent. A late start would look exactly
+like the owner's *"he is very very close to the door by the time it opens"*, and so would a stall part-way.
+
+**What is NOT established, and the next step for each:**
+
+- **Where the seven ticks go.** Needs one long run sampled at sub-tick resolution, which the per-entity
+  mode cannot currently reach: entity 328 has EIGHT separate tracks on this demo and `TrackFor` returns
+  one of them, so `jitter <demo> 328 63630` reports "fewer than three samples". That is
+  `docs/memory/an-entity-index-does-not-name-a-track.md` — the probe needs to select a track by index
+  PLUS tick before it can answer.
+- **Whether it is a start, an end, or a stall.** Unmeasured. The 32-run survey reports duration only.
+- **Whether B382/B383 changed it.** No before-and-after: the probe's own arithmetic was corrected in the
+  same pass (see below), so the old numbers are not comparable to these.
+
+#### The instrument was wrong first, and three ways
+
+Worth recording because the first run of this survey reported doors drawn FASTER than stated — 0.46x to
+0.94x — which is the opposite of the owner's report and would have been filed as "no defect found".
+
+1. **`statedTicks` used ARRIVAL ticks.** That measures the wire's cadence, not the door: the same
+   111-unit shutter read 25 ticks in a quiet moment and 50 in a busy one purely because the server sent
+   its updates further apart. Now measured on `AppliedAt`, the clock the interpolation runs on.
+2. **A run already under way at the sampled window's first sample was reported as fast, not clipped.**
+   Its start lay outside what was sampled, so the duration came out short — most of the 0.46x cluster.
+   Now refused.
+3. **The 5% / 95% band covered nine tenths of the travel and called it the whole**, biasing every ratio
+   down by about a tenth before anything real was measured. Now 1% / 99%.
+
+The reported figure is also `speed` against `speed` rather than duration against duration, because a
+`func_door` has ONE speed and the map states it, where a duration comparison cannot separate a wrong rate
+from a run detector picking a different span at each end.
+
+*Evidence class: measured for the drawn speeds and the run counts; read-from-source for `speed='300'` and
+the tick interval; ARITHMETIC for the +7 ticks and for "one interpolation window", which is why the
+mechanism is named as not established.*
+
+### B370 2026-09-09: the granary shutters — an earlier mechanism, and the 2008 demo cannot show it
 
 **The owner's note asked for this to be recorded rather than chased, and it now has a measured cause.**
 The `jitter` probe surveys every brush-entity track and reports how many keyframes carry a simulation
