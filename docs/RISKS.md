@@ -9919,6 +9919,49 @@ reads as a rendering difference. So the first version should compare a STILL fro
 the recorded camera, where both sides take their view from the demo rather than from a person
 flying — which is the one camera the two are guaranteed to agree on.
 
+### B161 PART-BUILT 2026-09-09 — everything except the shutter
+
+`tools/tf2-reference-capture.ps1` exists and does all of it but the last step. **What is proven, by
+running it seven times against `cp_process_f12`:**
+
+- **It launches, plays and cleans up.** The demo is copied into `tf/`, played by a generated config,
+  and removed afterwards along with the config; the game is killed if it outlives the run. Verified
+  clean afterwards.
+- **The seek is exact.** `demo_pauseatservertick` + `demo_gototick` puts the engine on the requested
+  tick, and the engine says so: `Demo paused at server tick 106270`.
+- **`-hijack` delivers commands to the running instance**, which is what makes any of this possible.
+
+**Three wrong turns, each eliminated with evidence rather than reasoning:**
+
+1. **A `wait`-chain in the exec'd config never fires.** `playdemo` triggers a level load and **a
+   level load flushes the command buffer**. The config definitely ran — only it could have issued
+   the `playdemo` that appears in the log — and everything queued behind it was gone.
+2. **"The log stopped growing" is not "the seek finished".** That heuristic fired mid-seek, the
+   commands after it were sent into a busy engine and lost, and the pause message then appeared as
+   the LAST line of the log — after the screenshot had already been asked for. Replaced by waiting
+   for the engine's own arrival line. Synchronise on the condition, never the clock.
+3. **A paused demo renders no frames, and a screenshot is taken on the next frame rendered.** So
+   the pause that makes the seek exact is the thing that prevents the picture — the
+   guard-is-the-mechanism shape again.
+
+**What is NOT solved, stated plainly:** `jpeg` and `screenshot` write nothing while a demo is
+loaded. Twelve `jpeg` commands were delivered over ten seconds of tenth-speed playback and produced
+no file anywhere — not in `tf/screenshots`, not as `.tga`, not in Steam's own screenshot store
+(`userdata/<id>/760/remote/440/screenshots`, which was checked and holds only the one menu capture).
+Every command was accepted silently: no `Unknown command` for `demo_resume`, `demo_timescale`,
+`jpeg` or `screenshot` anywhere in the log. An `echo` control sent at the same moment DID appear, so
+the commands were landing.
+
+**The one case that worked was the main menu**, which is the clue worth starting from: a screenshot
+taken with no level loaded lands in `tf/screenshots` normally. Whatever suppresses it in a demo is
+the whole remaining question — the candidates not yet eliminated are that `demo_resume` does not
+actually unpause (nothing was logged either way, and no frame appears to have advanced), and that
+the engine will not render at all while its window is not genuinely foreground, which
+`SetForegroundWindow` from a background process does not reliably achieve.
+
+**So the golden comparison is still NOT DONE**, and B373's last item stays open. This entry moved
+from "filed" to "one step short", which is progress worth having but is not the measurement.
+
 ### B160, measured at last: two defects stacked (2026-08-23)
 
 Five aimed changes were made at this entry today and four fixed nothing, every one reasoned from a
