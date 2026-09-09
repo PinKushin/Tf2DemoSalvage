@@ -156,6 +156,32 @@ public static class RagdollProps
                     // anyone who died looking up.
                     Yaw = corpse.Yaw,
                     Skin = skin,
+
+                    // **What the player was DOING when they died, so the corpse can be posed the
+                    // way the engine poses it** (B316). `CreateTFRagdoll` copies the player's own
+                    // animation across for anyone but the local player —
+                    //
+                    //     m_flAnimTime = pPlayer->m_flAnimTime;
+                    //     SetSequence( pPlayer->GetSequence() );
+                    //     m_flPlaybackRate = pPlayer->GetPlaybackRate();
+                    //
+                    // (`c_tf_player.cpp:757-766`), and a SourceTV recording has no local player at
+                    // all, so every corpse in one takes that branch.
+                    //
+                    // **The wire already carries what that sequence was chosen FROM, on the corpse
+                    // itself.** `m_vecRagdollVelocity` is the player's velocity at the moment of
+                    // death and `m_bOnGround` is their ground state, which are the two inputs
+                    // `PlayerAnimation` needs — so this needs no capture from the player's own
+                    // entity, which is just as well: a player's speed is never on the wire and is
+                    // derived from position deltas at draw time.
+                    //
+                    // **Horizontal only**, because the activity a player is in is chosen by ground
+                    // speed; the vertical component is what the jump and fall activities read from
+                    // the ground flag instead.
+                    Speed = corpse.Velocity is { } moving
+                        ? MathF.Sqrt((moving.X * moving.X) + (moving.Y * moving.Y))
+                        : null,
+                    Flags = corpse.OnGround ? PlayerActivityState.OnGround : 0,
                 },
                 ClassName: RagdollClassName,
 
