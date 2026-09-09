@@ -1765,11 +1765,49 @@ public sealed class EntityState
     /// components look like. Reading it positionally turns every prop in the map to face the wrong
     /// way — a picture that cannot be checked without already knowing the map.
     /// </remarks>
-    public (float Pitch, float Yaw, float Roll)? Angles() =>
-        _properties.TryGetValue($"{BaseEntityTable}.{AnglesProperty}", out PropertyValue angles) &&
-        angles.Kind == PropertyValueKind.Vector
-            ? angles.AsVector
-            : null;
+    public (float Pitch, float Yaw, float Roll)? Angles()
+    {
+        if (_properties.TryGetValue(
+                $"{BaseEntityTable}.{AnglesProperty}", out PropertyValue angles) &&
+            angles.Kind == PropertyValueKind.Vector)
+        {
+            return angles.AsVector;
+        }
+
+        // **The same rule as `Origin()`, and for the same classes** (B372). `CTFBaseRocket` declares
+        // its own rotation beside its own origin — `RecvPropQAngles( RECVINFO_NAME(
+        // m_angNetworkAngles, m_angRotation ) )`, `tf_weaponbase_rocket.cpp:44` — so a projectile's
+        // facing arrives keyed `DT_TFBaseRocket.m_angRotation` and `DT_BaseEntity` never carries it.
+        //
+        // **Fixing the origin alone would have drawn every rocket at the identity rotation**: on
+        // screen and pointing the wrong way, which is the failure that looks like a modelling fault
+        // rather than a decode one ([[a-property-can-be-declared-by-any-table]]).
+        string suffix = $".{AnglesProperty}";
+        string? declaring = null;
+        long newest = long.MinValue;
+
+        foreach (string key in _properties.Keys)
+        {
+            if (!key.EndsWith(suffix, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            long when = Sequence(key);
+
+            if (when > newest)
+            {
+                newest = when;
+                declaring = key;
+            }
+        }
+
+        return declaring is not null &&
+            _properties.TryGetValue(declaring, out PropertyValue found) &&
+            found.Kind == PropertyValueKind.Vector
+                ? found.AsVector
+                : null;
+    }
 
     /// <summary>Which animation the entity is playing.</summary>
     /// <returns>The sequence number, or <c>null</c> when the entity does not animate.</returns>
@@ -2270,6 +2308,56 @@ public sealed class EntityState
             {
                 (float x, float y) = origin.AsVectorXY;
                 return (x, y, Number($"{table}.{OriginZProperty}") ?? 0f);
+            }
+        }
+
+        // **Any table that DECLARES an origin, because the three above are not the only ones**
+        // (B372). A class may declare `m_vecOrigin` in its own table rather than inherit
+        // `DT_BaseEntity`'s, and the engine does not care which: `RECVINFO_NAME( m_vecNetworkOrigin,
+        // m_vecOrigin )` binds the same proxy wherever it appears, so the property NAME is the
+        // contract and the table is not ([[wire-names-are-strings]],
+        // [[a-property-name-needs-its-declaring-table]]).
+        //
+        // **Every projectile in the game arrives this way and every one of them was dropped.**
+        // `CTFBaseRocket` declares its own origin and angles (`tf_weaponbase_rocket.cpp:43`), so a
+        // rocket's position was invisible to this method, `DemoTimeline` returned before creating a
+        // track, and 3,846 rocket updates in `z1800` produced nothing to draw. The named tables are
+        // still tried FIRST, because a player's local/non-local pair genuinely has a priority
+        // between them that this fallback must not disturb.
+        string suffix = $".{OriginProperty}";
+        string? declaring = null;
+        long newest = long.MinValue;
+
+        foreach (string key in _properties.Keys)
+        {
+            if (!key.EndsWith(suffix, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            long when = Sequence(key);
+
+            if (when > newest)
+            {
+                newest = when;
+                declaring = key;
+            }
+        }
+
+        if (declaring is not null && _properties.TryGetValue(declaring, out PropertyValue found))
+        {
+            if (found.Kind == PropertyValueKind.Vector)
+            {
+                return found.AsVector;
+            }
+
+            if (found.Kind == PropertyValueKind.VectorXY)
+            {
+                (float x, float y) = found.AsVectorXY;
+
+                string owner = declaring[..^suffix.Length];
+
+                return (x, y, Number($"{owner}.{OriginZProperty}") ?? 0f);
             }
         }
 

@@ -181,6 +181,93 @@ public sealed class EntityStateTableTests
     }
 
     [Test]
+    public void EntityState_OriginDeclaredByTheClasssOwnTable_IsStillFound()
+    {
+        // **A class may declare `m_vecOrigin` in its OWN table instead of inheriting
+        // `DT_BaseEntity`'s, and the engine does not care which.** `CTFBaseRocket` does exactly
+        // that — `RecvPropVector( RECVINFO_NAME( m_vecNetworkOrigin, m_vecOrigin ) )` inside
+        // `BEGIN_NETWORK_TABLE( CTFBaseRocket, DT_TFBaseRocket )`, `tf_weaponbase_rocket.cpp:43` —
+        // so the property arrives keyed `DT_TFBaseRocket.m_vecOrigin`. The recv proxy is bound by
+        // NAME wherever the property is declared, which is what makes the table a detail here.
+        //
+        // **Reading only a fixed list of tables dropped every projectile in the game** (B372):
+        // `Origin()` answered null, `DemoTimeline` returned before creating a track, and 3,846
+        // rocket updates in `z1800` produced nothing to draw while the decoder saw all of them.
+        //
+        // The values are a real rocket's, out of that demo's own trace at entity 658.
+        EntityStateTable rockets = new(EntityBaselines.None);
+
+        rockets.Apply(Entity(3, EntityUpdateType.Enter,
+            Property("DT_TFBaseRocket", "m_vecOrigin",
+                PropertyValue.FromVector(-414f, -2288f, 108f))));
+
+        rockets.TryGet(3, out EntityState? rocket).ShouldBeTrue();
+        rocket.Origin().ShouldBe((-414f, -2288f, 108f));
+    }
+
+    [Test]
+    public void EntityState_ANamedTable_WinsOverAClassTableCarryingTheSameProperty()
+    {
+        // **The control for the test above, and the reason the fallback runs LAST.** A player's
+        // local/non-local pair has a real priority between them, so a scan over every table that
+        // happens to carry an origin must not be allowed to answer first and disturb it.
+        //
+        // Without this, "searches every table" and "searches the named tables then every table"
+        // agree on every input that only ever supplies one of them — which is every other test here.
+        EntityStateTable both = new(EntityBaselines.None);
+
+        both.Apply(Entity(4, EntityUpdateType.Enter,
+            Property("DT_TFNonLocalPlayerExclusive", "m_vecOrigin",
+                PropertyValue.FromVectorXY(128f, 256f)),
+            Property("DT_TFNonLocalPlayerExclusive", "m_vecOrigin[2]",
+                PropertyValue.FromFloat(64f)),
+            Property("DT_SomeOtherTable", "m_vecOrigin",
+                PropertyValue.FromVector(-1f, -2f, -3f))));
+
+        both.TryGet(4, out EntityState? player).ShouldBeTrue();
+        player.Origin().ShouldBe((128f, 256f, 64f));
+    }
+
+    [Test]
+    public void EntityState_AnglesDeclaredByTheClasssOwnTable_AreStillFound()
+    {
+        // **The other half of B372, and fixing only the origin would have hidden it.** A rocket
+        // declares its rotation beside its position — `RecvPropQAngles( RECVINFO_NAME(
+        // m_angNetworkAngles, m_angRotation ) )`, `tf_weaponbase_rocket.cpp:44` — so with the
+        // origin found and the angles not, every projectile would be drawn in the right PLACE at
+        // the identity rotation, pointing the wrong way. That reads as a modelling fault rather
+        // than a decode one, which is why it gets its own test rather than riding along.
+        //
+        // A QAngle is (pitch, yaw, roll), not (x, y, z); the values are rocket entity 658's out of
+        // `z1800`'s own trace.
+        EntityStateTable rockets = new(EntityBaselines.None);
+
+        rockets.Apply(Entity(5, EntityUpdateType.Enter,
+            Property("DT_TFBaseRocket", "m_angRotation",
+                PropertyValue.FromVector(17.143f, 274.286f, 0f))));
+
+        rockets.TryGet(5, out EntityState? rocket).ShouldBeTrue();
+        rocket.Angles().ShouldBe((17.143f, 274.286f, 0f));
+    }
+
+    [Test]
+    public void EntityState_AnglesOnTheBaseTable_WinOverAClassTableCarryingThem()
+    {
+        // The control for the test above: `DT_BaseEntity` is still tried first, so a class table
+        // that also carries `m_angRotation` cannot displace it. Without this, "reads any table" and
+        // "reads the base table then any" agree on every other input here.
+        EntityStateTable both = new(EntityBaselines.None);
+
+        both.Apply(Entity(6, EntityUpdateType.Enter,
+            Property("DT_BaseEntity", "m_angRotation", PropertyValue.FromVector(0f, 90f, 0f)),
+            Property("DT_SomeOtherTable", "m_angRotation",
+                PropertyValue.FromVector(45f, 45f, 45f))));
+
+        both.TryGet(6, out EntityState? prop).ShouldBeTrue();
+        prop.Angles().ShouldBe((0f, 90f, 0f));
+    }
+
+    [Test]
     public void EntityState_TheLaunchEra_SendsOriginAsOneVector()
     {
         // An era change, found by this accumulator producing zero positioned players on the 2007

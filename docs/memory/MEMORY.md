@@ -57,6 +57,7 @@
 - [An empty search needs a control](an-empty-search-needs-a-control.md) — absence is often about the grep.
 - [A map cannot have a hole](a-map-cannot-have-a-hole.md) — name the reading, not the geometry.
 - [Wire names are strings](wire-names-are-strings.md) — SENDINFO_NAME sends under its second argument.
+- [A property can be declared by any table](a-property-can-be-declared-by-any-table.md) — a fixed table list dropped every projectile.
 - [A running client caches its config](a-running-client-caches-its-config.md) — a stale read fakes a failed fix.
 - [Nothing is closed](nothing-is-closed.md) — SDK, headers, shipped data, binaries, decompiler.
 - [Death is EF_NODRAW, not an animation](death-is-ef-nodraw-not-an-animation.md) — a separate CTFRagdoll.
