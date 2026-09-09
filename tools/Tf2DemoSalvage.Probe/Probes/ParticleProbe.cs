@@ -279,22 +279,15 @@ public sealed class ParticleProbe : IProbe
                     $"  '{trail.Name}': {applied} of {trail.Operators.Count} operators implemented, " +
                     $"{unknown} not"));
 
-                // Twenty steps at the engine's own tick, with particles born each step.
-                ParticleStore store = new();
+                // **The real runtime**, emitting at the system's own rate rather than one a step:
+                // emit, operate, reap, with the emitter moving as a rocket would.
+                ParticleEffect effect = new(trail);
+                ParticleStore store = effect.Particles;
                 const float step = 1f / 66f;
 
                 for (int tick = 0; tick < 20; tick++)
                 {
-                    _ = ParticleSystems.Spawn(trail, store, new Vector3(tick * 4f, 0f, 0f), 0.2f);
-                    store.Tick(step);
-
-                    foreach (ParticleFunction one in trail.Operators)
-                    {
-                        if (known.TryGetValue(one.Function, out IParticleOperator? run))
-                        {
-                            run.Operate(store, one, step);
-                        }
-                    }
+                    effect.Step(new Vector3(tick * 4f, 0f, 0f), step);
                 }
 
                 output.WriteLine(string.Create(

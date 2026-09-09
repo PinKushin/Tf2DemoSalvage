@@ -25948,10 +25948,27 @@ three pieces and the third has a documented trap:
    Drawing after the models means it cannot leak onto anything, and self-contained state means it
    inherits nothing — which is exactly the property the existing sprite pass documents about itself.
 
-   **What still makes this one chunk rather than three:** the pass alone draws nothing and would be
-   dead code, so it has to land with the scene system that fills a store and the sheet that gives a
-   particle a texture. That is the next session's first task, and the risk that was blocking it is
-   now measured rather than feared.
+   **BUILT: the runtime that fills a store.** `ParticleEffect` is one running instance — emit,
+   operate, reap, in that order, because a particle born this step must be operated on this step or
+   it shows its raw spawn state for a frame, and reaping last means one that died this step is never
+   drawn.
+
+   **The emission rate is a FRACTION of a particle per step and the remainder is carried.** At
+   `emission_rate 128` on a 66-tick clock that is 1.94 a step: truncating emits one and loses a
+   third of the trail, rounding emits two and inflates it. **`emission_duration 0` means FOREVER**,
+   the one sentinel here, and reading it the other way emits nothing at all.
+
+   The whole `rockettrail_!` definition now runs through it:
+
+   ```
+   4 of 4 operators implemented
+   after 20 steps: 45 alive, first alpha 0.791, first radius 7.538
+   ParticleSprites: 258 corners for 45 particles
+   ```
+
+   **What remains is the pass and the sheet.** The pass alone draws nothing and would be dead code,
+   so it lands with the material lookup — and the material is known: the definition declares
+   `effects\rocketrailsmoke.vmt` and this project already reads VMTs.
 
 **That third piece is why this stops at the sprite builder rather than continuing into the viewer.**
 Everything above it is testable without a device and is tested; the pass is not, and the specific
