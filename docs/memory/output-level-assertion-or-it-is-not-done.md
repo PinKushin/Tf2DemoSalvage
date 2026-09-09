@@ -64,7 +64,7 @@ Distinct from [[measure-the-output-not-the-capability]], which is about a *repor
 predicate rather than from the artefact. This one is about the *test suite* — the failure is not a
 wrong number, it is a feature that never ran.
 
-Related: [[real-data-hides-bugs-small-inputs-expose]], [[logs-are-the-debugger]].
+Related: [[fixtures-are-the-weak-point]], [[logs-are-the-debugger]].
 
 **Four more memories were folded into this one on 2026-09-04**, all instances of the same wiring gap
 at a different scale: the three test levels and why only the third can fail when wiring is removed, a
@@ -207,7 +207,7 @@ level up — the instrument reports a capability that exists and is not connecte
   says "if removed, lower the floor" — the comment recording *which* tests went and *why nothing was
   lost* is the artefact that makes the deletion reviewable later.
 
-Related: [[unreachable-can-be-proved-not-just-observed]] (prove it dead, do not assume),
+Related: [[most-of-a-decoder-is-untested]] (prove it dead, do not assume),
 [[one-place-or-it-drifts]] (the duplicate constant that came with it), and B196, where two shipped
 features were only ever assigned `null` and the compiler could not see it either.
 

@@ -75,6 +75,6 @@ ragdoll limit clamp — took two calls and no guessing:
 Three scalars inserted lane by lane, plus the bisector's fourth component. The decompiler had
 suggested that shape; the disassembly established it.
 
-Related: [[an-empty-search-needs-a-control]] and [[print-a-value-somebody-can-recognise]] are the
+Related: [[instrument-bugs-outnumber-decoder-bugs]] and [[instrument-bugs-outnumber-decoder-bugs]] are the
 same discipline pointed at instruments rather than at reading — report the value that was USED,
 carried from where it was produced, never one recalled or recomputed by a second route.

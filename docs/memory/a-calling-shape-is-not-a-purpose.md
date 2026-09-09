@@ -43,5 +43,5 @@ of the convention rather than of the function. **The way out both times was a pu
 written field**: `simresult_e` named this one in four lines, where months of shape-matching had
 not. And when a shape-based label is later falsified, keep it struck through with what
 killed it: it is the second time a wrong conclusion here came from a pattern that was genuinely
-present and genuinely uninformative. Related: [[an-empty-search-needs-a-control]],
-[[a-flag-with-no-field-is-set-by-the-loop]], [[absent-from-the-sdk-is-not-unreadable]].
+present and genuinely uninformative. Related: [[instrument-bugs-outnumber-decoder-bugs]],
+[[a-flag-with-no-field-is-set-by-the-loop]], [[nothing-is-closed]].

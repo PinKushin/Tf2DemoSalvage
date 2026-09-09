@@ -459,3 +459,139 @@ tests; both numbers on screen were one behind, and nothing about the output said
 **How to apply:** redirect the gate to a file THIS invocation names, then read that file. Never grep
 a `/tmp/gate-*.txt` from an earlier step in the same breath as a fresh run — the two look identical
 in the transcript and only one of them is about the code as it stands now.
+
+---
+
+## `a-gate-in-flight-owns-the-tree` — an edit mid-run splits the measurement, and it still exits 0
+
+**The gate builds and tests one project at a time, so a source edit part-way through splits the run
+in two.** Done on 2026-09-06: `EntityState.cs` was edited while `build/gate.sh` was between
+projects. `core.trx` was written at 16:15 and the edit landed at 16:16, so **Core was measured
+against the OLD tree** while `scene`, `audio`, `presentation`, `content` and `corpus` rebuilt Core
+as a dependency and were measured against the NEW one. `DemoTimeline.cs` then changed at 16:20,
+mid-corpus.
+
+**The run exited 0 and every count was above its floor.** That is the whole problem: nothing about
+the output says it measured two different trees, and a green gate is exactly what is used to decide
+a merge.
+
+**Why:** the gate's value is that it is one measurement of one tree. Editing under it produces a
+result that is neither a measurement of what was there before nor of what is there now, and it fails
+in the direction that matters — it can pass while the current tree is broken, because the project
+that would have caught it ran before the change.
+
+**How to apply:** while a gate is in flight, do documentation, reading and planning — never a source
+edit. If one happens anyway, say so and re-run rather than quietly using the result; the run is not
+evidence about the tree that exists. This is the same rule D145 states for subagents from the other
+side — *"the parent does not build or measure while one holds a source file"* — and the same family
+as [[insert-below-the-member-not-above-it]]'s note that a build break now costs whatever else is
+running.
+
+### Editing the SOURCE is a different rule from editing the SCRIPT, and weaker on purpose
+
+2026-09-04. `build/gate.sh` was untouched this time; the SOURCE was edited while the gate ran,
+mid-way through threading a parameter through four files. The gate reached
+`Tf2DemoSalvage.Rendering` after the first edits landed and before the last, found a tree that did
+not compile, and stopped:
+
+```
+content: 993 executed, 0 failed (floor 989)
+… error CS0103: The name '_tintBases' does not exist in the current context
+exit 1
+```
+
+**Nine of twelve, and this one at least exits 1** — the gate's own `run` fails when a project will
+not build, so it is louder than the byte-offset case. What it is not is a RESULT: the nine that
+passed were measured against a tree the other three never saw, so the run says nothing about the
+whole.
+
+The script is untouchable while it runs because a mid-line edit corrupts execution silently. Source
+is merely POINTLESS to edit while it runs — the gate measures whatever is on disk when it reaches
+each project, so an edit either arrives too late to be tested or splits the tree in half. Earlier
+runs in that session appeared to work only because the edits happened to finish before the gate
+reached those projects.
+
+### And a PROBE run is an instrument, so editing source under it fabricates findings
+
+Third variant, same afternoon. A scan was backgrounded — 139 `dotnet run --project …Probe -- vmt
+<material>` invocations, grepping each material's text for `transform` — while source was being
+edited in another window.
+
+`dotnet run` BUILDS. So the probe's output for each material became whichever build errors the tree
+had at that instant, and the grep matched them:
+
+```
+=== METAL/IBEAM001
+… error CS1573: Parameter 'BaseTransform' has no matching param tag …
+```
+
+**Two materials "found", both false**, and they look exactly like findings — a material name, then
+text containing the word searched for.
+
+The gate at least fails loudly when a project will not build. A probe does not: it exits zero per
+material and its output is prose, so a contaminated run reads as data. The real number came from a
+test run after a clean build — 21 of 412 — and disagreed with the scan entirely.
+
+**So the rule extends past the gate: while ANY backgrounded command builds this repo, the source is
+frozen.** Gate, probe, or a loop of either. Docs remain fair game, which is enough to stay busy.
+
+### A commit nobody ran may be the editor's own button
+
+**A commit appearing that this session did not run is not necessarily a hook or a rogue peer
+session.** On 2026-09-06 `68dd939f` landed mid-edit on `feat/ragdoll-bind-pose-frames`, with an
+accurate message describing half-finished work. The owner: *"i hit the github button at the top of
+t3 code not knowing what it did and it started a subagent that did that"*.
+
+**Why:** the search that followed went `git status` → `check-ignore` → `ls-files -v` → hooks config
+→ `ListAgents`, and none of them could have found it; there is no auto-commit hook in
+`~/.claude/hooks/` or `.claude/settings.json`, and the peer sessions listed were innocent.
+
+**How to apply:** when a commit appears that you did not make, ask the owner before auditing the
+hook configuration or suspecting a peer session — a UI button in the editor is the cheapest
+explanation and the one no amount of repository inspection reaches. Check `git log --format=%ad`
+for whether anything has landed SINCE, which is what says the actor stopped; the content itself was
+correct here and needed no undoing. The hazard is the same shape as the sections above: another
+actor writing the tree while a measurement runs.
+
+---
+
+## `the-viewer-suite-wants-the-gpu` — an abort is not a decoder defect, and the floor is what sees it
+
+**`Tf2DemoSalvage.Viewer3D.Tests` creates real Direct3D devices**, unlike every other non-UI suite
+here. It takes no desktop and needs no `run-exclusive.ps1`, but it does want a GPU nobody else has
+taken exclusively.
+
+**Seen once, 2026-08-20: `Test Run Aborted` at 192 of 512.** Another application was in exclusive full
+screen at the time — a video player — which is a known way for device creation to fail. It did not
+reproduce in four clean runs afterwards and nothing was captured from the crash, so this is a
+plausible cause rather than an established one. Recorded because the alternative is a future session
+chasing it as a decoder defect.
+
+**What made it visible at all is the count floor.** The run printed a summary and stopped; only
+comparing 192 against the project's known 512 said anything was wrong. That is the whole argument for
+exact floors rather than comfortable ones.
+
+**How to apply:** before treating a viewer-suite abort as a code defect, ask what else was on the
+screen, then re-run. A genuine crash reproduces; this did not. And do not confuse it with flake in the
+ordinary sense — [[ui-tests-run-every-time]] and the standing rule that flake is a defect still hold
+for anything that fails rather than aborts.
+
+**One trap noticed while chasing it, and it is much bigger than first written:** the console logger
+and the `.trx` disagree on the total, and **not by a constant**. First seen as one on this suite
+(console 511, `<Counters total="512">`), and measured on 2026-08-21 as **eleven** on
+`Content.Tests` — console `Total: 601`, trx `total="612"`. The gap grows with the number of skipped
+and `[Explicit]` tests, which the two count differently.
+
+`assert-test-count.sh` reads the trx, so **the floor is right and the console line is not**.
+
+**How to apply:** never compare a console `Total:` against a gate floor. It reads as tests having
+vanished, and it cost a real detour — 601 against a floor of 606 looked like eleven tests lost while
+six had just been ADDED. Read the counters instead:
+
+```bash
+dotnet test tests/<project> --logger "trx;LogFileName=check.trx" && \
+  find . -name check.trx | head -1 | xargs grep -oE '<Counters[^/]*/>'
+```
+
+Same family as [[logs-are-the-debugger]]: two instruments reporting "total" and meaning
+different things, with nothing on either line saying which.

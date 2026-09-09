@@ -29,4 +29,4 @@ maximum is — and check every candidate against it. Especially suspect any answ
 bit era had no room for, so CS:GO orderings are not evidence about TF2's wire layout.
 
 See [[numeric-decoding-traps]] for the other half of this: values that are wrong but plausible.
-Related: [[differential-beats-fixtures]], [[layer2-is-a-dependency-chain]].
+Related: [[fixtures-are-the-weak-point]], [[layer2-is-a-dependency-chain]].

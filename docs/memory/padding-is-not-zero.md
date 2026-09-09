@@ -33,4 +33,4 @@ round-trip property on it immediately — that is what caught this on the first 
 separates them before writing any of it down. See [[fallbacks-do-not-make-guesses-safe]].
 
 Related: [[fixtures-are-the-weak-point]], [[read-the-encoder-not-the-decoder]],
-[[two-recordings-of-one-value]].
+[[fixtures-are-the-weak-point]].

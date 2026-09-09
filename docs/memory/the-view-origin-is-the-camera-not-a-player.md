@@ -27,5 +27,5 @@ it in free look before believing it. And note the test shape that missed this fo
 unit test set `ViewOrigin` by hand, so all of them tested the arithmetic below the defect and none
 tested how a frame supplies it.
 
-See [[one-camera-or-the-cull-lies]], [[output-level-assertion-or-it-is-not-done]] and
+See [[instrument-bugs-outnumber-decoder-bugs]], [[output-level-assertion-or-it-is-not-done]] and
 [[a-dropped-field-falls-to-a-computed-default]].

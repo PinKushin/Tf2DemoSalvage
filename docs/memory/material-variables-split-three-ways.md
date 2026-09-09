@@ -34,6 +34,6 @@ code, with a citation attached.
 **How to apply:** when that test accuses a parameter, check which of the three kinds it is before
 touching the census. If it is a fourth kind nobody has modelled yet, the fix is a new
 `SdkInventory` method with a positive control asserting it found what it must — an empty scrape
-makes this test pass more easily, not less. See [[an-empty-search-needs-a-control]] and
-[[an-uncoverable-gap-is-usually-your-reader]]; the modulation story is
+makes this test pass more easily, not less. See [[instrument-bugs-outnumber-decoder-bugs]] and
+[[the-denominator-decides-what-can-be-lost]]; the modulation story is
 `docs/findings/26-material-modulation.md`.

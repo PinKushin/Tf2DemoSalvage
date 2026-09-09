@@ -42,5 +42,5 @@ than a missing feature. `$blendtintcoloroverbase` lerps between multiplying the 
 the albedo, and **self-illumination wins over both** — a pixel-shader limit, not an art decision
 (`skin_dx9_helper.cpp:269`).
 
-Related: [[print-a-value-somebody-can-recognise]] — how the paint decode was verified.
-[[half-a-mechanism-is-not-parity]] — implementing one proxy of the two is the same fault.
+Related: [[instrument-bugs-outnumber-decoder-bugs]] — how the paint decode was verified.
+[[parity-is-the-search-not-the-defence]] — implementing one proxy of the two is the same fault.

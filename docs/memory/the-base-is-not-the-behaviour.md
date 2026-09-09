@@ -33,5 +33,5 @@ contradict it.
 saying "dead, implementing it would be implementing nothing" is a real answer and stops the question
 being asked again.
 
-Related: [[unreachable-can-be-proved-not-just-observed]], [[a-guard-you-remove-may-be-the-mechanism]],
+Related: [[most-of-a-decoder-is-untested]], [[a-guard-you-remove-may-be-the-mechanism]],
 [[parity-is-the-search-not-the-defence]], [[nothing-is-closed]].

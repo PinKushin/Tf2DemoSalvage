@@ -37,11 +37,11 @@ and liveness already handled those. A column printing that count is the only rea
 
 So: **a correct measurement can be about the wrong quantity.** Before reporting a fix, measure the
 population the fix actually changes — not the population the theory is about. If that number is
-zero, the theory is wrong however green the suite is. See [[run-the-control-before-arguing]].
+zero, the theory is wrong however green the suite is. See [[instrument-bugs-outnumber-decoder-bugs]].
 
 **And read the log for the transition that did NOT happen.** A thirty-second run through a death
 logged one mode line and no fall to third person. That absence was sitting in the file the whole
 time; nobody had looked, because the demo had never run forward unattended until autoplay was fixed.
 
-Related: [[lookups-must-match-exactly]], [[nothing-is-closed]],
+Related: [[key-a-lookup-on-the-question]], [[nothing-is-closed]],
 [[instrument-bugs-outnumber-decoder-bugs]], [[output-level-assertion-or-it-is-not-done]].

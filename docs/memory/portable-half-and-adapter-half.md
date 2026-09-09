@@ -37,4 +37,4 @@ only `KeyNames` translates.
 **Check it by TFM, not by reading.** `grep -rl "System.Windows.Forms" managed --include=*.cs` over
 `Presentation` should match only prose in doc comments; if it compiles under `net10.0`, it is
 portable by construction. Related: [[ask-if-the-view-must-hold-it]],
-[[decide-home-and-parity-before-writing]], [[no-hardcoded-controls-ever]].
+[[conformance-test-before-implementation]], [[no-hardcoded-controls-ever]].

@@ -23,5 +23,5 @@ frame, wrong for a deliberate `Precache`, which now retries empty entries), and 
 to upload only when its OWN `Add` returned true, so a set grown anywhere else never reached the
 device — `EntityModelSet.Grown` now says so however it grew.
 
-See [[correct-counts-are-not-a-chain-of-custody]] and
+See [[instrument-bugs-outnumber-decoder-bugs]] and
 [[output-level-assertion-or-it-is-not-done]].

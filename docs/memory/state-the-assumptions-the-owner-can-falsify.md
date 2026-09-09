@@ -41,5 +41,5 @@ Then, at each measurement, say what a clean result would MEAN — because "instr
 
 This is the same rule as *"anything about a UI that cannot be verified by looking is a QUESTION for
 the user"*, moved one step earlier: it applies to the framing of the hunt, not only to its
-conclusion. Related: [[run-the-control-before-arguing]],
+conclusion. Related: [[instrument-bugs-outnumber-decoder-bugs]],
 [[ask-which-input-differs-before-bisecting]], [[nothing-is-closed]].

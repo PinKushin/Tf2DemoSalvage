@@ -24,7 +24,7 @@ Ten message types later, every corpus demo decodes end to end. Not one was a dec
 ## Why the differential misled here
 
 The per-snapshot differential that settled the flattening order (see
-[[differential-beats-fixtures]]) pointed straight at the decoder here, because **a dropped
+[[fixtures-are-the-weak-point]]) pointed straight at the decoder here, because **a dropped
 message renumbers every snapshot after it** and that is indistinguishable from values read at
 the wrong width.
 

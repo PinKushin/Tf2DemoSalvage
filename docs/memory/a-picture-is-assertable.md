@@ -61,5 +61,5 @@ loaded `MapAssets`, and `MapAssets` is a sealed class with `private init` member
 build one carrying a chosen material state, only load a real map and use what is on it. If the
 map has no material exercising the branch, there is no pixel test to write. That is exactly the
 position `$phongexponenttexture` was in (B334): cp_process_final resolves zero exponent maps while a
-real demo resolves 21. See [[run-the-control-before-arguing]] and
+real demo resolves 21. See [[instrument-bugs-outnumber-decoder-bugs]] and
 [[instrument-bugs-outnumber-decoder-bugs]].

@@ -47,7 +47,7 @@ because `CBaseViewModel`'s constructor sets it to zero — see
 [[sentinels-conflate-unknown-with-answer]] for why that direction matters. `cl_flipviewmodels`
 belongs to the person watching, not to the recording, so handedness never affects the lookup — only
 the cull mode at draw time. The defect was caught by cross-checking the model path against the
-player's networked `m_iClass` ([[two-recordings-of-one-value]]); the same test also showed the
+player's networked `m_iClass` ([[fixtures-are-the-weak-point]]); the same test also showed the
 owner's recollection of never playing sniper on a 2013 demo was wrong and the decode was right.
 
 ---

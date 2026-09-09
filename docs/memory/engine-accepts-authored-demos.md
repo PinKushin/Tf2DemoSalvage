@@ -54,7 +54,7 @@ before assuming a corpus of tiny specimens would be cheap.
 
 **Why this is worth keeping:** it is the strongest available evidence that the container and the
 message framing are understood, and it costs one edit plus one `playdemo`. Cheaper than any
-differential. See [[differential-beats-fixtures]] for the other direction, which tests the
+differential. See [[fixtures-are-the-weak-point]] for the other direction, which tests the
 decoder's reading rather than the writer's output.
 
 **Not a product feature.** The owner was explicit: this project is not a TAS tool, and cutting an

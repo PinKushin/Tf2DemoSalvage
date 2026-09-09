@@ -43,5 +43,5 @@ different variable and one that both orders satisfy.
 **How to apply:** when the claim contains the word *before*, *after*, *already* or *not yet*, ask
 which side has to READ the other. If the answer is "neither, they both just append", the test cannot
 fail and needs restructuring, not a bigger assertion. Related:
-[[instrument-bugs-outnumber-decoder-bugs]], [[a-duplicated-guard-cannot-be-tested]],
+[[instrument-bugs-outnumber-decoder-bugs]], [[most-of-a-decoder-is-untested]],
 [[most-of-a-decoder-is-untested]].

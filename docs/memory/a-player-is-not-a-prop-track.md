@@ -37,7 +37,7 @@ player path simply had no assignment, and a missing assignment is a default rath
   [[output-level-assertion-or-it-is-not-done]]. Nothing below it can.
 
 Related: [[a-dropped-field-falls-to-a-computed-default]], [[measure-the-output-not-the-capability]],
-[[an-empty-search-needs-a-control]].
+[[instrument-bugs-outnumber-decoder-bugs]].
 
 **Guarded as a class now, because a per-field test cannot catch the next field.**
 `PlayerPoseWiringCompletenessTests` (Scene.Tests) walks every property `ScenePlayer` and `ScenePose`

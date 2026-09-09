@@ -33,7 +33,7 @@ anyone looking further.
    entities the compiler had already bounds-checked, so a stride error lands outside ±16384 and a
    correct one cannot.
 
-Related: [[fixtures-are-the-weak-point]], [[real-data-hides-bugs-small-inputs-expose]],
+Related: [[fixtures-are-the-weak-point]], [[fixtures-are-the-weak-point]],
 [[instrument-bugs-outnumber-decoder-bugs]] — the first version of the falsifying test searched the
 game's archives instead of the map's pakfile and found 0 of 43, which looked like the bug and was
 the instrument. Story: `docs/findings/27-cubemap-placement.md`.

@@ -33,7 +33,7 @@ run**, which is now the explicit test in each handler.
 
 **How to apply.** Before widening a condition to reach a new case, ask what the narrow version was
 REFUSING, not just what it was allowing — and look for the engine's own refusal, which is usually a
-failed `Init` or an early return rather than a value. Related: [[half-a-mechanism-is-not-parity]],
+failed `Init` or an early return rather than a value. Related: [[parity-is-the-search-not-the-defence]],
 where an invariant one system keeps turns out to be another's unstated precondition.
 
 **And keep the pixel tests that have nothing to do with the feature.** Nothing in the proxy or

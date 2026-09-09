@@ -19,7 +19,7 @@ which looks exactly like a wrong primitive — the expensive place to go looking
 **The measurement needs a control or it proves nothing about the format.** Zero displacement faces
 reached is also what a wrong `dleaf_t` offset produces. The same walk reached **12,654 flat faces**,
 and 13845 − 1191 = 12654 exactly, so every flat face is reachable and no displacement face is. That
-is the format, not the reader. See [[an-empty-search-needs-a-control]].
+is the format, not the reader. See [[instrument-bugs-outnumber-decoder-bugs]].
 
 **How to apply:**
 

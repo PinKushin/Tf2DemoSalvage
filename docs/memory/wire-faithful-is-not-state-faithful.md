@@ -34,7 +34,7 @@ false of reading the merged result. Half a fix reads exactly like a whole one.
   came from one decoder and disagreed.
 - Confirm a decode against something outside this project when one exists. Fog is networked by the
   demo and authored in the map's BSP entity lump, and they matched — see
-  [[two-recordings-of-one-value]]. Pick the specimen that can falsify: viaduct's 213/174/221 fixes
+  [[fixtures-are-the-weak-point]]. Pick the specimen that can falsify: viaduct's 213/174/221 fixes
   the colour byte order, a grey map cannot.
 
 Related: [[measure-the-output-not-the-capability]], [[output-level-assertion-or-it-is-not-done]],

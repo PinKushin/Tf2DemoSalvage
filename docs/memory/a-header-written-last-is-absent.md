@@ -57,7 +57,7 @@ button — not as a parser error.
 wrote and once as a consequence of the commands. Walk the command stream and take the maximum
 tick — `DemoSurvey.Measure` does this, and only when the header states nothing, because a complete
 demo is authoritative and re-deriving it would mean reading 39 MB to confirm a number already in
-hand. See [[two-recordings-of-one-value]].
+hand. See [[fixtures-are-the-weak-point]].
 
 **The general rule for this format:** any field a writer fills in at the end is a field that is
 absent from a large fraction of real files. Treat "the header says zero" as "the header says

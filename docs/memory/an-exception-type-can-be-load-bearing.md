@@ -64,4 +64,4 @@ parse is replaced:
   drops it, so the range has to be restored explicitly — `modevents.res` documents the widths.
 
 Related: [[output-level-assertion-or-it-is-not-done]], [[most-of-a-decoder-is-untested]],
-[[logs-are-the-debugger]], [[one-place-or-it-drifts]], [[real-data-hides-bugs-small-inputs-expose]].
+[[logs-are-the-debugger]], [[one-place-or-it-drifts]], [[fixtures-are-the-weak-point]].

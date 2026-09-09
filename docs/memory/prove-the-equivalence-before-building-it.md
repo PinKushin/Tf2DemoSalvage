@@ -41,5 +41,5 @@ recording it is the smaller artefact.
    per-animation tracked bones, so the question can be re-asked of any weapon in one call rather
    than re-derived by the next person.
 
-Related: [[the-base-is-not-the-behaviour]], [[unreachable-can-be-proved-not-just-observed]],
-[[filing-a-divergence-is-not-fixing-it]], [[an-optimisation-is-not-a-skippable-departure]].
+Related: [[the-base-is-not-the-behaviour]], [[most-of-a-decoder-is-untested]],
+[[filing-a-divergence-is-not-fixing-it]], [[valve-parity-is-the-first-principle]].

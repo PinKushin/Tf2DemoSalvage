@@ -30,7 +30,7 @@ the 2 pass much that im aware"*.
 **grep the repository for it first** — for the mechanism, not only the name. Two-pass drawing was
 absent under every spelling of "two pass" and present as `bool blended`. A capability can be
 implemented under a name nobody thought to search, which is the same reason
-[[an-empty-search-needs-a-control]] exists: an empty grep is a fact about the grep.
+[[instrument-bugs-outnumber-decoder-bugs]] exists: an empty grep is a fact about the grep.
 
 The tell is that the feature's *machinery* turns up while its *decision* does not. Correct
 implementation, no caller that chooses — that is a feature applied unconditionally, not one that is

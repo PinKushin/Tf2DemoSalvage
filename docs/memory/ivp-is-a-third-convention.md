@@ -28,5 +28,5 @@ plausible angle in the wrong place.
 **How to apply:** anything handed to or taken from physics crosses all three at once. Write the
 conversion in ONE place, test it against a transform with no symmetry (asymmetric translation and a
 rotation about a non-principal axis), and cite `FUN_180002cc0`. Related:
-[[absent-from-the-sdk-is-not-unreadable]], [[a-phy-is-text-except-for-the-hulls]],
+[[nothing-is-closed]], [[a-phy-is-text-except-for-the-hulls]],
 [[address-a-struct-by-name-not-from-its-end]].

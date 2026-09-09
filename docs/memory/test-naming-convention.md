@@ -28,8 +28,11 @@ CLAIM but not the SUBJECT, so the reader has to open the file to learn what it e
 **How to apply:** write every new test in this form. Convert an existing file's names when you are
 already editing it. Two things make bulk conversion safe: nothing outside the test assemblies
 references a test method name (no `--filter` pins one, no Stryker config filters by test), and the
-COUNT must not change — `build/gate.sh`'s floors are exact, so a rename that drops or merges a test
-fails the gate immediately.
+count cannot silently FALL — `build/gate.sh` asserts a floor per project, so a rename that drops or
+merges a test reddens the gate immediately. **They are floors and not equalities**, which an earlier
+version of this entry got wrong: `build/assert-test-count.sh:13` says *"exact counts make every added
+test a red build"*, so adding tests passes and only a drop is caught. Read as "exact" it implies the
+gate must be edited before new tests can go green, which is the opposite of what happens.
 
 Do not attempt this with a regex. Choosing the subject, scenario and expectation requires reading
 what the test asserts; a mechanical transform produces names that are wrong in a way nobody will

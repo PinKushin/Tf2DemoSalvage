@@ -30,4 +30,4 @@ sibling project. Before pinning any package version, check it is not deprecated.
 existing framework differs from the standard, say so explicitly instead of quietly matching it —
 the cost of staying silent is a full migration later, and the owner priced that at a day.
 
-Related: [[tf2demosalvage-build-gates]] for how strict this repo's analyzers already are.
+Related: [[tests-before-codecs]] for how strict this repo's analyzers already are.

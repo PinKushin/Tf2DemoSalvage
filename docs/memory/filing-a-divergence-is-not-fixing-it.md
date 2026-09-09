@@ -32,7 +32,7 @@ the three taunt-kill exclusions in `CreateTFRagdoll` are unreachable, and that 0
 resolve to `LOADOUT_POSITION_HEAD`. Both are real findings about the engine that only came out of
 implementing the thing.
 
-Related: [[an-unrecoverable-input-is-not-an-open-choice]] (the same shape: a hard input is not a
+Related: [[a-filed-design-choice-may-not-be-one]] (the same shape: a hard input is not a
 licence to skip the logic), [[valve-parity-is-the-first-principle]],
 [[parity-is-the-search-not-the-defence]].
 
@@ -191,7 +191,7 @@ switches on and count. Here it also produced the prioritisation: what actually l
 the physics, which every corpse takes.
 
 **And the zero needs a control**, because a field decoding to its default looks identical to a real
-absence ([[an-empty-search-needs-a-control]]). The spread settles it: the comp match's values were
+absence ([[instrument-bugs-outnumber-decoder-bugs]]). The spread settles it: the comp match's values were
 `NONE`, `STANDARD_STICKY`, `ROCKET_DIRECTHIT`, `AIR_STICKY_BURST` — a soldier-and-demo match exactly,
 with no sniper or spy to produce an eligible death. The pub demos, which field both, are where the
 eligible ordinals appear at all.

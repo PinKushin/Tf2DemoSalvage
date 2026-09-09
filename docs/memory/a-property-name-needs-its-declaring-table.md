@@ -31,7 +31,7 @@ It found the `m_flCycle` mismatch on its first run, which nobody suspected.
 `SourceSdk.Files` is non-recursive by default (`src/game` has no `.cpp` at its top level) **and**
 returns absolute paths while `SourceSdk.Text` takes a path relative to the checkout. Both give an
 empty sweep that reads as "everything conforms". Any SDK-crawling test needs a positive control
-asserting it found a known pair — [[an-empty-search-needs-a-control]].
+asserting it found a known pair — [[instrument-bugs-outnumber-decoder-bugs]].
 
 **Third instance, 2026-08-20, and this one denied the property existed at all.** `EntityState`
 carried "a viewmodel inherits no `DT_BaseEntity` — no origin, no angles, no `m_fEffects`". The first

@@ -12,7 +12,7 @@ than something this project has yet to implement.
 by `PLAYERANIMEVENT_DIE`, and that event is raised **nowhere** in the `game/` tree — its handler is
 `Assert( 0 ); // Should be here - not supporting this yet!`. Checked with `PLAYERANIMEVENT_JUMP` as a
 control, which does return real raise sites, so the zero is a fact about the code and not about the
-search ([[an-empty-search-needs-a-control]]).
+search ([[instrument-bugs-outnumber-decoder-bugs]]).
 
 What actually happens is at the end of `CreateRagdollEntity`, `tf_player.cpp:15637`:
 

@@ -52,3 +52,55 @@ shape of every piece of work in this repo.
 
 The repair was cheap only because nothing had been pushed — `origin/main` was four behind, so each
 commit could be given its branch and merged back in order. See D140.
+
+---
+
+## `branch-scope-and-toolchain-prefs` — what a branch OWNS, and how this rule became the owner's
+
+Two rules, both endorsed by the owner 2026-08-07.
+
+**Split a branch when it grows a second concern.** `feat/phase1-container` ended up carrying
+the container parser plus a spec consolidation, a risk register, SDK research, and a README
+rewrite, so its name stopped describing its contents.
+
+**Origin, because it matters for how it is cited:** Claude inferred this rule from the owner
+merely *asking* whether the branch name still made sense, then wrote it up as the owner's
+instruction. The owner corrected that — *"i didnt say anything… do not infer my intentions more than
+what i say"* — and then, separately, explicitly endorsed the rule: *"put it back its a good rule and
+i agree with it pretty much fully."* So it is now genuinely theirs, but it became so by being
+proposed and accepted, not by being assumed.
+
+**The broader instruction this came from: do not infer intentions beyond what the owner actually
+says.** A question is a question, not an instruction. Ask rather than decide, and never attribute a
+rule to them that they did not state. See [[name-the-reading-you-picked]] and
+[[silence-about-a-missing-feature-is-not-a-preference]] for the two ways that goes wrong.
+
+**How the owner wants it applied.** They said they tangent a lot, so expect frequent branching, and
+asked for one of two responses when a tangent starts: gently steer back on track, or branch for it.
+With two stated exemptions where steering is *not* wanted — research tangents, and an early phase
+while they are still checking that the design is right. In those cases, follow the tangent.
+
+**Their signal that docs/memory are falling behind: not seeing many memories being made.** If that
+happens they will say so and ask for a catch-up pass. Treat a long stretch with no memory entries as
+a warning sign rather than waiting to be told.
+
+### Final shape of the branching rule, owner's words, same day
+
+A feature branch **owns everything that serves it**: memory entries, documentation updates,
+and research that feeds the feature all belong on that branch. "Split when a second concern
+appears" means a genuinely *unrelated* concern, not every artefact that is not source code.
+
+For larger features, **sub-branches merging into the parent feature branch** are welcomed
+rather than merely tolerated.
+
+**This retroactively softens the `feat/phase1-container` example above.** Claude called that
+branch a scope violation; under this rule it mostly was not. The spec consolidation and the
+risk register were research directly serving the container work and belonged there. Only the
+README rewrite was arguably a separate concern. Keep the rule, but do not use that branch as
+the cautionary example — it was closer to correct than Claude judged at the time.
+
+**Dropped from this entry on 2026-09-08:** a companion note saying that if a Rust toolchain is ever
+needed it goes on Windows natively rather than in WSL, with libFuzzer as the sole exception. `No
+Rust` is a hard project constraint in `CLAUDE.md` — *"Explicitly rejected, don't suggest it"* — so
+the advice can only be acted on by violating it. Fuzzing here is SharpFuzz on .NET
+(`tests/Tf2DemoSalvage.Fuzz`, D8), not Rust.

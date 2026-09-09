@@ -39,7 +39,7 @@ effects, killstreaks, every balance change. Fails as a plausible number, per
 correct code of reading a name "no send table declares". And earlier, someone hitting that same gap
 concluded `moveparent` was special and wrote it into a test: *"it will never appear in a SENDINFO"*.
 A regex limitation recorded as a fact about the format, then defended by an assertion — see
-[[an-uncoverable-gap-is-usually-your-reader]].
+[[the-denominator-decides-what-can-be-lost]].
 
 Related: [[nothing-is-closed]].
 

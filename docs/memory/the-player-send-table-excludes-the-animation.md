@@ -282,5 +282,5 @@ With the base right, the same demo shows clusters: 81% at −4, 6% at 0, 13% at 
 control bucket for "the value never arrived" — while that is zero, the distribution describes the
 demo rather than describing which entities happened to answer.
 
-Related: [[instrument-bugs-outnumber-decoder-bugs]], [[an-empty-search-needs-a-control]],
+Related: [[instrument-bugs-outnumber-decoder-bugs]], [[instrument-bugs-outnumber-decoder-bugs]],
 [[a-dropped-field-falls-to-a-computed-default]].

@@ -57,3 +57,23 @@ helper that writes *into* an existing writer rather than returning bytes. See
 Related: trailing zero padding decodes as a run of `net_NOP`, because NOP is message id 0.
 Fixtures must expect those extra messages or filter them out — see
 [[era-axis-is-measured]] for the pattern of assumptions that only real bytes disprove.
+
+---
+
+## The red step for a NEW type is a compile failure, not a failing assertion
+
+This project's analyzers are strict enough that TDD placeholder types do not compile. With
+`TreatWarningsAsErrors` plus `AnalysisMode=All` plus SonarAnalyzer, a stub whose members all throw
+`NotImplementedException` fails on **CA1065** (exception from a property getter) and **S2325**
+(member does not use instance state). Established 2026-08-07 when the solution was scaffolded.
+
+**So write the tests first and then implement directly** — do not waste a cycle trying to stage a
+stub, and do not relax `TreatWarningsAsErrors` or `AnalysisMode` to make one compile. The strictness
+is a gate the project deliberately wants; the reasons are recorded in comments at both sites.
+
+**The same strictness makes a lazy sabotage impossible**, which is worth knowing before trying one:
+`&& false` is S1125, dropping a call leaves a private method unreferenced (S1144), and `x = 0` on an
+int field is CA1805. A sabotage must compile, so pick one that keeps every symbol used — OR-ing
+`int.MaxValue` into a flag set, or `+ 500` on an index. See [[most-of-a-decoder-is-untested]].
+
+Related: [[mutation-score-is-not-the-goal]].

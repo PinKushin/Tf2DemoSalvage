@@ -25,5 +25,5 @@ questions, one answerable only off the reference.
 **How to apply:** before trusting a decode path, ask what input would distinguish it
 from the wrong version, then check whether the corpus contains that input — a count of
 zero, a negative coordinate, a non-ASCII name. If it does not, the corpus is not
-evidence and the reference's encoder is. Related: [[differential-beats-fixtures]],
+evidence and the reference's encoder is. Related: [[fixtures-are-the-weak-point]],
 [[fixtures-are-the-weak-point]], [[research-before-code]].

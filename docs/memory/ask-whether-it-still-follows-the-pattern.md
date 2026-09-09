@@ -43,5 +43,5 @@ perfectly right up until a second caller appears.
   in a file whose own comments warn about exactly that shape somewhere else.
 
 Related: [[instrument-bugs-outnumber-decoder-bugs]], [[one-place-or-it-drifts]],
-[[parity-is-the-search-not-the-defence]], [[an-environment-only-setting-is-untested]],
+[[parity-is-the-search-not-the-defence]], [[most-of-a-decoder-is-untested]],
 [[output-level-assertion-or-it-is-not-done]], [[boundaries-find-what-tests-cannot]].

@@ -141,7 +141,7 @@ hash catches the real hazard — a community map with the right name but the wro
 
 ---
 
-Related: [[proto-version-h-enumerates-the-boundaries]] for the boundaries Valve did write down —
+Related: [[hl2sdk-branches-are-per-era-headers]] for the boundaries Valve did write down —
 which notably excludes B23 and the missing `dem_stringtables` — plus
 [[where-the-game-and-clients-live]] for where the period clients are, and
 [[record-both-points-of-view]] for how each specimen is recorded.

@@ -41,7 +41,7 @@ degradation path was never reached.
 
 The fixture had one field with one value. A collision between a damage number and a user id
 needs a real match, where dozens of numeric fields and a dozen user ids share a small integer
-range. This is [[differential-beats-fixtures]] again in a different costume: a fixture tests the
+range. This is [[fixtures-are-the-weak-point]] again in a different costume: a fixture tests the
 mechanism, real data tests the premise.
 
 See also [[ask-whether-the-data-arrived]] — same family of error, where a measurement of the

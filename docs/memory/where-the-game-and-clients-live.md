@@ -39,7 +39,7 @@ done
 
 **The period clients are the instrument behind the era axis.** Each one's `version` output dates its
 build exactly, which is what turned protocol numbers into real dates
-([[era-axis-is-measured]], [[proto-version-h-enumerates-the-boundaries]]). They are also what proved
+([[era-axis-is-measured]], [[hl2sdk-branches-are-per-era-headers]]). They are also what proved
 the 2007 client will play files this project generated ([[engine-accepts-authored-demos]]).
 
 **A decompilation EXISTS, on disk, outside the repository — and this entry used to deny it.**
@@ -92,7 +92,7 @@ claim, and it was never checked. It then read as authoritative and cost a real l
 searching for the engine's overlay and poly-offset code argued from this paragraph that no
 decompilation was available, while one was sitting on the disk.
 
-Same family as [[an-empty-search-needs-a-control]] — an absence asserted rather than measured — with
+Same family as [[instrument-bugs-outnumber-decoder-bugs]] — an absence asserted rather than measured — with
 the extra sting that nothing was searched at all. **A rule about where something may live says
 nothing about whether it exists.**
 
@@ -114,7 +114,7 @@ next session looking for something that is gone.
 `src/`) is the whole tree, and a whole-tree grep answers in one call what a `WebFetch` answers only
 if you guessed the right filename. This was hunted for twice in one session before the owner said it
 existed, after fetching `bspfile.h` and `utils/vbsp/map.cpp` from GitHub one at a time in between.
-Landmarks: `src/tier1/bitbuf.cpp` ([[valve-publishes-bitbuf]]), `src/public/bspfile.h`,
+Landmarks: `src/tier1/bitbuf.cpp` ([[research-before-code]]), `src/public/bspfile.h`,
 `src/utils/vbsp/overlay.cpp`, `src/utils/common/bsplib.cpp`.
 
 **It does not contain the engine**, which is a real limit rather than a search failure. `vbsp` writes
@@ -122,4 +122,4 @@ an overlay's `uv0`–`uv3` straight through from the VMF and nothing in the SDK 
 corner-to-texture-coordinate order is not answerable from source at all — that one was settled by
 measuring the corners in a real map. When a whole-tree grep comes back empty for a *consumer*, the
 answer is "engine-side, never released", and the next move is measurement or the decompiler above,
-not another fetch. See [[nothing-is-closed]] and [[differential-beats-fixtures]].
+not another fetch. See [[nothing-is-closed]] and [[fixtures-are-the-weak-point]].

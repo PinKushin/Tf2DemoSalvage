@@ -38,5 +38,5 @@ and is right. The second half was an inference about how the client makes them, 
 confident register, and it parked the feature for the wrong reason. See
 [[filing-a-divergence-is-not-fixing-it]] and [[a-filed-design-choice-may-not-be-one]].
 
-Related: [[ask-whether-the-data-arrived]], [[an-empty-search-needs-a-control]],
+Related: [[ask-whether-the-data-arrived]], [[instrument-bugs-outnumber-decoder-bugs]],
 [[measure-the-output-not-the-capability]].

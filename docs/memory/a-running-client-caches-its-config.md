@@ -18,7 +18,7 @@ confidence in it**, which is why this is worth remembering rather than rediscove
 immediately, and it is one variable rather than a file of them — a measurement rather than a change
 of state. Restart the client only when a whole profile genuinely needs exercising.
 
-Same family as [[real-data-hides-bugs-small-inputs-expose]] and the `-1` versus `-10` wrong turn in
+Same family as [[fixtures-are-the-weak-point]] and the `-1` versus `-10` wrong turn in
 `docs/findings/24-reference-capture.md`: a procedure chosen for convenience, insensitive to the thing
 it was meant to detect.
 

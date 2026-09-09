@@ -26,5 +26,5 @@ round trip from hundreds of mismatches to zero across 11,989 sounds and five pro
 presence — carry it. And pick the sabotage carefully: narrowing a width that decoder and
 encoder share still round-trips through *values*, and fails only against the original
 demo's bits. Comparing against the original is what makes a round trip evidence rather
-than a tautology. Related: [[differential-beats-fixtures]],
+than a tautology. Related: [[fixtures-are-the-weak-point]],
 [[read-the-encoder-not-the-decoder]], [[numeric-decoding-traps]].
