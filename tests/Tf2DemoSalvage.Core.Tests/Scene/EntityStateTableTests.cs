@@ -229,6 +229,45 @@ public sealed class EntityStateTableTests
     }
 
     [Test]
+    public void EntityState_AnglesDeclaredByTheClasssOwnTable_AreStillFound()
+    {
+        // **The other half of B372, and fixing only the origin would have hidden it.** A rocket
+        // declares its rotation beside its position — `RecvPropQAngles( RECVINFO_NAME(
+        // m_angNetworkAngles, m_angRotation ) )`, `tf_weaponbase_rocket.cpp:44` — so with the
+        // origin found and the angles not, every projectile would be drawn in the right PLACE at
+        // the identity rotation, pointing the wrong way. That reads as a modelling fault rather
+        // than a decode one, which is why it gets its own test rather than riding along.
+        //
+        // A QAngle is (pitch, yaw, roll), not (x, y, z); the values are rocket entity 658's out of
+        // `z1800`'s own trace.
+        EntityStateTable rockets = new(EntityBaselines.None);
+
+        rockets.Apply(Entity(5, EntityUpdateType.Enter,
+            Property("DT_TFBaseRocket", "m_angRotation",
+                PropertyValue.FromVector(17.143f, 274.286f, 0f))));
+
+        rockets.TryGet(5, out EntityState? rocket).ShouldBeTrue();
+        rocket.Angles().ShouldBe((17.143f, 274.286f, 0f));
+    }
+
+    [Test]
+    public void EntityState_AnglesOnTheBaseTable_WinOverAClassTableCarryingThem()
+    {
+        // The control for the test above: `DT_BaseEntity` is still tried first, so a class table
+        // that also carries `m_angRotation` cannot displace it. Without this, "reads any table" and
+        // "reads the base table then any" agree on every other input here.
+        EntityStateTable both = new(EntityBaselines.None);
+
+        both.Apply(Entity(6, EntityUpdateType.Enter,
+            Property("DT_BaseEntity", "m_angRotation", PropertyValue.FromVector(0f, 90f, 0f)),
+            Property("DT_SomeOtherTable", "m_angRotation",
+                PropertyValue.FromVector(45f, 45f, 45f))));
+
+        both.TryGet(6, out EntityState? prop).ShouldBeTrue();
+        prop.Angles().ShouldBe((0f, 90f, 0f));
+    }
+
+    [Test]
     public void EntityState_TheLaunchEra_SendsOriginAsOneVector()
     {
         // An era change, found by this accumulator producing zero positioned players on the 2007

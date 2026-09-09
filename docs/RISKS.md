@@ -25731,6 +25731,18 @@ projectile of each class, and the first rocket in a demo is fired during the pre
 everyone is still in spawn — so two screenshots aimed at it showed a spawn room. It prints the first
 AND the last with positions now (`docs/memory/point-the-camera-from-the-data.md`).
 
+**`Angles()` had the identical defect and fixing only the origin would have hidden it.** A rocket
+declares its rotation beside its position — `RecvPropQAngles( RECVINFO_NAME( m_angNetworkAngles,
+m_angRotation ) )`, `tf_weaponbase_rocket.cpp:44` — and `Angles()` read `DT_BaseEntity` alone. Every
+projectile would have been drawn in the right PLACE at the identity rotation, pointing the wrong
+way, which reads as a modelling fault rather than a decode one. Same fallback, same shape of test,
+same sabotage: breaking the suffix reddens only
+`EntityState_AnglesDeclaredByTheClasssOwnTable_AreStillFound`.
+
+**What the picture can and cannot settle, said plainly:** the screenshots show a rocket in flight
+and do not resolve its orientation at that size, so the angle claim rests on the test and the wire
+values, not on the capture.
+
 ### B373 OPEN 2026-09-09: a projectile draws its model and none of its effects
 
 **Follows directly from B372 and is scoped separately because it needs a subsystem that does not

@@ -1765,11 +1765,49 @@ public sealed class EntityState
     /// components look like. Reading it positionally turns every prop in the map to face the wrong
     /// way — a picture that cannot be checked without already knowing the map.
     /// </remarks>
-    public (float Pitch, float Yaw, float Roll)? Angles() =>
-        _properties.TryGetValue($"{BaseEntityTable}.{AnglesProperty}", out PropertyValue angles) &&
-        angles.Kind == PropertyValueKind.Vector
-            ? angles.AsVector
-            : null;
+    public (float Pitch, float Yaw, float Roll)? Angles()
+    {
+        if (_properties.TryGetValue(
+                $"{BaseEntityTable}.{AnglesProperty}", out PropertyValue angles) &&
+            angles.Kind == PropertyValueKind.Vector)
+        {
+            return angles.AsVector;
+        }
+
+        // **The same rule as `Origin()`, and for the same classes** (B372). `CTFBaseRocket` declares
+        // its own rotation beside its own origin — `RecvPropQAngles( RECVINFO_NAME(
+        // m_angNetworkAngles, m_angRotation ) )`, `tf_weaponbase_rocket.cpp:44` — so a projectile's
+        // facing arrives keyed `DT_TFBaseRocket.m_angRotation` and `DT_BaseEntity` never carries it.
+        //
+        // **Fixing the origin alone would have drawn every rocket at the identity rotation**: on
+        // screen and pointing the wrong way, which is the failure that looks like a modelling fault
+        // rather than a decode one ([[a-property-can-be-declared-by-any-table]]).
+        string suffix = $".{AnglesProperty}";
+        string? declaring = null;
+        long newest = long.MinValue;
+
+        foreach (string key in _properties.Keys)
+        {
+            if (!key.EndsWith(suffix, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            long when = Sequence(key);
+
+            if (when > newest)
+            {
+                newest = when;
+                declaring = key;
+            }
+        }
+
+        return declaring is not null &&
+            _properties.TryGetValue(declaring, out PropertyValue found) &&
+            found.Kind == PropertyValueKind.Vector
+                ? found.AsVector
+                : null;
+    }
 
     /// <summary>Which animation the entity is playing.</summary>
     /// <returns>The sequence number, or <c>null</c> when the entity does not animate.</returns>
