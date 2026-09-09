@@ -152,7 +152,12 @@ public sealed class ProjectileProbe : IProbe
             // existed. A late one is mid-match, and printing where it is means the camera comes
             // from the data rather than from a guess
             // (`docs/memory/point-the-camera-from-the-data.md`).
-            foreach (ScenePropTrack example in (ScenePropTrack[])[of[0], of[^1]])
+            // **And one from the MIDDLE, because the last is not always usable either.** Comparing
+            // against real TF2 means driving the game to the tick, and the last rocket of this demo
+            // lives 43 ticks from its end — playback runs off the end before a screenshot can be
+            // taken, and the capture comes back as the main menu. A middle example is surrounded by
+            // demo on both sides (B161).
+            foreach (ScenePropTrack example in (ScenePropTrack[])[of[0], of[of.Count / 2], of[^1]])
             {
                 (int tick, ScenePose pose) = example.Keyframes.Count > 0
                     ? example.Keyframes[0]

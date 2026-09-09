@@ -9973,13 +9973,35 @@ and eliminating that took four more runs:
 has NOT been tried is a real keystroke into the focused window (F5 is bound to `screenshot`), which
 is the one route a person uses and the one an unattended script cannot take.
 
-**Hence `-HoldForManualShot`.** The tool does everything automatically except the shutter, so the
-switch stops on the tick with playback frozen, prints where the file will land, and waits for a
-person to press F5 — collecting the result and cleaning up as usual. Ten seconds of the owner's
-time, against an instrument that is otherwise finished.
+**A synthesised keypress was then tried, and it is the closest this got.** `keybd_event` at driver
+level, into the window after `SetForegroundWindow`, pressing whatever key the owner has bound —
+found by asking the engine (`key_findbinding screenshot` → `"F5" = "screenshot"`) rather than by
+rebinding, because TF2 writes `cfg/config.cfg` on shutdown and a `bind` here would outlive the
+capture. **At the main menu that produces a file. During demo playback it does not.**
 
-**The golden comparison is still NOT DONE**, and B373's last item stays open. This entry moved from
-"filed" to "one keypress short".
+**Four more instrument faults were found and fixed on the way, all of them mine:**
+
+- **`$before` filtered `*.jpg` while the search for a new file filtered nothing**, so a `.tga` left
+  by an earlier run was invisible to the "before" set and then found as "new". FOUR consecutive runs
+  reported success while handing back the same stale menu capture.
+- **The binding line is quoted AND often not at the start of a line** — the console writes without a
+  trailing newline, so the real log line was
+  `TF2REF_HIJACK_REACHED_THE_GAME "F5" = "screenshot"`. An anchored pattern read that as "nothing is
+  bound".
+- **The console log is buffered**, so reading it two seconds after asking finds nothing.
+- **`-hijack` starts a second `tf_win64.exe` per command, and killing only the launcher left a game
+  running.** So the next run's commands went to a stale instance sitting at the menu while the fresh
+  one played the demo — the commands and the screenshots were going to two different games, which is
+  very likely why capture after capture came back as the menu. The tool now kills every instance.
+
+**With all of that fixed and exactly one instance running, F5 during demo playback still writes
+nothing.** That is the honest end state after about twenty launches.
+
+**Hence `-HoldForManualShot`.** The tool does everything automatically except the shutter, so the
+switch stops on the tick, prints where the file will land, and waits for a person to press F5 —
+collecting the result and cleaning up as usual.
+
+**The golden comparison is still NOT DONE**, and B373's last item stays open.
 
 ### B160, measured at last: two defects stacked (2026-08-23)
 

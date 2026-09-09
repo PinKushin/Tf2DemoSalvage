@@ -131,9 +131,14 @@ Write-Host "tick: $Tick, $Width x $Height, host_framerate $FrameRate"
 
 # What is already there, so the NEW file is identified by difference rather than by name - the
 # engine appends a number when a name is taken, and assuming the name would pick up a stale shot.
+# **Unfiltered, because the engine chooses the extension.** This listed only `*.jpg` while the
+# search for a new file listed everything, so a `.tga` left behind by an earlier run was invisible
+# to the "before" set and then found as "new" — and four consecutive runs reported success while
+# handing back the same stale menu capture. The instrument was answering about itself
+# (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md`).
 $before = @()
 if (Test-Path $shots) {
-    $before = Get-ChildItem $shots -Filter '*.jpg' | Select-Object -ExpandProperty Name
+    $before = Get-ChildItem $shots | Select-Object -ExpandProperty Name
 }
 
 Copy-Item $Demo $demoCopy -Force
@@ -278,6 +283,67 @@ public static extern bool PrintWindow(System.IntPtr handle, System.IntPtr dc, ui
     return $true
 }
 
+# Presses one key, as a person would.
+#
+# **This is the route the engine actually honours.** `jpeg` and `screenshot` delivered over
+# `-hijack` are accepted and write nothing while a demo is loaded; the same command reached through
+# its BINDING works, because it runs on the engine's own input path rather than being injected into
+# the console from another process. `keybd_event` synthesises at the driver level, which is what
+# makes a game accept it where a posted window message is ignored.
+function Send-Key {
+    param([byte] $Code)
+
+    if (-not ('Tf2Ref.Keys' -as [type])) {
+        Add-Type -Namespace Tf2Ref -Name Keys -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+public static extern void keybd_event(byte code, byte scan, uint flags, System.IntPtr extra);
+'@
+    }
+
+    [Tf2Ref.Keys]::keybd_event($Code, 0, 0, [System.IntPtr]::Zero)
+    Start-Sleep -Milliseconds 120
+    [Tf2Ref.Keys]::keybd_event($Code, 0, 2, [System.IntPtr]::Zero)   # KEYEVENTF_KEYUP
+}
+
+# Which key the OWNER has bound to a screenshot, read from the game rather than assumed.
+#
+# **Nothing is rebound.** TF2 writes `cfg/config.cfg` on shutdown - the log said
+# `Host_WriteConfiguration: Wrote cfg/config.cfg` on an earlier run - so a `bind` issued here would
+# outlive the capture and change what the owner's own F5 does. Asking is free; editing is not.
+function Find-ScreenshotKey {
+    foreach ($command in @('jpeg', 'screenshot')) {
+        Send-Command "key_findbinding $command"
+
+        # **The console log is BUFFERED**, so a single read two seconds later finds nothing and the
+        # miss reads as "nothing is bound" - which is what it did. Poll instead; this project has
+        # met the same buffering with the viewer's own `--measure` output.
+        $line = $null
+        $until = (Get-Date).AddSeconds(25)
+
+        while ((Get-Date) -lt $until -and -not $line) {
+            Start-Sleep -Seconds 3
+
+            if (-not (Test-Path $log)) { continue }
+
+            # The engine answers with both sides QUOTED - `"F5" = "screenshot"` - which an unquoted
+            # pattern misses entirely. **And it is NOT anchored to the start of a line**, because
+            # the console writes without a trailing newline often enough that the answer lands
+            # concatenated onto whatever preceded it: `TF2REF_HIJACK_REACHED_THE_GAME "F5" =
+            # "screenshot"` is a real line from this log.
+            $line = Select-String -Path $log -Pattern "`"([^`"]+)`"\s*=\s*`"$command`"" |
+                Select-Object -Last 1
+        }
+
+        if ($line) {
+            $key = $line.Matches[0].Groups[1].Value
+            Write-Host "  '$command' is bound to $key"
+            return $key
+        }
+    }
+
+    return $null
+}
+
 # Whether a capture has anything in it at all.
 #
 # **A black frame is the failure this tool keeps producing**, so it is detected rather than handed
@@ -378,6 +444,22 @@ if (Wait-ForLog -Pattern 'Playing demo from' -Until $deadline -What 'demo is pla
 
     Start-Sleep -Seconds 5
 
+    # **Pause exactly ON the tick, and hold there.** Playing slowly through it does not survive the
+    # wait for the seek to settle: `demo_gototick` lands 40 ticks from the end of this demo and
+    # playback then runs on at full speed, so the capture came back as the main menu.
+    #
+    # The earlier reason for avoiding the pause — "a paused engine does not render" — was inferred
+    # from black window captures, and those turned out to be the compositor refusing to redirect a
+    # Direct3D swapchain rather than anything about the pause. A paused demo draws its frame; only
+    # reading it from outside was ever the problem.
+    # **Never pause. The pause is a one-way door.** `demo_pauseatservertick` lands on the tick
+    # exactly and the engine says so — but a paused demo renders no frames, a screenshot needs a
+    # rendered frame, and NEITHER `demo_resume` NOR `demo_togglepause` brings playback back: the
+    # log stops growing and stays stopped, which is the control that settles it.
+    #
+    # So the demo is slowed first and then seeked, and it arrives already running. The target tick
+    # is reached seconds later in real time, which is a window wide enough to press the screenshot
+    # key across rather than an instant to hit.
     Send-Command "demo_timescale $Timescale"
 
     $from = [Math]::Max(0, $Tick - $Lead)
@@ -391,15 +473,16 @@ if (Wait-ForLog -Pattern 'Playing demo from' -Until $deadline -What 'demo is pla
     # message then turned up as the LAST line of the log, after the screenshot had already been
     # asked for. Synchronise on the condition, never on the clock
     # (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md`).
-    # **Without a pause there is no arrival line, so the seek is waited out by the log going quiet.**
-    # That heuristic was wrong when it had 20 seconds of patience and something to race; here there
-    # is nothing after it to lose, and the capture loop below polls for a real frame anyway - so a
-    # premature exit costs a few black captures rather than the run.
+    # The engine announces its own arrival, so wait for that and nothing else.
+    # **No pause means no arrival line, so the seek is waited out by the log settling.** The engine
+    # replays kill feed and chat as it fast-forwards, so a growing log IS the seek; a still one is
+    # arrival. Getting this wrong now only costs a few early keypresses, because the loop below
+    # keeps pressing for as long as the target is in view.
     $quiet = 0
     $last = -1
 
-    while ((Get-Date) -lt $deadline -and $quiet -lt 6 -and -not $process.HasExited) {
-        Start-Sleep -Seconds 5
+    while ((Get-Date) -lt $deadline -and $quiet -lt 4 -and -not $process.HasExited) {
+        Start-Sleep -Seconds 4
 
         $size = (Get-Item $log -ErrorAction SilentlyContinue).Length
 
@@ -408,7 +491,7 @@ if (Wait-ForLog -Pattern 'Playing demo from' -Until $deadline -What 'demo is pla
         $last = $size
     }
 
-    Write-Host '  seek has settled; playing through the tick slowly'
+    Write-Host "  seek settled; playing through tick $Tick at $Timescale speed"
 
     # **Paused is exact but does not render, so it cannot screenshot.** `demo_pauseatservertick`
     # lands the engine on the requested tick — the log says `Demo paused at server tick 106270` —
@@ -464,6 +547,81 @@ if (Wait-ForLog -Pattern 'Playing demo from' -Until $deadline -What 'demo is pla
             }
         }
     }
+    elseif ($key = Find-ScreenshotKey) {
+        # A handful of presses across the slow playback, for the same reason the captures were
+        # polled: the target tick is a window in real time, not an instant.
+        $codes = @{
+            'F1' = 0x70; 'F2' = 0x71; 'F3' = 0x72; 'F4' = 0x73; 'F5' = 0x74; 'F6' = 0x75
+            'F7' = 0x76; 'F8' = 0x77; 'F9' = 0x78; 'F10' = 0x79; 'F11' = 0x7A; 'F12' = 0x7B
+        }
+
+        if (-not $codes.ContainsKey($key.ToUpperInvariant())) {
+            Write-Warning "The screenshot key '$key' is not one this tool can press."
+        }
+        else {
+            $code = [byte] $codes[$key.ToUpperInvariant()]
+
+            for ($press = 0; $press -lt 40 -and -not $found; $press++) {
+                Show-Window
+                Start-Sleep -Milliseconds 400
+
+                # **A synthesised key goes to whatever has focus, not to a chosen window.** If the
+                # game is not in front, F5 lands in the terminal that launched it and nothing
+                # happens — which is indistinguishable from the engine refusing, and would have
+                # been blamed on the engine.
+                $process.Refresh()
+
+                if ([Tf2Ref.Rect]::GetForegroundWindow() -ne $process.MainWindowHandle) {
+                    if ($press -eq 0) {
+                        Write-Warning 'The game is NOT the foreground window; F5 is going elsewhere.'
+                    }
+
+                    Start-Sleep -Milliseconds 500
+                    continue
+                }
+
+                Send-Key -Code $code
+
+                Start-Sleep -Seconds 2
+
+                $new = @()
+
+                if (Test-Path $shots) {
+                    $new = Get-ChildItem $shots |
+                        Where-Object { $before -notcontains $_.Name }
+                }
+
+                if ($new) {
+                    $found = $new | Sort-Object LastWriteTime | Select-Object -Last 1
+
+                    # **Wait for the engine to finish writing it.** Copying the moment the file
+                    # appears takes a partial one — a 15 KB fragment that no decoder will open,
+                    # which reads as "the capture failed" when it very nearly succeeded.
+                    $settled = -1
+
+                    for ($wait = 0; $wait -lt 20; $wait++) {
+                        Start-Sleep -Milliseconds 500
+
+                        $now = (Get-Item $found.FullName -ErrorAction SilentlyContinue).Length
+
+                        if ($now -eq $settled -and $now -gt 0) { break }
+
+                        $settled = $now
+                    }
+
+                    Copy-Item $found.FullName $Out -Force
+                    Write-Host "  pressed $key and got $($found.Name), $settled bytes"
+
+                    # Removed, so it cannot be found again by a later run and reported as fresh.
+                    Remove-Item $found.FullName -Force -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        if (-not $found) {
+            Write-Warning "Pressed $key eight times and no file appeared."
+        }
+    }
     else {
 
     # **Poll for a frame with something in it.** A black capture means the engine did not present,
@@ -492,10 +650,17 @@ if (Wait-ForLog -Pattern 'Playing demo from' -Until $deadline -What 'demo is pla
 
 # **Killed rather than left**, because a tool that takes the desktop must give it back even when it
 # failed - and a half-finished demo playback holds the machine lock for as long as it is alive.
-if (-not $process.HasExited) {
-    Write-Host 'stopping TF2'
-    $process.Kill()
-    $process.WaitForExit(30000) | Out-Null
+# **Every instance, not just the handle this script holds.** `-hijack` starts a second
+# `tf_win64.exe` per command, and killing only the launcher left a game running after each run - so
+# the NEXT run's hijacks went to a stale instance sitting at the main menu while the fresh one
+# played the demo. That is very likely why capture after capture came back as the menu: the
+# commands and the screenshots were going to two different games.
+Write-Host 'stopping TF2'
+
+foreach ($name in @('tf_win64', 'hl2', 'tf')) {
+    Get-Process -Name $name -ErrorAction SilentlyContinue | ForEach-Object {
+        try { $_.Kill(); $_.WaitForExit(20000) | Out-Null } catch { }
+    }
 }
 
 if ($found) {
