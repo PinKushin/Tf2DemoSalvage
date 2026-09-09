@@ -25809,15 +25809,35 @@ So the SDK publishes the particle attribute layout (`DEFPARTICLE_ATTRIBUTE( XYZ,
 `MAX_PARTICLE_ATTRIBUTES 32`) and the operator base class, and ships none of the operators
 themselves. `rockettrail.pcf` alone instantiates **656** of them.
 
-**That makes the remaining half the same KIND of work as `docs/findings/51`** — reading a closed
-binary function by function, with a decompiler, against real files — rather than the same kind as
-this container, which was two days' reading turned into an afternoon. It is a project, and naming
-that is not a refusal to do it: the container is built, the attribute layout is published, and the
-next step is a `parity` probe over the operator names the corpus actually asks for, so the work is
-ordered by what a demo needs rather than by what TF2 ships.
+**But the census makes it much smaller than "656 operators" suggested, and this is the number that
+should drive the plan.** `particles operators` reads every shipped `.pcf` through `DmxFile` and
+ranks what they actually instantiate:
 
-*Evidence class: measured for the file counts and the operator instance count; read-from-source for
-the attribute layout and the absent implementations.*
+```
+10,456 particle systems across 134 files, 110 DISTINCT operators
+
+  8602  Lifetime Random              7472  Alpha Random
+  8503  render_animated_sprites      7296  Radius Scale
+  8166  Movement Basic               7059  Position Within Sphere Random
+  7846  emit_continuously            6462  Movement Lock to Control Point
+  7760  Radius Random                5376  Lifespan Decay
+  7719  Color Random                 5142  Position Modify Offset Random
+```
+
+**110, not hundreds, and the head of the distribution is arithmetic rather than engine
+archaeology**: pick a random value in a declared range (`Lifetime`, `Radius`, `Color`, `Alpha`,
+`Rotation`), advance a position by a velocity (`Movement Basic`), emit at a rate
+(`emit_continuously`), fade a channel over a lifetime (`Alpha Fade Out`, `Color Fade`,
+`Lifespan Decay`), and draw a sprite (`render_animated_sprites`). A single effect uses a dozen or
+so of them.
+
+**So the ordering is: implement the head of this list, measure a rocket trail against a capture, and
+decompile only what the ranking says a demo actually reaches.** The tail is where the closed-binary
+work lives, and most of the tail is unusual hats.
+
+*Evidence class: measured — the file counts, the 10,456 systems, the 110 distinct operators and
+their ranking, all read through this project's own `DmxFile` over every shipped `.pcf`;
+read-from-source for the attribute layout and the absent implementations.*
 
 **This is a MISSING FEATURE, not a divergence, and the distinction is the project's own.**
 `.claude/skills/valve-parity-audit` opens by saying the job *"is not to find features Valve has and

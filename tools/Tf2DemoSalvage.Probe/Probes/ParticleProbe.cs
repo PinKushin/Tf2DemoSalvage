@@ -131,6 +131,62 @@ public sealed class ParticleProbe : IProbe
             return;
         }
 
+        // **Which OPERATORS the effects a rocket needs actually use, ranked.** The SDK ships
+        // `particles.h` and no operator implementations, so every one is a closed-binary read
+        // (B373) — and there is no point starting with the ones TF2 ships but this project never
+        // reaches. `functionName` is the class each operator element names.
+        if (filter.Equals("operators", StringComparison.OrdinalIgnoreCase))
+        {
+            Dictionary<string, int> used = new(StringComparer.Ordinal);
+            int systems = 0;
+
+            foreach (string archive in archives)
+            {
+                VpkArchive open = VpkArchive.Open(archive);
+
+                foreach ((string _, string path, long _) in found.Where(
+                    one => one.Archive == Path.GetFileName(archive)))
+                {
+                    if (open.ReadFile(path) is not { } raw)
+                    {
+                        continue;
+                    }
+
+                    foreach (DmxElement element in DmxFile.Read(raw))
+                    {
+                        if (element.Type == "DmeParticleSystemDefinition")
+                        {
+                            systems++;
+                        }
+
+                        if (element.Type != "DmeParticleOperator" ||
+                            !element.Attributes.TryGetValue("functionName", out DmxValue function) ||
+                            function.Text is not { Length: > 0 } named)
+                        {
+                            continue;
+                        }
+
+                        used[named] = used.TryGetValue(named, out int already) ? already + 1 : 1;
+                    }
+                }
+            }
+
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  {systems} particle systems across {found.Count} files, " +
+                $"{used.Count} distinct operators"));
+
+            foreach ((string named, int count) in used
+                .OrderByDescending(one => one.Value)
+                .Take(20))
+            {
+                output.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture, $"    {count,5}  {named}"));
+            }
+
+            return;
+        }
+
         // **The bytes themselves, because the SDK ships dmxloader's HEADERS and not its
         // implementation.** `dmattributetypes.h` gives the attribute type enum — the schema — and
         // `src/dmxloader/*.cpp` is absent, so the binary LAYOUT has to come from a file. The header
