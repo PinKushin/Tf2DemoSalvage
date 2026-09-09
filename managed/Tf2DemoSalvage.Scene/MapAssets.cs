@@ -792,6 +792,24 @@ public sealed class MapAssets
     /// </remarks>
     public MapTexture? DetailSpriteSheet { get; private init; }
 
+    /// <summary>The rocket trail's particle system, or null when it could not be read (B373).</summary>
+    /// <remarks>
+    /// **Loaded with the map's other assets because it is loaded ONCE**, like every other material
+    /// and model here: a `.pcf` is 118 KB of definitions and reading it when the first rocket
+    /// spawns would hitch mid-match, which is the cost D86 says the up-front pass exists to avoid.
+    ///
+    /// **`rockettrail` is the only one read**, and `ParticleEffects` says why: the underwater and
+    /// airstrike variants need the water volume and the launcher's attributes to choose between.
+    /// </remarks>
+    public ParticleSystem? RocketTrail { get; private init; }
+
+    /// <summary>The material that trail draws with, or null when it did not resolve.</summary>
+    /// <remarks>
+    /// **The definition names it** — `effects\rocketrailsmoke.vmt` — so this resolves what the file
+    /// asks for rather than a chosen texture, through the same `Resolve` the grass sheet uses.
+    /// </remarks>
+    public MapTexture? ParticleSheet { get; private init; }
+
     /// <summary>The map's detail model dictionary — one path per entry (B363).</summary>
     /// <remarks>
     /// **Read and discarded until 2026-09-06.** `BspDetailProps.Read` has always returned it as the
@@ -1192,6 +1210,15 @@ public sealed class MapAssets
 
         propTiming.Dispose();
 
+        // **The rocket trail, read once with everything else** (B373). A `.pcf` is 118 KB of
+        // definitions and reading it when the first rocket spawns would hitch mid-match, which is
+        // the cost the up-front pass exists to avoid (D86).
+        //
+        // **A missing install or a missing file costs the trail and nothing else** — this is every
+        // CI run, where there is no TF2 to read, and a rocket must still draw its model.
+        (ParticleSystem? rocketTrail, MapTexture? particleSheet) =
+            LoadRocketTrail(assets, pak, archives, maximumTextureSize);
+
         // **Entity models are loaded here, with the map's own props, and that is the point.**
         // Their materials go into the same table, so the textures upload once with everything in
         // them. Loading a model during playback instead would mean growing the texture array
@@ -1509,6 +1536,8 @@ public sealed class MapAssets
             DetailProps = detailProps,
             DetailSpriteRectangles = detailRectangles,
             DetailSpriteSheet = detailSheet,
+            RocketTrail = rocketTrail,
+            ParticleSheet = particleSheet,
             DetailModelNames = detailModelNames,
             EntityModels = models,
             UnimplementedParameters = census,
@@ -1913,6 +1942,74 @@ public sealed class MapAssets
         }
 
         return null;
+    }
+
+    /// <summary>Reads the rocket trail's definition and the material it names (B373).</summary>
+    /// <param name="assets">Where the load is reported.</param>
+    /// <param name="pak">The map's own embedded files, searched before the game's.</param>
+    /// <param name="archives">The install.</param>
+    /// <param name="maximumTextureSize">The device's limit, as every other material load takes.</param>
+    /// <returns>The system and its texture, either of which may be null.</returns>
+    /// <remarks>
+    /// **Both halves can fail independently and neither takes the map down.** No install means no
+    /// `.pcf`, which is every CI run; a definition that resolves and a material that does not is a
+    /// trail with nothing to draw with. In each case the rocket still draws its model, which is the
+    /// behaviour a missing sprite sheet already has for the grass.
+    ///
+    /// **The material comes from the DEFINITION rather than from a constant here.**
+    /// `rockettrail_!` declares `effects\rocketrailsmoke.vmt`, and reading it means a community
+    /// file replacing the effect is honoured rather than overridden — the same reason the detail
+    /// sheet is read from `worldspawn` instead of assumed.
+    /// </remarks>
+    private static (ParticleSystem? System, MapTexture? Sheet) LoadRocketTrail(
+        ILogger assets, PakFile pak, GameArchives archives, int maximumTextureSize)
+    {
+        if (archives.Read("particles/rockettrail.pcf") is not { Length: > 0 } file)
+        {
+            return (null, null);
+        }
+
+        IReadOnlyDictionary<string, ParticleSystem> systems = ParticleSystems.Read(file);
+
+        // The definition's own name carries a suffix in the shipped file, so the base name is tried
+        // first and the decorated one after rather than either being assumed.
+        if (!systems.TryGetValue(ParticleEffects.RocketTrail, out ParticleSystem? trail))
+        {
+            foreach ((string named, ParticleSystem candidate) in systems)
+            {
+                if (named.StartsWith(ParticleEffects.RocketTrail, StringComparison.OrdinalIgnoreCase))
+                {
+                    trail = candidate;
+                    break;
+                }
+            }
+        }
+
+        if (trail is null)
+        {
+            assets.LogInformation(
+                "{Message}", "particles/rockettrail.pcf declares no rockettrail system");
+
+            return (null, null);
+        }
+
+        string material = trail.Parameters.TryGetValue("material", out DmxValue named2) &&
+            named2.Text is { Length: > 0 } declared
+            ? declared.Replace('\\', '/').Replace(".vmt", string.Empty, StringComparison.OrdinalIgnoreCase)
+            : string.Empty;
+
+        MapTexture? sheet = material.Length > 0
+            ? Resolve(assets, material, pak, archives, maximumTextureSize).Texture
+            : null;
+
+        assets.LogInformation(
+            "{Message}",
+            string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"rocket trail '{trail.Name}': {trail.Operators.Count} operators, " +
+                $"material '{material}' {(sheet is null ? "did NOT resolve" : "resolved")}"));
+
+        return (trail, sheet);
     }
 
     private static ResolvedMaterial Resolve(
