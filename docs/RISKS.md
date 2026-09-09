@@ -25392,10 +25392,45 @@ current step happens to pick. It was already named a "multi-week feature on its 
 session's two further confirming measurements (items 5 and 6 above), and nothing found this session
 changes that estimate — it sharpens it, by ruling out every cheaper variant.
 
-**What this is not:** a case for lowering the bar. The test's `speed < 1f` assertion is correct and
-stays red rather than being loosened, per this project's standing rule that a divergence is a
-defect regardless of cost to fix. This entry exists so the gap is tracked as one named, scoped item
-rather than re-discovered by a future session re-running the same six now-closed experiments.
+**What this is not:** a case for lowering the bar. This entry exists so the gap is tracked as one
+named, scoped item rather than re-discovered by a future session re-running the same six now-closed
+experiments.
+
+**CORRECTION 2026-09-08: the `speed < 1f` assertion this entry called "correct and stays red" is
+GONE, and removing it was right.** It was never derived from TF2 — it is a prediction about a
+hand-built cube on two hand-built triangles — and tuning the terrain threshold to satisfy it buried
+a real corpse on `cp_granary` by 106 units while the synthetic number improved. The test now asserts
+what can be checked against the engine (the body is ON the surface, not through it) and passes. The
+paragraph above stood for five days after the code had moved.
+
+**Terrain is DONE and is the proof the mechanism was right.** `AgainstTerrain` collides the hull
+against each nearby triangle with incident-face clipping, so one pair yields the corners a box
+actually rests on. That is the multi-point manifold this entry asks for, and the slope test passes
+on it.
+
+### The seventh mechanism: the same manifold applied to brush LEDGES — measured worse, reverted
+
+**Built 2026-09-08 and it lost, which is worth more than the guess it replaced.** Ledges were the
+last geometry still answered by a single closest point per ledge, so `AgainstLedges` mirrored
+`AgainstTerrain` exactly: reference face by maximum separation over the ledge's outward planes,
+incident body face, Sutherland–Hodgman against the ledge's remaining planes, one contact per
+surviving vertex at its own depth.
+
+| `corpse-drop`, the four valid seeds | before | after |
+|---|---|---|
+| settle and sleep | **4 of 4** | 3 of 4 |
+| seed 1 | asleep at tick 405, z 19.2 | **AWAKE, 97.8 units/sec** |
+
+**The probable reason, stated as a mechanism rather than a conclusion, because it was not measured:**
+a triangle's reference plane is fixed by construction, and a ledge's is CHOSEN. Maximum separation
+picks a side face whenever a body straddles an edge of a big floor brush, and the contact normal
+then shoves the body sideways instead of holding it up. A triangle cannot make that mistake because
+it has only one plane to be the reference.
+
+Reverted by a precise inverse edit, confirmed by `git diff --stat` reporting no change and by
+`corpse-drop` returning to the baseline figures above.
+
+*Evidence class: measured, with the revert verified bit-identical.*
 
 **Evidence class: measured**, each item above with an exact before/after float and a reverted diff
 confirmed bit-identical to its prior baseline; **read-from-source** for `FUN_180096680`'s shape.
