@@ -239,6 +239,12 @@ public sealed class AlphaFadeIn : IParticleOperator
 /// *Interpolated*: `radius_start_scale` and `radius_end_scale` interpolate over the life fraction.
 /// **Both default to 1**, so an operator declaring neither leaves the radius alone — absent must
 /// not mean zero here, or every particle it touches would vanish.
+///
+/// **It scales the SPAWN radius and not the current one, and that is read from source.**
+/// `particles.h:602` declares `GetReadInitialAttributes`, *"Used when an operator needs to read the
+/// attributes of a particle at spawn time"* — an operator that reads what it wrote compounds. It did:
+/// running the real `rockettrail` definition for twenty steps took a radius to **265** before this
+/// was fixed, and the one-step unit test could not see it.
 /// </remarks>
 public sealed class RadiusScale : IParticleOperator
 {
@@ -260,7 +266,8 @@ public sealed class RadiusScale : IParticleOperator
         {
             float through = Math.Clamp(particles.Through(index), 0f, 1f);
 
-            particles.Radius[index] *= from + ((to - from) * through);
+            particles.Radius[index] =
+                particles.RadiusAtBirth[index] * (from + ((to - from) * through));
         }
     }
 }

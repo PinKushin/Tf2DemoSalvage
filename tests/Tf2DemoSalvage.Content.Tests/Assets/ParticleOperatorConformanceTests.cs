@@ -114,6 +114,36 @@ public sealed class ParticleOperatorConformanceTests
     }
 
     [Test]
+    public void RadiusScale_RunEveryStepAsTheEngineDoes_DoesNotCompoundItsOwnOutput()
+    {
+        // **The defect a one-step test cannot see, and it was found by running Valve's own
+        // rockettrail definition for twenty steps: the radius reached 265.**
+        //
+        // An operator runs every frame, so one that reads the CURRENT radius and multiplies it
+        // writes its own input next step. `particles.h:602` names the mechanism that avoids it —
+        // `GetReadInitialAttributes`, "used when an operator needs to read the attributes of a
+        // particle at spawn time" — so a scale reads the spawn radius and writes the current one.
+        //
+        // Twenty steps at a scale of 2 must therefore end at 2, not at 2^20.
+        ParticleStore particles = new();
+
+        particles.Add(Vector3.Zero, lives: 100f);
+
+        Dictionary<string, DmxValue> doubled = new(StringComparer.Ordinal)
+        {
+            ["radius_start_scale"] = new DmxValue(DmxAttributeType.Real, 2d),
+            ["radius_end_scale"] = new DmxValue(DmxAttributeType.Real, 2d),
+        };
+
+        for (int step = 0; step < 20; step++)
+        {
+            Step(particles, "Radius Scale", doubled, seconds: 0f, previous: null);
+        }
+
+        particles.RadiusOf(0).ShouldBe(2f, 0.0001d);
+    }
+
+    [Test]
     public void All_EveryOperator_IsFoundByTheNameAPcfUses()
     {
         // The registry is keyed by `functionName` because that is all a `.pcf` carries. A mismatch

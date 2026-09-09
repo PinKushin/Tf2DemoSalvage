@@ -25926,6 +25926,28 @@ three pieces and the third has a documented trap:
 Everything above it is testable without a device and is tested; the pass is not, and the specific
 mistake it invites has already cost this project two days once.
 
+**Running it end to end on Valve's own definition found a real defect that every unit test passed.**
+`particles simulate` reads `rockettrail.pcf` through the whole stack — `DmxFile`,
+`ParticleSystems`, a `ParticleStore`, the operators, `ParticleSprites` — and reported:
+
+```
+after 20 steps: 20 alive, first alpha 1, first radius 265.164
+```
+
+**265 is `Radius Scale` compounding its own output.** An operator runs every frame, so one that
+reads the CURRENT radius and multiplies it writes its own input next step. The one-step unit test
+could not see it, which is `docs/memory/output-level-assertion-or-it-is-not-done.md` exactly.
+
+**The engine names the mechanism that avoids it**, and it is read from source rather than invented:
+`GetReadInitialAttributes` (`particles.h:602`), *"Used when an operator needs to read the attributes
+of a particle at spawn time"*. So the store carries a spawn radius and the scale reads that,
+writing the current one. After: **radius 2**, and a twenty-step regression test now covers it.
+
+**The same run says what is still missing for this effect specifically**, which the ranking alone
+did not: `rockettrail` uses **`Alpha Fade and Decay`** and **`Color Fade`**, and neither is
+implemented — the ranking picked `Alpha Fade Out Random` instead, which this effect does not use.
+That is why alpha stays 1. **2 of 4 operators for the real rocket trail.**
+
 **And the verification gap is unchanged by any of this.** The operators' parameter combination is
 still interpolated, and what would settle it is a capture of the same effect in TF2 beside ours
 (`docs/findings/24-reference-capture.md`).

@@ -53,6 +53,21 @@ public sealed class ParticleStore
     /// <summary>Each particle's radius — <c>RADIUS</c>.</summary>
     internal float[] Radius = new float[Initial];
 
+    /// <summary>Each particle's radius AT SPAWN, which is a separate attribute the engine reads.</summary>
+    /// <remarks>
+    /// **`GetReadInitialAttributes` is why this exists** — `particles.h:602`, *"Used when an
+    /// operator needs to read the attributes of a particle at spawn time"*. An operator that scales
+    /// a radius across a life must read the spawn value and WRITE the current one; reading the
+    /// current one and writing it back compounds every step.
+    ///
+    /// **Measured, and it is why this field was added rather than assumed**: running the real
+    /// `rockettrail` definition for twenty steps took a particle's radius to **265** because
+    /// `Radius Scale` multiplied its own output. A one-step unit test cannot see that, and the
+    /// end-to-end run over Valve's own file did
+    /// (`docs/memory/output-level-assertion-or-it-is-not-done.md`).
+    /// </remarks>
+    internal float[] RadiusAtBirth = new float[Initial];
+
     /// <summary>Each particle's tint, 0..255 per channel — <c>TINT_RGB</c>.</summary>
     internal Vector3[] Tint = new Vector3[Initial];
 
@@ -123,6 +138,7 @@ public sealed class ParticleStore
         Lifetime[Count] = lives;
         Born[Count] = Age;
         Radius[Count] = 1f;
+        RadiusAtBirth[Count] = 1f;
         Tint[Count] = new Vector3(255f, 255f, 255f);
         Alpha[Count] = 1f;
         Rotation[Count] = 0f;
@@ -170,6 +186,7 @@ public sealed class ParticleStore
             Lifetime[index] = Lifetime[last];
             Born[index] = Born[last];
             Radius[index] = Radius[last];
+            RadiusAtBirth[index] = RadiusAtBirth[last];
             Tint[index] = Tint[last];
             Alpha[index] = Alpha[last];
             Rotation[index] = Rotation[last];
@@ -190,6 +207,7 @@ public sealed class ParticleStore
         Array.Resize(ref Lifetime, size);
         Array.Resize(ref Born, size);
         Array.Resize(ref Radius, size);
+        Array.Resize(ref RadiusAtBirth, size);
         Array.Resize(ref Tint, size);
         Array.Resize(ref Alpha, size);
         Array.Resize(ref Rotation, size);

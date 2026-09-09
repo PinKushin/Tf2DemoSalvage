@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Numerics;
 using System.Text;
 
 using Tf2DemoSalvage.Content.Assets;
@@ -227,6 +228,94 @@ public sealed class ParticleProbe : IProbe
                 break;
             }
 
+            return;
+        }
+
+        // **The simulator run on Valve's OWN definition, end to end.** The synthetic tests prove
+        // each operator does what its parameters say; this proves the layers join — a real `.pcf`
+        // through `DmxFile`, `ParticleSystems`, a `ParticleStore` and the operators, with the
+        // numbers coming from the file rather than from a fixture
+        // (`docs/memory/output-level-assertion-or-it-is-not-done.md`).
+        if (filter.Equals("simulate", StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (string archive in archives)
+            {
+                VpkArchive open = VpkArchive.Open(archive);
+
+                if (open.ReadFile("particles/rockettrail.pcf") is not { } raw)
+                {
+                    continue;
+                }
+
+                IReadOnlyDictionary<string, ParticleSystem> systems = ParticleSystems.Read(raw);
+
+                if (!systems.TryGetValue("rockettrail_!", out ParticleSystem? trail) &&
+                    !systems.TryGetValue("rockettrail", out trail))
+                {
+                    output.WriteLine("  no rockettrail system in the file.");
+                    return;
+                }
+
+                IReadOnlyDictionary<string, IParticleOperator> known = ParticleOperators.All();
+
+                int applied = 0;
+                int unknown = 0;
+
+                foreach (string named in trail.Operators.Select(one => one.Function))
+                {
+                    if (known.ContainsKey(named))
+                    {
+                        applied++;
+                    }
+                    else
+                    {
+                        unknown++;
+                        output.WriteLine($"    NOT IMPLEMENTED: '{named}'");
+                    }
+                }
+
+                output.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"  '{trail.Name}': {applied} of {trail.Operators.Count} operators implemented, " +
+                    $"{unknown} not"));
+
+                // Twenty steps at the engine's own tick, with particles born each step.
+                ParticleStore store = new();
+                const float step = 1f / 66f;
+
+                for (int tick = 0; tick < 20; tick++)
+                {
+                    store.Add(new Vector3(tick * 4f, 0f, 0f), lives: 0.2f);
+                    store.Tick(step);
+
+                    foreach (ParticleFunction one in trail.Operators)
+                    {
+                        if (known.TryGetValue(one.Function, out IParticleOperator? run))
+                        {
+                            run.Operate(store, one, step);
+                        }
+                    }
+                }
+
+                output.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"  after 20 steps: {store.Count} alive, " +
+                    $"first alpha {(store.Count > 0 ? store.AlphaOf(0) : 0f):0.###}, " +
+                    $"first radius {(store.Count > 0 ? store.RadiusOf(0) : 0f):0.###}"));
+
+                List<DetailSpriteVertex> corners = [];
+
+                ParticleSprites.Build(store, Vector3.UnitX, Vector3.UnitZ, corners);
+
+                output.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"  ParticleSprites: {corners.Count} corners for {store.Count} particles " +
+                    $"({ParticleSprites.CornersPerParticle} each)"));
+
+                return;
+            }
+
+            output.WriteLine("  particles/rockettrail.pcf not found.");
             return;
         }
 
