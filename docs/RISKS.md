@@ -25766,10 +25766,38 @@ header: <!-- dmx encoding binary 2 format pcf 1 -->
 'rockettrail' named by 9 of 134 files; PARTICLES/ROCKETTRAIL.PCF is its own
 ```
 
-**So the work is three things, none of which exists here:** a binary DMX reader (`encoding binary
-2`), the PCF schema on top of it — a particle system is a tree of emitters, initializers, operators
-and renderers, each a typed attribute bag — and a simulator that runs Valve's operator set per
-frame, plus sprite rendering for the result.
+**So the work is three things:** a binary DMX reader (`encoding binary 2`), the PCF schema on top of
+it — a particle system is a tree of emitters, initializers, operators and renderers, each a typed
+attribute bag — and a simulator that runs Valve's operator set per frame, plus sprite rendering for
+the result.
+
+**BUILT 2026-09-09: the first of the three.** `DmxFile` reads the container, and it reads TF2's own
+file rather than only a fixture:
+
+```
+particles/rockettrail.pcf, 118,126 bytes
+  755 elements: 1 DmeElement, 53 DmeParticleSystemDefinition,
+                45 DmeParticleChild, 656 DmeParticleOperator
+  'rockettrail_!': 34 attributes — renderers, operators, initializers, emitters
+```
+
+**The types are read from source and the layout from the files, because the SDK ships only half.**
+`src/public/datamodel/dmattributetypes.h:66` gives the attribute enum; `src/dmxloader/*.cpp` is not
+in the SDK, so the byte layout was measured on `rockettrail.pcf` and is written down in `DmxFile`'s
+remarks — header line, `uint16` string count, the strings, `int32` element count, then per element a
+`uint16` TYPE INDEX and an INLINE name and a sixteen-byte id, then the attributes.
+
+**That asymmetry is the trap and it has its own test.** An element's type is a string-table index
+and its name is written inline; a reader treating both alike produces plausible garbage rather than
+failing. `Read_AnElementTypeIndex_NamesTheStringTableEntryNotTheElement` uses a table whose entries
+could be confused, and sabotaging the index reddens exactly it.
+
+Six synthetic conformance tests (D38 — the fixture writes the bytes, so the expected value is the
+one the test put there), including a refusal for `binary 5` rather than a best effort, and a
+truncated file costing one attribute rather than the read.
+
+**Still to build:** the operator set and the renderer. A particle system is 656 operators in this
+one file alone, so that is the large half and it is not started.
 
 **This is a MISSING FEATURE, not a divergence, and the distinction is the project's own.**
 `.claude/skills/valve-parity-audit` opens by saying the job *"is not to find features Valve has and

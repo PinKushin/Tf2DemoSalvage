@@ -131,6 +131,92 @@ public sealed class ParticleProbe : IProbe
             return;
         }
 
+        // **The bytes themselves, because the SDK ships dmxloader's HEADERS and not its
+        // implementation.** `dmattributetypes.h` gives the attribute type enum — the schema — and
+        // `src/dmxloader/*.cpp` is absent, so the binary LAYOUT has to come from a file. The header
+        // line is plain text and everything after it is the string table.
+        if (filter.Equals("dump", StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (string archive in archives)
+            {
+                VpkArchive open = VpkArchive.Open(archive);
+
+                if (open.ReadFile("particles/rockettrail.pcf") is not { Length: > 512 } raw)
+                {
+                    continue;
+                }
+
+                int start = Array.IndexOf(raw, (byte)0) + 1;
+
+                output.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"  rockettrail.pcf: {raw.Length} bytes, header ends at {start}"));
+
+                // **Walk the string table so the ELEMENT layout can be seen.** `binary 2` writes a
+                // uint16 count and then that many null-terminated strings; everything after them is
+                // the element section, and its shape is what a reader has to get right.
+                int count = BitConverter.ToUInt16(raw, start);
+                int after = start + 2;
+
+                for (int index = 0; index < count && after < raw.Length; index++)
+                {
+                    after = Array.IndexOf(raw, (byte)0, after) + 1;
+                }
+
+                output.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"    string table: {count} strings, ends at {after}; " +
+                    $"next int32 = {BitConverter.ToInt32(raw, after)} (element count)"));
+
+                // **The reader against the real file, which is the only thing that can say the
+                // layout above was read correctly.** A synthetic fixture proves the reader agrees
+                // with the test that wrote it; this proves it agrees with Valve.
+                IReadOnlyList<DmxElement> parsed = DmxFile.Read(raw);
+
+                output.WriteLine($"    DmxFile.Read: {DmxFile.Census(parsed)}");
+
+                foreach (DmxElement element in parsed
+                    .Where(one => one.Type == "DmeParticleSystemDefinition")
+                    .Take(3))
+                {
+                    output.WriteLine(string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"      '{element.Name}': {element.Attributes.Count} attributes"));
+
+                    foreach ((string name, DmxValue value) in element.Attributes.Take(4))
+                    {
+                        output.WriteLine(string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"        {name} ({value.Type}) = " +
+                            $"{value.Text ?? value.Number.ToString("0.##", CultureInfo.InvariantCulture)}"));
+                    }
+                }
+
+                for (int row = 0; row < 6; row++)
+                {
+                    int at = after + 4 + (row * 16);
+
+                    if (at + 16 > raw.Length)
+                    {
+                        break;
+                    }
+
+                    string hex = string.Join(
+                        ' ', raw.Skip(at).Take(16).Select(one => one.ToString("x2", CultureInfo.InvariantCulture)));
+
+                    string text = string.Concat(raw.Skip(at).Take(16)
+                        .Select(one => one is >= 0x20 and < 0x7F ? (char)one : '.'));
+
+                    output.WriteLine($"    {at,6}  {hex}  {text}");
+                }
+
+                return;
+            }
+
+            output.WriteLine("  particles/rockettrail.pcf not found in any archive.");
+            return;
+        }
+
         // **Which file declares a named system**, since `CreateTrails` asks by name and the name is
         // all the engine carries. The names are stored as plain strings in the file, so a byte
         // search answers without a DMX reader — enough to say where to look, not what it means.
