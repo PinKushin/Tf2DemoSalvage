@@ -127,9 +127,10 @@ public sealed class RagdollProbe : IProbe
                 CultureInfo.InvariantCulture,
                 $"{model}: physics prop, {physics.Solids.Count} solid(s), " +
                 $"{physics.Hulls.Count} hull(s), {physics.BreakPieces.Count} gibs, " +
-                $"body {(body is null ? "FAILED to build" : "builds")}"));
+                $"ragdoll body {(body is null ? "refused (correct for a prop)" : "builds")}, " +
+                $"prop body {(RagdollBody.BuildProp(physics) is null ? "FAILED" : "builds")}"));
 
-            if (body is null)
+            if (body is null && RagdollBody.BuildProp(physics) is null)
             {
                 // Which name did not match, and what the skeleton actually offers — the two halves
                 // of `Studio_BoneIndexByName`'s answer, printed together so the mismatch is

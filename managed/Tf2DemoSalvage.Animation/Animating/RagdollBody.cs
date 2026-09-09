@@ -513,6 +513,70 @@ public sealed class RagdollBody
     /// **So the only change of frame left is the unit one**, IVP metres to Source units, which is
     /// the seam this project keeps in one place ([[ivp-is-a-third-convention]]).
     /// </remarks>
+    /// <summary>One rigid body from a physics prop's <c>.phy</c> — a GIB, chiefly (B371).</summary>
+    /// <param name="physics">The prop's physics model.</param>
+    /// <returns>A one-element body, or null when the file carries no solid or no hull.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="physics"/> is null.</exception>
+    /// <remarks>
+    /// **A prop is not a ragdoll, and <see cref="Build"/> is right to refuse one.** That builder
+    /// requires every solid to name a bone, because a ragdoll's solids each drive a named bone —
+    /// `Studio_BoneIndexByName( params.pStudioHdr, solid.name )`, and `RagdollAddSolid` proceeds
+    /// only `if ( boneIndex >= 0 )` (`ragdoll_shared.cpp:182-185`). A gib does not satisfy that and
+    /// is not supposed to: measured on `models/player/gibs/medicgib001.mdl`, the solid is
+    /// `medicgib001_reference` and the model's only bone is `polymsh`.
+    ///
+    /// **The engine never asks.** `CreateGibsFromList` reaches `BreakModelCreateSingle`
+    /// (`props_shared.cpp:1497`), which makes a `prop_physics`-style object straight from the
+    /// VCollide — one rigid body, no bone binding, no constraints. **Kept as its own entry point
+    /// rather than a fallback inside `Build`**, because a solid that names no bone is a defect in a
+    /// ragdoll and is normal in a prop; folding them together would silence the first to permit the
+    /// second.
+    ///
+    /// **Bound to bone 0 for the pose write**, which for a one-bone prop is the model's own
+    /// transform — so the simulation's output places the model exactly as a prop's transform does.
+    /// </remarks>
+    public static RagdollBody? BuildProp(PhysicsModel physics)
+    {
+        ArgumentNullException.ThrowIfNull(physics);
+
+        if (physics.Solids.Count == 0)
+        {
+            return null;
+        }
+
+        PhysicsSolid solid = physics.Solids[0];
+
+        (List<Vector3> points, List<(int A, int B, int C)> faces) = HullInBoneSpace(physics, 0);
+
+        if (points.Count == 0)
+        {
+            // No hull is no body: it could not be collided with, and a gib that falls through the
+            // world is worse than one that is not drawn.
+            return null;
+        }
+
+        return new RagdollBody(
+            [
+                new RagdollElement(
+                    BoneIndex: 0,
+                    ParentIndex: -1,
+                    OriginParentSpace: Vector3.Zero,
+                    AxesParentSpace: RagdollAxes.Identity,
+                    solid.Mass,
+                    solid.Inertia,
+                    solid.Damping,
+                    solid.RotationDamping,
+                    solid.Volume,
+                    points,
+                    faces,
+                    solid.SurfaceProperty),
+            ],
+            [],
+
+            // A single body has nothing to collide with itself, so there are no rules to carry.
+            null);
+    }
+
     private static (List<Vector3> Points, List<(int A, int B, int C)> Faces) HullInBoneSpace(
         PhysicsModel physics, int solid)
     {
