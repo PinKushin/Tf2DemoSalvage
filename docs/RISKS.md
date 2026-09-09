@@ -26337,7 +26337,7 @@ readable.
 *Evidence class: read-from-source for the container and the two resource ids; measured for the count,
 the offsets and the before/after spread.*
 
-### B375 OPEN 2026-09-09: a rocket trail is a puff where TF2 draws a plume, and the cause is that particles run on FRAMES
+### B375 FIXED 2026-09-09: a rocket trail is a puff where TF2 draws a plume, and the cause is that particles run on FRAMES
 
 **Found by the golden comparison, which is what it is for.** `docs/findings/52` and B161 now have a
 first-person capture of real TF2 at `cp_process_f12` beside ours at the same moment. Colour, fire
@@ -26355,21 +26355,36 @@ path, and ours is a single dense puff at the rocket.
    the clock fixed a still would show an empty trail. TF2 gets its history the long way round: it
    answers `demo_gototick` by restarting the demo and fast-forwarding, replaying everything.
 
-**Attempted and REVERTED, kept in `git stash` as `b375-wip-trail-history`.** Driving the simulation
-from `_transport.CurrentTick` and replaying the projectile's path from its first keyframe was
-written, built clean and made it WORSE: with frame-stepping gone the puff disappeared and the replay
-never fired, so the trail vanished entirely. Rather than leave the viewer worse than it was, the
-change was stashed and this entry written instead. **The replay not firing is the thing to debug
-first** — most likely `_timeline.TrackFor(entity)` not yielding the track this code assumed, which is
-an assumption that was never checked with a control.
+**And there was a THIRD fault, which is why the first fix made things worse.** Driving the simulation
+from `_transport.CurrentTick` and replaying the path was written, built clean, and produced no trail
+at all — the frame-stepping that had been hiding the problem was gone and the replay never fired.
+That change was stashed rather than committed, because leaving the viewer worse than it was is not an
+improvement, and then the cause was found rather than guessed at:
 
-**Straight-line replay is defensible when it is wired up:** `DT_TFBaseRocket` networks
-`m_vInitialVelocity` and nothing accelerates a rocket, so interpolating spawn to now IS the path.
-It would not be for anything that arcs.
+**`DemoTimeline.TrackFor(entity)` cannot identify a projectile, because the engine REUSES edict
+slots.** This demo has **1,669 rocket tracks** across a couple of thousand indices, and
+`_trackByEntity` keeps only the last track written for each — so asking it for entity 407 at tick
+51122 returned a rocket from later in the match, whose `FirstTick` is past that tick. The age clamped
+to zero, `ticks > 0` was false, and the replay silently did nothing. **An entity index does not name
+a track; the index PLUS the tick does** (`docs/memory/lookups-must-match-exactly.md`). The viewer now
+scans for the track covering the current tick, once per projectile rather than per frame.
+
+**Straight-line replay is exact here rather than approximate:** `DT_TFBaseRocket` networks
+`m_vInitialVelocity` and nothing accelerates a rocket, so interpolating spawn to now IS the path. It
+would not be for anything that arcs, which is why the call takes both ends rather than assuming them.
+
+**Then the comparison found a fourth thing, now that the trail was long enough to see.** The embers
+were far too large, and the reason is another unimplemented initializer: `rockettrail_burst` declares
+`Radius Random` 1..2 while its definition's own `radius` is 5, so every ember fell back to the
+default and drew two and a half to five times too big — on an additive material, which is why they
+read as a string of yellow blobs instead of a flame at the rocket.
 
 *Evidence class: measured — a first-person capture from real TF2 beside our render of the same demo,
-tick and camera. The two faults are read from our own code; that they are the whole explanation is
-NOT established, because the fix that follows from them did not work.*
+tick and camera, before and after. The reuse of entity indices is measured (1,669 tracks); the
+initializer values are read from the shipped `.pcf`.*
+
+**Still not identical, and stated rather than glossed:** TF2's fire sits closer to the rocket head
+than ours does. The smoke column, its length, colour, size and blending now match.
 
 ### B371 CLOSED 2026-09-08: gibs are not implemented, and that is most deaths
 

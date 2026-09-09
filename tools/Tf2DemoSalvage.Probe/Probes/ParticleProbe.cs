@@ -368,24 +368,37 @@ public sealed class ParticleProbe : IProbe
                 // one.** Reusing the archive that held `smokelit.vtf` printed nothing at all and
                 // read as "the renderer declares no parameters" — the same shape as
                 // `docs/memory/an-empty-search-needs-a-control.md`, one archive deep.
-                foreach (ParticleSystem trail in archives
+                foreach (IReadOnlyDictionary<string, ParticleSystem> systems in archives
                     .Select(one => VpkArchive.Open(one).ReadFile("particles/rockettrail.pcf"))
                     .Where(one => one is not null)
                     .Select(one => ParticleSystems.Read(one!))
-                    .Where(one => one.ContainsKey("rockettrail"))
-                    .Select(one => one["rockettrail"]))
+                    .Where(one => one.ContainsKey("rockettrail")))
                 {
+                    ParticleSystem trail = systems["rockettrail"];
+
                     // **Initializers as well as the renderer, because which SEQUENCE a particle
                     // plays is set at birth and the renderer only reads it.** Printing the renderer
                     // alone would have left the sequence number looking like a constant 0 — the
                     // definition's default — when an initializer may pick one per particle.
-                    foreach ((string kind, IReadOnlyList<ParticleFunction> functions) in
-                        new (string, IReadOnlyList<ParticleFunction>)[]
+                    // The children too, because their particles are on screen beside the parent's
+                    // and nothing had ever printed what they declare.
+                    List<(string, IReadOnlyList<ParticleFunction>)> kinds =
+                    [
+                        ("renderer", trail.Renderers),
+                        ("initializer", trail.Initializers),
+                        ("operator", trail.Operators),
+                    ];
+
+                    foreach (string childName in trail.Children)
+                    {
+                        if (systems.TryGetValue(childName, out ParticleSystem? child))
                         {
-                            ("renderer", trail.Renderers),
-                            ("initializer", trail.Initializers),
-                            ("operator", trail.Operators),
-                        })
+                            kinds.Add(($"CHILD {childName} emitter", child.Emitters));
+                            kinds.Add(($"CHILD {childName} initializer", child.Initializers));
+                        }
+                    }
+
+                    foreach ((string kind, IReadOnlyList<ParticleFunction> functions) in kinds)
                     {
                         foreach (ParticleFunction function in functions)
                         {

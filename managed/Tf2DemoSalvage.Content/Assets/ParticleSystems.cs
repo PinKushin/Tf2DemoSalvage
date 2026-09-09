@@ -260,6 +260,22 @@ public static class ParticleSystems
 
                     break;
 
+                // **A radius the initializer sets, not the definition's default.** `rockettrail_burst`
+                // declares `Radius Random` 1..2 while its definition's `radius` is 5, so falling
+                // back to the definition made every ember two and a half to five times too big —
+                // which on an additive material reads as a string of large yellow blobs down the
+                // trail where the engine draws a small flame at the rocket.
+                case "Radius Random":
+                    float smallest = (float)one.Number("radius_min", 1d);
+
+                    into.Resize(index, ParticleRandom.Between(
+                        into.Id[index],
+                        RadiusDraw,
+                        smallest,
+                        (float)one.Number("radius_max", smallest)));
+
+                    break;
+
                 // **A puff is born somewhere in a ball, moving**, and a trail whose particles all
                 // start at one point is a line rather than a plume. `rockettrail` asks for a
                 // 1.2-unit sphere, one unit per second outward, and ten units per second down the
@@ -394,6 +410,9 @@ public static class ParticleSystems
 
     /// <summary>Which table entry the local-frame speed reads.</summary>
     public const int LocalSpeedDraw = 3584;
+
+    /// <summary>Which table entry <c>Radius Random</c> reads.</summary>
+    public const int RadiusDraw = 256;
 
     /// <summary>A number the definition declares, or a default when it does not.</summary>
     private static double Number(ParticleSystem system, string named, double otherwise) =>

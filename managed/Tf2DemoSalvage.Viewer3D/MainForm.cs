@@ -3738,13 +3738,42 @@ internal class MainForm : Form, IFrameSteps
                     (float qx, float qy, float qz) = AngleVectors.Up(
                         prop.Pose.Pitch, prop.Pose.Yaw, prop.Pose.Roll);
 
-                    _projectilesNow.Add((
-                        prop.EntityIndex,
-                        new ParticleControlPoint(
-                            new Vector3(prop.Pose.X, prop.Pose.Y, prop.Pose.Z),
-                            new Vector3(fx, fy, fz),
-                            new Vector3(px, py, pz),
-                            new Vector3(qx, qy, qz))));
+                    ParticleControlPoint here = new(
+                        new Vector3(prop.Pose.X, prop.Pose.Y, prop.Pose.Z),
+                        new Vector3(fx, fy, fz),
+                        new Vector3(px, py, pz),
+                        new Vector3(qx, qy, qz));
+
+                    // **Where it started and how long ago**, so a trail seen for the first time
+                    // mid-flight can be replayed along the path instead of piling up at the rocket.
+                    // The track is the demo's own record of where the thing was; nothing is guessed.
+                    ParticleControlPoint? born = null;
+                    int age = 0;
+
+                    // **`TrackFor` cannot answer this, because entity indices are REUSED.** This
+                    // demo has 1,669 rocket tracks across a couple of thousand edict slots, and
+                    // `_trackByEntity` keeps only the last track written for an index — so asking
+                    // it for entity 407 returns a rocket from later in the match, whose `FirstTick`
+                    // is past the current tick, so the age clamped to zero and the replay never ran.
+                    // That is a lookup keyed on something that does not identify the thing
+                    // (`docs/memory/lookups-must-match-exactly.md`).
+                    //
+                    // The track wanted is the one for this entity that CONTAINS this tick. Scanned
+                    // rather than indexed because it happens once per projectile, when its effect
+                    // is created, and not per frame.
+                    if (TrackAt(prop.EntityIndex, _transport.CurrentTick) is { } track)
+                    {
+                        (int first, ScenePose pose) = track.Keyframes[0];
+
+                        age = Math.Max(0, _transport.CurrentTick - first);
+                        born = new ParticleControlPoint(
+                            new Vector3(pose.X, pose.Y, pose.Z),
+                            here.Forward,
+                            here.Right,
+                            here.Up);
+                    }
+
+                    _projectilesNow.Add((prop.EntityIndex, here, born, age));
                 }
             }
 
@@ -3752,7 +3781,8 @@ internal class MainForm : Form, IFrameSteps
                 _projectilesNow,
                 trail,
                 _timeline?.IntervalPerTick ?? (1f / 66f),
-                _loaded?.Assets?.ParticleSystemsByName);
+                _loaded?.Assets?.ParticleSystemsByName,
+                _transport.CurrentTick);
 
             (float rx, float ry, float rz) = AngleVectors.Right(
                 viewing.Angles.Pitch, viewing.Angles.Yaw, viewing.Angles.Roll);
@@ -3772,12 +3802,43 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>The effects running for this demo.</summary>
     private readonly ParticleEffects _particles = new();
 
+    /// <summary>The track for one entity that covers a given tick.</summary>
+    /// <remarks>
+    /// **An entity index does not identify a track**, because the engine reuses edict slots: this
+    /// demo has 1,669 rocket tracks and a couple of thousand slots, so one index names many rockets
+    /// across a match. Only the index PLUS the tick picks one.
+    /// </remarks>
+    private ScenePropTrack? TrackAt(int entity, int tick)
+    {
+        if (_timeline is null)
+        {
+            return null;
+        }
+
+        foreach (ScenePropTrack track in _timeline.Props)
+        {
+            if (track.EntityIndex != entity || track.Keyframes.Count == 0)
+            {
+                continue;
+            }
+
+            if (track.Keyframes[0].Tick <= tick && tick <= track.Keyframes[^1].Tick)
+            {
+                return track;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>What a machine with no TF2 has: no particle materials at all.</summary>
     private static readonly IReadOnlyDictionary<string, ParticleMaterial> NoParticleMaterials =
         new Dictionary<string, ParticleMaterial>(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>This tick's projectiles, reused for the same reason.</summary>
-    private readonly List<(int Entity, ParticleControlPoint At)> _projectilesNow = [];
+    private readonly
+        List<(int Entity, ParticleControlPoint At, ParticleControlPoint? From, int Ticks)>
+        _projectilesNow = [];
 
     // **`ReportSlowFrame` was here until 2026-08-25** (B188, D90). It is `StallReport.Frame`, and
     // its eight timestamp parameters became a `FramePhases` record — the same correction

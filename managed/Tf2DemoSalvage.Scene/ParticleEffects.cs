@@ -44,6 +44,9 @@ public sealed class ParticleEffects
     /// </summary>
     private const string AnimatedSprites = "render_animated_sprites";
 
+    /// <summary>The demo tick this last advanced to, so a still advances nothing.</summary>
+    private int _tick;
+
     /// <summary>The live effects, by the entity they follow.</summary>
     private readonly Dictionary<int, ParticleEffect> _running = [];
 
@@ -54,13 +57,23 @@ public sealed class ParticleEffects
     public int Count => _running.Count;
 
     /// <summary>Steps every effect, starting one for each projectile that has none.</summary>
-    /// <param name="projectiles">The live projectiles this tick, with their positions.</param>
+    /// <param name="projectiles">
+    /// The live projectiles this tick: where each is, where it STARTED, and how many ticks ago
+    /// that was. The last two are what let a trail met mid-flight be replayed along its path
+    /// instead of appearing as a single puff at the rocket (B375); pass a null start for a
+    /// projectile whose history is unknown, and it simply begins empty.
+    /// </param>
     /// <param name="definition">The system to run, or null when it could not be read.</param>
     /// <param name="seconds">How long this step is.</param>
     /// <param name="others">
     /// Every system that could be a CHILD, by name — `rockettrail` names two, and a child reference
     /// is by name rather than by value. Null runs the trail alone, which is a rocket with smoke and
     /// no glow.
+    /// </param>
+    /// <param name="tick">
+    /// The demo tick being shown. The simulation advances by how far this MOVED since the last
+    /// call, so a viewer parked on one tick advances it not at all — which is what a paused engine
+    /// does, and what stops a still from piling every particle on one spot (B375).
     /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="projectiles"/> is null.</exception>
     /// <remarks>
@@ -69,10 +82,12 @@ public sealed class ParticleEffects
     /// when it scrubs.
     /// </remarks>
     public void Update(
-        IReadOnlyList<(int Entity, ParticleControlPoint At)> projectiles,
+        IReadOnlyList<(int Entity, ParticleControlPoint At, ParticleControlPoint? From, int Ticks)>
+            projectiles,
         ParticleSystem? definition,
         float seconds,
-        IReadOnlyDictionary<string, ParticleSystem>? others = null)
+        IReadOnlyDictionary<string, ParticleSystem>? others = null,
+        int tick = 0)
     {
         ArgumentNullException.ThrowIfNull(projectiles);
 
@@ -81,9 +96,29 @@ public sealed class ParticleEffects
             return;
         }
 
+        // **The simulation runs on DEMO time, not on frames.** This used to step once per rendered
+        // frame, so a viewer sitting on one tick at 294 fps advanced the trail three hundred times
+        // a second with the emitter frozen in place — every particle born at the same point, which
+        // is exactly the dense puff the comparison against real TF2 showed where the engine has a
+        // trail stretching back down the flight path (B375).
+        //
+        // **A paused demo advances nothing**, which is also what the engine does: particles are
+        // stepped by the game clock, and a paused clock steps them not at all.
+        int advanced = tick - _tick;
+
+        _tick = tick;
+
+        if (advanced <= 0 || advanced > 200)
+        {
+            // Backwards, unchanged, or a jump too large to replay honestly. A seek is handled by
+            // the per-projectile replay below rather than by stepping every effect through it.
+            advanced = 0;
+        }
+
         _alive.Clear();
 
-        foreach ((int entity, ParticleControlPoint at) in projectiles)
+        foreach ((int entity, ParticleControlPoint at, ParticleControlPoint? from, int ticks) in
+            projectiles)
         {
             _alive.Add(entity);
 
@@ -93,7 +128,42 @@ public sealed class ParticleEffects
                 _running[entity] = effect;
             }
 
-            effect.Step(at, seconds);
+            // **Replay when the trail is EMPTY, not only on the frame it was created.** Keying it
+            // to creation meant a projectile that appeared during a seek — before the tick settled,
+            // when its history was not yet what it would be — got its one chance and missed, and
+            // the trail stayed empty for as long as the viewer sat on that tick.
+            // **A trail has a HISTORY, and a seek does not create one.** Measured against real TF2
+            // at `cp_process_f12`: the engine's smoke stretches back along the rocket's whole flight
+            // while ours was a single puff at the rocket. An effect met mid-flight has emitted
+            // nothing, so it is replayed from where the projectile started — which is what TF2 does
+            // the long way round, by restarting the demo and fast-forwarding through it (B375).
+            //
+            // **Straight-line replay is faithful for a rocket**: `DT_TFBaseRocket` networks
+            // `m_vInitialVelocity` and nothing accelerates it, so interpolating spawn to now is the
+            // path rather than an approximation of it. It would NOT be for anything that arcs,
+            // which is why this takes the two ends rather than assuming them.
+            if (effect.Empty && from is { } start && ticks > 0)
+            {
+                for (int step = 1; step <= ticks; step++)
+                {
+                    float along = (float)step / ticks;
+
+                    effect.Step(
+                        new ParticleControlPoint(
+                            Vector3.Lerp(start.At, at.At, along),
+                            at.Forward,
+                            at.Right,
+                            at.Up),
+                        seconds);
+                }
+
+                continue;
+            }
+
+            for (int step = 0; step < advanced; step++)
+            {
+                effect.Step(at, seconds);
+            }
         }
 
         // **An effect whose rocket is gone keeps stepping without emitting**, so the trail it
@@ -107,7 +177,10 @@ public sealed class ParticleEffects
                 continue;
             }
 
-            effect.Fade(seconds);
+            for (int step = 0; step < advanced; step++)
+            {
+                effect.Fade(seconds);
+            }
 
             // **`Empty` and not `Particles.Count`**, because a parent is not finished while a child
             // still has particles — *"make sure all children are finished"* (`particles.h:1630`).

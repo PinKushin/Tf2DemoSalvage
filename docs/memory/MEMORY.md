@@ -179,3 +179,4 @@
 - [Workflow agents inherit the session model](workflow-agents-inherit-the-session-model.md) — haiku only, and review is what makes it acceptable.
 - [Determinism does not require flattening a draw](determinism-does-not-require-flattening-a-draw.md) — the engine seeds by particle id; a midpoint is not a seed.
 - [A computed offset is a guess the file can answer](a-computed-offset-is-a-guess-the-file-can-answer.md) — read the directory; 288 textures decoded to noise without ever throwing.
+- [An entity index does not name a track](an-entity-index-does-not-name-a-track.md) — edict slots are reused; key on index PLUS tick.
