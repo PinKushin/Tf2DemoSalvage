@@ -25796,8 +25796,28 @@ Six synthetic conformance tests (D38 — the fixture writes the bytes, so the ex
 one the test put there), including a refusal for `binary 5` rather than a best effort, and a
 truncated file costing one attribute rather than the read.
 
-**Still to build:** the operator set and the renderer. A particle system is 656 operators in this
-one file alone, so that is the large half and it is not started.
+**Still to build: the operator set and the renderer, and that half is a CLOSED-BINARY project.**
+Measured, because it decides whether the rest is transcription or reverse engineering:
+
+```
+src/public/particles/particles.h   2,612 lines — the interface
+src/particles/*.cpp                0 files     — the implementations
+```
+
+So the SDK publishes the particle attribute layout (`DEFPARTICLE_ATTRIBUTE( XYZ, 0 )`,
+`LIFE_DURATION`, `PREV_XYZ`, `RADIUS`, `ROTATION`, `TINT_RGB`, `ALPHA`, up to
+`MAX_PARTICLE_ATTRIBUTES 32`) and the operator base class, and ships none of the operators
+themselves. `rockettrail.pcf` alone instantiates **656** of them.
+
+**That makes the remaining half the same KIND of work as `docs/findings/51`** — reading a closed
+binary function by function, with a decompiler, against real files — rather than the same kind as
+this container, which was two days' reading turned into an afternoon. It is a project, and naming
+that is not a refusal to do it: the container is built, the attribute layout is published, and the
+next step is a `parity` probe over the operator names the corpus actually asks for, so the work is
+ordered by what a demo needs rather than by what TF2 ships.
+
+*Evidence class: measured for the file counts and the operator instance count; read-from-source for
+the attribute layout and the absent implementations.*
 
 **This is a MISSING FEATURE, not a divergence, and the distinction is the project's own.**
 `.claude/skills/valve-parity-audit` opens by saying the job *"is not to find features Valve has and
